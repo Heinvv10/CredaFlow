@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { withPortalEntity } from "@/lib/asset-finance/portal-route"
-import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
+import { leaseLesseeSignerWhere, portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
 import { PORTAL_SIGN_RATE_LIMIT } from "@/lib/asset-finance/portal-rate-limits"
 import { parseSignatureInput, recordESignature, requestIp } from "@/lib/asset-finance/signing-esign"
 import { signingErrorResponse } from "@/lib/asset-finance/signing-route"
@@ -35,6 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sig
     if ("error" in input) return NextResponse.json({ error: input.error }, { status: input.status })
     const authorised = await prisma.dealSigner.findFirst({
       where: { id: signerId, tenantId, clientId: client.clientId, AND: [portalSignerAuthorityWhere(tenantId, client.clientId)] },
+      select: { id: true },
+    }) ?? await prisma.dealSigner.findFirst({
+      // A sole proprietor signing their own lease (portal-access.ts portalSignerWhere).
+      where: { id: signerId, tenantId, clientId: client.clientId, AND: [leaseLesseeSignerWhere(tenantId, client.clientId)] },
       select: { id: true },
     })
     if (!authorised) return NextResponse.json({ error: "Not found" }, { status: 404 })

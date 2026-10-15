@@ -17,7 +17,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
-import { portalSignerAuthorityWhere } from "./portal-access"
+import { portalSignerWhere } from "./portal-access"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError, type SigningOtpEvidence } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 
@@ -73,7 +73,7 @@ export async function recordESignature(params: {
 }): Promise<ESignResult> {
   const { tenantId, clientId, signerId, input } = params
   const signer = await prisma.dealSigner.findFirst({
-    where: { id: signerId, tenantId, clientId, AND: [portalSignerAuthorityWhere(tenantId, clientId)] },
+    where: { id: signerId, tenantId, clientId, AND: [portalSignerWhere(tenantId, clientId)] },
     select: {
       id: true, dealId: true, clientId: true, document: true, method: true,
       documentSha256: true, documentStoragePath: true, deal: { select: {

@@ -4,7 +4,7 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
 import { requirePortalAssetFinancePage } from "@/lib/asset-finance/portal-page"
-import { portalSignerAuthorityWhere } from "@/lib/asset-finance/portal-access"
+import { portalSignerWhere } from "@/lib/asset-finance/portal-access"
 import { DEAL_DOCUMENT_LABELS, SIGNER_STATE_LABELS, signerState } from "@/lib/asset-finance/signing"
 import { DealSignClient } from "./DealSignClient"
 import { signingOtpView } from "@/lib/signing-otp/view"
@@ -21,7 +21,7 @@ export default async function DealSignerPage({ params }: { params: Promise<{ sig
   const signer = await prisma.dealSigner.findFirst({
     where: {
       id: signerId, tenantId, clientId, deal: { status: { in: ["APPROVED", "CONTRACTED", "BOOKED"] } },
-      AND: [portalSignerAuthorityWhere(tenantId, clientId)],
+      AND: [portalSignerWhere(tenantId, clientId)],
     },
     select: {
       id: true, document: true, documentSha256: true, method: true, signedAt: true, signatureSha256: true,

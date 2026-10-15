@@ -51,6 +51,8 @@ export interface RepriceInput {
   repriceDate: string
   ratePath: RatePoint[]
   balloonCents: number
+  /** A lease in advance with no rental settled: the first rental falls on the accrual start (./lease-pricing.ts). */
+  firstDueOnAccrualStart?: boolean
 }
 
 /**
@@ -95,5 +97,6 @@ export function repriceTail(input: RepriceInput): AmortisationResult {
       : { dueDate: row.dueDate, weight: row.weight, lumpCents: 0 }),
     ratePath: input.ratePath,
     balloonCents: input.balloonCents,
+    firstDueOnAccrualStart: input.firstDueOnAccrualStart,
   })
 }

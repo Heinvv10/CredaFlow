@@ -123,6 +123,8 @@ describe("tenant-scope — ALS primitives", () => {
       "KycOverrideRequest",
       // Signing OTP challenges — non-null tenantId.
       "SigningOtpChallenge",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 

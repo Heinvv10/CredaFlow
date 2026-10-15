@@ -28,7 +28,7 @@ import { dealActor, type SeedStaff } from "./asset-finance-deal"
 import { storeDealEvidenceDocument } from "@/lib/asset-finance/entity-document-io"
 
 /** APPROVED → CONTRACTED: prepare (the loan starts on `bookingDate`), sign every required signer row, contract. */
-async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
+export async function signAndContract(tenantId: string, staff: SeedStaff, dealId: string, directorId: string, bookingDate: string): Promise<void> {
   const officer = dealActor(tenantId, staff.officer)
   const signers = await prisma.dealSigner.count({ where: { tenantId, dealId, method: { not: null } } })
   if (signers === 0) {

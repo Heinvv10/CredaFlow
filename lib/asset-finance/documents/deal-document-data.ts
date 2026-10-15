@@ -26,6 +26,11 @@ import { isoOfDbDate } from "../dates"
 import { resolveRate, solveDealStructure } from "../deal-structure"
 import { DEAL_STRUCTURE_SELECT, termsFromDeal } from "../deal-terms"
 import { deriveRequiredSigners, requiredFromPrepared, type RequiredSigner } from "../signing"
+import { isLeaseContract } from "../lease-input"
+import { leaseDocumentTerms, soleProprietorOf, type LeaseDocumentTerms, type SoleProprietor } from "./lease/lease-document-data"
+import { documentTermProblem, snapshotArrearsMargin } from "./document-terms"
+
+export { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./document-terms"
 
 export class DealDocumentError extends Error {
   constructor(message: string) {
@@ -47,6 +52,7 @@ export interface DealDocumentData {
   documentDate: Date
   reference: string
   lender: Pick<LenderIdentity, "legalName" | "tradingName" | "companyRegNumber" | "ncrNumber" | "registeredOfficeLines">
+  /** The borrower: an entity, or (a lease only) a sole proprietor in `soleProprietor`. */
   entity: {
     type: BusinessEntityType
     legalName: string
@@ -56,6 +62,9 @@ export interface DealDocumentData {
     vatNumber: string | null
     addressLines: string[]
   }
+  soleProprietor?: null
+  /** An operating or full-maintenance lease's terms and rentals; null otherwise. */
+  lease?: LeaseDocumentTerms | null
   asset: {
     classLabel: string
     make: string
@@ -97,9 +106,19 @@ export interface DealDocumentData {
   requiredSigners: RequiredSigner[]
 }
 
+/** A sole proprietor's lease: no entity; the lessee signs the agreement alone. */
+export type SoleProprietorLeaseData = Omit<DealDocumentData, "entity" | "soleProprietor" | "lease"> & {
+  entity: null
+  soleProprietor: SoleProprietor
+  lease: LeaseDocumentTerms
+}
+
+/** What loadDealDocumentData reads: an entity's deal, or a sole proprietor's lease. */
+export type AnyDealDocumentData = DealDocumentData | SoleProprietorLeaseData
+
 export type DocumentDataDb = Pick<
   typeof prisma,
-  "assetFinanceDeal" | "entityRelationship" | "tenantConfig" | "referenceRate" | "contractRate"
+  "assetFinanceDeal" | "entityRelationship" | "tenantConfig" | "referenceRate" | "contractRate" | "vatRate"
 >
 
 const person = (c: { id: string; firstName: string; lastName: string; idNumber: string }): DocumentPerson => ({
@@ -118,12 +137,16 @@ export async function loadDealDocumentData(
   tenantId: string,
   dealId: string,
   prepare?: { plannedStartDate: string; useAcknowledgedNcaTerms?: boolean },
-): Promise<DealDocumentData | null> {
+): Promise<AnyDealDocumentData | null> {
   const deal = await db.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
     select: {
       decidedAt: true,
       entityId: true,
+      contractType: true,
+      cpaApplies: true,
+      cpaRule: true,
+      client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } },
       ...DEAL_STRUCTURE_SELECT,
       plannedStartDate: true,
       signedArrearsMarginRate: true,
@@ -142,13 +165,15 @@ export async function loadDealDocumentData(
     },
   })
   if (!deal) return null
-  if (!deal.entity || !deal.entityId) throw new DealDocumentError("Natural-person NCA deals use the prescribed NCA document pack")
+  // A sole proprietor is a borrower here only on a lease (not a credit agreement).
+  const soleProprietor = deal.client && isLeaseContract(deal.contractType) ? soleProprietorOf(deal.client) : null
+  if ((!deal.entity || !deal.entityId) && !soleProprietor) throw new DealDocumentError("Natural-person NCA deals use the prescribed NCA document pack")
   if (!deal.decidedAt) throw new DealDocumentError("The deal has no credit decision; its documents cannot be rendered")
 
   const [lender, config, relationships] = await Promise.all([
     getLenderIdentity(tenantId),
     db.tenantConfig.findUnique({ where: { tenantId }, select: { assetFinanceLegalWordingApproved: true } }),
-    db.entityRelationship.findMany({
+    deal.entityId === null ? [] : db.entityRelationship.findMany({
       where: { tenantId, entityId: deal.entityId },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { clientId: true, role: true, active: true, client: { select: { id: true, firstName: true, lastName: true, idNumber: true } } },
@@ -176,16 +201,22 @@ export async function loadDealDocumentData(
   )
   if (termProblem) throw new DealDocumentError(termProblem)
 
-  const entityType = deal.entity.type
-  const requiredSigners = prepare ? deriveRequiredSigners(entityType, relationships) : requiredFromPrepared(deal.preparedSigners)
+  const lessee = soleProprietor && { clientId: soleProprietor.clientId, role: "AUTHORISED_SIGNATORY" as const, document: "AGREEMENT" as const }
+  const requiredSigners = !prepare ? requiredFromPrepared(deal.preparedSigners)
+    : deal.entity ? deriveRequiredSigners(deal.entity.type, relationships) : lessee ? [lessee] : []
   const people = new Map(relationships.map((r) => [r.clientId, person(r.client)]))
+  if (deal.client && soleProprietor) people.set(deal.client.id, person(deal.client))
   const peopleFor = (document: RequiredSigner["document"]) =>
     requiredSigners.filter((s) => s.document === document).map((s) => people.get(s.clientId)).filter((p): p is DocumentPerson => p !== undefined)
   const e = deal.entity
   const a = deal.asset
   const r = solved.result
+  const lease = await leaseDocumentTerms(db, deal, a, structure, solved.rate, solved.startDate).catch((error: unknown) => {
+    if (error instanceof Error && error.name === "LeaseDocumentError") throw new DealDocumentError(error.message)
+    throw error
+  })
 
-  return {
+  const common = {
     legalWordingApproved: config?.assetFinanceLegalWordingApproved === true,
     documentDate: deal.decidedAt,
     reference: deal.application.reference,
@@ -195,15 +226,6 @@ export async function loadDealDocumentData(
       companyRegNumber: lender.companyRegNumber,
       ncrNumber: lender.ncrNumber,
       registeredOfficeLines: lender.registeredOfficeLines,
-    },
-    entity: {
-      type: entityType,
-      legalName: e.legalName,
-      tradingName: e.tradingName,
-      registrationNumber: e.registrationNumber,
-      mastersReference: e.mastersReference,
-      vatNumber: e.vatNumber,
-      addressLines: [e.addressLine1, e.addressLine2, e.city, e.province, e.postalCode].filter((l): l is string => !!l && l.trim() !== ""),
     },
     asset: {
       classLabel: ASSET_CLASS_LABELS[a.assetClass],
@@ -242,6 +264,14 @@ export async function loadDealDocumentData(
     sureties: peopleFor("SURETYSHIP"),
     requiredSigners,
   }
+  if (e) {
+    const addressLines = [e.addressLine1, e.addressLine2, e.city, e.province, e.postalCode].filter((l): l is string => !!l && l.trim() !== "")
+    const entity = { type: e.type, legalName: e.legalName, tradingName: e.tradingName, registrationNumber: e.registrationNumber,
+      mastersReference: e.mastersReference, vatNumber: e.vatNumber, addressLines }
+    return { ...common, entity, soleProprietor: null, lease }
+  }
+  if (!soleProprietor || !lease) throw new DealDocumentError("A sole proprietor is a borrower only on a lease")
+  return { ...common, entity: null, soleProprietor, lease }
 }
 
 interface PreparedColumns {
@@ -260,36 +290,6 @@ function preparedTerms(deal: PreparedColumns): { startDate: string; arrearsMargi
     arrearsMarginRate: deal.signedArrearsMarginRate?.toString() ?? null,
     collectionFeeCents: deal.signedCollectionFeeCents,
   }
-}
-
-export function preparedTermProblem(termDays: number, approvedTermDays: number | null, minTermDays: number, maxTermDays: number): string | null {
-  if (termDays < minTermDays || termDays > maxTermDays) {
-    return `The prepared term of ${termDays} days is outside the product's ${minTermDays}–${maxTermDays}`
-  }
-  return approvedTermProblem(termDays, approvedTermDays)
-}
-
-/** Existing prepared documents remain governed by their credit decision, not later product edits. */
-export function approvedTermProblem(termDays: number, approvedTermDays: number | null): string | null {
-  return approvedTermDays === null || termDays > approvedTermDays
-    ? `The prepared term of ${termDays} days exceeds the approved term${approvedTermDays === null ? "" : ` of ${approvedTermDays} days`}; obtain a new credit decision`
-    : null
-}
-
-export function documentTermProblem(
-  preparing: boolean,
-  termDays: number,
-  approvedTermDays: number | null,
-  minTermDays: number,
-  maxTermDays: number,
-): string | null {
-  return preparing
-    ? preparedTermProblem(termDays, approvedTermDays, minTermDays, maxTermDays)
-    : approvedTermProblem(termDays, approvedTermDays)
-}
-
-export function snapshotArrearsMargin(margin: Prisma.Decimal | null): string | null {
-  return margin?.toString() ?? null
 }
 
 function decimalString(value: Prisma.Decimal | null): string | null {

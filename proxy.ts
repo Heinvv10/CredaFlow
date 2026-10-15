@@ -8,6 +8,7 @@ import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
+import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -37,6 +38,10 @@ export default function proxy(...args: Parameters<typeof handle>) {
 }
 
 function route(req: NextAuthRequest): Response {
+  // CSRF: a write from any origin but this host's own is refused, on every
+  // host and path (pages and server actions included), before any other gate.
+  const crossOrigin = crossOriginWriteRefusal(req)
+  if (crossOrigin) return crossOrigin
   const path = req.nextUrl.pathname
   const hostname = req.headers.get("host") ?? ""
   const baseHostname = hostname.split(":")[0].toLowerCase().replace(/\.$/, "")

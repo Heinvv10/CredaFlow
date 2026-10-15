@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { getSession } from "@/lib/auth-session"
-import { hasMinRole } from "@/lib/auth-guards"
+import { canDo, hasMinRole } from "@/lib/auth-guards"
 import { formatZAR, formatDate, SAST_TIME_ZONE } from "@/lib/utils"
 import { getAvatarColor, getInitials } from "@/lib/avatar"
 import { LoanNotes } from "@/components/loans/LoanNotes"
@@ -26,6 +26,7 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -59,13 +60,17 @@ export default async function LoanDetailPage(
   if (!loan) {
     notFound()
   }
-  // An entity borrower (asset finance): its own servicing view, without the
-  // consumer panels.
-  if (!hasClientBorrower(loan)) {
+  // An entity borrower or a lease (asset finance; a sole-proprietor lessee is a
+  // client): its own servicing view, without the consumer panels.
+  if (!hasClientBorrower(loan) || isLeaseContract(loan.contractType)) {
+    const role = session?.user?.role
     return (
       <StaffAssetLoanView
         loan={loan}
         tenantId={tenantId}
+        userId={session?.user?.id ?? ""}
+        canManageLease={role ? canDo(role, "manage_asset_finance") : false}
+        canDecideLease={role ? canDo(role, "decide_asset_finance") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
       />

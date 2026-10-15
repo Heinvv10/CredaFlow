@@ -1,8 +1,9 @@
 /**
  * The payout gate's rules (goal §4.10, DESIGN D8). Pure: no database.
  *
- * REQUIREMENT TABLE. Every PayoutChecklistItemKind is required for a slice-1
- * contract (an instalment sale), except NATIS_TITLEHOLDER, which is required
+ * REQUIREMENT TABLE. Every PayoutChecklistItemKind is required for every
+ * asset contract (instalment sale, finance lease, operating and
+ * full-maintenance lease), except NATIS_TITLEHOLDER, which is required
  * only when the asset carries a registration number (an unregistered
  * excavator has no eNaTIS record). The SQL twin is
  * payoutChecklistRequiredKinds (migration 20261013113000); the checklist
@@ -19,7 +20,13 @@
  * PAYOUT AMOUNT. What the supplier is still owed: the asset's cash price
  * including VAT, less the deposit and the trade-in (which the supplier
  * receives from the borrower directly). Financed fees are the lender's and
- * are not paid out. guardPayout refuses any other amount.
+ * are not paid out. guardPayout refuses any other amount. A lease has no
+ * deposit or trade-in (AssetFinanceDeal_lease_terms_shape): the lessor pays
+ * the full cash price.
+ *
+ * LEASES. The lessor owns the asset: on a registered vehicle the eNaTIS owner,
+ * not only the titleholder, must be the lender (guardPayoutChecklistItem), and
+ * the insurance notes the lender as owner. The labels say so (checklistLabel).
  */
 import type { $Enums, ContractType, EntityDocumentType, PayoutChecklistItemKind } from "@prisma/client"
 import { identifierMatchesAsset } from "./asset-identifier"
@@ -67,6 +74,7 @@ export interface ChecklistAsset {
   vin: string | null
   registrationNumber: string | null
   natisTitleholder: string | null
+  natisOwner?: string | null
   trackerId: string | null
   lenderNotedConfirmed: boolean
 }
@@ -74,8 +82,20 @@ export interface ChecklistAsset {
 const present = (value: string | null): boolean => value !== null && value.trim() !== ""
 
 /** The checklist a contract needs; the order is the display order. */
+const LEASES: readonly ContractType[] = ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"]
+
+const LEASE_LABELS: Partial<Record<PayoutChecklistItemKind, string>> = {
+  INSURANCE_NOTES_LENDER: "Insurance notes the lender as owner of the leased asset",
+  NATIS_TITLEHOLDER: "eNaTIS owner and titleholder are the lender",
+}
+
+/** The item's label for this contract: a lease's ownership items say owner. */
+export function checklistLabel(item: PayoutChecklistItemKind, contractType: ContractType): string {
+  return (LEASES.includes(contractType) ? LEASE_LABELS[item] : undefined) ?? CHECKLIST_LABELS[item]
+}
+
 export function requiredChecklistKinds(contractType: ContractType, asset: Pick<ChecklistAsset, "registrationNumber">): PayoutChecklistItemKind[] {
-  if (contractType !== "INSTALMENT_SALE" && contractType !== "FINANCE_LEASE") {
+  if (contractType !== "INSTALMENT_SALE" && contractType !== "FINANCE_LEASE" && !LEASES.includes(contractType)) {
     throw new RangeError(`No payout checklist is defined for ${contractType}`)
   }
   return CHECKLIST_KINDS.filter((kind) => kind !== "NATIS_TITLEHOLDER" || present(asset.registrationNumber))
@@ -96,7 +116,7 @@ export function serialAttestationMatches(typed: string, asset: Pick<ChecklistAss
  * it can. Mirrors the asset checks of guardPayoutChecklistItem; the serial
  * attestation and the signing state are checked by the caller.
  */
-export function assetBlocker(item: PayoutChecklistItemKind, asset: ChecklistAsset, lenderLegalName: string | null): string | null {
+export function assetBlocker(item: PayoutChecklistItemKind, asset: ChecklistAsset, lenderLegalName: string | null, lease = false): string | null {
   switch (item) {
     case "INSURANCE_NOTES_LENDER":
       return asset.lenderNotedConfirmed ? null : "Record on the asset that the insurer has noted the lender's interest first"
@@ -107,6 +127,9 @@ export function assetBlocker(item: PayoutChecklistItemKind, asset: ChecklistAsse
       if (!lenderLegalName) return "The lender's legal name is not configured"
       if (asset.natisTitleholder === null || normaliseName(asset.natisTitleholder) !== normaliseName(lenderLegalName)) {
         return `The asset's eNaTIS titleholder must be the lender, ${lenderLegalName}`
+      }
+      if (lease && (!asset.natisOwner || normaliseName(asset.natisOwner) !== normaliseName(lenderLegalName))) {
+        return `A leased asset's eNaTIS owner must be the lender, ${lenderLegalName}`
       }
       return null
     default:
