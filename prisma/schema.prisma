@@ -432,6 +432,17 @@ model TenantConfig {
 
   ndiBufferPct Int @default(110)
 
+  // Languages the borrower-facing surfaces (website, portal, comms) may use
+  // (lib/i18n). English only by default: the other catalogues are machine
+  // drafts until a native speaker has reviewed them for this lender. Always
+  // contains "en" (the admin API refuses a list without it).
+  enabledLanguages String[] @default(["en"])
+  // Per language, the acknowledgement that a native speaker reviewed its
+  // catalogue: { "<locale>": { reviewer, acknowledgedAt, acknowledgedById,
+  // acknowledgedByEmail } } (lib/i18n/language-reviews.ts). Enabling af/zu/xh
+  // requires one, and a language without one is not served.
+  languageReviews  Json     @default("{}")
+
   referralCommissionBps Int @default(0) // agent commission rate, basis points (200 = 2.00%); 0 = off
 
   bankSyncEnabled             Boolean @default(false)
@@ -609,6 +620,10 @@ model Client {
   riskFlaggedById                    String?
   creditScore                        Int?
   portalPassword                     String?
+  // Borrower-facing language (lib/i18n/locales.ts: en | af | zu | xh). Null =
+  // never chosen: the portal follows the browser, comms go out in English.
+  // Written only by the portal language switcher (app/actions/locale.ts).
+  preferredLanguage                  String?
   createdAt                          DateTime                 @default(now())
   updatedAt                          DateTime                 @updatedAt
   applications                       LoanApplication[]

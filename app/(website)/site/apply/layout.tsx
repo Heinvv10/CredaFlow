@@ -4,13 +4,14 @@ import { buildPageMetadata } from "@/lib/seo/metadata"
 import { JsonLd } from "@/components/seo/JsonLd"
 import { breadcrumbLd, faqLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
-import { APPLY_FAQS } from "./faqs"
+import { getT } from "@/lib/i18n/server"
+import { applyFaqs } from "./faqs"
 
 // The apply page itself is a client component ("use client"), so metadata and
 // JSON-LD are emitted from this server-component layout. The FAQPage schema
-// uses the same APPLY_FAQS source as the rendered "Application FAQ" section
-// (see ./faqs.ts) so the structured data always matches what crawlers see —
-// Google penalises FAQPage markup that doesn't match the page.
+// uses the same applyFaqs source as the rendered "Application FAQ" section
+// (see ./faqs.ts), in the same locale, so the structured data always matches
+// what crawlers see — Google penalises FAQPage markup that doesn't match the page.
 export async function generateMetadata(): Promise<Metadata> {
   return buildPageMetadata({
     identity: await getWebsiteIdentity(),
@@ -21,15 +22,14 @@ export async function generateMetadata(): Promise<Metadata> {
   })
 }
 
-const applySchema = [
-  breadcrumbLd([
-    { name: "Home", path: "/" },
-    { name: "Apply", path: "/site/apply" },
-  ]),
-  faqLd(APPLY_FAQS),
-]
-
-export default function ApplyLayout({ children }: { children: ReactNode }) {
+export default async function ApplyLayout({ children }: { children: ReactNode }) {
+  const applySchema = [
+    breadcrumbLd([
+      { name: "Home", path: "/" },
+      { name: "Apply", path: "/site/apply" },
+    ]),
+    faqLd(applyFaqs(await getT("websiteApply"))),
+  ]
   return (
     <>
       <JsonLd id="apply-schema" data={applySchema} />

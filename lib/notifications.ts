@@ -19,6 +19,10 @@ import {
   applicationDeclinedEmail,
   paymentReceivedEmail,
 } from "@/lib/email/templates/portal"
+import { disbursedHtml, overdueHtml } from "@/lib/email/templates/loan-events"
+import { clientCommsLocale, localizedWaTemplates, pickTemplateForLocale, templateVariantKey } from "@/lib/i18n/comms"
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
+import { createTranslator } from "@/lib/i18n/translate"
 import {
   isAppSubmittedNewSendEnabled,
   isAppDeclinedNewSendEnabled,
@@ -50,6 +54,14 @@ export type NotificationEvent =
   | "loan_overdue"
   | "payment_received"
   | "section129_sent"
+
+/**
+ * Borrower events that go out in English whatever the client's language
+ * (lib/i18n/.claude.md): the NCA decline disclosure, Section 129 and the
+ * collections overdue notice. No translated copy and no `__<locale>`
+ * WhatsApp variant row is used for them.
+ */
+const ENGLISH_ONLY_EVENTS: ReadonlySet<NotificationEvent> = new Set(["application_declined", "section129_sent", "loan_overdue"])
 
 export interface NotificationOptions {
   tenantId: string
@@ -117,6 +129,8 @@ interface ClientInfo {
   email: string
   phone: string
   whatsapp: string | null
+  /** The language their messages go out in (lib/i18n/comms.ts). */
+  preferredLanguage?: string | null
 }
 
 interface TemplateResult {
@@ -151,51 +165,6 @@ const EMPTY_WA_VARS: WaVars = {
 
 // ── Inline HTML builders for events without dedicated portal templates ─────────
 
-function disbursedHtml(identity: LenderIdentity, name: string, ref: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;font-size:14px;color:#1B1D24;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td align="center">
-<table style="max-width:600px;width:100%;" cellpadding="0" cellspacing="0">
-<tr><td style="background:#1B1D24;padding:28px 32px;border-radius:8px 8px 0 0;">
-<p style="margin:0;color:#4F46E5;font-size:18px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">${escapeHtml(identity.tradingName)}</p>
-<p style="margin:6px 0 0;color:#f3f4f6;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Loan Disbursement</p></td></tr>
-<tr><td style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
-<p style="margin:0 0 16px;font-size:16px;font-weight:bold;">Your loan has been disbursed</p>
-<p style="margin:0 0 16px;color:#444;line-height:1.6;">Dear <strong>${name}</strong>,</p>
-<p style="margin:0 0 16px;color:#444;line-height:1.6;">Your loan (<strong>${ref}</strong>) has been disbursed. Funds will reflect in your account within 1&ndash;2 business days. Please refer to your repayment schedule for payment dates.</p>
-<p style="margin:0;color:#888;font-size:12px;">Questions? <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
-</td></tr>
-<tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
-</table></td></tr></table></body></html>`
-}
-
-function overdueHtml(identity: LenderIdentity, name: string, days: number, ref: string): string {
-  const daysText = days ? ` by <strong>${days} days</strong>` : ""
-  // Quote the loan reference so a client paying by EFT/deposit puts it on the
-  // payment and the bank-sync reconciler makes an EXACT match.
-  const refLine = ref
-    ? `<p style="margin:0 0 16px;color:#444;line-height:1.6;">Please quote your loan reference <strong>${ref}</strong> on your payment so we can allocate it to your account.</p>`
-    : ""
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;font-size:14px;color:#1B1D24;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;"><tr><td align="center">
-<table style="max-width:600px;width:100%;" cellpadding="0" cellspacing="0">
-<tr><td style="background:#1B1D24;padding:28px 32px;border-radius:8px 8px 0 0;">
-<p style="margin:0;color:#4F46E5;font-size:18px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;">${escapeHtml(identity.tradingName)}</p>
-<p style="margin:6px 0 0;color:#f3f4f6;font-size:11px;letter-spacing:1px;text-transform:uppercase;">Payment Overdue</p></td></tr>
-<tr><td style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
-<p style="margin:0 0 16px;font-size:16px;font-weight:bold;">Payment overdue notice</p>
-<p style="margin:0 0 16px;color:#444;line-height:1.6;">Dear <strong>${name}</strong>,</p>
-<p style="margin:0 0 16px;color:#444;line-height:1.6;">Your loan payment is overdue${daysText}. Please make payment as soon as possible to avoid additional fees and to protect your credit record.</p>
-${refLine}
-<p style="margin:0;color:#888;font-size:12px;">Questions? <a href="mailto:${escapeHtml(identity.publicEmail)}" style="color:#4F46E5;">${escapeHtml(identity.publicEmail)}</a></p>
-</td></tr>
-<tr><td style="background:#1B1D24;padding:18px 32px;border-radius:0 0 8px 8px;text-align:center;">
-<p style="margin:0;color:#888;font-size:11px;">NCR Registered Credit Provider &middot; ${escapeHtml(identity.ncrNumber)}</p></td></tr>
-</table></td></tr></table></body></html>`
-}
-
 function section129Html(identity: LenderIdentity, name: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;font-size:14px;color:#1B1D24;">
@@ -221,9 +190,13 @@ async function buildTemplate(
   identity: LenderIdentity,
   event: NotificationEvent,
   fullName: string,
-  opts: NotificationOptions
+  opts: NotificationOptions,
+  locale: Locale = DEFAULT_LOCALE,
 ): Promise<TemplateResult> {
   const d = opts.data ?? {}
+  // The client's language. application_declined and section129_sent below
+  // stay English: they carry NCA disclosures.
+  const t = createTranslator(locale, "comms")
 
   // Application events — loanId is LoanApplication.id
   if (
@@ -252,9 +225,9 @@ async function buildTemplate(
         ? portalContinueUrl(app.client.email, reference)
         : undefined
       return {
-        subject: "Your Loan Application Has Been Received",
-        html: applicationSubmittedEmail(identity, fullName, reference, productName, amount, portalCtaUrl),
-        text: `Dear ${fullName}, your application (${reference}) has been received. We will notify you of the outcome within 1–2 business days.`,
+        subject: t("subjSubmitted"),
+        html: applicationSubmittedEmail(identity, fullName, reference, productName, amount, portalCtaUrl, locale),
+        text: t("textSubmitted", { name: fullName, ref: reference }),
         waVars: { ...EMPTY_WA_VARS, reference, amount },
       }
     }
@@ -263,9 +236,9 @@ async function buildTemplate(
       const amount = Number(app?.approvedAmount ?? app?.appliedAmount ?? d.amount ?? 0)
       const portalUrl = `${requireAppBaseUrl()}/portal`
       return {
-        subject: "Your Loan Application Has Been Approved",
-        html: applicationApprovedEmail(identity, fullName, reference, productName, amount, portalUrl),
-        text: `Dear ${fullName}, your application (${reference}) has been approved. Log in to your portal to sign your credit agreement.`,
+        subject: t("subjApproved"),
+        html: applicationApprovedEmail(identity, fullName, reference, productName, amount, portalUrl, locale),
+        text: t("textApproved", { name: fullName, ref: reference }),
         waVars: { ...EMPTY_WA_VARS, reference, amount },
       }
     }
@@ -299,9 +272,9 @@ async function buildTemplate(
     if (event === "payment_received") {
       const amount = Number(d.amount ?? 0)
       return {
-        subject: "Payment Received — Thank You",
-        html: paymentReceivedEmail(identity, fullName, amount, reference, outstanding),
-        text: `Dear ${fullName}, we received your payment. Your outstanding balance is R${(outstanding / 100).toFixed(2)}.`,
+        subject: t("subjReceived"),
+        html: paymentReceivedEmail(identity, fullName, amount, reference, outstanding, locale),
+        text: t("textReceived", { name: fullName, balance: `R${(outstanding / 100).toFixed(2)}` }),
         waVars: { ...EMPTY_WA_VARS, reference, amount, outstanding },
       }
     }
@@ -313,9 +286,9 @@ async function buildTemplate(
       // minus initiation fee in UPFRONT mode) and first repayment date,
       // values it already computes for the amortisation schedule.
       return {
-        subject: "Loan Disbursement Confirmation",
-        html: disbursedHtml(identity, fullName, reference),
-        text: `Dear ${fullName}, your loan (${reference}) has been disbursed. Funds will reflect within 1–2 business days.`,
+        subject: t("subjDisbursed"),
+        html: disbursedHtml(identity, fullName, reference, locale),
+        text: t("textDisbursed", { name: fullName, ref: reference }),
         waVars: { ...EMPTY_WA_VARS, reference, amount: Number(d.amount ?? 0), dueDate: String(d.dueDate ?? "") },
       }
     }
@@ -397,7 +370,9 @@ function waTemplateEventFor(event: NotificationEvent, days: number): string {
   return days >= 7 ? "loan_overdue_7d" : "loan_overdue_1d"
 }
 
-function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firstName: string, vars: WaVars): WaBuildResult {
+function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firstName: string, vars: WaVars, locale: Locale = DEFAULT_LOCALE): WaBuildResult {
+  // Free text in the client's language; declined and section 129 stay English.
+  const wa = locale === DEFAULT_LOCALE ? WA_TEMPLATES : localizedWaTemplates(locale)
   const ref = vars.reference
   const amount = vars.amount ? formatRand(vars.amount) : ""
   const balance = vars.outstanding ? formatRand(vars.outstanding) : ""
@@ -419,12 +394,12 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     case "application_submitted": {
       const fields = { reference: ref, amount }
       if (!ref || !amount) return skipMissingVars(event, fields)
-      return ok(WA_TEMPLATES.application_submitted(firstName, ref, amount, identity.tradingName), tv)
+      return ok(wa.application_submitted(firstName, ref, amount, identity.tradingName), tv)
     }
     case "loan_approved": {
       const fields = { amount, reference: ref }
       if (!amount || !ref) return skipMissingVars(event, fields)
-      return ok(WA_TEMPLATES.application_approved(firstName, amount, ref), tv)
+      return ok(wa.application_approved(firstName, amount, ref), tv)
     }
     case "application_declined": {
       if (!ref) return skipMissingVars(event, { reference: ref })
@@ -433,12 +408,12 @@ function buildWaMessage(identity: LenderIdentity, event: NotificationEvent, firs
     case "loan_disbursed": {
       const fields = { amount, dueDate }
       if (!amount || !dueDate) return skipMissingVars(event, fields)
-      return ok(WA_TEMPLATES.loan_disbursed(firstName, amount, dueDate), tv)
+      return ok(wa.loan_disbursed(firstName, amount, dueDate), tv)
     }
     case "payment_received": {
       const fields = { amount, outstanding: balance }
       if (!amount || !balance) return skipMissingVars(event, fields)
-      return ok(WA_TEMPLATES.payment_received(firstName, amount, balance), tv)
+      return ok(wa.payment_received(firstName, amount, balance), tv)
     }
     case "loan_overdue": {
       // "amount overdue" comes from opts.data.amount (see buildTemplate).
@@ -463,7 +438,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
     if (opts.clientId) {
       return await prisma.client.findUnique({
         where: { id: opts.clientId },
-        select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true },
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true },
       })
     }
     if (opts.loanId) {
@@ -471,7 +446,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       const loan = await prisma.loan.findUnique({
         where: { id: opts.loanId },
         include: {
-          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true } },
+          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true } },
         },
       })
       if (loan?.client) return loan.client
@@ -479,7 +454,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       const app = await prisma.loanApplication.findUnique({
         where: { id: opts.loanId },
         include: {
-          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true } },
+          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true } },
         },
       })
       return app?.client ?? null
@@ -548,11 +523,16 @@ async function sendEventNewSend(
   waMessage: string | null,
   waTemplateVars: Record<string, string>,
   waTemplateEvent: string,
+  locale: Locale = DEFAULT_LOCALE,
 ): Promise<void> {
   const keyEmail = `${opts.event}_email`
   const keySms = `${opts.event}_sms`
   // Not always `${opts.event}_whatsapp`: loan_overdue sends one of two rows.
   const keyWhatsapp = `${waTemplateEvent}_whatsapp`
+  // The client's-language WhatsApp row, when one exists (lib/i18n/comms.ts).
+  // Email needs no variant row: its pass-through row carries the copy the
+  // code already rendered in that language.
+  const waVariantKeys = locale === DEFAULT_LOCALE ? [] : [templateVariantKey(keyWhatsapp, locale)]
 
   const t = await prisma.tenant.findUnique({
     where: { id: opts.tenantId },
@@ -573,7 +553,7 @@ async function sendEventNewSend(
   const templates = await prisma.messageTemplate.findMany({
     where: {
       tenantId: opts.tenantId,
-      key: { in: [keyEmail, keySms, keyWhatsapp] },
+      key: { in: [keyEmail, keySms, keyWhatsapp, ...waVariantKeys] },
       active: true,
     },
   })
@@ -696,7 +676,7 @@ async function sendEventNewSend(
     await dispatchChannel({
       opts,
       client,
-      template: byKey[keyWhatsapp],
+      template: pickTemplateForLocale(byKey, keyWhatsapp, locale)!,
       channel: "WHATSAPP",
       value: waValue,
       // `body` renders the free-text in-window send; the discrete vars fill
@@ -886,9 +866,12 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // rather than sending a message that names no (or the wrong) lender.
   const identity = await getLenderIdentity(opts.tenantId)
   const fullName = `${client.firstName} ${client.lastName}`
-  const template = await buildTemplate(identity, opts.event, fullName, opts)
+  const locale = ENGLISH_ONLY_EVENTS.has(opts.event)
+    ? DEFAULT_LOCALE
+    : await clientCommsLocale(opts.tenantId, client.preferredLanguage)
+  const template = await buildTemplate(identity, opts.event, fullName, opts, locale)
 
-  const waBuild = buildWaMessage(identity, opts.event, client.firstName, template.waVars)
+  const waBuild = buildWaMessage(identity, opts.event, client.firstName, template.waVars, locale)
   const waMessage = waBuild.message
 
   // A missing template var is a data-plumbing bug (see buildWaMessage), not
@@ -926,6 +909,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       waMessage,
       waBuild.templateVars,
       waTemplateEventFor(opts.event, template.waVars.days),
+      locale,
     )
   }
 

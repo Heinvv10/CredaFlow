@@ -13,7 +13,8 @@ vi.mock("next/navigation", () => ({
 
 import ApplyPage from "./page"
 import ApplyLayout, { generateMetadata } from "./layout"
-import { APPLY_FAQS } from "./faqs"
+import { applyFaqs } from "./faqs"
+import { createTranslator } from "@/lib/i18n/translate"
 
 describe("apply page", () => {
   it("names the configured lender and its NCR number, nobody else", () => {
@@ -30,7 +31,7 @@ describe("apply page", () => {
   })
 
   it("has FAQs free of other lenders", () => {
-    expectNoOtherLender(JSON.stringify(APPLY_FAQS))
+    expectNoOtherLender(JSON.stringify(applyFaqs(createTranslator("en", "websiteApply"))))
   })
 })
 

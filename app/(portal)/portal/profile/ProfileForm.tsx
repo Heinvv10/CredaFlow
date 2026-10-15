@@ -6,6 +6,7 @@ import { Save } from "lucide-react"
 import { MarketingPreferences } from "@/components/portal/MarketingPreferences"
 import { ConsentStatus } from "@/components/portal/ConsentStatus"
 import type { ClientConsent } from "@prisma/client"
+import { useT } from "@/lib/i18n/client"
 
 interface ProfileFormProps {
   initialData: {
@@ -23,6 +24,7 @@ interface ProfileFormProps {
 export function ProfileForm({ initialData, consent }: ProfileFormProps) {
   const [data, setData] = useState(initialData)
   const [saving, setSaving] = useState(false)
+  const t = useT("portalProfile")
 
   function handleChange(field: keyof typeof data, value: string) {
     setData((prev) => ({ ...prev, [field]: value }))
@@ -37,12 +39,12 @@ export function ProfileForm({ initialData, consent }: ProfileFormProps) {
         body: JSON.stringify(data),
       })
       if (res.ok) {
-        toast.success("Profile updated", "Your changes have been saved.")
+        toast.success(t("savedTitle"), t("savedBody"))
       } else {
-        toast.error("Update failed", "Please try again later.")
+        toast.error(t("failTitle"), t("failBody"))
       }
     } catch {
-      toast.error("Network error", "Please check your connection.")
+      toast.error(t("networkTitle"), t("networkBody"))
     } finally {
       setSaving(false)
     }
@@ -53,55 +55,55 @@ export function ProfileForm({ initialData, consent }: ProfileFormProps) {
       {/* Contact details */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
         <h2 className="text-sm font-bold text-gray-900 mb-4">
-          Contact Details
+          {t("contactDetails")}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
-            label="Phone"
+            label={t("phone")}
             value={data.phone}
             onChange={(v) => handleChange("phone", v)}
           />
           <FormField
-            label="WhatsApp"
+            label={t("whatsapp")}
             value={data.whatsapp}
             onChange={(v) => handleChange("whatsapp", v)}
           />
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          To change your email, please contact us or visit a branch.
+          {t("emailNote")}
         </p>
       </div>
 
       {/* Address */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
         <h2 className="text-sm font-bold text-gray-900 mb-4">
-          Physical Address
+          {t("physicalAddress")}
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <FormField
-              label="Address Line 1"
+              label={t("address1")}
               value={data.addressLine1}
               onChange={(v) => handleChange("addressLine1", v)}
             />
           </div>
           <FormField
-            label="Suburb"
+            label={t("suburb")}
             value={data.suburb}
             onChange={(v) => handleChange("suburb", v)}
           />
           <FormField
-            label="City"
+            label={t("city")}
             value={data.city}
             onChange={(v) => handleChange("city", v)}
           />
           <FormField
-            label="Province"
+            label={t("province")}
             value={data.province}
             onChange={(v) => handleChange("province", v)}
           />
           <FormField
-            label="Postal Code"
+            label={t("postalCode")}
             value={data.postalCode}
             onChange={(v) => handleChange("postalCode", v)}
           />
@@ -117,7 +119,7 @@ export function ProfileForm({ initialData, consent }: ProfileFormProps) {
           style={{ backgroundColor: "#4338CA" }}
         >
           <Save className="w-4 h-4" />
-          {saving ? "Saving..." : "Save Changes"}
+          {saving ? t("saving") : t("saveChanges")}
         </button>
       </div>
 

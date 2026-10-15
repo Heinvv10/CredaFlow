@@ -6,6 +6,9 @@ import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { authorisedEntityIdsForClient } from "@/lib/asset-finance/portal-access"
 import { loadPortalSigners } from "@/lib/asset-finance/signing-view"
 import { portalBusinessLinkVisible } from "@/lib/asset-finance/portal-navigation"
+import { I18nProvider } from "@/lib/i18n/client"
+import { clientMessages, getLocale, getTenantEnabledLocales } from "@/lib/i18n/server"
+import { PORTAL_CLIENT_NAMESPACES } from "@/lib/i18n/surfaces"
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
 import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
 
@@ -41,16 +44,23 @@ export default async function PortalLayout({ children }: { children: React.React
       ])
     : [[], []]
   const showBusiness = portalBusinessLinkVisible(featureEnabled, authorisedEntityIds.length, signers.length)
+  const [locale, enabledLocales] = await Promise.all([
+    getLocale(),
+    tenantId ? getTenantEnabledLocales(tenantId) : Promise.resolve([]),
+  ])
 
   return (
     <TenantThemeProvider config={tenantConfig}>
-      <PortalShell
-        userName={userName}
-        userEmail={session.user.email}
-        showBusiness={showBusiness}
-      >
-        {children}
-      </PortalShell>
+      <I18nProvider locale={locale} messages={clientMessages(locale, PORTAL_CLIENT_NAMESPACES)}>
+        <PortalShell
+          userName={userName}
+          userEmail={session.user.email}
+          showBusiness={showBusiness}
+          enabledLocales={enabledLocales}
+        >
+          {children}
+        </PortalShell>
+      </I18nProvider>
     </TenantThemeProvider>
   )
 }
