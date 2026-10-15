@@ -9,6 +9,8 @@ const {
   auditCreate,
   logAudit,
   lockLoanForUpdate,
+  recoveryCount,
+  saleCount,
 } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   findUnique: vi.fn(),
@@ -17,6 +19,8 @@ const {
   auditCreate: vi.fn(),
   logAudit: vi.fn(),
   lockLoanForUpdate: vi.fn(),
+  recoveryCount: vi.fn(),
+  saleCount: vi.fn(),
 }))
 
 let committedReversed = false
@@ -153,6 +157,8 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     payment: { findUnique },
+    recovery: { count: recoveryCount },
+    remarketingSale: { count: saleCount },
     $transaction: transaction,
   },
 }))
@@ -205,8 +211,24 @@ describe("PATCH /api/payments/[id]/reverse", () => {
     // Both concurrent requests may read this pre-transaction projection before
     // either transaction commits. The authoritative claim belongs inside tx.
     findUnique.mockResolvedValue(payment)
+    recoveryCount.mockResolvedValue(0)
+    saleCount.mockResolvedValue(0)
     logAudit.mockResolvedValue(undefined)
     vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  it.each([["a recovery", 1, 0], ["a remarketing sale", 0, 1]])("refuses to reverse the receipt that is %s's sale proceeds, writing nothing", async (_name, recoveries, sales) => {
+    recoveryCount.mockResolvedValue(recoveries)
+    saleCount.mockResolvedValue(sales)
+
+    const response = await PATCH(request("Bank returned the deposit"), context)
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("This receipt is a recovery's sale proceeds and cannot be reversed")
+    expect(recoveryCount).toHaveBeenCalledWith({ where: { tenantId: "tenant-1", proceedsPaymentId: "payment-1" } })
+    expect(paymentUpdateMany).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
+    expect(committedReversed).toBe(false)
   })
 
   it("lets only one concurrent reversal claim the payment and preserves its reason", async () => {

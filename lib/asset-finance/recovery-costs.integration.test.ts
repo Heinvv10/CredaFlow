@@ -11,12 +11,15 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { NextRequest } from "next/server"
+import { PATCH as reversePayment } from "@/app/api/payments/[id]/reverse/route"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import {
-  cleanupRecoveryFixture, courtMatter, createRecoveryFixture, newLoan, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture,
+  addStep, cleanupRecoveryFixture, courtMatter, createRecoveryFixture, legalDocument, newLoan, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture,
 } from "./recovery.integration-fixture"
 import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
+import { loadCostFormData } from "@/components/asset-finance/recovery/recovery-panel-data"
 import { ladderRecovery } from "./recovery-path.integration-fixture"
 import { recoveryRoutes } from "./recovery-routes.integration-fixture"
 
@@ -106,13 +109,24 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect(second.status).toBe(201)
     expect((await r.cost(id, cost({ supplierId: "nobody" }))).status).toBe(404)
 
-    // NCA: taxed legal costs name the judgment or settlement step; other types are never charged to the account.
+    // NCA: taxed legal costs name an evidenced judgment or settlement step (the database's sentence, said before it); other types are never charged to the account.
+    const EVIDENCED = /Taxed legal costs name the evidenced judgment or settlement step/
     const taxed = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT" }))
     expect(taxed.status).toBe(409)
-    expect(String(taxed.body.error)).toMatch(/Taxed legal costs name the evidenced judgment or settlement step/)
+    expect(String(taxed.body.error)).toMatch(EVIDENCED)
     const judgment = await database().legalMatterStep.findFirstOrThrow({ where: { matterId, kind: "JUDGMENT" } })
+    const bare = await addStep(database(), fx, matterId, "SETTLED") // no legal document on file
+    const unevidenced = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: bare }))
+    expect(unevidenced.status).toBe(409)
+    expect(String(unevidenced.body.error)).toMatch(EVIDENCED)
     const legal = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: judgment.id }))
     expect(legal.status).toBe(201)
+    // A corrected step no longer counts, and the cost form offers only the evidenced, uncorrected steps.
+    const corrected = await addStep(database(), fx, matterId, "JUDGMENT", today(), { correctsStepId: judgment.id, evidenceDocumentId: await legalDocument(database(), fx) })
+    const stale = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: judgment.id }))
+    expect(stale.status).toBe(409)
+    expect(String(stale.body.error)).toMatch(EVIDENCED)
+    expect((await loadCostFormData(fx.tenantId, loan.loanId)).legalSteps.map((o) => o.value)).toEqual([corrected])
     const charged = await r.cost(id, cost({ treatment: "CHARGE_TO_ACCOUNT" }))
     expect(charged.status).toBe(409)
     expect(String(charged.body.error)).toMatch(/Only taxed legal costs are charged to an NCA account/)
@@ -220,6 +234,21 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     as(fx, fx.officer, "CREDIT_OFFICER")
     expect((await r.portal(loan.loanId)).status).toBe(401)
     expect((await r.view(id)).body).toMatchObject({ sales: [{ buyerName: "TEST Buyer" }] })
+  }, 120_000)
+
+  it("refuses to reverse a recovery's sale-proceeds receipt, with a friendly 409 and nothing written", async () => {
+    const { id } = await ladderRecovery(database(), fx, true, "PROCEEDS_APPLIED")
+    const paymentId = (await recoveryOf(id)).proceedsPaymentId ?? ""
+    expect(paymentId).not.toBe("")
+    admin()
+    const reverse = () => reversePayment(new NextRequest(`http://${fx.host}/api/payments/${paymentId}/reverse`, {
+      method: "PATCH", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify({ reason: "Bank returned the deposit" }),
+    }), { params: Promise.resolve({ id: paymentId }) })
+    const response = await reverse()
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "This receipt is a recovery's sale proceeds and cannot be reversed" })
+    expect(await database().payment.findUniqueOrThrow({ where: { id: paymentId } })).toMatchObject({ reversed: false, reversedAt: null })
+    expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, entityId: paymentId, action: "PAYMENT_REVERSED" } })).toBe(0)
   }, 120_000)
 
   it("keeps tenants apart (404) and enforces the roles", async () => {

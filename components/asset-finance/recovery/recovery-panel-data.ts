@@ -44,14 +44,17 @@ export async function loadRecoveryPanelData(tenantId: string, loanId: string): P
 
 export interface CostFormData { lists: CostAllowLists; suppliers: ChoiceOption[]; legalSteps: ChoiceOption[] }
 
-/** What the add-cost form offers: the lender's allow-lists, suppliers, and the judgment or settlement steps a taxed legal cost follows. */
+/** What the add-cost form offers: the lender's allow-lists, suppliers, and the judgment or settlement steps (with their legal document) a taxed legal cost follows. */
 export async function loadCostFormData(tenantId: string, loanId: string): Promise<CostFormData> {
   const [config, suppliers, matter] = await Promise.all([
     prisma.tenantConfig.findFirst({ where: { tenantId }, select: { recoveryNcaDeductibleCostTypes: true, recoveryNonNcaChargeableCostTypes: true } }),
     prisma.supplier.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     getLegalMatterView(tenantId, { loanId }),
   ])
-  const steps = matter.kind === "done" && matter.view ? effectiveSteps(matter.view.steps).filter((s) => s.kind === "JUDGMENT" || s.kind === "SETTLED") : []
+  const effective = matter.kind === "done" && matter.view ? new Set(effectiveSteps(matter.view.steps).map((s) => s.id)) : new Set<string>()
+  const steps = matter.kind === "done" && matter.view
+    ? matter.view.steps.filter((s) => effective.has(s.id) && (s.kind === "JUDGMENT" || s.kind === "SETTLED") && s.hasEvidence)
+    : []
   return {
     lists: { ncaDeductible: config?.recoveryNcaDeductibleCostTypes ?? [], nonNcaChargeable: config?.recoveryNonNcaChargeableCostTypes ?? [] },
     suppliers: suppliers.map((s) => ({ value: s.id, label: s.name })),

@@ -19,6 +19,9 @@ export interface RecoveryCostInput {
   note?: string | null
 }
 
+/** The database's sentence (guardRecoveryCost) for a taxed legal cost without an evidenced judgment or settlement step. */
+export const TAXED_LEGAL_NEEDS_EVIDENCED_STEP = "Taxed legal costs name the evidenced judgment or settlement step of the legal matter"
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 /**
@@ -41,8 +44,16 @@ export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: strin
     return { kind: "not_ready", reason: "Provide the supplier's invoice reference, the date incurred and a note of at most 500 characters" }
   }
   return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
-    const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { id: true } })
+    const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { route: true } })
     if (!recovery) return { kind: "not_found" }
+    // NCA: a taxed legal cost follows an uncorrected judgment or settlement that carries its legal document.
+    if (input.type === "LEGAL_TAXED" && recovery.route.startsWith("NCA_")) {
+      const step = input.legalStepId
+        ? await tx.legalMatterStep.findFirst({ where: { id: input.legalStepId, tenantId: actor.tenantId, kind: { in: ["JUDGMENT", "SETTLED"] }, evidenceDocumentId: { not: null } }, select: { id: true } })
+        : null
+      const corrected = step ? await tx.legalMatterStep.count({ where: { tenantId: actor.tenantId, correctsStepId: step.id } }) : 0
+      if (!step || corrected > 0) throw new RecoveryRefusal(TAXED_LEGAL_NEEDS_EVIDENCED_STEP)
+    }
     let vendor = false
     if (input.supplierId) {
       const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId: actor.tenantId }, select: { vatNumber: true } })

@@ -52,7 +52,7 @@ export function AddCostForm({ recoveryId, route, today, lists, suppliers, legalS
         <TextField id="costDate" label="Date incurred" type="date" required max={today} value={form.incurredOn} onChange={(v) => set("incurredOn", v)} />
         {form.type === "LEGAL_TAXED" && (
           <ChoiceField id="costLegalStep" label="Follows legal step" required value={form.legalStepId} onChange={(v) => set("legalStepId", v)}
-            placeholder={legalSteps.length === 0 ? "No judgment or settlement step yet" : "Choose the step"} options={legalSteps} />
+            placeholder={legalSteps.length === 0 ? "No judgment or settlement step with its legal document yet" : "Choose the step"} options={legalSteps} />
         )}
       </div>
       <AreaField id="costNote" label="Note" value={form.note} onChange={(v) => set("note", v)} />

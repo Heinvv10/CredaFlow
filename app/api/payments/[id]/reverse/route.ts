@@ -48,6 +48,15 @@ export async function PATCH(
         )
       }
 
+      // A recovery's sale-proceeds receipt is kept (the database refuses it too: Payment_recovery_proceeds_kept).
+      const [recoveries, sales] = await Promise.all([
+        prisma.recovery.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
+        prisma.remarketingSale.count({ where: { tenantId: tenant.id, proceedsPaymentId: id } }),
+      ])
+      if (recoveries + sales > 0) {
+        return NextResponse.json({ error: "This receipt is a recovery's sale proceeds and cannot be reversed" }, { status: 409 })
+      }
+
       const asOf = new Date()
 
       try {
