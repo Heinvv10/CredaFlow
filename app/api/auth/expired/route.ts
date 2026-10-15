@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { authBaseConfig } from "@/lib/auth-config"
 import { safeInternalPath } from "@/lib/safe-path"
+import { isOperatorConsolePath, OPERATOR_LOGIN } from "@/lib/proxy/operator-host"
 
 // Stale-session loop-breaker.
 //
@@ -42,7 +43,10 @@ export function GET(req: NextRequest): NextResponse {
   // A portal destination goes to the portal's own sign-in form: a client sent
   // to the staff /login cannot sign in there. With the cookie cleared below,
   // /portal/login renders its form rather than bouncing back to /portal.
-  const loginPath = isPortalPath(callbackUrl) ? "/portal/login" : "/login"
+  // The operator console signs in on its own page (lib/proxy/operator-host.ts).
+  const loginPath = isPortalPath(callbackUrl)
+    ? "/portal/login"
+    : isOperatorConsolePath(callbackUrl) ? OPERATOR_LOGIN : "/login"
   const location = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`
   const res = new NextResponse(null, { status: 307, headers: { Location: location } })
 

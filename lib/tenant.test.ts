@@ -28,7 +28,7 @@ vi.mock("next/cache", () => ({
   unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
 }))
 
-import { resolveFeatureFlags, getTenantFeatures, getResolvedTenantId, type TenantConfigData } from "./tenant"
+import { resolveFeatureFlags, getTenantFeatures, getResolvedTenantId, getTenantFromRequest, type TenantConfigData } from "./tenant"
 
 function config(overrides: Partial<TenantConfigData>): TenantConfigData {
   return {
@@ -250,5 +250,16 @@ describe("getResolvedTenantId host normalisation", () => {
       n === "host" ? "localhost:3000" : n === "x-tenant-slug" ? "acme" : null)
     await expect(getResolvedTenantId()).resolves.toBe("id-default")
     expect(findFirstTenant).not.toHaveBeenCalled()
+  })
+})
+
+// B1 (PR #91): Tenant.domain is stored lower-case without a trailing dot; the
+// request-side lookup must normalise the Host the same way, or a mixed-case
+// Host misses its lender and falls through to the slug.
+describe("getTenantFromRequest — domain lookup is normalised", () => {
+  it("looks the Host up lower-cased, without port or trailing dot", async () => {
+    findFirstTenant.mockReset().mockResolvedValue({ id: "id-acme", slug: "acme", name: "Acme", domain: "loans.acme.co.za", status: "ACTIVE" })
+    await getTenantFromRequest(new Request("https://x/", { headers: { host: "Loans.ACME.co.za.:443" } }))
+    expect(findFirstTenant).toHaveBeenCalledWith(expect.objectContaining({ where: { domain: "loans.acme.co.za", status: "ACTIVE" } }))
   })
 })

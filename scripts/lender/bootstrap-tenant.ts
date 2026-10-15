@@ -8,11 +8,12 @@
 import type { Prisma, PrismaClient } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditDb } from "./audit-db"
+import { tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 import { DATE_FIELDS, LENDER_IDENTITY_FIELDS, storedDateString } from "@/lib/config/identity-schema"
 import { TENANT_COLOUR_VARS } from "@/lib/theme/tenant-colours"
 import { FEATURE_COLUMNS, type TenantBootstrapConfig } from "./tenant-config"
 
-export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE"
+export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN"
 
 export class TenantBootstrapRefusal extends Error {
   readonly code: TenantRefusalCode
@@ -28,6 +29,10 @@ export type TenantBootstrapOptions = {
   operator: string
   /** Seeds the default document and message templates (idempotent). */
   seedTemplates: (tenantId: string, brandName: string) => Promise<void>
+  /** The Operator that runs the lender; unset, the database default (the root operator). */
+  operatorId?: string
+  /** The signed-in operator user creating it (the console); unset, the CLI is the actor. */
+  actor?: { userId: string; email: string }
 }
 
 export type TenantBootstrapResult =
@@ -37,6 +42,9 @@ export type TenantBootstrapResult =
 const SOURCE = "lender:bootstrap-tenant"
 const COLOUR_FIELDS = Object.keys(TENANT_COLOUR_VARS) as (keyof typeof TENANT_COLOUR_VARS)[]
 const FEATURE_FIELDS = Object.values(FEATURE_COLUMNS).map(([column]) => column)
+const COMPARED_CONFIG_SELECT = Object.fromEntries(
+  [...COLOUR_FIELDS, ...FEATURE_FIELDS, ...LENDER_IDENTITY_FIELDS].map((f) => [f, true]),
+) as Prisma.TenantConfigSelect
 
 /** Column values as Prisma writes them: a DATE column takes a Date at UTC midnight. */
 function configColumns(c: TenantBootstrapConfig): Record<string, unknown> {
@@ -62,7 +70,9 @@ function differences(stored: { name: string; domain: string | null; config: Reco
 
 export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig, opts: TenantBootstrapOptions): Promise<TenantBootstrapResult> {
   const outcome = await db.$transaction(async (tx): Promise<TenantBootstrapResult> => {
-    const stored = await tx.tenant.findUnique({ where: { slug: c.slug }, include: { config: true } })
+    // Only the columns differences() compares: TenantConfig also holds sealed
+    // provider credentials, which this has no reason to read.
+    const stored = await tx.tenant.findUnique({ where: { slug: c.slug }, include: { config: { select: COMPARED_CONFIG_SELECT } } })
     if (stored) {
       const diff = differences(stored as never, c)
       if (diff.length > 0) {
@@ -76,17 +86,29 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
     if (c.domain && (await tx.tenant.findUnique({ where: { domain: c.domain } }))) {
       throw new TenantBootstrapRefusal("DOMAIN_IN_USE", `Domain ${c.domain} already belongs to another tenant.`)
     }
+    // The host rules the console and the admin API apply (lib/config/tenant-domain.ts):
+    // a domain outranks the slug in host resolution, so neither may take a host
+    // the deployment or another lender serves.
+    const domainRefusal = c.domain ? await tenantDomainRefusal(c.domain, null, tx) : null
+    if (domainRefusal) throw new TenantBootstrapRefusal("DOMAIN_RESERVED", domainRefusal)
+    const slugRefusal = await tenantSlugRefusal(c.slug, tx)
+    if (slugRefusal) throw new TenantBootstrapRefusal("SLUG_HOST_TAKEN", slugRefusal)
     if (opts.dryRun) return { status: "dry-run-create", tenantId: null }
 
     const created = await tx.tenant.create({
-      data: { slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE", config: { create: configColumns(c) as Prisma.TenantConfigCreateWithoutTenantInput } },
+      data: {
+        slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE",
+        ...(opts.operatorId ? { operatorId: opts.operatorId } : {}),
+        config: { create: configColumns(c) as Prisma.TenantConfigCreateWithoutTenantInput },
+      },
     })
+    const by = { userId: opts.actor?.userId, userEmail: opts.actor?.email ?? SOURCE }
     await logAuditStrict({
-      tenantId: created.id, userEmail: SOURCE, action: AuditAction.TENANT_CREATED, entity: "Tenant", entityId: created.id,
+      tenantId: created.id, ...by, action: AuditAction.TENANT_CREATED, entity: "Tenant", entityId: created.id,
       newValue: { slug: c.slug, name: c.name, domain: c.domain, status: "ACTIVE", ...c.colours, ...c.features, operator: opts.operator },
     }, auditDb(tx))
     await logAuditStrict({
-      tenantId: created.id, userEmail: SOURCE, action: AuditAction.LENDER_IDENTITY_UPDATED, entity: "TenantConfig", entityId: created.id,
+      tenantId: created.id, ...by, action: AuditAction.LENDER_IDENTITY_UPDATED, entity: "TenantConfig", entityId: created.id,
       oldValue: {}, newValue: { ...c.identity, operator: opts.operator },
     }, auditDb(tx))
     return { status: "created", tenantId: created.id }

@@ -26,6 +26,7 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
 import { loadPayoutView } from "@/lib/payouts/view"
@@ -307,6 +308,8 @@ export default async function LoanDetailPage(
               />
             </DataPanel>
           )}
+
+          <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (

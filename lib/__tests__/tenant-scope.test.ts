@@ -138,6 +138,12 @@ describe("tenant-scope — ALS primitives", () => {
       "WebhookDelivery",
       // Signing OTP challenges — non-null tenantId.
       "SigningOtpChallenge",
+      // Collections engine (lib/collections-engine). Non-null tenantId, passed
+      // explicitly on every query: the crons run outside a request frame.
+      "DebitMandate",
+      "CollectionBatch",
+      "CollectionInstruction",
+      "CollectionResult",
       // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
       "LeaseRental",
     ])
