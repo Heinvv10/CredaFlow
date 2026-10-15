@@ -18,6 +18,7 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
+import { VERIFICATION_RESTORABLE_COPY } from "@/lib/kyc/verification-restorable"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
   UploadDialog,
@@ -128,6 +129,8 @@ interface Props {
   kycStatus: string
   manualExceptionActive?: boolean
   substituteKind?: "senior_exception" | "in_person" | null
+  /** Stored PENDING while the evidence derives VERIFIED (lib/kyc/verification-restorable.ts). */
+  verificationRestorable?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
 }
@@ -171,6 +174,7 @@ export function KycChecklistTab({
   kycStatus,
   manualExceptionActive = false,
   substituteKind = null,
+  verificationRestorable = false,
   selfieAlternatives,
   signedAgreementReturn,
 }: Props) {
@@ -381,6 +385,14 @@ export function KycChecklistTab({
           </div>
         )}
       </div>
+
+      {/* Derived on the server; the local status hides it once a decision lands. */}
+      {verificationRestorable && kyc === "PENDING" && (
+        <div className="flex items-start gap-2 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-4 text-sm text-[var(--cf-warning)]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{VERIFICATION_RESTORABLE_COPY}</p>
+        </div>
+      )}
 
       {/* ── Checklist grid ────────────────────────────────────────── */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">

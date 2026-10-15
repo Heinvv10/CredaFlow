@@ -1,11 +1,20 @@
+import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
-import { pendingIdReplacement, type IdReplacementCandidate } from "./id-replacement"
+import {
+  outstandingCoreDocuments,
+  pendingIdReplacement,
+  type IdReplacementCandidate,
+} from "./id-replacement"
+
+/** Distinct, well-formed bytes per copy unless a case says otherwise. */
+const digestOf = (seed: string) => createHash("sha256").update(seed).digest("hex")
 
 function copy(overrides: Partial<IdReplacementCandidate> & { id: string }): IdReplacementCandidate {
   return {
     docType: "ID_COPY",
     verified: false,
     createdAt: new Date("2026-07-20T08:00:00.000Z"),
+    contentSha256: digestOf(overrides.id),
     verificationRejectedById: null,
     ...overrides,
   }
@@ -70,5 +79,51 @@ describe("pendingIdReplacement", () => {
     expect(pendingIdReplacement([verifiedLow, unverifiedHigh])?.id).toBe("id-2")
     const unverifiedLow = copy({ id: "id-0", createdAt: sameInstant })
     expect(pendingIdReplacement([verifiedLow, unverifiedLow])).toBeNull()
+  })
+})
+
+describe("pendingIdReplacement: a byte-identical re-upload", () => {
+  const sameBytes = { ...newerUnverified, contentSha256: olderVerified.contentSha256 }
+
+  it("is not a replacement when the newer copy has the verified copy's digest", () => {
+    expect(pendingIdReplacement([olderVerified, sameBytes])).toBeNull()
+    expect(outstandingCoreDocuments(["ID_COPY"], [olderVerified, sameBytes])).toEqual([])
+  })
+
+  it("never matches on a missing digest, even when both are missing", () => {
+    expect(pendingIdReplacement([olderVerified, { ...newerUnverified, contentSha256: null }])?.id).toBe("id-b")
+    expect(pendingIdReplacement([
+      { ...olderVerified, contentSha256: null },
+      { ...newerUnverified, contentSha256: null },
+    ])?.id).toBe("id-b")
+  })
+
+  it("never matches on a malformed digest, even an equal one", () => {
+    const upper = olderVerified.contentSha256!.toUpperCase()
+    expect(pendingIdReplacement([
+      { ...olderVerified, contentSha256: upper },
+      { ...newerUnverified, contentSha256: upper },
+    ])?.id).toBe("id-b")
+    expect(pendingIdReplacement([
+      { ...olderVerified, contentSha256: "" },
+      { ...newerUnverified, contentSha256: "" },
+    ])?.id).toBe("id-b")
+  })
+
+  it("compares with the newest verified copy, not an older verified one", () => {
+    const oldestVerified = copy({ id: "id-0", verified: true, createdAt: new Date("2026-07-19T08:00:00.000Z") })
+    const backToOldest = { ...newerUnverified, contentSha256: oldestVerified.contentSha256 }
+    expect(pendingIdReplacement([oldestVerified, olderVerified, backToOldest])?.id).toBe("id-b")
+  })
+
+  it("is decided by the newest unreviewed copy alone", () => {
+    const newestSameBytes = copy({
+      id: "id-c",
+      createdAt: new Date("2026-07-22T08:00:00.000Z"),
+      contentSha256: olderVerified.contentSha256,
+    })
+    expect(pendingIdReplacement([olderVerified, newerUnverified, newestSameBytes])).toBeNull()
+    const newestOtherBytes = { ...newestSameBytes, contentSha256: digestOf("other") }
+    expect(pendingIdReplacement([olderVerified, sameBytes, newestOtherBytes])?.id).toBe("id-c")
   })
 })
