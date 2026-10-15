@@ -18,7 +18,8 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
-import { VERIFICATION_RESTORABLE_COPY } from "@/lib/kyc/verification-restorable"
+import { newestVerifiedIdCopyId } from "@/lib/kyc/verification-restorable"
+import { RestorableVerificationHint } from "@/components/clients/RestorableVerificationHint"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
   UploadDialog,
@@ -388,10 +389,14 @@ export function KycChecklistTab({
 
       {/* Derived on the server; the local status hides it once a decision lands. */}
       {verificationRestorable && kyc === "PENDING" && (
-        <div className="flex items-start gap-2 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-4 text-sm text-[var(--cf-warning)]">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>{VERIFICATION_RESTORABLE_COPY}</p>
-        </div>
+        <RestorableVerificationHint
+          clientId={clientId}
+          idDocumentId={newestVerifiedIdCopyId(docs)}
+          onRestored={(status) => {
+            setKyc(status)
+            void fetchDocs()
+          }}
+        />
       )}
 
       {/* ── Checklist grid ────────────────────────────────────────── */}

@@ -28,8 +28,8 @@
   status (`id-upload-projection.server.ts`); it never promotes.
 - A copy whose `contentSha256` equals the newest verified copy's is not a
   replacement (migration 20261015090000, TS+SQL). A NULL digest never matches.
-- Stored PENDING while the evidence derives VERIFIED (e.g. replacement deleted)
-  only shows staff a hint (`verification-restorable.ts`); nothing promotes.
+- Stored PENDING while the evidence derives VERIFIED (e.g. replacement deleted):
+  a staff hint + Re-verify ID via the verify route; nothing auto-promotes.
 
 ## Enforcement and proof
 - PostgreSQL independently enforces enabled, active minimum-role actors,

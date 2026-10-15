@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { KycChecklistTab } from "@/components/clients/KycChecklistTab"
 import { VERIFICATION_RESTORABLE_COPY } from "@/lib/kyc/verification-restorable"
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/lib/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
