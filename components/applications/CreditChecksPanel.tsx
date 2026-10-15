@@ -100,7 +100,7 @@ function ClearForm({ applicationId, flagId, onDone }: {
   )
 }
 
-function Evidence({ flag }: { flag: FlagView }) {
+export function Evidence({ flag }: { flag: FlagView }) {
   return (
     <>
       {flag.documentId && (
@@ -115,6 +115,21 @@ function Evidence({ flag }: { flag: FlagView }) {
           </a>
           {flag.documentName ? ` ${flag.documentName}` : ""}
           {flag.pages.length > 0 ? ` (p. ${flag.pages.join(", ")})` : ""}
+        </p>
+      )}
+      {flag.chainedWith && (
+        <p className="mt-2 text-sm text-[var(--cf-text-secondary)]">
+          Agrees with the {flag.chainedWith.relation} statement{" "}
+          <a
+            href={`/api/documents/${flag.chainedWith.documentId}/view`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-[var(--cf-brand)] underline"
+          >
+            {flag.chainedWith.documentName ?? "View statement"} ({flag.chainedWith.periodStart} to {flag.chainedWith.periodEnd})
+          </a>
+          , which {flag.chainedWith.relation === "previous" ? "closes" : "opens"} at {formatCents(flag.chainedWith.balanceCents)}.
+          Both were uploaded by the applicant, so compare the row with the bank&apos;s original before clearing.
         </p>
       )}
       {flag.rows.length > 0 && (

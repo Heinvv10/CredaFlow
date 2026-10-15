@@ -7,7 +7,7 @@
  */
 import { producerExpected } from "./document-authenticity"
 import { EXPECTED_PRODUCERS } from "./policy"
-import { firstRowChained, lastRowChained } from "./statement-chain"
+import { nextStatement, previousStatement } from "./statement-chain"
 import { statementKey, type ApplicationFacts, type FlagCandidate, type StatementFacts } from "./types"
 
 const PENDING_SUMMARY = {
@@ -29,7 +29,7 @@ function unreadableSummary(s: StatementFacts): string {
     : "No reader could read the statement. Review it by hand."
 }
 
-function review(s: StatementFacts, all: StatementFacts[]): FlagCandidate[] {
+function review(s: StatementFacts, f: ApplicationFacts): FlagCandidate[] {
   const base = { check: "MANUAL_REVIEW" as const, key: statementKey(s) }
   const evidence = { documentId: s.documentId }
   if (s.state === "PENDING") {
@@ -60,15 +60,17 @@ function review(s: StatementFacts, all: StatementFacts[]): FlagCandidate[] {
     })
   }
   // The bank prints no opening balance, so the first row is checked by nothing:
-  // a salary edited there reconciles. A person compares it with the original,
-  // unless the account's previous statement closes where this one opens.
+  // a salary edited there reconciles. A person compares it with the original.
+  // An adjacent statement that agrees is named for them, never taken as proof:
+  // the client uploaded it too (statement-chain.ts).
   const rowEvidence = (t: { date: string; amountCents: number } | undefined) => (t ? { date: t.date, amountCents: t.amountCents } : null)
-  if (s.authenticity?.signals.includes("OPENING_DERIVED") && !firstRowChained(s, all)) {
+  if (s.authenticity?.signals.includes("OPENING_DERIVED")) {
+    const prev = previousStatement(s, f)
     out.push({
       ...base,
       code: "FIRST_ROW_UNVERIFIED",
       summary: "This bank prints no opening balance, so the statement's first transaction cannot be checked by arithmetic. Compare it with the bank's original or the previous statement.",
-      evidence: { ...evidence, firstRow: rowEvidence(s.read?.transactions[0]) },
+      evidence: { ...evidence, firstRow: rowEvidence(s.read?.transactions[0]), ...(prev ? { chainedWith: prev } : {}) },
     })
   }
   if (s.authenticity?.signals.includes("ROWS_WITHOUT_BALANCE")) {
@@ -79,12 +81,13 @@ function review(s: StatementFacts, all: StatementFacts[]): FlagCandidate[] {
       evidence: { ...evidence, rows: (s.read?.transactions ?? []).flatMap((t, i) => (t.balanceCents === null && !t.nonPosting ? [i] : [])).slice(0, 20) },
     })
   }
-  if (s.authenticity?.signals.includes("CLOSING_DERIVED") && !lastRowChained(s, all)) {
+  if (s.authenticity?.signals.includes("CLOSING_DERIVED")) {
+    const next = nextStatement(s, f)
     out.push({
       ...base,
       code: "LAST_ROW_UNVERIFIED",
       summary: "This bank prints no closing balance, so the statement's last transaction cannot be checked by arithmetic. Compare it with the bank's original or the next statement.",
-      evidence: { ...evidence, lastRow: rowEvidence(s.read?.transactions[s.read.transactions.length - 1]) },
+      evidence: { ...evidence, lastRow: rowEvidence(s.read?.transactions[s.read.transactions.length - 1]), ...(next ? { chainedWith: next } : {}) },
     })
   }
   // A photo, a scan, an unrecognised layout or an unprofiled bank's PDF has
@@ -116,7 +119,7 @@ function each(ids: string[], code: string, summary: string, field = "documentId"
 export function manualReview(f: ApplicationFacts): FlagCandidate[] {
   const out: FlagCandidate[] = f.statements.length === 0
     ? [{ check: "MANUAL_REVIEW", code: "NO_STATEMENT", key: f.applicationId, summary: "No recent bank statement is on file for this application.", evidence: {} }]
-    : f.statements.flatMap((s) => review(s, f.statements))
+    : f.statements.flatMap((s) => review(s, f))
   if (f.statements.length > 0 && !f.payslip && f.unreadPayslipIds.length === 0) {
     out.push({
       check: "MANUAL_REVIEW",

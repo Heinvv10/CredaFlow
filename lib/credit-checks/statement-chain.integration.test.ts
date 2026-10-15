@@ -1,7 +1,8 @@
 /**
  * A boundary row flag through recompute against a migrated database: raised
- * on a lone Discovery statement, superseded (audited) once the account's
- * previous statement arrives and chains, raised again if that one is deleted.
+ * on a lone Discovery statement, still OPEN once the account's previous
+ * statement arrives and agrees (which goes on its evidence), and the
+ * agreement gone again when that statement is deleted.
  *
  *   RUN_CREDIT_CHECKS_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/credit-checks/statement-chain.integration.test.ts
@@ -33,9 +34,14 @@ suite("boundary rows chained across statements, against Postgres", () => {
   const april = syntheticStatement({ bank: "DISCOVERY", start: "2026-04-01" })
   const july = { ...syntheticStatement({ bank: "DISCOVERY", start: "2026-07-01" }), openingCents: balances(april).at(-1)! }
 
+  const name = (id: string | undefined) => (id === aprilDoc ? "apr" : id === julyDoc ? "jul" : "-")
+  /** Each boundary flag as "doc CODE status neighbour". */
   const boundary = async () =>
     (await prisma.applicationCheckFlag.findMany({ where: { tenantId, applicationId: appId, code: { in: ["FIRST_ROW_UNVERIFIED", "LAST_ROW_UNVERIFIED"] } } }))
-      .map((f) => `${(f.evidence as { documentId: string }).documentId === aprilDoc ? "apr" : "jul"} ${f.code} ${f.status}`).sort()
+      .map((f) => {
+        const e = f.evidence as { documentId: string; chainedWith?: { documentId: string } }
+        return `${name(e.documentId)} ${f.code} ${f.status} ${name(e.chainedWith?.documentId)}`
+      }).sort()
 
   async function upload(id: string, pdf: Uint8Array) {
     const storagePath = join(dir, `${id}.pdf`)
@@ -86,23 +92,28 @@ suite("boundary rows chained across statements, against Postgres", () => {
 
   it("raises both boundary rows of a lone statement whose bank prints neither balance", async () => {
     await recomputeApplicationFlags(tenantId, appId, { userId })
-    expect(await boundary()).toEqual(["jul FIRST_ROW_UNVERIFIED OPEN", "jul LAST_ROW_UNVERIFIED OPEN"])
+    expect(await boundary()).toEqual(["jul FIRST_ROW_UNVERIFIED OPEN -", "jul LAST_ROW_UNVERIFIED OPEN -"])
   })
 
-  it("supersedes the first row, audited, once the previous statement arrives and closes where it opens", async () => {
+  it("keeps the first row OPEN once the previous statement arrives and agrees, naming it on the evidence", async () => {
     await upload(aprilDoc, await buildStatement("DISCOVERY", april))
     await recomputeApplicationFlags(tenantId, appId, { userId })
-    // April's last row is chained too, so it is never raised; its first row has no predecessor.
-    expect(await boundary()).toEqual(["apr FIRST_ROW_UNVERIFIED OPEN", "jul FIRST_ROW_UNVERIFIED SUPERSEDED", "jul LAST_ROW_UNVERIFIED OPEN"])
-    const flag = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "FIRST_ROW_UNVERIFIED", status: "SUPERSEDED" } })
-    const audit = await prisma.auditLog.findFirstOrThrow({ where: { tenantId, action: "CREDIT_CHECKS_RECOMPUTED", entityId: appId }, orderBy: { createdAt: "desc" } })
-    expect(audit.newValue).toMatchObject({ superseded: [`FIRST_ROW_UNVERIFIED:${flag.id}`] })
+    // The client uploaded both statements: agreement helps the officer compare, it closes nothing.
+    expect(await boundary()).toEqual([
+      "apr FIRST_ROW_UNVERIFIED OPEN -", "apr LAST_ROW_UNVERIFIED OPEN jul", "jul FIRST_ROW_UNVERIFIED OPEN apr", "jul LAST_ROW_UNVERIFIED OPEN -",
+    ])
+    const flag = await prisma.applicationCheckFlag.findFirstOrThrow({ where: { tenantId, applicationId: appId, code: "FIRST_ROW_UNVERIFIED", evidence: { path: ["documentId"], equals: julyDoc } } })
+    expect((flag.evidence as { chainedWith: unknown }).chainedWith)
+      .toEqual({ documentId: aprilDoc, periodStart: "2026-04-01", periodEnd: "2026-06-30", closingCents: july.openingCents })
+    expect(await prisma.applicationCheckFlag.count({ where: { tenantId, status: "SUPERSEDED" } })).toBe(0)
   })
 
-  it("raises it again when the statement that verified it is deleted", async () => {
+  it("drops the agreement from the evidence when the statement it named is deleted", async () => {
     await prisma.clientDocument.update({ where: { id: aprilDoc, tenantId }, data: { deletedAt: new Date() } })
     await recomputeApplicationFlags(tenantId, appId, { userId })
-    // April's own flag stays for an officer: deleting a statement never closes a finding.
-    expect(await boundary()).toEqual(["apr FIRST_ROW_UNVERIFIED OPEN", "jul FIRST_ROW_UNVERIFIED OPEN", "jul LAST_ROW_UNVERIFIED OPEN"])
+    // April's own flags stay for an officer: deleting a statement never closes a finding.
+    expect(await boundary()).toEqual([
+      "apr FIRST_ROW_UNVERIFIED OPEN -", "apr LAST_ROW_UNVERIFIED OPEN jul", "jul FIRST_ROW_UNVERIFIED OPEN -", "jul LAST_ROW_UNVERIFIED OPEN -",
+    ])
   })
 })

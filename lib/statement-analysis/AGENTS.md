@@ -19,11 +19,11 @@ for `lib/credit-checks/`; categories and insights on read. Pipeline: `analyse.ts
   (6–9 corpus files) until 20+ have been seen. Every bank marked in the text is
   tried in turn (`detectBanks`): a payee can name another bank. Other banks,
   scans and photos go to the vision reader (`vlm-reader.ts`).
-- **What arithmetic cannot check goes to a person** (MANUAL_REVIEW): a derived opening (ABSA
-  Transaction History, Discovery: FIRST_ROW_UNVERIFIED) or closing (Discovery: LAST_ROW_UNVERIFIED)
-  unless the adjacent statement chains (`lib/credit-checks/statement-chain.ts`); rows printed
-  without a balance (ABSA eStatement: ROWS_UNCHECKED). Other closings print (Standard Bank: opening
-  + summary totals). A row lacking a balance its bank prints on every row is not read; with no closing, balances still check.
+- **What arithmetic cannot check goes to a person** (MANUAL_REVIEW): a derived opening
+  (ABSA Transaction History, Discovery: FIRST_ROW_UNVERIFIED) or closing (Discovery:
+  LAST_ROW_UNVERIFIED), rows printed without a balance (ABSA eStatement: ROWS_UNCHECKED).
+  Other closings are printed (Standard Bank: opening + summary totals). A row lacking a
+  balance its bank prints on every row is not read; with no closing, balances still check.
 - **A vision read is never tamper evidence**: its balance FAIL is MANUAL_REVIEW/
   UNVERIFIED_READ, never BALANCE_MISMATCH (a misread and a forgery look alike).
 - **Never call the vision reader inside a staff request** (`persist.ts` `allowVlm: false`).

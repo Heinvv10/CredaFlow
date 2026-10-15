@@ -130,9 +130,11 @@ describe("manualReview", () => {
 })
 
 
-describe("manualReview: a boundary row the account's next or previous statement verifies", () => {
-  const boundary = (out: Array<{ code: string; key: string }>) =>
-    out.filter((c) => c.code === "FIRST_ROW_UNVERIFIED" || c.code === "LAST_ROW_UNVERIFIED").map((c) => `${c.key.split(":")[0]} ${c.code}`).sort()
+describe("manualReview: a boundary row the account's adjacent statement agrees with", () => {
+  /** Each boundary flag as "doc CODE neighbour", the neighbour being the statement it agrees with or "-". */
+  const boundary = (out: Array<{ code: string; key: string; evidence: Record<string, unknown> }>) =>
+    out.filter((c) => c.code === "FIRST_ROW_UNVERIFIED" || c.code === "LAST_ROW_UNVERIFIED")
+      .map((c) => `${c.key.split(":")[0]} ${c.code} ${(c.evidence.chainedWith as { documentId?: string } | undefined)?.documentId ?? "-"}`).sort()
   /** A Discovery-like statement: no opening or closing printed, both derived from the rows. */
   function derived(id: string, periodStart: string, periodEnd: string, openingCents: number, amounts: number[], over: Partial<StatementFacts> = {}): StatementFacts {
     let running = openingCents
@@ -145,59 +147,96 @@ describe("manualReview: a boundary row the account's next or previous statement 
     Object.assign(s.read!, { periodStart, periodEnd, openingBalanceCents: openingCents, closingBalanceCents: running })
     return s
   }
-  const june = () => derived("a", "2026-06-01", "2026-06-30", 100_000, [500_000, -20_000])
+  const june = (over: Partial<StatementFacts> = {}) => derived("a", "2026-06-01", "2026-06-30", 100_000, [500_000, -20_000], over)
   const july = (opening = 580_000, over: Partial<StatementFacts> = {}) => derived("b", "2026-07-01", "2026-07-31", opening, [-30_000, 450_000], over)
   const run = (...statements: StatementFacts[]) => boundary(manualReview(withSlip({ statements })))
+  const unchained = ["a FIRST_ROW_UNVERIFIED -", "a LAST_ROW_UNVERIFIED -", "b FIRST_ROW_UNVERIFIED -", "b LAST_ROW_UNVERIFIED -"]
+  const chained = ["a FIRST_ROW_UNVERIFIED -", "a LAST_ROW_UNVERIFIED b", "b FIRST_ROW_UNVERIFIED a", "b LAST_ROW_UNVERIFIED -"]
 
-  it("raises both boundaries of a lone statement whose bank prints neither balance", () => {
-    expect(run(july())).toEqual(["b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  it("raises both boundaries of a lone statement whose bank prints neither balance, with no neighbour", () => {
+    expect(run(july())).toEqual(["b FIRST_ROW_UNVERIFIED -", "b LAST_ROW_UNVERIFIED -"])
   })
 
-  it("does not raise the boundary two consecutive statements of one account share when one opens where the other closed", () => {
-    expect(run(june(), july())).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
-    // Whatever order they were uploaded in.
-    expect(run(july(), june())).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  it("still raises the boundary two consecutive statements share, and names the statement it agrees with", () => {
+    // The client uploads both: agreement is a hint for the officer, never a reason not to look.
+    expect(run(june(), july())).toEqual(chained)
+    expect(run(july(), june())).toEqual(chained)
+    const out = manualReview(withSlip({ statements: [june(), july()] }))
+    expect(out.find((c) => c.code === "FIRST_ROW_UNVERIFIED" && c.key.startsWith("b:"))!.evidence.chainedWith)
+      .toEqual({ documentId: "a", periodStart: "2026-06-01", periodEnd: "2026-06-30", closingCents: 580_000 })
+    expect(out.find((c) => c.code === "LAST_ROW_UNVERIFIED" && c.key.startsWith("a:"))!.evidence.chainedWith)
+      .toEqual({ documentId: "b", periodStart: "2026-07-01", periodEnd: "2026-07-31", openingCents: 580_000 })
   })
 
   it("chains a statement that starts on the day the previous one ended, as FNB and Nedbank date them", () => {
     const b = july()
     b.read!.periodStart = "2026-06-30"
-    expect(run(june(), b)).toEqual(["a FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+    expect(run(june(), b)).toEqual(chained)
   })
 
-  it("keeps both boundaries flagged when the opening differs from the previous closing by a cent", () => {
-    expect(run(june(), july(580_001))).toEqual(["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"])
+  it("chains holder names that differ only in case, spacing or punctuation", () => {
+    const b = july()
+    b.read!.accountHolderName = "t.  tester"
+    expect(run(june(), b)).toEqual(chained)
   })
 
-  it("does not chain another account, another bank, or a statement whose account number was not read", () => {
-    const all = ["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"]
+  it("names no neighbour when the opening differs from the previous closing by a cent", () => {
+    expect(run(june(), july(580_001))).toEqual(unchained)
+  })
+
+  it("names no neighbour for another account, another bank, or an account number or holder not read", () => {
     const otherAccount = july()
     otherAccount.read!.accountNumberLast4 = "0002"
-    expect(run(june(), otherAccount)).toEqual(all)
-    expect(run(june(), july(580_000, { bank: "ABSA" }))).toEqual(all)
+    expect(run(june(), otherAccount)).toEqual(unchained)
+    expect(run(june(), july(580_000, { bank: "ABSA" }))).toEqual(unchained)
     const noAccount = july()
     noAccount.read!.accountNumberLast4 = null
     const a = june()
     a.read!.accountNumberLast4 = null
-    expect(run(a, noAccount)).toEqual(all)
+    expect(run(a, noAccount)).toEqual(unchained)
+    const otherHolder = july()
+    otherHolder.read!.accountHolderName = "S SOMEONE"
+    expect(run(june(), otherHolder)).toEqual(unchained)
+    const noHolder = july()
+    noHolder.read!.accountHolderName = null
+    expect(run(june(), noHolder)).toEqual(unchained)
+    // Neither read a holder: two blanks are not a match.
+    const blank = june()
+    blank.read!.accountHolderName = null
+    expect(run(blank, noHolder)).toEqual(unchained)
   })
 
-  it("does not chain statements whose periods leave a gap or overlap", () => {
-    const all = ["a FIRST_ROW_UNVERIFIED", "a LAST_ROW_UNVERIFIED", "b FIRST_ROW_UNVERIFIED", "b LAST_ROW_UNVERIFIED"]
+  it("names no neighbour for periods that leave a gap, overlap, start together, run backwards or are missing", () => {
     const gap = july()
     gap.read!.periodStart = "2026-07-02"
-    expect(run(june(), gap)).toEqual(all)
+    expect(run(june(), gap)).toEqual(unchained)
     const overlap = july()
     overlap.read!.periodStart = "2026-06-29"
-    expect(run(june(), overlap)).toEqual(all)
+    expect(run(june(), overlap)).toEqual(unchained)
+    // Both start on the same day: the "previous" one is no earlier.
+    const sameStart = derived("a", "2026-06-30", "2026-06-30", 100_000, [500_000, -20_000])
+    const fromSameDay = july()
+    fromSameDay.read!.periodStart = "2026-06-30"
+    expect(run(sameStart, fromSameDay)).toEqual(unchained)
+    // An inverted previous period, ending the day before the next begins.
+    const inverted = derived("a", "2026-07-15", "2026-06-30", 100_000, [500_000, -20_000])
+    expect(run(inverted, july())).toEqual(unchained)
+    const invertedNext = july()
+    invertedNext.read!.periodEnd = "2026-06-30"
+    expect(run(june(), invertedNext)).toEqual(unchained)
     const noPeriod = july()
     noPeriod.read!.periodStart = null
-    expect(run(june(), noPeriod)).toEqual(all)
+    expect(run(june(), noPeriod)).toEqual(unchained)
   })
 
-  it("does not take a vision read or an unreconciled read as the neighbour", () => {
-    expect(run(june(), july(580_000, { method: "VLM" }))).toContain("a LAST_ROW_UNVERIFIED")
-    expect(run(june(), july(580_000, { balanceCheck: "FAIL" }))).toContain("a LAST_ROW_UNVERIFIED")
-    expect(run(june(), july(580_000, { balanceCheck: "FAIL" }))).toContain("b FIRST_ROW_UNVERIFIED")
+  it("names no neighbour that is a vision read, does not reconcile, is the same bytes, or carries an authenticity finding", () => {
+    expect(run(june(), july(580_000, { method: "VLM" }))).toEqual(unchained)
+    expect(run(june(), july(580_000, { balanceCheck: "FAIL" }))).toEqual(unchained)
+    expect(run(june(), july(580_000, { contentSha256: "sha-a" }))).toEqual(unchained)
+    const edited = { producer: null, creator: null, createdAt: null, modifiedAt: null, incrementalUpdates: 1, signals: ["OPENING_DERIVED", "CLOSING_DERIVED"] }
+    // The edited file is the neighbour of the other's boundary only: its own flags still say nothing about agreement.
+    expect(run(june({ authenticity: edited }), july())).toEqual(["a FIRST_ROW_UNVERIFIED -", "a LAST_ROW_UNVERIFIED b", "b FIRST_ROW_UNVERIFIED -", "b LAST_ROW_UNVERIFIED -"])
+    expect(run(june(), july(580_000, { authenticity: { ...edited, incrementalUpdates: 0, producer: "Microsoft® Word for Microsoft 365" } })))
+      .toEqual(["a FIRST_ROW_UNVERIFIED -", "a LAST_ROW_UNVERIFIED -", "b FIRST_ROW_UNVERIFIED a", "b LAST_ROW_UNVERIFIED -"])
   })
 })
