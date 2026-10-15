@@ -44,6 +44,8 @@ vi.mock("@/lib/applications/prepare-application", () => ({
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (...a: unknown[]) => triggerNotificationMock(...a),
 }))
+const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
+vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
 
 import {
   createSubmissionAffordabilitySnapshot,
@@ -177,6 +179,8 @@ it("allows DRAFT -> SUBMITTED", async () => {
 
   expect(res.status).toBe(200)
   expect(await res.json()).toEqual({ ok: true, id: "app-1", status: "SUBMITTED" })
+  // A6: PEP / sanctions screening is started once the submission committed.
+  expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ applicationId: "app-1" }))
   expect(queryRawMock).toHaveBeenCalledTimes(5)
   expect(queryRawMock.mock.invocationCallOrder[4]).toBeLessThan(
     findUniqueMock.mock.invocationCallOrder[0],
@@ -456,6 +460,7 @@ it("PATCH action:update — submitting a resumed draft transitions to SUBMITTED 
   expect(triggerNotificationMock).toHaveBeenCalledWith(
     expect.objectContaining({ event: "application_submitted", loanId: "app-1", clientId: "c1" })
   )
+  expect(screenOnSubmitMock).toHaveBeenCalledWith(expect.objectContaining({ applicationId: "app-1" }))
 })
 
 it("PATCH action:update — 400 when prepareApplicationFields reports a validation failure", async () => {

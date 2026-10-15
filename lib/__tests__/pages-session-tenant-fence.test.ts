@@ -69,6 +69,8 @@ describe("dashboard and portal pages never read with the default tenant", () => 
     "app/(dashboard)/compliance/bureau-submissions/page.tsx",
     "app/(dashboard)/compliance/complaints/page.tsx",
     "app/(dashboard)/compliance/dsar/page.tsx",
+    "app/(dashboard)/compliance/fic/page.tsx",
+    "app/(dashboard)/compliance/screening/page.tsx",
     "app/(dashboard)/settings/branches/page.tsx",
     "app/(portal)/portal/agreement/[applicationId]/page.tsx",
     "app/(portal)/portal/mandate/[applicationId]/page.tsx",

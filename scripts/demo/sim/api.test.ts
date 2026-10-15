@@ -9,7 +9,7 @@ function ok(): Response {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("SimClient browser request metadata", () => {
-  it.each(["POST", "PUT", "PATCH", "DELETE"])("sends the app's Origin on %s", async (method) => {
+  it.each(["POST", "PUT", "PATCH", "DELETE"])("sends same-origin browser metadata on %s", async (method) => {
     const fetch = vi.fn().mockResolvedValue(ok())
     vi.stubGlobal("fetch", fetch)
 
@@ -17,7 +17,12 @@ describe("SimClient browser request metadata", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:3320/api/example",
-      expect.objectContaining({ headers: expect.objectContaining({ origin: "http://127.0.0.1:3320" }) }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          origin: "http://127.0.0.1:3320",
+          "sec-fetch-site": "same-origin",
+        }),
+      }),
     )
   })
 
@@ -28,5 +33,6 @@ describe("SimClient browser request metadata", () => {
     await new SimClient("http://127.0.0.1:3320").request(method, "/api/example")
 
     expect(fetch.mock.calls[0]?.[1]?.headers).not.toHaveProperty("origin")
+    expect(fetch.mock.calls[0]?.[1]?.headers).not.toHaveProperty("sec-fetch-site")
   })
 })

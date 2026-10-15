@@ -199,6 +199,12 @@ model Tenant {
   suppliers                  Supplier[]
   assetFinanceDeals          AssetFinanceDeal[]
   kycOverrideRequests        KycOverrideRequest[]
+  screeningChecks            ScreeningCheck[]
+  cashThresholdReports       CashThresholdReport[]
+  suspiciousReportCases      SuspiciousReportCase[]
+  suspiciousReportAccesses   SuspiciousReportAccess[]
+  rmcpDocuments              RmcpDocument[]
+  screeningBlocks            ScreeningBlock[]
   apiKeys                    ApiKey[]
   apiRequestLogs             ApiRequestLog[]
   webhookEndpoints           WebhookEndpoint[]
@@ -318,6 +324,17 @@ model TenantConfig {
   kycOverrideEnabled        Boolean  @default(true)
   kycOverrideMinRole        UserRole @default(ADMIN)
   kycOverrideSecondApprover Boolean  @default(false)
+
+  // PEP / sanctions screening (lib/screening). null = not configured: no
+  // screening runs and the approval gate passes, as before the module existed.
+  // Otherwise a key from lib/screening/registry.ts. Matches that need a human
+  // are cleared by a reviewer at or above screeningReviewMinRole
+  // (BRANCH_MANAGER or ADMIN), with TOTP when requireStaffTotp is on.
+  screeningProvider      String?
+  screeningReviewMinRole UserRole @default(ADMIN)
+  // Maker-checker for screening decisions, STR decisions and RMCP approvals
+  // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
+  requireSecondReviewer  Boolean  @default(true)
 
   // Phase 7 — collection engine. Dark by default.
   collectionsEngineEnabled Boolean @default(false)
@@ -531,6 +548,9 @@ model Client {
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
   kycOverrideRequests                KycOverrideRequest[]
+  screeningChecks                    ScreeningCheck[]
+  screeningBlocks                    ScreeningBlock[]
+  suspiciousReportCases              SuspiciousReportCase[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -649,6 +669,235 @@ enum AmlStatus {
   PENDING
   CLEARED
   FLAGGED
+}
+
+// ── PEP / sanctions screening and FIC Act registers (W4) ──────────────────
+// Hand-written enforcement for these models lives in migration
+// 20261014150000_w4_screening_fic: records cannot be deleted, a review
+// decision is made once, a confirmed sanctions match can never be cleared,
+// and approval is refused while the client's latest screening run blocks it.
+
+// One row per check type per screening run (a run = one call to the tenant's
+// provider for every type it supports). The subject is a client (natural
+// person) or a business entity, never both (CHECK ScreeningCheck_one_subject).
+// Writes Client.amlScreeningStatus for a client (lib/screening). Migration
+// 20261014160000_w4_screening_review_fixes binds a run to the identity it
+// screened (subjectFingerprint) and makes blocks sticky (ScreeningBlock).
+model ScreeningCheck {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  clientId           String?
+  client             Client?            @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId           String?
+  entity             BusinessEntity?    @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // SQL screeningCurrentFingerprint() of the subject when it was screened. A
+  // run whose fingerprint differs from the subject's current one is stale.
+  subjectFingerprint String?
+  // Who started the run (null for system runs, including the approval gate's).
+  // With TenantConfig.requireSecondReviewer on, never the one who decides it.
+  triggeredById      String?
+  // A person screened as a related party of this entity (director, member,
+  // trustee, ...). A block raised by such a run blocks the entity even after
+  // the relationship is deactivated or deleted.
+  contextEntityId    String?
+  runId              String
+  trigger            ScreeningTrigger
+  applicationId      String?
+  provider           String
+  type               ScreeningType
+  result             ScreeningResult
+  // Provider match entries, normalised (lib/screening/types.ts ScreeningMatch).
+  matches            Json               @default("[]")
+  // sha256 of type + sorted list-entry ids; a re-run with the same matches
+  // carries the earlier decision forward (carriedFromCheckId).
+  matchFingerprint   String?
+  providerReference  String?
+  errorCode          String?
+  simulated          Boolean            @default(false)
+  decision           ScreeningDecision?
+  decisionReason     String?
+  reviewedById       String?
+  reviewedAt         DateTime?
+  carriedFromCheckId String?
+  createdAt          DateTime           @default(now())
+  blocks             ScreeningBlock[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, clientId, createdAt])
+  @@index([tenantId, entityId, createdAt])
+  @@index([tenantId, runId])
+}
+
+// A sticky screening block: written by the database when a run records a
+// confirmed sanctions match or a reviewer REJECTS a match. A later clear run
+// does not end it; only a SUPER_ADMIN with TOTP lifts it, with a reason, once.
+model ScreeningBlock {
+  id              String               @id @default(cuid())
+  tenantId        String
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  clientId        String?
+  client          Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId        String?
+  entity          BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  sourceCheckId   String               @unique
+  sourceCheck     ScreeningCheck       @relation(fields: [tenantId, sourceCheckId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Copied from the source check by the database: the entity the person was
+  // screened for, if any.
+  contextEntityId String?
+  reason          ScreeningBlockReason
+  createdAt       DateTime             @default(now())
+  liftedById      String?
+  liftedAt        DateTime?
+  liftReason      String?
+
+  @@index([tenantId, clientId])
+  @@index([tenantId, entityId])
+  @@index([tenantId, contextEntityId])
+}
+
+enum ScreeningBlockReason {
+  SANCTIONS_MATCH
+  REJECTED
+}
+
+enum ScreeningType {
+  PEP
+  SANCTIONS
+  ADVERSE_MEDIA
+}
+
+enum ScreeningResult {
+  CLEAR
+  POSSIBLE_MATCH
+  CONFIRMED_MATCH
+  ERROR
+}
+
+// FALSE_POSITIVE: the match is not this client. ACCEPTED: the match is this
+// client and a senior accepts the relationship (enhanced due diligence); never
+// for sanctions. REJECTED: the match stands and blocks approval.
+enum ScreeningDecision {
+  FALSE_POSITIVE
+  ACCEPTED
+  REJECTED
+}
+
+enum ScreeningTrigger {
+  APPLICATION_SUBMIT
+  PRE_APPROVAL
+  PERIODIC
+  MANUAL
+}
+
+// Cash threshold register (lib/fic/cash-threshold.ts). Candidates are DERIVED
+// from CASH receipts at or above the threshold; a row here records what the
+// compliance officer did with one: filed with the FIC, or not reportable.
+model CashThresholdReport {
+  id           String                    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  paymentId    String
+  payment      Payment                   @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents  Int
+  status       CashThresholdReportStatus
+  fiuReference String?
+  filedAt      DateTime?
+  note         String?
+  recordedById String
+  createdAt    DateTime                  @default(now())
+
+  @@unique([tenantId, paymentId])
+  @@index([tenantId, status])
+}
+
+enum CashThresholdReportStatus {
+  FILED
+  NOT_REPORTABLE
+}
+
+// Suspicious / unusual transaction register (lib/fic/str-cases.ts). Any staff
+// member may raise a case; only the FIC compliance role may see the register,
+// and every read is logged in SuspiciousReportAccess. Never shown to the client.
+model SuspiciousReportCase {
+  id             String                   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id])
+  reference      String
+  kind           SuspiciousReportKind
+  clientId       String?
+  client         Client?                  @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId         String?
+  loan           Loan?                    @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  paymentId      String?
+  payment        Payment?                 @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  grounds        String
+  status         SuspiciousReportStatus   @default(OPEN)
+  raisedById     String
+  raisedAt       DateTime                 @default(now())
+  assessedById   String?
+  assessedAt     DateTime?
+  assessmentNote String?
+  fiuReference   String?
+  reportedAt     DateTime?
+  closedAt       DateTime?
+  updatedAt      DateTime                 @updatedAt
+  accesses       SuspiciousReportAccess[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+}
+
+enum SuspiciousReportKind {
+  SUSPICIOUS_TRANSACTION
+  UNUSUAL_TRANSACTION
+  SUSPICIOUS_ACTIVITY
+}
+
+enum SuspiciousReportStatus {
+  OPEN
+  UNDER_REVIEW
+  REPORTED
+  CLOSED_NO_REPORT
+}
+
+// Every read of the STR register, a case, or an export. Append-only.
+model SuspiciousReportAccess {
+  id        String                @id @default(cuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id])
+  caseId    String?
+  case      SuspiciousReportCase? @relation(fields: [tenantId, caseId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  userId    String
+  action    String
+  createdAt DateTime              @default(now())
+
+  @@index([tenantId, caseId])
+  @@index([tenantId, createdAt])
+}
+
+// The lender's Risk Management and Compliance Programme, as uploaded by the
+// lender (CredaFlow generates no RMCP text). Versioned; approval is one-time.
+model RmcpDocument {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  version      Int
+  title        String
+  fileName     String
+  mimeType     String
+  storagePath  String
+  sha256       String
+  fileSize     Int
+  uploadedById String
+  uploadedAt   DateTime  @default(now())
+  approvedById String?
+  approvedAt   DateTime?
+  approvalNote String?
+  reviewDueAt  DateTime  @db.Date
+
+  @@unique([tenantId, version])
 }
 
 enum LoanPurposeCategory {
@@ -1080,6 +1329,8 @@ model BusinessEntity {
   loans                 Loan[]
   documents             EntityDocument[]
   deals                 AssetFinanceDeal[]
+  screeningChecks       ScreeningCheck[]
+  screeningBlocks       ScreeningBlock[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, type, registrationNumber])
@@ -1544,6 +1795,7 @@ model Loan {
   leaseEndOfTerm              LeaseEndOfTerm?
   leaseExpiryNotice           LeaseExpiryNotice?
   leaseTerminationQuotes      LeaseTerminationQuote[]
+  suspiciousReportCases       SuspiciousReportCase[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1799,6 +2051,8 @@ model Payment {
   parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
   excessPayments           Payment[]               @relation("PaymentOverpayment")
   surrenderProceeds        SurrenderRequest[]      @relation("SurrenderProceedsPayment")
+  cashThresholdReport      CashThresholdReport?
+  suspiciousReportCases    SuspiciousReportCase[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])

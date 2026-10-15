@@ -209,6 +209,19 @@ describe("GET reports export — compliance evidence", () => {
     }))
   })
 
+  it("H4: hides STR rows from a LOAN_ADMIN's audit export, but not from the FIC compliance role", async () => {
+    await GET(request("type=audit-log&entity=SuspiciousReportCase"))
+    expect(auditFindManyMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        entity: "SuspiciousReportCase",
+        AND: [{ NOT: [{ entity: "SuspiciousReportCase" }, { action: { startsWith: "STR_" } }] }],
+      }),
+    }))
+    requireApiRoleMock.mockImplementation(async () => ({ user: { id: "co-1", tenantId: "tenant-1", email: "co@example.test", role: "ADMIN" } }))
+    await GET(request("type=audit-log&entity=SuspiciousReportCase"))
+    expect(auditFindManyMock.mock.lastCall?.[0]).not.toHaveProperty("where.AND")
+  })
+
   it("does not query document access for a non-document entity export", async () => {
     const response = await GET(request("type=audit-log&entity=Loan"))
 

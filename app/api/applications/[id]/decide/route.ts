@@ -49,6 +49,8 @@ import {
   type PasqBillingEvidence,
 } from "@/lib/compliance/pasq"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { borrowerScreeningGate, isScreeningRefusal, lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
+import { auditRefusal } from "@/lib/audit-refusals"
 
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
@@ -1084,6 +1086,56 @@ export async function POST(
           },
         })
 
+        // PEP / sanctions screening (lib/screening): re-screens when stale, then
+        // a match refers to a senior reviewer and a sanctions match blocks with
+        // no override. The transaction re-reads it under the client's screening
+        // lock; the trigger LoanApplication_a1_guard_screening is the backstop.
+        const screening = await borrowerScreeningGate({
+          tenantId: tenant.id,
+          borrower: { clientId: application.clientId, entityId: null },
+          applicationId: id,
+          actor: { id: guard.user.id, email: guard.user.email },
+        })
+        // A screening refusal found only inside the approve transaction (the
+        // re-read under the lock, or the trigger): the same audited 422.
+        const screeningChangedRefusal = async (refusalReason: string) => {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: refusalReason,
+            status: 422,
+          })
+          return NextResponse.json(
+            { error: "Approval blocked: the client's screening changed while approving. Review it and try again.", requiresOverride: false },
+            { status: 422 },
+          )
+        }
+        if (!screening.allowed) {
+          await auditRefusal({
+            action: AuditAction.SCREENING_APPROVAL_REFUSED,
+            entity: "LoanApplication",
+            entityId: id,
+            tenantId: tenant.id,
+            userId: guard.user.id,
+            userEmail: guard.user.email,
+            reason: screening.selfDecided ? "screening_self_decided" : `screening_${screening.state.state.toLowerCase()}`,
+            status: 422,
+          })
+          return NextResponse.json(
+            {
+              error: `Approval blocked: ${screening.message}`,
+              screening: screening.state,
+              requiresOverride: false,
+              ...(screening.providerError ? { screeningProviderError: screening.providerError } : {}),
+            },
+            { status: 422 },
+          )
+        }
+
         // Credit checks (lib/credit-checks) refer, they do not decide: every
         // flag still OPEN after a fresh recompute blocks approval until a
         // LOAN_ADMIN clears it with a reason. The transaction re-counts under
@@ -1145,6 +1197,9 @@ export async function POST(
             })
             if (openFlags > 0) {
               return { ok: false as const, reason: "checks_open" as const }
+            }
+            if (!(await lockedBorrowerScreeningAllows(tx, tenant.id, { clientId: locked.application.client.id, entityId: null }, guard.user.id))) {
+              return { ok: false as const, reason: "screening_changed" as const }
             }
             // Evidence that arrived after the recompute read it has not been
             // checked: new or deleted statements and payslips, new statement
@@ -1357,6 +1412,8 @@ export async function POST(
               { status: 409 }
             )
           }
+          // The screening trigger: a run that landed after the re-read above.
+          if (isScreeningRefusal(error)) return await screeningChangedRefusal("screening_trigger")
           // The open-check-flags trigger: a flag raised after the count above.
           if (String(error).includes("open credit-check flags")) {
             return NextResponse.json(
@@ -1382,6 +1439,7 @@ export async function POST(
               { status: 409 },
             )
           }
+          if (approvalWrite.reason === "screening_changed") return await screeningChangedRefusal("screening_changed")
           if (approvalWrite.reason === "checks_stale_expenses") {
             return NextResponse.json(
               { error: "The client's declared expenses changed while approving. Refresh Credit checks and review them first." },

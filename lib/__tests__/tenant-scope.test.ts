@@ -121,6 +121,12 @@ describe("tenant-scope — ALS primitives", () => {
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
+      // PEP / sanctions screening and FIC registers — non-null tenantId.
+      "ScreeningCheck",
+      "CashThresholdReport",
+      "SuspiciousReportCase",
+      "SuspiciousReportAccess",
+      "RmcpDocument",
       // Lender API keys and outbound webhooks — non-null tenantId. The key
       // lookup by prefix and the webhook cron's cross-tenant scans run in
       // withoutTenantScope; ApiRequestLog has a nullable tenantId and is not listed.

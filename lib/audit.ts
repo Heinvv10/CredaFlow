@@ -583,6 +583,25 @@ export const AuditAction = {
   // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
   TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
+  // PEP / sanctions screening (lib/screening). Types and results only: never
+  // the matched list entries, which would put "possible PEP" in the audit view.
+  SCREENING_RUN: "SCREENING_RUN",
+  SCREENING_RUN_FAILED: "SCREENING_RUN_FAILED",
+  SCREENING_MATCH_REVIEWED: "SCREENING_MATCH_REVIEWED",
+  SCREENING_CONFIG_UPDATED: "SCREENING_CONFIG_UPDATED",
+  SCREENING_BLOCK_LIFTED: "SCREENING_BLOCK_LIFTED",
+  // An approval the screening gate refused (consumer decide route).
+  SCREENING_APPROVAL_REFUSED: "SCREENING_APPROVAL_REFUSED",
+  // FIC Act registers (lib/fic). STR rows carry the case id and status only:
+  // the audit view is wider than the STR register, and naming the client
+  // there would spread knowledge of the report (tipping-off risk).
+  CTR_RECORDED: "CTR_RECORDED",
+  FIC_EXPORTED: "FIC_EXPORTED",
+  STR_CASE_RAISED: "STR_CASE_RAISED",
+  STR_CASE_UPDATED: "STR_CASE_UPDATED",
+  RMCP_UPLOADED: "RMCP_UPLOADED",
+  RMCP_APPROVED: "RMCP_APPROVED",
+  RMCP_DOWNLOADED: "RMCP_DOWNLOADED",
   // Lender API (lib/lender-api, app/api/settings/api-keys, app/api/settings/webhooks).
   // Key and endpoint rows by id and prefix only, never a key or a signing secret.
   API_KEY_CREATED: "API_KEY_CREATED",

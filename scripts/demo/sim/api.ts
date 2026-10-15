@@ -77,7 +77,7 @@ export class SimClient {
       accept: "application/json",
       ...(method === "GET" || method === "HEAD" || method === "OPTIONS"
         ? {}
-        : { origin: new URL(this.baseUrl).origin }),
+        : { origin: new URL(this.baseUrl).origin, "sec-fetch-site": "same-origin" }),
       ...opts.headers,
     }
     let payload: FormData | URLSearchParams | string | Uint8Array<ArrayBuffer> | undefined
