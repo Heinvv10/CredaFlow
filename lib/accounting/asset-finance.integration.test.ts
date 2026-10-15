@@ -124,7 +124,9 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
   it("refuses a lease it cannot post yet (a deposit or trade-in) instead of posting it wrongly", async () => {
     await replica(db.$executeRawUnsafe(`UPDATE "Payout" SET "amountCents" = "amountCents" - 100 WHERE "id" = 'payout-jrn-ls'`))
     try {
-      expect((await plan("2026-08")).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("AF-LS-0001") })
+      const unsupported = await plan("2026-08")
+      expect(unsupported.refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("AF-LS-0001") })
+      expect(unsupported.controls, "the left-out contract is not reported as failing its own checks").toEqual([])
     } finally {
       await replica(db.$executeRawUnsafe(`UPDATE "Payout" SET "amountCents" = "amountCents" + 100 WHERE "id" = 'payout-jrn-ls'`))
     }

@@ -88,7 +88,8 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const entries = opening ? [opening, ...own] : own
   const totals = verifyBalanced(entries)
   const reconciliation = compareBooks(journalBook(base.posted, base.postedLoans, own), await independentBook(db, tenantId, period.end))
-  const controls = assetFinance.loans.length === 0 ? [] : await assetFinanceControls(db, tenantId, period.end, journalByKey(base.posted, base.postedLoans, own))
+  // A contract left out of the preview would fail its own controls by construction: its refusal is the unsupported one.
+  const controls = assetFinance.loans.length === 0 ? [] : (await assetFinanceControls(db, tenantId, period.end, journalByKey(base.posted, base.postedLoans, own))).filter((c) => !unsupportedIds.has(c.key))
   const unconfirmed = ASSET_FINANCE_ROLES.filter((role) => !settings.mappingConfirmedRoles.includes(role) && entries.some((e) => e.lines.some((l) => l.role === role)))
 
   let refusal: PeriodPlan["refusal"] = null
