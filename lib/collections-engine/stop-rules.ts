@@ -10,7 +10,7 @@
  * was already PAID is a review item, not an NPF, and is not counted.
  */
 import { prisma } from "@/lib/prisma"
-import { suspensionReason, type ResultFact } from "./scheme-rules"
+import { onePerInstructionOutcome, suspensionReason } from "./scheme-rules"
 import { transitionMandate, engineActor } from "./mandate-lifecycle"
 import type { EngineContext } from "./context"
 
@@ -19,13 +19,14 @@ export async function applyStopRules(ctx: EngineContext, mandateId: string): Pro
     where: { id: mandateId, tenantId: ctx.tenantId },
     select: {
       status: true,
-      instructions: { select: { results: { select: { outcome: true, reasonCode: true, resolvedAt: true, reportedAfterPayment: true } } } },
+      instructions: { select: { id: true, results: { select: { outcome: true, reasonCode: true, resolvedAt: true, reportedAfterPayment: true } } } },
     },
   })
   if (!mandate || mandate.status !== "ACTIVE") return null
-  const facts: ResultFact[] = mandate.instructions
-    .flatMap((i) => i.results)
-    .filter((r) => !(r.reportedAfterPayment && r.outcome === "UNPAID"))
+  // One fact per debit and outcome: a repeated unpaid report is not a second NPF.
+  const facts = onePerInstructionOutcome(mandate.instructions
+    .flatMap((i) => i.results.map((r) => ({ ...r, instructionId: i.id })))
+    .filter((r) => !(r.reportedAfterPayment && r.outcome === "UNPAID")))
   const reason = suspensionReason(facts)
   if (!reason) return null
   const moved = await transitionMandate({

@@ -186,3 +186,19 @@ export function validateMandateTerms(t: {
 export function capPerActionDate(maxAmountCents: number, committed: number, wanted: number): number {
   return Math.max(0, Math.min(wanted, maxAmountCents - committed))
 }
+
+/**
+ * At most one fact per instruction and outcome (the earliest): a provider
+ * repeating an UNPAID for one debit is one unpaid, not a second NPF.
+ */
+export function onePerInstructionOutcome(facts: ReadonlyArray<ResultFact & { instructionId: string }>): ResultFact[] {
+  const kept = new Map<string, ResultFact & { instructionId: string }>()
+  for (const f of facts) {
+    const key = `${f.instructionId}:${f.outcome}`
+    const held = kept.get(key)
+    if (!held || f.resolvedAt < held.resolvedAt) kept.set(key, f)
+  }
+  return [...kept.values()]
+    .sort((a, b) => a.resolvedAt.getTime() - b.resolvedAt.getTime())
+    .map(({ outcome, reasonCode, resolvedAt }) => ({ outcome, reasonCode, resolvedAt }))
+}

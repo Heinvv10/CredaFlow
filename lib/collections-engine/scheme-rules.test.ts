@@ -3,6 +3,7 @@ import {
   CONSECUTIVE_NPF_LIMIT,
   MAX_PRESENTMENTS_PER_CYCLE,
   capPerActionDate,
+  onePerInstructionOutcome,
   submitBackoffMs,
   consecutiveNpf,
   nextPresentmentNo,
@@ -124,5 +125,27 @@ describe("round-1 rules", () => {
 
   it("doubles the retry delay per failed submission", () => {
     expect([1, 2, 3].map(submitBackoffMs)).toEqual([3_600_000, 7_200_000, 14_400_000])
+  })
+})
+
+describe("onePerInstructionOutcome", () => {
+  const on = (d: string) => new Date(`${d}T00:00:00Z`)
+  it("keeps one fact per instruction and outcome (the earliest), so a repeated report is not a second NPF", () => {
+    const facts = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "PAID", reasonCode: null, resolvedAt: on("2026-10-28") },
+      { instructionId: "b", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-11-25") },
+    ])
+    expect(facts.map((f) => [f.outcome, f.resolvedAt.toISOString().slice(0, 10)])).toEqual([
+      ["UNPAID", "2026-10-26"], ["PAID", "2026-10-28"], ["UNPAID", "2026-11-25"],
+    ])
+  })
+
+  it("makes two NPF reports for one debit a streak of one", () => {
+    expect(consecutiveNpf(onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+    ]))).toBe(1)
   })
 })

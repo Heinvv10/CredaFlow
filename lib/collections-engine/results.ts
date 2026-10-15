@@ -133,9 +133,11 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
         // >=: a return with the same timestamp as the payment came after it.
         && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt >= o.resolvedAt)
       const secondPayment = status === "PAID" && prior.some((r) => r.outcome === "PAID")
-      reviewReason = secondPayment ? DOUBLE_DEBIT : returnedLater ? RETURNED_BEFORE_REPORT : reviewReasonFor(o, afterPayment)
+      // The provider repeating an unpaid or dispute it already reported: keep the row, act once.
+      const repeat = status !== "PAID" && !afterPayment && prior.some((r) => r.outcome === status && !r.reportedAfterPayment)
+      reviewReason = secondPayment ? DOUBLE_DEBIT : returnedLater ? RETURNED_BEFORE_REPORT : repeat ? null : reviewReasonFor(o, afterPayment)
       const held = returnedLater || secondPayment
-      const moveInstruction = !afterPayment && !held
+      const moveInstruction = !afterPayment && !held && !repeat
       const row = await tx.collectionResult.create({
         data: {
           tenantId: ctx.tenantId, provider: ctx.provider.id, instructionId: instruction.id, resultKey: resultKey(o),
@@ -153,7 +155,7 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
           data: { status, statusReason: o.reason ?? null },
         })
       }
-      if (status !== "PAID") {
+      if (status !== "PAID" && !repeat) {
         await noteCollectionOutcome(tx, {
           tenantId: ctx.tenantId, loanId: instruction.loanId, instalmentNo: instruction.installmentNo,
           presentmentNo: instruction.presentmentNo, amountCents: instruction.amountCents, outcome: status,
