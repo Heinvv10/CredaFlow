@@ -90,7 +90,8 @@ async function getReportData() {
     }),
     // Collection rate
     prisma.repaymentSchedule.aggregate({
-      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive } },
+      // Settled rows (a reversed loan's, lib/payouts/reversal-effects.ts) are not due.
+      where: { tenantId, dueDate: { gte: monthStart, lt: monthEndExclusive }, status: { not: "WRITTEN_OFF" } },
       _sum: { totalDue: true },
     }),
     prisma.payment.aggregate({

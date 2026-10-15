@@ -14,11 +14,14 @@
  */
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
+import { applyReversalEffects } from "./reversal-effects"
 import { isOver, type PayoutStatus } from "./state"
 
-export type ReversalDb = Pick<typeof prisma, "disbursementPayout" | "disbursementReversal" | "loan" | "payment" | "auditLog" | "$transaction">
+export type ReversalDb = Pick<typeof prisma, "disbursementPayout" | "disbursementReversal" | "loan" | "payment" | "auditLog" | "bureauSubmissionRecord" | "$transaction">
 
-export type ReversalResult = { ok: true; reversalId: string; status: "REQUESTED" | "APPROVED" | "REJECTED" } | { ok: false; status: number; error: string }
+export type ReversalResult =
+  | { ok: true; reversalId: string; status: "REQUESTED" | "APPROVED" | "REJECTED"; bureauCancellationRequired: boolean }
+  | { ok: false; status: number; error: string }
 
 const actorOf = (a: { id: string; email: string }) => ({ userId: a.id, userEmail: a.email })
 
@@ -45,6 +48,8 @@ export async function requestDisbursementReversal(db: ReversalDb, args: {
   if (blocker) return { ok: false, status: blocker === "Loan not found" ? 404 : 409, error: blocker }
   const open = await db.disbursementReversal.findFirst({ where: { tenantId: args.tenantId, loanId: args.loanId, status: { not: "REJECTED" } }, select: { id: true } })
   if (open) return { ok: false, status: 409, error: "A reversal of this disbursement is already requested" }
+  // A loan the bureau already knows needs a cancellation (V) record by hand.
+  const bureauKnown = (await db.bureauSubmissionRecord.count({ where: { tenantId: args.tenantId, loanId: args.loanId, mode: "LIVE", heldReason: null } })) > 0
   return db.$transaction(async (tx) => {
     const created = await tx.disbursementReversal.create({
       data: { tenantId: args.tenantId, loanId: args.loanId, reason: args.reason, requestedById: args.actor.id },
@@ -52,9 +57,9 @@ export async function requestDisbursementReversal(db: ReversalDb, args: {
     })
     await logAuditStrict({
       tenantId: args.tenantId, ...actorOf(args.actor), action: AuditAction.DISBURSEMENT_REVERSAL_REQUESTED,
-      entity: "DisbursementReversal", entityId: created.id, newValue: { loanId: args.loanId, reason: args.reason },
+      entity: "DisbursementReversal", entityId: created.id, newValue: { loanId: args.loanId, reason: args.reason, bureauCancellationRequired: bureauKnown },
     }, tx)
-    return { ok: true as const, reversalId: created.id, status: "REQUESTED" as const }
+    return { ok: true as const, reversalId: created.id, status: "REQUESTED" as const, bureauCancellationRequired: bureauKnown }
   })
 }
 
@@ -86,27 +91,13 @@ export async function decideDisbursementReversal(db: ReversalDb, args: {
       data: { status: args.approve ? "APPROVED" : "REJECTED", decidedById: args.actor.id, decidedAt: now, decisionNote: args.note },
     })
     if (moved.count !== 1) return { ok: false as const, status: 409, error: "The request changed; refresh and try again" }
+    const effects = args.approve
+      ? await applyReversalEffects(tx, { tenantId: args.tenantId, loanId: r.loanId, reversalId: r.id, actor: args.actor, now })
+      : null
     await logAuditStrict({
       tenantId: args.tenantId, ...actorOf(args.actor), action: AuditAction.DISBURSEMENT_REVERSAL_DECIDED,
-      entity: "DisbursementReversal", entityId: r.id, newValue: { loanId: r.loanId, approved: args.approve, note: args.note },
+      entity: "DisbursementReversal", entityId: r.id, newValue: { loanId: r.loanId, approved: args.approve, note: args.note, ...effects },
     }, tx)
-    if (args.approve) {
-      const cancelled = await tx.loan.updateMany({
-        where: { id: r.loanId, tenantId: args.tenantId, status: { in: ["ACTIVE", "DEFAULTED"] } },
-        data: {
-          status: "CANCELLED", closedAt: now, outstandingPrincipal: 0, arrearsAmount: 0, daysInArrears: 0,
-          nextPaymentDate: null, collectionsStage: "NONE", chargesOutstanding: 0,
-          // No interest or fees on money never advanced. The signed totals stay
-          // in contractualTotal* (set at booking).
-          totalInterest: 0, totalRepayable: 0,
-        },
-      })
-      if (cancelled.count !== 1) throw new Error("The loan changed while its disbursement was being reversed")
-      await logAuditStrict({
-        tenantId: args.tenantId, ...actorOf(args.actor), action: AuditAction.LOAN_CANCELLED,
-        entity: "Loan", entityId: r.loanId, newValue: { status: "CANCELLED", reason: "disbursement_reversed", reversalId: r.id },
-      }, tx)
-    }
-    return { ok: true as const, reversalId: r.id, status: args.approve ? "APPROVED" as const : "REJECTED" as const }
+    return { ok: true as const, reversalId: r.id, status: args.approve ? "APPROVED" as const : "REJECTED" as const, bureauCancellationRequired: effects?.bureauCancellationRequired ?? false }
   })
 }
