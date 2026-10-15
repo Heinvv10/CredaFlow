@@ -8,6 +8,7 @@ import {
   type BiometricSubjectClient,
 } from "@/lib/kyc/biometric-evidence"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { pendingIdReplacement } from "@/lib/kyc/id-replacement"
 import {
   currentManualKycException,
   type ManualKycExceptionEvidence,
@@ -280,6 +281,13 @@ export function deriveCompositeKycState(args: {
       .filter((document) => document.verified)
       .map((document) => document.docType),
   )
+  // A newer ID copy awaiting review outweighs the older verified one: the
+  // identity on file is in question until staff decide. Both layers apply this
+  // rule: subject_has_pending_id_replacement in subject_has_composite_kyc
+  // (migration 20261014130000) mirrors pendingIdReplacement, so the app and the
+  // database reach the same verdict.
+  const idReplacement = pendingIdReplacement(args.documents)
+  if (idReplacement) verifiedTypes.delete("ID_COPY")
   const missingCoreDocuments = CORE_KYC_DOCUMENT_TYPES.filter(
     (docType) => !verifiedTypes.has(docType),
   )
@@ -289,7 +297,7 @@ export function deriveCompositeKycState(args: {
     // to be told to upload again — and the client KYC checklist already reads
     // latest-first (app/api/clients/[id]/documents/route.ts), so anything else
     // makes two staff screens disagree about the same document.
-    const current = args.documents
+    const current = (docType === "ID_COPY" ? idReplacement : null) ?? args.documents
       .filter((document) => document.docType === docType)
       .reduce<CoreDocumentClassificationRow | null>((latest, document) => {
         if (latest === null) return document
