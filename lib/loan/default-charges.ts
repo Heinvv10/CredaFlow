@@ -1,6 +1,7 @@
 import { allocateReceipt } from "@/lib/loan/receipt-allocation"
 import { sastCalendarDay } from "@/lib/loan/settlement"
 import { dayOfMonth, daysInMonth, isLastDayOfMonth, isoDay } from "@/lib/loan/day-number"
+import { withoutPausedDays, type ChargePause } from "@/lib/loan/charge-pauses"
 
 // Charges that accrue on a loan AFTER a missed instalment. ALL money is CENTS.
 //
@@ -35,7 +36,7 @@ import { dayOfMonth, daysInMonth, isLastDayOfMonth, isoDay } from "@/lib/loan/da
 //    is tracked from its true start, so the in duplum base is the unpaid
 //    principal when it began.
 
-export type ChargeType = "DEFAULT_INTEREST" | "SERVICE_FEE" | "DEFAULT_ADMIN" | "COLLECTION_FEE"
+export type ChargeType = "DEFAULT_INTEREST" | "SERVICE_FEE" | "DEFAULT_ADMIN" | "COLLECTION_FEE" | "RECOVERY_COST"
 
 export interface DefaultChargeScheduleRow {
   dueDate: Date
@@ -64,6 +65,15 @@ export interface DefaultChargeInput {
   schedule: DefaultChargeScheduleRow[]
   receipts: DefaultChargeReceipt[]
   adminCharges: AdminChargeEvent[]
+  /**
+   * A recovery's approved costs charged to the account, each dated the day its
+   * sale proceeds were applied (lib/loan/charges-replay.ts). A fixed cost, not an
+   * accruing charge: it ignores the recovery's freeze, but stays inside the
+   * in duplum headroom, and it is never posted to a loan the day's receipts
+   * have settled (a closed loan is not re-opened; the cost stays owed on the
+   * recovery). UNTESTED: legal | the in duplum treatment.
+   */
+  recoveryCosts?: AdminChargeEvent[]
   /** fraction per month, e.g. 0.05 */
   interestRatePm: number
   monthlyServiceFee: number
@@ -73,6 +83,8 @@ export interface DefaultChargeInput {
   accrueFrom?: Date
   /** no charge accrues or posts on or after this day (write-off, cancellation, closing) */
   accrueUntil?: Date
+  /** inclusive SAST days on which nothing accrues or posts (a recovery's charge freeze) */
+  pauses?: ChargePause[]
 }
 
 export interface ChargePosting {
@@ -119,6 +131,8 @@ interface Episode {
   reserved: number
 }
 
+const KIND_RANK = { receipt: 0, letter: 1, cost: 2 } as const
+
 export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeResult {
   const rows = input.schedule
     .map((row, index) => ({ ...row, index, dueDay: sastCalendarDay(row.dueDate) }))
@@ -127,7 +141,7 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
   const maturityDay = sastCalendarDay(input.maturityDate)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
-  const chargeable = (day: number) => day >= accrueFromDay && day < untilDay
+  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay, input.pauses)
   const scheduleTotal = rows.reduce((sum, row) => sum + row.totalDue, 0)
   // reservedFrom[i]: the non-principal amounts of rows i..end, so an episode's
   // reservation is one lookup rather than a scan per day.
@@ -136,12 +150,14 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
     reservedFrom[i] = reservedFrom[i + 1] + rows[i].totalDue - rows[i].principalDue
   }
 
-  // Receipts and letters in time order; on a tie the receipt comes first.
+  // Receipts, letters and recovery costs in time order; on a tie the receipt comes first, then the letter. A cost (dated only by its day) always follows the day's receipts and letters.
   const events = [
-    ...input.receipts.map((r, index) => ({ ...r, letter: false, index, at: r.receivedAt.getTime(), day: Math.min(endDay, sastCalendarDay(r.receivedAt)) })),
-    ...input.adminCharges.map((l, index) => ({ ...l, letter: true, index, at: l.date.getTime(), day: sastCalendarDay(l.date) }))
+    ...input.receipts.map((r, index) => ({ ...r, kind: "receipt" as const, index, at: r.receivedAt.getTime(), day: Math.min(endDay, sastCalendarDay(r.receivedAt)) })),
+    ...input.adminCharges.map((l, index) => ({ ...l, kind: "letter" as const, index, at: l.date.getTime(), day: sastCalendarDay(l.date) }))
       .filter((letter) => letter.day <= endDay),
-  ].sort((a, b) => a.day - b.day || a.at - b.at || Number(a.letter) - Number(b.letter) || a.index - b.index)
+    ...(input.recoveryCosts ?? []).map((c, index) => ({ ...c, kind: "cost" as const, index, at: c.date.getTime(), day: sastCalendarDay(c.date) }))
+      .filter((cost) => cost.day <= endDay),
+  ].sort((a, b) => a.day - b.day || Number(a.kind === "cost") - Number(b.kind === "cost") || a.at - b.at || KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.index - b.index)
 
   const postings: ChargePosting[] = []
   const splits: ReceiptSplit[] = []
@@ -169,6 +185,17 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
     postings.push(sourceId ? { type, day: isoDay(day), amount: charged, sourceId } : { type, day: isoDay(day), amount: charged })
   }
 
+  /** A recovery's charged cost: outside the freeze, inside the headroom, and never on a loan the day's receipts settled. */
+  function postRecoveryCost(day: number, amount: number, sourceId: string) {
+    if (day < accrueFromDay || day >= untilDay) return
+    if (pool >= scheduleTotal && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
+    const charged = Math.min(amount, Math.floor(headroom()))
+    if (charged <= 0) return
+    feesAccrued += charged
+    if (episode) episode.accrued += charged
+    postings.push({ type: "RECOVERY_COST", day: isoDay(day), amount: charged, sourceId })
+  }
+
   function postInterestTo(day: number) {
     const amount = Math.round(interestExact) - interestPosted
     if (amount <= 0) return
@@ -187,7 +214,11 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
     const openAtStart = episode !== null
     for (; next < events.length && events[next].day === day; next++) {
       const event = events[next]
-      if (event.letter) {
+      if (event.kind === "cost") {
+        postRecoveryCost(day, event.amount, event.id)
+        continue
+      }
+      if (event.kind === "letter") {
         const owing = rows.some((row, i) => row.dueDay < day && paid[i] < row.totalDue)
           || Math.round(interestExact) - interestPaid + feesAccrued - feesPaid > 0
         if (openAtStart && owing) postFee(day, "DEFAULT_ADMIN", event.amount, event.id)

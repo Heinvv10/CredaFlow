@@ -18,6 +18,7 @@ import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { LoanNotes } from "@/components/loans/LoanNotes"
 import { LeaseStaffPanel } from "@/components/asset-finance/lease/LeaseStaffPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { AssetLoanRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 
 /**
  * The staff loan page for an entity-borrower (asset-finance) loan (goal
@@ -66,12 +67,13 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canAuthoriseBackdate, canManageCharges }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canAuthoriseBackdate, canManageCharges }: {
   loan: StaffAssetLoan
   tenantId: string
   userId: string
   canManageLease: boolean
   canDecideLease: boolean
+  canRecordPayment: boolean
   canAuthoriseBackdate: boolean
   canManageCharges: boolean
 }) {
@@ -226,6 +228,11 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
       </div>
 
       {lease && <LeaseStaffPanel tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} />}
+
+      {/* Court action and recovery need an asset on the loan; any contract type. */}
+      {loan.asset && (
+        <AssetLoanRecoveryPanels tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} canRecordPayment={canRecordPayment} />
+      )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

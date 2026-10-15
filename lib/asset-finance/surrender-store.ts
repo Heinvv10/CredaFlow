@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import type { ValuationSource } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
@@ -6,11 +5,18 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt } from "@/lib/loan/apply-payment"
 import { loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
-import { deleteFile, readFile, saveFile } from "@/lib/storage"
+import { deleteFile, saveFile } from "@/lib/storage"
 import { renderSurrenderFinalNotice, renderSurrenderValuationNotice, type SurrenderNoticeData } from "./documents/nca/surrender-pdf"
 import { dbDate, isoOfDbDate } from "./dates"
+import { readVerified } from "./notice-bytes"
+import { COST_TYPE_LABELS } from "./recovery-labels"
 import { surrenderOutcome } from "./surrender-calculation"
+import { guardSentence } from "./recovery-result"
+import { surrenderRequestOpen } from "./surrender-request-gate"
+
+const RECOVERY_HANDLES_PROCEEDS = "Sale proceeds for this surrender go through its recovery"
 
 interface Actor { tenantId: string; userId: string; userEmail?: string | null }
 type Result = { kind: "not_found" } | { kind: "not_ready"; reason: string } | { kind: "done"; id: string }
@@ -27,9 +33,12 @@ export async function requestSurrender(actor: Actor, loanId: string, assetCondit
         { entity: { relationships: { some: { clientId: actor.userId, active: true, role: { in: ["DIRECTOR", "MEMBER", "TRUSTEE", "AUTHORISED_SIGNATORY"] } } } } },
       ] } : {}),
     },
-    select: { id: true, assetId: true },
+    select: { id: true, assetId: true, asset: { select: { lessorStatus: true } }, recoveries: { select: { status: true } } },
   })
   if (!loan?.assetId) return { kind: "not_found" }
+  if (!surrenderRequestOpen({ recoveryStatuses: loan.recoveries.map((r) => r.status), lessorStatus: loan.asset?.lessorStatus ?? null })) {
+    return { kind: "not_ready", reason: "The asset is already in the lender's possession" }
+  }
   const assetId = loan.assetId
   const requestedOn = sastCalendarDate(new Date())
   // UNTESTED: s127 statutory valuation window and citation require lender legal sign-off.
@@ -80,7 +89,7 @@ export async function issueSurrenderNotice(actor: Actor, id: string, kind: "valu
   const renderedAt = new Date()
   const data = await noticeData(actor.tenantId, request, renderedAt)
   const bytes = kind === "valuation" ? await renderSurrenderValuationNotice(data) : await renderSurrenderFinalNotice(data)
-  const sha256 = createHash("sha256").update(bytes).digest("hex")
+  const sha256 = sha256DocumentBytes(bytes)
   const stored = await saveFile(bytes, "application/pdf")
   try {
     await prisma.$transaction(async (tx) => {
@@ -101,8 +110,9 @@ export async function issueSurrenderNotice(actor: Actor, id: string, kind: "valu
 
 export async function creditSurrenderProceeds(actor: Actor, id: string, saleProceedsCents: number, receivedAt?: Date): Promise<Result> {
   if (!Number.isSafeInteger(saleProceedsCents) || saleProceedsCents <= 0) return { kind: "not_ready", reason: "Sale proceeds must be positive integer cents" }
-  const request = await prisma.surrenderRequest.findFirst({ where: { id, tenantId: actor.tenantId }, select: { id: true, status: true, loanId: true } })
+  const request = await prisma.surrenderRequest.findFirst({ where: { id, tenantId: actor.tenantId }, select: { id: true, status: true, loanId: true, recovery: { select: { id: true } } } })
   if (!request) return { kind: "not_found" }
+  if (request.recovery) return { kind: "not_ready", reason: RECOVERY_HANDLES_PROCEEDS }
   if (request.status !== "VALUATION_NOTICE_ISSUED") return { kind: "not_ready", reason: "Issue the valuation notice before crediting proceeds" }
   const loan = await prisma.loan.findFirst({ where: { id: request.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
   if (!loan) return { kind: "not_found" }
@@ -114,15 +124,24 @@ export async function creditSurrenderProceeds(actor: Actor, id: string, saleProc
     capturedByEmail: actor.userEmail, idempotencyKey: `asset-surrender:${id}:proceeds`, receivedAt: asOf,
   })
   const outcome = surrenderOutcome({ settlementDueCents: settlement.totalToSettle, saleProceedsCents })
-  await prisma.$transaction(async (tx) => {
-    await tx.surrenderRequest.update({ where: { id, tenantId: actor.tenantId }, data: {
-      status: "PROCEEDS_CREDITED", saleProceedsCents, proceedsPaymentId: result.payment.id, ...outcome,
-    } })
-    await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
-      action: AuditAction.ASSET_SURRENDER_PROCEEDS_CREDITED, entity: "SurrenderRequest", entityId: id,
-      newValue: { saleProceedsCents, settlementDueCents: settlement.totalToSettle, paymentId: result.payment.id, ...outcome },
-    }, tx)
-  })
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.surrenderRequest.update({ where: { id, tenantId: actor.tenantId }, data: {
+        status: "PROCEEDS_CREDITED", saleProceedsCents, proceedsPaymentId: result.payment.id, ...outcome,
+      } })
+      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
+        action: AuditAction.ASSET_SURRENDER_PROCEEDS_CREDITED, entity: "SurrenderRequest", entityId: id,
+        newValue: { saleProceedsCents, settlementDueCents: settlement.totalToSettle, paymentId: result.payment.id, ...outcome },
+      }, tx)
+    })
+  } catch (error) {
+    // A recovery linked between the check above and this write: the database
+    // (guardSurrenderRecoveryProceeds) refuses it. KNOWN LIMIT: the receipt was
+    // applied before this transaction, so in that race it stays applied and
+    // unlinked to the surrender; staff reconcile it against the recovery.
+    if (guardSentence(error) === RECOVERY_HANDLES_PROCEEDS) return { kind: "not_ready", reason: RECOVERY_HANDLES_PROCEEDS }
+    throw error
+  }
   return { kind: "done", id }
 }
 
@@ -133,9 +152,7 @@ export async function readSurrenderNotice(tenantId: string, id: string, kind: "v
   const path = kind === "valuation" ? row?.valuationNoticePath : row?.finalNoticePath
   const sha256 = kind === "valuation" ? row?.valuationNoticeSha256 : row?.finalNoticeSha256
   if (!path || !sha256) return null
-  const bytes = await readFile(path)
-  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Surrender notice bytes failed integrity check")
-  return { bytes, sha256 }
+  return readVerified(path, sha256, "Surrender notice")
 }
 
 export async function clientSurrenderAccess(tenantId: string, clientId: string, id: string): Promise<boolean> {
@@ -153,6 +170,9 @@ async function loadNoticeData(tenantId: string, id: string) {
     valuation: true,
     loan: { select: { reference: true, client: true, entity: true } },
     asset: true,
+    recovery: { select: {
+      settlementDueCents: true, grossProceedsCents: true, deductedCostsCents: true, netProceedsCents: true, chargedCostsCents: true, shortfallCents: true, surplusCents: true, unrecoverableCostsCents: true,
+      costs: { where: { status: "APPROVED" }, select: { type: true, grossCents: true, treatment: true }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } } },
   } })
 }
 
@@ -173,5 +193,17 @@ async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date):
     valuation: row.valuation ? { valuedOn: isoOfDbDate(row.valuation.valuedOn), valuerName: row.valuation.valuerName, amountCents: row.valuation.amountCents } : undefined,
     outcome: row.saleProceedsCents === null || row.shortfallCents === null || row.refundCents === null ? undefined
       : { saleProceedsCents: row.saleProceedsCents, shortfallCents: row.shortfallCents, refundCents: row.refundCents },
+    recoveryOutcome: recoveryOutcome(row.recovery),
+    costs: row.recovery?.costs.map((c) => ({ type: c.type, label: COST_TYPE_LABELS[c.type], grossCents: c.grossCents, treatment: c.treatment })),
+  }
+}
+
+function recoveryOutcome(recovery: NoticeRow["recovery"]): SurrenderNoticeData["recoveryOutcome"] {
+  if (!recovery || recovery.settlementDueCents === null || recovery.grossProceedsCents === null || recovery.deductedCostsCents === null
+    || recovery.netProceedsCents === null || recovery.chargedCostsCents === null || recovery.shortfallCents === null || recovery.surplusCents === null) return undefined
+  return {
+    settlementDueCents: recovery.settlementDueCents, grossProceedsCents: recovery.grossProceedsCents, deductedCostsCents: recovery.deductedCostsCents,
+    netProceedsCents: recovery.netProceedsCents, chargedCostsCents: recovery.chargedCostsCents, shortfallCents: recovery.shortfallCents, surplusCents: recovery.surplusCents,
+    unrecoverableCostsCents: recovery.unrecoverableCostsCents ?? undefined,
   }
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Prisma } from "@prisma/client"
 import { NextRequest } from "next/server"
 
 const {
@@ -9,6 +10,8 @@ const {
   auditCreate,
   logAudit,
   lockLoanForUpdate,
+  recoveryCount,
+  saleCount,
 } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   findUnique: vi.fn(),
@@ -17,6 +20,8 @@ const {
   auditCreate: vi.fn(),
   logAudit: vi.fn(),
   lockLoanForUpdate: vi.fn(),
+  recoveryCount: vi.fn(),
+  saleCount: vi.fn(),
 }))
 
 let committedReversed = false
@@ -116,6 +121,8 @@ function transaction(callback: (tx: unknown) => Promise<unknown>) {
             sib.reversed === args.where.reversed
             && sib.allocationStatus === args.where.allocationStatus).length,
       },
+      recovery: { count: recoveryCount },
+      remarketingSale: { count: saleCount },
       loan: {
         findUniqueOrThrow: async () => loan,
         update: async () => loan,
@@ -205,8 +212,39 @@ describe("PATCH /api/payments/[id]/reverse", () => {
     // Both concurrent requests may read this pre-transaction projection before
     // either transaction commits. The authoritative claim belongs inside tx.
     findUnique.mockResolvedValue(payment)
+    recoveryCount.mockResolvedValue(0)
+    saleCount.mockResolvedValue(0)
     logAudit.mockResolvedValue(undefined)
     vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  it.each([["a recovery", 1, 0], ["a remarketing sale", 0, 1]])("refuses to reverse the receipt that is %s's sale proceeds, writing nothing", async (_name, recoveries, sales) => {
+    recoveryCount.mockResolvedValue(recoveries)
+    saleCount.mockResolvedValue(sales)
+
+    const response = await PATCH(request("Bank returned the deposit"), context)
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("This receipt is a recovery's sale proceeds and cannot be reversed")
+    expect(recoveryCount).toHaveBeenCalledWith({ where: { tenantId: "tenant-1", proceedsPaymentId: "payment-1" } })
+    // Checked after the loan lock, inside the transaction, and the rolled-back transaction wrote nothing.
+    expect(lockLoanForUpdate).toHaveBeenCalledOnce()
+    expect(lockLoanForUpdate.mock.invocationCallOrder[0]).toBeLessThan(recoveryCount.mock.invocationCallOrder[0])
+    expect(paymentUpdateMany).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
+    expect(committedReversed).toBe(false)
+  })
+
+  it("answers 409, not 500, when the database refuses the reversal because a recovery took the receipt meanwhile", async () => {
+    lockLoanForUpdate.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError(
+      "\nInvalid `tx.payment.updateMany()` invocation:\n\nRaw query failed. Code: `23514`. Message: `ERROR: A recovery's sale-proceeds receipt is not reversed`",
+      { code: "P2010", clientVersion: "test", meta: { code: "23514" } },
+    ))
+
+    const response = await PATCH(request("Bank returned the deposit"), context)
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("This receipt is a recovery's sale proceeds and cannot be reversed")
   })
 
   it("lets only one concurrent reversal claim the payment and preserves its reason", async () => {

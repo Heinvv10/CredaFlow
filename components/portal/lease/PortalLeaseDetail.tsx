@@ -31,10 +31,12 @@ function Figure({ label, value, sub }: { label: string; value: string; sub?: str
  * so the lessee is already authorised; `documents` (the entity routes' signed
  * documents) is passed by the entity page only.
  */
-export function PortalLeaseDetail({ view, back, documents }: {
+export function PortalLeaseDetail({ view, back, documents, extra }: {
   view: PortalLeaseView
   back: { href: string; label: string }
   documents?: PortalContractDocument[]
+  /** Panels the page adds after the lease's own (the recovery card). */
+  extra?: React.ReactNode
 }) {
   const { loan, asset, today } = view
   const status = loan.status
@@ -107,6 +109,7 @@ export function PortalLeaseDetail({ view, back, documents }: {
           <LeaseDocuments loanId={loan.id} documents={documents} />
         </DataPanel>
       )}
+      {extra}
     </div>
   )
 }

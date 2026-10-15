@@ -63,10 +63,11 @@ export async function createDeal(
   if (locked.length === 0) return refused(422, "The asset is not on this lender's register")
   const asset = await tx.financedAsset.findFirst({
     where: { id: input.assetId, tenantId },
-    select: { cashPriceExclVatCents: true, vatCents: true, releasedAt: true, make: true, model: true, serialNumber: true },
+    select: { cashPriceExclVatCents: true, vatCents: true, releasedAt: true, lessorStatus: true, make: true, model: true, serialNumber: true },
   })
   if (!asset) return refused(422, "The asset is not on this lender's register")
   if (asset.releasedAt) return refused(409, "The asset has been released and cannot be financed again")
+  if (asset.lessorStatus === "RECOVERED" || asset.lessorStatus === "SOLD_IN_REMARKETING") return refused(409, "The asset is in recovery or was sold in remarketing")
   const other = await tx.assetFinanceDeal.findFirst({
     where: { tenantId, assetId: input.assetId, status: { notIn: [...CLOSED_DEAL_STATUSES] } },
     select: { id: true, status: true },

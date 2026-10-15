@@ -127,6 +127,8 @@ model Tenant {
   leaseExpiryNotices         LeaseExpiryNotice[]
   leaseRentals               LeaseRental[]
   leaseTerminationQuotes     LeaseTerminationQuote[]
+  legalMatters               LegalMatter[]
+  legalMatterSteps           LegalMatterStep[]
   loanApplications           LoanApplication[]
   loanCharges                LoanCharge[]
   loanNotes                  LoanNote[]
@@ -145,10 +147,15 @@ model Tenant {
   paymentArrangements        PaymentArrangement[]
   payments                   Payment[]
   premiumPayments            PremiumPayment[]
+  recoveries                 Recovery[]
+  recoveryCosts              RecoveryCost[]
+  recoveryRefunds            RecoveryRefund[]
+  recoveryVatEvents          RecoveryVatEvent[]
   referenceRates             ReferenceRate[]
   referralAgents             ReferralAgent[]
   referralCodes              ReferralCode[]
   referralEvents             ReferralEvent[]
+  remarketingSales           RemarketingSale[]
   repaymentSchedules         RepaymentSchedule[]
   rmcpDocuments              RmcpDocument[]
   screeningBlocks            ScreeningBlock[]
@@ -212,10 +219,18 @@ model TenantConfig {
   maintenanceClaimDualApprovalCents Int     @default(5000000)
   leasePurchaseValuationMaxAgeDays  Int     @default(30)
   leaseTerminationQuoteValidDays    Int     @default(10)
+
+  // Recovery and remarketing (slice 4a, UNTESTED: lender legal sign-off). The
+  // cost types an NCA recovery may deduct from sale proceeds, and the types a
+  // NON_NCA recovery may deduct or charge; the days a NON_NCA debtor has after
+  // the proceeds before charges resume.
+  recoveryNcaDeductibleCostTypes    RecoveryCostType[] @default([TOWING, STORAGE, VALUATION, REPAIRS, ADVERTISING, AUCTION_COMMISSION, SHERIFF, INSURANCE])
+  recoveryNonNcaChargeableCostTypes RecoveryCostType[] @default([TOWING, STORAGE, VALUATION, REPAIRS, ADVERTISING, AUCTION_COMMISSION, SHERIFF, INSURANCE, LEGAL_TAXED, LEGAL_CONTRACTUAL, OTHER])
+  nonNcaDemandPeriodDays            Int                @default(10)
   // Asset-finance agreements, suretyships and resolutions render with a
   // DRAFT — NOT FOR EXECUTION watermark until the lender's legal team approves
   // the wording. Turning this on is a Confirmation Gate (Hein / legal).
-  assetFinanceLegalWordingApproved  Boolean @default(false)
+  assetFinanceLegalWordingApproved  Boolean            @default(false)
 
   ncrNumber        String?
   fscaNumber       String?

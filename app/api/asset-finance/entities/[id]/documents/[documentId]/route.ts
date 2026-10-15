@@ -6,7 +6,11 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { serveEntityDocument } from "@/lib/asset-finance/entity-document-io"
 import { lockBusinessEntity } from "@/lib/asset-finance/entity-documents"
+import { guardSentence } from "@/lib/asset-finance/recovery-result"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
+
+const KEPT_FOR_LEGAL_OR_REFUND = "evidences a legal matter step or a refund's bank verification"
+const KEPT_AS_LEGAL_OR_REFUND_EVIDENCE = "A document that evidences a legal matter step or a refund's bank verification cannot be deleted"
 
 type Params = { params: Promise<{ id: string; documentId: string }> }
 
@@ -33,7 +37,8 @@ export async function GET(req: NextRequest, { params }: Params) {
  * entity's financialsEvidenceIds in the same transaction, so the classifier
  * never relies on a deleted document. A document that is signing or payout
  * evidence is kept by the database (triggers EntityDocument_signing_evidence
- * and EntityDocument_payout_evidence, SQLSTATE 23514): 409.
+ * and EntityDocument_payout_evidence, SQLSTATE 23514): 409. So is one that
+ * evidences a legal matter step or a refund's bank verification.
  */
 export async function DELETE(req: NextRequest, { params }: Params) {
   // manage_asset_finance
@@ -82,8 +87,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       deleted = await softDelete()
     } catch (error) {
       if (isCheckViolation(error)) {
+        // The legal-matter / refund rule (EntityDocument trigger) says so in its own words.
+        const legal = [guardSentence(error) ?? "", error instanceof Error ? error.message : ""].some((text) => text.includes(KEPT_FOR_LEGAL_OR_REFUND))
         return NextResponse.json(
-          { error: "This document is evidence for a signed deal document or a payout checklist item and cannot be deleted" },
+          { error: legal ? KEPT_AS_LEGAL_OR_REFUND_EVIDENCE : "This document is evidence for a signed deal document or a payout checklist item and cannot be deleted" },
           { status: 409 },
         )
       }

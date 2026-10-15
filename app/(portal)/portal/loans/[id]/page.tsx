@@ -9,6 +9,8 @@ import { documentLoanFigures, documentScheduleRow, owesNothing } from "@/lib/loa
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
+import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
+import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { getPortalLoan } from "./portal-loan"
 import { getLocale } from "@/lib/i18n/server"
@@ -39,7 +41,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     // A sole proprietor's lease: rentals, not a loan. The lease gate decides who may see it.
     const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
     if (!lease) redirect("/portal")
-    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} />
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />} />
   }
 
   const nextPayment = loan.repaymentSchedule.find(
@@ -67,6 +69,10 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     CANCELLED: { bg: "#F3F4F6", text: "#1F2937" },
   }
   const sc = statusColor[loan.status] || statusColor.ACTIVE
+
+  // A voluntary surrender (NCA s127) can be asked for until the lender holds the asset; an existing request still shows.
+  const surrenderApplies = loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && Boolean(loan.assetId)
+  const canRequestSurrender = surrenderApplies && await loadSurrenderRequestOpen(loan.tenantId, loan.id)
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
@@ -167,9 +173,14 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
 
       {/* Tabs — Repayment Schedule + Payment History */}
       <PortalLoanTabs loan={loan} t={t} l={l} locale={locale} />
-      {loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && loan.assetId && (
+      {loan.contractType !== "LOAN" && loan.assetId && (
         <div className="mt-6">
-          <SurrenderRequestCard loanId={loan.id} existing={loan.surrenderRequests[0] ?? null} />
+          <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />
+        </div>
+      )}
+      {surrenderApplies && (loan.surrenderRequests[0] || canRequestSurrender) && (
+        <div className="mt-6">
+          <SurrenderRequestCard loanId={loan.id} existing={loan.surrenderRequests[0] ?? null} canRequest={canRequestSurrender} />
         </div>
       )}
     </div>

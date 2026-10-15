@@ -3,15 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { PortalContractView } from "@/lib/asset-finance/portal-contract"
 import type { PortalLeaseView } from "@/lib/asset-finance/portal-lease"
 
-const mocks = vi.hoisted(() => ({ loadPortalLease: vi.fn(), loadPortalContract: vi.fn(), notFound: vi.fn() }))
+const mocks = vi.hoisted(() => ({ loadPortalLease: vi.fn(), loadPortalContract: vi.fn(), notFound: vi.fn(), surrenderOpen: vi.fn() }))
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound, useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/lib/asset-finance/portal-page", () => ({ requirePortalEntityPage: vi.fn(async () => ({ tenantId: "t1", clientId: "c1" })) }))
 vi.mock("@/lib/asset-finance/portal-contract", () => ({ loadPortalContract: mocks.loadPortalContract }))
+vi.mock("@/lib/asset-finance/surrender-request-gate", () => ({ loadSurrenderRequestOpen: mocks.surrenderOpen }))
 vi.mock("@/lib/asset-finance/portal-lease", () => ({ loadPortalLease: mocks.loadPortalLease }))
 vi.mock("@/lib/asset-finance/signing", () => ({ DEAL_DOCUMENT_LABELS: { AGREEMENT: "Asset finance agreement" }, SIGNER_STATE_LABELS: { SIGNED: "Signed" } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
 vi.mock("@/lib/asset-finance/lease-portal-route", () => ({ clientLeaseRefusal: vi.fn() }))
 vi.mock("@/lib/asset-finance/meter-readings", () => ({ recordMeterReading: vi.fn() }))
+// The recovery card is an async server component (it reads the DB): stubbed here, and asserted by its props.
+vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({
+  PortalRecoverySection: ({ tenantId, loanId }: { tenantId: string; loanId: string }) => `recovery-section:${tenantId}:${loanId}`,
+}))
 
 import PortalContractPage from "./page"
 
@@ -35,6 +40,7 @@ const render = async () => renderToStaticMarkup(await PortalContractPage({ param
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.surrenderOpen.mockResolvedValue(true)
   mocks.notFound.mockImplementation(() => { throw new Error("NEXT_NOT_FOUND") })
 })
 
@@ -48,6 +54,7 @@ describe("portal entity contract page", () => {
     expect(html).toContain("Back to TEST Lessee (Pty) Ltd")
     expect(html).toContain("Asset finance agreement")
     expect(html).not.toContain("Repayment schedule")
+    expect(html).toContain("recovery-section:t1:L1")
   })
 
   it("is a 404 when the lease gate refuses", async () => {
@@ -62,5 +69,37 @@ describe("portal entity contract page", () => {
     expect(mocks.loadPortalLease).not.toHaveBeenCalled()
     expect(html).toContain("Contract TEST-1")
     expect(html).toContain("Repayment schedule")
+    expect(html).toContain("recovery-section:t1:L1")
+  })
+
+  describe("the voluntary surrender request of an NCA contract", () => {
+    const nca = (surrender: { id: string; status: string } | null = null) => {
+      const view = contract("INSTALMENT_SALE") as unknown as { loan: { ncaRegime: string }; surrender: unknown }
+      view.loan.ncaRegime = "NCA"
+      view.surrender = surrender
+      return view as unknown as PortalContractView
+    }
+
+    it("offers it while the lender does not hold the asset", async () => {
+      mocks.loadPortalContract.mockResolvedValue(nca())
+      expect(await render()).toContain("Request voluntary surrender")
+      expect(mocks.surrenderOpen).toHaveBeenCalledWith("t1", "L1")
+    })
+
+    it("hides the request and its panel once the asset is held", async () => {
+      mocks.surrenderOpen.mockResolvedValue(false)
+      mocks.loadPortalContract.mockResolvedValue(nca())
+      const html = await render()
+      expect(html).not.toContain("Request voluntary surrender")
+      expect(html).not.toContain("Voluntary surrender")
+    })
+
+    it("keeps an existing request's status when no new request can be made", async () => {
+      mocks.surrenderOpen.mockResolvedValue(false)
+      mocks.loadPortalContract.mockResolvedValue(nca({ id: "s1", status: "VALUATION_NOTICE_ISSUED" }))
+      const html = await render()
+      expect(html).toContain("Voluntary surrender recorded")
+      expect(html).not.toContain("Request voluntary surrender")
+    })
   })
 })
