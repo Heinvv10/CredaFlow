@@ -61,9 +61,9 @@ export async function lockDeal(
   tx: SigningTx,
   tenantId: string,
   dealId: string,
-): Promise<{ status: AssetDealStatus; entityId: string } | null> {
-  const rows = await tx.$queryRaw<Array<{ status: AssetDealStatus; entityId: string }>>(Prisma.sql`
-    SELECT "status", "entityId" FROM "AssetFinanceDeal"
+): Promise<{ status: AssetDealStatus; entityId: string | null; clientId: string | null } | null> {
+  const rows = await tx.$queryRaw<Array<{ status: AssetDealStatus; entityId: string | null; clientId: string | null }>>(Prisma.sql`
+    SELECT "status", "entityId", "clientId" FROM "AssetFinanceDeal"
     WHERE "id" = ${dealId} AND "tenantId" = ${tenantId}
     FOR UPDATE
   `)
@@ -85,6 +85,20 @@ export async function currentRequiredSigners(
   return deriveRequiredSigners(entity.type, relationships)
 }
 
+/**
+ * The required set for a deal's borrower: an entity's people (as
+ * currentRequiredSigners), or a sole-proprietor lessee alone, signing the
+ * agreement (guardAssetDealSignedTerms requires exactly that row).
+ */
+export async function requiredBorrowerSigners(
+  tx: SigningTx,
+  tenantId: string,
+  borrower: { entityId: string | null; clientId: string | null },
+): Promise<RequiredSigner[]> {
+  if (borrower.entityId !== null) return currentRequiredSigners(tx, tenantId, borrower.entityId)
+  return borrower.clientId === null ? [] : [{ clientId: borrower.clientId, role: "AUTHORISED_SIGNATORY", document: "AGREEMENT" }]
+}
+
 /** The signer set a deal was prepared with (AssetFinanceDeal.preparedSigners); empty before preparation. */
 export async function preparedRequiredSigners(tx: SigningTx, tenantId: string, dealId: string): Promise<RequiredSigner[]> {
   const deal = await tx.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { preparedSigners: true } })
@@ -102,7 +116,7 @@ export const MAX_PLANNED_START_DAYS = 90
  * instalment. The database refuses the same window
  * (AssetFinanceDeal_planned_start_window).
  */
-export function plannedStartProblem(plannedStartDate: string, firstDueDate: string, today: string): string | null {
+export function plannedStartProblem(plannedStartDate: string, firstDueDate: string, today: string, advance = false): string | null {
   let start: number
   try {
     start = toDayNumber(plannedStartDate, "plannedStartDate")
@@ -114,6 +128,8 @@ export function plannedStartProblem(plannedStartDate: string, firstDueDate: stri
   if (start > day + MAX_PLANNED_START_DAYS) {
     return `The planned start date may be at most ${MAX_PLANNED_START_DAYS} days ahead (${fromDayNumber(day + MAX_PLANNED_START_DAYS)})`
   }
+  // A rental in advance is paid on the commencement date: the lease starts on its first due date.
+  if (advance) return start === toDayNumber(firstDueDate) ? null : `A lease with rentals in advance starts on its first due date (${firstDueDate})`
   return start < toDayNumber(firstDueDate) ? null : `The planned start date must be before the first instalment (${firstDueDate})`
 }
 
@@ -129,11 +145,12 @@ export async function prepareDealDocuments(
     return prepareEntityNcaDocuments(actor, dealId)
   }
   const today = sastCalendarDate(new Date())
-  const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, firstDueDate: true } })
+  const status = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, firstDueDate: true, rentalTiming: true } })
   if (!status) return { kind: "not_found" }
   if (status.status !== "APPROVED") return { kind: "not_approved", status: status.status }
-  const start = plannedStartDate ?? today
-  const startProblem = plannedStartProblem(start, isoOfDbDate(status.firstDueDate), today)
+  const advance = status.rentalTiming === "ADVANCE"
+  const start = plannedStartDate ?? (advance ? isoOfDbDate(status.firstDueDate) : today)
+  const startProblem = plannedStartProblem(start, isoOfDbDate(status.firstDueDate), today, advance)
   if (startProblem) return { kind: "invalid_start", error: startProblem }
 
   // Throws DealDocumentError / LenderIdentityError: the caller refuses with the reason.
@@ -159,7 +176,7 @@ export async function prepareDealDocuments(
         select: { id: true, clientId: true, document: true, method: true, documentStoragePath: true },
       })
       if (existing.some((row) => row.method !== null)) return { result: { kind: "signing_started" } as const, released: [] }
-      const now = await currentRequiredSigners(tx, tenantId, deal.entityId)
+      const now = await requiredBorrowerSigners(tx, tenantId, deal)
       if (now.map(signerKey).join("|") !== data.requiredSigners.map(signerKey).join("|")) {
         return { result: { kind: "people_changed" } as const, released: [] }
       }

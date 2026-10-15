@@ -19,7 +19,7 @@ import type { AuthenticityFacts, BankCode, StatementRead } from "./types"
 import { readWithVlm, VLM_MAX_PAGES, VlmUnavailableError } from "./vlm-reader"
 
 /** Bump when a reader changes what it returns for the same bytes. */
-export const PARSER_VERSION = "statement-v2"
+export const PARSER_VERSION = "statement-v3"
 
 /** Fewer non-space characters than this and the PDF is treated as a scan. */
 const MIN_TEXT_LAYER_CHARS = 200

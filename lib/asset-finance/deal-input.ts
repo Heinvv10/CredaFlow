@@ -13,12 +13,14 @@ import type { ContractType, ReferenceRateBasis } from "@prisma/client"
 import { toDayNumber } from "./dates"
 import { asRecord, MAX_INT, readEnum, readInt, readText, type Errors, type Fields } from "./input-fields"
 import { annualSeasonal, biannual, monthly, skipN, stepUp, type WeightStep } from "./structure-presets"
+import { escalationWeights } from "./lease-pricing"
+import { isLeaseContract, readLeaseTerms, type LeaseTerms } from "./lease-input"
 
 export const STRUCTURE_PRESETS = ["MONTHLY", "ANNUAL_SEASONAL", "BIANNUAL", "SKIP_N", "STEP_UP"] as const
 export type StructurePresetName = (typeof STRUCTURE_PRESETS)[number]
 
 export const RATE_BASES = ["FIXED", "PRIME", "REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const satisfies readonly ReferenceRateBasis[]
-export const ASSET_CONTRACT_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE"] as const satisfies readonly ContractType[]
+export const ASSET_CONTRACT_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const satisfies readonly ContractType[]
 export type AssetContractType = (typeof ASSET_CONTRACT_TYPES)[number]
 
 /** Longest structure accepted: ten years of monthly periods. */
@@ -43,6 +45,8 @@ export interface StructureTerms {
   firstDueDate: string
   vatDeferralPeriodIndex: number | null
   rate: RateTerms
+  /** An operating or full-maintenance lease only (./lease-input.ts); weights are then its escalation. */
+  lease?: LeaseTerms
 }
 
 export interface DealPreviewInput {
@@ -185,7 +189,10 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
   }
   readInt(record, "vatDeferralPeriodIndex", out, errors, { required: false, nullable: true, min: 0, max: MAX_PERIODS - 1 })
   const firstDueDate = readFirstDueDate(record, errors, today)
-  const structure = presetWeights(record.preset, firstDueDate, errors)
+  const contractType = out.contractType as AssetContractType | undefined
+  const lease = contractType !== undefined && isLeaseContract(contractType) ? readLeaseTerms(record, contractType, errors) : null
+  const preset = presetWeights(record.preset, firstDueDate, errors)
+  const structure = preset && lease ? { preset: preset.preset, weights: escalationWeights(preset.weights.length, lease.escalationRate) } : preset
   const rate = readRate(record, errors)
   // Slice 1: repricing cannot carry a pending VAT lump (reprice-loan.ts PARTIAL),
   // so VAT deferral is offered on a fixed rate only; booking refuses it too.
@@ -193,6 +200,7 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
     errors.vatDeferralPeriodIndex = "is available on a fixed rate only (a reference-linked deal cannot defer VAT in slice 1)"
   }
   if (Object.keys(errors).length > 0 || !structure || !rate || !firstDueDate) return { errors }
+  if (contractType !== undefined && isLeaseContract(contractType) && !lease) return { errors: { contractType: "the lease terms are incomplete" } }
   return {
     data: {
       assetId: out.assetId as string,
@@ -208,6 +216,7 @@ export function parseDealPreview(body: unknown, today: string): Result<DealPrevi
         firstDueDate,
         vatDeferralPeriodIndex: (out.vatDeferralPeriodIndex as number | null | undefined) ?? null,
         rate,
+        ...(lease ? { lease } : {}),
       },
     },
   }

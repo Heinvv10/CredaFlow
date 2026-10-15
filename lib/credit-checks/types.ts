@@ -41,7 +41,7 @@ export interface ApplicationFacts {
   clientName: string
   /** Validated net pay if there is one, else the client's captured income. */
   monthlyIncomeCents: number | null
-  /** Client.monthlyExpenses as captured (cents); absent where facts were built without it. */
+  /** Client.monthlyExpenses as declared (cents), null if never captured (`declaredExpenses`); absent where facts were built without it. */
   declaredExpensesCents?: number | null
   statements: StatementFacts[]
   /** Statements in the window that were read and later deleted: what they showed may be gone. */

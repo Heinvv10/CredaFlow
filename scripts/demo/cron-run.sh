@@ -45,7 +45,8 @@ case "$job" in
       *) die "$usage" ;;
     esac
     [ $# -le 2 ] || die "$usage"
-    cmd=(bash -c 'scripts/demo/bake.sh && scripts/demo/restore.sh') ;;
+    # Another lender's bake may hold the host-wide sim lock: queue behind it.
+    cmd=(env DEMO_SIM_LOCK_WAIT=10800 bash -c 'scripts/demo/bake.sh && scripts/demo/restore.sh') ;;
   *) die "$usage" ;;
 esac
 

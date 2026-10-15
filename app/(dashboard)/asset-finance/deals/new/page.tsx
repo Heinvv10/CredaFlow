@@ -44,7 +44,7 @@ export default async function NewDealPage() {
     <>
       <Header
         title="New deal"
-        subtitle="Instalment sale: structure the deal and check the schedule before you save it"
+        subtitle="Instalment sale or lease: structure the deal and check the schedule before you save it"
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Deals", href: "/asset-finance/deals" }, { label: "New" }]}
       />
       <div className="p-4 lg:p-8">

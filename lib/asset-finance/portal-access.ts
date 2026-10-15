@@ -69,6 +69,23 @@ export function portalSignerAuthorityWhere(tenantId: string, clientId: string): 
 }
 
 /**
+ * The rows a portal client may read and sign: portalSignerAuthorityWhere's, or
+ * (a sole proprietor's lease, slice 3) the agreement row of a lease whose
+ * lessee they are themselves. Combine with AND, as above.
+ */
+export function portalSignerWhere(tenantId: string, clientId: string): Prisma.DealSignerWhereInput {
+  return { OR: [portalSignerAuthorityWhere(tenantId, clientId), leaseLesseeSignerWhere(tenantId, clientId)] }
+}
+
+/** A sole proprietor's own lease agreement row: the lessee is the client, no entity. */
+export function leaseLesseeSignerWhere(tenantId: string, clientId: string): Prisma.DealSignerWhereInput {
+  return {
+    role: "AUTHORISED_SIGNATORY", document: "AGREEMENT",
+    deal: { tenantId, clientId, entityId: null, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
+  }
+}
+
+/**
  * null when the client may act for the entity; otherwise the 404 to return.
  * Pages call `notFound()` on a non-null answer.
  */

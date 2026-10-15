@@ -121,6 +121,8 @@ describe("tenant-scope — ALS primitives", () => {
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.
       "KycOverrideRequest",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 

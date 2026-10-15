@@ -37,6 +37,16 @@ describe("maySupersede: an OPEN flag that is no longer raised", () => {
     expect(maySupersede(f, facts({ extractedPayslipIds: ["slip-2"] }))).toBe(false)
   })
 
+  it("lets an older LIVING_SPEND_ABOVE_DECLARED go once its successor is raised, and not before", () => {
+    const older = flag("LIVING_SPEND_ABOVE_DECLARED", { declaredCents: 300_000, documentIds: ["doc-1"] })
+    expect(maySupersede(older, facts(), new Set(["LIVING_SPEND_ABOVE_DECLARED"]))).toBe(true)
+    // Not raised again in any form (a higher declaration, say): an officer clears it.
+    expect(maySupersede(older, facts(), new Set(["GAMBLING"]))).toBe(false)
+    expect(maySupersede(older, facts())).toBe(false)
+    // Only that code: another check's finding is not replaced by a sibling.
+    expect(maySupersede(flag("GAMBLING", { documentId: "doc-1" }), facts(), new Set(["GAMBLING"]))).toBe(false)
+  })
+
   it("stays when its statement was deleted or the client record changed", () => {
     expect(maySupersede(flag("GAMBLING", { documentId: "doc-1", analysisId: "an-old" }), facts({ statements: [] }))).toBe(false)
     expect(maySupersede(flag("UNDISCLOSED_DEBIT_ORDER", { documentId: "doc-1", analysisId: "an-1" }), facts({ debts: [{ name: "X", monthlyInstalmentCents: 1, source: "DECLARED" }] }))).toBe(false)
