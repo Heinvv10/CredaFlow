@@ -1,6 +1,7 @@
 import { allocateReceipt } from "@/lib/loan/receipt-allocation"
 import { sastCalendarDay } from "@/lib/loan/settlement"
 import { dayOfMonth, daysInMonth, isLastDayOfMonth, isoDay } from "@/lib/loan/day-number"
+import { withoutPausedDays, type ChargePause } from "@/lib/loan/charge-pauses"
 
 // Charges that accrue on a loan AFTER a missed instalment. ALL money is CENTS.
 //
@@ -73,6 +74,8 @@ export interface DefaultChargeInput {
   accrueFrom?: Date
   /** no charge accrues or posts on or after this day (write-off, cancellation, closing) */
   accrueUntil?: Date
+  /** inclusive SAST days on which nothing accrues or posts (a recovery's charge freeze) */
+  pauses?: ChargePause[]
 }
 
 export interface ChargePosting {
@@ -127,7 +130,7 @@ export function computeDefaultCharges(input: DefaultChargeInput): DefaultChargeR
   const maturityDay = sastCalendarDay(input.maturityDate)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
-  const chargeable = (day: number) => day >= accrueFromDay && day < untilDay
+  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay, input.pauses)
   const scheduleTotal = rows.reduce((sum, row) => sum + row.totalDue, 0)
   // reservedFrom[i]: the non-principal amounts of rows i..end, so an episode's
   // reservation is one lookup rather than a scan per day.

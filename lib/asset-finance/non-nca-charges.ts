@@ -1,6 +1,7 @@
 import { allocateReceipt } from "@/lib/loan/receipt-allocation"
 import { sastCalendarDay } from "@/lib/loan/settlement"
 import { isLastDayOfMonth, isoDay } from "@/lib/loan/day-number"
+import { withoutPausedDays } from "@/lib/loan/charge-pauses"
 import {
   emptyResult,
   type ChargePosting,
@@ -41,6 +42,9 @@ import {
 //    no fee means no collection fee.
 //  - `accrueUntil` (write-off, cancellation, closing): nothing accrues or posts
 //    on or after it; receipts are still allocated.
+//  - `pauses` (a recovery's charge freeze): nothing accrues or posts on a paused
+//    day, a collection fee falling on one is not charged later, and accrual
+//    resumes after it; receipts are still allocated.
 
 export interface NonNcaArrearsTerms {
   /** Loan.nonNcaDefaultInterestMargin (the deal's signed term, copied at booking; charges-replay nonNcaArrearsTerms): annual decimal over the contract rate; null = no default interest */
@@ -69,7 +73,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   const endDay = sastCalendarDay(input.asOf)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
-  const chargeable = (day: number) => day >= accrueFromDay && day < untilDay
+  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay, input.pauses)
   const rates = (input.contractRateHistory ?? [])
     .map((rate) => ({ day: sastCalendarDay(rate.effectiveDate), annualRate: rate.annualRate }))
     .sort((a, b) => a.day - b.day)
