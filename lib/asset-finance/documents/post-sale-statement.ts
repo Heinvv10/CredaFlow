@@ -17,7 +17,7 @@ export async function renderPostSaleStatement(data: RecoveryNoticeData): Promise
   w.section("CUSTOMER AND ASSET")
   w.labelValues([
     ["Customer", data.borrower.name], ["Registration number", data.borrower.identityNumber],
-    ["Customer address", data.borrower.addressLines.join("\n")],
+    ["Customer address", data.borrower.addressLines.join(", ")],
     ["Asset", `${data.asset.description} · ${data.asset.serialNumber}`],
   ])
   w.section("ACCOUNT RESULT")

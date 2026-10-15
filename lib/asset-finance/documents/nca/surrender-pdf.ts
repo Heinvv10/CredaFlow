@@ -58,8 +58,8 @@ function recoveryCosts(w: DealDocumentWriter, costs: NonNullable<SurrenderNotice
   w.labelValues([
     ["Costs deducted from proceeds", formatZarPdf(sum("DEDUCT_FROM_PROCEEDS"))],
     ["Costs charged to account", formatZarPdf(sum("CHARGE_TO_ACCOUNT"))],
-    ["Cost lines", "DRAFT — require lender legal approval"],
   ])
+  w.paragraph("Cost lines: DRAFT — require lender legal approval", w.italic)
 }
 
 async function baseWriter(data: SurrenderNoticeData, title: string): Promise<DealDocumentWriter> {

@@ -28,6 +28,8 @@ export interface RecoveryNoticeData {
   costs: RecoveryCostLine[]
 }
 
+export const COST_LINES_NOTE = "Cost lines: DRAFT — require lender legal approval"
+
 export const COST_COLUMNS: readonly TableColumn[] = [
   { header: "Cost", x: 44, width: 270 },
   { header: "Treatment", x: 320, width: 130 },
@@ -67,7 +69,7 @@ export async function renderRecoveryFinalNotice(data: RecoveryNoticeData): Promi
     w.table("RECOVERY COSTS", COST_COLUMNS, data.costs.map((c) => [
       c.label, c.treatment === "DEDUCT_FROM_PROCEEDS" ? "Deducted from proceeds" : "Charged to account", formatZarPdf(c.grossCents),
     ]))
-    w.labelValues([["Cost lines", "DRAFT — require lender legal approval"]])
+    w.paragraph(COST_LINES_NOTE, w.italic)
   }
   w.placeholderClause("1", "Consumer rights following sale and account reconciliation")
   return w.finish({ reference: data.reference, watermark: true })
@@ -83,7 +85,7 @@ async function baseWriter(data: RecoveryNoticeData, title: string): Promise<Deal
   w.section("CONSUMER AND ASSET")
   w.labelValues([
     ["Consumer", data.borrower.name], ["Identity / registration", data.borrower.identityNumber],
-    ["Consumer address", data.borrower.addressLines.join("\n")],
+    ["Consumer address", data.borrower.addressLines.join(", ")],
     ["Asset", `${data.asset.description} · ${data.asset.serialNumber}`],
     ["Recorded condition", data.asset.condition], ["Repossessed on", formatIsoDatePdf(data.recoveredOn)],
     ["Held at", data.location],

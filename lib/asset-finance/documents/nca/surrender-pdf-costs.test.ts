@@ -28,6 +28,7 @@ const costs = [
 const PINNED = {
   valuation: "edcaedb44f63467ae0ae234aa3762467dfb91deb08effa8fd655cbf8526a3bbb",
   final: "6ccbbe4d0c06fae3b3462b07e4d5171c83d1262a684109ab506223406db0670a",
+  finalWithCosts: "9274b32e7ea83f50e78fe66cbbe6384dc6be377716b4fae27c7f30601248b250",
 }
 
 describe("s127 final notice recovery costs", () => {
@@ -37,9 +38,13 @@ describe("s127 final notice recovery costs", () => {
     expect(sha(await renderSurrenderFinalNotice({ ...data, costs: [] }))).toBe(PINNED.final)
   })
 
+  it("pins the render with costs (the table and its draft note are new, with no earlier pin)", async () => {
+    expect(sha(await renderSurrenderFinalNotice({ ...data, costs }))).toBe(PINNED.finalWithCosts)
+  })
+
   it("adds a RECOVERY COSTS section, marked for legal approval, only when costs exist", async () => {
     const withCosts = await texts(await renderSurrenderFinalNotice({ ...data, costs }))
-    expect(withCosts).toEqual(expect.arrayContaining(["RECOVERY COSTS", "Towing and transport", "Legal costs (taxed)", "R 50.00", "R 20.00", "DRAFT — require lender legal approval", DRAFT_WATERMARK]))
+    expect(withCosts).toEqual(expect.arrayContaining(["RECOVERY COSTS", "Towing and transport", "Legal costs (taxed)", "R 50.00", "R 20.00", "Cost lines: DRAFT — require lender legal approval", DRAFT_WATERMARK]))
     const without = await texts(await renderSurrenderFinalNotice(data))
     expect(without).not.toContain("RECOVERY COSTS")
     expect(withCosts).toEqual(expect.arrayContaining(without.filter((line) => !line.startsWith("Page "))))

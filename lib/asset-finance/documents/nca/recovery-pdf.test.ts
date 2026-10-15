@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 import { DRAFT_WATERMARK, PLACEHOLDER_CLAUSE } from "../pdf-layout"
 import { renderPostSaleStatement } from "../post-sale-statement"
-import { renderRecoveryFinalNotice, renderRecoveryValuationNotice, type RecoveryNoticeData } from "./recovery-pdf"
+import { COST_LINES_NOTE, renderRecoveryFinalNotice, renderRecoveryValuationNotice, type RecoveryNoticeData } from "./recovery-pdf"
 
 const CP1252_HIGH = "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ"
 const winAnsi = (hex: string) => [...Buffer.from(hex, "hex")].map((b) => b >= 0x80 && b <= 0x9f ? CP1252_HIGH[b - 0x80] : String.fromCharCode(b)).join("")
@@ -13,7 +13,7 @@ const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
 const data: RecoveryNoticeData = {
   reference: "AF-NCA-S131-TEST", documentDate: new Date("2026-10-15T08:00:00.000Z"),
   lender: { legalName: "TEST Credit Provider", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] },
-  borrower: { name: "TEST Borrower", identityNumber: "0000000000000", addressLines: ["2 Synthetic Street"] },
+  borrower: { name: "TEST Borrower", identityNumber: "0000000000000", addressLines: ["2 Synthetic Street", "Testville", "Free State", "9999"] },
   asset: { description: "2026 TEST TLB", serialNumber: "TEST-SERIAL-131", condition: "Synthetic working condition" },
   recoveredOn: "2026-10-10", location: "TEST Yard",
   valuation: { valuedOn: "2026-10-12", valuerName: "TEST Valuer", amountCents: 125_000 },
@@ -33,6 +33,20 @@ describe("s131 DRAFT notices", () => {
     expect(all).toContain(DRAFT_WATERMARK)
     expect(all).toContain(PLACEHOLDER_CLAUSE)
     expect(all).toContain("R 1,250.00")
+  })
+
+  it("prints the consumer's address on one line with real separators, not '?'", async () => {
+    for (const render of [renderRecoveryValuationNotice, renderRecoveryFinalNotice, renderPostSaleStatement]) {
+      const all = await texts(await render(data))
+      expect(all).toContain("2 Synthetic Street, Testville, Free State, 9999")
+      expect(all.join(" ")).not.toContain("?")
+    }
+  })
+
+  it("marks the cost lines as draft in a note of their own, not as a label and value", async () => {
+    const all = await texts(await renderRecoveryFinalNotice(data))
+    expect(all).toContain(COST_LINES_NOTE)
+    expect(all).not.toContain("Cost lines")
   })
 
   it("prints the final account to the cent with its cost table", async () => {
