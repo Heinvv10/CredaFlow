@@ -187,18 +187,31 @@ export function capPerActionDate(maxAmountCents: number, committed: number, want
   return Math.max(0, Math.min(wanted, maxAmountCents - committed))
 }
 
+/** How strongly a reason argues for stopping: a hard stop, then an NPF, then anything else. */
+function severity(reason: NormalizedReason | null): number {
+  if (reason && HARD_STOP_REASONS.includes(reason)) return 3
+  if (reason === NPF_REASON) return 2
+  return reason ? 1 : 0
+}
+
 /**
- * At most one fact per instruction and outcome (the earliest): a provider
- * repeating an UNPAID for one debit is one unpaid, not a second NPF.
+ * At most one fact per instruction and outcome, dated by its first report but
+ * carrying the most severe reason any report gave: a provider repeating an
+ * UNPAID for one debit is one unpaid (one NPF at most), and a hard stop that
+ * only arrives in a repeat still stops the mandate.
  */
 export function onePerInstructionOutcome(facts: ReadonlyArray<ResultFact & { instructionId: string }>): ResultFact[] {
-  const kept = new Map<string, ResultFact & { instructionId: string }>()
+  const kept = new Map<string, ResultFact>()
   for (const f of facts) {
     const key = `${f.instructionId}:${f.outcome}`
     const held = kept.get(key)
-    if (!held || f.resolvedAt < held.resolvedAt) kept.set(key, f)
+    kept.set(key, held
+      ? {
+          outcome: f.outcome,
+          resolvedAt: f.resolvedAt < held.resolvedAt ? f.resolvedAt : held.resolvedAt,
+          reasonCode: severity(f.reasonCode) > severity(held.reasonCode) ? f.reasonCode : held.reasonCode,
+        }
+      : { outcome: f.outcome, reasonCode: f.reasonCode, resolvedAt: f.resolvedAt })
   }
-  return [...kept.values()]
-    .sort((a, b) => a.resolvedAt.getTime() - b.resolvedAt.getTime())
-    .map(({ outcome, reasonCode, resolvedAt }) => ({ outcome, reasonCode, resolvedAt }))
+  return [...kept.values()].sort((a, b) => a.resolvedAt.getTime() - b.resolvedAt.getTime())
 }

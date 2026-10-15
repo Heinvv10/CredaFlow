@@ -148,4 +148,22 @@ describe("onePerInstructionOutcome", () => {
       { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
     ]))).toBe(1)
   })
+
+  it("keeps the most severe reason an instruction was reported with: a hard stop wins over an NPF", () => {
+    const [fact] = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "ACCOUNT_CLOSED", resolvedAt: on("2026-10-27") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "UNKNOWN", resolvedAt: on("2026-10-28") },
+    ])
+    expect(fact).toEqual({ outcome: "UNPAID", reasonCode: "ACCOUNT_CLOSED", resolvedAt: on("2026-10-26") })
+    expect(suspensionReason([fact])).toMatch(/ACCOUNT_CLOSED/)
+  })
+
+  it("prefers an NPF reason over an unknown one, so the streak still counts it", () => {
+    const [fact] = onePerInstructionOutcome([
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "UNKNOWN", resolvedAt: on("2026-10-26") },
+      { instructionId: "a", outcome: "UNPAID", reasonCode: "INSUFFICIENT_FUNDS", resolvedAt: on("2026-10-27") },
+    ])
+    expect(fact.reasonCode).toBe("INSUFFICIENT_FUNDS")
+  })
 })

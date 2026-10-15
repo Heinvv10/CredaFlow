@@ -18,8 +18,8 @@ suite("collections engine: repeated unpaid / disputed reports (real Postgres)", 
   let fx: Fixture
   let mandateId: string
   let ref: string
-  const report = (status: "UNPAID" | "DISPUTED", providerResultId: string, resolved: string): CollectionOutcome => ({
-    instructionRef: ref, status, reason: status === "UNPAID" ? "INSUFFICIENT_FUNDS" : "PAYMENT_STOPPED", rawCode: "R",
+  const report = (status: "UNPAID" | "DISPUTED", providerResultId: string, resolved: string, reason?: CollectionOutcome["reason"]): CollectionOutcome => ({
+    instructionRef: ref, status, reason: reason ?? (status === "UNPAID" ? "INSUFFICIENT_FUNDS" : "PAYMENT_STOPPED"), rawCode: "R",
     settledAmountCents: null, resolvedAt: new Date(resolved), providerResultId,
   })
   const record = async (o: CollectionOutcome) => {
@@ -56,6 +56,17 @@ suite("collections engine: repeated unpaid / disputed reports (real Postgres)", 
     await record(report("DISPUTED", "TXN-2", "2026-10-28T00:00:00Z"))
     const rows = await prisma.collectionResult.findMany({ where: { tenantId: fx.tenantId }, orderBy: { resolvedAt: "asc" } })
     expect(rows.map((r) => r.reviewReason !== null)).toEqual([true, false])
+    expect(await notes("debit_order_unpaid")).toBe(1)
+  })
+
+  it("a repeat with a different reason is not silent: a hard stop that only arrives in the repeat suspends and asks for review", async () => {
+    await record(report("UNPAID", "TXN-1", "2026-10-26T00:00:00Z", "INSUFFICIENT_FUNDS"))
+    expect((await prisma.debitMandate.findFirstOrThrow({ where: { id: mandateId, tenantId: fx.tenantId } })).status).toBe("ACTIVE")
+    await record(report("UNPAID", "TXN-2", "2026-10-27T00:00:00Z", "ACCOUNT_CLOSED"))
+    expect(await prisma.debitMandate.findFirstOrThrow({ where: { id: mandateId, tenantId: fx.tenantId } }))
+      .toMatchObject({ status: "SUSPENDED", statusReason: expect.stringMatching(/ACCOUNT_CLOSED/) })
+    const rows = await prisma.collectionResult.findMany({ where: { tenantId: fx.tenantId }, orderBy: { resolvedAt: "asc" } })
+    expect(rows[1].reviewReason).toMatch(/different reason/)
     expect(await notes("debit_order_unpaid")).toBe(1)
   })
 })

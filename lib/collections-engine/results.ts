@@ -125,7 +125,7 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
       await tx.$queryRaw`SELECT id FROM "CollectionInstruction" WHERE id = ${instruction.id} AND "tenantId" = ${ctx.tenantId} FOR UPDATE`
       const prior = await tx.collectionResult.findMany({
         where: { tenantId: ctx.tenantId, instructionId: instruction.id },
-        select: { outcome: true, resolvedAt: true, reportedAfterPayment: true },
+        select: { outcome: true, reasonCode: true, resolvedAt: true, reportedAfterPayment: true },
       })
       const current = await tx.collectionInstruction.findFirstOrThrow({ where: { id: instruction.id, tenantId: ctx.tenantId }, select: { status: true } })
       afterPayment = status !== "PAID" && (current.status === "PAID" || prior.some((r) => r.outcome === "PAID"))
@@ -134,8 +134,14 @@ export async function recordOutcome(ctx: EngineContext, o: CollectionOutcome, su
         && prior.some((r) => r.outcome !== "PAID" && !r.reportedAfterPayment && r.resolvedAt >= o.resolvedAt)
       const secondPayment = status === "PAID" && prior.some((r) => r.outcome === "PAID")
       // The provider repeating an unpaid or dispute it already reported: keep the row, act once.
-      const repeat = status !== "PAID" && !afterPayment && prior.some((r) => r.outcome === status && !r.reportedAfterPayment)
-      reviewReason = secondPayment ? DOUBLE_DEBIT : returnedLater ? RETURNED_BEFORE_REPORT : repeat ? null : reviewReasonFor(o, afterPayment)
+      // Only an identical repeat is silent; a different reason is a review item (and the
+      // stop rules weigh the most severe reason, stop-rules.ts).
+      const earlier = status !== "PAID" && !afterPayment ? prior.filter((r) => r.outcome === status && !r.reportedAfterPayment) : []
+      const repeat = earlier.length > 0
+      const newReason = repeat && !earlier.some((r) => r.reasonCode === (o.reason ?? null))
+      reviewReason = secondPayment ? DOUBLE_DEBIT : returnedLater ? RETURNED_BEFORE_REPORT
+        : newReason ? `Reported ${status} again with a different reason (${o.reason ?? "none"} after ${earlier.map((r) => r.reasonCode ?? "none").join(", ")}): check the debit with the provider`
+          : repeat ? null : reviewReasonFor(o, afterPayment)
       const held = returnedLater || secondPayment
       const moveInstruction = !afterPayment && !held && !repeat
       const row = await tx.collectionResult.create({
