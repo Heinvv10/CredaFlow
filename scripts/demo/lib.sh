@@ -196,7 +196,7 @@ ensure_shared_secrets() {
   if [ -z "$(env_get "$SHARED_SECRETS" WABA_ENC_KEY)" ]; then
     env_set "$SHARED_SECRETS" WABA_ENC_KEY "$(openssl rand -base64 32)"
   fi
-  for key in NEXTAUTH_SECRET CRON_SECRET INTERNAL_API_SECRET ADMIN_SECRET; do
+  for key in NEXTAUTH_SECRET CRON_SECRET INTERNAL_API_SECRET ADMIN_SECRET UNSUB_TOKEN_SECRET; do
     [ -n "$(env_get "$SHARED_SECRETS" "$key")" ] || env_set "$SHARED_SECRETS" "$key" "$(openssl rand -hex 32)"
   done
   [ -n "$(env_get "$SHARED_SECRETS" TURNSTILE_SECRET_KEY)" ] \

@@ -91,6 +91,8 @@ services:
       PORT: 3300
       HOSTNAME: 0.0.0.0
       APP_MODE: all
+      # The simulator signs agreements with the code DEMO_MODE reveals for .invalid mailboxes.
+      DEMO_MODE: "true"
     entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
     command: ["node", "server.js"]
     healthcheck:

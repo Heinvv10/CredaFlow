@@ -58,6 +58,8 @@ const BUSINESS_DATE_COLUMNS: Readonly<Record<string, string>> = {
   fscaAuthorisationDate: "the lender's FSCA authorisation date",
   faisRepresentativeFrom: "a FAIS representative's appointment date",
   reExamPassDate: "a FAIS regulatory exam pass date",
+  "MaintenanceFund.leaseEndDate": "an asset-finance lease's contractual end, years ahead",
+  "LeaseTerminationQuote.terminationDate": "the termination date a settlement quote proposes, ahead by design",
   cpdPeriodEnd: "a CPD cycle end",
   bureauReportingStartDate: "the lender's bureau reporting start",
 }
