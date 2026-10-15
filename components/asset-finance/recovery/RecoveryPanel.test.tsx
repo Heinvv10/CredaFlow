@@ -72,6 +72,13 @@ describe("RecoveryPanel", () => {
     expect(await html({ canManage: true, canDecide: true })).not.toContain("Record cost")
   })
 
+  it("tells staff to decide pending costs before applying the proceeds", async () => {
+    const pendingCosts = [{ id: "c-2", type: "STORAGE", label: "Storage", status: "PENDING", netCents: 50_000, vatCents: 0, grossCents: 50_000, treatment: "DEDUCT_FROM_PROCEEDS",
+      supplierId: null, supplierInvoiceRef: "INV-2", incurredOn: "2026-10-02", legalStepId: null, note: null, recordedById: "u-2", approvedById: null }]
+    mocks.data.mockResolvedValue({ kind: "recovery", view: view({ status: "SOLD", pendingCosts }), regime: "NON_NCA", lease: false, surrender: null })
+    expect(await html({ canManage: true, canDecide: false, canRecordPayment: true })).toContain("1 cost is still pending")
+  })
+
   it("lets an approver decide a pending cost only when someone else recorded it", async () => {
     const pendingCosts = [{ id: "c-2", type: "STORAGE", label: "Storage", status: "PENDING", netCents: 50_000, vatCents: 0, grossCents: 50_000, treatment: "DEDUCT_FROM_PROCEEDS",
       supplierId: null, supplierInvoiceRef: "INV-2", incurredOn: "2026-10-02", legalStepId: null, note: null, recordedById: "u-2", approvedById: null }]

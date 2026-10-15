@@ -40,9 +40,18 @@ export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
     case "VALUATION_NOTICE_ISSUED":
       return <StepButton label="List for sale" busyLabel="Listing…" calls={[{ url: url("list"), body: {} }]} />
     case "SOLD":
-      return canRecordPayment
-        ? <StepButton label="Apply the sale proceeds" busyLabel="Applying…" calls={[{ url: url("proceeds"), body: {} }]} />
-        : <p className="text-sm text-[var(--cf-text-muted)]">Applying the sale proceeds needs the record_payment permission.</p>
+      return (
+        <div className="space-y-2">
+          {view.pendingCosts.length > 0 && (
+            <p className="text-sm text-[var(--cf-warning)]">
+              {view.pendingCosts.length} cost{view.pendingCosts.length === 1 ? " is" : "s are"} still pending: decide {view.pendingCosts.length === 1 ? "it" : "them"} before applying the proceeds.
+            </p>
+          )}
+          {canRecordPayment
+            ? <StepButton label="Apply the sale proceeds" busyLabel="Applying…" calls={[{ url: url("proceeds"), body: {} }]} />
+            : <p className="text-sm text-[var(--cf-text-muted)]">Applying the sale proceeds needs the record_payment permission.</p>}
+        </div>
+      )
     case "PROCEEDS_APPLIED":
       return isNca(route)
         ? <StepButton label="Issue the final notice" busyLabel="Issuing…" calls={[{ url: url("final-notice"), body: {} }]} />

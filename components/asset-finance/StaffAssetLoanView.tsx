@@ -18,8 +18,7 @@ import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { LoanNotes } from "@/components/loans/LoanNotes"
 import { LeaseStaffPanel } from "@/components/asset-finance/lease/LeaseStaffPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
-import { LegalMatterPanel } from "@/components/asset-finance/recovery/LegalMatterPanel"
-import { RecoveryPanel } from "@/components/asset-finance/recovery/RecoveryPanel"
+import { AssetLoanRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 
 /**
  * The staff loan page for an entity-borrower (asset-finance) loan (goal
@@ -230,9 +229,10 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
 
       {lease && <LeaseStaffPanel tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} />}
 
-      {/* Court action needs an asset on the loan; any contract type. manage_asset_finance is the lease `canManageLease` permission. */}
-      {loan.asset && <LegalMatterPanel tenantId={tenantId} loanId={loan.id} canManage={canManageLease} />}
-      {loan.asset && <RecoveryPanel tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} canRecordPayment={canRecordPayment} />}
+      {/* Court action and recovery need an asset on the loan; any contract type. */}
+      {loan.asset && (
+        <AssetLoanRecoveryPanels tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} canRecordPayment={canRecordPayment} />
+      )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

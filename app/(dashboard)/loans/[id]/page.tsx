@@ -28,6 +28,7 @@ import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanVie
 import { hasClientBorrower } from "@/lib/borrower"
 import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -340,6 +341,18 @@ export default async function LoanDetailPage(
           </DataPanel>
         </div>
       </div>
+
+      {/* A sole proprietor's instalment sale is a client's loan but still an asset: court action and recovery apply. */}
+      {hasRecoveryPanels(loan) && (
+        <AssetLoanRecoveryPanels
+          tenantId={tenantId}
+          loanId={loan.id}
+          userId={session?.user?.id ?? ""}
+          canManage={session?.user?.role ? canDo(session.user.role, "manage_asset_finance") : false}
+          canDecide={session?.user?.role ? canDo(session.user.role, "decide_asset_finance") : false}
+          canRecordPayment={session?.user?.role ? canDo(session.user.role, "record_payment") : false}
+        />
+      )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

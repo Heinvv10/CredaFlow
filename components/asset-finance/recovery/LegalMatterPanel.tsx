@@ -84,7 +84,7 @@ export async function LegalMatterPanel({ tenantId, loanId, canManage }: { tenant
         {canManage && open && (
           <section>
             <h3 className={subheading}>{matter.attorney ? "Change attorney" : "Appoint attorney"}</h3>
-            <AttorneyForm matterId={matter.id} suppliers={suppliers} current={matter.attorney?.supplierId ?? null} today={today} />
+            <AttorneyForm key={matter.steps.length} matterId={matter.id} suppliers={suppliers} current={matter.attorney?.supplierId ?? null} today={today} />
           </section>
         )}
 
