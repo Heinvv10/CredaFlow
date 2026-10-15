@@ -1,9 +1,11 @@
 -- W6 review round 3 (accounting review), on PayoutRecoveryCase:
 --  - "recovered" records the amount staff entered, and only the full case
 --    amount counts (a part is escalated instead);
---  - a case may be closed UNRECOVERABLE from OPEN or ESCALATED, by someone
---    who neither made nor approved the payout, and that is final (the
---    accounting export writes the money off to bad debts that day).
+--  - a case may be closed UNRECOVERABLE from OPEN or ESCALATED, and that is
+--    final (the accounting export writes the money off to bad debts that day);
+--  - segregation of duties on every step: never the disburser, the attempt's
+--    creator or approver, or the case's opener; and whoever escalated a case
+--    does not also close it (recovered or unrecoverable).
 -- Exercised by lib/payouts/payout-recovery.integration.test.ts.
 
 -- AlterTable
@@ -12,7 +14,8 @@ ADD COLUMN     "unrecoverableAt" TIMESTAMP(3),
 ADD COLUMN     "unrecoverableById" TEXT,
 ADD COLUMN     "unrecoverableNote" TEXT;
 
--- 20261015210100 version, plus the recovered amount and UNRECOVERABLE.
+-- 20261015210100 version, plus the recovered amount, UNRECOVERABLE, and the
+-- opener and escalator exclusions.
 CREATE OR REPLACE FUNCTION public."guardPayoutRecoveryCase"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -105,9 +108,13 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'Recovery guard: a case goes OPEN -> ESCALATED -> RECOVERED or UNRECOVERABLE (either also straight from OPEN)';
   END IF;
-  IF actor IN (p."disbursedById", p."createdById", coalesce(p."approvedById", '')) THEN
+  IF actor IN (p."disbursedById", p."createdById", coalesce(p."approvedById", ''), OLD."openedById") THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'Recovery guard: someone other than the people who made or approved this payout acts on its recovery';
+      MESSAGE = 'Recovery guard: someone other than the people who made or approved this payout, opened the case, acts on its recovery';
+  END IF;
+  IF OLD."status" = 'ESCALATED' AND actor = OLD."escalatedById" THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'Recovery guard: whoever escalated it does not also close it';
   END IF;
   RETURN NEW;
 END;

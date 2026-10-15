@@ -99,7 +99,7 @@ function RecoveryCase({ loanId, recovery: r, canAct }: { loanId: string; recover
       </p>
       {canAct && (
         <div className="mt-2 space-y-2">
-          <p className="text-xs">Acted on by a LOAN_ADMIN who neither made nor approved the payout.</p>
+          <p className="text-xs">Acted on by a LOAN_ADMIN who neither made nor approved the payout nor opened this case; whoever escalates it does not also close it.</p>
           <Textarea placeholder="What happened (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs">

@@ -127,13 +127,13 @@ suite.sequential("money paid out on a reversed loan (real Postgres)", () => {
     expect(await escalate(disburser())).toMatchObject({ ok: false, status: 403 })
     expect(await escalate(checker())).toMatchObject({ ok: true, status: "ESCALATED" })
     expect(await escalate(checker())).toMatchObject({ ok: false, status: 409 })
-    expect(await recover(checker(), new Date("2026-10-01T10:00:00+02:00"))).toMatchObject({ ok: false, status: 422 })
+    expect(await recover(requester(), new Date("2026-10-01T10:00:00+02:00"))).toMatchObject({ ok: false, status: 422 })
     const back = new Date("2026-10-20T10:00:00+02:00")
     // Only the full amount: a part is escalated, not recorded.
-    expect(await recover(checker(), back, 150_000)).toMatchObject({ ok: false, status: 422, error: expect.stringContaining("escalate") })
-    expect(await recover(checker(), back)).toMatchObject({ ok: true, status: "RECOVERED" })
+    expect(await recover(requester(), back, 150_000)).toMatchObject({ ok: false, status: 422, error: expect.stringContaining("escalate") })
+    expect(await recover(requester(), back)).toMatchObject({ ok: true, status: "RECOVERED" })
     expect(await db.payoutRecoveryCase.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ recoveredAmountCents: 200_000 })
-    expect(await recover(checker(), back)).toMatchObject({ ok: false, status: 409 })
+    expect(await recover(requester(), back)).toMatchObject({ ok: false, status: 409 })
     expect(await db.auditLog.count({ where: { entityId: c.id, action: { in: ["PAYOUT_RECOVERY_ESCALATED", "PAYOUT_RECOVERY_RECORDED"] } } })).toBe(2)
     expect((await loadSourceLoans(prisma, tenant.tenantId, new Date())).find((l) => l.id === loan.loanId)?.recoveries[0]).toMatchObject({ recoveredAt: back })
     // The database: a recovered case is closed, never deleted; its opening facts never change.

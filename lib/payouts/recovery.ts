@@ -12,9 +12,10 @@
  * coming back by itself: a partial recovery, a recipient who will not return
  * it) -> RECOVERED; from OPEN or ESCALATED it may instead be closed
  * UNRECOVERABLE, which the accounting export writes off to bad debts that
- * day. Each step is audited and taken by a LOAN_ADMIN who neither made nor
- * approved the payout; the database repeats the order, the full-amount rule
- * and the maker-checker rule (guardPayoutRecoveryCase).
+ * day. Each step is audited and taken by a LOAN_ADMIN (TOTP, the route) who
+ * neither made nor approved the payout nor opened the case, and whoever
+ * escalated a case does not also close it; the database repeats the order,
+ * the full-amount rule and these exclusions (guardPayoutRecoveryCase).
  */
 import type { DisbursementPayout, PayoutRecoveryCase } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -58,13 +59,16 @@ async function loadCase(db: RecoveryDb, tenantId: string, caseId: string): Promi
 }
 
 async function makerCheckerRefusal(db: RecoveryDb, tenantId: string, c: CaseWithPayout, action: string, actor: Actor & { id: string }) {
-  if (![c.payout.disbursedById, c.payout.createdById, c.payout.approvedById].includes(actor.id)) return null
+  const excluded = [c.payout.disbursedById, c.payout.createdById, c.payout.approvedById, c.openedById]
+  // A two-step close: whoever escalated does not also close (recovered or unrecoverable).
+  if (action !== "escalate_recovery" && c.status === "ESCALATED") excluded.push(c.escalatedById)
+  if (!excluded.includes(actor.id)) return null
   await logAuditStrict({
     tenantId, userId: actor.id, userEmail: actor.email,
     action: AuditAction.PAYOUT_ACTION_REFUSED, entity: "PayoutRecoveryCase", entityId: c.id,
     newValue: { action, reason: "maker_checker" },
   }, db)
-  return { ok: false as const, status: 403, error: "Another LOAN_ADMIN must act on this recovery: you disbursed the loan, or requested or approved this payout" }
+  return { ok: false as const, status: 403, error: "Another LOAN_ADMIN must act on this recovery: you disbursed the loan, requested or approved this payout, opened this case or escalated it" }
 }
 
 async function moveCase(db: RecoveryDb, args: {
