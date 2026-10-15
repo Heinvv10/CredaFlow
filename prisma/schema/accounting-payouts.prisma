@@ -372,17 +372,20 @@ model PayoutRecoveryCase {
 
 // Per-tenant accounting export settings (lib/accounting).
 model AccountingSettings {
-  tenantId             String    @id
-  tenant               Tenant    @relation(fields: [tenantId], references: [id])
+  tenantId              String    @id
+  tenant                Tenant    @relation(fields: [tenantId], references: [id])
   // The lender reviewed the chart-of-accounts mapping; cleared by any mapping change.
-  mappingConfirmedAt   DateTime?
-  mappingConfirmedById String?
+  mappingConfirmedAt    DateTime?
+  mappingConfirmedById  String?
+  // The asset-finance roles (lib/accounting/accounts.ts ASSET_FINANCE_ROLES) the confirmation covers: a month that posts one
+  // not listed here is refused until the mapping is confirmed again. Cleared with the confirmation.
+  mappingConfirmedRoles String[]  @default([])
   // First month the export covers ("yyyy-mm"); history before it posts as one opening entry.
-  goLiveMonth          String?
-  vatRegistered        Boolean   @default(false)
-  vatRateBps           Int       @default(1500)
-  updatedById          String?
-  updatedAt            DateTime  @updatedAt
+  goLiveMonth           String?
+  vatRegistered         Boolean   @default(false)
+  vatRateBps            Int       @default(1500)
+  updatedById           String?
+  updatedAt             DateTime  @updatedAt
 }
 
 // Per-source positions carried into the go-live month's opening entry, so

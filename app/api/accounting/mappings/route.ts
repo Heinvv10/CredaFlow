@@ -42,7 +42,7 @@ export async function PUT(req: NextRequest) {
           update: { accountCode: row.accountCode, accountName: row.accountName, taxCode: row.taxCode, vatInclusive: row.vatInclusive, updatedById: guard.user.id },
         })
       }
-      await tx.accountingSettings.updateMany({ where: { tenantId: tenant.id }, data: { mappingConfirmedAt: null, mappingConfirmedById: null } })
+      await tx.accountingSettings.updateMany({ where: { tenantId: tenant.id }, data: { mappingConfirmedAt: null, mappingConfirmedById: null, mappingConfirmedRoles: [] } })
       await logAuditStrict({
         tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email,
         action: AuditAction.ACCOUNTING_MAPPING_UPDATED, entity: "AccountingAccountMapping", entityId: tenant.id,

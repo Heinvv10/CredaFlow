@@ -23,6 +23,22 @@ export const ACCOUNT_ROLES = [
   "BAD_DEBT_RECOVERY",
   "BAD_DEBT_EXPENSE",
   "WAIVER_EXPENSE",
+  // Asset finance (slice 4b). Appended: lines order by this list, so earlier roles keep their place.
+  "AF_INSTALMENT_DEBTORS",
+  "LEASE_DEBTORS",
+  "INPUT_VAT",
+  "LEASED_ASSETS",
+  "ASSET_DISPOSAL_PROCEEDS",
+  "RENTAL_INCOME",
+  "MAINTENANCE_INCOME",
+  "MAINTENANCE_FUND_LIABILITY",
+  "MAINTENANCE_EXPENSE",
+  "RECOVERY_CLEARING",
+  "RECOVERY_COSTS_PAYABLE",
+  "RECOVERY_COST_EXPENSE",
+  "RECOVERY_COSTS_RECHARGED",
+  "RECOVERY_REFUND_PAYABLE",
+  "RECOVERY_RESULT",
 ] as const
 
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
@@ -37,10 +53,29 @@ export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 export const NOT_CARRIED_AT_OPENING: readonly AccountRole[] = [
   "BANK", "INTEREST_INCOME", "FEE_INCOME", "DEFAULT_INTEREST_INCOME", "DEFAULT_FEE_INCOME",
   "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE",
+  "RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE",
+  "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS",
 ]
 
 /** Fee income roles a lender may mark VAT-inclusive (interest is VAT-exempt). */
 export const VAT_INCLUSIVE_ROLES: readonly AccountRole[] = ["FEE_INCOME", "DEFAULT_FEE_INCOME"]
+
+/** Where a borrower's debt sits: consumer loans, instalment sales and finance leases, operating and maintenance leases. */
+export const RECEIVABLE_ROLES: readonly AccountRole[] = ["LOAN_BOOK", "AF_INSTALMENT_DEBTORS", "LEASE_DEBTORS"]
+
+/**
+ * Asset-finance roles. A tenant that confirmed its mapping before they existed
+ * has not confirmed these (AccountingSettings.mappingConfirmedRoles), so a month
+ * that posts one is refused until the mapping is confirmed again.
+ */
+export const ASSET_FINANCE_ROLES: readonly AccountRole[] = ACCOUNT_ROLES.slice(ACCOUNT_ROLES.indexOf("AF_INSTALMENT_DEBTORS"))
+
+/**
+ * Asset-finance amounts are gross or net of VAT as the source posts them, with
+ * the VAT on its own INPUT_VAT / OUTPUT_VAT line, so a tax code on any of these
+ * accounts would make Xero count the VAT twice.
+ */
+export const EXPLICIT_VAT_ROLES: readonly AccountRole[] = ASSET_FINANCE_ROLES
 
 export interface AccountDefault {
   code: string
@@ -64,6 +99,21 @@ export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
   BAD_DEBT_RECOVERY: { code: "4900", name: "Bad debts recovered", description: "Money received on a written-off loan" },
   BAD_DEBT_EXPENSE: { code: "6000", name: "Bad debts written off", description: "Loan balances written off" },
   WAIVER_EXPENSE: { code: "6010", name: "Balances waived", description: "Sub-R1 residues closed by a waiver" },
+  AF_INSTALMENT_DEBTORS: { code: "1110", name: "Instalment sale and finance lease debtors", description: "Asset finance: the financed amount plus interest as it falls due, less receipts" },
+  LEASE_DEBTORS: { code: "1120", name: "Lease debtors", description: "Asset finance: rentals and end-of-term invoices once invoiced, less receipts" },
+  INPUT_VAT: { code: "1300", name: "VAT input", description: "Asset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))" },
+  LEASED_ASSETS: { code: "1500", name: "Assets under operating lease", description: "Cost excluding VAT of leased assets; depreciation stays in the fixed-asset register" },
+  ASSET_DISPOSAL_PROCEEDS: { code: "4600", name: "Lease asset disposal proceeds", description: "Price excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register" },
+  RENTAL_INCOME: { code: "4100", name: "Rental income", description: "Lease rentals and end-of-term charges excluding VAT, as invoiced" },
+  MAINTENANCE_INCOME: { code: "4110", name: "Maintenance income", description: "Maintenance portion of full-maintenance lease rentals excluding VAT" },
+  MAINTENANCE_FUND_LIABILITY: { code: "2400", name: "Maintenance fund liability", description: "Lessee-settled maintenance funds: contributions less claims and refunds" },
+  MAINTENANCE_EXPENSE: { code: "6100", name: "Maintenance claims paid", description: "Maintenance claims paid on lender-risk leases" },
+  RECOVERY_CLEARING: { code: "2500", name: "Recovery clearing", description: "Repossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn" },
+  RECOVERY_COSTS_PAYABLE: { code: "2510", name: "Recovery costs payable", description: "Supplier invoices for recovery costs, settled through accounts payable" },
+  RECOVERY_COST_EXPENSE: { code: "6200", name: "Recovery costs", description: "Recovery costs charged to the borrower's account, excluding VAT" },
+  RECOVERY_COSTS_RECHARGED: { code: "6210", name: "Recovery costs recharged", description: "Contra-expense: recovery costs charged to the borrower's account" },
+  RECOVERY_REFUND_PAYABLE: { code: "2520", name: "Recovery surplus refunds payable", description: "Surplus owed back to the debtor after a recovery sale" },
+  RECOVERY_RESULT: { code: "6300", name: "Recovery result", description: "Gain or loss left in recovery clearing: output VAT less repossession and cost input VAT" },
 }
 
 export function isAccountRole(value: unknown): value is AccountRole {
@@ -126,6 +176,8 @@ export function parseMappingInput(body: unknown): { ok: true; rows: MappingInput
     if (inclusive && !VAT_INCLUSIVE_ROLES.includes(role)) return { ok: false, error: `${role}: only fee income can be marked VAT-inclusive` }
     // Splitting VAT here AND tagging a Xero tax code would count the VAT twice.
     if (inclusive && tax !== null) return { ok: false, error: `${role}: a VAT-inclusive split and a tax code together would count VAT twice; use one` }
+    // Asset-finance sources post their VAT as separate INPUT_VAT / OUTPUT_VAT lines.
+    if (tax !== null && EXPLICIT_VAT_ROLES.includes(role)) return { ok: false, error: `${role}: its VAT is posted as a separate line, so a tax code on this account would count VAT twice` }
     rows.push({ role, accountCode: code, accountName: name, taxCode: tax, vatInclusive: inclusive })
   }
   return { ok: true, rows }
