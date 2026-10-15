@@ -501,6 +501,60 @@ BEGIN
 END;
 $function$;
 
+-- Everything a buyer's identifier field may hold, as keys to compare a known identifier against
+-- (lib/asset-finance/recovery-screening.ts identifierKeys, the same set, sorted by byte order): its
+-- canonical key; each digit run and all the digits together (label letters removed; the letters O, l, I
+-- read as 0, 1, 1 inside tokens made only of digits and those letters); every 13 digits of those (an SA ID
+-- inside a longer field: two IDs, an appended digit, a "27" prefix, a label in the middle); every 11 or 12
+-- digits as a registration number; and each registration number written with separators anywhere in it.
+-- A known identifier matches when its canonical key is one of them.
+CREATE OR REPLACE FUNCTION public."recoveryIdentifierKeys"(identifier TEXT)
+RETURNS TEXT[] LANGUAGE plpgsql IMMUTABLE AS $function$
+DECLARE
+  folded TEXT := translate(public."recoveryAsciiDigits"(identifier), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+  fixed TEXT := '';
+  piece TEXT[];
+  sources TEXT[];
+  src TEXT;
+  window_ TEXT;
+  keys TEXT[] := ARRAY[]::TEXT[];
+  canonical TEXT := public."recoveryIdentifierKey"(identifier);
+  written TEXT[];
+  at INTEGER;
+  len INTEGER;
+BEGIN
+  IF canonical <> '' THEN
+    keys := keys || canonical;
+  END IF;
+  FOR piece IN SELECT m FROM regexp_matches(folded, '([0-9A-Z]+)|([^0-9A-Z]+)', 'g') AS m LOOP
+    IF piece[1] IS NOT NULL AND piece[1] ~ '^[0-9OLI]+$' AND piece[1] ~ '[0-9]' THEN
+      fixed := fixed || translate(piece[1], 'OLI', '011');
+    ELSE
+      fixed := fixed || COALESCE(piece[1], piece[2]);
+    END IF;
+  END LOOP;
+  sources := ARRAY(SELECT m[1] FROM regexp_matches(fixed, '([0-9]+)', 'g') AS m) || regexp_replace(fixed, '[^0-9]', '', 'g');
+  FOREACH src IN ARRAY sources LOOP
+    IF src <> '' THEN
+      keys := keys || src;
+      FOR at IN 1..length(src) - 12 LOOP
+        keys := keys || substr(src, at, 13);
+      END LOOP;
+      FOR len IN 11..12 LOOP
+        FOR at IN 1..length(src) - len + 1 LOOP
+          window_ := substr(src, at, len);
+          keys := keys || (substr(window_, 1, 4) || substr(window_, 5, 6) || (substr(window_, 11)::INTEGER)::TEXT);
+        END LOOP;
+      END LOOP;
+    END IF;
+  END LOOP;
+  FOR written IN SELECT m FROM regexp_matches(fixed, '([0-9]{4})[^0-9A-Z]+([0-9]{1,6})[^0-9A-Z]+([0-9]{1,2})', 'g') AS m LOOP
+    keys := keys || (written[1] || lpad(written[2], 6, '0') || (written[3]::INTEGER)::TEXT);
+  END LOOP;
+  RETURN ARRAY(SELECT k FROM unnest(keys) AS k GROUP BY k ORDER BY k COLLATE "C");
+END;
+$function$;
+
 -- ---------------------------------------------------------------------------
 -- Settings
 -- ---------------------------------------------------------------------------
@@ -1014,14 +1068,14 @@ CREATE OR REPLACE FUNCTION public."recoveryBuyerRelated"(tenant_id TEXT, for_loa
 RETURNS BOOLEAN LANGUAGE plpgsql STABLE AS $function$
 DECLARE
   loan_row RECORD;
-  buyer_key TEXT := public."recoveryIdentifierKey"(identifier);
+  buyer_keys TEXT[] := public."recoveryIdentifierKeys"(identifier);
 BEGIN
   SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = for_loan_id AND l."tenantId" = tenant_id;
-  RETURN buyer_key <> '' AND (
-      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)
-      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)
+  RETURN cardinality(buyer_keys) > 0 AND (
+      EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys))
+      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = ANY (buyer_keys))
       OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
-        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key));
+        WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys)));
 END;
 $function$;
 

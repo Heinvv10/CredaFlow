@@ -27,10 +27,9 @@ describe("identifier variants", () => {
     expect(flagged({ identifier: written }, [holder(ID)])).toBe(true)
   })
 
-  it("does not flag a different ID, a partial ID or an ID that merely contains it", () => {
+  it("does not flag a different ID or a partial ID (an ID the field merely contains is flagged: see the round 2 file)", () => {
     expect(flagged({ identifier: "8001015009088" }, [holder(ID)])).toBe(false)
     expect(flagged({ identifier: "800101500908" }, [holder(ID)])).toBe(false)
-    expect(flagged({ identifier: `1${ID}` }, [holder(ID)])).toBe(false)
   })
 
   describe("CIPC registration numbers", () => {

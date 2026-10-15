@@ -18,7 +18,7 @@ import {
   cleanupRecoveryFixture, courtMatter, createRecoveryFixture, newLoan, newRecovery, recoveryFixtureTenantId, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { attempt } from "./lease-servicing.integration-fixture"
-import { clauseOff, type Tx } from "./recovery-rules.integration-fixture"
+import { clauseOff, takeOut, type Tx } from "./recovery-rules.integration-fixture"
 
 // The deal fixture imports the real route handlers, which import the session helper.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -45,10 +45,13 @@ const listed = async (regime: "NCA" | "NON_NCA"): Promise<Rec> => {
   return { loan, id }
 }
 
-/** What the trigger made of an insert, with `rule` taken out when given. */
-async function forced(rec: Rec, buyerIdentifier: string, rule?: Parameters<typeof attempt>[2]): Promise<boolean> {
+/** What the trigger made of an insert, with the rules given taken out. */
+async function forced(rec: Rec, buyerIdentifier: string, ...without: NonNullable<Parameters<typeof attempt>[2]>[]): Promise<boolean> {
   let seen: boolean | undefined
-  const result = await attempt(database(), async (tx) => { seen = (await saleIn(tx, rec, { buyerIdentifier })).relatedPartyMatch }, rule)
+  const result = await attempt(database(), async (tx) => {
+    for (const rule of without) await takeOut(tx, rule)
+    seen = (await saleIn(tx, rec, { buyerIdentifier })).relatedPartyMatch
+  })
   expect(result).toBe("ok")
   return seen as unknown as boolean
 }
@@ -73,13 +76,13 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
     it("forces relatedPartyMatch for a buyer carrying the borrower's ID number, however it is punctuated", async () => {
       const spaced = R.nca.loan.borrowerKey.replace(/(\d{6})(\d{4})(\d{3})/, "$1 $2 $3")
       expect(await forced(R.nca, spaced)).toBe(true)
-      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)`, "false"))).toBe(false)
+      expect(await forced(R.nca, spaced, clauseOff("recoveryBuyerRelated", `EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys))`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying the borrowing company's registration number", async () => {
       const dashed = R.non.loan.borrowerKey.replaceAll("/", "-").toLowerCase()
       expect(await forced(R.non, dashed)).toBe(true)
-      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key`, "false"))).toBe(false)
+      expect(await forced(R.non, dashed, clauseOff("recoveryBuyerRelated", `public."recoveryIdentifierKey"(b."registrationNumber") = ANY (buyer_keys)`, "false"))).toBe(false)
     })
 
     it("forces it for a buyer carrying a related client's ID number (any role)", async () => {
@@ -103,12 +106,27 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
         for (const written of ["2098/12345/05", "2098 / 12345 / 5", "CK 2098-12345-05", "209801234505", "Reg 2098/12345/05 (Pty)"]) {
           expect(await forced(R.non, written), written).toBe(true)
         }
+        // the padding is in the canonical key and in the written-registration keys of the field
         const unpadded = clauseOff("recoveryIdentifierKey", `lpad(registration[2], 6, '0')`, `registration[2]`)
-        expect(await forced(R.non, "2098/12345/05", unpadded)).toBe(false)
+        const unpaddedField = clauseOff("recoveryIdentifierKeys", `lpad(written[2], 6, '0')`, `written[2]`)
+        expect(await forced(R.non, "2098/12345/05", unpadded, unpaddedField)).toBe(false)
         expect(await forced(R.non, "2098/12345/07")).toBe(false) // another suffix
       } finally {
         await set("2098/123456/05")
       }
+    })
+
+    it("forces it when the known ID or registration number is hidden in a longer field (appended, prefixed, doubled, labelled, typed with O and l)", async () => {
+      const id = R.nca.loan.borrowerKey
+      const fields = [`${id}0`, `27${id}`, `7001015800084 / ${id}`, `${id.slice(0, 4)} ID ${id.slice(4)}`, id.replaceAll("0", "O").replaceAll("1", "l"), `RSA ${id} (SA ID)`]
+      for (const field of fields) expect(await forced(R.nca, field), field).toBe(true)
+      const direct = clauseOff("recoveryBuyerRelated", `c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = ANY (buyer_keys)`,
+        `c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = public."recoveryIdentifierKey"(identifier)`)
+      for (const field of fields.slice(0, 5)) expect(await forced(R.nca, field, direct), field).toBe(false)
+      expect(await forced(R.nca, id, direct)).toBe(true) // equality is kept
+      expect(await forced(R.non, "our company is 2098/123456/05 (Pty) Ltd")).toBe(true)
+      expect(await forced(R.non, `director ${directorId} signs`)).toBe(true)
+      expect(await forced(R.nca, `${id.slice(0, 12)}8`)).toBe(false)
     })
 
     it("leaves a stranger alone", async () => {

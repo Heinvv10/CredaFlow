@@ -17,7 +17,7 @@
 import { PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { attempt } from "./lease-servicing.integration-fixture"
-import { canonicalIdentifier } from "./recovery-screening"
+import { canonicalIdentifier, identifierKeys } from "./recovery-screening"
 import { clauseOff } from "./recovery-rules.integration-fixture"
 
 // The fixtures import the real route handlers, which import the session helper.
@@ -67,6 +67,16 @@ const TABLE: [string, string][] = [
   ["an ID spaced like a registration number", "8001 015009 08"], ["trust number", "IT 1234/2020"], ["CK without a number", "CK"], ["an older CIPC form", "CK2098/12345/05"],
 ]
 
+/** Round 2: an ID hidden in a longer field (R3a) and the registration forms inside one, as the tester wrote them. */
+const FIELDS: [string, string][] = [
+  ["a label in the middle", `${ID.slice(0, 4)} ID ${ID.slice(4)}`], ["the letter O for zero", "8OO1O15OO9O87"], ["the letters l and I for one", "8OO1OI5OO9O87 and l"], ["two IDs", `7001015800084 / ${ID}`],
+  ["an appended digit", `${ID}0`], ["a prepended digit", `1${ID}`], ["a 27 prefix", `27${ID}`], ["a +27 prefix", `+27 ${ID}`], ["a newline", `${ID.slice(0, 6)}\n${ID.slice(6)}`],
+  ["RTL marks", `\u200f${ID}\u200e`], ["superscript digits", "⁸⁰⁰¹⁰¹⁵⁰⁰⁹⁰⁸⁷"], ["circled digits", "⑧⓪⓪①⓪①⑤⓪⓪⑨⓪⑧⑦"], ["a trailing label", `${ID} (SA ID)`], ["an RSA prefix", `RSA ${ID}`],
+  ["text on both sides", `affidavit ${ID} per counsel`], ["a registration number in text", "Reg No: 2098/12345/05, Zed Hauliers"], ["K prefix and spaces", "K2098 123456 05 (Pty) Ltd"],
+  ["two registration numbers", "2098/123456/05, 2001/123456/07"], ["a token that is only O, l and digits", "O1l0"], ["a token with other letters", "ID8OO1"], ["long digits", "1".repeat(40)],
+  ["empty", ""], ["only a label", "ID"], ["Arabic-Indic digits in text", `no. ${asScript(ID, 0x660)} end`],
+]
+
 suite("buyer identifier key: the SQL function and the TypeScript screening agree", () => {
   afterAll(async () => { await db?.$disconnect() }, 60_000)
 
@@ -76,6 +86,18 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
       const sql = await sqlKey(value)
       const ts = canonicalIdentifier(value)
       if (sql !== ts) disagree.push(`${label} ${JSON.stringify(value)}: sql ${sql} / ts ${ts}`)
+    }
+    expect(disagree).toEqual([])
+  })
+
+  it("gives every field the same set of keys to contain a known identifier in (identifierKeys)", async () => {
+    const disagree: string[] = []
+    for (const [label, value] of [...TABLE, ...FIELDS]) {
+      let sql: string[] = []
+      const result = await attempt(database(), async (tx) => { sql = (await tx.$queryRawUnsafe<{ k: string[] }[]>(`SELECT public."recoveryIdentifierKeys"($1) AS k`, value))[0].k })
+      expect(result).toBe("ok")
+      const ts = identifierKeys(value)
+      if (JSON.stringify(sql) !== JSON.stringify(ts)) disagree.push(`${label} ${JSON.stringify(value)}: sql ${JSON.stringify(sql)} / ts ${JSON.stringify(ts)}`)
     }
     expect(disagree).toEqual([])
   })
@@ -107,6 +129,35 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
     expect(await sqlKey(`ABCDEFGHIJ${ID}`)).toBe(`ABCDEFGHIJ${ID}`)
     expect(await sqlKey("800101A5009087")).toBe("800101A5009087")
     expect(await sqlKey("2098/123456/10")).toBe("209812345610")
+  })
+
+  describe("each step of the containment is what makes the keys", () => {
+    const keys = async (value: string, without?: Parameters<typeof attempt>[2]): Promise<string[]> => {
+      let out: string[] = []
+      const result = await attempt(database(), async (tx) => { out = (await tx.$queryRawUnsafe<{ k: string[] }[]>(`SELECT public."recoveryIdentifierKeys"($1) AS k`, value))[0].k }, without)
+      expect(result).toBe("ok")
+      return out
+    }
+    it("finds the ID in an appended, prefixed, labelled or doubled field, and with letters for digits", async () => {
+      for (const [, value] of FIELDS.slice(0, 14)) expect(await keys(value), JSON.stringify(value)).toContain(ID)
+    })
+
+    it("the 13-digit windows", async () => {
+      expect(await keys(`27${ID}`, clauseOff("recoveryIdentifierKeys", `keys := keys || substr(src, at, 13);`))).not.toContain(ID)
+    })
+
+    it("the digits together, label letters removed", async () => {
+      expect(await keys(`${ID.slice(0, 4)} ID ${ID.slice(4)}`, clauseOff("recoveryIdentifierKeys", `|| regexp_replace(fixed, '[^0-9]', '', 'g')`))).not.toContain(ID)
+    })
+
+    it("O, l and I read as digits inside a token of digits", async () => {
+      expect(await keys("8OO1O15OO9O87", clauseOff("recoveryIdentifierKeys", `translate(piece[1], 'OLI', '011')`, `piece[1]`))).not.toContain(ID)
+    })
+
+    it("registration numbers written with separators inside a longer field, and 11 or 12 digits as one", async () => {
+      expect(await keys("Reg No: 2098/12345/05, Zed", clauseOff("recoveryIdentifierKeys", `keys := keys || (written[1] || lpad(written[2], 6, '0') || (written[3]::INTEGER)::TEXT);`))).not.toContain("20980123455")
+      expect(await keys("209812345605 7", clauseOff("recoveryIdentifierKeys", `keys := keys || (substr(window_, 1, 4) || substr(window_, 5, 6) || (substr(window_, 11)::INTEGER)::TEXT);`))).not.toContain("20981234565")
+    })
   })
 
   describe("each step of the rule is what makes the key", () => {

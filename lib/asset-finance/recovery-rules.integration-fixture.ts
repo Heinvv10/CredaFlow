@@ -27,7 +27,8 @@ export const clauseOff = (fn: string, clause: string, replacement = ""): DbRule 
 export const triggersOff = (tx: Tx) => tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
 export const triggersOn = (tx: Tx) => tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
 
-async function takeOut(tx: Tx, rule: DbRule): Promise<void> {
+/** Takes the rule out inside the transaction (a rolled-back attack). */
+export async function takeOut(tx: Tx, rule: DbRule): Promise<void> {
   if ("fn" in rule) {
     const [row] = await tx.$queryRawUnsafe<{ def: string }[]>(`SELECT pg_get_functiondef('public."${rule.fn}"'::regproc) AS def`)
     const [clause, replacement] = rule.replace
