@@ -166,7 +166,8 @@ suite.sequential("lease ledger SQL rules (real Postgres)", () => {
         "maintenanceExclVatCents", "vatCents", "totalCents", "vatRate", "taxInvoiceId") VALUES ('lr_x_${randomUUID()}', '${fx.tenantId}', '${ids.loan}',
         '${ids.schedule}', 98, CURRENT_DATE, 100, 0, 0, 100, 0.15, ${invoiceId})`
       expectRejected(withoutTotals(`${invoice(`inv_w_${t}`, ids.loan, 100, "CURRENT_DATE")}; ${insert(`'inv_w_${t}'`)}`), "written uninvoiced")
-      expectRejected(`TRUNCATE "LeaseRental"`, "never deleted")
+      expectRejected(`DELETE FROM "LeaseRental" WHERE "id" = '${ids.rental2}'`, "never deleted")
+      expectRejected(`TRUNCATE "LeaseRental"`, "referenced in a foreign key constraint") // maintenance fund movements reference it
     })
     it("supplied no later than the due date, earlier only once money reached it (breaker)", async () => {
       const rental = await database().leaseRental.findUniqueOrThrow({ where: { id: ids.rental2 } })

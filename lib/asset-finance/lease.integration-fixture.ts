@@ -37,7 +37,10 @@ export async function createLeaseFixture(db: PrismaClient, t: string): Promise<L
   for (const id of fx.assets) {
     await db.financedAsset.update({
       where: { id },
-      data: { trackerId: `TRK-${id.slice(-6)}`, trackerProvider: "TEST Tracking", lenderNotedConfirmed: true, natisTitleholder: lenderName, natisOwner: lenderName },
+      data: {
+        trackerId: `TRK-${id.slice(-6)}`, trackerProvider: "TEST Tracking", lenderNotedConfirmed: true, natisTitleholder: lenderName, natisOwner: lenderName,
+        hours: 400, odometerKm: 12_000, // the start reading of a lease with contracted usage
+      },
     })
   }
   const account = await db.supplierBankAccount.create({

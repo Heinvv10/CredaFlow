@@ -43,7 +43,7 @@ const BOOKING_SELECT = {
       creditLifeElection: true, creditLifeProductId: true, creditLifeMonthlyPremiumCents: true,
     },
   },
-  asset: { select: { id: true, make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true } },
+  asset: { select: { id: true, make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true, hours: true, odometerKm: true } },
   entity: {
     select: { id: true, legalName: true, vatNumber: true, addressLine1: true, addressLine2: true, city: true, province: true, postalCode: true },
   },

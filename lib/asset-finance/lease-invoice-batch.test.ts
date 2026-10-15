@@ -12,6 +12,8 @@ describe("runLeaseInvoiceBatch", () => {
     const db = {
       tenantConfig: { findMany: tenants },
       leaseRental: { findMany: vi.fn(async () => due) },
+      leaseEndOfTerm: { findMany: vi.fn(async () => []) }, // no extensions running (lease-daily.ts; ITs cover them)
+      loan: { findMany: vi.fn(async () => []) }, // no expiry notice due
       $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({})),
     }
     issue.mockReset()
@@ -20,7 +22,7 @@ describe("runLeaseInvoiceBatch", () => {
       .mockResolvedValueOnce({ kind: "refused", reason: "vat_rate_changed", error: "x" })
     const run = await runLeaseInvoiceBatch(db as never, "2027-03-02")
     expect(tenants).toHaveBeenCalledWith(expect.objectContaining({ where: { featureAssetFinance: true } }))
-    expect(run).toMatchObject({ ok: false, issued: 1, failed: 1, refused: { vat_rate_changed: 1 } })
+    expect(run).toMatchObject({ ok: false, issued: 1, failed: 1, refused: { vat_rate_changed: 1 }, extensionRentals: 0, expiryNotices: 0 })
     expect(issue).toHaveBeenCalledTimes(3)
     expect(issue.mock.calls[0][1]).toMatchObject({ rentalId: "r1", supplyDate: "2027-01-01", source: "cron" })
   })
