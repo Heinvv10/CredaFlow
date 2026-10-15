@@ -127,6 +127,7 @@ run_integration() {
 
   (
     export DATABASE_URL="postgresql://postgres:it@127.0.0.1:${port}/postgres"
+    export IT_CONTAINER="$CI_CONTAINER"  # lets the runner verify the port is ours
     echo ">> Apply migrations"
     npx prisma migrate deploy
     echo ">> Generate Prisma client"
