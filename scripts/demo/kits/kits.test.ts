@@ -17,7 +17,9 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'demo-kits-'))
   photo = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: { r: 20, g: 90, b: 200 } } }).jpeg().toBuffer()
   await buildKits(LIVE_DEMO_PERSONAS, ASOF, join(root, 'kit'), photo)
-})
+  // Renders every persona's specimen PDFs and images in process: CPU-bound, so
+  // the 10 s default hook timeout trips on a loaded machine (as in specimens.test.ts).
+}, 60_000)
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('buildKits', () => {
