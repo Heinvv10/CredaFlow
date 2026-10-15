@@ -137,11 +137,17 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * Off: the categoriser missed the accuracy gate the flag depends on (goal §6.4:
  * ≥ 95% agreement with blind labels on held-out corpus merchants; measured
  * 90.0–90.5% over three runs, 2026-10-14). The check, its tests and the panel
- * figures ship. Before turning this on: pass the gate; supersede an older OPEN
- * LIVING_SPEND_ABOVE_DECLARED when its successor is raised (recompute.ts keeps
- * both today); have the decide route's stale check compare monthlyExpenses; and
- * decide whether an explicit R0 declaration (stored as 0, so read as "not
- * captured") should flag, e.g. from the apply route's declaredExpensesProvided.
+ * figures ship, and so do its switch-on prerequisites: a successor supersedes
+ * the older OPEN finding (recompute.ts), the decide route refuses an approval
+ * whose declared expenses changed since the checks ran, and an explicit R0
+ * declaration flags while expenses never captured do not
+ * (load-facts.ts declaredExpenses: a stored 0 counts only with
+ * Client.monthlyExpensesDeclaredAt). R0 is recorded from the website apply
+ * form (new client, expenses sent), the staff wizard (a figure typed or a
+ * below-minimum justification) and the staff edit (total changed, or that
+ * justification given). CRM lead convert records none: it refuses R0 when
+ * income is above 0, and at R0 income its prefilled "0" is not explicit.
+ * What is left before turning this on: pass the gate.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 
