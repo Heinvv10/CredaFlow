@@ -12,6 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { storeStitchWebhookSecret } from "@/lib/integrations/stitch-webhook.integration-fixture"
 import { createChargesLoan, createChargesTenant, DAILY_SETTLEMENT_NOW, NOW, SCHEDULE_TOTAL } from "./charges.integration-fixture"
 
 const { ctx } = vi.hoisted(() => ({ ctx: { tenantId: "", userId: "" } }))
@@ -78,7 +79,7 @@ const writers: Record<string, (ids: Ids, amount: number) => Promise<unknown>> = 
     }))
   },
   stitch: async (ids, amount) => {
-    process.env.STITCH_WEBHOOK_SECRET = "daily-it-secret"
+    await storeStitchWebhookSecret(db, ids.tenantId, "daily-it-secret")
     const stitchId = `stitch_daily_${randomUUID()}`
     await db.stitchPaymentRequest.create({
       data: {

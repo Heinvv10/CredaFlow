@@ -10,6 +10,7 @@ const { mocks, captured } = vi.hoisted(() => ({
   mocks: {
     clientFindFirst: vi.fn(),
     clientFindUnique: vi.fn(),
+    getTenantFromRequest: vi.fn(),
     userFindUnique: vi.fn(),
     failedAttemptCreate: vi.fn(),
     compare: vi.fn(),
@@ -29,6 +30,8 @@ vi.mock("next-auth", () => ({
 }))
 vi.mock("next-auth/providers/credentials", () => ({ default: (config: unknown) => config }))
 vi.mock("@/lib/tenant-scope", () => ({ withoutTenantScope: <T,>(fn: () => Promise<T>) => fn() }))
+// The portal host's tenant (lib/tenant.ts resolves it from the request host).
+vi.mock("@/lib/tenant", () => ({ getTenantFromRequest: mocks.getTenantFromRequest }))
 vi.mock("bcryptjs", () => ({ default: { compare: mocks.compare, hashSync: () => "dummy-hash" } }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -66,6 +69,7 @@ beforeEach(() => {
   vi.stubEnv("APP_MODE", "")
   mocks.clientFindFirst.mockReset()
   mocks.clientFindUnique.mockReset()
+  mocks.getTenantFromRequest.mockReset().mockResolvedValue({ id: "t1" })
   mocks.userFindUnique.mockReset()
   mocks.failedAttemptCreate.mockReset().mockResolvedValue({})
   mocks.compare.mockReset().mockResolvedValue(true)
@@ -202,6 +206,15 @@ describe("authorize(): sign-in audience follows APP_MODE", () => {
     mocks.clientFindUnique.mockResolvedValue(clientRow)
     const user = await authorize(asClient("stamp@example.test"))
     expect(user).toMatchObject({ id: "c1", role: "CLIENT", tenantId: "t1", credentialStamp: clientCredentialStamp("c1", "t1", HASH) })
+  })
+
+  it("looks the client up in the portal host's tenant only; a host with no tenant looks nobody up", async () => {
+    mocks.getTenantFromRequest.mockResolvedValueOnce({ id: "t2" }).mockResolvedValueOnce(null)
+    mocks.clientFindUnique.mockResolvedValue(null)
+    await expect(authorize(asClient("same@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).toHaveBeenCalledWith({ where: { tenantId_email: { tenantId: "t2", email: "same@example.test" } } })
+    await expect(authorize(asClient("nohost@example.test"))).rejects.toMatchObject({ code: "wrong_audience" })
+    expect(mocks.clientFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it("refuses a client sign-in, after the password check, while the lender's portal is off", async () => {

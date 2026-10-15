@@ -156,14 +156,10 @@ async function main() {
   const clients: { id: string; income: number; expenses: number }[] = []
   for (const [i, c] of CLIENTS.entries()) {
     const email = `${c.firstName}.${c.lastName}@${LENDER.clientDomain}`.toLowerCase()
-    // idNumber is globally unique: refuse rather than rewrite another tenant's client.
-    const existing = await prisma.client.findUnique({ where: { idNumber: c.idNumber }, select: { tenantId: true } })
-    if (existing && existing.tenantId !== tenant.id) {
-      throw new Error(`Seed refused: client with ID number ${c.idNumber} belongs to another tenant (${existing.tenantId}). The demo seed never rewrites another tenant's row.`)
-    }
     const row = await prisma.client.upsert({
-      // idNumber is the stable identifier across seed revisions.
-      where: { idNumber: c.idNumber },
+      // idNumber is the stable identifier across seed revisions. It is unique
+      // per tenant, so this can only ever match the seeded tenant's own client.
+      where: { tenantId_idNumber: { tenantId: tenant.id, idNumber: c.idNumber } },
       update: { ...(portalEnv ? { portalPassword: portalHash } : {}), email },
       create: {
         tenantId: tenant.id,

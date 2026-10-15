@@ -89,7 +89,8 @@ describe('targetRefusal', () => {
   })
 })
 
-describe('provisionOperator', () => {
+// bcrypt cost 12 (the product's), pure JS: several hashes per test, over 5 s on a loaded machine.
+describe('provisionOperator', { timeout: 60_000 }, () => {
   it('creates one TOTP-enrolled SUPER_ADMIN in the acme tenant whose password is the one returned', async () => {
     const f = fakeDb()
     const creds = await provisionOperator(f.db)
@@ -137,7 +138,7 @@ describe('provisionOperator', () => {
   })
 })
 
-describe('retireOperator', () => {
+describe('retireOperator', { timeout: 60_000 }, () => {
   it('deactivates the operator with a password nobody holds and ends its sessions', async () => {
     const f = fakeDb()
     const creds = await provisionOperator(f.db)

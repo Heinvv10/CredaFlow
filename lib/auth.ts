@@ -6,6 +6,7 @@ import { checkRateLimit, callerIp } from "./rate-limit"
 import { authBaseConfig, roleRefusedOnThisHost, type AppRole } from "./auth-config"
 import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
+import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { claimTotpCounter } from "./totp-claim"
@@ -272,9 +273,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // returns a lazy thenable whose execution happens after `run()` exits,
         // by which point the admin frame is gone and the tenant-scope extension
         // throws `missing-context`.
-        const client = await withoutTenantScope(async () => {
-          return await prisma.client.findUnique({ where: { email } })
-        })
+        //
+        // Borrowers are per lender (Client is unique on tenantId + email), so
+        // the portal host's tenant names whose client this is. A host that
+        // resolves no tenant has no clients.
+        const portalTenant = await getTenantFromRequest(request as Request)
+        const client = portalTenant
+          ? await withoutTenantScope(async () => {
+              return await prisma.client.findUnique({
+                where: { tenantId_email: { tenantId: portalTenant.id, email } },
+              })
+            })
+          : null
 
         if (!client || !client.portalPassword) {
           // Symmetric timing equalization with the staff path so a staff email

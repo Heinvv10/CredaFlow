@@ -5,6 +5,7 @@ import {
 } from "./smileidentity"
 
 const request = {
+  tenantId: "t1",
   selfieBase64: "synthetic-image",
   idNumber: "9001015800086",
   firstName: "Synthetic",

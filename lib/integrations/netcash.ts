@@ -2,7 +2,7 @@
  * Netcash integration — EFT disbursements via Netcash
  */
 
-import { prisma } from "@/lib/prisma"
+import { loadTenantCredential } from "@/lib/integrations/tenant-credentials"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
 
 interface DisburseOptions {
@@ -27,11 +27,7 @@ interface DisburseResult {
 
 async function getServiceKey(tenantId: string): Promise<string | null> {
   try {
-    const config = await prisma.tenantConfig.findUnique({
-      where: { tenantId },
-      select: { netcashKey: true },
-    })
-    return config?.netcashKey ?? null
+    return await loadTenantCredential(tenantId, "netcashKey")
   } catch {
     return null
   }
