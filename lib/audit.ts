@@ -613,4 +613,16 @@ export const AuditAction = {
   WEBHOOK_ENDPOINT_RESUMED: "WEBHOOK_ENDPOINT_RESUMED",
   // A draft application created through POST /api/v1/applications; newValue names the key.
   APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
+  // Staff working hours and IP allowlist (lib/security/staff-access-*.ts).
+  // REFUSED: a sign-in or a live session stopped by the policy, with reason.
+  // BYPASSED: a SUPER_ADMIN the policy would have stopped, let through.
+  STAFF_ACCESS_POLICY_UPDATED: "STAFF_ACCESS_POLICY_UPDATED",
+  STAFF_ACCESS_REFUSED: "STAFF_ACCESS_REFUSED",
+  STAFF_ACCESS_BYPASSED: "STAFF_ACCESS_BYPASSED",
+  // Signing OTP and portal registration policy (lib/signing-otp,
+  // lib/portal/portal-policy.ts). Never the code itself.
+  PORTAL_POLICY_UPDATED: "PORTAL_POLICY_UPDATED",
+  SIGNING_OTP_REQUESTED: "SIGNING_OTP_REQUESTED",
+  SIGNING_OTP_VERIFIED: "SIGNING_OTP_VERIFIED",
+  SIGNING_OTP_REJECTED: "SIGNING_OTP_REJECTED",
 } as const

@@ -39,6 +39,8 @@ vi.mock("next/navigation", () => ({
   },
 }))
 vi.mock("./PortalDebitMandateClient", () => ({ PortalDebitMandateClient: () => null }))
+const signingOtpView = vi.hoisted(() => vi.fn(async () => ({ required: true, channels: ["EMAIL", "WHATSAPP"] })))
+vi.mock("@/lib/signing-otp/view", () => ({ signingOtpView }))
 
 import PortalDebitMandatePage from "./page"
 
@@ -94,6 +96,8 @@ describe("portal debit mandate page — whose mandate it renders", () => {
     const props = await render("app-alice")
     expect(props).toMatchObject({ applicationId: "app-alice", clientName: "Alice Synthetic" })
     expect(props.initialBankDetails).toMatchObject({ accountNumber: "1111111111" })
+    expect(props.signingOtp).toEqual({ required: true, channels: ["EMAIL", "WHATSAPP"] })
+    expect(signingOtpView).toHaveBeenCalledWith("tenant-1", expect.objectContaining({ firstName: "Alice" }), "portal")
   })
 
   it("does not render Bob's mandate to Alice after their emails are swapped", async () => {
