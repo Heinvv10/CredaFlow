@@ -27,6 +27,7 @@ import { referenceRateOn, type RatesDb } from "./rates-store"
 import { solveStructure } from "./structure"
 import type { RateTerms, StructureTerms } from "./deal-input"
 import type { StructureResult } from "./types"
+import { isLeaseTerms, leaseStartDate, priceLeaseTerms } from "./lease-structure"
 
 export interface AssetPrice {
   cashPriceExclVatCents: number
@@ -42,6 +43,11 @@ export type Solved = { ok: true; rate: ResolvedRate; startDate: string; result: 
 
 export function dealStartDate(firstDueDate: string): string {
   return addMonthsClamped(firstDueDate, -1)
+}
+
+/** The indicative start of a deal's terms: a lease's commencement (./lease-structure.ts), else dealStartDate. */
+export function termsStartDate(terms: StructureTerms): string {
+  return isLeaseTerms(terms) ? leaseStartDate(terms) : dealStartDate(terms.firstDueDate)
 }
 
 export async function resolveRate(
@@ -76,8 +82,10 @@ export function solveDealStructure(
   asset: AssetPrice,
   terms: StructureTerms,
   rate: ResolvedRate,
-  startDate: string = dealStartDate(terms.firstDueDate),
+  startDate: string = termsStartDate(terms),
 ): Solved {
+  // A lease: priced ex VAT (what is signed does not depend on VAT; ./lease-structure.ts).
+  if (isLeaseTerms(terms)) return priceLeaseTerms(asset, terms, rate, startDate, 0)
   let result: StructureResult
   try {
     result = solveStructure({
@@ -114,7 +122,7 @@ export async function solveWithRate(
   asset: AssetPrice,
   terms: StructureTerms,
 ): Promise<Solved> {
-  const rate = await resolveRate(db, tenantId, terms.rate, dealStartDate(terms.firstDueDate))
+  const rate = await resolveRate(db, tenantId, terms.rate, termsStartDate(terms))
   if ("error" in rate) return { ok: false, error: rate.error }
   return solveDealStructure(asset, terms, rate)
 }

@@ -127,6 +127,8 @@ describe("tenant-scope — ALS primitives", () => {
       "SuspiciousReportCase",
       "SuspiciousReportAccess",
       "RmcpDocument",
+      // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
+      "LeaseRental",
     ])
   })
 

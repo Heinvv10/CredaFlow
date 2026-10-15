@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { GET } from "./route"
 
-const { updateRequest } = vi.hoisted(() => ({ updateRequest: vi.fn() }))
+const { updateRequest, updateManyRequest } = vi.hoisted(() => ({ updateRequest: vi.fn(), updateManyRequest: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
-  prisma: { stitchPaymentRequest: { update: updateRequest } },
+  prisma: { stitchPaymentRequest: { update: updateRequest, updateMany: updateManyRequest } },
 }))
 
 // req.url mirrors the container's internal bind (0.0.0.0:3300) when deployed —
@@ -17,7 +17,6 @@ afterEach(() => { vi.clearAllMocks() })
 
 describe("GET /api/portal/payment/callback", () => {
   it("redirects a completed payment to the success page with a RELATIVE Location", async () => {
-    updateRequest.mockResolvedValue({})
     const res = await GET(makeReq("?status=complete&id=stitch1"))
 
     expect(res.status).toBe(307)
@@ -29,11 +28,18 @@ describe("GET /api/portal/payment/callback", () => {
   })
 
   it("redirects a failed payment to the failure page", async () => {
-    updateRequest.mockResolvedValue({})
     const res = await GET(makeReq("?status=failed&id=stitch1"))
 
     expect(res.status).toBe(307)
     expect(res.headers.get("location")).toBe("/portal/payment/failure")
+  })
+
+  // The query string is the browser's: a status written from it would mark the
+  // request COMPLETED ahead of the signed webhook, which then books no Payment.
+  it.each(["complete", "failed"])("writes nothing for status=%s — settlement is the webhook's", async (status) => {
+    await GET(makeReq(`?status=${status}&id=stitch1`))
+    expect(updateRequest).not.toHaveBeenCalled()
+    expect(updateManyRequest).not.toHaveBeenCalled()
   })
 
   it("treats an unknown status as failure and still emits a relative Location", async () => {
@@ -41,6 +47,5 @@ describe("GET /api/portal/payment/callback", () => {
 
     expect(res.status).toBe(307)
     expect(res.headers.get("location")).toBe("/portal/payment/failure")
-    expect(updateRequest).not.toHaveBeenCalled() // no id → no status write
   })
 })
