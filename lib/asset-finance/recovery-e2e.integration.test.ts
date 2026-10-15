@@ -106,7 +106,7 @@ async function costs(run: Run, charged: boolean): Promise<void> {
 }
 
 /** From LISTED to CLOSED: costs, the sale (approved when below valuation), the proceeds, the notice (NCA), the outcome and the close. */
-async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below: boolean; charged?: boolean; label: string }): Promise<void> {
+async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below: boolean; selfValued?: boolean; charged?: boolean; label: string }): Promise<void> {
   const charged = o.charged ? 200_000 : 0
   const settlement = o.surplus ? SURPLUS_SETTLEMENT : SHORTFALL_SETTLEMENT
   await costs(run, !!o.charged)
@@ -115,9 +115,11 @@ async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below
   officer()
   const valuationId = (await database().recovery.findUniqueOrThrow({ where: { id: run.id } })).valuationId as string
   const proposed = await write(["ASSET_REMARKETING_SALE_PROPOSED"], () => sale(s().propose(run.id, saleBody(valuationId, PRICE, o.below ? { belowValuationReason: "Auction reserve not met on the day" } : {}))), 201)
-  expect(proposed.body).toMatchObject({ belowValuation: o.below, approvalRequired: o.below })
+  // a sale needs a second approver when it is below valuation or when its proposer recorded the valuation it relies on
+  const approval = o.below || !!o.selfValued
+  expect(proposed.body).toMatchObject({ belowValuation: o.below, selfValued: !!o.selfValued, approvalRequired: approval })
   const saleId = proposed.body.id as string
-  if (o.below) {
+  if (approval) {
     expect((await sale(s().completeSale(run.id, saleId))).status).toBe(409) // not approved yet
     adminA()
     await write(["ASSET_REMARKETING_SALE_APPROVED"], () => sale(s().approveSale(run.id, saleId)))
@@ -183,9 +185,10 @@ async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below
   expect((await database().recovery.findUniqueOrThrow({ where: { id: run.id } })).closedAt).not.toBeNull()
 }
 
-/** Value, notify (NCA), list: the head every route shares once the recovery exists. */
-async function valueAndList(run: Run, o: { nca: boolean; s131?: boolean; surrenderId?: string; valuationCents: number }): Promise<void> {
-  officer()
+/** Value, notify (NCA), list: the head every route shares once the recovery exists. The valuer is the admin B unless the proposer values it. */
+async function valueAndList(run: Run, o: { nca: boolean; s131?: boolean; surrenderId?: string; valuationCents: number; valuedByProposer?: boolean }): Promise<void> {
+  if (o.valuedByProposer) officer()
+  else adminB()
   await expectState(run, { recovery: "RECOVERED", lessor: "RECOVERED", payments: 0 })
   const valuation = { valuedOn: today(), source: "ASSESSOR", valuerName: "TEST Valuers", amountCents: o.valuationCents }
   if (o.surrenderId) {
@@ -195,6 +198,7 @@ async function valueAndList(run: Run, o: { nca: boolean; s131?: boolean; surrend
     await write(["ASSET_RECOVERY_VALUED"], () => r().valuation(run.id, valuation))
   }
   await expectState(run, { recovery: "VALUED", lessor: "RECOVERED", payments: 0 })
+  officer()
   if (o.nca) {
     if (o.surrenderId) await write(["ASSET_SURRENDER_VALUATION_NOTICE_ISSUED"], () => r().surrenderValuationNotice(o.surrenderId as string))
     await write(["ASSET_RECOVERY_VALUATION_NOTICE_ISSUED"], () => r().valuationNotice(run.id))
@@ -282,7 +286,7 @@ suite.sequential("recovery end to end: the four routes through the real handlers
     const recovered = await write(["ASSET_RECOVERY_CREATED"], () => l().step(matter, { kind: "ASSET_RECOVERED", stepDate: today(), location: "TEST Yard", condition: "Synthetic: fair" }).then(answer), 201)
     const run = { loan, id: recovered.body.recoveryId as string }
     expect(await database().recovery.findUniqueOrThrow({ where: { id: run.id }, select: { route: true } })).toEqual({ route: "NON_NCA_COURT_ORDER" })
-    await valueAndList(run, { nca: false, valuationCents: 100_000_000 })
-    await sellAndClose(run, { nca: false, surplus: true, below: false, label: "non-nca court order" })
+    await valueAndList(run, { nca: false, valuationCents: 100_000_000, valuedByProposer: true })
+    await sellAndClose(run, { nca: false, surplus: true, below: false, selfValued: true, label: "non-nca court order" })
   }, 240_000)
 })
