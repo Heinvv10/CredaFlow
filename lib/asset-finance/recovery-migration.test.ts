@@ -121,6 +121,17 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
     }
   })
 
+  it("keeps a recovery's proceeds receipt from being reversed, and pays a refund only from it", () => {
+    expect(baselineTriggerSql("Payment_recovery_proceeds_kept")).toContain(`BEFORE UPDATE OF "reversed" ON "Payment"`)
+    expect(baselineFunctionSql("recoveryRefundBacked")).toContain(`l."status" = 'COMPLETED'`)
+    expect(baselineConstraintSql("RecoveryRefund_releaser_not_creator")).toContain(`"releasedById" <> "createdById"`)
+  })
+
+  it("compares identifiers across Unicode digit forms and registration numbers in one canonical form", () => {
+    expect(baselineFunctionSql("recoveryAsciiDigits")).toContain(`normalize(COALESCE(value, ''), NFKC)`)
+    expect(baselineFunctionSql("recoveryRegistrationKey")).toContain(`'^CK(?=[0-9])'`)
+  })
+
   it("requires two people for the surplus refund and for closing the surplus", () => {
     expect(baselineConstraintSql("RecoveryRefund_approver_differs")).toContain(`"approvedById" <> "createdById"`)
     expect(baselineFunctionSql("guardRecoveryRefund")).toContain(`'A refund is the whole surplus of a recovery that holds one'`)

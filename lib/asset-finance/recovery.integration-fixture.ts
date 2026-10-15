@@ -146,7 +146,7 @@ export async function newSurrender(db: PrismaClient, fx: DealFixture, loan: Reco
 /** A matter on the loan with a judgment and an attachment order: what an s131 recovery (or a court-order one) stands on. */
 export async function courtMatter(db: PrismaClient, fx: DealFixture, loan: RecoveryLoan): Promise<string> {
   const matterId = await newMatter(db, fx, loan.loanId)
-  await addStep(db, fx, matterId, "JUDGMENT")
+  await addStep(db, fx, matterId, "JUDGMENT", today(), { evidenceDocumentId: await legalDocument(db, fx) }) // the court order on file
   await addStep(db, fx, matterId, "ATTACHMENT_ORDER")
   return matterId
 }

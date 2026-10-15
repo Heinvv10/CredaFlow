@@ -22,7 +22,7 @@ import {
   cleanupRecoveryFixture, createRecoveryFixture, day, legalDocument, newAsset, newLoan, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { attempt } from "./lease-servicing.integration-fixture"
-import { PASS_DELETE, raiseOff, rules, triggersOff, triggersOn, type Tx } from "./recovery-rules.integration-fixture"
+import { clauseOff, PASS_DELETE, raiseOff, rules, triggersOff, triggersOn, type Tx } from "./recovery-rules.integration-fixture"
 
 // The deal fixture imports the real route handlers, which import the session helper.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -37,7 +37,7 @@ const database = (): PrismaClient => {
 }
 const { refuses, admits } = rules(database)
 let fx: RecoveryFixture
-interface Rec { loan: RecoveryLoan; id: string }
+interface Rec { loan: RecoveryLoan; id: string; proceedsPaymentId?: string | null }
 /** vatDone: an instalment sale that already has its (committed) deemed-supply event. */
 const R = {} as Record<"sale" | "sold" | "vatDone" | "finance" | "operating" | "operatingBare" | "gone" | "surplus" | "listed", Rec>
 let bankDocument = ""
@@ -73,6 +73,7 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
     R.sold = await ladderRecovery(database(), fx, false, "SOLD") // an instalment sale resold: not a lessor's resale
     R.operating = await ladderRecovery(database(), fx, false, "SOLD", {}, false, "OPERATING_LEASE") // a lease asset resold: the sale is complete
     R.surplus = await ladderRecovery(database(), fx, true, "SURPLUS_HELD", { settlementCents: 80_000_000 })
+    R.surplus.proceedsPaymentId = (await database().recovery.findUniqueOrThrow({ where: { id: R.surplus.id } })).proceedsPaymentId
     R.listed = await ladderRecovery(database(), fx, false, "LISTED")
     bankDocument = await legalDocument(database(), fx, "OTHER")
   }, 300_000)
@@ -156,7 +157,8 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
     it("is the whole surplus of a recovery that holds one", async () => {
       const rule = raiseOff(G, "A refund is the whole surplus of a recovery that holds one")
       await refuses(rule, /whole surplus of a recovery that holds one/, (tx) => refund(tx, { amountCents: 39_999_999 }))
-      await refuses(rule, /whole surplus of a recovery that holds one/, (tx) => refund(tx, { recoveryId: R.listed.id }))
+      await refuses(rule, /whole surplus of a recovery that holds one/, (tx) => refund(tx, { recoveryId: R.listed.id }),
+        [raiseOff(G, "A refund is paid out of a settled loan and an unreversed proceeds receipt")])
       await admits((tx) => refund(tx))
     })
 
@@ -201,8 +203,79 @@ suite("slice 4a VAT event, refund, deal and catalog database rules", () => {
       const release = (id: string, by: string, over: Record<string, unknown> = {}) => (tx: Tx) =>
         tx.recoveryRefund.update({ where: { id }, data: { status: "RELEASED", releasedById: by, releasedAt: new Date(), ...over } })
       await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_releaser_differs" }, /RecoveryRefund_releaser_differs/, async (tx) => release(await approved(tx), fx.adminB)(tx))
-      await refuses(raiseOff(G, "A refund is released on the approval it was given"), /released on the approval it was given/, async (tx) => release(await approved(tx), fx.officer, { approvedById: fx.adminA })(tx))
+      await refuses(raiseOff(G, "A refund is released on the approval it was given"), /released on the approval it was given/, async (tx) => release(await approved(tx), fx.adminB, { approvedById: fx.adminA })(tx))
       await admits(async (tx) => release(await approved(tx), fx.adminA)(tx))
+    })
+
+    it("is released by someone other than its creator too: three different people", async () => {
+      await refuses({ table: "RecoveryRefund", constraint: "RecoveryRefund_releaser_not_creator" }, /RecoveryRefund_releaser_not_creator/, async (tx) => {
+        const r = await refund(tx)
+        await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "APPROVED", approvedById: fx.adminB } })
+        await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "RELEASED", releasedById: fx.officer, releasedAt: new Date() } })
+      })
+    })
+
+    describe("is paid out of money that is there: a settled loan and an unreversed proceeds receipt", () => {
+      const BACKED = /paid out of a settled loan and an unreversed proceeds receipt/
+      const rule = raiseOff(G, "A refund is paid out of a settled loan and an unreversed proceeds receipt")
+      const reverseReceipt = async (tx: Tx) => {
+        await triggersOff(tx) // the receipt's reversal as the payment route writes it
+        await tx.$executeRawUnsafe(`UPDATE "Payment" SET "reversed" = true, "reversedAt" = CURRENT_TIMESTAMP WHERE "id" = '${R.surplus.proceedsPaymentId}'`)
+        await triggersOn(tx)
+      }
+      const reopenLoan = async (tx: Tx) => {
+        await triggersOff(tx)
+        await tx.$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'ACTIVE' WHERE "id" = '${R.surplus.loan.loanId}'`)
+        await triggersOn(tx)
+      }
+      const approvedRefund = async (tx: Tx) => {
+        const r = await refund(tx)
+        await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "APPROVED", approvedById: fx.adminB } })
+        return r.id
+      }
+
+      it("when it is created", async () => {
+        await refuses(rule, BACKED, async (tx) => { await reverseReceipt(tx); await refund(tx) })
+        await refuses(rule, BACKED, async (tx) => { await reopenLoan(tx); await refund(tx) })
+      })
+
+      it("when it is approved", async () => {
+        await refuses(rule, BACKED, async (tx) => {
+          const r = await refund(tx)
+          await reverseReceipt(tx)
+          await tx.recoveryRefund.update({ where: { id: r.id }, data: { status: "APPROVED", approvedById: fx.adminB } })
+        })
+      })
+
+      it("when it is released", async () => {
+        await refuses(rule, BACKED, async (tx) => {
+          const id = await approvedRefund(tx)
+          await reverseReceipt(tx)
+          await tx.recoveryRefund.update({ where: { id }, data: { status: "RELEASED", releasedById: fx.adminA, releasedAt: new Date() } })
+        })
+        await refuses(rule, BACKED, async (tx) => {
+          const id = await approvedRefund(tx)
+          await reopenLoan(tx)
+          await tx.recoveryRefund.update({ where: { id }, data: { status: "RELEASED", releasedById: fx.adminA, releasedAt: new Date() } })
+        })
+      })
+
+      it("each of the two conditions on its own", async () => {
+        await refuses(clauseOff("recoveryRefundBacked", `AND l."status" = 'COMPLETED'`), BACKED, async (tx) => { await reopenLoan(tx); await refund(tx) })
+        await refuses(clauseOff("recoveryRefundBacked", `AND (r."proceedsPaymentId" IS NULL OR (p."id" IS NOT NULL AND NOT p."reversed"))`), BACKED,
+          async (tx) => { await reverseReceipt(tx); await refund(tx) })
+      })
+    })
+
+    it("keeps the receipt of a recovery's sale proceeds from being reversed", async () => {
+      const reverse = (id: string) => (tx: Tx) => tx.$executeRawUnsafe(`UPDATE "Payment" SET "reversed" = true, "reversedAt" = CURRENT_TIMESTAMP WHERE "id" = '${id}'`)
+      await refuses(raiseOff("guardRecoveryProceedsPayment", "A recovery's sale-proceeds receipt is not reversed"), /sale-proceeds receipt is not reversed/, reverse(R.surplus.proceedsPaymentId as string))
+      await refuses({ table: "Payment", trigger: "Payment_recovery_proceeds_kept" }, /sale-proceeds receipt is not reversed/, reverse(R.surplus.proceedsPaymentId as string))
+      // any other receipt on that loan is reversed as before
+      await admits(async (tx) => {
+        const other = await tx.payment.create({ data: { tenantId: fx.tenantId, loanId: R.surplus.loan.loanId, amount: 1000 } })
+        await reverse(other.id)(tx)
+      })
     })
 
     it("is one per recovery", async () => {

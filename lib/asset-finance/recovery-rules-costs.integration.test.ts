@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, it, vi } from "vitest"
 import { dbDate } from "./dates"
 import { advance } from "./recovery-path.integration-fixture"
 import {
-  addStep, cleanupRecoveryFixture, createRecoveryFixture, day, newLoan, newMatter, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan,
+  addStep, cleanupRecoveryFixture, legalDocument, createRecoveryFixture, day, newLoan, newMatter, newRecovery, recoveryFixtureTenantId, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { clauseOff, PASS_DELETE, raiseOff, rules, type Tx } from "./recovery-rules.integration-fixture"
 
@@ -40,7 +40,7 @@ interface Rec { loan: RecoveryLoan; id: string }
 /** nca/non: RECOVERED; sold: NON_NCA SOLD; proc: NON_NCA PROCEEDS_APPLIED; gone: NON_NCA WITHDRAWN. */
 const R = {} as Record<"nca" | "non" | "sold" | "proc" | "gone", Rec>
 /** Steps of the NCA recovery's matter, and a step of another loan's matter. */
-const steps = {} as Record<"letter" | "judgment" | "settled" | "corrected" | "correction" | "foreign", string>
+const steps = {} as Record<"letter" | "judgment" | "settled" | "bareJudgment" | "bareSettled" | "corrected" | "correction" | "foreign", string>
 let existingCost = ""
 let rejectedCost = ""
 const decide = (tx: Pick<PrismaClient, "recoveryCost">, id: string, status: "APPROVED" | "REJECTED", by = fx.adminA, over: Record<string, unknown> = {}) =>
@@ -61,9 +61,12 @@ suite("slice 4a recovery cost database rules", () => {
     const ncaLoan = await newLoan(database(), fx, "NCA")
     const matterId = await newMatter(database(), fx, ncaLoan.loanId)
     steps.letter = await addStep(database(), fx, matterId, "LETTER_OF_DEMAND")
-    steps.judgment = await addStep(database(), fx, matterId, "JUDGMENT")
-    steps.settled = await addStep(database(), fx, matterId, "SETTLED")
-    steps.corrected = await addStep(database(), fx, matterId, "JUDGMENT")
+    const evidence = () => legalDocument(database(), fx).then((evidenceDocumentId) => ({ evidenceDocumentId }))
+    steps.judgment = await addStep(database(), fx, matterId, "JUDGMENT", today(), await evidence())
+    steps.settled = await addStep(database(), fx, matterId, "SETTLED", today(), await evidence())
+    steps.bareJudgment = await addStep(database(), fx, matterId, "JUDGMENT") // no court order on file
+    steps.bareSettled = await addStep(database(), fx, matterId, "SETTLED") // an attorney's letter only
+    steps.corrected = await addStep(database(), fx, matterId, "JUDGMENT", today(), await evidence())
     steps.correction = await addStep(database(), fx, matterId, "LETTER_OF_DEMAND", today(), { correctsStepId: steps.corrected })
     steps.foreign = await addStep(database(), fx, await newMatter(database(), fx, (await newLoan(database(), fx, "NON_NCA")).loanId), "JUDGMENT")
     await addStep(database(), fx, matterId, "ATTACHMENT_ORDER")
@@ -170,12 +173,16 @@ suite("slice 4a recovery cost database rules", () => {
     })
 
     it("names, for taxed legal costs, the judgment or settlement step of the matter, one nobody has corrected", async () => {
-      const rule = raiseOff(G, "Taxed legal costs name the judgment or settlement step of the legal matter")
-      const message = /Taxed legal costs name the judgment or settlement step/
+      const rule = raiseOff(G, "Taxed legal costs name the evidenced judgment or settlement step of the legal matter")
+      const message = /Taxed legal costs name the evidenced judgment or settlement step/
       await refuses(rule, message, (tx) => taxed(tx, null))
       await refuses(rule, message, (tx) => taxed(tx, steps.letter))
       await admits((tx) => taxed(tx, steps.judgment))
       await admits((tx) => taxed(tx, steps.settled))
+      // a judgment or a settlement counts only with its document on file
+      const evidenced = clauseOff(G, `AND s."evidenceDocumentId" IS NOT NULL`)
+      await refuses(evidenced, message, (tx) => taxed(tx, steps.bareJudgment))
+      await refuses(evidenced, message, (tx) => taxed(tx, steps.bareSettled))
       await refuses(clauseOff(G, `AND NOT EXISTS (SELECT 1 FROM "LegalMatterStep" c WHERE c."tenantId" = s."tenantId" AND c."correctsStepId" = s."id")) THEN`, ") THEN"), message,
         (tx) => taxed(tx, steps.corrected))
     })

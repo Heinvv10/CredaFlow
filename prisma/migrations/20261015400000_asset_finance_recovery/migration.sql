@@ -454,11 +454,43 @@ BEGIN
 END;
 $function$;
 
+-- Text with every Unicode decimal digit (any script) written as an ASCII digit: compatibility forms
+-- first (NFKC: fullwidth, mathematical and superscript digits), then the other scripts' digits by
+-- block (Arabic-Indic U+0660, Extended Arabic-Indic U+06F0, Devanagari U+0966, Thai U+0E50, ...).
+CREATE OR REPLACE FUNCTION public."recoveryAsciiDigits"(value TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $function$
+  SELECT translate(normalize(COALESCE(value, ''), NFKC),
+    (SELECT string_agg(chr(b + d), '' ORDER BY b, d) FROM unnest(ARRAY[1632, 1776, 1984, 2406, 2534, 2662, 2790, 2918, 3046, 3174, 3302, 3430, 3558, 3664, 3792, 3872, 4160, 4240, 6112, 6160, 6470, 6608, 6784, 6800, 6992, 7088, 7232, 7248, 42528, 43216, 43264, 43472, 43504, 43600, 44016, 65296, 66720, 68912, 69734, 69872, 69942, 70096, 70384, 70736, 70864, 71248, 71360, 71472, 71904, 72016, 72784, 73040, 73120, 73552, 92768, 92864, 93008, 120782, 120792, 120802, 120812, 120822, 123200, 123632, 124144, 125264, 130032]) AS b, generate_series(0, 9) AS d),
+    (SELECT string_agg(d::TEXT, '' ORDER BY b, d) FROM unnest(ARRAY[1632, 1776, 1984, 2406, 2534, 2662, 2790, 2918, 3046, 3174, 3302, 3430, 3558, 3664, 3792, 3872, 4160, 4240, 6112, 6160, 6470, 6608, 6784, 6800, 6992, 7088, 7232, 7248, 42528, 43216, 43264, 43472, 43504, 43600, 44016, 65296, 66720, 68912, 69734, 69872, 69942, 70096, 70384, 70736, 70864, 71248, 71360, 71472, 71904, 72016, 72784, 73040, 73120, 73552, 92768, 92864, 93008, 120782, 120792, 120802, 120812, 120822, 123200, 123632, 124144, 125264, 130032]) AS b, generate_series(0, 9) AS d));
+$function$;
+
 -- An identifier compared as the screening compares it (lib/asset-finance/recovery-screening.ts):
--- every non-alphanumeric stripped, upper case.
+-- Unicode-normalised, every non-alphanumeric stripped, upper case.
 CREATE OR REPLACE FUNCTION public."recoveryIdentifierKey"(value TEXT)
 RETURNS TEXT LANGUAGE sql IMMUTABLE AS $function$
-  SELECT upper(regexp_replace(COALESCE(value, ''), '[^A-Za-z0-9]', '', 'g'));
+  SELECT upper(regexp_replace(public."recoveryAsciiDigits"(value), '[^A-Za-z0-9]', '', 'g'));
+$function$;
+
+-- A CIPC registration number in one form, YYYYNNNNNNSS (year, six-digit number, two-digit suffix):
+-- a CK prefix, separators and spaces dropped, the suffix compared without its leading zero
+-- ("2098/100000/5" is "2098/100000/05"). Anything that is not a registration number is its identifier key.
+-- UNTESTED: the registration number forms are for the lender's compliance team to confirm.
+CREATE OR REPLACE FUNCTION public."recoveryRegistrationKey"(value TEXT)
+RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $function$
+DECLARE
+  v TEXT := regexp_replace(upper(public."recoveryAsciiDigits"(value)), '\s', '', 'g');
+  parts TEXT[];
+BEGIN
+  v := regexp_replace(v, '^CK(?=[0-9])', '');
+  parts := regexp_match(v, '^([0-9]{4})[^0-9A-Z]([0-9]{1,6})[^0-9A-Z]([0-9]{1,2})$');
+  IF parts IS NULL THEN
+    parts := regexp_match(v, '^([0-9]{4})([0-9]{6})([0-9]{1,2})$');
+  END IF;
+  IF parts IS NULL THEN
+    RETURN public."recoveryIdentifierKey"(value);
+  END IF;
+  RETURN parts[1] || lpad(parts[2], 6, '0') || lpad(ltrim(parts[3], '0'), 2, '0');
+END;
 $function$;
 
 -- ---------------------------------------------------------------------------
@@ -979,7 +1011,7 @@ BEGIN
   SELECT l."clientId", l."entityId" INTO loan_row FROM "Loan" l WHERE l."id" = for_loan_id AND l."tenantId" = tenant_id;
   RETURN buyer_key <> '' AND (
       EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = loan_row."clientId" AND c."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key)
-      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryIdentifierKey"(b."registrationNumber") = buyer_key)
+      OR EXISTS (SELECT 1 FROM "BusinessEntity" b WHERE b."id" = loan_row."entityId" AND b."tenantId" = tenant_id AND public."recoveryRegistrationKey"(b."registrationNumber") = public."recoveryRegistrationKey"(identifier))
       OR EXISTS (SELECT 1 FROM "EntityRelationship" er JOIN "Client" c ON c."id" = er."clientId" AND c."tenantId" = er."tenantId"
         WHERE er."entityId" = loan_row."entityId" AND er."tenantId" = tenant_id AND public."recoveryIdentifierKey"(c."idNumber") = buyer_key));
 END;
@@ -1126,8 +1158,10 @@ BEGIN
     END IF;
     IF NEW."type" = 'LEGAL_TAXED' AND NOT EXISTS (
         SELECT 1 FROM "LegalMatterStep" s WHERE s."id" = NEW."legalStepId" AND s."tenantId" = NEW."tenantId" AND s."kind" IN ('JUDGMENT', 'SETTLED')
+          -- the judgment or settlement is evidenced by a stored legal document
+          AND s."evidenceDocumentId" IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM "LegalMatterStep" c WHERE c."tenantId" = s."tenantId" AND c."correctsStepId" = s."id")) THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Taxed legal costs name the judgment or settlement step of the legal matter';
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Taxed legal costs name the evidenced judgment or settlement step of the legal matter';
     END IF;
   ELSIF NOT (NEW."type" = ANY (COALESCE(config.non_nca_types, ARRAY[]::"RecoveryCostType"[]))) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A NON_NCA recovery records only the lender''s allowed cost types';
@@ -1206,10 +1240,22 @@ ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_shape" CHECK ("amoun
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_approver_differs" CHECK ("approvedById" IS NULL OR "approvedById" <> "createdById");
 -- Three people: whoever creates, whoever approves and whoever releases.
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_releaser_differs" CHECK ("releasedById" IS NULL OR "releasedById" <> "approvedById");
+ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_releaser_not_creator" CHECK ("releasedById" IS NULL OR "releasedById" <> "createdById");
 ALTER TABLE "RecoveryRefund" ADD CONSTRAINT "RecoveryRefund_status_columns" CHECK (
   ("status" = 'PENDING_APPROVAL' AND "approvedById" IS NULL AND "releasedById" IS NULL AND "releasedAt" IS NULL)
   OR ("status" = 'APPROVED' AND "approvedById" IS NOT NULL AND "releasedById" IS NULL AND "releasedAt" IS NULL)
   OR ("status" = 'RELEASED' AND "approvedById" IS NOT NULL AND "releasedById" IS NOT NULL AND "releasedAt" IS NOT NULL));
+
+-- A refund is paid out of money that is really there: the loan is settled and the receipt of the sale
+-- proceeds (if any was credited) has not been reversed.
+CREATE OR REPLACE FUNCTION public."recoveryRefundBacked"(tenant_id TEXT, for_recovery_id TEXT)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $function$
+  SELECT EXISTS (SELECT 1 FROM "Recovery" r
+    JOIN "Loan" l ON l."id" = r."loanId" AND l."tenantId" = r."tenantId"
+    LEFT JOIN "Payment" p ON p."id" = r."proceedsPaymentId" AND p."tenantId" = r."tenantId"
+    WHERE r."id" = for_recovery_id AND r."tenantId" = tenant_id AND l."status" = 'COMPLETED'
+      AND (r."proceedsPaymentId" IS NULL OR (p."id" IS NOT NULL AND NOT p."reversed")));
+$function$;
 
 CREATE OR REPLACE FUNCTION public."guardRecoveryRefund"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -1228,17 +1274,21 @@ BEGIN
     IF NEW."status" <> 'PENDING_APPROVAL' THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund opens PENDING_APPROVAL';
     END IF;
-    RETURN NEW;
+  ELSE
+    IF (to_jsonb(NEW) - ARRAY['status', 'approvedById', 'releasedById', 'releasedAt'])
+      IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'approvedById', 'releasedById', 'releasedAt']) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund''s amount, account and bank verification are fixed';
+    END IF;
+    IF (OLD."status", NEW."status") NOT IN (('PENDING_APPROVAL', 'APPROVED'), ('APPROVED', 'RELEASED')) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is approved, then released, once each';
+    END IF;
+    IF OLD."status" = 'APPROVED' AND NEW."approvedById" IS DISTINCT FROM OLD."approvedById" THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is released on the approval it was given';
+    END IF;
   END IF;
-  IF (to_jsonb(NEW) - ARRAY['status', 'approvedById', 'releasedById', 'releasedAt'])
-    IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['status', 'approvedById', 'releasedById', 'releasedAt']) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund''s amount, account and bank verification are fixed';
-  END IF;
-  IF (OLD."status", NEW."status") NOT IN (('PENDING_APPROVAL', 'APPROVED'), ('APPROVED', 'RELEASED')) THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is approved, then released, once each';
-  END IF;
-  IF OLD."status" = 'APPROVED' AND NEW."approvedById" IS DISTINCT FROM OLD."approvedById" THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is released on the approval it was given';
+  -- creating, approving and releasing all need the money to be there
+  IF NOT public."recoveryRefundBacked"(NEW."tenantId", NEW."recoveryId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A refund is paid out of a settled loan and an unreversed proceeds receipt';
   END IF;
   RETURN NEW;
 END;
@@ -1247,6 +1297,23 @@ CREATE TRIGGER "RecoveryRefund_guard" BEFORE INSERT OR UPDATE OR DELETE ON "Reco
   FOR EACH ROW EXECUTE FUNCTION public."guardRecoveryRefund"();
 CREATE TRIGGER "RecoveryRefund_no_truncate" BEFORE TRUNCATE ON "RecoveryRefund"
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardRecoveryRefund"();
+
+-- ---------------------------------------------------------------------------
+-- The receipt of a recovery's sale proceeds is never reversed: the surplus, shortfall and refund rest on it.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardRecoveryProceedsPayment"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."reversed" AND NOT OLD."reversed" AND (
+      EXISTS (SELECT 1 FROM "Recovery" r WHERE r."proceedsPaymentId" = OLD."id" AND r."tenantId" = OLD."tenantId")
+      OR EXISTS (SELECT 1 FROM "RemarketingSale" s WHERE s."proceedsPaymentId" = OLD."id" AND s."tenantId" = OLD."tenantId")) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery''s sale-proceeds receipt is not reversed';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "Payment_recovery_proceeds_kept" BEFORE UPDATE OF "reversed" ON "Payment"
+  FOR EACH ROW EXECUTE FUNCTION public."guardRecoveryProceedsPayment"();
 
 -- ---------------------------------------------------------------------------
 -- Row-level security: the policy of 20261015130000_tenant_rls_new_scoped_models.
