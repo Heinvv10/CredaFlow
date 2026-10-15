@@ -7,6 +7,7 @@ import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { recordUnapplied } from "./unapplied-reports"
 import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ProviderEvent, type ReportOutcome, type SeenConflict } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
@@ -98,11 +99,14 @@ export async function applyProviderState(db: PayoutDb, args: {
   if (!to) {
     // A different state on an attempt that cannot take it (e.g. PAID on a RETURNED one): audited, listed for staff.
     if (args.state !== current) {
-      await logAuditStrict({
-        tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
-        action: AuditAction.PAYOUT_PROVIDER_REPORT_IGNORED, entity: "DisbursementPayout", entityId: args.payout.id,
-        newValue: { status: current, reported: args.state, source: args.source, outcome: "stale", eventId: args.event?.id ?? null },
-      }, db)
+      await db.$transaction(async (tx) => {
+        await logAuditStrict({
+          tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
+          action: AuditAction.PAYOUT_PROVIDER_REPORT_IGNORED, entity: "DisbursementPayout", entityId: args.payout.id,
+          newValue: { status: current, reported: args.state, source: args.source, outcome: "stale", eventId: args.event?.id ?? null },
+        }, tx)
+        await recordUnapplied(tx, { tenantId: args.tenantId, payoutId: args.payout.id, reported: args.state, outcome: "stale", reason: `attempt is ${current}`, eventId: args.event?.id ?? null, source: args.source })
+      })
     }
     return { status: current, changed: false }
   }

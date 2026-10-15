@@ -11,6 +11,7 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { conflictStateLabel, PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
 import { loadDoublePayoutRisks } from "@/lib/payouts/double-payout"
 import { loadUnappliedReports } from "@/lib/payouts/unapplied-reports"
+import { UnappliedReportAck } from "@/components/payouts/UnappliedReportAck"
 import { formatZAR } from "@/lib/utils"
 
 export const metadata = { title: "Outstanding payouts — Disbursements" }
@@ -23,9 +24,12 @@ const fmt = (d: Date | null) => (d ? d.toLocaleString("en-ZA", { timeZone: "Afri
  * what an approved reversal leaves (money paid out afterwards to recover, a
  * debit order to cancel by hand): the queue a second LOAN_ADMIN works.
  */
-export default async function OutstandingPayoutsPage() {
+const REPORTS_PAGE_SIZE = 25
+
+export default async function OutstandingPayoutsPage({ searchParams }: { searchParams: Promise<{ reports?: string }> }) {
   await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
+  const reportsPage = Math.max(Number.parseInt((await searchParams).reports ?? "1", 10) || 1, 1)
   const [payouts, reversals, recoveries, debitOrders, doubles, rejected] = await Promise.all([
     prisma.disbursementPayout.findMany({
       // Unsettled, or settled but contradicted by a later provider report.
@@ -50,10 +54,11 @@ export default async function OutstandingPayoutsPage() {
     }),
     loadDoublePayoutRisks(prisma, tenantId),
     // Provider reports not applied (stale, dropped, refused): someone must look.
-    loadUnappliedReports(prisma, tenantId),
+    loadUnappliedReports(prisma, tenantId, { page: reportsPage, pageSize: REPORTS_PAGE_SIZE }),
   ])
+  const reportPages = Math.max(Math.ceil(rejected.total / REPORTS_PAGE_SIZE), 1)
   const rejectedLoans = new Map((await prisma.disbursementPayout.findMany({
-    where: { tenantId, id: { in: rejected.map((r) => r.payoutId) } },
+    where: { tenantId, id: { in: rejected.items.map((r) => r.payoutId) } },
     select: { id: true, attempt: true, loanId: true, loan: { select: { reference: true } } },
   })).map((p) => [p.id, p]))
 
@@ -104,19 +109,30 @@ export default async function OutstandingPayoutsPage() {
           </Table>
         )}
       </DataPanel>
-      {rejected.length > 0 && (
-        <DataPanel title="Provider reports not applied (last 30 days)" description="Reports that changed nothing: stale (no money news, or a state the attempt cannot take), dropped (weaker than the open report, or already a recovery case) or refused by the database. Check the provider's report and the loan by hand.">
-          <ul className="space-y-2 text-sm">
-            {rejected.map((r) => {
+      {rejected.total > 0 && (
+        <DataPanel
+          title="Provider reports not applied"
+          description={`${rejected.total} awaiting acknowledgement. Reports that changed nothing: stale (no money news, or a state the attempt cannot take), dropped (weaker than the open report, or already a recovery case) or refused by the database. Each stays here until someone checks the provider's report and the loan, and acknowledges it.`}
+        >
+          <ul className="space-y-3 text-sm">
+            {rejected.items.map((r) => {
               const p = rejectedLoans.get(r.payoutId)
               return (
-                <li key={r.auditId}>
+                <li key={r.id}>
                   {p ? <Link href={`/loans/${p.loanId}`} className="font-medium text-[var(--cf-text)] hover:text-[var(--cf-brand-soft)]">{p.loan.reference}</Link> : r.payoutId}
-                  <span className={r.outcome === "rejected" ? "text-[var(--cf-danger)]" : "text-[var(--cf-text-muted)]"}> · attempt #{p?.attempt ?? "?"} reported {r.reported || "?"} on {fmt(r.at)} · {r.outcome}{r.reason ? `: ${r.reason}` : ""}</span>
+                  <span className={r.outcome === "rejected" || r.reported === "PAID" ? "text-[var(--cf-danger)]" : "text-[var(--cf-text-muted)]"}> · attempt #{p?.attempt ?? "?"} reported {r.reported || "?"} on {fmt(r.at)} · {r.outcome}{r.reason ? `: ${r.reason}` : ""}</span>
+                  <UnappliedReportAck id={r.id} />
                 </li>
               )
             })}
           </ul>
+          {reportPages > 1 && (
+            <p className="mt-3 flex gap-3 text-xs text-[var(--cf-text-muted)]">
+              Page {reportsPage} of {reportPages}
+              {reportsPage > 1 && <Link href={`?reports=${reportsPage - 1}`} className="underline">Newer</Link>}
+              {reportsPage < reportPages && <Link href={`?reports=${reportsPage + 1}`} className="underline">Older</Link>}
+            </p>
+          )}
         </DataPanel>
       )}
       <DataPanel title="Reversed loans: staff tasks" description="Money paid out after a reversal, to recover; debit orders to cancel by hand. Act on the loan page.">

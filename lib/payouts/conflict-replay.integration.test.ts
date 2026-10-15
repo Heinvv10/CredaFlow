@@ -94,13 +94,13 @@ suite.sequential("replayed provider reports (real Postgres)", () => {
     await report(loan.payoutId, "PROCESSING", { id: "S1", at: null })
     await report(loan.payoutId, "PAID", { id: "P1", at: null })
     await report(loan.payoutId, "RETURNED", { id: "R1", at: minutesAgo(30) })
-    const listed = (await loadUnappliedReports(prisma, tenant.tenantId)).filter((r) => r.payoutId === loan.payoutId)
+    const listed = (await loadUnappliedReports(prisma, tenant.tenantId, { page: 1, pageSize: 500 })).items.filter((r) => r.payoutId === loan.payoutId)
     expect(listed.map((r) => r.outcome).sort()).toEqual(["dropped", "stale"])
     // An attempt paid, then returned, hears PAID again.
     const paid = await failedPayoutLoan(db, tenant, user(""), "RETURNED")
     expect(await report(paid.payoutId, "PAID", { id: "P9", at: null })).toMatchObject({ status: "RETURNED", changed: false })
     expect(await db.auditLog.count({ where: { entityId: paid.payoutId, action: "PAYOUT_PROVIDER_REPORT_IGNORED" } })).toBe(1)
-    expect((await loadUnappliedReports(prisma, tenant.tenantId)).some((r) => r.payoutId === paid.payoutId)).toBe(true)
+    expect((await loadUnappliedReports(prisma, tenant.tenantId, { page: 1, pageSize: 500 })).items.some((r) => r.payoutId === paid.payoutId)).toBe(true)
   })
 
   it("caps a provider event time in the future at receipt", async () => {

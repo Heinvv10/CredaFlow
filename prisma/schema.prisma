@@ -5111,6 +5111,7 @@ model DisbursementPayout {
   updatedAt         DateTime                 @updatedAt
   recoveryCase      PayoutRecoveryCase?
   providerEvents    PayoutProviderEvent[]
+  unappliedReports  PayoutUnappliedReport[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([applicationId, attempt])
@@ -5164,6 +5165,27 @@ model PayoutProviderEvent {
 
   @@unique([payoutId, eventId])
   @@index([tenantId])
+}
+
+// A provider report the system did not apply (stale, dropped, refused by the
+// database): listed on the outstanding-payouts queue until a person
+// acknowledges it, once, with a note (lib/payouts/unapplied-reports.ts).
+model PayoutUnappliedReport {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  payoutId            String
+  payout              DisbursementPayout @relation(fields: [payoutId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  reported            String
+  outcome             String // stale | dropped | rejected
+  reason              String?
+  eventId             String?
+  source              String
+  createdAt           DateTime           @default(now())
+  acknowledgedAt      DateTime?
+  acknowledgedById    String?
+  acknowledgementNote String?
+
+  @@index([tenantId, acknowledgedAt, createdAt])
 }
 
 enum PayoutRecoveryStatus {

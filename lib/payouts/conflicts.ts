@@ -46,6 +46,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { Actor, PayoutDb } from "./dispatch"
 import { dbClock, lockLoanForPayout, raceRefusal } from "./loan-lock"
 import { openRecoveryCase } from "./recovery"
+import { recordUnapplied } from "./unapplied-reports"
 import type { PayoutStatus } from "./state"
 import type { ProviderPayoutState } from "./types"
 
@@ -96,11 +97,14 @@ export async function recordProviderConflict(db: PayoutDb, args: {
     const reason = error instanceof Error ? /(Payout guard: [^\n"]+)/.exec(error.message)?.[1]?.replace(/\\+$/, "") : undefined
     if (!reason) throw error
     console.error("Provider report refused by the payout guard:", args.payout.id, args.state)
-    await logAuditStrict({
-      tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
-      action: AuditAction.PAYOUT_PROVIDER_REPORT_REJECTED, entity: "DisbursementPayout", entityId: args.payout.id,
-      newValue: { reported: args.state, source: args.source, detail, eventId: args.event?.id ?? null, reason },
-    }, db)
+    await db.$transaction(async (tx) => {
+      await logAuditStrict({
+        tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
+        action: AuditAction.PAYOUT_PROVIDER_REPORT_REJECTED, entity: "DisbursementPayout", entityId: args.payout.id,
+        newValue: { reported: args.state, source: args.source, detail, eventId: args.event?.id ?? null, reason },
+      }, tx)
+      await recordUnapplied(tx, { tenantId: args.tenantId, payoutId: args.payout.id, reported: args.state, outcome: "rejected", reason, eventId: args.event?.id ?? null, source: args.source })
+    })
     return "rejected"
   }
 }
@@ -126,8 +130,12 @@ async function recordInTx(db: PayoutDb, args: Parameters<typeof recordProviderCo
         return "duplicate"
       }
     }
+    const unapplied = (outcome: "stale" | "dropped", reason: string) => recordUnapplied(tx, {
+      tenantId: args.tenantId, payoutId: args.payout.id, reported: args.state, outcome, reason, eventId, source: args.source,
+    })
     if (args.state !== "PAID" && args.state !== "RETURNED") {
       await audit(tx, "stale", { eventId })
+      await unapplied("stale", "no_money_news")
       return "stale"
     }
     const row = await tx.disbursementPayout.findFirst({
@@ -135,20 +143,27 @@ async function recordInTx(db: PayoutDb, args: Parameters<typeof recordProviderCo
       select: { status: true, providerConflictState: true, providerConflictAt: true, providerConflictEventAt: true, conflictResolvedAt: true, recoveryCase: { select: { id: true } } },
     })
     let outcome: ReportOutcome = "dropped"
+    let dropReason = "not_over"
     let data: Record<string, unknown> | null = null
     if (row && CONFLICTABLE.includes(row.status as PayoutStatus)) {
+      const prevAt = row.providerConflictEventAt ?? row.providerConflictAt
+      // The state's time never moves back: the later of what was known and this event.
+      const knownAt = prevAt && prevAt.getTime() > eventAt.getTime() ? prevAt : eventAt
       // Stamped under the loan lock: after any resolution that committed while this report waited.
-      const reported = { providerConflictState: args.state, providerConflictAt: receivedAt, providerConflictDetail: detail, providerConflictEventId: eventId, providerConflictEventAt: eventAt }
-      const next = combine(row.providerConflictState, row.providerConflictEventAt ?? row.providerConflictAt, args.state, eventAt)
+      const reported = { providerConflictState: args.state, providerConflictAt: receivedAt, providerConflictDetail: detail, providerConflictEventId: eventId, providerConflictEventAt: knownAt }
+      const next = combine(row.providerConflictState, prevAt, args.state, eventAt)
       const stated = next === PAID_THEN_RETURNED
         ? { ...reported, providerConflictState: PAID_THEN_RETURNED, providerConflictDetail: `${detail} (paid, then returned)`.slice(0, 500) }
         : next ? { ...reported, providerConflictState: next } : null
       if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
       else if (!row.conflictResolvedAt) {
         if (stated) [outcome, data] = [next === PAID_THEN_RETURNED ? "returned_after_paid" : "strengthened", stated]
-      } else if (!row.recoveryCase) {
-        // A new event reopens whatever its time; its time only decides the state kept.
-        [outcome, data] = ["reopened", { ...(stated ?? { ...reported, providerConflictState: row.providerConflictState }), conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
+        else dropReason = "weaker_or_older"
+      } else if (row.recoveryCase) dropReason = "recovery_case"
+      else {
+        // A new event reopens whatever its time; its time only decides the state kept, never lowering it.
+        const kept = stated ?? { ...reported, providerConflictState: row.providerConflictState, providerConflictDetail: `${detail} (kept ${row.providerConflictState})`.slice(0, 500) }
+        ;[outcome, data] = ["reopened", { ...kept, conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
       }
     }
     if (data && row) {
@@ -156,9 +171,10 @@ async function recordInTx(db: PayoutDb, args: Parameters<typeof recordProviderCo
         where: { id: args.payout.id, tenantId: args.tenantId, status: row.status, providerConflictAt: row.providerConflictAt, conflictResolvedAt: row.conflictResolvedAt },
         data,
       })
-      if (moved.count !== 1) outcome = "dropped"
+      if (moved.count !== 1) [outcome, dropReason] = ["dropped", "raced"]
     }
-    await audit(tx, outcome, { previous: row?.providerConflictState ?? null, previouslyResolved: Boolean(row?.conflictResolvedAt), eventId, eventAt: eventAt.toISOString() })
+    await audit(tx, outcome, { previous: row?.providerConflictState ?? null, previouslyResolved: Boolean(row?.conflictResolvedAt), eventId, eventAt: eventAt.toISOString(), ...(outcome === "dropped" ? { reason: dropReason } : {}) })
+    if (outcome === "dropped") await unapplied("dropped", dropReason)
     return outcome
   })
 }
