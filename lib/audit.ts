@@ -166,6 +166,9 @@ export const AuditAction = {
   KYC_APPROVED: "KYC_APPROVED",
   KYC_REJECTED: "KYC_REJECTED",
   KYC_STATUS_CHANGED: "KYC_STATUS_CHANGED",
+  // Staff re-derived the stored status from evidence already on file ("Re-verify
+  // ID", lib/kyc/kyc-rederive.server.ts). No document was verified or attested.
+  KYC_STATUS_REDERIVED: "KYC_STATUS_REDERIVED",
   // One-time consumer selfie capture links. Distinct sent/failed actions for
   // the same reason PASQ_LINK_* are distinct: "we sent a credential to a
   // consumer" and "we minted one and cancelled it undelivered" are different
