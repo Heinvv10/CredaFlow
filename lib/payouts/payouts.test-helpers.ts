@@ -16,7 +16,7 @@ export function payoutRow(overrides: Partial<DisbursementPayout> = {}): Disburse
     status: "PENDING", simulated: false, providerReference: null, failureReason: null,
     submittedAt: null, resolvedAt: null, resolvedById: null, resolutionNote: null,
     attempt: 1, retryOfId: null, disbursedById: "u-disburser", requestedById: null, approvedById: null, approvedAt: null,
-    paidAt: null, returnedAt: null, providerConflictState: null, providerConflictAt: null, providerConflictDetail: null,
+    paidAt: null, returnedAt: null, returnedById: null, returnNote: null, providerConflictState: null, providerConflictAt: null, providerConflictDetail: null,
     conflictResolvedById: null, conflictResolvedAt: null, conflictResolutionNote: null,
     createdById: "u-disburser", createdAt: new Date("2026-10-01T08:00:00Z"), updatedAt: new Date("2026-10-01T08:00:00Z"),
     ...overrides,

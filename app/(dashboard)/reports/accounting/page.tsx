@@ -6,6 +6,9 @@ import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { nextPeriodKey, periodKeyOf, parsePeriodKey } from "@/lib/accounting/period"
+import Link from "next/link"
+import { InfoStrip } from "@/components/app-shell/InfoStrip"
+import { loadDoublePayoutRisks } from "@/lib/payouts/double-payout"
 
 export const metadata = { title: "Accounting export — Reports" }
 
@@ -14,10 +17,13 @@ export default async function AccountingExportPage() {
   // month, editing the mapping and pushing to Xero need ADMIN (the APIs check).
   const user = await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const [latest, xero] = await Promise.all([
+  const [latest, xero, doubles] = await Promise.all([
     prisma.accountingExportBatch.findFirst({ where: { tenantId }, orderBy: { periodStart: "desc" }, select: { periodKey: true } }),
     prisma.xeroConnection.findUnique({ where: { tenantId }, select: { status: true } }),
+    loadDoublePayoutRisks(prisma, tenantId),
   ])
+  // Two payouts of one loan that may both have gone out: the books carry one.
+  const paidTwice = doubles.filter((d) => d.liveStatus === "PAID")
   // Open on the next month to close: after the last closed one, else the
   // go-live month, else last month.
   const settings = await prisma.accountingSettings.findUnique({ where: { tenantId }, select: { goLiveMonth: true } })
@@ -36,6 +42,15 @@ export default async function AccountingExportPage() {
           reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.
         </p>
       </div>
+      {paidTwice.length > 0 && (
+        <InfoStrip variant="danger">
+          Possible double payouts: the provider reports an earlier attempt paid while a later one is paid too. The export books one payout per loan
+          until staff resolve it, so the bank may have paid out once more than the export shows. Resolve before closing the month:{" "}
+          {paidTwice.map((d, i) => (
+            <span key={`${d.payoutId}-${d.liveAttempt}`}>{i > 0 && ", "}<Link href={`/loans/${d.loanId}`} className="underline">{d.reference}</Link></span>
+          ))}
+        </InfoStrip>
+      )}
       <AccountingSettingsPanel canEdit={canAdmin} locked={latest !== null} />
       <AccountingExportPanel initialPeriod={initialPeriod} canClose={canAdmin} xeroConnected={xero?.status === "CONNECTED"} />
       <AccountMappingEditor canEdit={canAdmin} />

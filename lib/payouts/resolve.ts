@@ -20,6 +20,8 @@ export type ResolveAction =
   | { action: "check" }
   | { action: "confirm_paid"; note: string; providerReference?: string | null; paidAt?: Date | null }
   | { action: "confirm_failed"; note: string }
+  // A PAID payout the bank credited back, at the bank's value date.
+  | { action: "confirm_returned"; note: string; returnedAt: Date }
   // `seen`: the report the decision was made on. Required from staff (the
   // API); without it the report as loaded here is pinned.
   | { action: "resolve_conflict"; outcome: ConflictOutcome; note: string; paidAt?: Date | null; seen?: SeenConflict }
@@ -56,6 +58,11 @@ export function parseResolveAction(body: unknown): ResolveAction | null {
     case "confirm_failed":
       if (note.length < 5) return null
       return { action: "confirm_failed", note: note.slice(0, 1000) }
+    case "confirm_returned": {
+      const returnedAt = valueDate(b.returnedAt)
+      if (note.length < 5 || !returnedAt) return null
+      return { action: "confirm_returned", note: note.slice(0, 1000), returnedAt }
+    }
     case "resolve_conflict": {
       if (note.length < 5 || (b.outcome !== "paid" && b.outcome !== "not_paid" && b.outcome !== "recovery")) return null
       // The decision applies only to the report the person was looking at.
@@ -82,7 +89,7 @@ export async function applyProviderState(db: PayoutDb, args: {
   if (CONFLICTABLE.includes(current) && args.state !== "FAILED") {
     const report = await recordProviderConflict(db, { tenantId: args.tenantId, payout: args.payout, state: args.state, reason: args.reason, source: args.source, actor: args.actor })
     // A stored (or re-opened) conflict blocks; a stale or dropped report is only audited.
-    const stored = report === "recorded" || report === "strengthened" || report === "reopened"
+    const stored = report === "recorded" || report === "strengthened" || report === "returned_after_paid" || report === "reopened"
     return { status: current, changed: false, ...(stored ? { conflict: true as const } : {}), report }
   }
   const to = nextFromProvider(current, args.state)
@@ -171,8 +178,9 @@ export async function resolvePayout(db: PayoutDb, args: {
     return out.ok ? { ok: true, status: out.status, changed: true } : out
   }
 
-  if (!CONFIRMABLE.includes(status)) {
-    return { ok: false, status: 409, error: "Only a payout under review or awaiting confirmation can be confirmed by staff" }
+  const returning = req.action === "confirm_returned"
+  if (returning ? status !== "PAID" : !CONFIRMABLE.includes(status)) {
+    return { ok: false, status: 409, error: returning ? "Only a paid payout can be confirmed returned" : "Only a payout under review or awaiting confirmation can be confirmed by staff" }
   }
   // Maker-checker (the database repeats it): the person who disbursed, or who
   // requested this attempt, does not also declare where the money went.
@@ -184,17 +192,22 @@ export async function resolvePayout(db: PayoutDb, args: {
     }, db)
     return { ok: false, status: 403, error: "Another LOAN_ADMIN must confirm this payout: you disbursed the loan, or requested or approved this attempt" }
   }
-  const to: PayoutStatus = req.action === "confirm_paid" ? "PAID" : "FAILED"
+  if (req.action === "confirm_returned" && payout.paidAt && req.returnedAt.getTime() < payout.paidAt.getTime()) {
+    return { ok: false, status: 422, error: "The money cannot come back before it was paid out" }
+  }
+  const to: PayoutStatus = returning ? "RETURNED" : req.action === "confirm_paid" ? "PAID" : "FAILED"
   const changed = await transitionPayout(db, {
     tenantId: args.tenantId, payoutId: payout.id, from: status, to,
-    data: {
+    // The accounting export reverses clearing to bank from returnedAt (lib/accounting/sources.ts).
+    data: req.action === "confirm_returned" ? { returnedAt: req.returnedAt, returnedById: args.actor.id, returnNote: req.note } : {
       resolvedById: args.actor.id,
       resolutionNote: req.note,
       ...(req.action === "confirm_paid" && req.providerReference ? { providerReference: req.providerReference } : {}),
       // The bank's value date (e.g. from a Netcash report), not the click.
       ...(req.action === "confirm_paid" && req.paidAt ? { paidAt: req.paidAt } : {}),
     },
-    actor: args.actor, source: "staff_confirm", detail: { note: req.note },
+    actor: args.actor, source: "staff_confirm", detail: { note: req.note, ...(returning ? { returnedAt: (req as { returnedAt: Date }).returnedAt.toISOString() } : {}) },
+    ...(returning ? { lockLoanId: payout.loanId } : {}),
   })
   if (!changed) return { ok: false, status: 409, error: "The payout changed; refresh and try again" }
   return { ok: true, status: to, changed }

@@ -72,3 +72,8 @@ export const PAYOUT_STATUS_LABELS: Record<PayoutStatus, string> = {
   AWAITING_APPROVAL: "Retry awaiting approval",
   CANCELLED: "Retry rejected — not sent",
 }
+
+/** What a provider report recorded as a conflict says (lib/payouts/conflicts.ts). */
+export function conflictStateLabel(state: string): string {
+  return state === "PAID_THEN_RETURNED" ? "paid, then returned (the money came back)" : state.toLowerCase()
+}

@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
-import { PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
+import { conflictStateLabel, PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
 import { loadDoublePayoutRisks } from "@/lib/payouts/double-payout"
 import { formatZAR } from "@/lib/utils"
 
@@ -81,7 +81,7 @@ export default async function OutstandingPayoutsPage() {
                   <TableCell>#{p.attempt} · {p.provider}</TableCell>
                   <TableCell>
                     <StatusPill tone={p.status === "NEEDS_REVIEW" || p.providerConflictState ? "danger" : "warning"}>{PAYOUT_STATUS_LABELS[p.status as PayoutStatus]}</StatusPill>
-                    {p.providerConflictState && !p.conflictResolvedAt && <p className="mt-1 text-[11px] text-[var(--cf-danger)]">Provider now reports {p.providerConflictState}</p>}
+                    {p.providerConflictState && !p.conflictResolvedAt && <p className="mt-1 text-[11px] text-[var(--cf-danger)]">Provider now reports {conflictStateLabel(p.providerConflictState)}</p>}
                     {doubles.filter((d) => d.payoutId === p.id).map((d) => (
                       <p key={d.liveAttempt} className="mt-1 text-[11px] font-semibold text-[var(--cf-danger)]">
                         Possible double payout: attempt #{d.liveAttempt} is {PAYOUT_STATUS_LABELS[d.liveStatus as PayoutStatus].toLowerCase()}

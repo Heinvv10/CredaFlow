@@ -5072,9 +5072,13 @@ model DisbursementPayout {
   approvedAt        DateTime?
   paidAt            DateTime?
   returnedAt        DateTime?
-  // A provider reported PAID/RETURNED/PROCESSING for an attempt already over
-  // (FAILED/CANCELLED): recorded, never applied, and it blocks a retry or a
-  // reversal of the loan until a second person resolves it.
+  // A return confirmed by staff at a bank value date (a second person).
+  returnedById      String?
+  returnNote        String?
+  // A provider reported PAID/RETURNED (or PAID_THEN_RETURNED: paid, then
+  // returned) for an attempt already over (FAILED/CANCELLED): recorded, never
+  // applied, and it blocks a retry or a reversal of the loan until a second
+  // person resolves it.
   providerConflictState  String?
   providerConflictAt     DateTime?
   providerConflictDetail String?

@@ -59,6 +59,16 @@ describe("resolvePayout — staff actions", () => {
     expect(rows[0].paidAt?.toISOString()).toBe(new Date("2026-10-12T12:00:00+02:00").toISOString())
   })
 
+  it("takes a staff return only with a note and a bank value date that is not in the future", () => {
+    const base = { action: "confirm_returned", note: "Bank statement shows the credit reversed" }
+    expect(parseResolveAction(base)).toBeNull()
+    expect(parseResolveAction({ ...base, returnedAt: "2999-01-01" })).toBeNull()
+    expect(parseResolveAction({ ...base, note: "x", returnedAt: "2026-10-12" })).toBeNull()
+    expect(parseResolveAction({ ...base, returnedAt: "2026-10-12" })).toEqual({
+      action: "confirm_returned", note: base.note, returnedAt: new Date("2026-10-12T12:00:00+02:00"),
+    })
+  })
+
   it("takes a conflict resolution only with the report it was decided on (state and time)", () => {
     const base = { action: "resolve_conflict", outcome: "not_paid", note: "Bank statement shows nothing left" }
     expect(parseResolveAction(base)).toBeNull()

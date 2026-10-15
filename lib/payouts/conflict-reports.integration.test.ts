@@ -92,15 +92,17 @@ suite.sequential("provider reports on an attempt already over (real Postgres)", 
     expect(await resolveAs(loan.payoutId, "paid")).toMatchObject({ ok: true, status: "PAID" })
   })
 
-  it("X1: a stronger report overwrites an unresolved conflict (PAID over RETURNED); a weaker one is dropped; every report audited", async () => {
+  it("X1: a stronger report overwrites an unresolved conflict (PAID over RETURNED); a RETURNED after the PAID is kept as the final fact; every report audited", async () => {
     const loan = await failedLoan()
     expect(await report(loan.payoutId, "RETURNED")).toMatchObject({ report: "recorded" })
     expect(await report(loan.payoutId, "PAID")).toMatchObject({ conflict: true, report: "strengthened" })
     expect(await row(loan.payoutId)).toMatchObject({ providerConflictState: "PAID", conflictResolvedAt: null })
+    // Paid, then returned: the later, final fact for this attempt (accounting review).
+    expect(await report(loan.payoutId, "RETURNED")).toMatchObject({ conflict: true, report: "returned_after_paid" })
+    expect(await row(loan.payoutId)).toMatchObject({ providerConflictState: "PAID_THEN_RETURNED", conflictResolvedAt: null })
     expect(await report(loan.payoutId, "RETURNED")).toMatchObject({ report: "dropped" })
-    expect(await row(loan.payoutId)).toMatchObject({ providerConflictState: "PAID" })
     const outcomes = (await audits(loan.payoutId, "PAYOUT_PROVIDER_CONFLICT")).map((a) => (a.newValue as { outcome: string }).outcome)
-    expect(outcomes).toEqual(["recorded", "strengthened", "dropped"])
+    expect(outcomes).toEqual(["recorded", "strengthened", "returned_after_paid", "dropped"])
   })
 
   it("X2: a PAID report after a conflict was resolved not paid reopens it and blocks retry, reversal and sending again", async () => {

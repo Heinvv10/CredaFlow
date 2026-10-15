@@ -8,7 +8,7 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
-import { PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
+import { conflictStateLabel, PAYOUT_STATUS_LABELS, type PayoutStatus } from "@/lib/payouts/state"
 import type { PayoutView } from "@/lib/payouts/view"
 import { formatZAR } from "@/lib/utils"
 import { PayoutRemedies } from "./PayoutRemedies"
@@ -33,6 +33,7 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const confirmable = payout.status === "NEEDS_REVIEW" || payout.status === "SUBMITTED" || payout.status === "PROCESSING"
+  const [backOn, setBackOn] = useState("")
   const reversed = view.loanStatus === "CANCELLED"
 
   async function act(body: Record<string, unknown>) {
@@ -53,9 +54,16 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
         <InfoStrip variant="warning" className="mb-4">Disbursement reversed: the money never reached the borrower and the loan is cancelled.</InfoStrip>
       )}
       <ReversedLoanTasks view={view} canAct={canAct} />
+      {view.doublePayout.map((d) => (
+        <InfoStrip key={`${d.payoutId}-${d.liveAttempt}`} variant="danger" className="mb-4">
+          Possible double payout: the provider reports attempt {d.attempt} paid, and attempt {d.liveAttempt} is {PAYOUT_STATUS_LABELS[d.liveStatus as PayoutStatus].toLowerCase()}.
+          {d.liveStatus === "PAID" ? " If both stand the borrower was paid twice: recover one (confirm it returned) before anything else." : " Do not send it until attempt " + d.attempt + " is resolved."}
+        </InfoStrip>
+      ))}
       {conflicted?.conflict && (
         <InfoStrip variant="danger" className="mb-4">
-          Provider conflict on attempt {conflicted.attempt}: {conflicted.conflict.detail ?? conflicted.conflict.state}. Retries and reversal are blocked until another LOAN_ADMIN resolves it below.
+          Provider conflict on attempt {conflicted.attempt}: {conflicted.conflict.detail ?? conflicted.conflict.state}. The provider now says it was {conflictStateLabel(conflicted.conflict.state)}.
+          {conflicted.conflict.state === "PAID_THEN_RETURNED" ? " Confirm the return on the bank statement, then resolve it as not paid." : ""} Retries and reversal are blocked until another LOAN_ADMIN resolves it below.
         </InfoStrip>
       )}
       {payout.simulated && <InfoStrip variant="warning" className="mb-4">Simulated — no money moved. Not a valid payout record.</InfoStrip>}
@@ -99,6 +107,17 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
                 <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_paid", note, providerReference: reference, ...(paidOn ? { paidAt: paidOn } : {}) })}>Confirm paid</Button>
                 <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => act({ action: "confirm_failed", note })}>Confirm not paid</Button>
               </div>
+            </div>
+          )}
+          {payout.status === "PAID" && (
+            <div className="space-y-2">
+              <p className="text-xs text-[var(--cf-text-muted)]">The bank credited it back? Confirm the return (a LOAN_ADMIN other than the one who disbursed, requested or approved it). The accounting export reverses it from that date.</p>
+              <Textarea placeholder="What the bank statement shows (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+              <label className="block text-xs text-[var(--cf-text-muted)]">
+                Bank value date of the return
+                <Input type="date" aria-label="Bank value date of the return" value={backOn} onChange={(e) => setBackOn(e.target.value)} className="mt-1 w-44" />
+              </label>
+              <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5 || !backOn} onClick={() => act({ action: "confirm_returned", note, returnedAt: backOn })}>Confirm returned</Button>
             </div>
           )}
           {conflicted?.conflict && (

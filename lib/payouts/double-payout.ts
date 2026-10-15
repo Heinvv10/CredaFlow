@@ -19,9 +19,10 @@ export interface DoublePayoutRisk {
 
 const OVER = ["FAILED", "RETURNED", "CANCELLED"] as const
 
-export async function loadDoublePayoutRisks(db: Pick<typeof prisma, "disbursementPayout">, tenantId: string): Promise<DoublePayoutRisk[]> {
+/** Only a PAID report: PAID_THEN_RETURNED or RETURNED means the money came back. */
+export async function loadDoublePayoutRisks(db: Pick<typeof prisma, "disbursementPayout">, tenantId: string, loanId?: string): Promise<DoublePayoutRisk[]> {
   const conflicted = await db.disbursementPayout.findMany({
-    where: { tenantId, providerConflictAt: { not: null }, conflictResolvedAt: null },
+    where: { tenantId, ...(loanId ? { loanId } : {}), providerConflictState: "PAID", conflictResolvedAt: null },
     select: { id: true, loanId: true, applicationId: true, attempt: true, providerConflictState: true, loan: { select: { reference: true } } },
   })
   if (conflicted.length === 0) return []

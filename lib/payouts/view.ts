@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import type { PayoutStatus } from "./state"
+import { loadDoublePayoutRisks, type DoublePayoutRisk } from "./double-payout"
 
 export interface PayoutAttemptView {
   id: string
@@ -43,17 +44,20 @@ export interface PayoutView {
     debitOrderCancelAckAt: string | null
   } | null
   recoveries: RecoveryView[]
+  /** A provider reports an earlier attempt paid while a later one is live or paid (lib/payouts/double-payout.ts). */
+  doublePayout: DoublePayoutRisk[]
   /** The credit bureau already knows the account: a reversal needs a cancellation (V) record by hand. */
   bureauRegistered: boolean
 }
 
 /** A loan's payout attempts and reversal as the staff page shows them: account numbers masked to the last four digits. */
 export async function loadPayoutView(tenantId: string, loanId: string, loanStatus: string): Promise<PayoutView | null> {
-  const [attempts, reversal, bureauLines, recoveries] = await Promise.all([
+  const [attempts, reversal, bureauLines, recoveries, doublePayout] = await Promise.all([
     prisma.disbursementPayout.findMany({ where: { tenantId, loanId }, orderBy: { attempt: "desc" } }),
     prisma.disbursementReversal.findFirst({ where: { tenantId, loanId }, orderBy: { requestedAt: "desc" } }),
     prisma.bureauSubmissionRecord.count({ where: { tenantId, loanId, mode: "LIVE", heldReason: null } }),
     prisma.payoutRecoveryCase.findMany({ where: { tenantId, loanId }, orderBy: { createdAt: "asc" }, include: { payout: { select: { attempt: true } } } }),
+    loadDoublePayoutRisks(prisma, tenantId, loanId),
   ])
   if (attempts.length === 0) return null
   return {
@@ -78,6 +82,7 @@ export async function loadPayoutView(tenantId: string, loanId: string, loanStatu
         : null,
     })),
     bureauRegistered: bureauLines > 0,
+    doublePayout,
     reversal: reversal
       ? {
         id: reversal.id, status: reversal.status, reason: reversal.reason, requestedAt: reversal.requestedAt.toISOString(), decisionNote: reversal.decisionNote,

@@ -19,6 +19,9 @@
  *  - "recorded": the first PAID/RETURNED;
  *  - "strengthened": a stronger report (PAID > RETURNED) replaces an
  *    unresolved one;
+ *  - "returned_after_paid": a RETURNED after an unresolved PAID is the later,
+ *    final fact: stored as PAID_THEN_RETURNED (nets to not paid; never paid
+ *    or recovered, and nothing overwrites it);
  *  - "reopened": a PAID/RETURNED after the conflict was resolved not paid
  *    clears the resolution and blocks again;
  *  - "dropped": weaker than the unresolved report, the attempt is no longer
@@ -35,9 +38,11 @@ import type { ProviderPayoutState } from "./types"
 /** Attempt states a later report may contradict. */
 export const CONFLICTABLE: readonly PayoutStatus[] = ["FAILED", "CANCELLED"]
 
-export type ReportOutcome = "stale" | "recorded" | "strengthened" | "reopened" | "dropped"
+export type ReportOutcome = "stale" | "recorded" | "strengthened" | "returned_after_paid" | "reopened" | "dropped"
 
-const STRENGTH: Partial<Record<string, number>> = { PAID: 4, RETURNED: 3, PROCESSING: 2, SUBMITTED: 1 }
+/** Paid, then returned: the money went and came back. */
+export const PAID_THEN_RETURNED = "PAID_THEN_RETURNED"
+const STRENGTH: Partial<Record<string, number>> = { [PAID_THEN_RETURNED]: 5, PAID: 4, RETURNED: 3, PROCESSING: 2, SUBMITTED: 1 }
 const strength = (state: string | null) => (state ? STRENGTH[state] ?? 0 : 0)
 
 export async function recordProviderConflict(db: PayoutDb, args: {
@@ -74,7 +79,9 @@ export async function recordProviderConflict(db: PayoutDb, args: {
       const reported = { providerConflictState: args.state, providerConflictAt: new Date(), providerConflictDetail: detail }
       if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
       else if (!row.conflictResolvedAt) {
-        if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
+        if (row.providerConflictState === "PAID" && args.state === "RETURNED") {
+          [outcome, data] = ["returned_after_paid", { ...reported, providerConflictState: PAID_THEN_RETURNED, providerConflictDetail: `${detail} (after reporting it PAID)`.slice(0, 500) }]
+        } else if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
       } else if (!row.recoveryCase) {
         [outcome, data] = ["reopened", { ...reported, conflictResolvedAt: null, conflictResolvedById: null, conflictResolutionNote: null }]
       }
