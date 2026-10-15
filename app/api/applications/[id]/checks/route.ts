@@ -4,6 +4,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logDocumentContentAccess } from "@/lib/document-auth"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
 import { flagViews } from "@/lib/credit-checks/evidence"
+import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
 
 /**
  * GET /api/applications/[id]/checks — recompute the application's credit-check
@@ -11,10 +12,11 @@ import { flagViews } from "@/lib/credit-checks/evidence"
  * Quoting statement rows is document access: each quoted document is logged.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  // A GET that writes (flags, audit and access-log rows): another site must
-  // not be able to trigger it with the officer's cookies.
-  if (req.headers.get("sec-fetch-site") === "cross-site") {
-    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 })
+  // A GET that writes (flags, audit and access-log rows): no other origin, a
+  // sibling lender's host included, may trigger it with the officer's cookies.
+  // proxy.ts gates only non-GET methods, so this route checks itself.
+  if (isCrossOriginRequest(req.headers)) {
+    return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 })
   }
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error

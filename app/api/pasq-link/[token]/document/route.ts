@@ -7,6 +7,7 @@ import {
   PASQ_LINK_REJECTION_MESSAGE,
   resolvePasqLinkToken,
 } from "@/lib/compliance/pasq-link-token.server"
+import { portalOffRefusal } from "@/lib/portal/portal-policy"
 
 type RouteCtx = { params: Promise<{ token: string }> }
 
@@ -40,6 +41,9 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
     )
   }
   const { link } = resolved
+  // The lender switched its portal off: its borrower-facing links close too.
+  const portalOff = await portalOffRefusal(link.tenantId)
+  if (portalOff) return portalOff
 
   const document = await prisma.clientDocument.findFirst({
     where: {

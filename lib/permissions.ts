@@ -58,6 +58,13 @@ const PERMISSIONS: Record<string, UserRole> = {
   // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/auth-guards.ts.
   manage_asset_finance: "CREDIT_OFFICER",
   decide_asset_finance: "LOAN_ADMIN",
+  // FIC Act tooling (lib/fic). Keep identical to lib/auth-guards.ts. No
+  // COMPLIANCE role exists; ADMIN stands in for the lender's compliance
+  // officer: the STR register, CTR filings, goAML exports and the RMCP.
+  // Raising an STR is open to every operational role (every employee must be
+  // able to report internally); seeing the register is not.
+  manage_fic_compliance: "ADMIN",
+  raise_suspicious_report: "COLLECTIONS_OFFICER",
 }
 
 export function canDo(userRole: UserRole | string, permission: string): boolean {

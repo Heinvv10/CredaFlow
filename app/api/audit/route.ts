@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
+import { withStrAuditVisibility } from "@/lib/fic/audit-visibility"
 
 export async function GET(req: NextRequest) {
   const guard = await requireApiRole("LOAN_ADMIN")
@@ -26,9 +27,11 @@ export async function GET(req: NextRequest) {
       if (to) (where.createdAt as Record<string, unknown>).lte = new Date(to)
     }
 
+    // Tipping off: STR rows only for the FIC compliance role (lib/fic/audit-visibility.ts).
+    const visible = withStrAuditVisibility(where, guard.user.role)
     const [logs, total] = await Promise.all([
       prisma.auditLog.findMany({
-        where,
+        where: visible,
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
@@ -36,7 +39,7 @@ export async function GET(req: NextRequest) {
           user: { select: { name: true, email: true } },
         },
       }),
-      prisma.auditLog.count({ where }),
+      prisma.auditLog.count({ where: visible }),
     ])
 
     return NextResponse.json({ logs, total, page, limit, pages: Math.ceil(total / limit) })

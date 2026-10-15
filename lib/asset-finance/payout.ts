@@ -12,7 +12,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { INT4_MAX } from "@/lib/product-config/bounds"
-import { CHECKLIST_LABELS, needsDualApproval, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
+import { checklistLabel, needsDualApproval, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
 import { lockDeal, type SigningActor } from "./signing-prepare"
 
 export type CreatePayoutResult =
@@ -51,7 +51,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       if (deal.payout) return { kind: "exists" }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))
       const open = requiredChecklistKinds(deal.contractType, deal.asset).filter((kind) => !confirmed.has(kind))
-      if (open.length > 0) return { kind: "checklist_open", open: open.map((kind) => CHECKLIST_LABELS[kind]) }
+      if (open.length > 0) return { kind: "checklist_open", open: open.map((kind) => checklistLabel(kind, deal.contractType)) }
       const account = await tx.supplierBankAccount.findFirst({
         where: { tenantId, supplierId: deal.supplierId, status: "APPROVED" },
         select: { id: true },

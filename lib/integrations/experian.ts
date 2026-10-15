@@ -240,7 +240,24 @@ export async function getCreditReport(input: ExperianEnquiryInput, tenantId: str
     // MOCK: representative in-band SigmaScore. Real shape comes from the layout doc.
     // `simulated` marks it as synthetic for every downstream reader — without it
     // this is indistinguishable from a real bureau result.
-    return { ok: true, simulated: true, score: 645, unscoreable: false, riskGrade: "AVERAGE RISK", adverseInfo: [], underDebtReview: false, hasJudgement: false, hasNotice: false, deceased: false }
+    return {
+      ok: true,
+      simulated: true,
+      score: 645,
+      unscoreable: false,
+      riskGrade: "AVERAGE RISK",
+      adverseInfo: [],
+      underDebtReview: false,
+      hasJudgement: false,
+      hasNotice: false,
+      deceased: false,
+      // The synthetic demo consumer is explicitly debt-free. Omitting this
+      // would make the obligations unknown, which the approval gate correctly
+      // refuses rather than silently treating as zero.
+      totalMonthlyObligations: 0,
+      accounts: [],
+      obligationRows: [],
+    }
   }
 
   const cfg = await getExperianConfig(tenantId)

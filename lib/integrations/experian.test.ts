@@ -214,6 +214,11 @@ describe("getCreditReport (dry-run under NODE_ENV=test)", () => {
     expect(r.ok).toBe(true)
     expect(r.score).toBeGreaterThanOrEqual(SIGMA_SCORE_MIN)
     expect(r.score).toBeLessThanOrEqual(SIGMA_SCORE_MAX)
+    expect(r).toMatchObject({
+      totalMonthlyObligations: 0,
+      accounts: [],
+      obligationRows: [],
+    })
   })
 
   it("short-circuits invalid input without hitting the network", async () => {

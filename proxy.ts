@@ -9,6 +9,7 @@ import { staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
+import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
 import {
   buildTenantHeaders,
   resolveTenantSlug,
@@ -38,6 +39,10 @@ export default function proxy(...args: Parameters<typeof handle>) {
 }
 
 function route(req: NextAuthRequest): Response {
+  // CSRF: a write from any origin but this host's own is refused, on every
+  // host and path (pages and server actions included), before any other gate.
+  const crossOrigin = crossOriginWriteRefusal(req)
+  if (crossOrigin) return crossOrigin
   const path = req.nextUrl.pathname
   const hostname = req.headers.get("host") ?? ""
   const baseHostname = hostname.split(":")[0].toLowerCase().replace(/\.$/, "")
@@ -104,7 +109,13 @@ function route(req: NextAuthRequest): Response {
     req.nextUrl.pathname.startsWith("/api/portal/forgot-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/reset-password") ||
     req.nextUrl.pathname.startsWith("/api/portal/payment/webhook")
+  // The public lender API. Every handler authenticates its own bearer API key
+  // (lib/lender-api/handler.ts, withApiKey) and binds the tenant to the key, so
+  // no session is needed. It is NOT in the public-operational allowlist: that
+  // would also serve it on the client host, and it belongs to the staff host.
+  const isLenderApi = path === "/api/v1" || path.startsWith("/api/v1/")
   const isPublicRoute =
+    isLenderApi ||
     isPublicWebsiteRoot ||
     isSeoAsset ||
     isManualAsset ||

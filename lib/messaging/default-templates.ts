@@ -18,6 +18,7 @@
  */
 import type { Channel, PrismaClient, TemplateCategory } from "@prisma/client"
 import { SEED_BRAND_TOKEN, WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
+import { OTP_MESSAGE_TEMPLATES } from "./otp-templates"
 
 export type DefaultMessageTemplate = {
   key: string
@@ -240,6 +241,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     bodyTemplate: "<div style=\"font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px;background:#f8f9fb;border-radius:8px;\">\n  <div style=\"text-align:center;margin-bottom:24px;\">\n    <p style=\"font-size:11px;font-weight:bold;letter-spacing:4px;text-transform:uppercase;color:#4F46E5;\">{{lenderName}}</p>\n    <p style=\"font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#888;margin-top:4px;\">CLIENT PORTAL</p>\n  </div>\n  <h2 style=\"color:#1B1D24;margin-bottom:8px;\">Password Reset Request</h2>\n  <p style=\"color:#555;margin-bottom:24px;\">Hi {{firstName}}, use the code below to reset your portal password. It expires in 15 minutes.</p>\n  <div style=\"background:#1B1D24;border-radius:8px;padding:24px;text-align:center;margin-bottom:24px;\">\n    <p style=\"color:#4F46E5;font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;\">Your reset code</p>\n    <p style=\"color:#fff;font-size:36px;font-weight:bold;letter-spacing:8px;margin:0;\">{{otp}}</p>\n  </div>\n  <p style=\"color:#888;font-size:12px;\">If you did not request a password reset, you can safely ignore this email.</p>\n</div>",
     redactStoredBody: true,
   },
+  ...OTP_MESSAGE_TEMPLATES,
 ]
 
 /** The template as stored for a tenant whose brand is `lenderName`. */

@@ -556,6 +556,31 @@ export const AuditAction = {
   // payout, application and asset with it. Refusals are audited too.
   ASSET_DEAL_CANCELLED: "ASSET_DEAL_CANCELLED",
   ASSET_DEAL_CANCEL_REFUSED: "ASSET_DEAL_CANCEL_REFUSED",
+  // Operating and full-maintenance leases (slice 3): per-rental tax invoices
+  // (lib/asset-finance/lease-invoices.ts), and a refusal the receipt path left.
+  LEASE_RENTAL_INVOICED: "LEASE_RENTAL_INVOICED",
+  LEASE_INVOICE_REFUSED: "LEASE_INVOICE_REFUSED",
+  // Lease servicing (lib/asset-finance/maintenance-*.ts, meter-readings.ts,
+  // lease-end-*.ts, lease-termination-store.ts, lease-daily.ts): the maintenance
+  // fund and its claims, meter readings, the end of term and early termination.
+  MAINTENANCE_CLAIM_SUBMITTED: "MAINTENANCE_CLAIM_SUBMITTED",
+  MAINTENANCE_CLAIM_APPROVED: "MAINTENANCE_CLAIM_APPROVED",
+  MAINTENANCE_CLAIM_REJECTED: "MAINTENANCE_CLAIM_REJECTED",
+  MAINTENANCE_CLAIM_PAID: "MAINTENANCE_CLAIM_PAID",
+  MAINTENANCE_FUND_SETTLED: "MAINTENANCE_FUND_SETTLED",
+  METER_READING_RECORDED: "METER_READING_RECORDED",
+  LEASE_EXPIRY_NOTICE_QUEUED: "LEASE_EXPIRY_NOTICE_QUEUED",
+  LEASE_END_OF_TERM_ELECTED: "LEASE_END_OF_TERM_ELECTED",
+  LEASE_INSPECTION_RECORDED: "LEASE_INSPECTION_RECORDED",
+  LEASE_RETURNED: "LEASE_RETURNED",
+  LEASE_EXTENDED: "LEASE_EXTENDED",
+  LEASE_EXTENSION_ENDED: "LEASE_EXTENSION_ENDED",
+  LEASE_PURCHASED: "LEASE_PURCHASED",
+  LEASE_NATIS_CONFIRMED: "LEASE_NATIS_CONFIRMED",
+  LEASE_EARLY_TERMINATION_QUOTED: "LEASE_EARLY_TERMINATION_QUOTED",
+  LEASE_EARLY_TERMINATION_ACCEPTED: "LEASE_EARLY_TERMINATION_ACCEPTED",
+  LEASE_CLOSED: "LEASE_CLOSED",
+  LEASE_ACTION_REFUSED: "LEASE_ACTION_REFUSED",
   // A surety or signatory deactivation refused while the entity has an
   // approved deal (its signer set is fixed).
   ENTITY_RELATIONSHIP_CHANGE_REFUSED: "ENTITY_RELATIONSHIP_CHANGE_REFUSED",
@@ -569,4 +594,46 @@ export const AuditAction = {
   // A refused attempt to turn off or replace 2FA (wrong or replayed code, or refused by policy).
   TOTP_CHANGE_REFUSED: "TOTP_CHANGE_REFUSED",
   TOTP_RESET_BY_ADMIN: "TOTP_RESET_BY_ADMIN",
+  // PEP / sanctions screening (lib/screening). Types and results only: never
+  // the matched list entries, which would put "possible PEP" in the audit view.
+  SCREENING_RUN: "SCREENING_RUN",
+  SCREENING_RUN_FAILED: "SCREENING_RUN_FAILED",
+  SCREENING_MATCH_REVIEWED: "SCREENING_MATCH_REVIEWED",
+  SCREENING_CONFIG_UPDATED: "SCREENING_CONFIG_UPDATED",
+  SCREENING_BLOCK_LIFTED: "SCREENING_BLOCK_LIFTED",
+  // An approval the screening gate refused (consumer decide route).
+  SCREENING_APPROVAL_REFUSED: "SCREENING_APPROVAL_REFUSED",
+  // FIC Act registers (lib/fic). STR rows carry the case id and status only:
+  // the audit view is wider than the STR register, and naming the client
+  // there would spread knowledge of the report (tipping-off risk).
+  CTR_RECORDED: "CTR_RECORDED",
+  FIC_EXPORTED: "FIC_EXPORTED",
+  STR_CASE_RAISED: "STR_CASE_RAISED",
+  STR_CASE_UPDATED: "STR_CASE_UPDATED",
+  RMCP_UPLOADED: "RMCP_UPLOADED",
+  RMCP_APPROVED: "RMCP_APPROVED",
+  RMCP_DOWNLOADED: "RMCP_DOWNLOADED",
+  // Lender API (lib/lender-api, app/api/settings/api-keys, app/api/settings/webhooks).
+  // Key and endpoint rows by id and prefix only, never a key or a signing secret.
+  API_KEY_CREATED: "API_KEY_CREATED",
+  API_KEY_REVOKED: "API_KEY_REVOKED",
+  WEBHOOK_ENDPOINT_CREATED: "WEBHOOK_ENDPOINT_CREATED",
+  WEBHOOK_ENDPOINT_DISABLED: "WEBHOOK_ENDPOINT_DISABLED",
+  // The circuit breaker paused an endpoint (no user: the system did it), and an admin resumed it.
+  WEBHOOK_ENDPOINT_PAUSED: "WEBHOOK_ENDPOINT_PAUSED",
+  WEBHOOK_ENDPOINT_RESUMED: "WEBHOOK_ENDPOINT_RESUMED",
+  // A draft application created through POST /api/v1/applications; newValue names the key.
+  APPLICATION_CREATED_VIA_API: "APPLICATION_CREATED_VIA_API",
+  // Staff working hours and IP allowlist (lib/security/staff-access-*.ts).
+  // REFUSED: a sign-in or a live session stopped by the policy, with reason.
+  // BYPASSED: a SUPER_ADMIN the policy would have stopped, let through.
+  STAFF_ACCESS_POLICY_UPDATED: "STAFF_ACCESS_POLICY_UPDATED",
+  STAFF_ACCESS_REFUSED: "STAFF_ACCESS_REFUSED",
+  STAFF_ACCESS_BYPASSED: "STAFF_ACCESS_BYPASSED",
+  // Signing OTP and portal registration policy (lib/signing-otp,
+  // lib/portal/portal-policy.ts). Never the code itself.
+  PORTAL_POLICY_UPDATED: "PORTAL_POLICY_UPDATED",
+  SIGNING_OTP_REQUESTED: "SIGNING_OTP_REQUESTED",
+  SIGNING_OTP_VERIFIED: "SIGNING_OTP_VERIFIED",
+  SIGNING_OTP_REJECTED: "SIGNING_OTP_REJECTED",
 } as const

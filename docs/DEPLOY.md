@@ -38,9 +38,11 @@ directory **outside** the git checkout (the scripts refuse otherwise).
 |---|---|
 | `provision-lender.sh <dir> --config lender.json --port N --public-url URL --portal-port N --portal-url URL [--admin-email E] [--build] [--image name:tag] [--update-settings]` | env file with generated secrets, compose project, migrate, tenant, first SUPER_ADMIN, then `deploy.sh`. Safe to rerun: never rotates a secret, recreates the tenant or mints a second admin. A rerun that asks for a different port, bind or URL says `kept existing X=…` and changes nothing unless `--update-settings` is given. |
 | `deploy.sh <dir> <name:tag> [--build] [--skip-backup] [--health-timeout S]` | backup, migrate, switch, health-check, roll back on failure. |
-| `backup.sh <dir> [--label L] [--keep N]` | encrypted `pg_dump -Fc`, read-back check, retention. |
-| `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it. |
-| `restore.sh <dir> <file> --over-live --confirm <slug> [--accept-count-drift] [--allow-unresolved-migration]` | verified restore, then swap it in. |
+| `backup.sh <dir> [--label L] [--keep N]` | encrypted `pg_dump -Fc` and uploads tar, read-back checks, retention. |
+| `restore.sh <dir> <file> [--drop-scratch]` | restore into a NEW scratch database and verify it and the uploads archive. |
+| `restore.sh <dir> <file> --over-live --confirm <slug> [--accept-count-drift] [--allow-unresolved-migration]` | verified restore, then swap the database and the uploads in. |
+| `restore-drill.sh <dir> [<file>] [--keep-stack]` | timed restore of database + uploads into a throwaway project, health and count checks, torn down after. |
+| `encrypt-uploads.sh <dir> [--dry-run \| --verify]` | encrypt the uploads written before `UPLOADS_ENC_KEY` was set; `--verify` checks they open. |
 | `npm run lender:bootstrap-tenant -- --config f.json [--dry-run]` | tenant + config + default templates (run in the tools image by provision). |
 | `prisma.sh <dir> migrate status \| resolve --rolled-back\|--applied <name> \| deploy` | recover from a failed migration (below), from the deployed tools image. |
 | `admin.sh <dir> --email E [--break-glass [--reactivate]] [--dry-run]` | the first-admin CLI (`lender:bootstrap-admin`) against this lender, for break-glass. provision runs the same CLI for the first admin. |
@@ -200,16 +202,55 @@ sidecar matches the dump exactly even while the app writes. The newest `BACKUP_K
 (`.env`, default 14) are kept **in each pool** (`pre-*` taken before a migration or restore,
 and the rest), so nightly backups never push out the pre-migration ones.
 
-Copy `secrets/backup.passphrase` to a password manager or another host. A backup
-on the same disk as its passphrase protects against nothing but a bad migration.
-Also copy the backups off the host; these scripts do not.
+The uploads volume is backed up with the database: after the dump, a throwaway
+container of the database image tars the volume read-only into gpg the same way
+(`<file>.uploads.tar.gpg`, read back and listed before it counts), and
+`<file>.files` records the file count (`files=none` before the volume exists).
+The documents inside are themselves encrypted at rest when `UPLOADS_ENC_KEY` is
+set, so a restore needs that key as well as the passphrase.
+
+Copy `secrets/backup.passphrase` **and `UPLOADS_ENC_KEY` from `.env`** to a password
+manager or another host. A backup on the same disk as its passphrase protects
+against nothing but a bad migration. Also copy the backups off the host; these
+scripts do not.
 
 Cron (these scripts install none). Nightly backup and a weekly restore drill:
 
 ```
 30 1 * * * /path/to/CredaFlow/scripts/lender/backup.sh /srv/lenders/acme >> /srv/lenders/acme/backups/cron.log 2>&1
-45 2 * * 0 /path/to/CredaFlow/scripts/lender/restore.sh /srv/lenders/acme "$(ls -t /srv/lenders/acme/backups/*.dump.gpg | head -1)" --drop-scratch >> /srv/lenders/acme/backups/cron.log 2>&1
+45 2 * * 0 /path/to/CredaFlow/scripts/lender/restore-drill.sh /srv/lenders/acme >> /srv/lenders/acme/backups/cron.log 2>&1
 ```
+
+`restore-drill.sh` restores the newest clean backup (or the one named) into its own
+compose project `credaflow-drill-<slug>-<UTC>` (own Postgres, own volumes, the deployed
+image on a random loopback port), and passes only when `pg_restore --exit-on-error`
+succeeds, the row and file counts equal the sidecars, every encrypted upload opens
+with `UPLOADS_ENC_KEY`, and the app answers `/api/health` with `status: ok`. It prints
+the time of each step and the total, then `down -v`s the project. The drill app has no
+`CRON_SECRET` (no scheduler) and no provider credentials: a restored copy never
+messages a borrower.
+
+### Encryption at rest of existing uploads
+
+Every file `lib/storage.ts` writes is encrypted with a per-file key wrapped by
+`UPLOADS_ENC_KEY`, bound to its path under the uploads volume (a file moved or
+swapped under another name does not open): client documents, NCA artefacts and
+the insurance disclosure PDFs (`disclosures/`). Tenant logos (`tenant-logos/`) are
+public and stay plaintext. With `UPLOADS_ENC_REQUIRED=true` storage fails closed: no
+key, no write, and a plaintext file is refused on read, which `/api/health` reports as
+a storage failure. It is off unless set, so the first deploy of this code never breaks
+an existing stack whose files are still plaintext.
+
+New lenders get `UPLOADS_ENC_KEY` and `UPLOADS_ENC_REQUIRED=true` from
+`provision-lender.sh`. For a lender provisioned before it: rerun `provision-lender.sh`
+(it adds the missing key, never rotates one, and does not switch the requirement on for
+an existing directory), redeploy so the app reads and writes with the key, take a
+backup, then `encrypt-uploads.sh <dir> --dry-run`, `encrypt-uploads.sh <dir>`,
+`encrypt-uploads.sh <dir> --verify`; then set `UPLOADS_ENC_REQUIRED=true` in `.env`
+and redeploy. It converts one file at a time (a temp file with
+a random name, read-back, rename; temp files of an interrupted run are deleted first),
+skips files already encrypted, never re-wraps a file encrypted under another key or one
+that fails its check (it reports them), and refuses while the running app lacks the key.
 
 `restore.sh` creates `<db>_restore_<UTC>`, restores with `--exit-on-error`, checks
 `_prisma_migrations` (rows, none unfinished) and compares the row counts with the
@@ -219,6 +260,47 @@ never a block on a scratch restore; `--over-live` refuses it unless you add
 stops the app, renames the live database to `<db>_pre_restore_<UTC>`, renames the
 scratch one into place, starts the app and health-checks it. The old database is
 kept; undo by swapping the two names back. Drop it yourself when satisfied.
+The uploads archive is checked against `<file>.files` the same way (a difference is
+drift). Over live, with the app stopped and before the database swap, it is unpacked
+into `<volume>/.restore-<UTC>` and counted; only then do the live files move to
+`<volume>/.pre-restore-<UTC>` and the restored ones into place. A failed unpack leaves
+the files and the database as they were and starts the app again.
+
+## Health
+
+`/api/health` answers `status: ok` (200) when the database answers `SELECT 1` and
+storage round-trips a probe file through `lib/storage` (encryption included), else
+`status: error` (503); `deploy.sh` and the compose healthcheck read that. Without
+credentials the body is `status` plus the deploy marker `deploy.sh` compares (`mode`,
+`commit`, `builtAt`, `checkedAt`) and never says which check failed or why. With the
+`x-cron-secret` header it adds `checks` (`database`, `storage`, `storageEncryption`
+`on`/`off`, `cron` `ok`/`stale`/`not_scheduled`), `warnings` (degraded but not failing:
+`cron_stale`, `storage_encryption_off`, `webhook_outbox_failures`, so a stack that was
+down overnight still passes its next deploy) and `detail` (per-job freshness, and
+`webhookOutboxFailures24h`: webhook events a database trigger could not write in the last
+24 hours; the payment, loan or application was saved, its event was lost; the rows are in
+`WebhookOutboxFailure`). Probe errors go to the container log only. Cron
+freshness comes from `CronHeartbeat`, written after every in-process job
+(`instrumentation.ts`); jobs an external scheduler owns are not tracked. Point an uptime
+monitor at it; nothing here sends alerts.
+
+## Lender API logs and webhooks
+
+`ApiRequestLog` gets a row for every `/api/v1` request that names a real key; requests
+naming no key, and 429s, are sampled (10 a minute per process; the rest are counted in the
+container log). Rate limits: 120 a minute per key; failed authentications per caller
+address (30 a minute, when `TRUSTED_PROXY` makes the address known), else in one global
+bucket (300 a minute), answer 429 instead of 401. A valid key is never throttled by other
+callers' failures, and key buckets live in their own store, so no flood of addresses can
+evict one. The nightly `lender-api-retention` cron deletes request logs after
+`API_LOG_RETENTION_DAYS` (90), and finished webhook deliveries with their events and
+outbox failures after `WEBHOOK_LOG_RETENTION_DAYS` (30).
+Deliveries are claimed fairly: per run at most 25 per endpoint and 50 per lender.
+A webhook endpoint whose receiver fails 20 POSTs in a row is paused (audited
+`WEBHOOK_ENDPOINT_PAUSED`); its deliveries wait without spending attempts until an admin
+resumes it in Settings → API & webhooks. Deliveries of a lender that is not ACTIVE wait too.
+A local fault (no `WEBHOOK_SECRET_KEY`, a secret that will not open) sends nothing: the
+delivery is retried every 5 minutes without spending an attempt or counting toward the pause.
 
 ## Admin recovery
 
@@ -275,6 +357,6 @@ Every variable the app reads, required or optional per integration, with what se
   `reminders` and `escalations` must be called by an external scheduler with
   `x-cron-secret` (see the ownership comment in `instrumentation.ts`); nothing here
   installs one.
-- TLS, DNS and the reverse proxy. Log shipping and monitoring.
+- TLS, DNS and the reverse proxy. Log shipping, and alerting on `/api/health`.
 - Pushing images to a registry, and pulling both tags from one.
-- Rotating `WABA_ENC_KEY` or the backup passphrase.
+- Rotating `WABA_ENC_KEY`, `UPLOADS_ENC_KEY`, `WEBHOOK_SECRET_KEY` or the backup passphrase.

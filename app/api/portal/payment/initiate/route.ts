@@ -83,8 +83,8 @@ export async function POST(req: Request) {
 
     const externalReference = `PAY-${loanId.slice(-8)}-${Date.now()}`
     // Stitch redirects the payer's browser here after payment. This MUST target
-    // the callback ROUTE HANDLER at /api/portal/payment/callback (which records
-    // the status and bounces to the success/failure page) — NOT the /api-less
+    // the callback ROUTE HANDLER at /api/portal/payment/callback (which only
+    // bounces to the success/failure page; the webhook settles) — NOT the /api-less
     // /portal/payment/callback, which has no page/route and 404s (PORT-01).
     try {
       const redirectUrl = `${requireAppBaseUrl()}/api/portal/payment/callback`
