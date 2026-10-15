@@ -53,8 +53,27 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   the `x-tenant-slug` header (set by `proxy.ts` from the host, never trusted
   from the caller), then by `NEXT_PUBLIC_TENANT_SLUG` (`lib/tenant.ts`,
   `getTenantFromRequest` / `getResolvedTenantId`). Staff and portal sessions
-  carry their user's `tenantId`. Background jobs use `getDefaultTenantId()`,
-  which throws rather than guess.
+  carry their user's `tenantId`. Cron routes (`app/api/cron/*`) have no
+  request tenant of their own; these are the patterns in use (examples, not
+  a full list):
+  - a per-tenant frame: loop over the tenant rows and run each tenant inside
+    `runWithTenant` (website-chat-close, website-chat-handoffs,
+    sweep-stuck-selfies; cross-sell and dormant-clients, which sweep ACTIVE
+    tenants only because they create sales opportunities);
+  - an explicit `tenantId` on every tenant-scope query, with no frame:
+    insurance-renewal;
+  - a loop over the tenants whose `TenantConfig` enables the job, still one
+    frame per tenant: default-charges (a feature flag plus a recorded
+    go-live) and screening-refresh (a configured provider);
+  - `getTenantFromRequest()`, which, when the scheduler's `NEXTAUTH_URL` host
+    matches no tenant domain (or is unset, so the call goes to localhost),
+    falls back to `NEXT_PUBLIC_TENANT_SLUG` or the sole ACTIVE tenant, and
+    answers 400 when that is ambiguous: for example poll-wa-templates and
+    stale-leads-alert;
+  - unscoped, under `withoutTenantScope`: email-poll;
+  - the default tenant, `getDefaultTenantId()`, which throws rather than
+    guess: arrangement-check, dpd-update, licence-expiry and
+    payment-reminders still use it.
 - **Scoping queries.** `lib/tenant-scope.ts` is a Prisma extension that adds
   the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
@@ -291,7 +310,7 @@ change that domain's entries.
 | Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
 | Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
-| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })`, or `{ server?, client? }` where the two maps differ | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — one minimum role, a Prisma `UserRole` | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
 
 ### The Prisma schema

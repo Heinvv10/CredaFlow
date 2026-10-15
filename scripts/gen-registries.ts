@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { validate as validCronExpression } from "node-cron"
-import type { CronJob, PermissionRule, SimulationRule } from "../lib/registry/define"
+import type { CronJob, SimulationRule } from "../lib/registry/define"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -162,24 +162,13 @@ function userRoles(root: string): Set<string> {
   return new Set(body.split("\n").map((l) => l.replace(/\/\/.*$/, "").trim()).filter(Boolean))
 }
 
-function permissions(root: string, entries: Entry<unknown>[]): { server: Record<string, string>; client: Record<string, string> } {
+function permissions(root: string, entries: Entry<unknown>[]): Record<string, string> {
   const roles = userRoles(root)
-  const server: Record<string, string> = {}
-  const client: Record<string, string> = {}
-  for (const { file, key, value } of objectItems<PermissionRule>("permissions", entries)) {
-    const rule = typeof value === "string" ? { server: value, client: value } : value
-    if (typeof rule !== "object" || rule === null || (!rule.server && !rule.client)) {
-      fail(`${file}: ${key} must name a role, or { server?, client? } with at least one`)
-    }
-    const extra = Object.keys(rule).filter((k) => k !== "server" && k !== "client")
-    if (extra.length) fail(`${file}: ${key} does not take ${extra.join(", ")}`)
-    for (const role of [rule.server, rule.client]) {
-      if (role !== undefined && !roles.has(role)) fail(`${file}: ${key} names "${role}", which is not a UserRole`)
-    }
-    if (rule.server) server[key] = rule.server
-    if (rule.client) client[key] = rule.client
+  const items = objectItems<unknown>("permissions", entries)
+  for (const { file, key, value } of items) {
+    if (typeof value !== "string" || !roles.has(value)) fail(`${file}: ${key} must name a UserRole, got ${JSON.stringify(value)}`)
   }
-  return { server, client }
+  return Object.fromEntries(items.map((i) => [i.key, i.value as string]))
 }
 
 function moduleRules(root: string): string {
@@ -235,10 +224,7 @@ export async function buildRegistries(root: string = ROOT): Promise<Record<strin
     [gen("tenant-scoped-models.ts")]: tsModule("tenant-scoped-models", `export const TENANT_SCOPED_MODELS = ${lit(models)} as const`),
     [gen("cron-jobs.ts")]: tsModule("cron-jobs", `export const CRON_JOBS = ${lit(cron)} as const`),
     [gen("simulated-integrations.ts")]: tsModule("simulated-integrations", `export const SIMULATED_INTEGRATIONS = ${lit(simulated)} as const`),
-    [gen("permissions.ts")]: tsModule(
-      "permissions",
-      `export const SERVER_PERMISSIONS = ${lit(perms.server)} as const\n\nexport const CLIENT_PERMISSIONS = ${lit(perms.client)} as const`,
-    ),
+    [gen("permissions.ts")]: tsModule("permissions", `export const PERMISSIONS = ${lit(perms)} as const`),
     "docs/module-rules.md": moduleRules(root),
   }
 }
