@@ -48,11 +48,17 @@ export function parseCost(body: unknown): Parsed<RecoveryCostInput> {
   if (!Number.isSafeInteger(r.vatCents) || (r.vatCents as number) < 0) errors.vatCents = "must be non-negative whole cents"
   if (!text(r.supplierInvoiceRef)) errors.supplierInvoiceRef = "is required"
   if (!ISO_DAY.test(text(r.incurredOn))) errors.incurredOn = "must be a date YYYY-MM-DD"
-  if (!text(r.recordedById)) errors.recordedById = "names the staff member who captured the invoice"
   if (Object.keys(errors).length > 0) return { errors }
   return { data: {
     type: r.type as RecoveryCostType, treatment: r.treatment as RecoveryCostTreatment, netCents: r.netCents as number, vatCents: r.vatCents as number,
     supplierId: optionalId(r.supplierId), supplierInvoiceRef: text(r.supplierInvoiceRef), incurredOn: text(r.incurredOn),
-    legalStepId: optionalId(r.legalStepId), note: typeof r.note === "string" ? r.note : null, recordedById: text(r.recordedById),
+    legalStepId: optionalId(r.legalStepId), note: typeof r.note === "string" ? r.note : null,
   } }
+}
+
+/** The body of a cost decision. */
+export function parseCostDecision(body: unknown): Parsed<{ decision: "APPROVED" | "REJECTED" }> {
+  const r = record(body)
+  if (r?.decision !== "APPROVED" && r?.decision !== "REJECTED") return { errors: { decision: "must be APPROVED or REJECTED" } }
+  return { data: { decision: r.decision } }
 }

@@ -19,7 +19,7 @@ import { DRAFT_WATERMARK } from "./documents/pdf-layout"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { cleanupRecoveryFixture, createRecoveryFixture, newLoan, recoveryFixtureTenantId, today, type RecoveryFixture } from "./recovery.integration-fixture"
-import { ladderRecovery } from "./recovery-path.integration-fixture"
+import { advance, ladderRecovery, recordDecidedCost } from "./recovery-path.integration-fixture"
 import { readRecoveryDocument } from "./recovery-notices"
 import { pdfTexts, recoveryRoutes } from "./recovery-routes.integration-fixture"
 
@@ -148,7 +148,10 @@ suite.sequential("recovery core: routes, notices and documents (real Postgres)",
     await writeFile(stored.valuationNoticePath ?? "", Buffer.from("tampered"))
     await expect(readRecoveryDocument(fx.tenantId, id, "valuation")).rejects.toThrow(/integrity/)
 
-    const final = await ladderRecovery(database(), fx, true, "PROCEEDS_APPLIED", { costs: [{ type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 500_000 }] })
+    const final = await ladderRecovery(database(), fx, true, "SOLD", { costs: [{ type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 500_000 }] })
+    // A rejected cost stays on the ledger but is on no notice and in no figure.
+    await recordDecidedCost(database(), fx, final.id, { type: "STORAGE", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 777_700 }, "REJECTED")
+    await advance(database(), fx, final.loan, final.id, "PROCEEDS_APPLIED")
     expect((await r.finalNotice(final.id)).status).toBe(200)
     const done = await recoveryOf(final.id)
     expect(done.status).toBe("FINAL_NOTICE_ISSUED")
@@ -156,6 +159,9 @@ suite.sequential("recovery core: routes, notices and documents (real Postgres)",
     const text = await pdfTexts(new Uint8Array(await (await r.document(final.id, "final")).arrayBuffer()))
     expect(text.join(" ")).toContain("REPOSSESSED GOODS FINAL ACCOUNT NOTICE")
     expect(text).toEqual(expect.arrayContaining(["RECOVERY COSTS", "R 5,000.00"]))
+    expect(text).not.toContain("Storage")
+    expect(text).not.toContain("R 7,777.00")
+    expect(done.deductedCostsCents).toBe(500_000)
     expect((await r.document(final.id, "statement")).status).toBe(404)
   }, 120_000)
 

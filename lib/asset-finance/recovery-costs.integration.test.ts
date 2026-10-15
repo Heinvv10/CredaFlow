@@ -40,7 +40,7 @@ const admin = () => as(fx, fx.adminA, "LOAN_ADMIN")
 const routes = () => recoveryRoutes(fx.host)
 const recoveryOf = (id: string) => database().recovery.findUniqueOrThrow({ where: { id } })
 const cost = (over: Record<string, unknown> = {}) => ({
-  type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 200_000, vatCents: 0, supplierInvoiceRef: `INV-${randomUUID().slice(0, 6)}`, incurredOn: today(), recordedById: fx.officer, ...over,
+  type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 200_000, vatCents: 0, supplierInvoiceRef: `INV-${randomUUID().slice(0, 6)}`, incurredOn: today(), ...over,
 })
 const create = (over: Record<string, unknown> = {}) => ({ route: "NON_NCA_VOLUNTARY", recoveredOn: today(), location: "TEST Yard", condition: "Synthetic: fair", ...over })
 
@@ -80,7 +80,7 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect((await r.view(created.body.id as string)).body).toMatchObject({ route: "NON_NCA_VOLUNTARY", status: "RECOVERED", costTotals: { deducted: 0, charged: 0 } })
   }, 120_000)
 
-  it("records a cost with two people; VAT at the rate in force; the database's allow-lists answer 409", async () => {
+  it("records a cost PENDING; VAT at the rate in force; the database's allow-lists answer 409", async () => {
     const loan = await newLoan(database(), fx, "NCA")
     const matterId = await courtMatter(database(), fx, loan)
     const id = await newRecovery(database(), fx, loan, "NCA_S131_ATTACHMENT", { legalMatterId: matterId })
@@ -88,11 +88,9 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     const plain = (await database().supplier.create({ data: { tenantId: fx.tenantId, name: "TEST Sole Tow" } })).id
     const r = routes()
 
-    officer()
+    as(fx, "nobody", "READONLY")
     expect((await r.cost(id, cost())).status).toBe(403)
-    admin()
-    expect((await r.cost(id, cost({ recordedById: fx.adminA }))).status).toBe(409)
-    expect((await r.cost(id, cost({ recordedById: "nobody" }))).status).toBe(409)
+    officer()
     expect((await r.cost(id, cost({ netCents: -5 }))).status).toBe(400)
     // 10001 at 15% is 1500.15: 1500 half-up.
     const wrong = await r.cost(id, cost({ supplierId: vendor, netCents: 10_001, vatCents: 1_501 }))
@@ -100,10 +98,12 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect(String(wrong.body.error)).toMatch(/1500 cents/)
     const vat = await r.cost(id, cost({ supplierId: vendor, netCents: 10_001, vatCents: 1_500 }))
     expect(vat.status).toBe(201)
-    expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: vat.body.id as string } })).toMatchObject({ grossCents: 11_501, approvedById: fx.adminA, recordedById: fx.officer })
+    expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: vat.body.id as string } }))
+      .toMatchObject({ grossCents: 11_501, status: "PENDING", recordedById: fx.officer, approvedById: null, approvedAt: null })
     const nonVendor = await r.cost(id, cost({ supplierId: plain, vatCents: 300 }))
     expect(nonVendor.status).toBe(409)
-    expect((await r.cost(id, cost({ supplierId: plain }))).status).toBe(201)
+    const second = await r.cost(id, cost({ supplierId: plain }))
+    expect(second.status).toBe(201)
     expect((await r.cost(id, cost({ supplierId: "nobody" }))).status).toBe(404)
 
     // NCA: taxed legal costs name the judgment or settlement step; other types are never charged to the account.
@@ -111,22 +111,59 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect(taxed.status).toBe(409)
     expect(String(taxed.body.error)).toMatch(/Taxed legal costs name the judgment or settlement step/)
     const judgment = await database().legalMatterStep.findFirstOrThrow({ where: { matterId, kind: "JUDGMENT" } })
-    expect((await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: judgment.id }))).status).toBe(201)
+    const legal = await r.cost(id, cost({ type: "LEGAL_TAXED", treatment: "CHARGE_TO_ACCOUNT", legalStepId: judgment.id }))
+    expect(legal.status).toBe(201)
     const charged = await r.cost(id, cost({ treatment: "CHARGE_TO_ACCOUNT" }))
     expect(charged.status).toBe(409)
     expect(String(charged.body.error)).toMatch(/Only taxed legal costs are charged to an NCA account/)
     expect((await r.cost(id, cost({ type: "LEGAL_CONTRACTUAL" }))).status).toBe(409)
 
-    const view = (await r.view(id)).body as { costs: unknown[]; costTotals: { deducted: number; charged: number } }
-    expect(view.costs).toHaveLength(3)
-    expect(view.costTotals.deducted).toBe(11_501 + 200_000)
-    expect(view.costTotals.charged).toBe(200_000)
+    // Pending costs are listed apart and count for nothing until decided.
+    const pending = (await r.view(id)).body as { costs: unknown[]; pendingCosts: { status: string }[]; costTotals: { deducted: number; charged: number } }
+    expect(pending.costs).toHaveLength(0)
+    expect(pending.pendingCosts.map((c) => c.status)).toEqual(["PENDING", "PENDING", "PENDING"])
+    expect(pending.costTotals).toEqual({ deducted: 0, charged: 0 })
 
     // Not after the proceeds are applied.
     const applied = await ladderRecovery(database(), fx, false, "PROCEEDS_APPLIED")
     const late = await r.cost(applied.id, cost())
     expect(late.status).toBe(409)
     expect(String(late.body.error)).toMatch(/Costs are recorded before the sale proceeds are applied/)
+
+    // Decided by someone else: approved costs count, a rejected one is listed but counts for nothing.
+    expect((await r.decideCost(id, vat.body.id as string, { decision: "APPROVED" })).status).toBe(403)
+    admin()
+    expect((await r.decideCost(id, vat.body.id as string, { decision: "MAYBE" })).status).toBe(400)
+    expect((await r.decideCost(id, "nobody", { decision: "APPROVED" })).status).toBe(404)
+    expect((await r.decideCost(id, vat.body.id as string, { decision: "APPROVED" })).status).toBe(200)
+    expect((await r.decideCost(id, legal.body.id as string, { decision: "APPROVED" })).status).toBe(200)
+    expect((await r.decideCost(id, second.body.id as string, { decision: "REJECTED" })).status).toBe(200)
+    expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: vat.body.id as string } })).toMatchObject({ status: "APPROVED", approvedById: fx.adminA })
+    const again = await r.decideCost(id, vat.body.id as string, { decision: "REJECTED" })
+    expect(again.status).toBe(409)
+    expect(again.body.error).toBe("This cost has already been decided")
+    const decided = (await r.view(id)).body as { costs: { status: string }[]; pendingCosts: unknown[]; costTotals: { deducted: number; charged: number } }
+    expect(decided.pendingCosts).toHaveLength(0)
+    expect(decided.costs.map((c) => c.status).sort()).toEqual(["APPROVED", "APPROVED", "REJECTED"])
+    expect(decided.costTotals).toEqual({ deducted: 11_501, charged: 200_000 })
+    const audits = await database().auditLog.findMany({ where: { tenantId: fx.tenantId, entityId: id, action: { in: ["ASSET_RECOVERY_COST_RECORDED", "ASSET_RECOVERY_COST_DECIDED"] } } })
+    expect(audits.filter((a) => a.action === "ASSET_RECOVERY_COST_RECORDED")).toHaveLength(3)
+    expect(audits.filter((a) => a.action === "ASSET_RECOVERY_COST_DECIDED")).toHaveLength(3)
+  }, 120_000)
+
+  it("a cost is decided by someone other than its recorder, and the application says so before the database does", async () => {
+    const loan = await newLoan(database(), fx, "NON_NCA")
+    const id = await newRecovery(database(), fx, loan, "NON_NCA_VOLUNTARY")
+    const r = routes()
+    admin()
+    const recorded = await r.cost(id, cost())
+    expect(recorded.status).toBe(201)
+    const own = await r.decideCost(id, recorded.body.id as string, { decision: "APPROVED" })
+    expect(own.status).toBe(409)
+    expect(own.body.error).toBe("A cost is decided by someone other than the person who recorded it")
+    expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: recorded.body.id as string } })).toMatchObject({ status: "PENDING", approvedById: null })
+    as(fx, fx.adminB, "LOAN_ADMIN")
+    expect((await r.decideCost(id, recorded.body.id as string, { decision: "APPROVED" })).status).toBe(200)
   }, 120_000)
 
   it("withdraws a recovery with a reason and frees the asset", async () => {
@@ -195,7 +232,8 @@ suite.sequential("recovery routes: create, costs, withdraw, close, portal, roles
     expect((await foreign.view(id)).status).toBe(404)
     expect((await foreign.valuation(id, { valuedOn: today(), source: "ASSESSOR", valuerName: "TEST", amountCents: 1 })).status).toBe(404)
     expect((await foreign.listForSale(id)).status).toBe(404)
-    expect((await foreign.cost(id, cost({ recordedById: other.officer }))).status).toBe(404)
+    expect((await foreign.cost(id, cost())).status).toBe(404)
+    expect((await foreign.decideCost(id, "any", { decision: "APPROVED" })).status).toBe(404)
     expect((await foreign.withdraw(id, { reason: "Not my recovery to withdraw" })).status).toBe(404)
     expect((await foreign.close(id)).status).toBe(404)
     expect((await foreign.create(loan.loanId, create())).status).toBe(404)

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { parseCost, parseCreateRecovery } from "./recovery-input"
+import { parseCost, parseCostDecision, parseCreateRecovery } from "./recovery-input"
 
 const create = { route: "NON_NCA_VOLUNTARY", recoveredOn: "2026-10-15", location: "TEST Yard", condition: "Synthetic: fair" }
 const cost = {
-  type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 10_000, vatCents: 1_500, supplierInvoiceRef: "INV-1", incurredOn: "2026-10-15", recordedById: "u1",
+  type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 10_000, vatCents: 1_500, supplierInvoiceRef: "INV-1", incurredOn: "2026-10-15"
 }
 
 describe("parseCreateRecovery", () => {
@@ -40,7 +40,7 @@ describe("parseCost", () => {
   it("parses a cost and defaults the optionals", () => {
     expect(parseCost(cost)).toEqual({ data: {
       type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 10_000, vatCents: 1_500, supplierId: null, supplierInvoiceRef: "INV-1",
-      incurredOn: "2026-10-15", legalStepId: null, note: null, recordedById: "u1",
+      incurredOn: "2026-10-15", legalStepId: null, note: null,
     } })
   })
 
@@ -52,8 +52,16 @@ describe("parseCost", () => {
     [{ ...cost, vatCents: "1500" }, "vatCents"],
     [{ ...cost, supplierInvoiceRef: " " }, "supplierInvoiceRef"],
     [{ ...cost, incurredOn: "2026-13-45x" }, "incurredOn"],
-    [{ ...cost, recordedById: "" }, "recordedById"],
   ])("reports %j", (body, field) => {
     expect(parseCost(body)).toMatchObject({ errors: { [field]: expect.any(String) } })
+  })
+})
+
+describe("parseCostDecision", () => {
+  it("takes APPROVED and REJECTED only", () => {
+    expect(parseCostDecision({ decision: "APPROVED" })).toEqual({ data: { decision: "APPROVED" } })
+    expect(parseCostDecision({ decision: "REJECTED" })).toEqual({ data: { decision: "REJECTED" } })
+    expect(parseCostDecision({ decision: "PENDING" })).toMatchObject({ errors: { decision: expect.any(String) } })
+    expect(parseCostDecision(null)).toMatchObject({ errors: { decision: expect.any(String) } })
   })
 })

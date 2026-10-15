@@ -1,4 +1,4 @@
-import type { RecoveryCostTreatment, RecoveryStatus } from "@prisma/client"
+import type { RecoveryCost, RecoveryCostTreatment, RecoveryStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { PORTAL_AUTHORITY_ROLES } from "./portal-access"
 import { isoOfDbDate } from "./dates"
@@ -11,6 +11,12 @@ const NON_NCA_FINAL: RecoveryStatus[] = ["PROCEEDS_APPLIED", "SHORTFALL_OPEN", "
 const VALUATION_NOTICED: RecoveryStatus[] = ["VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED", ...NCA_FINAL]
 
 const iso = (d: Date | null): string | null => (d ? isoOfDbDate(d) : null)
+
+const costView = (c: RecoveryCost) => ({
+  id: c.id, type: c.type, label: COST_TYPE_LABELS[c.type], status: c.status, netCents: c.netCents, vatCents: c.vatCents, grossCents: c.grossCents, treatment: c.treatment,
+  supplierId: c.supplierId, supplierInvoiceRef: c.supplierInvoiceRef, incurredOn: isoOfDbDate(c.incurredOn), legalStepId: c.legalStepId,
+  note: c.note, recordedById: c.recordedById, approvedById: c.approvedById, approvedAt: c.approvedAt?.toISOString() ?? null,
+})
 
 /** The staff recovery panel: everything on a recovery, its costs, sale (screening kinds, never the buyer's identifier), figures and refund (never bank details). */
 export async function loadStaffRecoveryView(tenantId: string, id: string) {
@@ -27,12 +33,10 @@ export async function loadStaffRecoveryView(tenantId: string, id: string) {
     recoveredOn: isoOfDbDate(row.recoveredOn), location: row.location, condition: row.condition,
     valuation: row.valuation ? { id: row.valuation.id, valuedOn: isoOfDbDate(row.valuation.valuedOn), source: row.valuation.source, valuerName: row.valuation.valuerName, amountCents: row.valuation.amountCents } : null,
     notices: { valuationIssued: isNca(row.route) && VALUATION_NOTICED.includes(row.status), finalIssued: isNca(row.route) && NCA_FINAL.includes(row.status), finalNoticeIssuedOn: iso(row.finalNoticeIssuedOn) },
-    costs: row.costs.map((c) => ({
-      id: c.id, type: c.type, label: COST_TYPE_LABELS[c.type], netCents: c.netCents, vatCents: c.vatCents, grossCents: c.grossCents, treatment: c.treatment,
-      supplierId: c.supplierId, supplierInvoiceRef: c.supplierInvoiceRef, incurredOn: isoOfDbDate(c.incurredOn), legalStepId: c.legalStepId,
-      note: c.note, recordedById: c.recordedById, approvedById: c.approvedById,
-    })),
-    costTotals: costTotals(row.costs),
+    costs: row.costs.filter((c) => c.status !== "PENDING").map(costView),
+    pendingCosts: row.costs.filter((c) => c.status === "PENDING").map(costView),
+    // Only APPROVED costs count: they are what the proceeds and the notices use.
+    costTotals: costTotals(row.costs.filter((c) => c.status === "APPROVED")),
     sales: row.sales.map((s) => ({
       id: s.id, status: s.status, channel: s.channel, buyerType: s.buyerType, buyerName: s.buyerName, priceInclVatCents: s.priceInclVatCents,
       highestValuationCents: s.highestValuationCents, belowValuation: s.belowValuation, belowValuationReason: s.belowValuationReason,
@@ -72,7 +76,7 @@ export interface PortalRecoveryView {
 export async function loadPortalRecoveryView(tenantId: string, loanId: string): Promise<PortalRecoveryView | null> {
   const row = await prisma.recovery.findFirst({
     where: { tenantId, loanId }, orderBy: { createdAt: "desc" },
-    include: { valuation: true, asset: true, costs: { orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } },
+    include: { valuation: true, asset: true, costs: { where: { status: "APPROVED" }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } },
   })
   if (!row) return null
   const nca = isNca(row.route)

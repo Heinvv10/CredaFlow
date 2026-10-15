@@ -10,7 +10,7 @@ export async function loadRecoveryNoticeData(tenantId: string, id: string, docum
     valuation: true,
     asset: true,
     loan: { select: { reference: true, client: true, entity: true } },
-    costs: { orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] },
+    costs: { where: { status: "APPROVED" }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] },
   } })
   if (!row) return null
   const lender = await getLenderIdentity(tenantId)

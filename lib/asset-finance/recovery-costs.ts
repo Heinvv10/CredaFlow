@@ -1,6 +1,5 @@
 import type { RecoveryCostTreatment, RecoveryCostType } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { canDo } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
@@ -18,21 +17,18 @@ export interface RecoveryCostInput {
   treatment: RecoveryCostTreatment
   legalStepId?: string | null
   note?: string | null
-  /** The staff member who captured the invoice; the approving actor must be someone else. */
-  recordedById: string
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 /**
- * Records one supplier cost against a recovery. A cost row is immutable and
- * the database demands two different people on it (recordedById <>
- * approvedById), so there is no pending state: the actor is the APPROVER
- * (decide_asset_finance) and names the staff member who captured the invoice.
- * The allow-lists by route and treatment, the legal-step rule and "before the
- * proceeds are applied" are the database's (guardRecoveryCost); VAT is checked
- * here against the rate in force on the incurred date for a VAT-vendor
- * supplier, and must be nil for any other supplier.
+ * Records one supplier cost against a recovery, PENDING: the actor is the
+ * recorder. A different person decides it (decideRecoveryCost); proceeds are
+ * applied only once every cost is decided. The allow-lists by route and
+ * treatment, the legal-step rule and "before the proceeds are applied" are the
+ * database's (guardRecoveryCost); VAT is checked here against the rate in force
+ * on the incurred date for a VAT-vendor supplier, and must be nil for any other
+ * supplier.
  * UNTESTED: legal|tax sign-off on the cost treatment and the input-tax position.
  */
 export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: string, input: RecoveryCostInput): Promise<RecoveryResult> {
@@ -44,12 +40,9 @@ export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: strin
   if (!ref || ref.length > 100 || !ISO_DAY.test(input.incurredOn) || (note?.length ?? 0) > 500) {
     return { kind: "not_ready", reason: "Provide the supplier's invoice reference, the date incurred and a note of at most 500 characters" }
   }
-  if (input.recordedById === actor.userId) return { kind: "not_ready", reason: "A cost is approved by someone other than the person who recorded it" }
   return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
     const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { id: true } })
     if (!recovery) return { kind: "not_found" }
-    const recorder = await tx.user.findFirst({ where: { id: input.recordedById, tenantId: actor.tenantId, active: true }, select: { role: true } })
-    if (!recorder || !canDo(recorder.role, "manage_asset_finance")) throw new RecoveryRefusal("The recorder must be an active staff member who manages asset finance")
     let vendor = false
     if (input.supplierId) {
       const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId: actor.tenantId }, select: { vatNumber: true } })
@@ -69,14 +62,37 @@ export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: strin
     const cost = await tx.recoveryCost.create({ data: {
       tenantId: actor.tenantId, recoveryId, type: input.type, netCents: input.netCents, vatCents: input.vatCents, grossCents: input.netCents + input.vatCents,
       supplierId: input.supplierId ?? null, supplierInvoiceRef: ref, incurredOn: dbDate(input.incurredOn), treatment: input.treatment,
-      legalStepId: input.legalStepId ?? null, note, recordedById: input.recordedById, approvedById: actor.userId,
+      legalStepId: input.legalStepId ?? null, note, recordedById: actor.userId,
     } })
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
       action: AuditAction.ASSET_RECOVERY_COST_RECORDED, entity: "Recovery", entityId: recoveryId,
       newValue: { costId: cost.id, type: input.type, netCents: input.netCents, vatCents: input.vatCents, grossCents: cost.grossCents, treatment: input.treatment,
         supplierId: input.supplierId ?? null, supplierInvoiceRef: ref, incurredOn: input.incurredOn, legalStepId: input.legalStepId ?? null,
-        recordedById: input.recordedById, approvedById: actor.userId },
+        recordedById: actor.userId, status: "PENDING" },
     }, tx)
     return { kind: "done", id: cost.id }
+  }))
+}
+
+/**
+ * The one decision on a PENDING cost, by someone other than its recorder
+ * (decide_asset_finance at the route): APPROVED costs count in the proceeds and
+ * on the notices, REJECTED ones stay on the ledger for the record. The
+ * recorder rule is checked here and again by the database.
+ */
+export async function decideRecoveryCost(actor: RecoveryActor, recoveryId: string, costId: string, decision: "APPROVED" | "REJECTED"): Promise<RecoveryResult> {
+  return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
+    const cost = await tx.recoveryCost.findFirst({ where: { id: costId, recoveryId, tenantId: actor.tenantId }, select: { status: true, recordedById: true, type: true, grossCents: true, treatment: true } })
+    if (!cost) return { kind: "not_found" }
+    if (cost.status !== "PENDING") throw new RecoveryRefusal("This cost has already been decided")
+    if (cost.recordedById === actor.userId) throw new RecoveryRefusal("A cost is decided by someone other than the person who recorded it")
+    const approvedAt = new Date()
+    const result = await tx.recoveryCost.updateMany({ where: { id: costId, tenantId: actor.tenantId, status: "PENDING" }, data: { status: decision, approvedById: actor.userId, approvedAt } })
+    if (result.count !== 1) throw new RecoveryRefusal("This cost has already been decided")
+    await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
+      action: AuditAction.ASSET_RECOVERY_COST_DECIDED, entity: "Recovery", entityId: recoveryId,
+      newValue: { costId, decision, type: cost.type, grossCents: cost.grossCents, treatment: cost.treatment, recordedById: cost.recordedById, approvedById: actor.userId },
+    }, tx)
+    return { kind: "done", id: costId }
   }))
 }

@@ -12,6 +12,7 @@ import { POST as valuationRoute } from "@/app/api/asset-finance/recoveries/[id]/
 import { POST as valuationNoticeRoute } from "@/app/api/asset-finance/recoveries/[id]/valuation-notice/route"
 import { POST as listForSaleRoute } from "@/app/api/asset-finance/recoveries/[id]/list/route"
 import { POST as costsRoute } from "@/app/api/asset-finance/recoveries/[id]/costs/route"
+import { POST as decideRoute } from "@/app/api/asset-finance/recoveries/[id]/costs/[costId]/decide/route"
 import { POST as finalNoticeRoute } from "@/app/api/asset-finance/recoveries/[id]/final-notice/route"
 import { POST as withdrawRoute } from "@/app/api/asset-finance/recoveries/[id]/withdraw/route"
 import { POST as closeRoute } from "@/app/api/asset-finance/recoveries/[id]/close/route"
@@ -39,6 +40,7 @@ export function recoveryRoutes(host: string) {
     valuationNotice: post(valuationNoticeRoute, "/valuation-notice"),
     listForSale: post(listForSaleRoute, "/list"),
     cost: post(costsRoute, "/costs"),
+    decideCost: async (id: string, costId: string, body: unknown) => answer(await decideRoute(req(rec(id, `/costs/${costId}/decide`), "POST", body), { params: Promise.resolve({ id, costId }) })),
     finalNotice: post(finalNoticeRoute, "/final-notice"),
     withdraw: post(withdrawRoute, "/withdraw"),
     close: post(closeRoute, "/close"),

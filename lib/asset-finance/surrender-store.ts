@@ -155,7 +155,7 @@ async function loadNoticeData(tenantId: string, id: string) {
     valuation: true,
     loan: { select: { reference: true, client: true, entity: true } },
     asset: true,
-    recovery: { select: { costs: { select: { type: true, grossCents: true, treatment: true }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } } },
+    recovery: { select: { costs: { where: { status: "APPROVED" }, select: { type: true, grossCents: true, treatment: true }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] } } },
   } })
 }
 
