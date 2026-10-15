@@ -466,19 +466,29 @@ $function$;
 
 -- An identifier as the screening compares it (lib/asset-finance/recovery-screening.ts canonicalIdentifier,
 -- the same rules):
+--   0. a CIPC registration number written with separators (an optional label or CK prefix, year, a number of 1 to 6
+--      digits, a suffix of 1 or 2 digits, an optional trailing label) is read segment by segment as written:
+--      year + the number zero-padded to 6 + the suffix as a number ("2098/12345/05" is "2098/012345/05");
 --   1. NFKC, every Unicode decimal digit as ASCII (recoveryAsciiDigits);
 --   2. only letters and digits, upper case;
 --   3. letters at the start or end of an otherwise all-digit key of 6 or more digits are dropped (a label such as "ID" or "Reg");
---   4. a CIPC registration number, ^(CK)?YYYY NNNNNN SS?$ (11 or 12 digits), becomes year + number + the suffix as a number:
---      "CK2098/100005/05" is "2098/100005/5", "/07" differs, a missing suffix does not match.
+--   4. a run of 11 or 12 digits (optionally CK first), ^(CK)?YYYY NNNNNN SS?$, is year + number + the suffix as a number
+--      ("CK2098100005 05" is "2098/100005/5", "/07" differs, a missing suffix does not match).
 -- UNTESTED: the forms of registration number are for the lender's compliance team to confirm.
 CREATE OR REPLACE FUNCTION public."recoveryIdentifierKey"(value TEXT)
 RETURNS TEXT LANGUAGE plpgsql IMMUTABLE AS $function$
 DECLARE
-  k TEXT := upper(regexp_replace(public."recoveryAsciiDigits"(value), '[^A-Za-z0-9]', '', 'g'));
+  digits TEXT := public."recoveryAsciiDigits"(value);
+  k TEXT;
   bare TEXT;
   registration TEXT[];
 BEGIN
+  registration := regexp_match(translate(digits, 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+    '^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?([0-9]{4})[^0-9A-Z]+([0-9]{1,6})[^0-9A-Z]+([0-9]{1,2})(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$');
+  IF registration IS NOT NULL THEN
+    RETURN registration[1] || lpad(registration[2], 6, '0') || (registration[3]::INTEGER)::TEXT;
+  END IF;
+  k := upper(regexp_replace(digits, '[^A-Za-z0-9]', '', 'g'));
   bare := regexp_replace(regexp_replace(k, '^[A-Z]{1,8}(?=[0-9])', ''), '(?<=[0-9])[A-Z]{1,8}$', '');
   IF bare ~ '^[0-9]{6,}$' THEN
     k := bare;

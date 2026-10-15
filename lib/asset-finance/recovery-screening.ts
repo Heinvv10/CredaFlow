@@ -8,7 +8,8 @@
 //   NFKC, Unicode decimal digits as ASCII, everything but letters and digits
 //   dropped, upper case. A CIPC registration number (YYYY/NNNNNN/NN) is further
 //   reduced to YYYY + NNNNNN + the suffix as a number: the CK prefix and the
-//   suffix's leading zero are insignificant. A buyer's identifier may carry a
+//   suffix's leading zero are insignificant, and when it is written with
+//   separators its segments are read as written (the number zero-padded to 6). A buyer's identifier may carry a
 //   label ("ID: ...", "Reg ..."): letters around an otherwise numeric key are dropped.
 // Names: NFKD with the marks removed, lower case, apostrophes dropped, titles
 //   (Mr, Mrs, Ms, Miss, Dr, Prof, Adv) and company words (Pty, Proprietary,
@@ -63,9 +64,15 @@ export function normaliseIdentifier(value: string): string {
 }
 
 const REGISTRATION = /^(?:CK)?(\d{4})(\d{6})(\d{1,2})$/
+// A registration number written with separators (mirrored by the SQL recoveryIdentifierKey): an optional label or CK prefix,
+// year, number (1 to 6 digits, zero-padded to 6), suffix (1 or 2 digits, a number), an optional trailing label. Its segments
+// are read as written, so "2098/12345/05" and "2098/012345/05" are one number.
+const REGISTRATION_WRITTEN = /^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?(\d{4})[^0-9A-Z]+(\d{1,6})[^0-9A-Z]+(\d{1,2})(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$/
 
-/** The identifier as screening compares it: label letters dropped from a numeric key, a CIPC number in canonical form. */
+/** The identifier as screening compares it: a CIPC number written with separators in canonical form; else label letters dropped from a numeric key, a CIPC digit run in canonical form. */
 export function canonicalIdentifier(value: string): string {
+  const written = REGISTRATION_WRITTEN.exec(fold(value).replace(/[a-z]/g, (letter) => letter.toUpperCase()))
+  if (written) return `${written[1]}${written[2].padStart(6, "0")}${Number(written[3])}`
   let key = normaliseIdentifier(value)
   const bare = key.replace(/^[A-Z]{1,8}(?=\d)/, "").replace(/(?<=\d)[A-Z]{1,8}$/, "")
   if (/^\d{6,}$/.test(bare)) key = bare
@@ -132,7 +139,8 @@ function containsIdentifier(haystack: string[], identifier: string): boolean {
     let joined = ""
     for (let end = start; end < haystack.length && joined.length < identifier.length + 3; end++) {
       joined += haystack[end]
-      if (canonicalIdentifier(joined) === identifier) return true
+      // run together, or with the words as separators (a registration number's segments keep their padding)
+      if (canonicalIdentifier(joined) === identifier || canonicalIdentifier(haystack.slice(start, end + 1).join(" ")) === identifier) return true
     }
   }
   return false

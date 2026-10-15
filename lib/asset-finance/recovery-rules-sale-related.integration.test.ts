@@ -96,6 +96,21 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
       expect(await forced(R.non, "2098/123456/07")).toBe(false) // another suffix is another registration
     })
 
+    it("forces it across the padding of a registration number's segments (2098/12345/05 is 2098/012345/05)", async () => {
+      const set = (registrationNumber: string) => database().businessEntity.update({ where: { id: R.non.loan.entityId as string }, data: { registrationNumber } })
+      await set("2098/012345/05")
+      try {
+        for (const written of ["2098/12345/05", "2098 / 12345 / 5", "CK 2098-12345-05", "209801234505", "Reg 2098/12345/05 (Pty)"]) {
+          expect(await forced(R.non, written), written).toBe(true)
+        }
+        const unpadded = clauseOff("recoveryIdentifierKey", `lpad(registration[2], 6, '0')`, `registration[2]`)
+        expect(await forced(R.non, "2098/12345/05", unpadded)).toBe(false)
+        expect(await forced(R.non, "2098/12345/07")).toBe(false) // another suffix
+      } finally {
+        await set("2098/123456/05")
+      }
+    })
+
     it("leaves a stranger alone", async () => {
       expect(await forced(R.non, "7001015800084")).toBe(false)
       expect(await forced(R.nca, "7001015800084")).toBe(false)

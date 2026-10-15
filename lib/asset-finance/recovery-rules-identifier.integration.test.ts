@@ -58,7 +58,13 @@ const TABLE: [string, string][] = [
   ["registration, other suffix", "2098/123456/07"], ["registration, suffix 00", "2098/123456/00"], ["registration, suffix 10", "2098/123456/10"],
   ["registration, no suffix", "2098/123456"], ["registration, 11 digits", "20981234565"], ["registration, fullwidth", "２０９８／１２３４５６／０５"],
   ["registration, Arabic-Indic", asScript("209812345605", 0x660)], ["registration, label", "Reg: 2098/123456/05"], ["registration, trailing label", "2098/123456/05 PTY"],
-  ["trust number", "IT 1234/2020"], ["CK without a number", "CK"], ["an older CIPC form", "CK2098/12345/05"],
+  ["registration, short middle", "2098/12345/05"], ["registration, padded middle", "2098/012345/05"], ["registration, short middle, spaced, suffix 5", "2098 / 12345 / 5"],
+  ["registration, short middle, CK and dashes", "CK 2098-12345-05"], ["registration, short middle, underscores", "2098_012345_05"], ["registration, one-digit middle", "2098/1/05"],
+  ["registration, short middle, label", "Reg 2098/12345/05"], ["registration, short middle, trailing company word", "2098/12345/05 (Pty)"], ["registration, spaces only", "2098 123456 05"],
+  ["registration, an odd split", "20981234 5605"], ["registration, short middle, no separators", "209801234505"], ["registration, 7-digit middle", "2098/1234567/05"],
+  ["registration, short middle, fullwidth", "２０９８／１２３４５／０５"], ["registration, short middle, zero-width separators", "2098\u200b12345\u200b05"],
+  ["registration, short middle, Arabic-Indic", asScript("2098/12345/05", 0x660)], ["registration, four groups", "2098/123456/05/1"], ["ID, dotted", "800101.5009.087"],
+  ["an ID spaced like a registration number", "8001 015009 08"], ["trust number", "IT 1234/2020"], ["CK without a number", "CK"], ["an older CIPC form", "CK2098/12345/05"],
 ]
 
 suite("buyer identifier key: the SQL function and the TypeScript screening agree", () => {
@@ -77,8 +83,19 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
   it("makes the attacker's variants of an ID number and of a registration number one key each", async () => {
     const ids = TABLE.filter(([label]) => label.startsWith("ID") && !label.includes("long label")).map(([, value]) => value)
     for (const value of ids) expect(await sqlKey(value), JSON.stringify(value)).toBe(ID)
-    const registrations = TABLE.filter(([label]) => label.startsWith("registration") && !/other suffix|suffix 00|suffix 10|no suffix/.test(label)).map(([, value]) => value)
+    const registrations = TABLE.filter(([label]) => label.startsWith("registration") && !/other suffix|suffix 00|suffix 10|no suffix|short middle|padded middle|one-digit|7-digit|four groups|odd split|spaces only/.test(label)).map(([, value]) => value)
     for (const value of registrations) expect(await sqlKey(value), JSON.stringify(value)).toBe(REG)
+  })
+
+  it("reads a registration number's segments as written: the padding of the middle one is not significant, 2098/12345/05 is 2098/012345/05", async () => {
+    const one = ["2098/12345/05", "2098/012345/05", "2098 / 12345 / 5", "CK 2098-12345-05", "2098_012345_05", "Reg 2098/12345/05", "2098/12345/05 (Pty)", "209801234505",
+      "２０９８／１２３４５／０５", "2098\u200b12345\u200b05", asScript("2098/12345/05", 0x660)]
+    for (const value of one) expect(await sqlKey(value), JSON.stringify(value)).toBe("20980123455")
+    expect(await sqlKey("2098/1/05")).toBe("20980000015")
+    expect(await sqlKey("2098 123456 05")).toBe(REG) // spaces are separators too
+    expect(await sqlKey("20981234 5605")).toBe(REG) // an odd split is still the same twelve digits
+    expect(await sqlKey("2098/12345/07")).toBe("20980123457")
+    expect(await sqlKey("2098/1234567/05")).toBe("2098123456705") // not a registration number: its identifier key
   })
 
   it("keeps different numbers apart: another suffix, a missing suffix, too few digits, a long label, letters inside", async () => {
@@ -105,9 +122,18 @@ suite("buyer identifier key: the SQL function and the TypeScript screening agree
       expect(await sqlKey("id: 8001015009087", clauseOff("recoveryIdentifierKey", `    k := bare;`))).not.toBe(ID)
     })
 
-    it("the registration number's canonical form: the suffix as a number, and the year, number and suffix split", async () => {
-      expect(await sqlKey("2098/123456/5", clauseOff("recoveryIdentifierKey", `(registration[3]::INTEGER)::TEXT`, `lpad(registration[3], 2, '0')`))).not.toBe(REG)
-      expect(await sqlKey("CK2098/123456/05", clauseOff("recoveryIdentifierKey", `IF registration IS NOT NULL THEN`, `IF false THEN`))).not.toBe(REG)
+    it("the segment-aware reading: the padding of the middle segment, the separators, a trailing label", async () => {
+      const key = (value: string, without: Parameters<typeof attempt>[2]) => sqlKey(value, without)
+      expect(await key("2098/12345/05", clauseOff("recoveryIdentifierKey", `lpad(registration[2], 6, '0')`, `registration[2]`))).not.toBe(await sqlKey("2098/012345/05"))
+      expect(await key("2098/12345/05", clauseOff("recoveryIdentifierKey", `([0-9]{4})[^0-9A-Z]+([0-9]{1,6})`, `([0-9]{4})ZZ([0-9]{1,6})`))).not.toBe(await sqlKey("2098/012345/05"))
+      expect(await key("2098/12345/05 (Pty)", clauseOff("recoveryIdentifierKey", `(?:[^0-9A-Z]*[A-Z]{1,8})?[^0-9A-Z]*$'`, `[^0-9A-Z]*$'`))).not.toBe("20980123455")
+      expect(await key("Reg 2098/12345/05", clauseOff("recoveryIdentifierKey", `^[^0-9A-Z]*(?:[A-Z]{1,8}[^0-9A-Z]*)?([0-9]{4})`, `^[^0-9A-Z]*([0-9]{4})`))).not.toBe("20980123455")
+    })
+
+    it("the digit-run registration form: the suffix as a number, and the year, number and suffix split", async () => {
+      const digitRun = `RETURN registration[1] || registration[2] || (registration[3]::INTEGER)::TEXT;`
+      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierKey", digitRun, `RETURN registration[1] || registration[2] || registration[3];`))).not.toBe(REG)
+      expect(await sqlKey("CK209812345605", clauseOff("recoveryIdentifierKey", `'^(?:CK)?([0-9]{4})([0-9]{6})([0-9]{1,2})$'`, `'^$'`))).not.toBe(REG)
     })
   })
 })
