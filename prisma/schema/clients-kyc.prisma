@@ -1,0 +1,425 @@
+model Client {
+  id                                 String                 @id @default(cuid())
+  tenantId                           String
+  tenant                             Tenant                 @relation(fields: [tenantId], references: [id])
+  reference                          String                 @unique @default(cuid())
+  idNumber                           String
+  branchId                           String?
+  branch                             Branch?                @relation(fields: [branchId], references: [id])
+  firstName                          String
+  lastName                           String
+  dateOfBirth                        DateTime?
+  gender                             Gender?
+  email                              String
+  phone                              String
+  whatsapp                           String?
+  addressLine1                       String?
+  suburb                             String?
+  city                               String?
+  province                           String?
+  postalCode                         String?
+  employmentStatus                   EmploymentStatus?
+  employerName                       String?
+  monthlyIncome                      Int                    @default(0)
+  monthlyExpenses                    Int                    @default(0)
+  // Set when monthlyExpenses was captured from the client or staff, so a
+  // declared R0 differs from the column's default (lib/credit-checks/load-facts.ts).
+  monthlyExpensesDeclaredAt          DateTime?
+  bankName                           String?
+  bankAccountNumber                  String?
+  bankBranchCode                     String?
+  accountType                        BankAccountType?
+  grossMonthlyIncome                 Int?
+  incomeSourceType                   IncomeSourceType?
+  employmentStartDate                DateTime?
+  salaryPaymentDay                   Int?
+  employerAddress                    String?
+  nextOfKinName                      String?
+  nextOfKinPhone                     String?
+  nextOfKinRelationship              String?
+  popiaConsentGiven                  Boolean                @default(false)
+  popiaConsentAt                     DateTime?
+  kycVerifiedAt                      DateTime?
+  kycVerifiedById                    String?
+  kycVerificationMethod              KycVerificationMethod?
+  kycManualRejectionActive           Boolean                @default(false)
+  kycManualRejectionAt               DateTime?
+  kycManualRejectionById             String?
+  kycManualRejectionReason           String?
+  kycManualRejectionResolvedAt       DateTime?
+  kycManualRejectionResolvedById     String?
+  kycManualRejectionResolutionReason String?
+  amlScreeningStatus                 AmlStatus              @default(NOT_REQUIRED)
+  amlScreeningAt                     DateTime?
+  kycStatus                          KycStatus              @default(PENDING)
+  blacklisted                        Boolean                @default(false)
+  blacklistReason                    String?
+  // Recorded death. Nullable and asserted by staff — never derived, and never
+  // inferred from inactivity. Presence alone means DECEASED (lib/clients/status.ts),
+  // so the column doubles as the flag and as the date the estate was notified of.
+  deceasedAt                         DateTime?
+  deceasedReason                     String?
+  riskLevel                          ClientRiskLevel        @default(NORMAL)
+  riskFlagNote                       String?
+  riskFlaggedAt                      DateTime?
+  riskFlaggedById                    String?
+  creditScore                        Int?
+  portalPassword                     String?
+  // Borrower-facing language (lib/i18n/locales.ts: en | af | zu | xh). Null =
+  // never chosen: the portal follows the browser, comms go out in English.
+  // Written only by the portal language switcher (app/actions/locale.ts).
+  preferredLanguage                  String?
+  createdAt                          DateTime               @default(now())
+  updatedAt                          DateTime               @updatedAt
+  referralCount                      Int                    @default(0) // count of referrals from this client
+  referredFromId                     String? // lead.id that converted to this client (the source lead)
+  referralCodeId                     String? // Durable referral-agent attribution, set by staff on the client; credits repeat loans
+  referralCode                       ReferralCode?          @relation("ClientReferralCode", fields: [referralCodeId], references: [id], onDelete: SetNull)
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applications                  LoanApplication[]
+  assetFinanceDeals             AssetFinanceDeal[]
+  assetFinanceDocuments         EntityDocument[]         @relation("AssetDocumentClient")
+  avsChecks                     AvsCheck[]
+  bureauChecks                  CreditBureauCheck[]
+  complaints                    Complaint[]
+  consent                       ClientConsent?
+  contact                       Contact?                 @relation("ClientToContact")
+  convertedLeads                Lead[]                   @relation("LeadConvertedClient")
+  crossSellOpportunities        CrossSellOpportunity[]
+  dealSigners                   DealSigner[]
+  debitMandates                 DebitMandate[]
+  debtObligations               ExistingDebtObligation[]
+  documents                     ClientDocument[]
+  dsarRequests                  DataSubjectRequest[]
+  entityRelationships           EntityRelationship[]
+  expenseBreakdown              ClientExpenseBreakdown?
+  insurancePolicies             InsurancePolicy[]
+  insuranceQuotes               InsuranceQuote[]
+  insuredLives                  InsuredLife[]
+  kycOverrideRequests           KycOverrideRequest[]
+  loans                         Loan[]
+  ncaRepresentativeApplications LoanApplication[]        @relation("NcaRepresentative")
+  portalAccountLeads            Lead[]                   @relation("LeadPortalAccountClient")
+  screeningBlocks               ScreeningBlock[]
+  screeningChecks               ScreeningCheck[]
+  signingOtpChallenges          SigningOtpChallenge[]
+  stitchPayments                StitchPaymentRequest[]
+  suspiciousReportCases         SuspiciousReportCase[]
+
+  @@unique([tenantId, id])
+  // Borrowers are per lender: the same person may be a client of two lenders.
+  @@unique([tenantId, idNumber])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, referralCodeId])
+}
+
+enum ClientRiskLevel {
+  NORMAL
+  WATCH
+  HIGH_RISK
+  DELINQUENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum EmploymentStatus {
+  EMPLOYED
+  PART_TIME
+  SELF_EMPLOYED
+  UNEMPLOYED
+  STUDENT
+  PENSIONER
+}
+
+enum BankAccountType {
+  CHEQUE
+  SAVINGS
+
+  /// The escape hatch for a product name no allow-list has learned yet.
+  ///
+  /// A statement prints the PRODUCT a client holds, not the account type the
+  /// payout tuple is recorded under. Discovery prints "Transaction Account",
+  /// FNB prints "EASY ACCOUNT". Each unlisted product would otherwise mean a blocked
+  /// disbursement waiting on a code change, a paired migration and a
+  /// deploy — `transactional` and the two FNB product prefixes were each added
+  /// that way, and the treadmill never ends because banks keep naming things.
+  ///
+  /// OTHER means "the account-type leg of the statement match is not asserted
+  /// for this client". It does NOT weaken the payout tuple: the account
+  /// number, bank name and holder name are unchanged and still have to match
+  /// the verified statement. Account type was never the control that stops
+  /// money reaching the wrong account — the account number is.
+  ///
+  /// Choosing it is an authorised act. `lib/audit.ts` records who set it and
+  /// why, so "why was this one waved through" has an answer at audit time.
+  ///
+  /// UNLIKE the retired TRANSMISSION below, both DB guards were widened in the
+  /// SAME migration that added this value. That is the whole lesson of that
+  /// comment: a TypeScript-only enum value clears every precondition and then
+  /// fails at payout with a bare 500.
+  ///
+  /// TWO STEPS, in this order. Editing accountType counts as a bank-detail
+  /// change, and `app/api/clients/[id]/route.ts` un-verifies every verified
+  /// bank statement on a bank-detail change — correctly, because a statement
+  /// verified against the old tuple is not evidence for the new one. So setting
+  /// OTHER invalidates the very statement the payout gate then asks for. Staff
+  /// must set OTHER first and re-verify the statement second; doing it the
+  /// other way round leaves the disbursement blocked on
+  /// `verified_bank_statement_missing` and reads as though the change failed.
+  /// The revocation is deliberately NOT special-cased here: narrowing a control
+  /// because it is inconvenient is how controls die.
+  ///
+  /// Barred from debit order. `lib/integrations/collections/netcash-avs-wire.ts`
+  /// maps CHEQUE->"Current" and SAVINGS->"Savings"; the Netcash AVS wire has no
+  /// third value, so an OTHER account cannot be represented on a debit-order
+  /// mandate and the mandate route refuses it. EFT payout only.
+  OTHER
+
+  /// RETIRED — no longer selectable anywhere, do not reintroduce.
+  ///
+  /// It was wired through every TypeScript layer, but the DB
+  /// guards were never widened: `guardLoanApplicationDebitMandateBankTupleRepair`
+  /// allow-lists ('CHEQUE','SAVINGS') and `canonicalAccountType` has no
+  /// transmission branch, so it returns ''. A consumer could select it, sign
+  /// the mandate, clear every precondition, and then have payout fail with a
+  /// bare 500 and no staff-side remedy. It was removed from the application rather
+  /// than the guards being widened.
+  ///
+  /// The VALUE stays in the enum on purpose: dropping a Postgres enum value
+  /// requires recreating the type, and this column carries live triggers. That
+  /// is real outage risk for a value no row uses. It is inert
+  /// — nothing can produce it and the guards reject it.
+  TRANSMISSION
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+enum IncomeSourceType {
+  SALARY
+  WAGES
+  PENSION
+  SOCIAL_GRANT
+  BUSINESS_INCOME
+  RENTAL_INCOME
+  OTHER
+}
+
+enum KycVerificationMethod {
+  PHYSICAL
+  DIGITAL
+  BIOMETRIC
+  SMILE_IDENTITY
+}
+
+enum AmlStatus {
+  NOT_REQUIRED
+  PENDING
+  CLEARED
+  FLAGGED
+}
+
+model ClientDocument {
+  id                       String    @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant    @relation(fields: [tenantId], references: [id])
+  clientId                 String
+  docType                  DocType
+  fileUrl                  String
+  fileName                 String
+  verified                 Boolean   @default(false)
+  // Who refused this document, if anyone. Set only by a human reviewer through
+  // the verify endpoint. The SYSTEM also clears `verified` and writes a
+  // verificationNote (a bank-detail change re-flags a statement), so the note
+  // alone cannot say who acted — these fields can.
+  verificationRejectedAt   DateTime?
+  verificationRejectedById String?
+  uploadedByType           String    @default("staff")
+  uploadedById             String?
+  deletedAt                DateTime?
+  deletedByType            String?
+  deletedById              String?
+  fileSize                 Int?
+  mimeType                 String?
+  storagePath              String?
+  contentSha256            String?
+  extractionStatus         String    @default("pending")
+  extractionGeneration     String?
+  extractionStartedAt      DateTime?
+  extractionResult         Json?
+  extractionError          String?
+  validationResult         Json?
+  validationMismatch       Boolean   @default(false)
+  validationScore          Int?
+  biometricMatchScore      Int?
+  biometricLiveness        Int?
+  biometricVerifiedAt      DateTime?
+  biometricResult          Json?
+  biometricAttemptSequence Int?
+  verifiedAt               DateTime?
+  verifiedById             String?
+  verificationNote         String?
+  // Provenance for docs generated via the Document Template System — nullable,
+  // NULL for staff-uploaded / OCR-captured documents.
+  templateId               String?
+  generatedFromVersionId   String?
+  // Native (in-app) e-signature state — see lib/documents/signing/native.ts +
+  // app/api/documents/[id]/sign/route.ts. NULL for documents never sent for
+  // signature (mirrors SignatureState "none" in lib/documents/signing/index.ts).
+  signatureState           String?
+  signatureRequestedAt     DateTime?
+  signedAt                 DateTime?
+  signedByIp               String?
+  createdAt                DateTime  @default(now())
+  client                   Client    @relation(fields: [clientId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  kycOverrideRequests KycOverrideRequest[]
+  loanNotes           LoanNote[]
+  statementAnalyses   StatementAnalysis[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@index([tenantId, clientId, docType, biometricAttemptSequence], map: "ClientDocument_biometric_attempt_order_idx")
+}
+
+enum KycOverrideKind {
+  EXCEPTION
+  IN_PERSON
+}
+
+enum KycOverrideRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  EXPIRED
+}
+
+model KycOverrideRequest {
+  id                String                   @id @default(cuid())
+  tenantId          String
+  clientId          String
+  selfieDocumentId  String?
+  kind              KycOverrideKind
+  payload           Json
+  requestedById     String
+  requestedWithTotp Boolean                  @default(false)
+  requestedAt       DateTime                 @default(now())
+  status            KycOverrideRequestStatus @default(PENDING)
+  decidedById       String?
+  decidedAt         DateTime?
+  decisionNote      String?
+  expiresAt         DateTime
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  client         Client          @relation(fields: [tenantId, clientId], references: [tenantId, id])
+  selfieDocument ClientDocument? @relation(fields: [tenantId, selfieDocumentId], references: [tenantId, id])
+  requestedBy    User            @relation("KycOverrideRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id])
+  decidedBy      User?           @relation("KycOverrideDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, clientId, status, expiresAt])
+  @@index([tenantId, requestedById])
+  @@index([tenantId, decidedById])
+}
+
+model DocumentAccessLog {
+  id           String   @id @default(cuid())
+  documentId   String
+  accessorType String
+  accessorId   String
+  action       String
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+}
+
+enum DocType {
+  ID_COPY
+  PROOF_OF_ADDRESS
+  PAYSLIP
+  BANK_STATEMENT
+  SELFIE
+  PO_DOCUMENT
+  PROOF_OF_PAYMENT
+  CREDIT_AGREEMENT
+  DEBIT_MANDATE
+  FORM_20_PRE_AGREEMENT
+  /// The agreement carrying BOTH signatures, rendered once at countersignature.
+  /// CREDIT_AGREEMENT remains the unsigned document that was presented.
+  EXECUTED_CREDIT_AGREEMENT
+  /// A returned signed PASQ+agreement packet. Previously stored as OTHER, which
+  /// left the one document bearing the consumer's real signature unbadged,
+  /// deletable, and sitting among miscellaneous uploads.
+  SIGNED_AGREEMENT_PACKET
+  OTHER
+}
+
+model ClientExpenseBreakdown {
+  id                    String   @id @default(cuid())
+  clientId              String   @unique
+  client                Client   @relation(fields: [clientId], references: [id])
+  housing               Int      @default(0)
+  transport             Int      @default(0)
+  food                  Int      @default(0)
+  education             Int      @default(0)
+  insurance             Int      @default(0)
+  clothing              Int      @default(0)
+  entertainment         Int      @default(0)
+  medical               Int      @default(0)
+  other                 Int      @default(0)
+  // Populated when captured sum < NCA Reg 23A minimum at write time.
+  belowMleJustification String?
+  updatedAt             DateTime @updatedAt
+}
+
+model ExistingDebtObligation {
+  id                 String   @id @default(cuid())
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id])
+  creditProvider     String
+  accountType        String
+  outstandingBalance Int
+  monthlyInstalment  Int
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ClientOtp {
+  id        String   @id @default(cuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ── Phase 5: POPIA Engine ─────────────────────────────────────────────────────
+
+model ClientConsent {
+  id                      String    @id @default(cuid())
+  clientId                String    @unique
+  client                  Client    @relation(fields: [clientId], references: [id])
+  creditBureauEnquiry     Boolean   @default(false)
+  insuranceUnderwriting   Boolean   @default(false)
+  smsMarketing            Boolean   @default(false)
+  emailMarketing          Boolean   @default(false)
+  thirdPartySharing       Boolean   @default(false)
+  automatedDecisionMaking Boolean   @default(false)
+  capturedAt              DateTime  @default(now())
+  capturedBy              String?
+  withdrawnAt             DateTime?
+  withdrawnBy             String?
+  updatedAt               DateTime  @updatedAt
+}

@@ -11,7 +11,7 @@ export const metadata = {
   title: "Asset Finance — Settings",
 }
 
-// Schema defaults (prisma/schema.prisma model TenantConfig), for a tenant with no config row.
+// Schema defaults (prisma/schema/tenancy.prisma model TenantConfig), for a tenant with no config row.
 const DEFAULTS = { featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false }
 
 export default async function AssetFinanceSettingsPage() {

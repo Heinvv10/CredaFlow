@@ -37,7 +37,7 @@ export async function getReconciliationData(tenantId: string): Promise<{
   })
 
   // BankTransaction.matchedLoanId is a bare string id (no Prisma relation —
-  // see prisma/schema.prisma), so the matched loan's reference/client name
+  // see prisma/schema/loans-payments.prisma), so the matched loan's reference/client name
   // has to be resolved with a second query rather than `include`.
   const matchedLoanIds = [...new Set(txns.map((t) => t.matchedLoanId).filter((id): id is string => !!id))]
   const matchedLoans = matchedLoanIds.length

@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: operator
+<!-- summary: operator console; borrower rows only through a grant -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

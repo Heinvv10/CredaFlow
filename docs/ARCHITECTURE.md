@@ -250,7 +250,7 @@ separate workstream (W0b); in this order:
 
 `prisma/migrations/20261009000000_baseline` is the starting point: one
 migration that creates the whole schema. Its first part is what Prisma
-generates from `schema.prisma`; its second, hand-written part holds every
+generates from the schema (`prisma/schema/`); its second, hand-written part holds every
 trigger, function, CHECK constraint, partial or expression index, special
 default and the statutory reference data (public holidays). The baseline was
 produced by squashing an older migration history and proven equivalent by
@@ -259,9 +259,9 @@ writes no tenant data.
 
 Adding a migration:
 
-- **Schema-only change** — edit `schema.prisma`, run
+- **Schema-only change** — edit the domain's file in `prisma/schema/`, run
   `npx prisma migrate dev --name <change>`, commit the generated SQL.
-  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <url>`
+  `npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema --shadow-database-url <url>`
   must then be empty.
 - **Changing a hand-written object** — Prisma never diffs these, so write the
   SQL yourself (`CREATE OR REPLACE FUNCTION`, `DROP TRIGGER … ; CREATE
@@ -277,6 +277,56 @@ Adding a migration:
 
 `prisma/migrations/20261009120000_neutral_tenant_palette` is an example of the
 smallest kind: it only changes column defaults.
+
+## Registries
+
+A handful of lists change in nearly every feature PR. Each is assembled from
+small entry files so two PRs that add entries touch different files and never
+conflict, in git or in GitHub's mergeability check (which ignores local merge
+drivers).
+
+`scripts/gen-registries.ts` reads every `lib/registry/<kind>/*.ts` in path
+order, refuses a duplicate (naming both files) or a malformed entry, and writes
+`lib/registry/generated/<kind>.ts`. The generated files are **not committed**:
+they are rebuilt by `npm ci` (postinstall), before `npm run dev`, `build`,
+`test` and `typecheck`, by vitest's global setup (so `npx vitest run` sees a
+new entry), by `scripts/ci-local.sh` and by the CI workflow; the Docker build
+gets them through `npm run build`. After adding an entry while `next dev`
+runs, restart it or run `npm run gen:registries`.
+
+The modules the app imports re-export the merged values under their old names,
+so no call site changed. `lib/registry/registries.test.ts` compares every value,
+in order, with `lib/registry/__snapshots__/`, taken from the lists before they
+were split; a merged PR that adds an entry adds it to the snapshot too.
+
+Add an entry by creating a file named after your feature in the kind's folder
+(existing files carry a numeric prefix so the merged order matched the old
+lists; a new name sorts after them). Edit an existing domain file only to
+change that domain's entries.
+
+| Kind | Folder | Entry | Read through |
+|---|---|---|---|
+| Audit actions | `lib/registry/audit-actions/` | `defineAuditActions({ X_DONE: "X_DONE" })` — value equals name | `AuditAction` (`lib/audit.ts`) |
+| Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
+| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
+| Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
+| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })`, or `{ server?, client? }` where the two maps differ | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
+
+### The Prisma schema
+
+`prisma/schema/` holds one `.prisma` file per domain (`prismaSchemaFolder`;
+`package.json` `prisma.schema`); migrations stay in `prisma/migrations`. Put a
+new model in its domain's file, or a new file for a new domain. Tests that
+read the schema text use `readPrismaSchema()` (`prisma/schema-source.ts`).
+
+The unavoidable shared lines are back-relations on Tenant, Client, Loan, User
+and the like. In every model they form one alphabetical block, one field per
+line (`prisma/schema-order.test.ts` fails with the expected order otherwise),
+so two PRs adding different back-relations insert at different lines. Two that
+sort next to each other still conflict, and `prisma format` re-aligns a whole
+block when a new field name is longer than any in it; both are rare and
+resolve trivially.
 
 ## Seeds
 

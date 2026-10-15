@@ -26,6 +26,8 @@
  * NOT applied to BulkSMS deliberately — see `SIMULATION_POLICY` below.
  */
 
+import { SIMULATED_INTEGRATIONS } from "@/lib/registry/generated/simulated-integrations"
+
 /**
  * `NODE_ENV` is "production" on every deployed build, staging included — Next.js
  * has no built-in staging distinction. So this gates out local dev (where a
@@ -46,68 +48,11 @@ export function isDeployedBuild(): boolean {
  * `ACCEPTED`, audit action `MESSAGE_SIMULATED`, and an amber "Simulated — not
  * sent" in the UI. Nothing is fabricated, so there is nothing to forbid —
  * gating it would break messaging for no safety gain.
+ *
+ * One file per domain under lib/registry/simulated-integrations/ (merged by
+ * scripts/gen-registries.ts; docs/ARCHITECTURE.md, "Registries").
  */
-const SIMULATION_FORBIDDEN_ON_DEPLOYED = {
-  experian: {
-    /** Experian's own sandbox signal. `UAT` is the non-production estate. */
-    sandboxEnvVar: "EXPERIAN_ENV",
-    sandboxSafeValues: ["UAT", "uat", "test"],
-  },
-  smileidentity: {
-    sandboxEnvVar: "SMILE_IDENTITY_ENV",
-    sandboxSafeValues: ["test"],
-    /**
-     * Smile's guard predates this module and its exact wording is asserted by
-     * `smileidentity.test.ts`. Preserved verbatim so lifting the policy here is
-     * a behaviour-preserving refactor — the tests stay a real check on the
-     * guard rather than being rewritten to match whatever it now says.
-     */
-    legacyMessage: "SMILE_DRY_RUN must not be enabled outside SMILE_IDENTITY_ENV=test",
-  },
-  transunion: {
-    /** No provider-specific sandbox signal exists; opt-in only. */
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  /** The fixture bureau (lib/bureau/providers/simulated.ts). Every report it
-   *  returns is fabricated, so it exists only where this guard permits it. */
-  "simulated-bureau": {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  netcash: {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  "netcash-collections": {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  /**
-   * PEP / sanctions screening (lib/screening/simulated-provider.ts). A
-   * simulated "clear" would wave a sanctioned person through, so it is refused
-   * on a deployed build unless listed in SIMULATED_INTEGRATIONS.
-   */
-  screening: {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  /**
-   * The simulated collection rail (lib/integrations/collections/simulated.ts).
-   * Its PAID outcome books a receipt, so a deployed build may only run it when
-   * the environment names it in SIMULATED_INTEGRATIONS (the demo stacks).
-   */
-  "simulated-collections": {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-  /** The fixture payout channel (lib/payouts/providers/simulated.ts): it
-   *  reports money paid that never moved. */
-  "simulated-payout": {
-    sandboxEnvVar: null,
-    sandboxSafeValues: [],
-  },
-} as const
+const SIMULATION_FORBIDDEN_ON_DEPLOYED = SIMULATED_INTEGRATIONS
 
 export type GuardedIntegration = keyof typeof SIMULATION_FORBIDDEN_ON_DEPLOYED
 

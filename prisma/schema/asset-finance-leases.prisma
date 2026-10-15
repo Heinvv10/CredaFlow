@@ -1,0 +1,316 @@
+enum RentalTiming {
+  ADVANCE
+  ARREARS
+}
+
+enum MaintenanceRiskModel {
+  LENDER_RISK
+  LESSEE_SETTLED
+}
+
+enum UsageUnit {
+  HOURS
+  KM
+}
+
+// One row per rental of an operating or full-maintenance lease, written at
+// booking beside its RepaymentSchedule row (lib/asset-finance/lease-booking.ts).
+// The amounts are fixed once written, except by a reprice before the rental is
+// invoiced; taxInvoiceId is set once, when the rental's tax invoice is issued
+// (lib/asset-finance/lease-invoices.ts). Migration 20261014090000.
+model LeaseRental {
+  id                      String                   @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  loanId                  String
+  loan                    Loan                     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId              String                   @unique
+  schedule                RepaymentSchedule        @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  periodNo                Int
+  dueDate                 DateTime                 @db.Date
+  rentalExclVatCents      Int
+  maintenanceExclVatCents Int
+  vatCents                Int
+  totalCents              Int
+  // The VAT rate the amounts were computed at (DECIMAL(6,4), 0.1500 = 15%).
+  vatRate                 Decimal                  @db.Decimal(6, 4)
+  taxInvoiceId            String?                  @unique
+  taxInvoice              TaxInvoice?              @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Set when an accepted early termination cancels this rental (its schedule row goes to 0).
+  cancelledAt             DateTime?
+  createdAt               DateTime                 @default(now())
+  fundMovement            MaintenanceFundMovement?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([loanId, periodNo])
+  @@index([tenantId, dueDate])
+}
+
+enum MaintenanceMovementKind {
+  CONTRIBUTION
+  CLAIM
+  SETTLEMENT_REFUND
+  SETTLEMENT_BILLED
+}
+
+enum MaintenanceClaimStatus {
+  SUBMITTED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum MeterReadingSource {
+  STAFF
+  PORTAL
+}
+
+enum LeaseEndOutcome {
+  RETURN
+  EXTEND
+  PURCHASE
+}
+
+enum LeaseEndStatus {
+  ELECTED
+  EXTENDING
+  INSPECTED
+  INVOICED
+  COMPLETED
+}
+
+enum LeaseEndOrigin {
+  EXPIRY
+  EARLY_TERMINATION
+}
+
+enum AssetLessorStatus {
+  RETURNED_TO_STOCK
+  SOLD_TO_LESSEE
+}
+
+enum LeaseTerminationStatus {
+  QUOTED
+  ACCEPTED
+}
+
+// The maintenance fund of a full-maintenance lease (lib/asset-finance/maintenance-*.ts):
+// one per FML loan, written at booking. The balance is derived from the
+// immutable movements. Migration 20261014100000.
+model MaintenanceFund {
+  id                  String               @id @default(cuid())
+  tenantId            String
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  loanId              String               @unique
+  loan                Loan                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  riskModel           MaintenanceRiskModel
+  leaseEndDate        DateTime             @db.Date
+  settledAt           DateTime?
+  settledBalanceCents Int?
+  settledById         String?
+  createdAt           DateTime             @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  claims    MaintenanceClaim[]
+  movements MaintenanceFundMovement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
+}
+
+model MaintenanceFundMovement {
+  id            String                  @id @default(cuid())
+  tenantId      String
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  fundId        String
+  fund          MaintenanceFund         @relation(fields: [tenantId, fundId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind          MaintenanceMovementKind
+  amountCents   Int
+  leaseRentalId String?                 @unique
+  leaseRental   LeaseRental?            @relation(fields: [tenantId, leaseRentalId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  claimId       String?                 @unique
+  claim         MaintenanceClaim?       @relation(fields: [tenantId, claimId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  taxInvoiceId  String?                 @unique
+  taxInvoice    TaxInvoice?             @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  occurredOn    DateTime                @db.Date
+  note          String?
+  createdById   String?
+  createdAt     DateTime                @default(now())
+
+  @@unique([tenantId, leaseRentalId])
+  @@unique([tenantId, claimId])
+  @@unique([tenantId, taxInvoiceId])
+  @@index([tenantId, fundId])
+}
+
+model MaintenanceClaim {
+  id                        String                   @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant                   @relation(fields: [tenantId], references: [id])
+  fundId                    String
+  fund                      MaintenanceFund          @relation(fields: [tenantId, fundId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierId                String
+  supplier                  Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  providerInvoiceDocumentId String
+  providerInvoiceDocument   EntityDocument           @relation(fields: [tenantId, providerInvoiceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  meterReadingId            String?
+  meterReading              AssetMeterReading?       @relation(fields: [tenantId, meterReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountExclVatCents        Int
+  description               String
+  status                    MaintenanceClaimStatus   @default(SUBMITTED)
+  submittedById             String
+  submittedAt               DateTime                 @default(now())
+  firstApprovedById         String?
+  firstApprovedAt           DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  paymentReference          String?
+  paidById                  String?
+  paidAt                    DateTime?
+  createdAt                 DateTime                 @default(now())
+  movement                  MaintenanceFundMovement?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, fundId])
+}
+
+// A dated meter reading of an asset (hours or km): monotonic per asset and
+// unit (DB), immutable. Lease usage (lib/asset-finance/lease-usage.ts).
+model AssetMeterReading {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  assetId            String
+  asset              FinancedAsset      @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId             String?
+  loan               Loan?              @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  readingDate        DateTime           @db.Date
+  value              Int
+  unit               UsageUnit
+  source             MeterReadingSource
+  evidenceDocumentId String?
+  evidenceDocument   EntityDocument?    @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedById       String?
+  recordedByClientId String?
+  createdAt          DateTime           @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  claims    MaintenanceClaim[]
+  endOfTerm LeaseEndOfTerm?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, assetId, unit, readingDate])
+}
+
+// The end of a lease's term (lib/asset-finance/lease-end-of-term*.ts): one per
+// lease loan; its outcome is never changed and transitions are DB-guarded.
+model LeaseEndOfTerm {
+  id                         String             @id @default(cuid())
+  tenantId                   String
+  tenant                     Tenant             @relation(fields: [tenantId], references: [id])
+  loanId                     String             @unique
+  loan                       Loan               @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  origin                     LeaseEndOrigin
+  outcome                    LeaseEndOutcome
+  status                     LeaseEndStatus     @default(ELECTED)
+  electedAt                  DateTime           @default(now())
+  electedById                String?
+  electedByClientId          String?
+  extensionNoticeOn          DateTime?          @db.Date
+  extensionEndsOn            DateTime?          @db.Date
+  inspectedOn                DateTime?          @db.Date
+  inspectionCondition        String?
+  inspectedById              String?
+  finalReadingId             String?            @unique
+  finalReading               AssetMeterReading? @relation(fields: [tenantId, finalReadingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  excessUsageCents           Int?
+  fundSettlementCents        Int?
+  purchasePriceExclVatCents  Int?
+  purchaseValuationId        String?
+  purchaseValuation          AssetValuation?    @relation(fields: [purchaseValuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  taxInvoiceId               String?            @unique
+  taxInvoice                 TaxInvoice?        @relation("LeaseEndOfTermInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId                 String?            @unique
+  schedule                   RepaymentSchedule? @relation("LeaseEndOfTermCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  natisTransferConfirmedAt   DateTime?
+  natisTransferConfirmedById String?
+  completedAt                DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+  damageItems                LeaseDamageItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
+  @@unique([tenantId, finalReadingId])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
+}
+
+model LeaseDamageItem {
+  id                 String         @id @default(cuid())
+  tenantId           String
+  tenant             Tenant         @relation(fields: [tenantId], references: [id])
+  endOfTermId        String
+  endOfTerm          LeaseEndOfTerm @relation(fields: [tenantId, endOfTermId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  description        String
+  amountExclVatCents Int
+  createdAt          DateTime       @default(now())
+
+  @@index([tenantId, endOfTermId])
+}
+
+// The CPA s14 expiry notice of a lease, queued once (lib/asset-finance/lease-expiry-store.ts).
+model LeaseExpiryNotice {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  loanId     String   @unique
+  loan       Loan     @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  expiryDate DateTime @db.Date
+  queuedOn   DateTime @db.Date
+  createdAt  DateTime @default(now())
+
+  @@unique([tenantId, loanId])
+}
+
+// An early-termination quote (lib/asset-finance/lease-termination*.ts).
+model LeaseTerminationQuote {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
+  loanId              String
+  loan                Loan                   @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  quotedOn            DateTime               @db.Date
+  terminationDate     DateTime               @db.Date
+  validUntil          DateTime               @db.Date
+  cpaCancellation     Boolean
+  remainingRentals    Int
+  pvCents             Int
+  penaltyCents        Int
+  arrearsCents        Int
+  invoiceExclVatCents Int
+  invoiceVatCents     Int
+  totalCents          Int
+  basis               String
+  status              LeaseTerminationStatus @default(QUOTED)
+  requestedByClientId String?
+  createdById         String?
+  acceptedAt          DateTime?
+  acceptedById        String?
+  acceptedByClientId  String?
+  taxInvoiceId        String?                @unique
+  taxInvoice          TaxInvoice?            @relation("LeaseTerminationInvoice", fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId          String?                @unique
+  schedule            RepaymentSchedule?     @relation("LeaseTerminationCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt           DateTime               @default(now())
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([tenantId, scheduleId])
+  @@index([tenantId, loanId])
+}

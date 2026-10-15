@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: accounting
+<!-- summary: GL journals; closed months are final; Xero unproven -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

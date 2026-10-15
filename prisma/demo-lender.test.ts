@@ -57,8 +57,25 @@ describe("demoLender", () => {
     expect(JSON.stringify(fairscore).toLowerCase()).not.toContain("acme")
   })
 
+  it("selects the Tsela profile, the marketing-site demo brand", () => {
+    const tsela = demoLender({ DEMO_LENDER: "tsela" })
+    expect(tsela).toMatchObject({
+      slug: "tsela",
+      identity: {
+        legalName: "Tsela Lending (Pty) Ltd",
+        brandName: "Tsela Lending",
+        publicEmail: "hello@tsela-lending.example",
+        collectionsEmail: "collections@tsela-lending.example",
+      },
+      staffDomain: "tsela-lending.example",
+      clientDomain: "tsela-lending.invalid",
+      bureau: { supplierNumber: "TSELA1", tradingName: "TSELA LENDING" },
+    })
+    expect(JSON.stringify(tsela).toLowerCase()).not.toContain("acme")
+  })
+
   it.each(["nope", "toString", "__proto__", "ACME"])("refuses DEMO_LENDER=%s", (name) => {
-    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore/)
+    expect(() => demoLender({ DEMO_LENDER: name })).toThrow(/is not one of: acme, fairscore, tsela/)
   })
 
   describe.each(Object.entries(DEMO_LENDERS))("%s", (name, lender) => {

@@ -18,7 +18,7 @@ const NOW = new Date("2026-08-16T10:00:00Z")
 const PAST = new Date("2026-07-01T00:00:00Z")
 const FUTURE = new Date("2026-12-01T00:00:00Z")
 
-// Mirrors prisma/schema.prisma's ComplianceType. Kept as a literal list so the
+// Mirrors prisma/schema/compliance.prisma's ComplianceType. Kept as a literal list so the
 // test fails if the enum grows and the dashboard is not updated — the failure
 // the old hardcoded five-type list never produced.
 const ALL_TYPES = [
