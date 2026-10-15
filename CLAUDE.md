@@ -93,8 +93,8 @@ SELECT conrelid::regclass, conname FROM pg_constraint WHERE contype = 'c';
 
 and `grep -rn "CREATE TRIGGER\|ADD CONSTRAINT" prisma/migrations/`.
 
-- **Prisma is the source of truth for the schema** (`prisma/schema.prisma`),
-  but not for hand-written objects. `prisma/migrations/20261009000000_baseline`
+- **Prisma is the source of truth for the schema** (`prisma/schema/`, one
+  file per domain), but not for hand-written objects. `prisma/migrations/20261009000000_baseline`
   is the single starting migration; its hand-written section holds every
   trigger, CHECK and function. `prisma migrate dev` never diffs those: a later
   migration that changes one writes the SQL by hand and updates the static
@@ -229,7 +229,10 @@ app/
 
 ## Key Files
 
-- `prisma/schema.prisma` — DB models, enums, relations
+- `prisma/schema/` — DB models, enums, relations, one file per domain
+- `lib/registry/` — audit actions, tenant-scoped models, cron jobs, simulated
+  integrations and permissions, one file per domain; add a file, never a line
+  to a shared list (`docs/ARCHITECTURE.md`, "Registries")
 - `lib/auth.ts` + `lib/auth-guards.ts` — NextAuth config + role guards
 - `lib/audit.ts` — audit-log writer (use it for ALL state changes)
 - `lib/permissions.ts` — RBAC helpers

@@ -11,7 +11,7 @@ type FlaggedEvent = { commissionStatus: string; qualityFlag: string | null }
 // because it already has its own dedicated attention row.
 //
 // commissionStatus and qualityFlag are different columns (see
-// prisma/schema.prisma): BLOCKED/REVERSED are commissionStatus values,
+// prisma/schema/crm.prisma): BLOCKED/REVERSED are commissionStatus values,
 // UNMATCHED_CODE/APPROVED are qualityFlag values — both are checked here.
 //
 // This predicate governs the attention count ONLY, not the commission queue

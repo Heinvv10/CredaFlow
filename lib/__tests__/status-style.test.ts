@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { formatStatusLabel, getStatusTone } from "../status-style"
 
-// Every LoanStatus value (prisma/schema.prisma) except RESTRUCTURED, whose
+// Every LoanStatus value (prisma/schema/loans-payments.prisma) except RESTRUCTURED, whose
 // tone mapping is a deferred product decision — see loans/[id]/page.tsx's
 // local loanStatusTone map, which still owns that one.
 const LOAN_STATUSES = ["ACTIVE", "COMPLETED", "DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF", "CANCELLED"]

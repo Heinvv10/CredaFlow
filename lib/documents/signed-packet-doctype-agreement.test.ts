@@ -3,6 +3,7 @@ import path from "node:path"
 import { describe, it, expect } from "vitest"
 import { isLockedStatutoryEvidence } from "./generic-action-policy"
 import { DOC_TYPE_LABELS, SYSTEM_GENERATED_DOC_TYPES } from "../document-types"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
 /**
  * The returned signed packet is written by ONE route and read back by ANOTHER,
@@ -168,7 +169,7 @@ describe("returned signed packet docType", () => {
   // A docType the schema does not declare is a runtime Prisma error, not a
   // type error, because these are string literals in where-clauses.
   it("is declared in the Prisma schema", () => {
-    const schema = source("prisma/schema.prisma")
+    const schema = readPrismaSchema()
     const docTypeEnum = /enum DocType \{([\s\S]*?)\n\}/.exec(schema)
     expect(docTypeEnum, "DocType enum not found — parser is stale").toBeTruthy()
     expect(docTypeEnum![1]).toContain(PACKET_DOC_TYPE)

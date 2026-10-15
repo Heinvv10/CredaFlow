@@ -242,7 +242,7 @@ export const INCOME_SOURCE_TYPES = [
  *
  * "Other" is the audited escape hatch for a bank product name the statement
  * allow-lists have not learned — see `BankAccountType.OTHER` in
- * prisma/schema.prisma. It is offered here and NOT on the consumer portal: a
+ * prisma/schema/clients-kyc.prisma. It is offered here and NOT on the consumer portal: a
  * consumer self-selecting past a verification check is a different thing from a
  * staff member deciding, on the record, that a printed product name is neither
  * cheque nor savings.

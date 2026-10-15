@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: bureau (credit ENQUIRY framework)
+<!-- summary: bureau enquiry providers, fallback, freshness -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose

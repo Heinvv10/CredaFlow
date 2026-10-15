@@ -1,0 +1,466 @@
+// The platform operator above the lenders (tenants). CredaFlow is the root
+// operator; a reseller is another. Operator staff manage lenders but see no
+// borrower data unless a lender grants it (TenantSupportGrant, lib/operator/).
+model Operator {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  tenants Tenant[]
+  users   User[]
+}
+
+// Time-boxed support access a lender's ADMIN/SUPER_ADMIN grants to one
+// operator user. Read-only (lib/operator/tenant-access.ts). The database caps
+// the window at 7 days from creation; every grant, revoke and use is audited.
+model TenantSupportGrant {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  operatorUserId String
+  operatorUser   User      @relation("SupportGrantOperatorUser", fields: [operatorUserId], references: [id])
+  grantedById    String
+  // Granter and revoker are bound to the tenant by compound key: a grant can
+  // only come from that lender's own staff.
+  grantedBy      User      @relation("SupportGrantGrantedBy", fields: [tenantId, grantedById], references: [tenantId, id])
+  reason         String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  revokedById    String?
+  revokedBy      User?     @relation("SupportGrantRevokedBy", fields: [tenantId, revokedById], references: [tenantId, id])
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId, operatorUserId, expiresAt])
+}
+
+model Tenant {
+  id         String       @id @default(cuid())
+  // Defaults to the root operator; nullable only so existing rows could be backfilled
+  // (migration 20261014120000_operator_and_support_grants).
+  operatorId String?      @default("cf_root_operator")
+  operator   Operator?    @relation(fields: [operatorId], references: [id])
+  slug       String       @unique
+  name       String
+  domain     String?      @unique
+  status     TenantStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  // Phase 9 launch-blocker gates. Default false — flipped only after the
+  // tenant has the required legal opinion / Information Officer sign-off
+  // captured in writing. See spec §Launch-blockers LB3, LB7.
+  insuranceCrossSellS69OpinionReceived Boolean @default(false)
+  softOptInClosedLoanTailEnabled       Boolean @default(false)
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  advisorCommissions         AdvisorCommission[]
+  agentTasks                 AgentTask[]
+  apiKeys                    ApiKey[]
+  apiRequestLogs             ApiRequestLog[]
+  applicationCheckFlags      ApplicationCheckFlag[]
+  assetFinanceDeals          AssetFinanceDeal[]
+  assetMeterReadings         AssetMeterReading[]
+  attorneyFirms              AttorneyFirm[]
+  auditLogs                  AuditLog[]
+  automationLogs             AutomationLog[]
+  automationPauses           AutomationPause[]
+  automationRules            AutomationRule[]
+  avsChecks                  AvsCheck[]
+  bankStatementImports       BankStatementImport[]
+  bankTransactions           BankTransaction[]
+  branches                   Branch[]
+  breachLogs                 BreachLog[]
+  bureauAdverseConfirmations BureauAdverseConfirmation[]
+  bureauSubmissionRecords    BureauSubmissionRecord[]
+  bureauSubmissions          BureauSubmission[]
+  businessEntities           BusinessEntity[]
+  cannedReplies              CannedReply[]
+  cashThresholdReports       CashThresholdReport[]
+  clientDocuments            ClientDocument[]
+  clients                    Client[]
+  coiDeclarations            CoiDeclaration[]
+  collectionBatches          CollectionBatch[]
+  collectionInstructions     CollectionInstruction[]
+  collectionResults          CollectionResult[]
+  commsSettings              CommsSettings?
+  complaints                 Complaint[]
+  complianceRecords          ComplianceRecord[]
+  config                     TenantConfig?
+  consentRecords             ConsentRecord[]
+  contactConsents            ContactConsent[]
+  contactIdentities          ContactIdentity[]
+  contactMerges              ContactMerge[]
+  contacts                   Contact[]
+  conversations              Conversation[]
+  creditBureauChecks         CreditBureauCheck[]
+  creditNotes                CreditNote[]
+  crmActivities              CrmActivity[]
+  crossSellOpps              CrossSellOpportunity[]
+  dataSubjectRequests        DataSubjectRequest[]
+  debitMandates              DebitMandate[]
+  documentTemplates          DocumentTemplate[]
+  emailConfig                EmailConfig?
+  emailLogs                  EmailLog[]
+  entityDocuments            EntityDocument[]
+  financedAssets             FinancedAsset[]
+  insuranceAdviceRecords     InsuranceAdviceRecord[]
+  insuranceClaims            InsuranceClaim[]
+  insuranceEligibilityRules  InsuranceEligibilityRule[]
+  insurancePolicies          InsurancePolicy[]
+  insuranceProducts          InsuranceProduct[]
+  insuranceQuotes            InsuranceQuote[]
+  insuranceRateTables        InsuranceRateTable[]
+  insurers                   Insurer[]
+  integrationConfig          IntegrationConfig?
+  integrationLogs            IntegrationLog[]
+  kycOverrideRequests        KycOverrideRequest[]
+  leads                      Lead[]
+  leaseDamageItems           LeaseDamageItem[]
+  leaseEndsOfTerm            LeaseEndOfTerm[]
+  leaseExpiryNotices         LeaseExpiryNotice[]
+  leaseRentals               LeaseRental[]
+  leaseTerminationQuotes     LeaseTerminationQuote[]
+  loanApplications           LoanApplication[]
+  loanCharges                LoanCharge[]
+  loanNotes                  LoanNote[]
+  loanProducts               LoanProduct[]
+  loans                      Loan[]
+  loginLogs                  LoginLog[]
+  maintenanceClaims          MaintenanceClaim[]
+  maintenanceFunds           MaintenanceFund[]
+  maintenanceMovements       MaintenanceFundMovement[]
+  messageMentions            MessageMention[]
+  messages                   Message[]
+  messageTemplates           MessageTemplate[]
+  notificationLogs           NotificationLog[]
+  notifications              Notification[]
+  pasqAcknowledgementTokens  PasqAcknowledgementToken[]
+  paymentArrangements        PaymentArrangement[]
+  payments                   Payment[]
+  premiumPayments            PremiumPayment[]
+  referenceRates             ReferenceRate[]
+  referralAgents             ReferralAgent[]
+  referralCodes              ReferralCode[]
+  referralEvents             ReferralEvent[]
+  repaymentSchedules         RepaymentSchedule[]
+  rmcpDocuments              RmcpDocument[]
+  screeningBlocks            ScreeningBlock[]
+  screeningChecks            ScreeningCheck[]
+  selfieCaptureTokens        SelfieCaptureToken[]
+  signingOtpChallenges       SigningOtpChallenge[]
+  statementAnalyses          StatementAnalysis[]
+  suppliers                  Supplier[]
+  supportGrants              TenantSupportGrant[]
+  surrenderRequests          SurrenderRequest[]
+  suspiciousReportAccesses   SuspiciousReportAccess[]
+  suspiciousReportCases      SuspiciousReportCase[]
+  taxInvoices                TaxInvoice[]
+  tcfOutcomes                TcfOutcome[]
+  users                      User[]
+  vatConfig                  VatConfig?
+  webhookDeliveries          WebhookDelivery[]
+  webhookEndpoints           WebhookEndpoint[]
+  webhookEvents              WebhookEvent[]
+  webhookSignatureFailures   WebhookSignatureFailure[]
+  websiteChatHandoffs        WebsiteChatHandoff[]
+
+  @@index([operatorId])
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  PROVISIONING
+}
+
+model TenantConfig {
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  primaryColor   String  @default("#4F46E5")
+  secondaryColor String  @default("#4338CA")
+  darkColor      String  @default("#0B0D12")
+  logoUrl        String?
+  faviconUrl     String?
+  brandName      String?
+
+  featureLms                        Boolean @default(true)
+  featureCrm                        Boolean @default(false)
+  featureIms                        Boolean @default(false)
+  featureBureauSubmission           Boolean @default(false)
+  featureMarketing                  Boolean @default(false)
+  featurePortal                     Boolean @default(true)
+  featureReports                    Boolean @default(true)
+  // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
+  featureAssetFinance               Boolean @default(false)
+  // Asset-finance payouts at or above this amount (cents) need a second,
+  // different approver (DESIGN D8). Default R1m.
+  assetPayoutDualApprovalCents      Int     @default(100000000)
+  // Leases (slice 3): a maintenance claim at or above this amount (ex VAT,
+  // cents) needs a second approver; a purchase at the end of the term needs a
+  // valuation no older than this many days; an early-termination quote is
+  // valid this many days.
+  maintenanceClaimDualApprovalCents Int     @default(5000000)
+  leasePurchaseValuationMaxAgeDays  Int     @default(30)
+  leaseTerminationQuoteValidDays    Int     @default(10)
+  // Asset-finance agreements, suretyships and resolutions render with a
+  // DRAFT — NOT FOR EXECUTION watermark until the lender's legal team approves
+  // the wording. Turning this on is a Confirmation Gate (Hein / legal).
+  assetFinanceLegalWordingApproved  Boolean @default(false)
+
+  ncrNumber        String?
+  fscaNumber       String?
+  companyRegNumber String?
+
+  // Lender identity (lib/config/identity.ts). Written ONLY through
+  // lib/config/identity-write.ts, which validates, demands the statutory
+  // numbers twice on change, and audits. Nullable: an unconfigured tenant
+  // makes every identity reader throw rather than print a default.
+  legalName                 String?
+  registeredOffice          String? // newline-separated address lines
+  publicEmail               String?
+  publicPhone               String?
+  publicWhatsapp            String?
+  collectionsEmail          String?
+  collectionsPhone          String?
+  collectionsPhoneSecondary String?
+  brandTagline              String?
+  // Regulatory details for the public regulatory-information page. Optional:
+  // the page omits a line whose value is null.
+  ncrRegistrationDate       DateTime? @db.Date
+  fscaAuthorisationDate     DateTime? @db.Date
+  ncrStatus                 String? // Registered | Suspended | Cancelled | Deregistered
+  headOfficeCity            String?
+
+  // Provider credentials. Every *Key / *Secret column below holds a value
+  // sealed by lib/crypto/secret-box.ts (enc:v1:…); lib/integrations/
+  // tenant-credentials.ts is the only reader and writer. Pairs are stored as
+  // "id:secret" (bulkSms user:password, transunion clientId:clientSecret,
+  // smileIdentity partnerId:apiKey, experian username:password, stitch
+  // clientId:clientSecret).
+  netcashKey            String?
+  bulkSmsKey            String?
+  transunionKey         String?
+  smileIdentityKey      String?
+  experianKey           String?
+  stitchKey             String?
+  stitchWebhookSecret   String?
+  // The lender's own collection account Stitch pays into. Not secret.
+  stitchBeneficiaryName String?
+  stitchBankId          String?
+  stitchAccountNumber   String?
+  stitchBranchCode      String?
+
+  informationOfficerUserId String?
+
+  // Bureau DATA SUBMISSION (lib/bureau-submission). All three must be set
+  // before a file is generated; the supplier number is issued by SACRRA.
+  bureauSupplierNumber     String?
+  bureauTradingName        String?
+  bureauReportingStartDate DateTime? @db.Date
+
+  bureauMinScore     Int     @default(450)
+  bureauBlockAdverse Boolean @default(false)
+
+  // Credit bureau ENQUIRY (lib/bureau). The ordered list is the whole policy:
+  // the first entry is the primary, the rest the fallback order, and a bureau
+  // not listed is not enabled. The default reproduces the Experian-only path.
+  bureauProviderOrder String[] @default(["experian"])
+  // Credentials for the bureaus that keep them per tenant: ONE secret-box
+  // sealed JSON object keyed by provider id (lib/bureau/credentials.ts).
+  bureauCredentials   String?
+  // How old a bureau report may be and still support approval, agreement and
+  // payout. CHECK 1..60 in the migration (60 = BUREAU_STALENESS_DAYS, the
+  // ceiling in lib/compliance/bureau.ts).
+  bureauMaxAgeDays    Int      @default(60)
+
+  // Staff two-factor policy (lib/security/staff-totp-policy.ts). On: a staff
+  // user with no TOTP enrolled can reach only the enrolment page. Off: a code
+  // is demanded at sign-in only from a user who enrolled. Default on, for
+  // existing rows too.
+  requireStaffTotp Boolean @default(true)
+
+  // Failed-selfie and in-person override policy (lib/kyc/override-policy.ts).
+  // A clear biometric mismatch remains non-overridable regardless of these
+  // settings; the database independently enforces that boundary.
+  kycOverrideEnabled        Boolean  @default(true)
+  kycOverrideMinRole        UserRole @default(ADMIN)
+  kycOverrideSecondApprover Boolean  @default(false)
+
+  // PEP / sanctions screening (lib/screening). null = not configured: no
+  // screening runs and the approval gate passes, as before the module existed.
+  // Otherwise a key from lib/screening/registry.ts. Matches that need a human
+  // are cleared by a reviewer at or above screeningReviewMinRole
+  // (BRANCH_MANAGER or ADMIN), with TOTP when requireStaffTotp is on.
+  screeningProvider      String?
+  screeningReviewMinRole UserRole @default(ADMIN)
+  // Maker-checker for screening decisions, STR decisions and RMCP approvals
+  // (the database triggers read it). Changed only by a SUPER_ADMIN with TOTP.
+  requireSecondReviewer  Boolean  @default(true)
+  // Borrower signing OTP (lib/signing-otp). Portal signing of the agreement,
+  // debit mandate and other documents needs a verified one-time code when
+  // requireSigningOtp is on; branch signing (staff present) is exempt while
+  // signingOtpBranchExempt is on.
+  requireSigningOtp      Boolean  @default(true)
+  signingOtpBranchExempt Boolean  @default(true)
+  // Portal self-registration (app/api/portal/register). Off refuses new
+  // activations; clients who already activated are unaffected.
+  allowNewRegistrations  Boolean  @default(true)
+  // Staff access restrictions (lib/security/staff-access-policy.ts). Hours:
+  // null = any time, else per-weekday SAST windows. Allowlist: empty = any
+  // address, else CIDR blocks the staff caller's IP must fall in.
+  staffAccessHours       Json?
+  staffIpAllowlist       String[] @default([])
+
+  // Phase 7 — collection engine. Dark by default.
+  collectionsEngineEnabled Boolean @default(false)
+  collectionProvider       String?
+  avsProvider              String? // null = use collectionProvider's AVS
+  netcashDebitOrderKey     String? // Netcash per-service keys (collections
+  netcashRiskReportsKey    String? // + AVS); distinct from netcashKey (payouts)
+
+  ndiBufferPct Int @default(110)
+
+  // Languages the borrower-facing surfaces (website, portal, comms) may use
+  // (lib/i18n). English only by default: the other catalogues are machine
+  // drafts until a native speaker has reviewed them for this lender. Always
+  // contains "en" (the admin API refuses a list without it).
+  enabledLanguages String[] @default(["en"])
+  // Per language, the acknowledgement that a native speaker reviewed its
+  // catalogue: { "<locale>": { reviewer, acknowledgedAt, acknowledgedById,
+  // acknowledgedByEmail } } (lib/i18n/language-reviews.ts). Enabling af/zu/xh
+  // requires one, and a language without one is not served.
+  languageReviews  Json     @default("{}")
+
+  referralCommissionBps Int @default(0) // agent commission rate, basis points (200 = 2.00%); 0 = off
+
+  bankSyncEnabled             Boolean @default(false)
+  absaAccountNumberMasked     String?
+  absaAutoApplyHighConfidence Boolean @default(false)
+
+  // Default interest and post-default charges (lib/loan/default-charges.ts).
+  // Dark by default: while false no charge is derived and every receipt path
+  // behaves exactly as it did before the feature existed.
+  defaultChargesEnabled    Boolean   @default(false)
+  defaultAdminChargeCents  Int       @default(8200) // per Section 129 notice issued
+  defaultAdminPostageCents Int       @default(0)
+  // Go-live instant, set (audited) by the first back-fill --apply. The flag
+  // without it posts nothing; no charge accrues on a day before it, and a loan
+  // current at go-live is never back-charged (lib/loan/charges-replay.ts).
+  defaultChargesStartedAt  DateTime?
+  // When --disable stopped charges (audited). One-way: from then on nothing
+  // is derived for the tenant and --apply refuses to re-enable.
+  defaultChargesStoppedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Integrations Layer ─────────────────────────────────────────────────────
+
+model IntegrationConfig {
+  id                 String   @id @default(cuid())
+  tenantId           String   @unique
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  // BulkSMS
+  bulkSmsTokenId     String?
+  bulkSmsTokenSecret String?
+  bulkSmsActive      Boolean  @default(false)
+  // Netcash
+  netcashServiceKey  String?
+  netcashActive      Boolean  @default(false)
+  // TransUnion
+  transunionKey      String?
+  transunionSecret   String?
+  transunionActive   Boolean  @default(false)
+  // Smile Identity
+  smilePartnerId     String?
+  smileApiKey        String?
+  smileActive        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model IntegrationLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider     String
+  action       String
+  referenceId  String?
+  request      Json?
+  response     Json?
+  status       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  userEmail String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ── Branches ──────────────────────────────────────────────────────────────────
+
+model Branch {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  code      String
+  address   String?
+  phone     String?
+  managerId String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applications LoanApplication[]
+  clients      Client[]
+  users        User[]
+
+  @@unique([tenantId, code])
+}
+
+// Public Holidays Act s2A dates proclaimed in addition to the recurring
+// statutory calendar. National rather than tenant-scoped: the same legal
+// business-day clock applies to every South African credit provider.
+model SaProclaimedPublicHoliday {
+  date      DateTime @id @db.Date
+  name      String
+  sourceUrl String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Last run of each in-process cron job (instrumentation.ts), read by /api/health.
+model CronHeartbeat {
+  job             String    @id
+  lastStartedAt   DateTime
+  lastFinishedAt  DateTime?
+  lastSucceededAt DateTime?
+  lastStatus      Int?
+  lastError       String?
+}

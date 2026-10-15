@@ -1,13 +1,14 @@
 /**
  * Static proof for migration 20261014190000_credit_check_expense_understated:
  * the one schema change goal 2026-10-14 approves — one additive enum value,
- * matching prisma/schema.prisma — and nothing else. That an OPEN flag of the
+ * matching the Prisma schema (prisma/schema/) — and nothing else. That an OPEN flag of the
  * new check blocks approval is proven against Postgres by
  * expense-understated.integration.test.ts.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
 const root = join(__dirname, "..", "..")
 const migration = readFileSync(join(root, "prisma/migrations/20261014190000_credit_check_expense_understated/migration.sql"), "utf8")
@@ -19,7 +20,7 @@ describe("migration 20261014190000_credit_check_expense_understated", () => {
   })
 
   it("matches the schema's enum", () => {
-    const schema = readFileSync(join(root, "prisma/schema.prisma"), "utf8")
+    const schema = readPrismaSchema()
     expect(/enum CreditCheck \{([^}]*)\}/.exec(schema)![1].split(/\s+/).filter(Boolean)).toContain("EXPENSE_UNDERSTATED")
   })
 })

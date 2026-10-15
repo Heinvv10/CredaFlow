@@ -1,0 +1,463 @@
+model LoanProduct {
+  id                          String             @id @default(cuid())
+  tenantId                    String
+  tenant                      Tenant             @relation(fields: [tenantId], references: [id])
+  code                        String
+  name                        String
+  productType                 ProductType
+  minAmount                   Int
+  maxAmount                   Int
+  minTermDays                 Int
+  maxTermDays                 Int
+  interestRatePm              Float
+  interestModel               InterestModel
+  initiationFeeModel          InitiationFeeModel @default(FLAT_PCT)
+  initiationFeePct            Float              @default(0)
+  initiationFeeMax            Int                @default(0)
+  monthlyServiceFee           Int                @default(0)
+  // NON_NCA (asset finance) arrears terms, decision 2a.4 of the slice-1 goal:
+  // default interest at the contract rate plus this annual margin (decimal,
+  // 0.02 = 2%) on overdue amounts, and a collection fee (cents) per missed
+  // instalment. Never applied to an NCA loan, whose caps and s129 rules hold.
+  nonNcaDefaultInterestMargin Decimal?           @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
+  active                      Boolean            @default(true)
+  createdAt                   DateTime           @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applications LoanApplication[]
+  loans        Loan[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+enum ProductType {
+  MICRO
+  PERSONAL
+  PO_FUNDING
+}
+
+enum InterestModel {
+  FLAT
+  REDUCING_BALANCE
+  DAILY_ACCRUAL
+}
+
+// How a product's initiation fee is PRICED, as opposed to how it is capped.
+//
+// FLAT_PCT prices the fee as `initiationFeePct` x principal. That is a
+// commercial setting, and the statutory ceiling still applies on top of it —
+// which is the problem it caused: the marketing table printed the configured
+// percentage while the engine charged the lower statutory figure, so a R3,000
+// Micro Loan advertised 15% (R450) and billed R419.75.
+//
+// NCA_REG42 prices the fee ON the Reg 42 schedule itself, so the configured
+// price and the charged price are the same number at every principal, and the
+// product config no longer claims a percentage nothing honours. The schedule is
+// NOT duplicated into the product row — it is read from lib/loan/nca-fee-cap.ts,
+// which stays the single place legal verifies. `initiationFeeMax` still applies
+// as a COMMERCIAL cap below the statutory one (Micro Loan charges at most
+// R1,000 where the statute would allow R1,207.50), and `initiationFeePct` is
+// unused for pricing.
+enum InitiationFeeModel {
+  FLAT_PCT
+  NCA_REG42
+}
+
+// The consumer's NCA s.101 option for paying the initiation fee on an
+// unsecured / short-term loan. The fee is INTEREST-FREE in both cases (NCR
+// Circular 15 of 2016) — never folded into the interest-bearing principal.
+enum InitiationFeePayment {
+  DEFERRED // full principal advanced; fee collected interest-free via the schedule (instalment 1)
+  UPFRONT // fee deducted from the cash advanced; not collected through the schedule
+}
+
+enum CreditLifeElection {
+  ACCEPTED
+  DECLINED
+}
+
+enum LoanRepaymentMethod {
+  EFT
+  DEBIT_ORDER
+}
+
+model Loan {
+  id                          String           @id @default(cuid())
+  tenantId                    String
+  tenant                      Tenant           @relation(fields: [tenantId], references: [id])
+  reference                   String           @unique
+  applicationId               String           @unique
+  clientId                    String?
+  // Exactly one of clientId / entityId is set (CHECK Loan_borrower_xor):
+  // a natural-person Client or a BusinessEntity (asset finance, DESIGN D1).
+  entityId                    String?
+  // NCA applicability, decided once at application (lib/asset-finance/
+  // nca-classifier.ts). Every consumer-only rule (s129, fee caps, NCA charge
+  // caps, consumer bureau files) keys on NCA.
+  ncaRegime                   NcaRegime        @default(NCA)
+  contractType                ContractType     @default(LOAN)
+  // Cents; the final scheduled payment on top of the last instalment.
+  balloonAmount               Int?
+  // Original payment-shape weights for a booked asset-finance contract.
+  // Repricing reads these instead of inferring the final weight from a row
+  // whose payment includes the solver's rounding residue.
+  assetFinanceWeights         Json?
+  // The financed asset (FinancedAsset, asset finance). FK added with that table.
+  assetId                     String?
+  asset                       FinancedAsset?   @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // NON_NCA arrears terms copied from the product at booking, so editing the
+  // product never re-prices an existing loan's arrears (lib/asset-finance/non-nca-charges.ts).
+  nonNcaDefaultInterestMargin Decimal?         @db.Decimal(9, 6)
+  nonNcaCollectionFeeCents    Int?
+  // Operating / full-maintenance lease only (CHECK Loan_cpa_scope_shape): the
+  // deal's Consumer Protection Act scope, copied at booking (lib/asset-finance/cpa-scope.ts).
+  cpaApplies                  Boolean?
+  cpaRule                     String?
+  productId                   String
+  principal                   Int
+  totalInterest               Int
+  initiationFee               Int
+  // Total credit-life premiums collected through this loan's repayment
+  // schedule. Standalone PremiumPayment rows are not created for bundled cover.
+  creditLifePremiums          Int              @default(0)
+  totalRepayable              Int
+  // Original signed maturity totals. totalInterest/totalRepayable may reduce
+  // only when a DAILY_ACCRUAL loan settles early; these fields preserve the
+  // immutable agreement baseline and make payment reversal deterministic.
+  contractualTotalInterest    Int?
+  contractualTotalRepayable   Int?
+  outstandingPrincipal        Int
+  totalPaid                   Int              @default(0)
+  status                      LoanStatus       @default(ACTIVE)
+  startDate                   DateTime
+  maturityDate                DateTime
+  nextPaymentDate             DateTime?
+  interestRatePm              Float
+  interestModel               InterestModel
+  daysInArrears               Int              @default(0)
+  arrearsAmount               Int              @default(0)
+  lastPaymentDate             DateTime?
+  lastPaymentAmount           Int?
+  agreementDocId              String?
+  collectionsStage            CollectionsStage @default(NONE)
+  collectionsStageUpdatedAt   DateTime?
+  collectionsNotes            String?
+  writeOffReason              String?
+  writeOffRequestedById       String?
+  writeOffRequestedAt         DateTime?
+  writeOffApprovedById        String?
+  writeOffAt                  DateTime?
+  // Populated on transitions to COMPLETED / WRITTEN_OFF / CANCELLED. Phase 9
+  // S1 backfill (step 1b) prefers AuditLog action=LOAN_STATUS_CHANGED, falls
+  // back to updatedAt. Drives the s.69(3)(a) soft-opt-in "12-month tail"
+  // predicate in canSend() (gated by Tenant.softOptInClosedLoanTailEnabled).
+  closedAt                    DateTime?
+  // Derived by lib/loan/charges-sync.ts from the default-charges replay. Read
+  // models only; LoanCharge rows and the Payment splits are the detail.
+  chargesAccrued              Int              @default(0)
+  chargesOutstanding          Int              @default(0)
+  // Staff exemption: the loan carries no default charges at all. Changed only
+  // through PATCH /api/loans/[id]/default-charges-exemption (audited, reason).
+  defaultChargesExempt        Boolean          @default(false)
+  defaultChargesExemptReason  String?
+  // When an exemption was last lifted: charges resume from here, never
+  // back-charging the exempt period.
+  defaultChargesExemptEndedAt DateTime?
+  // The monthly service fee agreed at booking (cents), from the approval
+  // snapshot, so editing the product never reprices an existing loan. Every
+  // booking path sets it; nullable only so an image older than this column can
+  // still book loans while the migration runs ahead of the new image.
+  monthlyServiceFee           Int?
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+  client                      Client?          @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entity                      BusinessEntity?  @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  product                     LoanProduct      @relation(fields: [productId], references: [id])
+  application                 LoanApplication  @relation(fields: [applicationId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  assetFinanceDeal           AssetFinanceDeal?
+  attorneyReferral           AttorneyReferral?
+  bureauAdverseConfirmations BureauAdverseConfirmation[]
+  bureauSubmissionRecords    BureauSubmissionRecord[]
+  charges                    LoanCharge[]
+  collectionInstructions     CollectionInstruction[]
+  contractRates              ContractRate[]
+  conversations              Conversation[]
+  debitMandates              DebitMandate[]
+  leaseEndOfTerm             LeaseEndOfTerm?
+  leaseExpiryNotice          LeaseExpiryNotice?
+  leaseRentals               LeaseRental[]
+  leaseTerminationQuotes     LeaseTerminationQuote[]
+  maintenanceFund            MaintenanceFund?
+  meterReadings              AssetMeterReading[]
+  notes                      LoanNote[]
+  paymentArrangement         PaymentArrangement?
+  paymentPlan                PaymentPlan?
+  payments                   Payment[]
+  repaymentSchedule          RepaymentSchedule[]
+  stitchPayments             StitchPaymentRequest[]
+  surrenderRequests          SurrenderRequest[]
+  suspiciousReportCases      SuspiciousReportCase[]
+  taxInvoices                TaxInvoice[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([agreementDocId])
+  @@index([entityId])
+}
+
+enum LoanChargeType {
+  DEFAULT_INTEREST
+  SERVICE_FEE
+  DEFAULT_ADMIN
+  // NON_NCA (asset finance) only: the product's collection fee per missed
+  // instalment (lib/asset-finance/non-nca-charges.ts). Never posted on an NCA loan.
+  COLLECTION_FEE
+}
+
+// A charge posted after a missed instalment. DERIVED: rewritten per loan on
+// every syncLoanCharges from a replay of the schedule, live receipts and issued
+// Section 129 notices, so it is never edited in place.
+model LoanCharge {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  loanId    String
+  loan      Loan           @relation(fields: [loanId], references: [id])
+  type      LoanChargeType
+  day       DateTime       @db.Date
+  amount    Int
+  // The ComplianceRecord of the Section 129 notice a DEFAULT_ADMIN charge is for.
+  sourceId  String?
+  createdAt DateTime       @default(now())
+
+  @@index([tenantId])
+  @@index([loanId, day])
+}
+
+enum LoanStatus {
+  ACTIVE
+  COMPLETED
+  DEFAULTED
+  PENDING_WRITE_OFF
+  WRITTEN_OFF
+  RESTRUCTURED
+  CANCELLED
+}
+
+model RepaymentSchedule {
+  id                              String         @id @default(cuid())
+  tenantId                        String
+  tenant                          Tenant         @relation(fields: [tenantId], references: [id])
+  loanId                          String
+  installmentNo                   Int
+  dueDate                         DateTime
+  principalDue                    Int
+  interestDue                     Int
+  // Opening capital at the last asset-finance solve. Preserved when a paid
+  // row is reopened, so a later reprice can reconstruct its historical accrual.
+  assetFinanceOpeningBalanceCents Int?
+  creditLifePremiumDue            Int            @default(0)
+  feesDue                         Int
+  totalDue                        Int
+  totalPaid                       Int            @default(0)
+  status                          ScheduleStatus @default(PENDING)
+  paidAt                          DateTime?
+  loan                            Loan           @relation(fields: [loanId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  collectionInstructions CollectionInstruction[]
+  leaseEndOfTermCharge   LeaseEndOfTerm?         @relation("LeaseEndOfTermCharge")
+  leaseRental            LeaseRental?
+  leaseTerminationCharge LeaseTerminationQuote?  @relation("LeaseTerminationCharge")
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+enum ScheduleStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  WRITTEN_OFF
+}
+
+model Payment {
+  id                       String                  @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                  @relation(fields: [tenantId], references: [id])
+  loanId                   String
+  amount                   Int
+  paymentMethod            PaymentMethod           @default(EFT)
+  reference                String?
+  notes                    String?
+  capturedBy               String?
+  allocationStatus         PaymentAllocationStatus @default(ALLOCATED)
+  reconciliationReason     String?
+  reconciledAt             DateTime?
+  reconciledById           String?
+  reconciliationReference  String?
+  // Date the money actually reached us, as distinct from createdAt (when staff
+  // captured it). NCA s125(2)(b) charges interest only up to the settlement
+  // date, so accrual runs to THIS.
+  //
+  // NOT NULL with a default, deliberately. A nullable value date is not merely
+  // untidy: PostgreSQL sorts `ORDER BY col DESC` as NULLS FIRST, so a single
+  // unset row silently becomes "the newest receipt" for anything that orders by
+  // it — which is how an earlier attempt read the wrong receipt on every loan.
+  // A default makes that state unreachable no matter which writer forgets.
+  receivedAt               DateTime                @default(now())
+  // Set on the refund-due half of an over-payment, pointing at the receipt it
+  // was split from. Without this link the two halves cannot be re-joined, and
+  // the idempotency replay check cannot tell a retried R2 500.00 capture from a
+  // different request that happens to have collected R2 425.67.
+  parentPaymentId          String?
+  reversed                 Boolean                 @default(false)
+  reversedAt               DateTime?
+  reversedById             String?
+  reversalReason           String?
+  idempotencyKey           String?                 @db.VarChar(128)
+  // The part of `amount` that paid default charges (s126(3): default interest,
+  // then fees and charges, then the schedule). Rewritten by syncLoanCharges;
+  // Loan.totalPaid counts only amount minus these two.
+  defaultInterestAllocated Int                     @default(0)
+  chargeFeesAllocated      Int                     @default(0)
+  createdAt                DateTime                @default(now())
+  loan                     Loan                    @relation(fields: [loanId], references: [id])
+  parentPayment            Payment?                @relation("PaymentOverpayment", fields: [parentPaymentId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  cashThresholdReport   CashThresholdReport?
+  collectionResults     CollectionResult[]
+  excessPayments        Payment[]              @relation("PaymentOverpayment")
+  surrenderProceeds     SurrenderRequest[]     @relation("SurrenderProceedsPayment")
+  suspiciousReportCases SuspiciousReportCase[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId])
+  @@index([tenantId, allocationStatus])
+  @@index([parentPaymentId])
+  @@index([loanId, receivedAt])
+}
+
+enum PaymentAllocationStatus {
+  ALLOCATED
+  UNAPPLIED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  EFT
+  CASH
+  DEBIT_ORDER
+  CARD
+  // Non-cash credit closing a sub-R1 residue (lib/loan/small-balance-waiver.ts).
+  // Never cash collected: see lib/payments/waiver.ts.
+  WAIVER
+}
+
+model BankStatementImport {
+  id           String            @id @default(cuid())
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  source       String // "ABSA_ONLINE"
+  accountRef   String // masked, e.g. "****1234"
+  format       String // "CSV" | "OFX"
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  fileHash     String // sha256 of raw file
+  rawFilePath  String // storage path (retained for audit)
+  lineCount    Int               @default(0)
+  newTxnCount  Int               @default(0)
+  status       String            @default("PENDING") // PENDING|PARSED|RECONCILED|FAILED
+  error        String?
+  startedAt    DateTime          @default(now())
+  finishedAt   DateTime?
+  transactions BankTransaction[]
+
+  @@unique([tenantId, fileHash])
+  @@index([tenantId])
+}
+
+model BankTransaction {
+  id              String              @id @default(cuid())
+  tenantId        String
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  importId        String
+  import          BankStatementImport @relation(fields: [importId], references: [id])
+  postedDate      DateTime
+  valueDate       DateTime?
+  amountCents     Int // signed; credit positive
+  direction       String // "CREDIT" | "DEBIT"
+  rawReference    String?
+  counterparty    String?
+  balanceCents    Int?
+  bankTxnId       String?
+  dedupHash       String
+  matchStatus     String              @default("UNMATCHED") // UNMATCHED|PROPOSED|MATCHED|IGNORED
+  matchConfidence String? // HIGH|MEDIUM|LOW
+  matchedLoanId   String?
+  paymentId       String?
+  ignoreReason    String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime            @default(now())
+
+  @@unique([tenantId, dedupHash])
+  @@index([tenantId, matchStatus])
+}
+
+model LoanNote {
+  id         String          @id @default(cuid())
+  tenantId   String
+  tenant     Tenant          @relation(fields: [tenantId], references: [id])
+  loanId     String
+  type       String // "contact", "payment_plan", "general", "section129", "manual_payment_claim"
+  note       String
+  documentId String?
+  document   ClientDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy  String
+  createdAt  DateTime        @default(now())
+  loan       Loan            @relation(fields: [loanId], references: [id])
+
+  @@index([tenantId])
+  @@index([documentId])
+}
+
+model PaymentPlan {
+  id             String   @id @default(cuid())
+  loanId         String   @unique
+  totalArrears   Int
+  installments   Int
+  installmentAmt Int
+  startDate      DateTime
+  notes          String?
+  active         Boolean  @default(true)
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  loan           Loan     @relation(fields: [loanId], references: [id])
+}
+
+model StitchPaymentRequest {
+  id                String   @id @default(cuid())
+  stitchId          String   @unique
+  loanId            String
+  clientId          String
+  amount            Int
+  status            String   @default("PENDING")
+  redirectUrl       String
+  stitchUrl         String
+  externalReference String   @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  loan              Loan     @relation(fields: [loanId], references: [id])
+  client            Client   @relation(fields: [clientId], references: [id])
+}

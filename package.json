@@ -34,6 +34,7 @@
     "demo:typecheck": "npm run --silent gen:registries && tsc --noEmit -p scripts/demo/tsconfig.json"
   },
   "prisma": {
+    "schema": "prisma/schema",
     "seed": "npm run --silent seed:staging"
   },
   "dependencies": {

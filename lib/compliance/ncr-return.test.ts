@@ -112,7 +112,7 @@ describe("population predicates", () => {
   })
 
   it("covers every LoanStatus exactly once, as included or excluded", () => {
-    // Pins the taxonomy against the enum in prisma/schema.prisma so a new
+    // Pins the taxonomy against the enum in prisma/schema/loans-payments.prisma so a new
     // status cannot silently default to "not in the book".
     const ALL_LOAN_STATUSES = [
       "ACTIVE", "COMPLETED", "DEFAULTED", "PENDING_WRITE_OFF",

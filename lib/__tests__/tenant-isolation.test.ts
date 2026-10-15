@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync } from "fs"
-import { join } from "path"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
-const schemaPath = join(process.cwd(), "prisma/schema.prisma")
-const schema = readFileSync(schemaPath, "utf8")
+const schema = readPrismaSchema()
 
 function extractModel(name: string): string {
   const start = schema.indexOf(`model ${name} {`)

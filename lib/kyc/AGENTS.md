@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: lib/kyc (override rules)
+<!-- summary: failed-selfie override policy and database enforcement -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Failed-selfie overrides

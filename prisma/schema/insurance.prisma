@@ -1,0 +1,616 @@
+// ─── IMS Module ───────────────────────────────────────────────────────────────
+
+model InsurancePolicy {
+  id                   String              @id @default(cuid())
+  tenantId             String
+  tenant               Tenant              @relation(fields: [tenantId], references: [id])
+  policyNumber         String
+  clientId             String
+  type                 InsurancePolicyType
+  status               PolicyStatus        @default(ACTIVE)
+  premiumAmount        Decimal             @db.Decimal(12, 2)
+  sumAssured           Decimal             @db.Decimal(12, 2)
+  startDate            DateTime
+  renewalDate          DateTime
+  linkedLoanId         String?
+  // @deprecated — use insurerId relation instead
+  insurer              String?
+  insurerId            String?
+  commissionRate       Decimal             @default(0.15) @db.Decimal(5, 4)
+  commissionAmount     Decimal?            @db.Decimal(12, 2)
+  waitingPeriodEnds    DateTime?
+  advisorId            String?
+  advisor              User?               @relation("AdvisorPolicies", fields: [advisorId], references: [id])
+  // PPR / Product Disclosure fields
+  pprIssuedAt          DateTime?
+  pprAcknowledgedAt    DateTime?
+  pprAcknowledgedBy    String?
+  // Phase 2a: FAIS disclosure gate
+  faisDisclosureAt     DateTime?
+  faisDisclosurePdfUrl String?
+  policySource         PolicySource        @default(STANDALONE)
+  // R-09: sha256 of the draftToken consumed at bind, populated on STANDALONE
+  // policies only. Unique to prevent replay of an in-TTL token across binds.
+  // Also enforced by a CHECK constraint: policySource='STANDALONE' implies
+  // faisDisclosureAt AND faisDisclosurePdfUrl are non-null
+  // (InsurancePolicy_standalone_fais_required, in the baseline migration).
+  faisDraftTokenHash   String?             @unique
+  // Phase 6B: Risk info fields
+  vehicleRegNumber     String?
+  vehicleValue         Decimal?            @db.Decimal(12, 2)
+  vehicleUse           String? // PRIVATE, BUSINESS, COMMUTE
+  propertyAddress      String?
+  constructionType     String? // BRICK, TIMBER, MIXED
+  propertyValue        Decimal?            @db.Decimal(12, 2)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  client               Client              @relation(fields: [clientId], references: [id])
+  insurer_rel          Insurer?            @relation(fields: [insurerId], references: [id])
+  productId            String?
+  product              InsuranceProduct?   @relation(fields: [productId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  beneficiaries       InsuranceBeneficiary[]
+  claims              InsuranceClaim[]
+  commissions         AdvisorCommission[]
+  convertedFromQuotes InsuranceQuote[]       @relation("QuoteConvertedPolicy")
+  lives               InsuredLife[]
+  premiumPayments     PremiumPayment[]
+
+  @@unique([tenantId, policyNumber])
+}
+
+model InsuranceBeneficiary {
+  id           String          @id @default(cuid())
+  policyId     String
+  firstName    String
+  lastName     String
+  idNumber     String?
+  dateOfBirth  DateTime?
+  relationship String
+  coverAmount  Decimal?        @db.Decimal(12, 2)
+  createdAt    DateTime        @default(now())
+  policy       InsurancePolicy @relation(fields: [policyId], references: [id])
+}
+
+model InsuranceClaim {
+  id              String          @id @default(cuid())
+  tenantId        String
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  policyId        String
+  policy          InsurancePolicy @relation(fields: [policyId], references: [id])
+  claimNumber     String          @unique
+  status          ClaimStatus     @default(SUBMITTED)
+  claimAmount     Decimal         @db.Decimal(12, 2)
+  approvedAmount  Decimal?        @db.Decimal(12, 2)
+  submittedAt     DateTime        @default(now())
+  resolvedAt      DateTime?
+  notes           String?
+  // Phase 6B enriched fields
+  claimType       String? // DEATH, DISABILITY, MOTOR_ACCIDENT, THEFT, FIRE
+  incidentDate    DateTime?
+  fnolDate        DateTime?
+  assessorId      String?
+  assessor        User?           @relation("ClaimAssessor", fields: [assessorId], references: [id])
+  insurerRef      String?
+  rejectionReason String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model PremiumPayment {
+  id        String          @id @default(cuid())
+  tenantId  String
+  tenant    Tenant          @relation(fields: [tenantId], references: [id])
+  policyId  String
+  policy    InsurancePolicy @relation(fields: [policyId], references: [id])
+  amount    Decimal         @db.Decimal(12, 2)
+  dueDate   DateTime
+  paidDate  DateTime?
+  status    PremiumStatus   @default(DUE)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+enum InsurancePolicyType {
+  FUNERAL_COVER
+  CREDIT_LIFE
+  LIFE_INSURANCE
+  SHORT_TERM_MOTOR
+  SHORT_TERM_HOME
+  SHORT_TERM_CONTENTS
+  BUSINESS_INSURANCE
+}
+
+enum PolicyStatus {
+  ACTIVE
+  LAPSED
+  CANCELLED
+  CLAIMED
+  EXPIRED
+}
+
+enum PolicySource {
+  STANDALONE
+  BUNDLED_CREDIT_AGREEMENT
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum PremiumStatus {
+  DUE
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+model InsuranceProduct {
+  id             String              @id @default(cuid())
+  tenantId       String
+  tenant         Tenant              @relation(fields: [tenantId], references: [id])
+  code           String
+  name           String
+  type           InsurancePolicyType
+  // Flat price/cover. PRECEDENCE (Phase 2): for FUNERAL_COVER and
+  // LIFE_INSURANCE the product's ACTIVE InsuranceRateTable is authoritative
+  // and these two columns are IGNORED by quoting — a rated quote's premium
+  // comes from the matched InsuranceRateBand, never from here. They remain
+  // in use for credit life, which reads them through
+  // LoanApplication.creditLifeProduct at disbursement, so they are neither
+  // dropped nor made nullable.
+  premiumAmount  Decimal             @db.Decimal(12, 2)
+  sumAssured     Decimal             @db.Decimal(12, 2)
+  commissionRate Decimal             @default(0.15) @db.Decimal(5, 4)
+  active         Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  // Underwriter for this product. Drives the insurer + commission set on an
+  // auto-bundled Credit Life policy at disbursement. Nullable —
+  // legacy products and products without a configured underwriter stay valid.
+  insurerId      String?
+  insurer        Insurer?            @relation(fields: [insurerId], references: [id])
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applications     LoanApplication[]          @relation("ApplicationCreditLifeProduct")
+  eligibilityRules InsuranceEligibilityRule[]
+  policies         InsurancePolicy[]
+  quotes           InsuranceQuote[]
+  rateTables       InsuranceRateTable[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+  @@index([insurerId])
+}
+
+// ─── IMS Product Configuration ────────────────────────────────────────────────
+//
+// The lender is a PURE INTERMEDIARY: it does not carry risk and holds no binder
+// or UMA authority. It therefore never derives a price or makes an
+// underwriting decision. These tables hold the INSURER's supplied rate card
+// and acceptance terms as data, so that:
+//
+//   1. quoting is a lookup against the insurer's own rates, not a calculation
+//      of our own, and
+//   2. wiring in an insurer later is captured as DATA rather than as a code
+//      change and a deploy.
+//
+// Note what (2) does NOT yet mean: this phase ships no backoffice form for
+// rate tables, bands or eligibility rules. The terms are captured through the
+// config API under app/api/insurance/{rate-tables,eligibility-rules}, which
+// has no UI caller — an operator posts JSON. A screen for this is a later
+// phase; until it exists, "data entry" is an API call, not a form.
+//
+// `lib/insurance/product-readiness.ts` reports whether a product's terms are
+// complete enough to quote. Be precise about what that is and is not: it is a
+// REPORT, not a gate. Its only caller is the readiness panel on
+// app/(dashboard)/settings/insurance — no writer consults it.
+//
+// So a product with no rate card is NOT prevented from being sold. The
+// pre-existing POST /api/insurance/policies takes premiumAmount and sumAssured
+// from the request body and never consults a rate table, so an operator can
+// still bind a policy at any price against a product configured with nothing.
+// A blind review demonstrated exactly that: an ACTIVE FUNERAL_COVER policy at
+// premium 0.00 for cover of 10,000,000 against a product with zero rate tables
+// and zero rules.
+//
+// What actually keeps this dark today is TenantConfig.featureIms, which is
+// false by default and closes app/api/insurance/**. Wiring rating and
+// screening into the policy write path is the next phase; doing it here would
+// remove a capability staff have today, since no product yet has a rate card.
+// Do not describe readiness as a gate until a writer enforces it.
+
+/// A versioned rate card for one product. An ACTIVE table is NEVER mutated:
+/// a rate change creates a new version and retires the previous one, so an
+/// in-force policy keeps the rate it was sold at. Same write-once discipline
+/// as Loan.interestRatePm.
+model InsuranceRateTable {
+  id            String           @id @default(cuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  productId     String
+  product       InsuranceProduct @relation(fields: [productId], references: [id])
+  insurerId     String?
+  insurer       Insurer?         @relation(fields: [insurerId], references: [id])
+  version       Int
+  name          String
+  status        RateTableStatus  @default(DRAFT)
+  basis         RateBasis        @default(AGE_BANDED)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  createdById   String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  bands  InsuranceRateBand[]
+  quotes InsuranceQuote[]
+
+  @@unique([tenantId, productId, version])
+  @@index([tenantId, productId, status])
+  @@index([insurerId])
+}
+
+/// One row of a rate card: what the insurer charges for a life of a given
+/// type, at a given entry age, for a given cover amount.
+model InsuranceRateBand {
+  id            String             @id @default(cuid())
+  rateTableId   String
+  rateTable     InsuranceRateTable @relation(fields: [rateTableId], references: [id], onDelete: Cascade)
+  lifeType      InsuredLifeType
+  minAge        Int
+  maxAge        Int
+  sumAssured    Decimal            @db.Decimal(12, 2)
+  /// Premium in RANDS, matching the unit convention used across the IMS.
+  premiumAmount Decimal            @db.Decimal(12, 2)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  insuredLives  InsuredLife[]
+
+  @@unique([rateTableId, lifeType, minAge, maxAge, sumAssured])
+  @@index([rateTableId, lifeType])
+}
+
+/// The insurer's acceptance terms, as data. Screening against these is what
+/// stops us selling a policy the insurer would reject. It is NOT underwriting
+/// — no decision is made here that the insurer has not already specified.
+model InsuranceEligibilityRule {
+  id           String               @id @default(cuid())
+  tenantId     String
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  productId    String
+  product      InsuranceProduct     @relation(fields: [productId], references: [id])
+  /// ALL_LIVES rather than a nullable column: Postgres treats NULLs as
+  /// distinct in a unique constraint, so a nullable scope would allow the
+  /// same rule to be configured twice for the same product.
+  lifeScope    EligibilityLifeScope @default(ALL_LIVES)
+  ruleType     EligibilityRuleType
+  numericValue Decimal?             @db.Decimal(14, 2)
+  textValue    String?
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@unique([tenantId, productId, lifeScope, ruleType])
+  @@index([tenantId, productId, active])
+}
+
+enum RateTableStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum RateBasis {
+  AGE_BANDED
+  FLAT
+  /// Premium quoted per R1 000 of cover.
+  PER_MILLE
+}
+
+/// Who is covered. Distinct from InsuranceBeneficiary, which is who gets PAID.
+/// South African funeral cover is inherently multi-life; the InsuredLife model
+/// itself lands in Phase 2, but rate bands are keyed by this type today.
+enum InsuredLifeType {
+  MAIN_MEMBER
+  SPOUSE
+  CHILD
+  EXTENDED_FAMILY
+}
+
+enum EligibilityLifeScope {
+  ALL_LIVES
+  MAIN_MEMBER
+  SPOUSE
+  CHILD
+  EXTENDED_FAMILY
+}
+
+enum EligibilityRuleType {
+  MIN_ENTRY_AGE
+  MAX_ENTRY_AGE
+  MIN_COVER
+  MAX_COVER
+  MAX_TOTAL_COVER
+  WAITING_PERIOD_DAYS
+  MAX_LIVES_OF_TYPE
+  COOLING_OFF_DAYS
+}
+
+// ─── IMS Quoting (Phase 2) ────────────────────────────────────────────────────
+
+/// A quote for one product for one client. Tenant-scoped, as a top-level
+/// entity. Priced by lookup against the product's ACTIVE InsuranceRateTable —
+/// The lender carries no risk and derives no price of its own.
+model InsuranceQuote {
+  id                String              @id @default(cuid())
+  tenantId          String
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  clientId          String
+  client            Client              @relation(fields: [clientId], references: [id])
+  productId         String
+  product           InsuranceProduct    @relation(fields: [productId], references: [id])
+  advisorId         String?
+  advisor           User?               @relation("AdvisorQuotes", fields: [advisorId], references: [id])
+  quoteNumber       String
+  status            QuoteStatus         @default(DRAFT)
+  /// Which rate table version priced this quote. Kept so the price stays
+  /// reconstructable after that table is RETIRED.
+  rateTableId       String?
+  rateTable         InsuranceRateTable? @relation(fields: [rateTableId], references: [id])
+  /// Nullable, NOT zero-defaulted: a quote whose rating FAILED is persisted in
+  /// DRAFT with the failures recorded, and must never present as a free quote.
+  totalPremium      Decimal?            @db.Decimal(12, 2)
+  totalSumAssured   Decimal?            @db.Decimal(12, 2)
+  /// The persisted pass/fail eligibility breakdown, kept as evidence of what
+  /// was screened — including the failures.
+  eligibilityResult Json?
+  /// Per-life rating failures, kept for the same reason.
+  ratingFailures    Json?
+  effectiveDate     DateTime
+  expiresAt         DateTime?
+  convertedPolicyId String?
+  convertedPolicy   InsurancePolicy?    @relation("QuoteConvertedPolicy", fields: [convertedPolicyId], references: [id])
+  /// How many FAIS disclosures have been issued for this quote.
+  ///
+  /// Incremented by an atomic reservation in the disclosure route BEFORE any
+  /// PDF is rendered, so the same statement that bounds re-issuance also closes
+  /// the window between reading `expiresAt` and writing the file. Each issue
+  /// mints a fresh token and therefore a fresh file that nothing deletes.
+  disclosuresIssued Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  adviceRecord InsuranceAdviceRecord?
+  lives        InsuredLife[]
+
+  @@unique([tenantId, quoteNumber])
+  @@index([tenantId, clientId])
+  @@index([tenantId, status])
+}
+
+/// One life covered by a quote, and then by the policy it binds to. Strictly
+/// distinct from InsuranceBeneficiary: an InsuredLife is who is COVERED, a
+/// beneficiary is who gets PAID. They are frequently different people.
+///
+/// No tenantId — scoped through its parent quote or policy, following the
+/// InsuranceBeneficiary and InsuranceRateBand precedent.
+model InsuredLife {
+  id                String             @id @default(cuid())
+  /// Populated ONLY when the covered life genuinely is an existing client,
+  /// typically the main member. Deliberately nullable: SA funeral cover
+  /// routinely covers a spouse, children and extended family who have never
+  /// applied for credit, and a required FK would manufacture junk Client rows
+  /// on every family quote.
+  clientId          String?
+  client            Client?            @relation(fields: [clientId], references: [id])
+  firstName         String
+  lastName          String
+  idNumber          String?
+  dateOfBirth       DateTime
+  relationship      String
+  lifeType          InsuredLifeType
+  sumAssured        Decimal            @db.Decimal(12, 2)
+  /// Null until the life is rated.
+  premiumAmount     Decimal?           @db.Decimal(12, 2)
+  waitingPeriodEnds DateTime?
+  status            InsuredLifeStatus  @default(PENDING)
+  /// Which band priced this life. Audit trail, so the price stays
+  /// reconstructable after the rate card is retired.
+  rateBandId        String?
+  rateBand          InsuranceRateBand? @relation(fields: [rateBandId], references: [id])
+  /// A life attaches to a quote first, then to the policy the quote binds.
+  ///
+  /// RESTRICT on both, deliberately, and NOT cascade. A life belongs to its
+  /// quote and then to a policy, so cascading a quote deletion would delete
+  /// lives off an IN-FORCE policy. SET NULL is worse still: it leaves rows
+  /// holding names, dates of birth and ID numbers with no parent and no
+  /// tenantId of their own — unreachable except through the idNumber index,
+  /// which is a POPIA problem, not a tidiness one. Nothing in this system
+  /// deletes a quote or a policy today (policies are CANCELLED), so RESTRICT
+  /// costs nothing and forces an explicit, deliberate act if that ever changes.
+  quoteId           String?
+  quote             InsuranceQuote?    @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  policyId          String?
+  policy            InsurancePolicy?   @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([quoteId])
+  @@index([policyId])
+  /// COMPLIANCE, not performance: a covered life is often not a Client, so a
+  /// staff member fulfilling a POPIA subject-access or deletion request has no
+  /// other way to find these rows by hand than by the ID number given.
+  @@index([idNumber])
+}
+
+/// The FAIS Record of Advice for a quote. IMMUTABLE once written — a
+/// correction is a NEW record, the same write-once discipline as rate table
+/// versions and Loan.interestRatePm. Never update one in place.
+model InsuranceAdviceRecord {
+  id                 String         @id @default(cuid())
+  tenantId           String
+  tenant             Tenant         @relation(fields: [tenantId], references: [id])
+  quoteId            String         @unique
+  quote              InsuranceQuote @relation(fields: [quoteId], references: [id])
+  needsAnalysis      String
+  productsConsidered Json
+  recommendation     String
+  clientDecision     ClientDecision
+  reasonIfDifferent  String?
+  pdfUrl             String?
+  /// sha256 of the rendered record, so a stored PDF can be proved unaltered.
+  contentHash        String?
+  recordedById       String?
+  recordedBy         User?          @relation("AdviceRecordedBy", fields: [recordedById], references: [id])
+  recordedAt         DateTime       @default(now())
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([tenantId])
+}
+
+enum QuoteStatus {
+  DRAFT
+  QUOTED
+  ADVICE_RECORDED
+  SUBMITTED_TO_INSURER
+  ACCEPTED
+  REJECTED
+  CONVERTED
+  EXPIRED
+}
+
+enum InsuredLifeStatus {
+  PENDING
+  ACTIVE
+  REMOVED
+}
+
+enum ClientDecision {
+  ACCEPTED_RECOMMENDATION
+  CHOSE_ALTERNATIVE
+  DECLINED_ADVICE
+}
+
+// ── Insurer ───────────────────────────────────────────────────────────────────
+
+model Insurer {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  fspNumber    String?
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  apiEndpoint  String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  applications LoanApplication[]    @relation("ApplicationCreditLifeInsurer")
+  policies     InsurancePolicy[]
+  products     InsuranceProduct[]
+  rateTables   InsuranceRateTable[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+// ── Fit and Proper ────────────────────────────────────────────────────────────
+
+model FitAndProper {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id])
+  reExamType        String?
+  reExamPassDate    DateTime?
+  licenceNumber     String?
+  licenceExpiry     DateTime?
+  cpdHoursRequired  Int       @default(30)
+  cpdHoursCompleted Int       @default(0)
+  cpdPeriodEnd      DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// ── Phase 5: FSCA Engine ──────────────────────────────────────────────────────
+
+model CoiDeclaration {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  year        Int
+  hasConflict Boolean  @default(false)
+  details     String?
+  declaredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, year])
+  @@index([tenantId])
+}
+
+model TcfOutcome {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  period      String // e.g. "2026-Q1"
+  outcome1    Boolean  @default(false)
+  outcome2    Boolean  @default(false)
+  outcome3    Boolean  @default(false)
+  outcome4    Boolean  @default(false)
+  outcome5    Boolean  @default(false)
+  outcome6    Boolean  @default(false)
+  notes       String?
+  completedBy String?
+  completedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, period])
+  @@index([tenantId])
+}
+
+// ── Advisor Commissions ───────────────────────────────────────────────────────
+
+model AdvisorCommission {
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  advisorId      String
+  advisor        User             @relation(fields: [advisorId], references: [id])
+  policyId       String
+  policy         InsurancePolicy  @relation(fields: [policyId], references: [id])
+  period         String // e.g. "2026-04" (YYYY-MM)
+  amount         Decimal          @db.Decimal(12, 2)
+  rate           Decimal          @db.Decimal(5, 4)
+  premiumBase    Decimal          @db.Decimal(12, 2)
+  status         CommissionStatus @default(PENDING)
+  clawedBackAt   DateTime?
+  clawbackReason String?
+  paidAt         DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([advisorId, policyId, period])
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CLAWED_BACK
+}
