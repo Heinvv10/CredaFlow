@@ -1466,6 +1466,25 @@ CREATE TRIGGER "EntityDocument_recovery_evidence" BEFORE UPDATE OF "deletedAt" O
   FOR EACH ROW EXECUTE FUNCTION public."guardRecoveryEvidenceDocument"();
 
 -- ---------------------------------------------------------------------------
+-- A surrender a recovery links is credited only by that recovery's proceeds step. The standalone path
+-- (creditSurrenderProceeds) checks for a linked recovery and then writes; a recovery linked between the two
+-- would be credited twice. guardSurrenderRequest is untouched; this is a separate rule.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public."guardSurrenderRecoveryProceeds"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NEW."status" = 'PROCEEDS_CREDITED' AND OLD."status" <> 'PROCEEDS_CREDITED' AND EXISTS (
+      SELECT 1 FROM "Recovery" r WHERE r."surrenderRequestId" = NEW."id" AND r."tenantId" = NEW."tenantId"
+        AND r."proceedsPaymentId" IS DISTINCT FROM NEW."proceedsPaymentId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Sale proceeds for this surrender go through its recovery';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+CREATE TRIGGER "SurrenderRequest_recovery_proceeds" BEFORE UPDATE OF "status", "proceedsPaymentId" ON "SurrenderRequest"
+  FOR EACH ROW EXECUTE FUNCTION public."guardSurrenderRecoveryProceeds"();
+
+-- ---------------------------------------------------------------------------
 -- Row-level security: the policy of 20261015130000_tenant_rls_new_scoped_models.
 -- ---------------------------------------------------------------------------
 ALTER TABLE "LegalMatter" ENABLE ROW LEVEL SECURITY;
