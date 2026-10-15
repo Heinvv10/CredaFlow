@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { AlertCircle } from "lucide-react"
 import { safeInternalPath } from "@/lib/safe-path"
+import { accessRefusalMessage } from "@/lib/security/staff-access-messages"
 
 export type LoginVariant = "staff" | "client"
 
@@ -100,6 +101,10 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
         setError("Too many sign-in attempts. Wait a few minutes and try again.")
       } else if (errorCode === "wrong_audience") {
         setError(copy.errorWrongAudience)
+      } else if (accessRefusalMessage(errorCode)) {
+        // Working hours / IP allowlist / portal off: told only after the
+        // password (and code) were right, so it reveals nothing to a guesser.
+        setError(accessRefusalMessage(errorCode)!)
       } else if (step === "totp") {
         // Falling back to password step on a non-TOTP error mid-flow is jarring;
         // treat as an invalid-code retry to avoid leaking which factor failed.

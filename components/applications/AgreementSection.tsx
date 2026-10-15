@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast"
 import { formatZAR } from "@/lib/loan-calculator"
 import { portalContinueUrl, portalUrlOrNull } from "@/lib/portal-urls"
 import { southAfricanCalendarDate } from "@/lib/compliance/sa-business-days"
+import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 interface Props {
   applicationId: string
@@ -51,7 +52,11 @@ interface Props {
   clientEmail: string
   /** Application reference — proves the email belongs to a real application. */
   reference: string
+  /** The lender requires the borrower's one-time code for branch signing too (lib/signing-otp). */
+  branchSigningOtp?: { required: boolean; channels: SigningOtpChannel[] }
 }
+
+const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
 
 export function AgreementSection({
   applicationId,
@@ -72,8 +77,13 @@ export function AgreementSection({
   signingKycBlockers,
   clientEmail,
   reference,
+  branchSigningOtp = NO_SIGNING_OTP,
 }: Props) {
   const router = useRouter()
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
+  // Remounts the OTP step after a signing refusal that spent or voided the code.
+  const [otpAttempt, setOtpAttempt] = useState(0)
+  const branchOtpSatisfied = !branchSigningOtp.required || otpChallengeId !== null
   const [generating, setGenerating] = useState(false)
   const [signing, setSigning] = useState(false)
   const [savingElection, setSavingElection] = useState(false)
@@ -253,6 +263,7 @@ export function AgreementSection({
           attestation: branchWitnessAttestation,
           agreementDocumentSha256: agreementSha,
           pasqDocumentSha256: pasqSha,
+          ...(otpChallengeId ? { signingOtpChallengeId: otpChallengeId } : {}),
         }),
       })
       if (res.ok) {
@@ -260,7 +271,14 @@ export function AgreementSection({
         setSignedMethod("branch")
         toast.agreement.signed()
       } else {
-        toast.agreement.signFailed()
+        const data = await res.json().catch(() => ({})) as { error?: string; signingOtp?: string }
+        if (data.signingOtp) {
+          setOtpChallengeId(null)
+          setOtpAttempt((n) => n + 1)
+          toast.error("Signing failed", data.error ?? "Verify a new code and try again")
+        } else {
+          toast.agreement.signFailed()
+        }
       }
     } catch {
       toast.networkError()
@@ -519,9 +537,19 @@ export function AgreementSection({
             />
             <span>I witnessed the consumer review the exact PASQ and credit agreement in this packet, then draw the signature shown above.</span>
           </label>
+          {branchSigningOtp.required && (
+            <SigningOtpStep
+              key={`${agreementSha ?? "none"}:${otpAttempt}`}
+              purpose="AGREEMENT"
+              subjectId={applicationId}
+              documentSha256={agreementSha}
+              channels={branchSigningOtp.channels}
+              onVerified={setOtpChallengeId}
+            />
+          )}
           <Button
             onClick={handleSignBranch}
-            disabled={signing || !branchConsumerSignature || !branchWitnessAttestation}
+            disabled={signing || !branchConsumerSignature || !branchWitnessAttestation || !branchOtpSatisfied}
           >
             {signing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
             {signing ? "Recording signature..." : "Record Witnessed Branch Signature"}

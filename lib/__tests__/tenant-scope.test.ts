@@ -134,6 +134,8 @@ describe("tenant-scope — ALS primitives", () => {
       "WebhookEndpoint",
       "WebhookEvent",
       "WebhookDelivery",
+      // Signing OTP challenges — non-null tenantId.
+      "SigningOtpChallenge",
       // Collections engine (lib/collections-engine). Non-null tenantId, passed
       // explicitly on every query: the crons run outside a request frame.
       "DebitMandate",

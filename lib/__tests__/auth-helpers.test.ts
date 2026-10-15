@@ -34,7 +34,7 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1" })
+    expect(result).toEqual({ role: "LOAN_ADMIN", tenantId: "tenant-1", accessPolicy: null })
   })
 
   it("returns null when user is not found", async () => {
@@ -80,7 +80,16 @@ describe("revalidatePrincipal", () => {
       tokenVersion: 1,
     })
     const result = await revalidatePrincipal("user-1", 1)
-    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2" })
+    expect(result).toEqual({ role: "BRANCH_MANAGER", tenantId: "tenant-2", accessPolicy: null })
+  })
+
+  it("returns the tenant's staff access columns read in the same query", async () => {
+    const config = { staffAccessHours: null, staffIpAllowlist: ["192.0.2.0/24"] }
+    mockFindUnique.mockResolvedValue({
+      active: true, role: "ADMIN", tenantId: "tenant-1", tokenVersion: 1, tenant: { config },
+    })
+    expect(await revalidatePrincipal("user-1", 1)).toEqual({ role: "ADMIN", tenantId: "tenant-1", accessPolicy: config })
+    expect(mockFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it("returns 'error' on DB failure without forcing sign-out", async () => {
