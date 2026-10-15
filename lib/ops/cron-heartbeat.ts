@@ -40,6 +40,7 @@ export const CRON_FRESHNESS_MINUTES: Record<string, number> = {
   "website-chat-handoffs": 10,
   "asset-finance-reprice": DAY + 2 * HOUR,
   "asset-finance-lease-invoices": DAY + 2 * HOUR,
+  "asset-finance-recovery-deadlines": DAY + 2 * HOUR,
   "screening-refresh": DAY + 2 * HOUR,
   "webhook-deliveries": 10,
   "lender-api-retention": DAY + 2 * HOUR,
