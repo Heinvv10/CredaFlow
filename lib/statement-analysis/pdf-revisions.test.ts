@@ -1,5 +1,6 @@
+import { getHeapStatistics } from "v8"
 import { describe, expect, it } from "vitest"
-import { ID, lastStartxref, original, save, wordSave } from "./fixtures/revisions"
+import { ID, lastStartxref, original, page, save, wordSave } from "./fixtures/revisions"
 import { countIncrementalUpdates } from "./pdf-revisions"
 import { readPdf } from "./pdf-tools"
 
@@ -88,6 +89,41 @@ describe("an appended save that adds no object and no xref entry", () => {
     expect(await shows(base.pdf)).toContain("GENUINE")
     expect(await shows(swapped)).toContain("SHADOW")
     expect(count(swapped)).toBeGreaterThanOrEqual(1)
+  })
+
+  it("counts one whose /XRefStm puts an object the body defines into an object stream, which swaps the content", async () => {
+    // The tester's repro: the table frees page 3, whose real "3 0 obj" is still in the body; the
+    // stream maps 3 into an object stream holding a page that shows SHADOW.
+    const base = original({ xrefStreams: 1, freed: [3], objStm: { 3: page(2, 9) }, streamOverrides: { 3: [2, "objStm", 0] } })
+    const swapped = wordSave(base.pdf, base.trailer, `/XRefStm ${base.xrefStreams[0]}`)
+    expect(await shows(base.pdf)).toContain("GENUINE")
+    expect(await shows(swapped)).toContain("SHADOW")
+    expect(count(swapped)).toBeGreaterThanOrEqual(1)
+    // The pairing: the object stream itself is allowed (one header, /Type /ObjStm); what it may
+    // supply is not. Holding only an object the body never defines (13, past the table), it changes nothing visible.
+    const harmless = original({ xrefStreams: 1, objStm: { 13: "<< /Lang (en) >>" }, streamOverrides: { 13: [2, "objStm", 0] } })
+    expect(count(wordSave(harmless.pdf, harmless.trailer, `/XRefStm ${harmless.xrefStreams[0]}`))).toBe(0)
+  })
+
+  it("counts one whose /XRefStm maps an object the table frees to anything but its one object stream header", () => {
+    const tail = (o: ReturnType<typeof original>) => count(wordSave(o.pdf, o.trailer, `/XRefStm ${o.xrefStreams[0]}`))
+    const nine = original().pdf.indexOf("\n9 0 obj") + 1
+    // Freed 4 has two headers in the body; the stream picks the second.
+    expect(tail(original({ xrefStreams: 1, freed: [4], shadowFour: true, streamOverrides: { 4: [1, "shadowFour", 0] } })), "two headers").toBe(1)
+    // Freed 9 has one header, but it is a content stream, not an object stream.
+    expect(tail(original({ xrefStreams: 1, freed: [9], streamOverrides: { 9: [1, nine, 0] } })), "not an object stream").toBe(1)
+    // The object stream's number also heads a second object elsewhere in the body.
+    const o = original({ xrefStreams: 1, objStm: { 3: page(2, 4) }, padding: 40 })
+    const doubled = { ...o, pdf: o.pdf.replace(/%x{40}\n/, `%\n${`${o.objStm} 0 obj <<>> endobj`.padEnd(39)}\n`) }
+    expect(tail(doubled), "object stream number defined twice").toBe(1)
+    expect(tail(o), "the same file without the second definition").toBe(0)
+  })
+
+  it("counts one whose /XRefStm stream has far more entries than the table, each harmless on its own", () => {
+    // Four million compressed objects the body never defines: 8 KB of deflate, every entry passes.
+    const raw = Buffer.alloc(8_388_608, Buffer.from([2, 0]))
+    const o = original({ xrefStreams: 1, streamBody: { w: "[1 1 0]", index: "[100 4194304]", raw } })
+    expect(count(wordSave(o.pdf, o.trailer, `/XRefStm ${o.xrefStreams[0]}`))).toBe(1)
   })
 
   it("counts one whose /XRefStm stream frees, compresses or re-generations an object the table has in use", () => {
@@ -211,6 +247,23 @@ describe("the cost of checking appended saves stays linear in the file size", ()
     let pdf = `%PDF-1.7\nxref\n%${"traile ".repeat(300_000)}\ntrailer\n<</Size 1>>\nstartxref\n9\n%%EOF`
     for (let i = 0; i < 20_000; i++) pdf = save(pdf, "/Size 1 /Prev 9", i % 2 ? {} : { startxref: 9 })
     timed(pdf, 20_000)
+  })
+
+  it("on a deflate bomb: an 8 KB xref stream of 8 million one-byte entries", () => {
+    const o = original({ xrefStreams: 1, streamBody: { w: "[0 1 0]", index: "[0 8388608]", raw: Buffer.alloc(8_388_608) } })
+    const heap = getHeapStatistics().total_heap_size
+    timed(wordSave(o.pdf, o.trailer, `/XRefStm ${o.xrefStreams[0]}`), 1)
+    // Eight million decoded entries held as arrays would take hundreds of MB.
+    expect(getHeapStatistics().total_heap_size - heap).toBeLessThan(64 * 1024 * 1024)
+  })
+
+  it("on the body-header scan over 2 MB of digits, spaces and comment markers", () => {
+    // Body headers are indexed once the stream maps an object the table does not list (Word's type 2s).
+    const noise = `1 % % % % % % % % % % % % % % % % % % % % % % % %\n${"9 ".repeat(10)}`.repeat(30_000)
+    const o = original({ xrefStreams: 1, padding: noise.length })
+    // Same length as the padding line, so every offset holds.
+    const noisy = o.pdf.replace(/%x+\n/, `%\n${noise.slice(0, -1)}\n`)
+    timed(wordSave(noisy, o.trailer, `/XRefStm ${o.xrefStreams[0]}`), 0)
   })
 
   it("on 2,000 saves alternating their /XRefStm over a 16 MB original", () => {

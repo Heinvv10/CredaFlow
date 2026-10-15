@@ -4,6 +4,11 @@
  * before it, as Word's "hybrid-xref" save is. Every check reads a bounded
  * window or runs once per file, so a hostile file of many saves costs time
  * linear in its size.
+ *
+ * Scope: this catches an edit appended to a genuine file. An original the
+ * forger built (shadow objects, decoy trailers, a doctored xref stream) is out
+ * of scope: whoever builds the original can forge its content with no append.
+ * Hardening against such originals stopped here by decision (PR #95).
  */
 import { inflateSync } from "zlib"
 
@@ -49,6 +54,8 @@ interface Revisions {
   originalEnd: number
   trailers?: number[]
   xrefType?: number | null
+  /** Offsets of each object number's uncompressed "N G obj" headers in the original. */
+  headers?: Map<number, number[]>
 }
 
 /** Key → value text of a dictionary of name/value pairs; null for anything else or a repeated key. */
@@ -96,79 +103,126 @@ function isOriginalsXrefStream(r: Revisions, offset: number): boolean {
     !/stream|endobj/.test(head.slice(0, at))
 }
 
-/** In-use entries of the classic xref table at `offset` ending at `trailerAt`, object → [offset, generation]; null unless exactly one. */
-function classicTableInUse(bytes: Buffer, offset: number, trailerAt: number): Map<number, [number, number]> | null {
+/** The classic xref table at `offset` ending at `trailerAt`: its in-use entries (object → [offset, generation]) and its entry count; null unless exactly one. */
+function classicTable(bytes: Buffer, offset: number, trailerAt: number): { inUse: Map<number, [number, number]>; entries: number } | null {
   const tokens = bytes.subarray(offset, trailerAt).toString("latin1").split(new RegExp(`${PDF_SPACE}+`)).filter(Boolean)
   if (tokens[0] !== "xref") return null
   const inUse = new Map<number, [number, number]>()
+  let entries = 0
   for (let i = 1; i < tokens.length;) {
     const [first, n] = [tokens[i], tokens[i + 1] ?? ""]
     if (!/^\d+$/.test(first) || !/^\d+$/.test(n)) return null
     i += 2
-    for (let k = 0; k < Number(n); k++, i += 3) {
+    for (let k = 0; k < Number(n); k++, i += 3, entries++) {
       const [at, gen, type] = [tokens[i] ?? "", tokens[i + 1] ?? "", tokens[i + 2]]
       if (!/^\d{10}$/.test(at) || !/^\d{5}$/.test(gen) || (type !== "n" && type !== "f")) return null
       if (inUse.has(Number(first) + k)) return null
       if (type === "n") inUse.set(Number(first) + k, [Number(at), Number(gen)])
     }
   }
-  return inUse
+  return { inUse, entries }
 }
 
 const int = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? Number(v) : NaN)
 const ints = (v: string | undefined) => (v?.startsWith("[") ? v.slice(1, -1).split(new RegExp(`${PDF_SPACE}+`)).filter(Boolean).map(int) : null)
 
-/** Entries of the xref stream object at `offset`, [object, type, field 2, field 3]; null unless it decodes exactly as Word's does. */
-function xrefStreamEntries(bytes: Buffer, offset: number, end: number): Array<[number, number, number, number]> | null {
+/**
+ * Hands each entry of the xref stream at `offset` to `visit` in place, none
+ * kept, and stops at the first it refuses. False then, or unless the stream
+ * decodes exactly as Word's does with at most `maxEntries` entries: a few KB
+ * of deflate can declare millions.
+ */
+function everyXrefStreamEntry(
+  bytes: Buffer, offset: number, end: number, maxEntries: number,
+  visit: (num: number, type: number, field2: number, field3: number) => boolean,
+): boolean {
   const head = XREF_STREAM_HEAD.exec(bytes.subarray(offset, Math.min(end, offset + 1024)).toString("latin1"))
   const dict = head && dictEntries(head[1], XREF_STREAM_ENTRY)
-  if (!head || !dict || [...dict.keys()].some((k) => !XREF_STREAM_KEYS.has(k)) || dict.get("Type") !== "/XRef") return null
+  if (!head || !dict || [...dict.keys()].some((k) => !XREF_STREAM_KEYS.has(k)) || dict.get("Type") !== "/XRef") return false
   const filter = dict.get("Filter")
   const [length, size, w] = [int(dict.get("Length")), int(dict.get("Size")), ints(dict.get("W"))]
   const index = dict.has("Index") ? ints(dict.get("Index")) : [0, size]
-  if ((filter !== undefined && filter !== "/FlateDecode") || !w || w.length !== 3 || w.some((x) => !(x <= 6)) || w[1] === 0) return null
-  if (!index || index.length % 2 !== 0 || index.some((x) => !Number.isSafeInteger(x)) || !Number.isSafeInteger(length)) return null
+  if ((filter !== undefined && filter !== "/FlateDecode") || !w || w.length !== 3 || w.some((x) => !(x <= 6)) || w[1] === 0) return false
+  if (!index || index.length % 2 !== 0 || index.some((x) => !Number.isSafeInteger(x)) || !Number.isSafeInteger(length)) return false
+  const width = w[0] + w[1] + w[2]
+  const total = index.reduce((sum, x, i) => (i % 2 ? sum + x : sum), 0)
+  if (total > maxEntries || total * width > XREF_STREAM_MAX_BYTES) return false
   const dataAt = offset + head[0].length
   const after = bytes.subarray(dataAt + length, dataAt + length + 16).toString("latin1")
-  if (dataAt + length > end || !new RegExp(`^${PDF_SPACE}*endstream`).test(after)) return null
+  if (dataAt + length > end || !new RegExp(`^${PDF_SPACE}*endstream`).test(after)) return false
   let raw: Buffer
   try {
     const data = bytes.subarray(dataAt, dataAt + length)
-    raw = filter ? inflateSync(data, { maxOutputLength: XREF_STREAM_MAX_BYTES }) : data
+    raw = filter ? inflateSync(data, { maxOutputLength: Math.max(1, total * width) }) : data
   } catch {
-    // Corrupt or over the bound: not Word's stream, so the save stays counted.
-    return null
+    // Corrupt, or longer than its entries: not Word's stream, so the save stays counted.
+    return false
   }
-  const width = w[0] + w[1] + w[2]
-  if (raw.length !== index.reduce((sum, x, i) => (i % 2 ? sum + x : sum), 0) * width) return null
+  if (raw.length !== total * width) return false
   const field = (at: number, n: number, absent: number) => (n === 0 ? absent : raw.readUIntBE(at, n))
-  const entries: Array<[number, number, number, number]> = []
   for (let i = 0, at = 0; i < index.length; i += 2) {
     for (let k = 0; k < index[i + 1]; k++, at += width) {
-      entries.push([index[i] + k, field(at, w[0], 1), field(at + w[0], w[1], 0), field(at + w[0] + w[1], w[2], 0)])
+      if (!visit(index[i] + k, field(at, w[0], 1), field(at + w[0], w[1], 0), field(at + w[0] + w[1], w[2], 0))) return false
     }
   }
-  return entries
+  return true
 }
+
+/**
+ * An uncompressed object header at a token start; a comment is whitespace
+ * between its tokens. The comment must end at its EOL, so it matches one way only.
+ */
+const HEADER_GAP = `(?:${PDF_SPACE}|%[^\\r\\n]*[\\r\\n])+`
+const BODY_HEADER = new RegExp(`(?<![^\\0\\t\\n\\f\\r ])(\\d+)${HEADER_GAP}\\d+${HEADER_GAP}obj(?![A-Za-z0-9])`, "g")
+const OBJECT_STREAM = new RegExp(`^\\d+${PDF_SPACE}+\\d+${PDF_SPACE}+obj${PDF_SPACE}*<<[^>]*?/Type${PDF_SPACE}*/ObjStm(?![A-Za-z0-9])`)
+
+function bodyHeaders(r: Revisions): Map<number, number[]> {
+  if (!r.headers) {
+    r.headers = new Map()
+    for (const m of r.bytes.subarray(0, r.originalEnd).toString("latin1").matchAll(BODY_HEADER)) {
+      const at = r.headers.get(Number(m[1]))
+      if (at) at.push(m.index)
+      else r.headers.set(Number(m[1]), [m.index])
+    }
+  }
+  return r.headers
+}
+
+/**
+ * Whether the stream's entry for an object the table frees or lacks adds
+ * nothing a reader could already see. Word maps those as compressed objects
+ * (type 2), none of which the body also defines, and their object streams
+ * (type 1), each at its one header. Anything else could stand in for an
+ * object the body defines, as a page swapped in from an object stream does.
+ * What a compressed object holds is not checked: only an original built to
+ * be forged can put content there, which is out of scope (file header).
+ */
+function unlistedEntryAgrees(r: Revisions, num: number, type: number, at: number): boolean {
+  const headers = bodyHeaders(r).get(num)
+  if (type === 0) return true
+  if (type === 2) return !headers
+  return headers?.length === 1 && headers[0] === at && OBJECT_STREAM.test(r.bytes.toString("latin1", at, Math.min(r.originalEnd, at + 300)))
+}
+
+/** Word's stream has one entry fewer than its table; a few more are allowed. */
+const XREF_STREAM_EXTRA_ENTRIES = 16
 
 /**
  * Whether an /XRefStm adds nothing: a reader takes the appended save's /XRefStm
  * before the table at /Prev, so it must be the original's only xref stream,
  * decoded exactly, putting every object the table has in use where the table
- * does. Objects the table frees or lacks (Word's compressed ones) may be mapped.
+ * does, and objects it frees or lacks only where unlistedEntryAgrees allows.
  */
 function xrefStreamAgrees(r: Revisions, xrefStm: number, tableAt: number, trailerAt: number): boolean {
   if (!isOriginalsXrefStream(r, xrefStm)) return false
-  const inUse = classicTableInUse(r.bytes, tableAt, trailerAt)
+  const table = classicTable(r.bytes, tableAt, trailerAt)
   // The whole header the table lists at exactly this offset: "1 0 obj" inside "11 0 obj" parses too.
   const number = /^\d+/.exec(r.bytes.toString("latin1", xrefStm, xrefStm + 20))?.[0]
   const tokenStart = xrefStm === 0 || PDF_SPACE_BYTES.includes(r.bytes[xrefStm - 1])
-  if (!inUse || !number || !tokenStart || inUse.get(Number(number))?.[0] !== xrefStm) return false
-  const entries = xrefStreamEntries(r.bytes, xrefStm, r.originalEnd)
-  if (!entries) return false
-  return entries.every(([num, type, at, gen]) => {
-    const listed = inUse.get(num)
-    return !listed || (type === 1 && at === listed[0] && gen === listed[1])
+  if (!table || !number || !tokenStart || table.inUse.get(Number(number))?.[0] !== xrefStm) return false
+  return everyXrefStreamEntry(r.bytes, xrefStm, r.originalEnd, table.entries + XREF_STREAM_EXTRA_ENTRIES, (num, type, at, gen) => {
+    const listed = table.inUse.get(num)
+    return listed ? type === 1 && at === listed[0] && gen === listed[1] : unlistedEntryAgrees(r, num, type, at)
   })
 }
 
