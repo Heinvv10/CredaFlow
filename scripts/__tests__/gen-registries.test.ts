@@ -151,6 +151,7 @@ describe("gen-registries", () => {
     ["lib/registry/cron-jobs/b.js", "export default []"],
     ["lib/registry/cron-jobs/b.tsx", "export default []"],
     ["lib/registry/cron-jobs/types.d.ts", "export {}"],
+    ["lib/registry/audit-actions/b.test.ts", "export default {}"],
     ["lib/registry/cron-jobs/sub/a.ts", "export default []"],
   ])("refuses %s rather than skipping it", async (path, content) => {
     await expect(buildRegistries(repo({ [path]: content }))).rejects.toThrow(/not an entry file/)

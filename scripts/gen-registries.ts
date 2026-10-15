@@ -37,9 +37,8 @@ async function loadKind(root: string, kind: string): Promise<Entry<unknown>[]> {
   const dir = join(root, "lib", "registry", kind)
   const files: string[] = []
   for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.isFile() && e.name.endsWith(".test.ts")) continue
-    // Anything else here is an entry file or a mistake: never skip one silently.
-    if (!e.isFile() || !e.name.endsWith(".ts") || e.name.endsWith(".d.ts")) {
+    // Everything here is an entry file or a mistake: never skip one silently.
+    if (!e.isFile() || !e.name.endsWith(".ts") || /\.(d|test|spec)\.ts$/.test(e.name)) {
       fail(`${relative(root, join(dir, e.name))}: not an entry file — entries are .ts files directly in lib/registry/${kind}/`)
     }
     files.push(e.name)
