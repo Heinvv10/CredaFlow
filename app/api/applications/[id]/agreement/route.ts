@@ -15,7 +15,7 @@ import {
 } from "@/lib/storage"
 import { withTenantContext } from "@/lib/tenant"
 import { recordedCallerIp } from "@/lib/rate-limit"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import {
   acceptedPasqCalculatorFingerprint,
   createAffordabilityContractEvidence,
@@ -891,30 +891,27 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
       }
     }
 
-    const [bureauCheck, tenantConfig] = await Promise.all([
-      application.bureauReviewGeneration
-        ? prisma.creditBureauCheck.findFirst({
-            where: {
-              tenantId: tenant.id,
-              applicationId: id,
-              clientId: application.clientId,
-              reviewGeneration: application.bureauReviewGeneration,
-              ok: true,
-              createdAt: { gte: bureauStalenessCutoff() },
-              provider: "experian",
-            },
-            orderBy: { createdAt: "desc" },
-          })
-        : Promise.resolve(null),
-      prisma.tenantConfig.findUnique({
-        where: { tenantId: tenant.id },
-        select: {
-          ndiBufferPct: true,
-          bureauMinScore: true,
-          bureauBlockAdverse: true,
-        },
-      }),
-    ])
+    const tenantConfig = await prisma.tenantConfig.findUnique({
+      where: { tenantId: tenant.id },
+      select: {
+        ndiBufferPct: true,
+        bureauMinScore: true,
+        bureauBlockAdverse: true,
+        bureauMaxAgeDays: true,
+      },
+    })
+    const bureauCheck = application.bureauReviewGeneration
+      ? await prisma.creditBureauCheck.findFirst({
+          where: approvalBureauCheckWhere({
+            tenantId: tenant.id,
+            applicationId: id,
+            clientId: application.clientId,
+            reviewGeneration: application.bureauReviewGeneration,
+            maxAgeDays: bureauMaxAgeDays(tenantConfig),
+          }),
+          orderBy: { createdAt: "desc" },
+        })
+      : null
     const currentApproval = verifyCurrentAffordabilityApproval({
       application,
       bureauCheck,
