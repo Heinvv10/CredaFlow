@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
+import { buildTotpSetup, type TotpSetupData } from "./totp-qr"
+import { TotpQrImage } from "./TotpQrImage"
 import { Shield, ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle } from "lucide-react"
 
 interface Props {
@@ -12,12 +14,6 @@ interface Props {
   required: boolean
   /** This session is held at enrolment until 2FA is set up. */
   enrolmentForced: boolean
-}
-
-interface SetupData {
-  secret: string
-  otpauth: string
-  qrUrl: string
 }
 
 /** After enrolling or replacing: the session ended, and the code just used is spent. */
@@ -34,7 +30,7 @@ export function SignInAgainNotice() {
 
 export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced }: Props) {
   const [enabled, setEnabled] = useState(totpEnabled)
-  const [setup, setSetup] = useState<SetupData | null>(null)
+  const [setup, setSetup] = useState<TotpSetupData | null>(null)
   const [code, setCode] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,8 +44,7 @@ export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced 
     try {
       const res = await fetch("/api/settings/totp")
       const data = await res.json() as { secret: string; otpauth: string }
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.otpauth)}`
-      setSetup({ ...data, qrUrl })
+      setSetup(await buildTotpSetup(data))
     } catch {
       setError("Failed to generate setup code")
     } finally {
@@ -208,14 +203,7 @@ export function TotpSetupClient({ email, totpEnabled, required, enrolmentForced 
           <div className="flex gap-6 items-start">
             {/* QR code */}
             <div className="shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={setup.qrUrl}
-                alt="QR code for authenticator app"
-                width={180}
-                height={180}
-                className="border rounded-lg"
-              />
+              <TotpQrImage qrUrl={setup.qrUrl} />
             </div>
             <div className="space-y-3 flex-1">
               <div>
