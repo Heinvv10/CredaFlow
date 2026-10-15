@@ -47,6 +47,20 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     clientDomain: "fairscore.invalid",
     bureau: { supplierNumber: "FAIR01", tradingName: "FAIRSCORE" },
   },
+  tsela: {
+    slug: "tsela",
+    identity: {
+      ...VALID_LENDER_COLUMNS,
+      legalName: "Tsela Lending (Pty) Ltd",
+      brandName: "Tsela Lending",
+      publicEmail: "hello@tsela-lending.example",
+      collectionsEmail: "collections@tsela-lending.example",
+    },
+    colours: { primaryColor: "#1F4E79", secondaryColor: "#245E92", darkColor: "#0F1115" },
+    staffDomain: "tsela-lending.example",
+    clientDomain: "tsela-lending.invalid",
+    bureau: { supplierNumber: "TSELA1", tradingName: "TSELA LENDING" },
+  },
 }
 
 export function demoLender(env: Record<string, string | undefined> = process.env): DemoLender {
