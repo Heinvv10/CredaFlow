@@ -182,6 +182,7 @@ CREATE TABLE "RemarketingSale" (
     "belowValuation" BOOLEAN NOT NULL,
     "belowValuationReason" TEXT,
     "relatedPartyMatch" BOOLEAN NOT NULL,
+    "selfValued" BOOLEAN NOT NULL DEFAULT false,
     "screeningResult" JSONB NOT NULL,
     "createdById" TEXT NOT NULL,
     "approvedById" TEXT,
@@ -1061,7 +1062,7 @@ ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_approval_pair" CHE
 ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_completed_columns" CHECK (("status" = 'COMPLETED') = ("completedAt" IS NOT NULL) AND ("status" <> 'COMPLETED' OR "taxInvoiceId" IS NOT NULL));
 -- UNTESTED: the lender's policy on sales below valuation and to related parties.
 ALTER TABLE "RemarketingSale" ADD CONSTRAINT "RemarketingSale_second_approver" CHECK (
-  "status" <> 'COMPLETED' OR NOT ("belowValuation" OR "relatedPartyMatch") OR ("approvedById" IS NOT NULL AND "approvedById" <> "createdById"));
+  "status" <> 'COMPLETED' OR NOT ("belowValuation" OR "relatedPartyMatch" OR "selfValued") OR ("approvedById" IS NOT NULL AND "approvedById" <> "createdById"));
 
 -- A buyer whose ID or registration number is the borrower's, or a related client's (any role).
 CREATE OR REPLACE FUNCTION public."recoveryBuyerRelated"(tenant_id TEXT, for_loan_id TEXT, identifier TEXT)
@@ -1085,6 +1086,7 @@ DECLARE
   rec RECORD;
   max_age INTEGER;
   highest INTEGER;
+  self_valued BOOLEAN;
   today DATE := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
 BEGIN
   IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
@@ -1132,7 +1134,16 @@ BEGIN
   IF NEW."belowValuation" IS DISTINCT FROM (NEW."priceInclVatCents" < highest) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'belowValuation is whether the price is under the highest current independent valuation';
   END IF;
+  -- Nobody sells on a value they set themselves without a second approver: the valuation the sale relies on, or
+  -- the highest current independent one (a tie counts if any of the tied was theirs), was recorded by the proposer.
+  -- UNTESTED: the lender's valuation-independence policy.
+  self_valued := EXISTS (SELECT 1 FROM "AssetValuation" v WHERE v."id" = NEW."valuationId" AND v."tenantId" = NEW."tenantId" AND v."createdById" = NEW."createdById")
+    OR EXISTS (SELECT 1 FROM "AssetValuation" v WHERE v."tenantId" = NEW."tenantId" AND v."assetId" = rec."assetId" AND v."source" <> 'INTERNAL'
+      AND v."valuedOn" >= today - max_age AND v."amountCents" = highest AND v."createdById" = NEW."createdById");
   IF TG_OP = 'UPDATE' THEN
+    IF NOT NEW."selfValued" AND self_valued THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A sale on a valuation its proposer recorded needs the sale re-recorded as self-valued';
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM "TaxInvoice" i WHERE i."id" = NEW."taxInvoiceId" AND i."tenantId" = NEW."tenantId" AND i."loanId" IS NULL
         AND i."totalInclVatCents" = NEW."priceInclVatCents") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A sale''s tax invoice is for its price, issued to the buyer outside the loan';
@@ -1143,6 +1154,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  IF self_valued THEN
+    NEW."selfValued" := true;
+  END IF;
   IF NEW."highestValuationCents" <> highest THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The highest valuation recorded is the highest current independent valuation';
   END IF;

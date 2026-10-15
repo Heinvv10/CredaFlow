@@ -6304,6 +6304,8 @@ model RemarketingSale {
   belowValuation        Boolean
   belowValuationReason  String?
   relatedPartyMatch     Boolean
+  // The proposer recorded the valuation the sale relies on, or the highest current one: forced by the trigger, needs a second approver.
+  selfValued            Boolean               @default(false)
   // Which lists matched: kinds and counts only, never names or ID numbers.
   screeningResult       Json
   createdById           String

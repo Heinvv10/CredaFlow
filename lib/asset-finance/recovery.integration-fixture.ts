@@ -101,10 +101,10 @@ export const routeOf = (regime: Regime, court = false): RecoveryRoute =>
   regime === "NCA" ? (court ? "NCA_S131_ATTACHMENT" : "NCA_S127_SURRENDER") : (court ? "NON_NCA_COURT_ORDER" : "NON_NCA_VOLUNTARY")
 
 export async function newValuation(
-  db: PrismaClient, fx: DealFixture, assetId: string, amountCents = 100_000_000, source: ValuationSource = "ASSESSOR", valuedOn = today(),
+  db: PrismaClient, fx: DealFixture, assetId: string, amountCents = 100_000_000, source: ValuationSource = "ASSESSOR", valuedOn = today(), createdById = fx.adminA,
 ): Promise<string> {
   return (await db.assetValuation.create({
-    data: { tenantId: fx.tenantId, assetId, valuedOn: dbDate(valuedOn), source, valuerName: "TEST Valuers", amountCents, createdById: fx.adminA },
+    data: { tenantId: fx.tenantId, assetId, valuedOn: dbDate(valuedOn), source, valuerName: "TEST Valuers", amountCents, createdById },
   })).id
 }
 
