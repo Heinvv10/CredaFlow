@@ -113,6 +113,23 @@ export async function readPdf(bytes: Buffer): Promise<PdfContent> {
   })
 }
 
+const W = "[\\0\\t\\n\\f\\r ]"
+/**
+ * A save that adds no object and no xref entry, only a trailer: Word's
+ * "hybrid-xref" save appends one (`xref 0 0`) to every file. Everything it can
+ * name is already in the bytes before it, so it cannot change what the file
+ * shows. Matched whole against a fixed grammar — the trailer holds only names,
+ * numbers, references and hex strings, so no object hides in it for a rebuilt
+ * xref to find — and the only entry allowed is object 0's free-list head:
+ * freeing any other object deletes it.
+ */
+const INERT_SAVE = new RegExp(
+  `^${W}*xref${W}+(?:(?:\\d+ +0|0 +1${W}+0000000000 65535 f)${W}+)*trailer${W}*` +
+    `<<(?:${W}|/[A-Za-z0-9]+(?![A-Za-z0-9])|\\d+(?!\\d)|R|\\[|\\]|<[0-9A-Fa-f]*>)*>>${W}*startxref${W}+\\d+${W}+%%EOF$`,
+)
+/** Word's is under 200 bytes; a longer section is counted without being matched. */
+const INERT_SAVE_MAX_BYTES = 2048
+
 /**
  * Revisions appended after the original save. Each save ends with %%EOF and a
  * startxref, and a linearized file legitimately carries two of each from its
@@ -120,6 +137,7 @@ export async function readPdf(bytes: Buffer): Promise<PdfContent> {
  * appended revision that omits its %%EOF. Linearized
  * means its FIRST object is the linearization dictionary — not merely that the
  * word appears early, which a comment could fake to hide one appended save.
+ * A save that ends in %%EOF and matches INERT_SAVE is not counted.
  */
 export function countIncrementalUpdates(bytes: Buffer): number {
   const count = (marker: string) => {
@@ -127,8 +145,12 @@ export function countIncrementalUpdates(bytes: Buffer): number {
     for (let i = bytes.indexOf(marker); i >= 0; i = bytes.indexOf(marker, i + marker.length)) n++
     return n
   }
+  let inert = 0
+  for (let start = 0, i = bytes.indexOf("%%EOF"); i >= 0; start = i + 5, i = bytes.indexOf("%%EOF", start)) {
+    if (i + 5 - start <= INERT_SAVE_MAX_BYTES && INERT_SAVE.test(bytes.subarray(start, i + 5).toString("latin1"))) inert++
+  }
   const saves = Math.max(count("%%EOF"), count("startxref"))
   const head = bytes.subarray(0, 2048).toString("latin1")
   const linearized = /^%PDF-\d\.\d[^\n\r]*[\r\n]+(?:%[^\r\n]*[\r\n]+)*\s*\d+\s+0\s+obj\s*<<\s*\/Linearized\b/.test(head)
-  return Math.max(0, saves - 1 - (linearized ? 1 : 0))
+  return Math.max(0, saves - 1 - (linearized ? 1 : 0) - inert)
 }
