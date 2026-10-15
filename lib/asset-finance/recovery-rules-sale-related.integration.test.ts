@@ -126,7 +126,7 @@ suite("slice 4a related-party forcing on a remarketing sale", () => {
       expect(await forced(R.nca, id, direct)).toBe(true) // equality is kept
       expect(await forced(R.non, "our company is 2098/123456/05 (Pty) Ltd")).toBe(true)
       expect(await forced(R.non, `director ${directorId} signs`)).toBe(true)
-      expect(await forced(R.nca, `${id.slice(0, 12)}8`)).toBe(false)
+      expect(await forced(R.nca, `${id.slice(0, 12)}${(Number(id[12]) + 1) % 10}`)).toBe(false) // one digit changed
     })
 
     it("leaves a stranger alone", async () => {

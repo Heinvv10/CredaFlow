@@ -51,8 +51,9 @@ suite("slice 4a a re-leased asset is recovered, and an s127 recovery follows a l
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
     const assetId = await newAsset(database(), fx)
-    await newLoan(database(), fx, "NON_NCA", "OPERATING_LEASE", { assetId }) // the first lease, returned
-    await testSetup(database(), [`UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, assetId])
+    const first = await newLoan(database(), fx, "NON_NCA", "OPERATING_LEASE", { assetId }) // the first lease, ended and returned
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, first.loanId],
+      [`UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, assetId])
     second = await newLoan(database(), fx, "NON_NCA", "OPERATING_LEASE", { assetId })
   }, 300_000)
 
