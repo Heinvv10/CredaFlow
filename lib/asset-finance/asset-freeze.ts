@@ -20,7 +20,7 @@ export const IDENTITY_FIELDS = [
 export const ATTESTED_FIELDS = {
   INSURANCE_NOTES_LENDER: ["lenderNotedConfirmed", "insurer", "policyNumber"],
   TRACKER_CONFIRMED: ["trackerId"],
-  NATIS_TITLEHOLDER: ["natisTitleholder"],
+  NATIS_TITLEHOLDER: ["natisTitleholder", "natisOwner"],
 } as const satisfies Partial<Record<PayoutChecklistItemKind, readonly (keyof AssetFields)[]>>
 
 type AttestingItem = keyof typeof ATTESTED_FIELDS

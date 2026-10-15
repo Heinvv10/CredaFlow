@@ -22,6 +22,11 @@ export interface AmortisationInput {
   periods: AmortisationPeriod[]
   ratePath: RatePoint[]
   balloonCents: number
+  /**
+   * A lease rental in advance (./lease-pricing.ts): the first period may fall
+   * ON the accrual start date. It then spans no days and accrues no interest.
+   */
+  firstDueOnAccrualStart?: boolean
 }
 
 export interface AmortisationResult {
@@ -44,7 +49,7 @@ export function assertCents(value: number, label: string): void {
   }
 }
 
-function validatePeriods(periods: AmortisationPeriod[], accrualStartDay: number): number[] {
+function validatePeriods(periods: AmortisationPeriod[], accrualStartDay: number, firstOnStart: boolean): number[] {
   if (periods.length === 0) throw new RangeError("weights: at least one period is required")
   let weightSum = 0
   let previousDay = accrualStartDay
@@ -54,7 +59,8 @@ function validatePeriods(periods: AmortisationPeriod[], accrualStartDay: number)
     }
     assertCents(period.lumpCents, `period ${i} lump`)
     const dueDay = toDayNumber(period.dueDate, `period ${i} due date`)
-    if (dueDay <= previousDay) throw new RangeError(`period ${i}: due date must be after the previous date`)
+    const onStart = firstOnStart && i === 0 && dueDay === previousDay
+    if (dueDay <= previousDay && !onStart) throw new RangeError(`period ${i}: due date must be after the previous date`)
     previousDay = dueDay
     weightSum += period.weight
     return dueDay
@@ -73,7 +79,7 @@ export function amortise(input: AmortisationInput): AmortisationResult {
   if (input.openingCents <= 0) throw new RangeError("financed amount: must be more than 0")
 
   const startDay = toDayNumber(input.accrualStartDate, "accrual start date")
-  const dueDays = validatePeriods(periods, startDay)
+  const dueDays = validatePeriods(periods, startDay, input.firstDueOnAccrualStart === true)
   const segments = rateSegments(input.ratePath, startDay)
   // Σ rate(d) over each period's days (previous due date, this due date].
   const rateDays = dueDays.map((dueDay, i) => rateDaySum(segments, i === 0 ? startDay : dueDays[i - 1], dueDay))

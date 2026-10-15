@@ -88,8 +88,8 @@ model User {
   referenceRatesRequested      ReferenceRate[]                       @relation("ReferenceRatesRequested")
   referenceRatesDecided        ReferenceRate[]                       @relation("ReferenceRatesDecided")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
-  kycOverrideRequestsMade      KycOverrideRequest[]       @relation("KycOverrideRequestedBy")
-  kycOverrideRequestsDecided   KycOverrideRequest[]       @relation("KycOverrideDecidedBy")
+  kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")
+  kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
 
   @@unique([tenantId, id])
 }
@@ -180,6 +180,7 @@ model Tenant {
   referenceRates             ReferenceRate[]
   vatConfig                  VatConfig?
   taxInvoices                TaxInvoice[]
+  leaseRentals               LeaseRental[]
   creditNotes                CreditNote[]
   entityDocuments            EntityDocument[]
   financedAssets             FinancedAsset[]
@@ -513,7 +514,7 @@ model Client {
   avsChecks                          AvsCheck[]
   convertedLeads                     Lead[]                   @relation("LeadConvertedClient")
   portalAccountLeads                 Lead[]                   @relation("LeadPortalAccountClient")
-  kycOverrideRequests    KycOverrideRequest[]
+  kycOverrideRequests                KycOverrideRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -654,21 +655,21 @@ enum AgreementType {
 }
 
 model ClientDocument {
-  id                       String              @id @default(cuid())
+  id                       String               @id @default(cuid())
   tenantId                 String
-  tenant                   Tenant              @relation(fields: [tenantId], references: [id])
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id])
   clientId                 String
   docType                  DocType
   fileUrl                  String
   fileName                 String
-  verified                 Boolean             @default(false)
+  verified                 Boolean              @default(false)
   // Who refused this document, if anyone. Set only by a human reviewer through
   // the verify endpoint. The SYSTEM also clears `verified` and writes a
   // verificationNote (a bank-detail change re-flags a statement), so the note
   // alone cannot say who acted — these fields can.
   verificationRejectedAt   DateTime?
   verificationRejectedById String?
-  uploadedByType           String              @default("staff")
+  uploadedByType           String               @default("staff")
   uploadedById             String?
   deletedAt                DateTime?
   deletedByType            String?
@@ -677,13 +678,13 @@ model ClientDocument {
   mimeType                 String?
   storagePath              String?
   contentSha256            String?
-  extractionStatus         String              @default("pending")
+  extractionStatus         String               @default("pending")
   extractionGeneration     String?
   extractionStartedAt      DateTime?
   extractionResult         Json?
   extractionError          String?
   validationResult         Json?
-  validationMismatch       Boolean             @default(false)
+  validationMismatch       Boolean              @default(false)
   validationScore          Int?
   biometricMatchScore      Int?
   biometricLiveness        Int?
@@ -704,11 +705,11 @@ model ClientDocument {
   signatureRequestedAt     DateTime?
   signedAt                 DateTime?
   signedByIp               String?
-  createdAt                DateTime            @default(now())
-  client                   Client              @relation(fields: [clientId], references: [id])
+  createdAt                DateTime             @default(now())
+  client                   Client               @relation(fields: [clientId], references: [id])
   loanNotes                LoanNote[]
   statementAnalyses        StatementAnalysis[]
-  kycOverrideRequests KycOverrideRequest[]
+  kycOverrideRequests      KycOverrideRequest[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1441,6 +1442,10 @@ model Loan {
   // product never re-prices an existing loan's arrears (lib/asset-finance/non-nca-charges.ts).
   nonNcaDefaultInterestMargin Decimal?                    @db.Decimal(9, 6)
   nonNcaCollectionFeeCents    Int?
+  // Operating / full-maintenance lease only (CHECK Loan_cpa_scope_shape): the
+  // deal's Consumer Protection Act scope, copied at booking (lib/asset-finance/cpa-scope.ts).
+  cpaApplies                  Boolean?
+  cpaRule                     String?
   assetFinanceDeal            AssetFinanceDeal?
   productId                   String
   principal                   Int
@@ -1520,6 +1525,7 @@ model Loan {
   disbursementPayouts         DisbursementPayout[]
   disbursementReversals       DisbursementReversal[]
   payoutRecoveryCases         PayoutRecoveryCase[]
+  leaseRentals                LeaseRental[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1714,7 +1720,9 @@ model RepaymentSchedule {
   status                          ScheduleStatus @default(PENDING)
   paidAt                          DateTime?
   loan                            Loan           @relation(fields: [loanId], references: [id])
+  leaseRental                     LeaseRental?
 
+  @@unique([tenantId, id])
   @@index([tenantId])
 }
 
@@ -4302,6 +4310,7 @@ model TaxInvoice {
   createdById        String?
   createdAt          DateTime         @default(now())
   lines              TaxInvoiceLine[]
+  leaseRental        LeaseRental?
   creditNotes        CreditNote[]
 
   @@unique([tenantId, number])
@@ -4433,6 +4442,8 @@ model FinancedAsset {
   vatCents              Int
   residualCents         Int?
   natisTitleholder      String?
+  // eNaTIS registered owner; a lease requires it to be the lender (payout checklist).
+  natisOwner            String?
   trackerProvider       String?
   trackerId             String?
   insurer               String?
@@ -4598,66 +4609,81 @@ enum CreditDecision {
 // present (CHECK AssetFinanceDeal_borrower_xor).
 // (DESIGN D6) and the origination state; booking creates the Loan.
 model AssetFinanceDeal {
-  id                        String                               @id @default(cuid())
-  tenantId                  String
-  tenant                    Tenant                               @relation(fields: [tenantId], references: [id])
-  applicationId             String                               @unique
-  application               LoanApplication                      @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  clientId                  String?
-  client                    Client?                              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  entityId                  String?
-  entity                    BusinessEntity?                      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  assetId                   String
-  asset                     FinancedAsset                        @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  supplierId                String
-  supplier                  Supplier                             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  loanId                    String?                              @unique
-  loan                      Loan?                                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  contractType              ContractType                         @default(INSTALMENT_SALE)
-  status                    AssetDealStatus                      @default(DRAFT)
+  id                             String                               @id @default(cuid())
+  tenantId                       String
+  tenant                         Tenant                               @relation(fields: [tenantId], references: [id])
+  applicationId                  String                               @unique
+  application                    LoanApplication                      @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId                       String?
+  client                         Client?                              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entityId                       String?
+  entity                         BusinessEntity?                      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assetId                        String
+  asset                          FinancedAsset                        @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  supplierId                     String
+  supplier                       Supplier                             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId                         String?                              @unique
+  loan                           Loan?                                @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  contractType                   ContractType                         @default(INSTALMENT_SALE)
+  status                         AssetDealStatus                      @default(DRAFT)
   // Structure (cents; rates decimal annual). weights: one per period.
-  depositCents              Int                                  @default(0)
-  tradeInCents              Int                                  @default(0)
-  financedFeesCents         Int                                  @default(0)
-  balloonCents              Int                                  @default(0)
-  weights                   Json
-  structurePreset           String
-  firstDueDate              DateTime                             @db.Date
-  vatDeferralPeriodIndex    Int?
-  rateBasis                 ReferenceRateBasis
-  rateMargin                Decimal?                             @db.Decimal(9, 6)
-  fixedRate                 Decimal?                             @db.Decimal(9, 6)
-  baseInstalmentCents       Int?
+  depositCents                   Int                                  @default(0)
+  tradeInCents                   Int                                  @default(0)
+  financedFeesCents              Int                                  @default(0)
+  balloonCents                   Int                                  @default(0)
+  weights                        Json
+  structurePreset                String
+  firstDueDate                   DateTime                             @db.Date
+  vatDeferralPeriodIndex         Int?
+  rateBasis                      ReferenceRateBasis
+  rateMargin                     Decimal?                             @db.Decimal(9, 6)
+  fixedRate                      Decimal?                             @db.Decimal(9, 6)
+  baseInstalmentCents            Int?
+  // Operating / full-maintenance lease terms (lib/asset-finance/lease-input.ts;
+  // CHECK AssetFinanceDeal_lease_terms_shape). Null on every other contract type.
+  rentalTiming                   RentalTiming?
+  escalationRate                 Decimal?                             @db.Decimal(9, 6)
+  maintenanceMonthlyExclVatCents Int?
+  maintenanceEscalationRate      Decimal?                             @db.Decimal(9, 6)
+  maintenanceRiskModel           MaintenanceRiskModel?
+  usageAllowancePerYear          Int?
+  usageUnit                      UsageUnit?
+  excessRateCents                Int?
+  earlyTerminationPenaltyRate    Decimal?                             @db.Decimal(9, 6)
+  // Consumer Protection Act scope (lib/asset-finance/cpa-scope.ts), leases only.
+  cpaApplies                     Boolean?
+  cpaRule                        String?
+  cpaEvidenceIds                 String[]                             @default([])
   // The contract terms fixed when the documents are prepared
   // (lib/asset-finance/signing-prepare.ts): the start date and the figures the
   // agreement prints. Booking must reproduce them exactly. Null until prepared.
-  plannedStartDate          DateTime?                            @db.Date
-  signedBaseInstalmentCents Int?
-  signedResultingRate       Decimal?                             @db.Decimal(9, 6)
-  signedTotalInterestCents  Int?
+  plannedStartDate               DateTime?                            @db.Date
+  signedBaseInstalmentCents      Int?
+  signedResultingRate            Decimal?                             @db.Decimal(9, 6)
+  signedTotalInterestCents       Int?
   // Null may mean either unprepared or prepared with default interest disabled;
   // the other signed columns distinguish those states.
-  signedArrearsMarginRate   Decimal?                             @db.Decimal(9, 6)
-  signedCollectionFeeCents  Int?
+  signedArrearsMarginRate        Decimal?                             @db.Decimal(9, 6)
+  signedCollectionFeeCents       Int?
   // The required signer set at preparation: [{ clientId, document }], in signing order.
-  preparedSigners           Json?
-  cancelledAt               DateTime?
-  cancelledById             String?
-  cancelledBy               User?                                @relation("AssetDealCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  cancelReason              String?
-  decision                  CreditDecision?
-  decisionReasons           String[]                             @default([])
-  decidedById               String?
-  decidedAt                 DateTime?
-  createdById               String
-  createdAt                 DateTime                             @default(now())
-  updatedAt                 DateTime                             @updatedAt
-  financials                EntityFinancials?
-  affordabilityAssessment   AssetFinanceAffordabilityAssessment?
-  signers                   DealSigner[]
-  checklist                 PayoutChecklistItem[]
-  payout                    Payout?
-  documents                 EntityDocument[]
+  preparedSigners                Json?
+  cancelledAt                    DateTime?
+  cancelledById                  String?
+  cancelledBy                    User?                                @relation("AssetDealCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelReason                   String?
+  decision                       CreditDecision?
+  decisionReasons                String[]                             @default([])
+  decidedById                    String?
+  decidedAt                      DateTime?
+  createdById                    String
+  createdAt                      DateTime                             @default(now())
+  updatedAt                      DateTime                             @updatedAt
+  financials                     EntityFinancials?
+  affordabilityAssessment        AssetFinanceAffordabilityAssessment?
+  signers                        DealSigner[]
+  checklist                      PayoutChecklistItem[]
+  payout                         Payout?
+  documents                      EntityDocument[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, applicationId])
@@ -5183,4 +5209,51 @@ model AccountingOpeningPosition {
 
   @@index([tenantId, baseKey])
   @@index([batchId])
+}
+
+enum RentalTiming {
+  ADVANCE
+  ARREARS
+}
+
+enum MaintenanceRiskModel {
+  LENDER_RISK
+  LESSEE_SETTLED
+}
+
+enum UsageUnit {
+  HOURS
+  KM
+}
+
+// One row per rental of an operating or full-maintenance lease, written at
+// booking beside its RepaymentSchedule row (lib/asset-finance/lease-booking.ts).
+// The amounts are fixed once written, except by a reprice before the rental is
+// invoiced; taxInvoiceId is set once, when the rental's tax invoice is issued
+// (lib/asset-finance/lease-invoices.ts). Migration 20261014090000.
+model LeaseRental {
+  id                      String            @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id])
+  loanId                  String
+  loan                    Loan              @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  scheduleId              String            @unique
+  schedule                RepaymentSchedule @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  periodNo                Int
+  dueDate                 DateTime          @db.Date
+  rentalExclVatCents      Int
+  maintenanceExclVatCents Int
+  vatCents                Int
+  totalCents              Int
+  // The VAT rate the amounts were computed at (DECIMAL(6,4), 0.1500 = 15%).
+  vatRate                 Decimal           @db.Decimal(6, 4)
+  taxInvoiceId            String?           @unique
+  taxInvoice              TaxInvoice?       @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt               DateTime          @default(now())
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId])
+  @@unique([tenantId, taxInvoiceId])
+  @@unique([loanId, periodNo])
+  @@index([tenantId, dueDate])
 }

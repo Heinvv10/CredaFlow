@@ -766,6 +766,87 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
     })
   })
 
+  describe("refusing a pending replacement ID copy", () => {
+    const replacement = {
+      id: "id-doc-2",
+      clientId: "client-1",
+      docType: "ID_COPY",
+      deletedAt: null,
+      verified: false,
+      verifiedAt: null,
+      verifiedById: null,
+      verificationNote: null,
+    }
+    const coreWithRefusedReplacement = [
+      ...verifiedCoreDocuments.map((document) => ({
+        ...document, id: document.id ?? `doc-${document.docType}`,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      })),
+      {
+        id: "id-doc-2", docType: "ID_COPY", verified: false, verificationNote: "Unreadable",
+        verificationRejectedById: "officer-1", verificationRejectedAt: new Date(),
+        createdAt: new Date("2026-07-02T00:00:00.000Z"), contentSha256: "d".repeat(64),
+      },
+    ]
+
+    beforeEach(() => {
+      documentFindFirstMock.mockReset()
+      documentFindFirstMock
+        .mockResolvedValueOnce(replacement)
+        .mockResolvedValueOnce({ ...replacement, verificationNote: "Unreadable" })
+        .mockResolvedValue(passingSelfieDocument)
+      documentFindManyMock.mockResolvedValue(coreWithRefusedReplacement)
+      clientUpdateMock.mockImplementation(async ({ data }: { data: object }) => data)
+    })
+
+    it("restores a demoted client on its selfie evidence, never naming the refuser as verifier", async () => {
+      clientFindUniqueMock.mockResolvedValue({
+        ...biometricSubject,
+        kycStatus: "PENDING",
+        kycVerifiedAt: null,
+        kycVerifiedById: null,
+        kycVerificationMethod: null,
+      })
+
+      const response = await PATCH(
+        verificationRequest({ verified: false, note: "Unreadable" }),
+        { params: Promise.resolve({ id: "client-1", docId: "id-doc-2" }) },
+      )
+
+      expect(response.status).toBe(200)
+      const data = clientUpdateMock.mock.calls[0][0].data
+      expect(data).toEqual({
+        kycStatus: "VERIFIED",
+        kycVerifiedAt: passingSelfieDocument.biometricVerifiedAt,
+        kycVerifiedById: null,
+        kycVerificationMethod: "BIOMETRIC",
+      })
+      expect(data.kycVerifiedById).not.toBe("officer-1")
+    })
+
+    it("keeps the stored provenance of a client that is still VERIFIED", async () => {
+      clientFindUniqueMock.mockResolvedValue({
+        ...biometricSubject,
+        kycStatus: "VERIFIED",
+        kycVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+        kycVerifiedById: "officer-previous",
+        kycVerificationMethod: "PHYSICAL",
+      })
+
+      await PATCH(
+        verificationRequest({ verified: false, note: "Unreadable" }),
+        { params: Promise.resolve({ id: "client-1", docId: "id-doc-2" }) },
+      )
+
+      expect(clientUpdateMock.mock.calls[0][0].data).toEqual({
+        kycStatus: "VERIFIED",
+        kycVerifiedAt: new Date("2026-07-20T08:00:00.000Z"),
+        kycVerifiedById: "officer-previous",
+        kycVerificationMethod: "PHYSICAL",
+      })
+    })
+  })
+
   it("does not mark a core-document-only client verified without a current selfie", async () => {
     documentFindManyMock.mockResolvedValueOnce(verifiedCoreDocuments)
     documentFindFirstMock.mockResolvedValueOnce(null)

@@ -227,8 +227,23 @@ suite("in-person attestation against a later face verdict", () => {
 
     expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
     expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
-    // Recovery: a fresh attestation completed after the lost attempt.
+    // The unverified upload is a pending replacement ID
+    // (migration 20261014130000): no attestation can stand over it, however
+    // fresh, until staff decide on that copy.
     await pause(1_100)
+    const blocked = await inPerson(f.clientId)
+    expect(blocked.status).toBe(422)
+    expect((await blocked.json()).missingDocs).toEqual(["ID_COPY"])
+    expect(await kycStatus(f.clientId)).not.toBe("VERIFIED")
+    expect(await layers(f.clientId)).toMatchObject({ app: false, sql: false })
+
+    // Recovery: staff refuse the replacement, then a fresh attestation
+    // completed after the lost attempt stands in both layers.
+    await db.clientDocument.update({
+      where: { id: other },
+      data: { verificationNote: "Rejected: synthetic", verificationRejectedAt: new Date(), verificationRejectedById: "officer-synthetic" },
+    })
+    await pause(10)
     expect((await inPerson(f.clientId)).status).toBe(200)
     expect(await verified(f.clientId)).toEqual(VERIFIED_IN_BOTH)
   })
@@ -273,13 +288,26 @@ suite("in-person attestation against a later face verdict", () => {
     const a = await attempt(f, STALE_MS)
     await sweep(f)
     // The current copy moves on (an unverified upload), so the worker's answer about the older one is recorded as superseded.
-    await addVerifiedIdCopy(f, "unverified", "c".repeat(64), false)
+    const unverified = await addVerifiedIdCopy(f, "unverified", "c".repeat(64), false)
     stubVlm(silhouette())
     const after = await lateAnswer(f, a, f.idCopyId)
     expect(reasonOf(after)).toBe("subject_identity_changed")
     expect((after.biometricResult as Record<string, unknown>).workerFailureReason).toBe("id_document_portrait_invalid")
-    // The route is closed over the copy that has no photograph.
-    expect((await inPerson(f.clientId)).status).toBe(422)
+
+    // While the unverified upload is a pending replacement the route refuses
+    // for that reason (migration 20261014130000), not for the portrait.
+    const pending = await inPerson(f.clientId)
+    expect(pending.status).toBe(422)
+    expect((await pending.json()).missingDocs).toEqual(["ID_COPY"])
+
+    // Once staff refuse it, the route is closed over the copy that has no photograph.
+    await db.clientDocument.update({
+      where: { id: unverified },
+      data: { verificationNote: "Rejected: synthetic", verificationRejectedAt: new Date(), verificationRejectedById: "officer-synthetic" },
+    })
+    const closed = await inPerson(f.clientId)
+    expect(closed.status).toBe(422)
+    expect((await closed.json()).error).toContain("no real photograph")
   })
 
   it("still refuses a late PASS about a superseded ID copy", async () => {

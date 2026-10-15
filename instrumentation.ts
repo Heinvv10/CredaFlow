@@ -169,6 +169,13 @@ export async function register() {
       timezone: SAST,
     })
 
+    // Asset-finance leases: the tax invoice of every rental that fell due
+    // (lib/asset-finance/lease-invoice-batch.ts). After the repricing run, so a
+    // rental repriced today is invoiced at its new amount. Idempotent.
+    cron.schedule("15 2 * * *", () => callCron("/api/cron/asset-finance-lease-invoices"), {
+      timezone: SAST,
+    })
+
     // Fails selfie attempts stuck in `processing` past 15 minutes (a worker that
     // died mid-VLM-call) so the client can retake (lib/kyc/selfie-sweeper.server.ts).
     // Every 5 minutes: a stuck client waits at most 20.
@@ -176,6 +183,6 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 14 jobs active")
+    console.log("[cron] scheduler registered — 15 jobs active")
   }
 }
