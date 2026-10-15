@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
           action: AuditAction.ACCOUNTING_CLOSE_REFUSED, entity: "AccountingExportBatch", entityId: String(period ?? ""),
           newValue: { periodKey: String(period ?? ""), code, reason: error.message.slice(0, 500) },
         })
-        return NextResponse.json({ error: error.message, code }, { status: code === "UNBALANCED" ? 500 : 422 })
+        return NextResponse.json({ error: error.message, code }, { status: code === "UNBALANCED" ? 500 : code === "CONCURRENT_CHANGE" ? 409 : 422 })
       }
       throw error
     }

@@ -27,6 +27,7 @@ export type CloseRefusal =
   | "RECONCILIATION_FAILED"
   | "AF_CONTROL_FAILED"
   | "AF_SOURCE_UNSUPPORTED"
+  | "CONCURRENT_CHANGE"
 
 export class AccountingPeriodError extends Error {
   constructor(readonly code: CloseRefusal, message: string) {
@@ -85,7 +86,7 @@ export async function planPeriod(db: PlanDb, tenantId: string, period: Accountin
   const positions = isGoLive ? openingPositions(loans, period) : []
   const base = isGoLive ? positionsAsLedger(positions) : ledger
   const vat = { registered: settings.vatRegistered, rateBps: settings.vatRateBps }
-  const own = deriveEntries({ loans, period, accounts, vat, ...base })
+  const own = deriveEntries({ loans, period, accounts, vat, heldBack: unsupportedIds, ...base })
   const opening = isGoLive ? openingEntry(positions, period, accounts) : null
   const entries = opening ? [opening, ...own] : own
   const totals = verifyBalanced(entries)

@@ -24,3 +24,5 @@ $function$;
 CREATE TRIGGER "AccountingExportBatch_no_truncate" BEFORE TRUNCATE ON "AccountingExportBatch" FOR EACH STATEMENT EXECUTE FUNCTION public."refuseAccountingTruncate"();
 CREATE TRIGGER "AccountingLedgerEntry_no_truncate" BEFORE TRUNCATE ON "AccountingLedgerEntry" FOR EACH STATEMENT EXECUTE FUNCTION public."refuseAccountingTruncate"();
 CREATE TRIGGER "AccountingJournalLine_no_truncate" BEFORE TRUNCATE ON "AccountingJournalLine" FOR EACH STATEMENT EXECUTE FUNCTION public."refuseAccountingTruncate"();
+-- The go-live positions are part of the sealed first batch: the ledger so far counts them (loadLedger).
+CREATE TRIGGER "AccountingOpeningPosition_no_truncate" BEFORE TRUNCATE ON "AccountingOpeningPosition" FOR EACH STATEMENT EXECUTE FUNCTION public."refuseAccountingTruncate"();

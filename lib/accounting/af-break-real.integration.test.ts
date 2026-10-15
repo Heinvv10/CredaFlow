@@ -162,6 +162,6 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
     expect(tt.AF_INSTALMENT_DEBTORS ?? 0, "receivable on a written-off contract").toBe(0)
     expect(tt.BAD_DEBT_EXPENSE ?? 0).toBeGreaterThan(0)
     const writeOffEntries = await db.accountingLedgerEntry.findMany({ where: { loanId: fx.loanId, baseKey: `loan:${fx.loanId}:write-off` } })
-    expect(writeOffEntries.length, "write-off posted more than once (first posting plus later corrections only)").toBeGreaterThanOrEqual(1)
+    expect(writeOffEntries.length, "the write-off is posted exactly once").toBe(1)
   }, 600_000)
 })

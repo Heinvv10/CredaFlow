@@ -75,17 +75,27 @@ const LOAN_SELECT = {
 
 type LoanRow = Prisma.LoanGetPayload<{ select: typeof LOAN_SELECT }>
 
+/** The earliest of the dates that are known; null when none is. */
+function earliest(...dates: Array<Date | null | undefined>): Date | null {
+  const known = dates.filter((d): d is Date => d instanceof Date)
+  return known.length === 0 ? null : new Date(Math.min(...known.map((d) => d.getTime())))
+}
+
 function recoveriesOf(loan: LoanRow, unsupported: Unsupported[]): SourceRecovery[] {
   return loan.recoveries.map((r) => {
     const sale = r.sales[0]
     const soldOn = sale?.completedAt ?? null
+    // From the earlier of the sale's completion and its invoice's date: the invoice's VAT posts on its own date.
+    const saleFrom = earliest(soldOn, sale?.taxInvoice ? dayOf(sale.taxInvoice.issueDate) : null)
     if (sale && (!sale.taxInvoice || sale.taxInvoice.totalInclVatCents !== sale.priceInclVatCents)) {
-      unsupported.push({ loanId: loan.id, from: soldOn, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
+      unsupported.push({ loanId: loan.id, from: saleFrom, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
     }
-    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, from: soldOn, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
+    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, from: saleFrom, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
     // A repossession's VAT event is made when a sale completes and a recovery with a completed sale cannot be withdrawn: such a record is not a state the rules produce.
     if (r.status === "WITHDRAWN" && (sale || r.vatEvents.length > 0)) {
-      unsupported.push({ loanId: loan.id, from: r.closedAt, message: `${loan.reference}: a withdrawn recovery has a sale or a repossession VAT event, which the rules do not allow` })
+      // From the earliest of the withdrawal, any VAT event and the sale: what was posted before the withdrawal is what cannot be.
+      const from = earliest(r.closedAt, saleFrom, ...r.vatEvents.map((e) => dayOf(e.eventDate)))
+      unsupported.push({ loanId: loan.id, from, message: `${loan.reference}: a withdrawn recovery has a sale or a repossession VAT event, which the rules do not allow` })
     }
     const settled = r.netProceedsCents !== null && r.chargesFrozenFrom !== null
     return {

@@ -19,13 +19,11 @@ async function run(label: string, loan: SourceLoan) {
   const lender = await newLender([loan])
   lenders.push(lender)
   const out = await closeMonths(lender.tenant, MONTHS)
-  const totals = await ledgerTotals(lender.tenant.tenantId)
   const bank = (await ledgerTotals(lender.tenant.tenantId)).BANK ?? 0
   const oracle = await expectedBank(lender.tenant.tenantId, new Date("2026-12-01T00:00:00+02:00"))
   const bad = out.find((o) => !o.closed)
   if (bad) problems.push(`${label}: stuck at ${bad.key} ${bad.code} ${bad.message?.slice(0, 160)}`)
   if (bank !== oracle) problems.push(`${label}: BANK ledger ${bank} vs tables ${oracle}`)
-  void totals
   return { lender, out }
 }
 

@@ -8,10 +8,11 @@ import { INSTALMENT_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/accep
 import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { prisma } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { ASSET_FINANCE_ROLES } from "./accounts"
+import { ASSET_FINANCE_ROLES, resolveAccountMap } from "./accounts"
 import { closeMonths, closeOf, db, dropLender, ledgerTotals, newLender, planOf, renamed, RUN, type Lender } from "./af-break.fixture"
-import { loanSources } from "./sources"
+import { deriveEntries } from "./derive"
 import { loadSourceLoans } from "./store"
+import { loadAssetFinanceLoans } from "./store-asset-finance"
 
 const suite = RUN ? describe : describe.skip
 const [IS_1] = INSTALMENT_JOURNAL_DEALS
@@ -35,14 +36,15 @@ suite.sequential("consumer-only tenant is untouched by asset finance", () => {
     expect(plan.refusal?.code ?? null).not.toMatch(/AF_|MAPPING/)
   }, 120_000)
 
-  it("3b. its entries equal what the consumer sources alone say it should post (same loans, same instant)", async () => {
-    const period = (await planOf(consumer, "2026-09")).period
-    const loans = await runWithTenant(consumer.tenantId, () => loadSourceLoans(prisma, consumer.tenantId, period.end))
-    const desired = loans.flatMap((l) => loanSources(l, period.end)).filter((s) => Object.values(s.vector).some((v) => v !== 0))
+  it("3b. its entries equal, line for line, what the consumer sources alone say it should post (same loans, same instant)", async () => {
     const plan = await planOf(consumer, "2026-09")
-    const desiredKeys = new Set(desired.map((s) => s.baseKey))
-    for (const e of plan.entries) expect(desiredKeys.has(e.baseKey), `entry ${e.baseKey} has no consumer source`).toBe(true)
+    const loans = await runWithTenant(consumer.tenantId, () => loadSourceLoans(prisma, consumer.tenantId, plan.period.end))
     expect(loans.every((l) => !l.assetFinance)).toBe(true)
+    // Nothing is closed yet, so September is planned from an empty ledger: the consumer derivation alone, no VAT split.
+    const alone = deriveEntries({ loans, period: plan.period, posted: new Map(), postedKeys: new Set(), postedLoans: new Map(), accounts: resolveAccountMap([]), vat: { registered: false, rateBps: 1500 } })
+    const shape = (entries: typeof alone) => entries.map((e) => ({ eventKey: e.eventKey, postingDate: e.postingDate, lines: e.lines.map((l) => [l.role, l.sourceRole, l.accountCode, l.debitCents, l.creditCents]) }))
+    expect(plan.entries.length).toBeGreaterThan(0)
+    expect(shape(plan.entries)).toEqual(shape(alone))
   }, 120_000)
 
   it("3c. another tenant's unsupported contract or failing control does not refuse or alter this tenant's close", async () => {
@@ -73,8 +75,11 @@ suite.sequential("consumer-only tenant is untouched by asset finance", () => {
     const loan = await createChargesLoan(db, T)
     await db.accountingSettings.create({ data: { tenantId: T.tenantId, mappingConfirmedAt: new Date(), goLiveMonth: "2026-08" } })
     const asset = await db.financedAsset.create({ data: { tenantId: T.tenantId, assetClass: "EXCAVATOR", make: "T", model: "T", year: 2025, serialNumber: `SN-${T.tenantId}`, cashPriceExclVatCents: 1, vatCents: 0 } })
-    await db.$executeRawUnsafe(`UPDATE "Loan" SET "assetId" = '${asset.id}' WHERE "id" = '${(loan as unknown as { id: string }).id}'`).catch(() => undefined)
+    // The database accepts the link (a consumer loan may name the asset it financed): the one row is updated, not swallowed.
+    expect(await db.$executeRawUnsafe(`UPDATE "Loan" SET "assetId" = '${asset.id}' WHERE "id" = '${loan.loanId}'`)).toBe(1)
+    expect((await runWithTenant(T.tenantId, () => loadAssetFinanceLoans(prisma, T.tenantId))).loans).toEqual([])
     const before = await planOf(T, "2026-08")
+    expect(before.entries.length).toBeGreaterThan(0)
     expect(before.entries.every((e) => !e.baseKey.startsWith("af:") && !e.baseKey.startsWith("lease"))).toBe(true)
   }, 120_000)
 })

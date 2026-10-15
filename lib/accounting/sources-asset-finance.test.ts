@@ -5,7 +5,7 @@ import { LEASE_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance
 import { RECOVERY_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance-journal-recovery-deals"
 import { defaultAccounts, ledger, loan as consumerLoan, runWith } from "./derive.test-helpers"
 import { RECEIVABLE_ROLES } from "./accounts"
-import { desiredSources } from "./derive"
+import { desiredSources, deriveEntries } from "./derive"
 import { parsePeriodKey } from "./period"
 import { loanSources, type Vector } from "./sources"
 import { creditShares } from "./sources-asset-finance"
@@ -210,5 +210,19 @@ describe("credit notes the sources cannot spread", () => {
       { role: "ASSET_DISPOSAL_PROCEEDS" as const, exclVatCents: 0 }, { role: "MAINTENANCE_FUND_LIABILITY" as const, exclVatCents: 15_000 }, { role: "RENTAL_INCOME" as const, exclVatCents: 10_000 },
     ] }
     expect(creditShares(note)).toEqual([{ role: "MAINTENANCE_FUND_LIABILITY", cents: 3_000 }, { role: "RENTAL_INCOME", cents: 2_000 }])
+  })
+})
+
+describe("a contract held back from a preview", () => {
+  it("is not reversed as a removed source (its earlier postings stand), unless it is simply gone", () => {
+    const deal = INSTALMENT_JOURNAL_DEALS[0]
+    const state = ledger()
+    runWith(defaultAccounts(), null, [deal.loan], parsePeriodKey("2026-10")!, state)
+    const owners = new Map([...state.posted.keys()].map((k) => [k, { loanId: deal.loan.id, reference: deal.loan.reference }]))
+    const next = (heldBack?: ReadonlySet<string>) => deriveEntries({
+      loans: [], period: parsePeriodKey("2026-11")!, posted: state.posted, postedKeys: state.keys, postedLoans: owners, accounts: defaultAccounts(), heldBack,
+    })
+    expect(next(new Set([deal.loan.id]))).toEqual([])
+    expect(next().length, "without the hold the sources are reversed as removed").toBeGreaterThan(0)
   })
 })

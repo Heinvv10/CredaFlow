@@ -138,6 +138,8 @@ export function deriveEntries(args: {
   postedLoans: Map<string, { loanId: string | null; reference: string }>
   accounts: AccountMap
   vat?: VatSettings | null
+  /** Loans left out of `loans` on purpose (a preview that cannot post them): their posted sources are not reversed as "removed". */
+  heldBack?: ReadonlySet<string>
 }): DerivedEntry[] {
   const { period, posted, postedKeys, accounts } = args
   const vat = args.vat ?? null
@@ -158,6 +160,7 @@ export function deriveEntries(args: {
     const change = delta({}, vector)
     if (Object.keys(change).length === 0) continue
     const owner = args.postedLoans.get(baseKey) ?? { loanId: null, reference: "" }
+    if (owner.loanId && args.heldBack?.has(owner.loanId)) continue
     entries.push({
       eventKey: `${baseKey}@${period.key}`,
       baseKey,

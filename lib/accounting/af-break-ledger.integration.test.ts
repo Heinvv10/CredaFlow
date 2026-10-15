@@ -61,7 +61,7 @@ suite.sequential("af journals: closed is final, mapping confirmation, tenant iso
 
   it("4b. TRUNCATE of the ledger tables is refused (closed is final for privileged writers too)", async () => {
     const went: string[] = []
-    for (const table of ["AccountingJournalLine", "AccountingLedgerEntry", "AccountingExportBatch"]) {
+    for (const table of ["AccountingJournalLine", "AccountingLedgerEntry", "AccountingExportBatch", "AccountingOpeningPosition"]) {
       const result = await db.$transaction(async (tx) => { await tx.$executeRawUnsafe(`TRUNCATE "${table}" CASCADE`); throw new Error("truncate-went-through") }).catch((e: Error) => e.message)
       if (result.includes("truncate-went-through")) went.push(table)
     }

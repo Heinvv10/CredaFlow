@@ -24,7 +24,7 @@ async function truncateRolledBack(table: string): Promise<unknown> {
 suite.sequential("closed-month tables refuse TRUNCATE (real Postgres)", () => {
   afterAll(async () => { await db.$disconnect() })
 
-  it.each(["AccountingExportBatch", "AccountingLedgerEntry", "AccountingJournalLine"])("%s", async (table) => {
+  it.each(["AccountingExportBatch", "AccountingLedgerEntry", "AccountingJournalLine", "AccountingOpeningPosition"])("%s", async (table) => {
     const error = await truncateRolledBack(table)
     expect(error, "expected the database to refuse").not.toBeInstanceOf(RolledBack)
     expect(String((error as Error).message)).toMatch(new RegExp(`${table} is part of the closed months and is never truncated`))
