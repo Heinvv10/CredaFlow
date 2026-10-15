@@ -98,12 +98,12 @@ export async function sendDisbursementPayout(db: PayoutDb, args: { tenantId: str
     const outcome = await dispatchPayout(db, args)
     if (outcome.kind === "sent") return { id: args.payoutId, status: outcome.status }
     if (outcome.kind === "not_sendable") {
-      console.error("[payouts] payout left unsent:", { payoutId: args.payoutId, reason: outcome.reason })
+      console.error("Payout left unsent after disbursement:", args.payoutId)
       return { id: args.payoutId, status: "PENDING" }
     }
     return { id: args.payoutId, status: outcome.status ?? "UNKNOWN" }
   } catch (error) {
-    console.error("[payouts] dispatch failed after the disbursement committed:", { payoutId: args.payoutId, error: error instanceof Error ? error.name : "unknown" })
+    console.error("Payout dispatch failed after the disbursement committed:", error instanceof Error ? error.name : "unknown")
     return { id: args.payoutId, status: "UNKNOWN" }
   }
 }
