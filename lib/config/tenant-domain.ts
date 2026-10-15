@@ -67,6 +67,11 @@ export function reservedDeploymentHosts(env: Readonly<Record<string, string | un
       if (host) hosts.add(host)
     }
   }
+  // The www. form of each (a browser or DNS often serves both), and the
+  // website's apex when the website itself lives on www.<apex>.
+  const website = env.NEXT_PUBLIC_WEBSITE_URL?.trim() ? urlHost(env.NEXT_PUBLIC_WEBSITE_URL.trim()) : null
+  if (website?.startsWith("www.")) hosts.add(website.slice(4))
+  for (const host of [...hosts]) if (!host.startsWith("www.")) hosts.add(`www.${host}`)
   return hosts
 }
 

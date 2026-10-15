@@ -68,6 +68,36 @@ describe("tenantDomainRefusal", () => {
   })
 })
 
+// PR #91 breaker: a lender must not take the www. form of a host the
+// deployment serves, nor the website's apex when the website is www.<apex>.
+describe("www. forms of reserved hosts", () => {
+  it("reserves www. + the website host, and the website's apex when it is a www. host", () => {
+    vi.stubEnv("NEXT_PUBLIC_WEBSITE_URL", "https://lender.example")
+    expect(isReservedDeploymentHost("www.lender.example")).toBe(true)
+    vi.stubEnv("NEXT_PUBLIC_WEBSITE_URL", "https://www.other-lender.example")
+    expect(isReservedDeploymentHost("www.other-lender.example")).toBe(true)
+    expect(isReservedDeploymentHost("other-lender.example")).toBe(true)
+  })
+
+  it.each([
+    ["STAFF_APP_HOST", "platform.example"],
+    ["OPERATOR_APP_HOST", "console.example"],
+    ["TENANT_HOST_MAP", "acme.example=acme"],
+    ["NEXT_PUBLIC_PORTAL_URL", "https://portal.example"],
+    ["FSP_QUICKQUOTE_HOSTS", "quote.example"],
+  ])("reserves www. + the %s host", (name, value) => {
+    vi.unstubAllEnvs()
+    vi.stubEnv(name, value)
+    const host = value.replace(/^https:\/\//, "").replace(/=.*$/, "")
+    expect(isReservedDeploymentHost(`www.${host}`), name).toBe(true)
+  })
+
+  it("does not reserve www. hosts nobody configured", () => {
+    vi.unstubAllEnvs()
+    expect(isReservedDeploymentHost("www.beta-lending.example")).toBe(false)
+  })
+})
+
 // The proxy and the QuickQuote host gate decide which hosts this deployment
 // serves from env. Every host-bearing variable they read must be reserved,
 // so a new one cannot be added to the proxy and forgotten here.

@@ -30,7 +30,10 @@ Operator console.
   `/api/operator` write `application/json`: send JSON from console UI.
 - **Tenant.domain goes through `lib/config/tenant-domain.ts`** (normalised; never
   a deployment host or another lender's subdomain host): it outranks the slug
-  in host resolution, so a bad one takes over a host.
+  in host resolution, so a bad one takes over a host. **Known limit:** the
+  checks are check-then-write, not locked; two lenders created or re-domained
+  at once can each pass against the other (the unique index still stops two
+  identical domains). Serialise tenant/domain writes before automating them.
 - **Sign-in and every request apply one rule set** (`lib/auth-principal.ts`:
   active, binding, suspended lender, TOTP state, enrolment hold). Add a rule
   there, never to one path only; `lib/__tests__/auth-principal-parity.test.ts`
