@@ -188,28 +188,33 @@ describe("an appended save that adds no object and no xref entry", () => {
   })
 })
 
+/**
+ * Linear versus quadratic, not a benchmark: each input is sized so a quadratic
+ * check takes far over the 5 s bound (27–30 s measured at load ~60) while the
+ * linear one takes well under 1 s, so the bound holds on a loaded box.
+ */
 describe("the cost of checking appended saves stays linear in the file size", () => {
   const timed = (pdf: string, expected: number) => {
     const bytes = Buffer.from(pdf, "latin1")
     const t = performance.now()
     expect(countIncrementalUpdates(bytes)).toBe(expected)
-    expect(performance.now() - t).toBeLessThan(2000)
+    expect(performance.now() - t).toBeLessThan(5000)
   }
 
-  it("on 50,000 %%EOF sections with no trailer to find", () => {
-    timed(`%PDF-1.7\n${"% a section of filler\n%%EOF".repeat(50_000)}`, 49_999)
+  it("on 100,000 %%EOF sections with no trailer to find", () => {
+    timed(`%PDF-1.7\n${"% a section of filler\n%%EOF".repeat(100_000)}`, 99_999)
   })
 
-  it("on 20,000 saves whose /Prev sends the decoy check back to the start of a 1 MB file", () => {
+  it("on 20,000 saves whose /Prev sends the decoy check back to the start of a 2 MB file", () => {
     // Every other save is well formed with /Prev at byte 9, so each one asks for the first trailer after it.
     // Filler of near-misses, so a forward scan for "trailer" cannot skip through it.
-    let pdf = `%PDF-1.7\nxref\n%${"traile ".repeat(150_000)}\ntrailer\n<</Size 1>>\nstartxref\n9\n%%EOF`
+    let pdf = `%PDF-1.7\nxref\n%${"traile ".repeat(300_000)}\ntrailer\n<</Size 1>>\nstartxref\n9\n%%EOF`
     for (let i = 0; i < 20_000; i++) pdf = save(pdf, "/Size 1 /Prev 9", i % 2 ? {} : { startxref: 9 })
     timed(pdf, 20_000)
   })
 
-  it("on 2,000 saves alternating their /XRefStm over an 8 MB original", () => {
-    const big = original({ xrefStreams: 1, padding: 8_000_000 })
+  it("on 2,000 saves alternating their /XRefStm over a 16 MB original", () => {
+    const big = original({ xrefStreams: 1, padding: 16_000_000 })
     const content = big.pdf.indexOf("\n4 0 obj") + 1
     let [pdf, prev] = [big.pdf, lastStartxref(big.pdf)]
     for (let i = 0; i < 2_000; i++) {
