@@ -5,6 +5,8 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
+import { databaseNow } from "@/lib/db-clock"
+import { findStandingInPersonAttestation } from "@/lib/kyc/in-person-standing.server"
 import {
   assessBiometricEvidence,
   biometricSubjectFingerprint,
@@ -32,6 +34,7 @@ import {
   IN_PERSON_KYC_VERIFICATION_MIN_NOTE_CHARACTERS,
   IN_PERSON_KYC_VERIFICATION_VERSION,
   idDocumentPortraitRefused,
+  inPersonAttestationIdempotencyKey,
   isInPersonKycVerificationMethod,
   selfieBlocksInPersonVerification,
   type InPersonKycVerificationEvidence,
@@ -129,6 +132,9 @@ async function grantException(
     requireDocumentVerified: false,
   })
   if (assessment.ok) return { kind: "biometric_already_valid" as const }
+  // The database clock under the client lock, as the in-person records use:
+  // every KYC_EXCEPTION completedAt is ordered against the same clock.
+  const approvedAt = await databaseNow(tx)
   const evidence: ManualKycExceptionEvidence = {
     kind: MANUAL_KYC_EXCEPTION_KIND,
     version: MANUAL_KYC_EXCEPTION_VERSION,
@@ -139,13 +145,12 @@ async function grantException(
     biometricFailureReason: assessment.reason,
     reason,
     supportingEvidence,
-    approvedAt: new Date().toISOString(),
+    approvedAt: approvedAt.toISOString(),
     approvedById: args.actor.id,
     approvedByEmail: args.actor.email,
     approvedWithTotp: args.actor.totpVerified === true,
     overrideRequestId: args.requestId,
   }
-  const approvedAt = new Date(evidence.approvedAt)
   const record = await tx.complianceRecord.create({
     data: {
       tenantId: args.tenantId,
@@ -202,13 +207,15 @@ async function grantInPerson(
     }),
     tx.clientDocument.findFirst({
       where: { tenantId: args.tenantId, clientId: args.clientId, docType: "SELFIE" },
-      orderBy: latestSelfieOrder(), select: { id: true },
+      orderBy: latestSelfieOrder(), select: { id: true, biometricResult: true },
     }),
   ])
   if (outstandingCoreDocuments(CORE_KYC_DOCUMENT_TYPES, coreDocuments).length > 0) {
     return { kind: "core_documents_missing" as const }
   }
-  const approvedAt = new Date()
+  // The database clock, under the client evidence lock: compared with verdict
+  // stamps written by other app hosts.
+  const approvedAt = await databaseNow(tx)
   const idCopies = coreDocuments.filter((doc) => doc.docType === "ID_COPY")
   if (blockingCandidates.some((selfie) => selfieBlocksInPersonVerification(selfie, idCopies, approvedAt))) {
     return { kind: "biometric_attempt_exists" as const }
@@ -232,10 +239,26 @@ async function grantInPerson(
     approvedWithTotp: args.actor.totpVerified === true,
     overrideRequestId: args.requestId,
   }
+  const idempotencyKey = inPersonAttestationIdempotencyKey({
+    clientId: args.clientId, idDocument, subjectFingerprint, latestAttempt,
+  })
+  // The same circumstances were already attested (by either route): a refusal
+  // the approver can read, not a unique-constraint failure.
+  if (
+    await tx.complianceRecord.findUnique({ where: { idempotencyKey }, select: { id: true } }) ||
+    // The key moves when a late answer is stamped on the latest attempt, so it
+    // alone would accept a second identical attestation while one stands.
+    await findStandingInPersonAttestation(tx, {
+      tenantId: args.tenantId, clientId: args.clientId, subject: client, idDocument, portraitRefusals,
+      blockingCandidates, idDocumentCopies: idCopies,
+    })
+  ) {
+    return { kind: "verification_exists" as const }
+  }
   const record = await tx.complianceRecord.create({
     data: {
       tenantId: args.tenantId, type: "KYC_EXCEPTION", referenceId: args.clientId,
-      idempotencyKey: ["kyc-in-person", args.clientId, idDocument.id, idDocument.contentSha256, subjectFingerprint, latestAttempt?.id ?? "no-selfie"].join(":"),
+      idempotencyKey,
       status: "COMPLETED", completedAt: approvedAt,
       data: evidence as unknown as Prisma.InputJsonValue,
     },
@@ -269,6 +292,9 @@ export async function PUT(
   if (!hasMinimumManualKycExceptionCharacters(decisionNote, DECISION_REASON_MIN)) {
     return NextResponse.json({ error: `Decision reason must be at least ${DECISION_REASON_MIN} characters.` }, { status: 400 })
   }
+  // Which grant the transaction was attempting, so a unique-key failure is
+  // reported in that grant's terms. Set inside the transaction; a retry sets it again.
+  let decidingKind: "EXCEPTION" | "IN_PERSON" | null = null
   try {
     return await withTenantContext(req, async (tenant) => {
     const { id: clientId, requestId } = await params
@@ -285,6 +311,7 @@ export async function PUT(
         },
       })
       if (!request || request.clientId !== clientId) return { kind: "missing" as const }
+      decidingKind = request.kind
       if (request.status !== "PENDING") return { kind: "already_decided" as const, status: request.status }
       const now = new Date()
       if (now > request.expiresAt) {
@@ -391,6 +418,13 @@ export async function PUT(
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
       return NextResponse.json({ error: "The KYC request or evidence changed concurrently. Refresh and review it again." }, { status: 409 })
+    }
+    // The idempotency key was taken concurrently. Nothing was written (the
+    // transaction rolled back); say which grant it was.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return decidingKind === "EXCEPTION"
+        ? NextResponse.json({ error: "A senior exception was already granted for this selfie. Refresh and review the client's KYC again.", code: "exception_exists" }, { status: 409 })
+        : NextResponse.json({ error: "These circumstances were already attested. Refresh and review the client's KYC again.", code: "verification_exists" }, { status: 409 })
     }
     if (
       error instanceof Prisma.PrismaClientUnknownRequestError &&

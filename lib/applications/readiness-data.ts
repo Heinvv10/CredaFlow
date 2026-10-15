@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckUsableWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import { approvalEvidenceApplicationInclude } from "@/lib/affordability/current-approval"
 import { hasClientBorrower, type WithClientBorrower } from "@/lib/borrower"
 import { unresolvedNonBiometricDocumentMismatchWhere } from "@/lib/kyc/document-mismatches"
@@ -209,10 +209,12 @@ export function inMemoryKycReader(
       // ID-portrait refusal read (SELFIE, filtered on biometricResult), the
       // blocking-selfie read (SELFIE, non-deleted, the blocking conditions)
       // and the prior-failed-attempt read (SELFIE, deleted or not).
-      findMany: (async (args: { where: { docType?: unknown; biometricResult?: unknown; deletedAt?: unknown } }) => {
+      findMany: (async (args: { where: { docType?: unknown; OR?: unknown; deletedAt?: unknown } }) => {
         if (args.where.docType !== "SELFIE") return forClient(data.coreDocuments)
         const selfies = forClient(data.selfies)
-        if (args.where.biometricResult) return selfies.filter(matchesIdPortraitRefusal)
+        // Both selfie reads carry an OR; the portrait one is the OR over biometricResult.
+        const alternatives = Array.isArray(args.where.OR) ? args.where.OR as Array<Record<string, unknown>> : []
+        if (alternatives.some((alternative) => "biometricResult" in alternative)) return selfies.filter(matchesIdPortraitRefusal)
         return args.where.deletedAt === null
           ? selfies.filter(matchesBlockingSelfie)
           : selfies.filter(isAdversePriorAttempt)
@@ -249,7 +251,12 @@ export async function readApplicationReadiness(
   const clientIds = [...new Set(applications.map((app) => app.clientId))]
   const applicationIds = applications.map((app) => app.id)
 
-  const [coreDocuments, selfies, exceptions, bureauChecks, tenantConfig, mismatches] =
+  // The tenant's bureau freshness window bounds the bureau read below.
+  const tenantConfig = await prisma.tenantConfig.findFirst({
+    where: { tenantId },
+    select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true, bureauMaxAgeDays: true },
+  })
+  const [coreDocuments, selfies, exceptions, bureauChecks, mismatches] =
     await Promise.all([
       prisma.clientDocument.findMany({
         where: {
@@ -280,21 +287,15 @@ export async function readApplicationReadiness(
         select: readinessExceptionSelect,
       }),
       // The approval gate's bureau read, batched: same generation binding,
-      // same staleness cutoff, same provider.
+      // same staleness cutoff, same providers.
       prisma.creditBureauCheck.findMany({
         where: {
           tenantId,
           applicationId: { in: applicationIds },
-          ok: true,
-          createdAt: { gte: bureauStalenessCutoff() },
-          provider: "experian",
+          ...approvalBureauCheckUsableWhere({ maxAgeDays: bureauMaxAgeDays(tenantConfig) }),
         },
         orderBy: { createdAt: "desc" },
         select: readinessBureauSelect,
-      }),
-      prisma.tenantConfig.findFirst({
-        where: { tenantId },
-        select: { bureauMinScore: true, bureauBlockAdverse: true, ndiBufferPct: true },
       }),
       prisma.clientDocument.groupBy({
         by: ["clientId"],

@@ -40,6 +40,14 @@ export interface StatementRead {
   openingBalanceCents: number | null
   closingBalanceCents: number | null
   transactions: StatementTransaction[]
+  /**
+   * The bank prints no opening balance; the reader derived it from the first
+   * row, so that row cannot be checked by arithmetic. analyse.ts records it as
+   * the OPENING_DERIVED signal, which is what persists.
+   */
+  openingDerived?: true
+  /** Likewise for the closing (Discovery): the last row cannot be checked (CLOSING_DERIVED). */
+  closingDerived?: true
 }
 
 /** Facts about the file itself, independent of what it says. */

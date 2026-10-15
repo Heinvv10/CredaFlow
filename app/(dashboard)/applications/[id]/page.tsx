@@ -23,7 +23,9 @@ import { CreditBureauCheckPanel } from "@/components/applications/CreditBureauCh
 import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
+import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
+import { canCancelApplication, showDebtEvidenceBlocker } from "@/lib/applications/decision-kind"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
 import { ApplicationStartReviewButton } from "@/components/applications/ApplicationStartReviewButton"
 import { ApplicationReturnToDraftButton } from "@/components/applications/ApplicationReturnToDraftButton"
@@ -462,7 +464,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(!application.affordabilityNDI && ["UNDER_REVIEW", "SUBMITTED"].includes(application.status)
       ? [{ label: "Affordability pending", detail: "Capture NDI and repayment suitability evidence.", tone: "warning" as const }]
       : []),
-    ...(applicationDebtEvidenceInvalid
+    ...(showDebtEvidenceBlocker(application, applicationDebtEvidenceInvalid)
       ? [{ label: "Debt evidence invalid", detail: "Re-enter every credit obligation before reassessment. Approval and payout remain blocked.", tone: "danger" as const }]
       : []),
     ...(application.status === "UNDER_REVIEW" && !creditLifeDisclosure.ok
@@ -544,7 +546,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
-      {["DRAFT", "SUBMITTED", "UNDER_REVIEW", "DECLINED"].includes(application.status) && (
+      {canCancelApplication(application) && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
       <MessageClientButton
@@ -835,6 +837,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             initialOpenCount={openChecks}
           />
         )}
+
+        {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (

@@ -57,11 +57,18 @@ describe("migration 20261011080000_face_match_v3_evidence", () => {
     ]))
   })
 
-  // Neither reads the provider tag, and v3 adds no failure reason.
-  it("leaves the in-person predicate at its v2 body", () => {
-    expect(baselineFunctionSql("subject_has_in_person_kyc_verification")).toBe(
-      functionIn(read("20261011060000_face_match_v2_evidence"), "subject_has_in_person_kyc_verification"),
-    )
+  // Neither reads the provider tag, and v3 adds no failure reason. Migration
+  // 20261014120000 later ADDED two lapse rules (in-person-lapse-migration.test.ts);
+  // it must still hold every v2 condition.
+  it("keeps every v2 condition of the in-person predicate", () => {
+    const kept = new Set(codeLines(baselineFunctionSql("subject_has_in_person_kyc_verification")))
+    const v2 = functionIn(read("20261011060000_face_match_v2_evidence"), "subject_has_in_person_kyc_verification")
+    // Only the portrait-refusal reason test is reworded: it now reads the
+    // worker's own reason too (the next test pins the new form).
+    expect(codeLines(v2).filter((line) => !kept.has(line))).toEqual([
+      `AND refused."biometricResult" ->> 'biometricFailureReason' =`,
+      `'id_document_portrait_invalid'`,
+    ])
   })
 
   it("keeps the manual exception predicate provider-agnostic while adding the clear-mismatch guard", () => {

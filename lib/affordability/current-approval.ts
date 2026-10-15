@@ -8,7 +8,7 @@ import {
 } from "@/lib/affordability/evidence-locks"
 import type { prisma as ScopedPrismaClient } from "@/lib/prisma"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
-import { bureauStalenessCutoff } from "@/lib/compliance/bureau"
+import { approvalBureauCheckWhere, bureauMaxAgeDays } from "@/lib/compliance/bureau"
 import {
   readCompositeKycState,
   type CompositeKycReader,
@@ -51,7 +51,7 @@ import {
   type AffordabilityExpenseInput,
   type BureauDecisionCheckInput,
 } from "@/lib/affordability/snapshot"
-import { isSimulatedBureauCheck, simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
+import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
 import {
   requireClientBorrowerId,
@@ -255,33 +255,33 @@ async function loadLockedApprovalContext(
     FOR SHARE
   `)
 
-  const [application, bureauCheck, tenantConfig] = await Promise.all([
+  // The tenant's freshness window bounds the bureau read, so it comes first.
+  const tenantConfig = await tx.tenantConfig.findUnique({
+    where: { tenantId: args.tenantId },
+    select: {
+      ndiBufferPct: true,
+      bureauMinScore: true,
+      bureauBlockAdverse: true,
+      bureauMaxAgeDays: true,
+    },
+  })
+  const [application, bureauCheck] = await Promise.all([
     tx.loanApplication.findUnique({
       where: { id: args.applicationId, tenantId: args.tenantId },
       include: approvalEvidenceApplicationInclude,
     }),
     identity.bureauReviewGeneration
       ? tx.creditBureauCheck.findFirst({
-          where: {
+          where: approvalBureauCheckWhere({
             tenantId: args.tenantId,
             applicationId: args.applicationId,
             clientId: identity.clientId,
             reviewGeneration: identity.bureauReviewGeneration,
-            ok: true,
-            createdAt: { gte: bureauStalenessCutoff() },
-            provider: "experian",
-          },
+            maxAgeDays: bureauMaxAgeDays(tenantConfig),
+          }),
           orderBy: { createdAt: "desc" },
         })
       : Promise.resolve(null),
-    tx.tenantConfig.findUnique({
-      where: { tenantId: args.tenantId },
-      select: {
-        ndiBufferPct: true,
-        bureauMinScore: true,
-        bureauBlockAdverse: true,
-      },
-    }),
   ])
   if (!application) return null
   return { application: requireClientBorrowerRow(application), bureauCheck, tenantConfig }
@@ -450,7 +450,7 @@ export async function verifyLockedApprovalCandidate(
   ) {
     return { ok: false, reason: "bureau_subject_changed" }
   }
-  if (simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations)).blocked) {
+  if (simulatedBureauBlock(bureauCheck).blocked) {
     return { ok: false, reason: "bureau_simulated" }
   }
 
@@ -643,7 +643,7 @@ export function verifyCurrentAffordabilityApproval(args: {
   if (bureauCheck && !bureauCheckMatchesSubject(bureauCheck, application.client)) {
     return { ok: false, reason: "bureau_subject_changed" }
   }
-  if (simulatedBureauBlock(isSimulatedBureauCheck(bureauCheck?.obligations)).blocked) {
+  if (simulatedBureauBlock(bureauCheck).blocked) {
     return { ok: false, reason: "bureau_simulated" }
   }
   if (

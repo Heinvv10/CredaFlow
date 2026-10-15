@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { evaluateBureauGate, isSimulatedBureauCheck, nonOverridableBlock } from "@/lib/decision/bureau-gate"
 
-const base = { score: 650, unscoreable: false, hasAdverse: false, deceased: false, underDebtReview: false, hasJudgement: false, hasNotice: false }
+const base = { score: 650, unscoreable: false, hasAdverse: false, deceased: false, underDebtReview: false, hasJudgement: false, hasNotice: false, obligations: { totalMonthly: 0 } }
 const cfg = { bureauMinScore: 600, bureauBlockAdverse: false }
 
 describe("evaluateBureauGate", () => {
@@ -15,6 +15,23 @@ describe("evaluateBureauGate", () => {
     expect(evaluateBureauGate({ ...base, underDebtReview: true }, cfg).blocked).toBe(true)
     expect(evaluateBureauGate({ ...base, hasJudgement: true }, cfg).blocked).toBe(true)
     expect(evaluateBureauGate({ ...base, hasNotice: true }, cfg).blocked).toBe(true)
+  })
+  it("sends a report that states no debt to manual review instead of reading it as zero debt", () => {
+    for (const obligations of [{ totalMonthly: null }, { simulated: true }, null, undefined]) {
+      const r = evaluateBureauGate({ ...base, obligations }, cfg)
+      expect(r.blocked).toBe(true)
+      expect(r.reason).toMatch(/debt is unknown/)
+    }
+    // Zero is a statement, not an absence.
+    expect(evaluateBureauGate({ ...base, obligations: { totalMonthly: 0 } }, cfg).blocked).toBe(false)
+  })
+  it("blocks a simulated-bureau row by its provider where the simulator is forbidden", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      expect(evaluateBureauGate({ ...base, provider: "simulated" }, cfg).reason).toMatch(/simulated/i)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
   it("blocks when score below the calibrated floor", () => {
     expect(evaluateBureauGate({ ...base, score: 500 }, cfg).blocked).toBe(true)
@@ -56,7 +73,7 @@ describe("nonOverridableBlock", () => {
 
 describe("simulated bureau evidence", () => {
   afterEach(() => vi.unstubAllEnvs())
-  const simulated = { ...base, obligations: { simulated: true } }
+  const simulated = { ...base, obligations: { simulated: true, totalMonthly: 0 } }
 
   it("reads the marker only when it is exactly true", () => {
     expect(isSimulatedBureauCheck({ simulated: true })).toBe(true)
