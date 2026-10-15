@@ -17,7 +17,7 @@ describe("CreditChecksPanel evidence", () => {
     expect(html).toContain('href="/api/documents/doc-2/view"')
     expect(html).toContain("june.pdf (2026-06-01 to 2026-06-30)")
     expect(html).toContain("closes at R 5 800.00")
-    expect(html).toContain("Both were uploaded by the applicant")
+    expect(html).toContain("Both come from the client&#x27;s file")
   })
 
   it("says the next statement opens there, for a last row", () => {

@@ -63,8 +63,29 @@ describe("flagViews", () => {
     expect(documentFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: expect.arrayContaining(["doc-1", "doc-2"]) } }) }))
     expect(documentIds.sort()).toEqual(["doc-1", "doc-2"])
     // Showing the neighbour's name, period and balance is access to it, even on a flag about another statement.
+    documentFindMany.mockResolvedValue([{ id: "doc-1", fileName: "july.pdf" }, { id: "doc-9", fileName: "may.pdf", deletedAt: null }])
     const one = await flagViews("t1", [flag({ check: "MANUAL_REVIEW", code: "FIRST_ROW_UNVERIFIED", evidence: { documentId: "doc-1", chainedWith: { documentId: "doc-9", ...period, closingCents: 1 } } })])
     expect(one.documentIds.sort()).toEqual(["doc-1", "doc-9"])
+  })
+
+  it("strips control characters from the neighbour's period as from its name", async () => {
+    documentFindMany.mockResolvedValue([{ id: "doc-2", fileName: "june.pdf" }])
+    const { flags } = await flagViews("t1", [flag({ check: "MANUAL_REVIEW", code: "FIRST_ROW_UNVERIFIED", evidence: {
+      documentId: "doc-1", chainedWith: { documentId: "doc-2", periodStart: "2026-06-01\u202e", periodEnd: "2026-06-\u000730", closingCents: 1 },
+    } })])
+    expect(flags[0].chainedWith).toMatchObject({ periodStart: "2026-06-01", periodEnd: "2026-06-30" })
+  })
+
+  it("drops the agreement, and does not cite the neighbour, once it is deleted or gone, before any recompute", async () => {
+    const chained = (documentId: string) => flag({ id: documentId, check: "MANUAL_REVIEW", code: "FIRST_ROW_UNVERIFIED", evidence: {
+      documentId: "doc-1", chainedWith: { documentId, periodStart: "2026-06-01", periodEnd: "2026-06-30", closingCents: 1 },
+    } })
+    documentFindMany.mockResolvedValue([{ id: "doc-1", fileName: "july.pdf", deletedAt: null }, { id: "doc-deleted", fileName: "june.pdf", deletedAt: new Date() }])
+    const { flags, documentIds } = await flagViews("t1", [chained("doc-deleted"), chained("doc-missing")])
+    expect(flags.map((f) => f.chainedWith)).toEqual([null, null])
+    expect(documentIds).toEqual(["doc-1"])
+    // The flag's own statement still shows, deleted or not: STATEMENT_DELETED points at it.
+    expect(flags[0]).toMatchObject({ documentId: "doc-1", documentName: "july.pdf" })
   })
 
   it("shows superseded and cleared flags with who cleared them", async () => {

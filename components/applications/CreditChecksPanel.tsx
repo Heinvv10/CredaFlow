@@ -129,7 +129,7 @@ export function Evidence({ flag }: { flag: FlagView }) {
             {flag.chainedWith.documentName ?? "View statement"} ({flag.chainedWith.periodStart} to {flag.chainedWith.periodEnd})
           </a>
           , which {flag.chainedWith.relation === "previous" ? "closes" : "opens"} at {formatCents(flag.chainedWith.balanceCents)}.
-          Both were uploaded by the applicant, so compare the row with the bank&apos;s original before clearing.
+          Both come from the client&apos;s file, so compare the row with the bank&apos;s original before clearing.
         </p>
       )}
       {flag.rows.length > 0 && (
