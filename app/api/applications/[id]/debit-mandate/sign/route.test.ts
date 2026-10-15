@@ -23,7 +23,13 @@ const {
   applicationUpdateMany,
   auditLogCreate,
   documentAccessLogCreate,
+  tenantConfigFindUnique,
+  otpFindFirst,
+  otpUpdateMany,
 } = vi.hoisted(() => ({
+  tenantConfigFindUnique: vi.fn(),
+  otpFindFirst: vi.fn(),
+  otpUpdateMany: vi.fn(),
   auth: vi.fn(),
   applicationFindUnique: vi.fn(),
   applicationFindFirst: vi.fn(),
@@ -59,6 +65,8 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenant: { findUnique: tenantFindUnique },
     complianceRecord: { findUnique: complianceFindUnique },
+    tenantConfig: { findUnique: tenantConfigFindUnique },
+    signingOtpChallenge: { findFirst: otpFindFirst },
     $transaction: transaction,
   },
 }))
@@ -182,6 +190,9 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
     applicationUpdateMany.mockResolvedValue({ count: 1 })
     auditLogCreate.mockResolvedValue({ id: "audit-1" })
     documentAccessLogCreate.mockResolvedValue({ id: "access-1" })
+    // The signing-OTP gate has its own tests at the end; off for the rest.
+    tenantConfigFindUnique.mockResolvedValue({ requireSigningOtp: false, signingOtpBranchExempt: true })
+    otpUpdateMany.mockResolvedValue({ count: 1 })
     transaction.mockImplementation(
       (callback: (tx: unknown) => unknown) => callback({
         loanApplication: {
@@ -195,6 +206,11 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
         },
         auditLog: { create: auditLogCreate },
         documentAccessLog: { create: documentAccessLogCreate },
+        signingOtpChallenge: {
+          updateMany: otpUpdateMany,
+          findFirst: otpFindFirst,
+          findFirstOrThrow: otpFindFirst,
+        },
       }),
     )
   })
@@ -527,5 +543,80 @@ describe("POST /api/applications/[id]/debit-mandate/sign", () => {
     expect(deleteManagedFileStrict).toHaveBeenCalledWith(
       "/managed/debit-mandate-doc-1.pdf",
     )
+  })
+
+  describe("signing OTP gate", () => {
+    const verified = {
+      id: "otp-9", tenantId: "tenant-1", clientId: "client-1", purpose: "DEBIT_MANDATE", subjectId: "app-1",
+      documentSha256: draftDocumentSha256, channel: "EMAIL", maskedDestination: "c***y@e***.test",
+      deliveryStatus: "ACCEPTED", sentAt: new Date("2026-07-23T15:58:00.000Z"),
+      expiresAt: new Date("2026-07-23T16:03:00.000Z"), attempts: 1, maxAttempts: 5,
+      verifiedAt: new Date("2026-07-23T15:59:00.000Z"), consumedAt: null,
+    }
+
+    beforeEach(() => {
+      tenantConfigFindUnique.mockResolvedValue({ requireSigningOtp: true, signingOtpBranchExempt: true })
+      otpFindFirst.mockResolvedValue(verified)
+    })
+
+    it("refuses before anything is rendered or staged when no code was verified", async () => {
+      const response = await POST(request({ signature: "Casey Staging", draftDocumentSha256 }), ctx)
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual(expect.objectContaining({ debitMandate: "signing_otp_required" }))
+      expect(complianceCreate).not.toHaveBeenCalled()
+      expect(saveFileToManagedPath).not.toHaveBeenCalled()
+    })
+
+    it("refuses a code issued for a different prepared mandate", async () => {
+      otpFindFirst.mockResolvedValue({ ...verified, documentSha256: "0".repeat(64) })
+
+      const response = await POST(request({
+        signature: "Casey Staging", draftDocumentSha256, signingOtpChallengeId: "otp-9",
+      }), ctx)
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual(expect.objectContaining({ debitMandate: "signing_otp_document_changed" }))
+      expect(complianceCreate).not.toHaveBeenCalled()
+    })
+
+    it("spends the code in the final transaction and records the evidence", async () => {
+      const response = await POST(request({
+        signature: "Casey Staging", draftDocumentSha256, signingOtpChallengeId: "otp-9",
+      }), ctx)
+
+      expect(response.status).toBe(200)
+      expect(otpUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          id: "otp-9", clientId: "client-1", purpose: "DEBIT_MANDATE", subjectId: "app-1",
+          documentSha256: draftDocumentSha256, consumedAt: null,
+        }),
+      }))
+      expect(auditLogCreate).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          action: "DEBIT_MANDATE_SIGNED",
+          newValue: expect.objectContaining({
+            signingOtp: expect.objectContaining({ challengeId: "otp-9", channel: "EMAIL" }),
+          }),
+        }),
+      }))
+    })
+
+    it("does not record the mandate, and cleans up the staged PDF, when the code was spent concurrently", async () => {
+      otpUpdateMany.mockResolvedValue({ count: 0 })
+      otpFindFirst
+        .mockResolvedValueOnce(verified)
+        .mockResolvedValue({ ...verified, consumedAt: new Date("2026-07-23T15:59:30.000Z") })
+
+      const response = await POST(request({
+        signature: "Casey Staging", draftDocumentSha256, signingOtpChallengeId: "otp-9",
+      }), ctx)
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual(expect.objectContaining({ debitMandate: "signing_otp_already_used" }))
+      expect(applicationUpdateMany).not.toHaveBeenCalled()
+      expect(documentCreate).not.toHaveBeenCalled()
+      expect(deleteManagedFileStrict).toHaveBeenCalledWith("/managed/debit-mandate-doc-1.pdf")
+    })
   })
 })

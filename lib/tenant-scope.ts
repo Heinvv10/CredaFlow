@@ -118,6 +118,9 @@ export const TENANT_SCOPED_MODELS = [
   "WebhookEndpoint",
   "WebhookEvent",
   "WebhookDelivery",
+  // Signing OTP challenges (lib/signing-otp). Non-null tenantId, passed
+  // explicitly on every query (sign routes run inside withTenantContext too).
+  "SigningOtpChallenge",
   // Operating and full-maintenance leases (slice 3). Non-null tenantId,
   // passed explicitly on every query (the invoice cron has no frame).
   "LeaseRental",

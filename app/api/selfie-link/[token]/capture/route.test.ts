@@ -20,6 +20,15 @@ vi.mock("@/lib/rate-limit", () => ({
   callerIp: () => "203.0.113.9",
 }))
 
+const portal = vi.hoisted(() => ({ enabled: true }))
+vi.mock("@/lib/portal/portal-policy", async (orig) => ({
+  ...(await orig<typeof import("@/lib/portal/portal-policy")>()),
+  portalOffRefusal: async () => {
+    const { portalUnavailableResponse } = await orig<typeof import("@/lib/portal/portal-policy")>()
+    return portal.enabled ? null : portalUnavailableResponse()
+  },
+}))
+
 import { POST } from "./route"
 
 function request(): Request {
@@ -52,6 +61,19 @@ beforeEach(() => {
   checkRateLimit.mockReturnValue({ allowed: true })
   update.mockResolvedValue({})
   updateMany.mockResolvedValue({ count: 1 })
+})
+
+describe("POST /api/selfie-link/[token]/capture — lender portal switched off", () => {
+  it("refuses a live link with the portal-unavailable 404 and captures nothing", async () => {
+    resolveSelfieLinkToken.mockResolvedValue(LIVE_LINK)
+    portal.enabled = false
+    const res = await POST(request(), { params: Promise.resolve({ token: "t" }) })
+    portal.enabled = true
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual(expect.objectContaining({ portal: "disabled" }))
+    expect(captureSelfie).not.toHaveBeenCalled()
+    expect(updateMany).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/selfie-link/[token]/capture", () => {

@@ -11,6 +11,9 @@ import { generateOtp } from "@/lib/otp"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
 import { escapeHtml } from "@/lib/utils"
+import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
+import { clientReachableOnWhatsApp, portalOtpChannelFrom, sendPortalOtpByWhatsApp } from "@/lib/portal/portal-otp-whatsapp"
 
 // Per-EMAIL send cap: bounds OTP-email spam on a single account regardless of
 // source IP (distributed / CGNAT), and is the invariant a brute-force campaign
@@ -33,8 +36,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const body = await req.json() as { email?: string; turnstileToken?: string }
+  const body = await req.json() as { email?: string; turnstileToken?: string; channel?: string }
   const { email, turnstileToken } = body
+  const channel = portalOtpChannelFrom(body.channel)
 
   // Bot defence: block automated OTP-email spam / account-enumeration sweeps.
   // A missing token short-circuits with no outbound call.
@@ -65,6 +69,10 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    const portalOff = await portalOffRefusal(tenantId)
+    if (portalOff) return portalOff
+    // Read for every request, before the account lookup, like the identity.
+    const whatsappLeg = channel === "WHATSAPP" && await isWhatsAppCloudConfigured(tenantId)
 
     // Resolved BEFORE the account lookup, for every request: if the lender
     // identity were read only once a client matched, an unconfigured identity
@@ -90,6 +98,15 @@ export async function POST(req: NextRequest) {
     const otp = generateOtp()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
     const otpRecord = await prisma.clientOtp.create({ data: { email: normalised, otp, expiresAt } })
+
+    if (whatsappLeg && clientReachableOnWhatsApp(client)) {
+      // Detached: awaiting the provider round-trip would make a matched email
+      // measurably slower than an unknown one (an account-existence oracle).
+      // Failures are audited inside; the caller is told the same as always.
+      void sendPortalOtpByWhatsApp({ tenantId, client, code: otp, purpose: "password_reset", otpRecordId: otpRecord.id })
+        .catch((err: unknown) => { console.error("[portal-forgot] WhatsApp send failed:", err) })
+      return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
+    }
 
     if (newSend || !legacyIdentity) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.
@@ -119,8 +136,9 @@ export async function POST(req: NextRequest) {
       // route. The OTP row is already written; the user can re-request a
       // code on the second screen. The messaging-retry cron picks up TRANSIENT
       // failures + the SUPPRESSED_BY_CONSENT terminal state is logged in
-      // the Message row for ops.
-      await sendMessage({
+      // the Message row for ops. Not awaited, so the provider round-trip does
+      // not tell a matched email from an unknown one by response time.
+      void sendMessage({
         contactId: contact.id,
         channel: "EMAIL",
         template,
@@ -137,7 +155,8 @@ export async function POST(req: NextRequest) {
     // Legacy path: direct sendEmail() — kept until all tenants are
     // confirmed on the new send pipeline.
     const { tradingName } = legacyIdentity
-    await sendEmail({
+    // Detached for the same timing reason as the legs above.
+    void sendEmail({
       tenantId,
       to: normalised,
       toName: `${client.firstName} ${client.lastName}`,
@@ -159,6 +178,8 @@ export async function POST(req: NextRequest) {
       `,
       text: `Your ${tradingName} portal password reset code is: ${otp}. It expires in 15 minutes.`,
       category: "portal-otp",
+    }).catch((err: unknown) => {
+      console.error("[portal-forgot] reset email failed:", err)
     })
 
     return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })

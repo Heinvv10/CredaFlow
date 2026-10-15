@@ -12,6 +12,11 @@
  *              an admin countersigns (POST …/agreement/countersign).
  *   mandate    the borrower confirms banking (POST …/debit-mandate → draft
  *              digest) and signs that draft (POST …/debit-mandate/sign).
+ *   code       before each portal signature the borrower asks for a signing
+ *              code by email (POST /api/signing-otp), reads it off the screen
+ *              (the demo stack's .invalid mailboxes are revealed, DEMO_MODE),
+ *              verifies it (POST …/verify) and signs with it — the lender's
+ *              requireSigningOtp is left on, so the demo shows the feature.
  *   payout     an admin disburses (POST …/disburse), which books the Loan.
  *
  * Each digest the borrower echoes is computed here from the bytes the portal
@@ -33,6 +38,29 @@ async function openDocument(actor: SimClient, path: string): Promise<{ sha: stri
     throw new Error(`${path} served ${res.headers.get("content-type")}, not a PDF`)
   }
   return { sha: sha256(res.bytes), header: res.headers.get("x-document-sha256") }
+}
+
+/**
+ * Requests, reads (demo reveal) and verifies a signing code for exactly these
+ * bytes, and returns the challenge to sign with. Fails loudly when the stack
+ * does not reveal the code: a signature without one is refused anyway.
+ */
+async function verifiedSigningCode(
+  portal: SimClient,
+  purpose: "AGREEMENT" | "DEBIT_MANDATE",
+  subjectId: string,
+  documentSha256: string,
+): Promise<string> {
+  const issued = await portal.post<{ challengeId?: string; demoCode?: string }>("/api/signing-otp", {
+    purpose, subjectId, documentSha256, channel: "EMAIL",
+  })
+  const { challengeId, demoCode } = issued.json ?? {}
+  if (!challengeId || !demoCode) {
+    throw new Error(`signing code not revealed (is DEMO_MODE=true and the borrower's mailbox .invalid?): ${issued.text.slice(0, 300)}`)
+  }
+  await portal.post(`/api/signing-otp/${challengeId}/verify`, { code: demoCode })
+  log(`${purpose.toLowerCase()} signing code verified`)
+  return challengeId
 }
 
 export async function issuePasq(ctx: OriginationContext, applicationId: string): Promise<string> {
@@ -78,11 +106,13 @@ export async function signAgreement(
   pasqSha: string,
 ): Promise<void> {
   const agreement = await openDocument(portal, `/api/applications/${applicationId}/agreement`)
+  const signingOtpChallengeId = await verifiedSigningCode(portal, "AGREEMENT", applicationId, agreement.sha)
   await portal.post(`/api/applications/${applicationId}/agreement/sign`, {
     method: "portal",
     signature: `${p.firstName} ${p.lastName}`,
     agreementDocumentSha256: agreement.sha,
     pasqDocumentSha256: pasqSha,
+    signingOtpChallengeId,
   })
   log(`${p.id}: agreement signed in the portal`)
 }
@@ -106,9 +136,11 @@ export async function signDebitMandate(portal: SimClient, p: Persona, applicatio
   })
   const draftSha = draft.json?.draftDocumentSha256
   if (!draftSha) throw new Error(`debit mandate prepare returned no draft digest: ${draft.text.slice(0, 300)}`)
+  const signingOtpChallengeId = await verifiedSigningCode(portal, "DEBIT_MANDATE", applicationId, draftSha)
   await portal.post(`/api/applications/${applicationId}/debit-mandate/sign`, {
     signature: `${p.firstName} ${p.lastName}`,
     draftDocumentSha256: draftSha,
+    signingOtpChallengeId,
   })
   log(`${p.id}: debit mandate signed`)
 }

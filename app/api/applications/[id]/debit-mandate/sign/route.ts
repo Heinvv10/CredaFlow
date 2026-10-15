@@ -27,6 +27,13 @@ import {
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
 import { hasClientBorrower } from "@/lib/borrower"
+import {
+  checkSigningOtp,
+  consumeSigningOtp,
+  SIGNING_OTP_REFUSAL_MESSAGES,
+  SigningOtpRefusedError,
+} from "@/lib/signing-otp/challenge"
+import { isSigningOtpRequired, signingOtpChallengeIdFrom } from "@/lib/signing-otp/policy"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -430,6 +437,26 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           "The mandate shown for signature is no longer current. Refresh and review it again.",
         )
       }
+      // Signing OTP (lib/signing-otp/policy.ts): checked before anything is
+      // staged, spent inside the final transaction.
+      const signingOtpChallengeId = signingOtpChallengeIdFrom(body)
+      const signingOtpNeeded = await isSigningOtpRequired(tenant.id, "portal")
+      if (signingOtpNeeded) {
+        const refusal = await checkSigningOtp(prisma, signingOtpChallengeId, {
+          tenantId: tenant.id,
+          clientId: application.clientId,
+          purpose: "DEBIT_MANDATE",
+          subjectId: id,
+          documentSha256: preparation.draftDocumentSha256,
+        })
+        if (refusal) {
+          throw new DebitMandateSigningError(
+            refusal === "document_changed" ? 409 : 403,
+            `signing_otp_${refusal}`,
+            SIGNING_OTP_REFUSAL_MESSAGES[refusal],
+          )
+        }
+      }
       const tenantInfo = await prisma.tenant.findUnique({
         where: { id: tenant.id },
         select: { id: true },
@@ -605,6 +632,21 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             "The banking or mandate evidence changed while it was being signed.",
           )
         }
+        const signingOtp = signingOtpNeeded
+          ? await consumeSigningOtp(tx, {
+              tenantId: tenant.id,
+              clientId: current.clientId,
+              purpose: "DEBIT_MANDATE",
+              subjectId: id,
+              documentSha256: currentPreparation.draftDocumentSha256,
+              challengeId: signingOtpChallengeId!,
+              method: "portal",
+              now: new Date(),
+            }).catch((error: unknown) => {
+              if (!(error instanceof SigningOtpRefusedError)) throw error
+              throw new DebitMandateSigningError(403, `signing_otp_${error.reason}`, SIGNING_OTP_REFUSAL_MESSAGES[error.reason])
+            })
+          : null
         const created = await tx.clientDocument.create({
           data: {
             id: documentId!,
@@ -680,6 +722,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
                 currentPreparation.evidence.bankStatement.documentId,
               collectionReference:
                 currentPreparation.evidence.collectionReference,
+              ...(signingOtp ? { signingOtp } : {}),
             },
             ipAddress: ip,
           },

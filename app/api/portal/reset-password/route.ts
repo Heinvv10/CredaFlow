@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
+import { portalOffRefusal } from "@/lib/portal/portal-policy"
 
 // Per-EMAIL brute-force bound on the OTP (the load-bearing gate below).
 const OTP_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
@@ -61,6 +62,8 @@ export async function POST(req: NextRequest) {
 
   return withTenantContext(req, async (tenant) => {
     const tenantId = tenant.id
+    const portalOff = await portalOffRefusal(tenantId)
+    if (portalOff) return portalOff
 
     const otpRecord = await prisma.clientOtp.findFirst({
       where: {

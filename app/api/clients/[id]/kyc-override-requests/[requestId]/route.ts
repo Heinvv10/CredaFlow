@@ -101,7 +101,7 @@ async function grantException(
   const [coreDocuments, latestSelfie] = await Promise.all([
     tx.clientDocument.findMany({
       where: { tenantId: args.tenantId, clientId: args.clientId, deletedAt: null, docType: { in: [...CORE_KYC_DOCUMENT_TYPES] } },
-      select: { id: true, docType: true, verified: true, createdAt: true, verificationRejectedAt: true, verificationRejectedById: true },
+      select: { id: true, docType: true, verified: true, contentSha256: true, createdAt: true, verificationRejectedAt: true, verificationRejectedById: true },
     }),
     tx.clientDocument.findFirst({
       where: { tenantId: args.tenantId, clientId: args.clientId, docType: "SELFIE" },

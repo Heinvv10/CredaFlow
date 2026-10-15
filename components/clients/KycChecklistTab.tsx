@@ -18,6 +18,8 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { toast } from "@/lib/toast"
+import { newestVerifiedIdCopyId } from "@/lib/kyc/verification-restorable"
+import { RestorableVerificationHint } from "@/components/clients/RestorableVerificationHint"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
   UploadDialog,
@@ -128,6 +130,8 @@ interface Props {
   kycStatus: string
   manualExceptionActive?: boolean
   substituteKind?: "senior_exception" | "in_person" | null
+  /** Stored PENDING while the evidence derives VERIFIED (lib/kyc/verification-restorable.ts). */
+  verificationRestorable?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
 }
@@ -171,6 +175,7 @@ export function KycChecklistTab({
   kycStatus,
   manualExceptionActive = false,
   substituteKind = null,
+  verificationRestorable = false,
   selfieAlternatives,
   signedAgreementReturn,
 }: Props) {
@@ -381,6 +386,18 @@ export function KycChecklistTab({
           </div>
         )}
       </div>
+
+      {/* Derived on the server; the local status hides it once a decision lands. */}
+      {verificationRestorable && kyc === "PENDING" && (
+        <RestorableVerificationHint
+          clientId={clientId}
+          idDocumentId={newestVerifiedIdCopyId(docs)}
+          onRestored={(status) => {
+            setKyc(status)
+            void fetchDocs()
+          }}
+        />
+      )}
 
       {/* ── Checklist grid ────────────────────────────────────────── */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">

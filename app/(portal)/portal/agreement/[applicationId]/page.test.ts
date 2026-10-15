@@ -46,6 +46,8 @@ vi.mock("next/navigation", () => ({
   },
 }))
 vi.mock("./PortalAgreementClient", () => ({ PortalAgreementClient: () => null }))
+const signingOtpView = vi.hoisted(() => vi.fn(async () => ({ required: true, channels: ["EMAIL"] })))
+vi.mock("@/lib/signing-otp/view", () => ({ signingOtpView }))
 
 import PortalAgreementPage from "./page"
 
@@ -90,6 +92,12 @@ describe("portal signing page — whose agreement it renders", () => {
   it("renders the signed-in client's own agreement", async () => {
     authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
     expect(await render("app-alice")).toMatchObject({ applicationId: "app-alice", clientName: "Alice Synthetic" })
+  })
+
+  it("asks the lender's policy whether portal signing needs a code, and passes the answer down", async () => {
+    authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
+    expect(await render("app-alice")).toMatchObject({ signingOtp: { required: true, channels: ["EMAIL"] } })
+    expect(signingOtpView).toHaveBeenCalledWith("tenant-1", expect.objectContaining({ firstName: "Alice" }), "portal")
   })
 
   // Staff swapped the two clients' emails while Alice was signed in: her JWT
