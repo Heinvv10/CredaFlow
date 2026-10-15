@@ -242,7 +242,14 @@ function isNoOpSave(r: Revisions, prevStart: number, start: number, end: number)
   const xrefStm = entries.get("XRefStm")
   if (xrefStm === undefined || xrefStm === before.get("XRefStm")) return true
   // Word adds one only in the save straight after an original that had none (its table is then the whole table).
-  return start === r.originalEnd && !before.has("XRefStm") && !before.has("Prev") && xrefStreamAgrees(r, int(xrefStm), tableAt, t)
+  if (start !== r.originalEnd || before.has("XRefStm") || before.has("Prev")) return false
+  try {
+    return xrefStreamAgrees(r, int(xrefStm), tableAt, t)
+  } catch (err) {
+    // A stream that breaks the check is not a no-op: count the save rather than fail the upload or the read.
+    console.warn("[statement-analysis] xref stream check failed, save counted:", { error: err instanceof Error ? err.name : "unknown" })
+    return false
+  }
 }
 
 /**
