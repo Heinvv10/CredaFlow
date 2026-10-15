@@ -8,6 +8,7 @@
 import { inflateSync } from "zlib"
 
 const PDF_SPACE = "[\\0\\t\\n\\f\\r ]"
+const PDF_SPACE_BYTES = [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]
 /** A trailer dictionary through %%EOF: only names, integers, references and hex strings, so no object hides in it. */
 const TRAILER_TO_EOF =
   `trailer${PDF_SPACE}*<<((?:${PDF_SPACE}|/[A-Za-z0-9]+(?![A-Za-z0-9])|\\d+(?!\\d)|R|\\[|\\]|<[0-9A-Fa-f]*>)*)>>` +
@@ -159,8 +160,12 @@ function xrefStreamEntries(bytes: Buffer, offset: number, end: number): Array<[n
 function xrefStreamAgrees(r: Revisions, xrefStm: number, tableAt: number, trailerAt: number): boolean {
   if (!isOriginalsXrefStream(r, xrefStm)) return false
   const inUse = classicTableInUse(r.bytes, tableAt, trailerAt)
-  const entries = inUse && xrefStreamEntries(r.bytes, xrefStm, r.originalEnd)
-  if (!inUse || !entries) return false
+  // The whole header the table lists at exactly this offset: "1 0 obj" inside "11 0 obj" parses too.
+  const number = /^\d+/.exec(r.bytes.toString("latin1", xrefStm, xrefStm + 20))?.[0]
+  const tokenStart = xrefStm === 0 || PDF_SPACE_BYTES.includes(r.bytes[xrefStm - 1])
+  if (!inUse || !number || !tokenStart || inUse.get(Number(number))?.[0] !== xrefStm) return false
+  const entries = xrefStreamEntries(r.bytes, xrefStm, r.originalEnd)
+  if (!entries) return false
   return entries.every(([num, type, at, gen]) => {
     const listed = inUse.get(num)
     return !listed || (type === 1 && at === listed[0] && gen === listed[1])

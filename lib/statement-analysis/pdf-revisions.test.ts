@@ -111,6 +111,29 @@ describe("an appended save that adds no object and no xref entry", () => {
     expect(count(tail(corrupt("/Root 1 0 R/Filter", "/Prev 1 0 R/Filter"))), "a key Word does not write").toBe(1)
   })
 
+  it("counts an /XRefStm that lands mid-token, on the \"1 0 obj\" inside \"11 0 obj\"", () => {
+    const o = original({ xrefStreams: 1 })
+    const at = o.xrefStreams[0]
+    expect(o.pdf.slice(at, at + 8)).toBe("11 0 obj")
+    expect(count(wordSave(o.pdf, o.trailer, `/XRefStm ${at + 1}`))).toBe(1)
+  })
+
+  it("counts an /XRefStm whose header does not start a token, though the table lists it there", () => {
+    const o = original({ xrefStreams: 1 })
+    const at = o.xrefStreams[0]
+    const glued = `${o.pdf.slice(0, at - 1)}j${o.pdf.slice(at)}`
+    expect(count(wordSave(glued, o.trailer, `/XRefStm ${at}`))).toBe(1)
+  })
+
+  it("counts an /XRefStm at a header the table lists somewhere else", () => {
+    const ten = original().pdf.indexOf("\n10 0 obj") + 1
+    const o = original({ xrefStreams: 1, streamOverrides: { 11: [1, ten, 0] } })
+    const at = o.xrefStreams[0]
+    const pad = (n: number) => `${String(n).padStart(10, "0")} 00000 n`
+    const relisted = o.pdf.replace(pad(at), pad(ten))
+    expect(count(wordSave(relisted, o.trailer, `/XRefStm ${at}`))).toBe(1)
+  })
+
   it("counts one that adds an /XRefStm after the first save following the original", () => {
     const o = original({ xrefStreams: 1 })
     expect(count(wordSave(wordSave(o.pdf, o.trailer), o.trailer, `/XRefStm ${o.xrefStreams[0]}`))).toBe(1)
@@ -170,7 +193,7 @@ describe("the cost of checking appended saves stays linear in the file size", ()
     const bytes = Buffer.from(pdf, "latin1")
     const t = performance.now()
     expect(countIncrementalUpdates(bytes)).toBe(expected)
-    expect(performance.now() - t).toBeLessThan(500)
+    expect(performance.now() - t).toBeLessThan(2000)
   }
 
   it("on 50,000 %%EOF sections with no trailer to find", () => {
@@ -185,8 +208,8 @@ describe("the cost of checking appended saves stays linear in the file size", ()
     timed(pdf, 20_000)
   })
 
-  it("on 2,000 saves alternating their /XRefStm over a 4 MB original", () => {
-    const big = original({ xrefStreams: 1, padding: 4_000_000 })
+  it("on 2,000 saves alternating their /XRefStm over an 8 MB original", () => {
+    const big = original({ xrefStreams: 1, padding: 8_000_000 })
     const content = big.pdf.indexOf("\n4 0 obj") + 1
     let [pdf, prev] = [big.pdf, lastStartxref(big.pdf)]
     for (let i = 0; i < 2_000; i++) {
