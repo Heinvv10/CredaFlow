@@ -38,7 +38,7 @@ suite.sequential("a lease's end-of-term invoice on the receivable (real Postgres
       schedule: [row(1, "2026-08-01"), row(2, "2026-09-01")],
       assetFinance: {
         contractType: "OPERATING_LEASE", financedFeesCents: 0, payout: null, inceptionInvoice: null, asset: { exclVatCents: 0, vatCents: 0 },
-        rentals: [rental(1, "2026-08-01"), rental(2, "2026-09-01")], sundryInvoices: [invoice("inv-q3-eot", "2026-09-20", 25_000, 3_750)], fund: null, recoveries: [],
+        rentals: [rental(1, "2026-08-01"), rental(2, "2026-09-01")], sundryInvoices: [invoice("inv-q3-eot", "2026-09-20", 25_000, 3_750)], creditNotes: [], fund: null, recoveries: [],
       },
     }))
   })

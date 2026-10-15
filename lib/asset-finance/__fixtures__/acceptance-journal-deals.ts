@@ -85,7 +85,7 @@ const IS_1: JournalDeal = {
     assetFinance: {
       contractType: "INSTALMENT_SALE", financedFeesCents: 50_000, payout: { amountCents: 950_000, releasedAt: new Date("2026-07-15T09:00:00+02:00") },
       inceptionInvoice: invoice("inv-is1", "2026-07-15", 1_000_000, 150_000), asset: { exclVatCents: 0, vatCents: 0 },
-      rentals: [], sundryInvoices: [], fund: null, recoveries: [],
+      rentals: [], sundryInvoices: [], creditNotes: [], fund: null, recoveries: [],
     },
   }),
   expected: {
@@ -124,7 +124,7 @@ const FL_1: JournalDeal = {
     assetFinance: {
       contractType: "FINANCE_LEASE", financedFeesCents: 0, payout: { amountCents: 2_000_000, releasedAt: new Date("2026-07-31T09:00:00+02:00") },
       inceptionInvoice: invoice("inv-fl1", "2026-07-31", 2_000_000, 300_000), asset: { exclVatCents: 0, vatCents: 0 },
-      rentals: [], sundryInvoices: [], fund: null, recoveries: [],
+      rentals: [], sundryInvoices: [], creditNotes: [], fund: null, recoveries: [],
     },
   }),
   expected: {

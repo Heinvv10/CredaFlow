@@ -17,8 +17,8 @@
  *
  * Lease: the rentals invoiced (their total, once the invoice's supply date has
  * come) + the lease's other tax invoices (end of term, termination: they are
- * rows of the loan's schedule, lib/asset-finance/lease-charges.ts) + default
- * charges - applied receipts.
+ * rows of the loan's schedule, lib/asset-finance/lease-charges.ts) - credit
+ * notes issued + default charges - applied receipts.
  * A written-off contract owes LEAST(0, the above), as for consumer loans.
  */
 import { Prisma } from "@prisma/client"
@@ -32,6 +32,7 @@ const sastInstant = (column: string) => Prisma.raw(`(${column}::timestamp - inte
 export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$queryRaw">, tenantId: string, asOf: Date): Promise<IndependentBook> {
   const supply = sastInstant('i."supplyDate"')
   const chargeDay = sastInstant('c."day"')
+  const credited = sastInstant('n."issueDate"')
   const rows = await db.$queryRaw<Array<{ id: string; reference: string; cents: bigint }>>(Prisma.sql`
     WITH l AS (
       SELECT ln."id", ln."reference", ln."status", ln."writeOffAt", ln."closedAt", ln."contractType" IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE') AS lease
@@ -62,6 +63,11 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
       WHERE i."tenantId" = ${tenantId} AND ${supply} < ${asOf}
         AND NOT EXISTS (SELECT 1 FROM "LeaseRental" r WHERE r."taxInvoiceId" = i."id") GROUP BY i."loanId"
     ),
+    cred AS (
+      SELECT i."loanId", SUM(n."inclVatCents") AS amt
+      FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN l ON l."id" = i."loanId" AND l.lease
+      WHERE n."tenantId" = ${tenantId} AND ${credited} < ${asOf} GROUP BY i."loanId"
+    ),
     chg AS (
       SELECT c."loanId", SUM(c."amount") AS amt
       FROM "LoanCharge" c JOIN l ON l."id" = c."loanId"
@@ -81,11 +87,11 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
     ),
     owed AS (
       SELECT l."id", l."reference", l."status", l."writeOffAt",
-        (CASE WHEN l.lease THEN COALESCE(rent.amt, 0) + COALESCE(sundry.amt, 0)
+        (CASE WHEN l.lease THEN COALESCE(rent.amt, 0) + COALESCE(sundry.amt, 0) - COALESCE(cred.amt, 0)
               ELSE COALESCE(nxt."opening", 0) + COALESCE(due.amt, 0) END
           + COALESCE(chg.amt, 0) - COALESCE(rcp.amt, 0)) AS cents
       FROM l LEFT JOIN due ON due."loanId" = l."id" LEFT JOIN nxt ON nxt."loanId" = l."id"
-        LEFT JOIN rent ON rent."loanId" = l."id" LEFT JOIN sundry ON sundry."loanId" = l."id"
+        LEFT JOIN rent ON rent."loanId" = l."id" LEFT JOIN sundry ON sundry."loanId" = l."id" LEFT JOIN cred ON cred."loanId" = l."id"
         LEFT JOIN chg ON chg."loanId" = l."id" LEFT JOIN rcp ON rcp."loanId" = l."id"
         LEFT JOIN inc ON inc."loanId" = l."id"
       WHERE l.lease OR inc."at" < ${asOf}

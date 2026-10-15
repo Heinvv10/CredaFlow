@@ -32,7 +32,7 @@ function recoveryLoan(id: string, recovery: SourceRecovery, extra: Partial<Sourc
     id, reference: `AF-${id.toUpperCase()}`, startDate: day("2026-07-15"), receivableRole: "AF_INSTALMENT_DEBTORS",
     assetFinance: {
       contractType: "INSTALMENT_SALE", financedFeesCents: 0, payout: null, inceptionInvoice: null, asset: { exclVatCents: 0, vatCents: 0 },
-      rentals: [], sundryInvoices: [], fund: null, recoveries: [recovery],
+      rentals: [], sundryInvoices: [], creditNotes: [], fund: null, recoveries: [recovery],
     },
     ...extra,
   })

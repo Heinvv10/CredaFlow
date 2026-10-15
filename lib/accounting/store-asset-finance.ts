@@ -11,7 +11,7 @@
 import type { Prisma } from "@prisma/client"
 import { sastDayStart } from "@/lib/date/sast-period"
 import { groupCharges, type AccountingDb } from "./store"
-import type { SourceAssetFinance, SourceInvoice, SourceLoan, SourceRecovery } from "./source-types"
+import type { SourceAssetFinance, SourceCreditNote, SourceInvoice, SourceLoan, SourceRecovery } from "./source-types"
 
 const AF_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const
 
@@ -47,7 +47,13 @@ const LOAN_SELECT = {
   },
   asset: { select: { cashPriceExclVatCents: true, vatCents: true } },
   assetFinanceDeal: { select: { financedFeesCents: true, payout: { select: { amountCents: true, releasedAt: true, status: true } } } },
-  taxInvoices: { orderBy: { number: "asc" }, select: { ...INVOICE, leaseRental: { select: { id: true } } } },
+  taxInvoices: {
+    orderBy: { number: "asc" },
+    select: {
+      ...INVOICE, leaseRental: { select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true } },
+      creditNotes: { orderBy: { number: "asc" }, select: { id: true, invoiceId: true, issueDate: true, exclVatCents: true, vatCents: true, inclVatCents: true } },
+    },
+  },
   leaseRentals: {
     where: { taxInvoiceId: { not: null } }, orderBy: { periodNo: "asc" },
     select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true, vatCents: true, totalCents: true, taxInvoiceId: true },
@@ -60,7 +66,7 @@ const LOAN_SELECT = {
       id: true, status: true, netProceedsCents: true, surplusCents: true, chargesFrozenFrom: true, proceedsPaymentId: true, closedAt: true,
       costs: { where: { status: "APPROVED" }, orderBy: { id: "asc" }, select: { id: true, netCents: true, vatCents: true, grossCents: true, treatment: true, incurredOn: true } },
       vatEvents: { where: { kind: "REPOSSESSION_DEEMED_SUPPLY" }, orderBy: { id: "asc" }, select: { id: true, eventDate: true, inputTaxClaimCents: true } },
-      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, taxInvoice: { select: INVOICE } } },
+      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, taxInvoice: { select: { ...INVOICE, creditNotes: { select: { id: true } } } } } },
       refund: { where: { status: "RELEASED" }, select: { id: true, amountCents: true, releasedAt: true } },
     },
   },
@@ -74,6 +80,7 @@ function recoveriesOf(loan: LoanRow, unsupported: Unsupported[]): SourceRecovery
     if (sale && (!sale.taxInvoice || sale.taxInvoice.totalInclVatCents !== sale.priceInclVatCents)) {
       unsupported.push({ loanId: loan.id, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
     }
+    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
     const settled = r.netProceedsCents !== null && r.chargesFrozenFrom !== null
     return {
       id: r.id,
@@ -97,12 +104,14 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   const asset = { exclVatCents: loan.asset?.cashPriceExclVatCents ?? 0, vatCents: loan.asset?.vatCents ?? 0 }
   const byId = new Map(loan.taxInvoices.map((i) => [i.id, i]))
   const eot = loan.leaseEndOfTerm
+  const assetSale = (invoiceId: string) => (eot?.outcome === "PURCHASE" && eot.taxInvoiceId === invoiceId ? eot.purchasePriceExclVatCents ?? 0 : 0)
   const rentalInvoiceIds = new Set(loan.taxInvoices.filter((i) => i.leaseRental).map((i) => i.id))
   if (lease) {
     if (!released) unsupported.push({ loanId: loan.id, message: `${loan.reference}: the supplier payout has not been released` })
     else if (released.amountCents !== asset.exclVatCents + asset.vatCents) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a lease with a deposit or trade-in is not exported yet` })
   } else {
     if (!released) unsupported.push({ loanId: loan.id, message: `${loan.reference}: the supplier payout has not been released` })
+    if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a credit note against the inception invoice is not exported yet` })
     if (loan.taxInvoices.length === 0) unsupported.push({ loanId: loan.id, message: `${loan.reference}: no inception tax invoice` })
     if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) unsupported.push({ loanId: loan.id, message: `${loan.reference}: a schedule row has no opening balance` })
   }
@@ -117,8 +126,14 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
       return invoice ? [{ id: r.id, invoice: toInvoice(invoice), rentalExclVatCents: r.rentalExclVatCents, maintenanceExclVatCents: r.maintenanceExclVatCents, vatCents: r.vatCents, totalCents: r.totalCents }] : []
     }),
     sundryInvoices: lease
-      ? loan.taxInvoices.filter((i) => !rentalInvoiceIds.has(i.id)).map((i) => toInvoice(i, eot?.outcome === "PURCHASE" && eot.taxInvoiceId === i.id ? eot.purchasePriceExclVatCents ?? 0 : 0))
+      ? loan.taxInvoices.filter((i) => !rentalInvoiceIds.has(i.id)).map((i) => toInvoice(i, assetSale(i.id)))
       : [],
+    creditNotes: lease ? loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => ({
+      id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
+      invoiceIncome: i.leaseRental
+        ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
+        : [{ role: "ASSET_DISPOSAL_PROCEEDS", exclVatCents: assetSale(i.id) }, { role: "RENTAL_INCOME", exclVatCents: i.totalExclVatCents - assetSale(i.id) }],
+    }))) : [],
     fund: loan.maintenanceFund
       ? { riskModel: loan.maintenanceFund.riskModel, movements: loan.maintenanceFund.movements.map((m) => ({ ...m, occurredOn: dayOf(m.occurredOn) })) }
       : null,

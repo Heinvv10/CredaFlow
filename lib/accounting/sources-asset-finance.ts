@@ -22,6 +22,7 @@
  *   invoice     a lease's other tax invoice (end of term, purchase, early
  *               termination): the invoice becomes a schedule row of the loan
  *               (lib/asset-finance/lease-charges.ts), so it sits on LEASE_DEBTORS
+ *   credit note Dr the income the invoice credited (spread pro rata), Dr OUTPUT_VAT; Cr LEASE_DEBTORS, on its issue date
  *   fund        maintenance fund movements; a lessee-settled fund is the lessee's
  *               money, a lender-risk fund's claims are an expense.
  * Receipts, charges and the write-off are the generic sources, on the loan's
@@ -32,7 +33,7 @@
  * // UNTESTED: tax — the lender claims input VAT on the dealer's invoice at inception and accounts for output VAT on its own supply.
  * // UNTESTED: tax — VAT on maintenance claims is not posted (a claim's amount is ex VAT in the fund).
  */
-import { addTo, before, type DesiredSource, type EventType, type SourceInvoice, type SourceLoan, type Vector } from "./source-types"
+import { addTo, before, type DesiredSource, type EventType, type SourceCreditNote, type SourceInvoice, type SourceLoan, type Vector } from "./source-types"
 import { recoverySources } from "./sources-recovery"
 import { receiptSources } from "./sources-receipts"
 import { adjustment, chargeSources, raisedOn, writtenOffAt } from "./sources-shared"
@@ -112,6 +113,38 @@ function leaseInvoiceSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   return [...rentals, ...sundry]
 }
 
+/**
+ * Spreads a credit's value over the income the invoice credited, in proportion
+ * (largest remainder, so the parts add up to the cent). // UNTESTED: accounting —
+ * the split of a credit between rental, maintenance and asset-sale income, and that
+ * a credited maintenance contribution stays in the lessee's fund.
+ */
+export function creditShares(note: SourceCreditNote): Array<{ role: SourceCreditNote["invoiceIncome"][number]["role"]; cents: number }> {
+  const parts = note.invoiceIncome.filter((p) => p.exclVatCents > 0)
+  const total = parts.reduce((sum, p) => sum + p.exclVatCents, 0)
+  if (total === 0) return []
+  const shares = parts.map((p, i) => ({ i, role: p.role, cents: Math.floor((note.exclVatCents * p.exclVatCents) / total), rest: (note.exclVatCents * p.exclVatCents) % total }))
+  let left = note.exclVatCents - shares.reduce((sum, s) => sum + s.cents, 0)
+  for (const s of [...shares].sort((a, b) => b.rest - a.rest || a.i - b.i)) {
+    if (left === 0) break
+    s.cents += 1
+    left -= 1
+  }
+  return shares.map(({ role, cents }) => ({ role, cents }))
+}
+
+function creditNoteSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
+  return loan.assetFinance!.creditNotes.map((note) => {
+    const vector: Vector = {}
+    if (before(note.issueDate, asOf)) {
+      for (const share of creditShares(note)) addTo(vector, share.role, share.cents)
+      addTo(vector, "OUTPUT_VAT", note.vatCents)
+      addTo(vector, "LEASE_DEBTORS", -note.inclVatCents)
+    }
+    return source(loan, `lease-credit:${note.id}`, vector, "CREDIT_NOTE", note.issueDate, `Credit note on a lease invoice of ${loan.reference}`, "Credit note")
+  })
+}
+
 function fundSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   const fund = loan.assetFinance!.fund
   if (!fund) return []
@@ -142,7 +175,7 @@ function fundSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
 export function assetFinanceSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   const lease = loan.assetFinance!.contractType === "OPERATING_LEASE" || loan.assetFinance!.contractType === "FULL_MAINTENANCE_LEASE"
   const out: DesiredSource[] = lease
-    ? [leaseAssetSource(loan, asOf), ...leaseInvoiceSources(loan, asOf), ...fundSources(loan, asOf)]
+    ? [leaseAssetSource(loan, asOf), ...leaseInvoiceSources(loan, asOf), ...creditNoteSources(loan, asOf), ...fundSources(loan, asOf)]
     : [inceptionSource(loan, asOf), ...instalmentSources(loan, asOf)]
   out.push(...chargeSources(loan, asOf, true, null))
   out.push(...receiptSources(loan, asOf, writtenOffAt(loan, asOf)))

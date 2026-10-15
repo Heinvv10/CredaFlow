@@ -92,15 +92,14 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     expect((await plan("2026-08")).refusal).toBeNull()
   })
 
-  it("refuses a month with an asset-finance control that differs: a credit note nobody exported, a proceeds payment that is not the recovery's", async () => {
-    await replica(db.$executeRawUnsafe(`INSERT INTO "CreditNote" ("id", "tenantId", "number", "creditNoteNumber", "issueDate", "invoiceId", "reason", "exclVatCents", "vatCents", "inclVatCents")
-      VALUES ('cn-it', '${tenant.tenantId}', 1, 'CN-1', '2026-08-20', 'inv-lr-1', 'synthetic', 1000, 150, 1150)`))
+  it("refuses a month with an asset-finance control that differs: an invoice whose VAT is not the rental's, a proceeds payment that is not the recovery's", async () => {
+    await replica(db.$executeRawUnsafe(`UPDATE "TaxInvoice" SET "vatCents" = "vatCents" + 1, "totalInclVatCents" = "totalInclVatCents" + 1 WHERE "id" = 'inv-lr-1'`))
     try {
-      const credited = await plan("2026-08")
-      expect(credited.controls).toEqual([{ control: "AF_OUTPUT_VAT", key: "jrn-lr", journalCents: -18_000, bookCents: -17_850 }])
-      expect(credited.refusal).toMatchObject({ code: "AF_CONTROL_FAILED" })
+      const skewed = await plan("2026-08")
+      expect(skewed.controls).toEqual([{ control: "AF_OUTPUT_VAT", key: "jrn-lr", journalCents: -18_000, bookCents: -18_001 }])
+      expect(skewed.refusal).toMatchObject({ code: "AF_CONTROL_FAILED" })
     } finally {
-      await replica(db.$executeRawUnsafe(`DELETE FROM "CreditNote" WHERE "id" = 'cn-it'`))
+      await replica(db.$executeRawUnsafe(`UPDATE "TaxInvoice" SET "vatCents" = "vatCents" - 1, "totalInclVatCents" = "totalInclVatCents" - 1 WHERE "id" = 'inv-lr-1'`))
     }
     await replica(db.$executeRawUnsafe(`UPDATE "Payment" SET "amount" = "amount" + 1 WHERE "id" = 'pay-surplus-b'`))
     try {
@@ -110,6 +109,16 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     }
     expect((await plan("2026-08")).refusal).toBeNull()
     expect((await plan("2026-10")).controls).toEqual([])
+  })
+
+  it("refuses, rather than posts wrongly, a credit note against an instalment sale's inception invoice", async () => {
+    await replica(db.$executeRawUnsafe(`INSERT INTO "CreditNote" ("id", "tenantId", "number", "creditNoteNumber", "issueDate", "invoiceId", "reason", "exclVatCents", "vatCents", "inclVatCents")
+      VALUES ('cn-is-it', '${tenant.tenantId}', 9001, 'CN-9001', '2026-08-20', 'inv-is1', 'synthetic', 1000, 150, 1150)`))
+    try {
+      expect((await plan("2026-08")).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("AF-IS-0001") })
+    } finally {
+      await replica(db.$executeRawUnsafe(`DELETE FROM "CreditNote" WHERE "id" = 'cn-is-it'`))
+    }
   })
 
   it("refuses a lease it cannot post yet (a deposit or trade-in) instead of posting it wrongly", async () => {
@@ -156,8 +165,8 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     // IS-1: 1 000 000 + 10 000 + 10 100 + 6 201 - 400 000; FL-1: 2 000 000 + 20 000 + 13 200 + 6 332 (row 3 fell due 10-31)
     expect(book.get("jrn-is-1")?.cents).toBe(626_301)
     expect(book.get("jrn-fl-1")?.cents).toBe(2_039_532)
-    expect(book.get("jrn-ls")?.cents).toBe(442_750)
-    expect(book.get("jrn-lr")?.cents).toBe(920_000)
+    expect(book.get("jrn-ls")?.cents).toBe(428_835) // 3 rentals + the end-of-term invoice - credit notes 13 800 and 115
+    expect(book.get("jrn-lr")?.cents).toBe(908_500) // 2 rentals + the purchase invoice - the receipt - the credit note 11 500
   })
 
   it("exports the asset-finance lines in the generic and Sage CSV, with no tax code on them", async () => {

@@ -8,6 +8,7 @@ import { RECEIVABLE_ROLES } from "./accounts"
 import { desiredSources } from "./derive"
 import { parsePeriodKey } from "./period"
 import { loanSources, type Vector } from "./sources"
+import { creditShares } from "./sources-asset-finance"
 
 const DEALS: JournalDeal[] = [...INSTALMENT_JOURNAL_DEALS, ...LEASE_JOURNAL_DEALS, ...RECOVERY_JOURNAL_DEALS]
 const nonEmpty = (v: Vector) => Object.fromEntries(Object.entries(v).filter(([, cents]) => cents !== 0))
@@ -93,5 +94,35 @@ describe("asset-finance sources through the ledger delta", () => {
     for (const deal of DEALS) {
       for (const s of loanSources(deal.loan, day(deal.asOf))) expect(s.vector.LOAN_BOOK, `${deal.id} ${s.baseKey}`).toBeUndefined()
     }
+  })
+})
+
+describe("a credit note spread over the income its invoice credited", () => {
+  const note = (exclVatCents: number, parts: number[]) => ({
+    id: "cn", invoiceId: "inv", issueDate: day("2026-10-01"), exclVatCents, vatCents: 0, inclVatCents: exclVatCents,
+    invoiceIncome: parts.map((p, i) => ({ role: (["RENTAL_INCOME", "MAINTENANCE_INCOME", "ASSET_DISPOSAL_PROCEEDS"] as const)[i], exclVatCents: p })),
+  })
+
+  it("adds up to the credit to the cent whatever the rounding, never negative", () => {
+    for (let credit = 1; credit <= 400; credit += 1) {
+      for (const parts of [[100_000, 20_000], [1, 1, 1], [333, 667], [7, 0, 13]]) {
+        const total = parts.reduce((a, b) => a + b, 0)
+        if (credit > total) continue
+        const shares = creditShares(note(credit, parts))
+        expect(shares.reduce((a, s) => a + s.cents, 0), `${credit} over ${parts}`).toBe(credit)
+        expect(shares.every((s) => s.cents >= 0)).toBe(true)
+      }
+    }
+  })
+
+  it("gives the leftover cent to the larger remainder (hand-worked: 100 over 100 000 and 20 000 is 83 and 17)", () => {
+    expect(creditShares(note(100, [100_000, 20_000]))).toEqual([{ role: "RENTAL_INCOME", cents: 83 }, { role: "MAINTENANCE_INCOME", cents: 17 }])
+  })
+
+  it("posts nothing before the credit note is issued and nothing for an invoice with no income", () => {
+    expect(creditShares(note(100, [0, 0]))).toEqual([])
+    const deal = LEASE_JOURNAL_DEALS[0]
+    const early = loanSources(deal.loan, day("2026-09-20")).find((s) => s.baseKey === "lease-credit:cn-ls-a")!
+    expect(Object.keys(nonEmpty(early.vector))).toEqual([])
   })
 })

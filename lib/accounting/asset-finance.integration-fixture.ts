@@ -16,6 +16,7 @@ import type { SourceInvoice, SourceLoan } from "./source-types"
 export const dbDay = (d: Date): Date => new Date(`${sastCalendarDate(d)}T00:00:00Z`)
 
 let invoiceCounter = 0
+let creditCounter = 0
 
 const invoiceRow = (t: ChargesTenant, inv: SourceInvoice, loanId: string | null): Prisma.TaxInvoiceUncheckedCreateInput => ({
   id: inv.id, tenantId: t.tenantId, number: ++invoiceCounter, invoiceNumber: `INV-${invoiceCounter}`, issueDate: dbDay(inv.issueDate), supplyDate: dbDay(inv.supplyDate), loanId,
@@ -99,6 +100,12 @@ function leaseOps(db: PrismaClient, t: ChargesTenant, loan: SourceLoan): Op[] {
         tenantId: t.tenantId, loanId: loan.id, origin: "EXPIRY", outcome: "PURCHASE", status: "INVOICED", taxInvoiceId: inv.id, scheduleId: `sched-${inv.id}`, purchaseValuationId: `val-${inv.id}`, purchasePriceExclVatCents: inv.assetSaleExclVatCents,
       } }))
     }
+  }
+  for (const n of af.creditNotes) {
+    ops.push(db.creditNote.create({ data: {
+      id: n.id, tenantId: t.tenantId, number: ++creditCounter, creditNoteNumber: `CN-${creditCounter}`, issueDate: dbDay(n.issueDate), invoiceId: n.invoiceId, reason: "Synthetic credit",
+      exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
+    } }))
   }
   if (af.fund) {
     ops.push(db.maintenanceFund.create({ data: { id: `fund-${loan.id}`, tenantId: t.tenantId, loanId: loan.id, riskModel: af.fund.riskModel, leaseEndDate: dbDay(loan.startDate) } }))

@@ -35,6 +35,7 @@ export type EventType =
   | "RECOVERY_SURPLUS"
   | "RECOVERY_REFUND"
   | "RECOVERY_RESULT"
+  | "CREDIT_NOTE"
 
 export interface SourcePayment {
   id: string
@@ -105,6 +106,19 @@ export interface SourceInvoice {
   assetSaleExclVatCents: number
 }
 
+/** A credit note against a lease tax invoice, with the income the invoice credited (the credit is spread over it). */
+export interface SourceCreditNote {
+  id: string
+  invoiceId: string
+  /** SAST midnight of the issue date. */
+  issueDate: Date
+  exclVatCents: number
+  vatCents: number
+  inclVatCents: number
+  /** What the original invoice credited to each income role, excluding VAT. */
+  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS"; exclVatCents: number }>
+}
+
 export interface SourceRecovery {
   id: string
   /** Proceeds applied (the Recovery's figures are set) on this day, or null. */
@@ -133,6 +147,8 @@ export interface SourceAssetFinance {
   rentals: Array<{ id: string; invoice: SourceInvoice; rentalExclVatCents: number; maintenanceExclVatCents: number; vatCents: number; totalCents: number }>
   /** Lease tax invoices that are not a rental's: end of term, purchase, early termination. */
   sundryInvoices: SourceInvoice[]
+  /** Credit notes against the rental and other lease invoices. */
+  creditNotes: SourceCreditNote[]
   fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
   recoveries: SourceRecovery[]
 }
