@@ -284,6 +284,24 @@ describe('upgrade-stack.sh secrets check', () => {
     expect(keys).toEqual(['CRON_SECRET', 'NEXTAUTH_SECRET', 'WABA_ENC_KEY'])
   })
 
+  it('adds UNSUB_TOKEN_SECRET when the running app has none, naming only the key', () => {
+    const value = 'unsub-value-N4'
+    writeFileSync(join(data, 'secrets.env'), readFileSync(join(data, 'secrets.env'), 'utf8') + `UNSUB_TOKEN_SECRET=${value}\n`)
+    const r = run([commits.c2!])
+    expect(r.status).toBe(0)
+    expect(r.out).toMatch(/adding new secret\(s\) the running credaflow-fairscore-app does not have: UNSUB_TOKEN_SECRET/)
+    noLeak(r.out, [...Object.values(SECRETS), value])
+  })
+
+  it('still refuses an UNSUB_TOKEN_SECRET that differs from the running app', () => {
+    writeFileSync(join(data, 'secrets.env'), readFileSync(join(data, 'secrets.env'), 'utf8') + 'UNSUB_TOKEN_SECRET=unsub-value-N4\n')
+    setContainer([...container(), 'UNSUB_TOKEN_SECRET=other-value-K1'].join('\n') + '\n')
+    const r = run([commits.c2!])
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/differs from the env of the running credaflow-fairscore-app in: UNSUB_TOKEN_SECRET\b/)
+    expect(mutating(r.calls)).toEqual([])
+  })
+
   it('refuses a missing or empty secrets.env', () => {
     writeFileSync(join(data, 'secrets.env'), '')
     const r = run([commits.c2!])
