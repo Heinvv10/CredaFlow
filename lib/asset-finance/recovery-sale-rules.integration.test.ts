@@ -16,6 +16,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupRecoveryFixture, createRecoveryFixture, newValuation, recoveryFixtureTenantId, type RecoveryFixture } from "./recovery.integration-fixture"
+import { costData, recordDecidedCost } from "./recovery-path.integration-fixture"
 import { plainListed, readJson, refundForm, saleBody, saleRoutes } from "./recovery-sale.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 
@@ -192,6 +193,12 @@ suite.sequential("remarketing sale rules (real Postgres, real routes)", () => {
     expect((await readJson(await routes().proceeds(rec.id, { receivedAt: "not a date" }))).status).toBe(400)
     expect((await readJson(await routes().proceeds(rec.id, { receivedAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }))).status).toBe(409)
     expect(await database().payment.count({ where: { loanId: rec.loan.loanId } })).toBe(0)
+    // An undecided cost blocks the proceeds; a rejected one is not counted, an approved one is.
+    const pending = await database().recoveryCost.create({ data: costData(fx, rec.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 100_000 }) })
+    expect(await readJson(await routes().proceeds(rec.id))).toMatchObject({ status: 409, body: { error: expect.stringMatching(/every cost is decided/) } })
+    await database().recoveryCost.update({ where: { id: pending.id }, data: { status: "REJECTED", approvedById: fx.adminA, approvedAt: new Date() } })
+    await recordDecidedCost(database(), fx, rec.id, { type: "STORAGE", treatment: "DEDUCT_FROM_PROCEEDS", grossCents: 250_000 })
     expect((await readJson(await routes().proceeds(rec.id))).status).toBe(200)
+    expect(await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).toMatchObject({ deductedCostsCents: 250_000, netProceedsCents: 60_000_000 - 250_000 })
   }, 120_000)
 })

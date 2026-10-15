@@ -138,6 +138,7 @@ suite.sequential("sale, VAT event, proceeds and outcome (real Postgres, real rou
     expect(await readJson(await routes().releaseRefund(recovery.id))).toMatchObject({ status: 409 })
     adminB()
     expect((await readJson(await routes().approveRefund(recovery.id))).status).toBe(200)
+    expect((await readJson(await routes().releaseRefund(recovery.id))).status).toBe(409) // the approver cannot also release
     adminA()
     expect(await readJson(await routes().releaseRefund(recovery.id))).toMatchObject({ status: 200 })
     expect(await database().recovery.findUniqueOrThrow({ where: { id: recovery.id } })).toMatchObject({ status: "CLOSED" })

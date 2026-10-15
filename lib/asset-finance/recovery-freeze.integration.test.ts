@@ -53,6 +53,16 @@ async function interestAt(loanId: string, asOf: string): Promise<number> {
   return replay!.result.interestAccrued
 }
 
+/** An instalment 60 days overdue, so default interest runs daily (charges are live for the tenant). */
+async function overdueInstalment(loanId: string): Promise<void> {
+  await testSetup(database(),
+    [`UPDATE "Loan" SET "startDate" = CURRENT_TIMESTAMP - INTERVAL '120 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '60 days', "interestRatePm" = 0.02,
+        "totalInterest" = 3000000, "totalRepayable" = 153000000 WHERE "id" = $1`, loanId],
+    [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
+        VALUES ($1, $2, $3, 1, CURRENT_DATE - 60, 150000000, 3000000, 0, 153000000)`, `rs_${randomUUID().slice(0, 12)}`, fx.tenantId, loanId],
+  )
+}
+
 suite.sequential("charge freeze, outcome and deadline sweep (real Postgres)", () => {
   beforeAll(async () => {
     process.env.CRON_SECRET = CRON_SECRET
@@ -70,13 +80,7 @@ suite.sequential("charge freeze, outcome and deadline sweep (real Postgres)", ()
   it("accrues no default interest from the proceeds date through the deadline, then accrues again under the NCA cap", async () => {
     const rec = await plainListed(database(), fx, "NCA", 20_000_000)
     const { loanId } = rec.loan
-    // An instalment 60 days overdue, so default interest runs daily.
-    await testSetup(database(),
-      [`UPDATE "Loan" SET "startDate" = CURRENT_TIMESTAMP - INTERVAL '120 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '60 days', "interestRatePm" = 0.02,
-          "totalInterest" = 3000000, "totalRepayable" = 153000000 WHERE "id" = $1`, loanId],
-      [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
-          VALUES ($1, $2, $3, 1, CURRENT_DATE - 60, 150000000, 3000000, 0, 153000000)`, `rs_${randomUUID().slice(0, 12)}`, fx.tenantId, loanId],
-    )
+    await overdueInstalment(rec.loan.loanId)
     const T = today()
     const beforeSale = await interestAt(loanId, T)
     expect(beforeSale).toBeGreaterThan(0)
@@ -120,6 +124,22 @@ suite.sequential("charge freeze, outcome and deadline sweep (real Postgres)", ()
     // Write-off is a human decision: nothing here touches the loan's status or stage.
     expect(await database().loan.findUniqueOrThrow({ where: { id: loanId } })).toMatchObject({ status: "ACTIVE", collectionsStage: "NONE" })
   }, 240_000)
+
+  it("pays the settlement with its default charges, which settles the loan, so the surplus can be held", async () => {
+    const rec = await plainListed(database(), fx, "NCA", 20_000_000)
+    await overdueInstalment(rec.loan.loanId)
+    officer()
+    const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 200_000_000)))).body.id as string
+    expect((await readJson(await routes().completeSale(rec.id, sale))).status).toBe(200)
+    const proceeds = await readJson(await routes().proceeds(rec.id))
+    const row = await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })
+    // Charges are part of the settlement: more than the schedule's R1,530,000.
+    expect(row.settlementDueCents).toBeGreaterThan(153_000_000)
+    expect(proceeds).toMatchObject({ status: 200, body: { paymentCents: row.settlementDueCents, shortfallCents: 0, surplusCents: 200_000_000 - row.settlementDueCents! } })
+    expect(await database().loan.findUniqueOrThrow({ where: { id: rec.loan.loanId } })).toMatchObject({ status: "COMPLETED", outstandingPrincipal: 0 })
+    await advance(database(), fx, rec.loan, rec.id, "FINAL_NOTICE_ISSUED")
+    expect(await readJson(await routes().outcome(rec.id))).toMatchObject({ status: 200, body: { status: "SURPLUS_HELD" } })
+  }, 120_000)
 
   it("closes a recovery straight away when the proceeds settle the loan exactly", async () => {
     const rec = await plainListed(database(), fx, "NON_NCA", 100_000_000)

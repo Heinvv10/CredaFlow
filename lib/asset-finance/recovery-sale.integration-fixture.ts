@@ -18,7 +18,7 @@ import { POST as refundRoute } from "@/app/api/asset-finance/recoveries/[id]/ref
 import { POST as approveRefundRoute } from "@/app/api/asset-finance/recoveries/[id]/refund/approve/route"
 import { POST as releaseRefundRoute } from "@/app/api/asset-finance/recoveries/[id]/refund/release/route"
 import type { AcceptanceRecoveryDeal } from "./__fixtures__/acceptance-recovery-deals"
-import { advance, costData, ladderRecovery } from "./recovery-path.integration-fixture"
+import { advance, ladderRecovery, recordDecidedCost } from "./recovery-path.integration-fixture"
 import { courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import type { DealFixture } from "./deal.integration-fixture"
@@ -95,10 +95,7 @@ export async function listedDealRecovery(db: PrismaClient, fx: DealFixture, deal
     ? await db.legalMatterStep.findFirst({ where: { matterId: rec.legalMatterId, kind: "JUDGMENT" }, select: { id: true } })
     : null
   for (const cost of deal.costs) {
-    await db.recoveryCost.create({ data: {
-      ...costData(fx, id, { type: cost.type as RecoveryCostType, treatment: cost.treatment, grossCents: cost.grossCents, legalStepId: cost.type === "LEGAL_TAXED" ? judgment?.id : undefined }),
-      netCents: cost.netCents, vatCents: cost.vatCents,
-    } })
+    await recordDecidedCost(db, fx, id, { type: cost.type as RecoveryCostType, treatment: cost.treatment, grossCents: cost.grossCents, legalStepId: cost.type === "LEGAL_TAXED" ? judgment?.id : undefined }, "APPROVED", { netCents: cost.netCents, vatCents: cost.vatCents })
   }
   return { loan, id, valuationId: rec.valuationId as string, judgmentStepId: judgment?.id ?? null }
 }

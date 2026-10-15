@@ -37,7 +37,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     const recovery = await tx.recovery.findFirst({
       where: { id: recoveryId, tenantId: actor.tenantId },
       include: {
-        costs: { select: { grossCents: true, treatment: true } },
+        costs: { select: { grossCents: true, treatment: true, status: true } },
         sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true } },
         loan: { include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } },
         surrenderRequest: { select: { id: true, status: true } },
@@ -56,7 +56,8 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     if (toDayNumber(receivedOn) > toDayNumber(sastCalendarDate(new Date()))) throw new RecoveryRefusal("The proceeds cannot be dated in the future")
     if (toDayNumber(receivedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The proceeds cannot be dated before the recovery")
 
-    const { deducted, charged } = costTotals(recovery.costs)
+    if (recovery.costs.some((cost) => cost.status === "PENDING")) throw new RecoveryRefusal("Proceeds are applied once every cost is decided")
+    const { deducted, charged } = costTotals(recovery.costs.filter((cost) => cost.status === "APPROVED"))
     const settlementDueCents = (await loanSettlementFigures(tx, recovery.loan, input.receivedAt)).totalToSettle
     let outcome
     try {

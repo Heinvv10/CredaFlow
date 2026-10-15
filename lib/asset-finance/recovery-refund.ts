@@ -81,6 +81,7 @@ export async function releaseRefund(actor: RecoveryActor, recoveryId: string): P
     const refund = await tx.recoveryRefund.findFirst({ where: { recoveryId, tenantId: actor.tenantId } })
     if (!refund) return { kind: "not_found" }
     if (refund.status !== "APPROVED") throw new RecoveryRefusal("A refund is released once it is approved, and once")
+    if (refund.approvedById === actor.userId) throw new RecoveryRefusal("A refund is released by someone other than the person who approved it")
     const releasedAt = new Date()
     await tx.recoveryRefund.update({ where: { id: refund.id, tenantId: actor.tenantId }, data: { status: "RELEASED", releasedById: actor.userId, releasedAt } })
     await advance(tx, actor, recoveryId, "SURPLUS_HELD", { status: "CLOSED", closedAt: releasedAt })
