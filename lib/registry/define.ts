@@ -65,13 +65,9 @@ export function defineSimulatedIntegrations<T extends Readonly<Record<string, Si
 }
 
 /**
- * Minimum role per permission. A plain role applies to both maps; an object
- * names the server map (lib/auth-guards.ts `PERMISSIONS`) and the client-safe
- * map (lib/permissions.ts `canDo`) separately, and a side it omits does not
- * have the permission.
+ * Minimum role per permission: one map, read by lib/auth-guards.ts
+ * `PERMISSIONS` on the server and lib/permissions.ts `canDo` on the client.
  */
-export type PermissionRule = UserRole | { server?: UserRole; client?: UserRole }
-
-export function definePermissions<T extends Readonly<Record<string, PermissionRule>>>(permissions: T): T {
+export function definePermissions<T extends Readonly<Record<string, UserRole>>>(permissions: T): T {
   return permissions
 }

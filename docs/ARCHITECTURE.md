@@ -291,7 +291,7 @@ change that domain's entries.
 | Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
 | Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
-| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })`, or `{ server?, client? }` where the two maps differ | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
+| Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — one minimum role, a Prisma `UserRole` | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |
 
 ### The Prisma schema
