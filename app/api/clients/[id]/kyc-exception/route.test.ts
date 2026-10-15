@@ -43,6 +43,8 @@ vi.mock("@/lib/tenant", () => ({
     callback: (tenant: { id: string }) => Promise<unknown>,
   ) => callback({ id: "tenant-1" }),
 }))
+const DATABASE_NOW = new Date("2026-10-14T10:00:00.123Z")
+vi.mock("@/lib/db-clock", () => ({ databaseNow: async () => DATABASE_NOW }))
 vi.mock("@/lib/affordability/evidence-locks", () => ({
   lockAffordabilityClientEvidence: vi.fn().mockResolvedValue(undefined),
 }))
@@ -156,7 +158,10 @@ describe("POST /api/clients/[id]/kyc-exception", () => {
         type: "KYC_EXCEPTION",
         referenceId: "client-1",
         status: "COMPLETED",
+        // The database clock, not the host's.
+        completedAt: DATABASE_NOW,
         data: expect.objectContaining({
+          approvedAt: DATABASE_NOW.toISOString(),
           documentId: "selfie-1",
           documentSha256: "a".repeat(64),
           biometricFailureReason: "face_not_detected",

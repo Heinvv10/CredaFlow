@@ -12,7 +12,7 @@ const SCRIPT = join(process.cwd(), "scripts", "run-integration-tests.sh")
 
 function check(url: string, env: Record<string, string> = {}) {
   const r = spawnSync("bash", [SCRIPT, "--check-database-url"], {
-    env: { PATH: process.env.PATH ?? "", NODE_ENV: "test", DATABASE_URL: url, ...env },
+    env: { PATH: process.env.PATH ?? "", NODE_ENV: "test", REQUIRE_IT_CONTAINER: "0", DATABASE_URL: url, ...env },
     encoding: "utf8",
   })
   return { status: r.status, out: `${r.stdout}${r.stderr}` }

@@ -78,14 +78,18 @@ Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
   variables. Run them all against a disposable, migrated Postgres:
 
   ```bash
-  export DATABASE_URL=postgresql://postgres:dev@127.0.0.1:55432/postgres
+  eval "$(bash scripts/it-db.sh up cf-it-<unique>)"   # free port; exports DATABASE_URL + IT_CONTAINER
+  bash scripts/it-db.sh check                          # abort here if the port is not yours
   npx prisma migrate deploy
   bash scripts/run-integration-tests.sh
+  bash scripts/it-db.sh down cf-it-<unique>
   ```
 
   The script refuses a database that is not on this machine or a
   docker-compose service named `db` or `postgres` unless
-  `ALLOW_REMOTE_TEST_DB=1`.
+  `ALLOW_REMOTE_TEST_DB=1`. For a local URL it also refuses unless
+  `IT_CONTAINER` owns the URL's port (`CI=true` or `REQUIRE_IT_CONTAINER=0`
+  opts out).
   `scripts/integration-baseline.txt` lists the suites known to fail; it may
   only shrink.
 

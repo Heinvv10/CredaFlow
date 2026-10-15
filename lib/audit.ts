@@ -79,6 +79,9 @@ export const AuditAction = {
   // and an officer clearing one with a reason.
   CREDIT_CHECKS_RECOMPUTED: "CREDIT_CHECKS_RECOMPUTED",
   CREDIT_CHECK_FLAG_CLEARED: "CREDIT_CHECK_FLAG_CLEARED",
+  // A credit officer downloaded an application's read statements as a workbook
+  // (app/api/applications/[id]/statement-export); each statement is also in DocumentAccessLog.
+  STATEMENT_EXPORTED: "STATEMENT_EXPORTED",
   STATEMENT_READ_RETRIED: "STATEMENT_READ_RETRIED",
   PRODUCT_PRICING_UPDATED: "PRODUCT_PRICING_UPDATED",
 
@@ -175,6 +178,10 @@ export const AuditAction = {
   AGREEMENT_SIGNING_LINK_SENT: "AGREEMENT_SIGNING_LINK_SENT",
   AGREEMENT_SIGNING_LINK_SEND_FAILED: "AGREEMENT_SIGNING_LINK_SEND_FAILED",
   BIOMETRIC_VERIFICATION_BLOCKED: "BIOMETRIC_VERIFICATION_BLOCKED",
+  // A selfie attempt stuck in `processing` was failed by the sweeper while a
+  // newer selfie governs the client, so the client's KYC was not re-projected
+  // (lib/kyc/selfie-sweeper.server.ts).
+  BIOMETRIC_ATTEMPT_SWEPT: "BIOMETRIC_ATTEMPT_SWEPT",
   KYC_VERIFICATION_BLOCKED: "KYC_VERIFICATION_BLOCKED",
   DOCUMENT_ACCESS_REFUSED: "DOCUMENT_ACCESS_REFUSED",
   KYC_EXCEPTION_GRANTED: "KYC_EXCEPTION_GRANTED",
