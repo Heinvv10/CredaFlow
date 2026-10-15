@@ -3,7 +3,7 @@
  * Mirrors the server-side canDo() logic in lib/auth-guards.ts
  */
 
-import { CLIENT_PERMISSIONS } from "@/lib/registry/generated/permissions"
+import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/permissions"
 
 export type UserRole =
   | "SUPER_ADMIN"
@@ -46,7 +46,7 @@ export function hasMinRole(userRole: UserRole, minRole: UserRole): boolean {
 
 // One file per domain under lib/registry/permissions/ (merged by
 // scripts/gen-registries.ts; docs/ARCHITECTURE.md, "Registries").
-const PERMISSIONS: Record<string, UserRole> = CLIENT_PERMISSIONS
+const PERMISSIONS: Record<string, UserRole> = REGISTRY_PERMISSIONS
 
 export function canDo(userRole: UserRole | string, permission: string): boolean {
   const minRole = PERMISSIONS[permission]

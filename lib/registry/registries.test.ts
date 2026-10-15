@@ -5,7 +5,7 @@ import { AuditAction } from "@/lib/audit"
 import { CRON_FRESHNESS_MINUTES } from "@/lib/ops/cron-heartbeat"
 import { TENANT_SCOPED_MODELS } from "@/lib/tenant-scope"
 import { CRON_JOBS } from "./generated/cron-jobs"
-import { CLIENT_PERMISSIONS, SERVER_PERMISSIONS } from "./generated/permissions"
+import { PERMISSIONS } from "./generated/permissions"
 import { SIMULATED_INTEGRATIONS } from "./generated/simulated-integrations"
 
 const snapshot = (name: string) => JSON.parse(readFileSync(join(__dirname, "__snapshots__", `${name}.json`), "utf8"))
@@ -47,10 +47,10 @@ describe("registry parity with the pre-split lists", () => {
     expectPreserved(Object.entries(SIMULATED_INTEGRATIONS), snapshot("simulated-integrations"), entryKey)
   })
 
-  it("permissions, server and client maps", () => {
+  it("permissions: one map that both the old server and client maps fit inside", () => {
     const expected = snapshot("permissions")
-    expectPreserved(Object.entries(CLIENT_PERMISSIONS), expected.client, entryKey)
-    expectPreserved(Object.entries(SERVER_PERMISSIONS), expected.server, entryKey)
+    expectPreserved(Object.entries(PERMISSIONS), expected.client, entryKey)
+    expectPreserved(Object.entries(PERMISSIONS), expected.server, entryKey)
   })
 
   it("an entry the snapshot holds cannot move to another owner or value unnoticed", () => {

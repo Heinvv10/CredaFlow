@@ -105,15 +105,13 @@ describe("gen-registries", () => {
     expect(out["lib/registry/generated/cron-jobs.ts"]).toContain(`"method": "GET"`)
   })
 
-  it("splits permissions into the server and client maps", async () => {
+  it("merges permissions into one map", async () => {
     const out = await buildRegistries(
-      repo({
-        "lib/registry/permissions/a.ts": `export default { both: "ADMIN", split: { server: "READONLY", client: "ADMIN" }, clientOnly: { client: "READONLY" } }`,
-      }),
+      repo({ "lib/registry/permissions/b.ts": `export default { manage_settings: "ADMIN" }` }),
     )
-    const gen = out["lib/registry/generated/permissions.ts"]
-    expect(gen).toMatch(/SERVER_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "READONLY"\s*\}/)
-    expect(gen).toMatch(/CLIENT_PERMISSIONS = \{\s*"both": "ADMIN",\s*"split": "ADMIN",\s*"clientOnly": "READONLY"\s*\}/)
+    expect(out["lib/registry/generated/permissions.ts"]).toMatch(
+      /PERMISSIONS = \{\s*"view_reports": "READONLY",\s*"manage_settings": "ADMIN"\s*\}/,
+    )
   })
 
   it("refuses a module .claude.md without a summary line", async () => {
@@ -160,10 +158,10 @@ describe("gen-registries", () => {
   it("refuses a permission role that is not a UserRole", async () => {
     await expect(
       buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: "SUPERDUPER" }` })),
-    ).rejects.toThrow(/names "SUPERDUPER", which is not a UserRole/)
+    ).rejects.toThrow(/x must name a UserRole, got "SUPERDUPER"/)
     rmSync(root!, { recursive: true, force: true })
     await expect(
-      buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: { client: "ADMIN", sever: "ADMIN" } }` })),
-    ).rejects.toThrow(/does not take sever/)
+      buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: { server: "ADMIN" } }` })),
+    ).rejects.toThrow(/x must name a UserRole/)
   })
 })

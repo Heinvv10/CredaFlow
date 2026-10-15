@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import { Prisma, type UserRole } from "@prisma/client"
-import { SERVER_PERMISSIONS } from "@/lib/registry/generated/permissions"
+import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/permissions"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
@@ -365,7 +365,7 @@ export function staffUserWriteConflict(err: unknown): NextResponse | null {
 // Permissions map: action → minimum required role. One file per domain under
 // lib/registry/permissions/ (merged by scripts/gen-registries.ts;
 // docs/ARCHITECTURE.md, "Registries").
-export const PERMISSIONS: { readonly [K in keyof typeof SERVER_PERMISSIONS]: UserRole } = SERVER_PERMISSIONS
+export const PERMISSIONS: { readonly [K in keyof typeof REGISTRY_PERMISSIONS]: UserRole } = REGISTRY_PERMISSIONS
 
 export type PermissionKey = keyof typeof PERMISSIONS
 
