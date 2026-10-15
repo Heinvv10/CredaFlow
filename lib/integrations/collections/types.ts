@@ -60,6 +60,8 @@ export interface AvsResult {
 export type MandateAuthType = "TT1" | "TT1_DELAYED" | "TT2"
 
 export type MandateStatusValue =
+  /** Accepted by a file-based rail; registration (and the provider's reference) still to come. */
+  | "PENDING_REGISTRATION"
   | "PENDING_AUTH"
   | "AUTHENTICATED"
   | "REJECTED"
@@ -68,6 +70,8 @@ export type MandateStatusValue =
   | "CANCELLED"
 
 export interface CreateMandateReq {
+  /** The engine's own mandate id: adapters pass it as the contract reference so a retried submission is idempotent. */
+  mandateReference: string
   loanReference: string
   debtor: { firstName: string; lastName: string; idNumber: string; phone: string }
   account: AvsRequest
@@ -76,11 +80,18 @@ export interface CreateMandateReq {
   maxCollectionAmountCents: number | null
   debitDayOfMonth: number
   authType: MandateAuthType
+  frequency: "ONCE_OFF" | "MONTHLY"
+  firstCollectionDate: Date
+  /** Bank-level auto-re-presentment window, 1–10 days (scheme rule). */
+  trackingDays: number
+  adjustment: "NEVER" | "QUARTERLY" | "BIANNUALLY" | "ANNUALLY" | "REPO_RATE"
 }
 
 export interface MandateHandle {
   providerMandateRef: string | null
   status: MandateStatusValue
+  /** Synthetic provider response: no bank saw this mandate. */
+  simulated?: true
 }
 
 export interface CollectionInstructionInput {
@@ -94,8 +105,43 @@ export interface CollectionInstructionInput {
 
 export interface SubmitResult {
   batchRef: string
+  /** Empty when awaitingLoadReport: the rail answers later, per batch. */
   accepted: string[]
   rejected: { instructionRef: string; error: string }[]
+  /**
+   * File-based rails (Netcash NIWS, PayM8, EasyDebit): the file was received
+   * and will be loaded later. The engine polls getBatchLoadReport.
+   */
+  awaitingLoadReport?: true
+  /** Synthetic provider response: nothing was sent to a bank. */
+  simulated?: true
+}
+
+export type BatchLoadReport =
+  | { state: "PENDING" }
+  | { state: "LOADED"; accepted: string[]; rejected: { instructionRef: string; error: string }[] }
+
+/**
+ * What the provider knows of one instruction, for reconciling an instruction
+ * whose submission outcome was lost. NOT_FOUND must mean the provider never
+ * received it (safe to send again); anything uncertain is UNKNOWN.
+ */
+export interface InstructionLookup {
+  state: "ACCEPTED" | "REJECTED" | "NOT_FOUND" | "UNKNOWN"
+  error?: string
+}
+
+/**
+ * An instruction the engine is still waiting on. Adapters whose rail reports
+ * by date window may ignore it; adapters that query per batch or per item
+ * (and the simulator) use it.
+ */
+export interface AwaitingInstruction {
+  instructionRef: string
+  mandateRef: string
+  batchRef: string | null
+  amountCents: number
+  actionDate: Date
 }
 
 export interface CollectionOutcome {
@@ -105,6 +151,16 @@ export interface CollectionOutcome {
   rawCode: string | null
   settledAmountCents: number | null
   resolvedAt: Date
+  /**
+   * The provider's own id for this outcome (its transaction id). Tells a
+   * second debit under one instruction reference apart from a repeat report
+   * of the same one; without it the engine falls back to the resolved date.
+   */
+  providerResultId?: string | null
+  /** The provider's record as received, persisted for audit. */
+  raw?: unknown
+  /** Synthetic provider outcome: no money moved. */
+  simulated?: true
 }
 
 export interface CollectionProvider {
@@ -114,7 +170,18 @@ export interface CollectionProvider {
   getMandateStatus(providerMandateRef: string, creds: ProviderCredentials): Promise<MandateStatusValue>
   cancelMandate(providerMandateRef: string, creds: ProviderCredentials): Promise<void>
   collect(batch: CollectionInstructionInput[], creds: ProviderCredentials): Promise<SubmitResult>
-  fetchResults(window: { from: Date }, creds: ProviderCredentials): Promise<CollectionOutcome[]>
+  /** `to` is the engine's clock: outcomes resolved after it are not reported yet. */
+  fetchResults(window: { from: Date; to: Date; awaiting?: AwaitingInstruction[] }, creds: ProviderCredentials): Promise<CollectionOutcome[]>
+  /** Required when collect() answers awaitingLoadReport. */
+  getBatchLoadReport?(batch: { batchRef: string; instructionRefs: string[] }, creds: ProviderCredentials): Promise<BatchLoadReport>
+  /**
+   * Look a mandate up by OUR reference (CreateMandateReq.mandateReference):
+   * registration on file-based rails, and reconciling a lost submission.
+   * null = the provider has no record of it.
+   */
+  findMandate?(mandateReference: string, creds: ProviderCredentials): Promise<MandateHandle | null>
+  /** Look an instruction up by OUR reference, to reconcile a lost submission. */
+  findInstruction?(instructionRef: string, creds: ProviderCredentials): Promise<InstructionLookup>
 }
 
 /** Opaque per-tenant credential bag; each adapter documents the keys it reads. */

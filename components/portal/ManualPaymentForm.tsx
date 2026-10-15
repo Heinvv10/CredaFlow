@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckCircle, Loader2 } from "lucide-react"
+import { useT } from "@/lib/i18n/client"
 
 export interface LoanOption {
   id: string
@@ -40,6 +41,7 @@ export function refFor(loanId: string, loans: LoanOption[]): string {
 }
 
 export function ManualPaymentForm({ loans }: Props) {
+  const t = useT("portalPayment")
   const [loanId, setLoanId] = useState(loans[0]?.id ?? "")
   // default to the selected loan's next instalment so the borrower
   // doesn't retype the most common amount. handleLoanChange keeps the
@@ -59,19 +61,19 @@ export function ManualPaymentForm({ loans }: Props) {
   const handleSubmit = async () => {
     const amount = parseFloat(amountStr)
     if (!loanId || isNaN(amount) || amount <= 0) {
-      setError("Please select a loan and enter a valid amount")
+      setError(t("errSelectLoan"))
       return
     }
     if (!file) {
-      setError("Please attach your proof of payment (PDF, JPEG or PNG)")
+      setError(t("errAttachProof"))
       return
     }
     if (!PROOF_MIME_TYPES.includes(file.type)) {
-      setError("Proof of payment must be a PDF, JPEG or PNG")
+      setError(t("errProofType"))
       return
     }
     if (file.size > MAX_FILE_SIZE) {
-      setError("Proof of payment must be 10MB or smaller")
+      setError(t("errProofSize"))
       return
     }
     setSubmitting(true)
@@ -93,10 +95,10 @@ export function ManualPaymentForm({ loans }: Props) {
         setDone(true)
       } else {
         const data = await res.json() as { error?: string }
-        setError(data.error ?? "Submission failed")
+        setError(data.error ?? t("errSubmission"))
       }
     } catch {
-      setError("Network error — please try again")
+      setError(t("errNetwork"))
     } finally {
       setSubmitting(false)
     }
@@ -106,9 +108,9 @@ export function ManualPaymentForm({ loans }: Props) {
     return (
       <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
         <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-3" />
-        <p className="font-semibold text-green-800">Payment notification submitted!</p>
+        <p className="font-semibold text-green-800">{t("notifiedTitle")}</p>
         <p className="text-sm text-green-700 mt-1">
-          Our team will verify and allocate your payment within 1 business day.
+          {t("notifiedBody")}
         </p>
       </div>
     )
@@ -116,9 +118,9 @@ export function ManualPaymentForm({ loans }: Props) {
 
   return (
     <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-6 space-y-4">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Notify Us of a Payment</p>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{t("notifyTitle")}</p>
       <p className="text-sm text-gray-600">
-        Already made an EFT or cash deposit? Let us know so we can allocate it to your account.
+        {t("notifyBody")}
       </p>
 
       {error && (
@@ -127,7 +129,7 @@ export function ManualPaymentForm({ loans }: Props) {
 
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Loan</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t("loan")}</label>
           <select
             value={loanId}
             onChange={(e) => {
@@ -158,7 +160,7 @@ export function ManualPaymentForm({ loans }: Props) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Amount Paid (R)</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("amountPaid")}</label>
             <input
               type="number"
               value={amountStr}
@@ -170,7 +172,7 @@ export function ManualPaymentForm({ loans }: Props) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Payment Date</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t("paymentDate")}</label>
             <input
               type="date"
               value={paymentDate}
@@ -181,30 +183,30 @@ export function ManualPaymentForm({ loans }: Props) {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Bank Reference / Proof of Payment Ref</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t("bankReference")}</label>
           <input
             type="text"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            placeholder="e.g. NC-2024-001 or bank transaction ID"
+            placeholder={t("bankReferencePlaceholder")}
             className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Additional Notes (optional)</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t("notes")}</label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            placeholder="Any additional information..."
+            placeholder={t("notesPlaceholder")}
             className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5] resize-none"
           />
         </div>
 
         <div>
           <label htmlFor="proof-file" className="block text-xs font-medium text-gray-500 mb-1">
-            Proof of Payment <span className="text-red-500">*</span>
+            {t("proofOfPayment")} <span className="text-red-500">*</span>
           </label>
           <input
             id="proof-file"
@@ -215,9 +217,9 @@ export function ManualPaymentForm({ loans }: Props) {
             className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-[#4F46E5] file:text-white hover:file:bg-[#4338CA]"
           />
           {file && (
-            <p className="text-[11px] text-gray-500 mt-1 truncate">Selected: {file.name}</p>
+            <p className="text-[11px] text-gray-500 mt-1 truncate">{t("selectedFile", { name: file.name })}</p>
           )}
-          <p className="text-[11px] text-gray-400 mt-1">PDF, JPEG or PNG — max 10MB.</p>
+          <p className="text-[11px] text-gray-400 mt-1">{t("fileHint")}</p>
         </div>
 
         <Button
@@ -227,9 +229,9 @@ export function ManualPaymentForm({ loans }: Props) {
           style={{ backgroundColor: "#4F46E5" }}
         >
           {submitting ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting...</>
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t("submitting")}</>
           ) : (
-            "Submit Payment Notification"
+            t("submitNotification")
           )}
         </Button>
       </div>

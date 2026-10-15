@@ -54,6 +54,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Must precede tsc too: lib/registry/generated/ is not committed
+      # (scripts/gen-registries.ts; npm ci's postinstall also writes it).
+      - name: Generate registries
+        run: npm run gen:registries
+
       # The project's type graph exceeds Node's default heap on the runner.
       - name: Typecheck
         run: npx tsc --noEmit

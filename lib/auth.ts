@@ -4,11 +4,18 @@ import { prisma } from "./prisma"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "./rate-limit"
 import { authBaseConfig, roleRefusedOnThisHost, type AppRole } from "./auth-config"
-import type { UserRole } from "@prisma/client"
 import { withoutTenantScope } from "@/lib/tenant-scope"
+import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
-import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { claimTotpCounter } from "./totp-claim"
+import { signInTotpOutcome } from "./auth-totp-step"
+import { normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
+import { isOperatorRole } from "@/lib/operator/roles"
+import { authorizeOperator } from "@/lib/operator/sign-in"
+import { audienceOf, enrolmentRequired, principalRefusal, revalidatePrincipal } from "./auth-principal"
+import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-access-enforcement"
+import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
 
 export { claimTotpCounter }
 
@@ -26,6 +33,18 @@ class RateLimitedError extends CredentialsSignin {
 
 class WrongAudienceError extends CredentialsSignin {
   code = "wrong_audience"
+}
+
+/** The lender's staff working hours or IP allowlist refused this sign-in. */
+class StaffAccessRefusedError extends CredentialsSignin {
+  constructor(reason: StaffAccessRefusal) {
+    super()
+    this.code = staffAccessSignInCode(reason)
+  }
+}
+
+class PortalDisabledError extends CredentialsSignin {
+  code = "portal_disabled"
 }
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000
@@ -48,37 +67,8 @@ async function equalizeAuthTiming(candidate: string): Promise<void> {
   await bcrypt.compare(candidate, DUMMY_BCRYPT_HASH)
 }
 
-/**
- * Revalidate a staff token against the DB.
- * Returns null  → force sign-out (user deactivated or token version bumped).
- * Returns "error" → transient DB failure; caller should retain the existing token.
- * Returns the current role and tenant binding on success; either may differ
- * from the token when the principal changes mid-session.
- */
-export async function revalidatePrincipal(
-  userId: string,
-  tokenVersion: number,
-): Promise<{ role: UserRole; tenantId: string } | null | "error"> {
-  let fresh: {
-    active: boolean
-    role: UserRole
-    tenantId: string | null
-    tokenVersion: number
-  } | null
-  try {
-    fresh = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { active: true, role: true, tenantId: true, tokenVersion: true },
-    })
-  } catch (err) {
-    console.error("[auth] revalidatePrincipal DB error — retaining existing token:", err)
-    return "error"
-  }
-
-  if (!fresh || !fresh.active || !fresh.tenantId) return null
-  if (fresh.tokenVersion !== tokenVersion) return null
-  return { role: fresh.role, tenantId: fresh.tenantId }
-}
+// One rule set for sign-in and every request's revalidation (lib/auth-principal.ts).
+export { revalidatePrincipal }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authBaseConfig,
@@ -89,8 +79,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
         code: { label: "TOTP code", type: "text" },
-        // "staff" (workspace) or "client" (portal). Determines which table to
-        // authenticate against — there is no fallback across audiences.
+        // "staff" (workspace), "client" (portal) or "operator" (the operator
+        // console host). Determines which principals may authenticate — there
+        // is no fallback across audiences.
         loginType: { label: "Login type", type: "text" },
       },
       async authorize(credentials, request) {
@@ -98,7 +89,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null
         }
 
-        const loginType = credentials.loginType === "client" ? "client" : "staff"
+        const loginType =
+          credentials.loginType === "client" ? "client" : credentials.loginType === "operator" ? "operator" : "staff"
         const email = String(credentials.email).toLowerCase().trim()
         // NextAuth v5 always passes a real Request in App Router; the cast is safe.
         const ip = callerIp(request as Request)
@@ -129,14 +121,32 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // staff sign-in is refused on the client host and a portal sign-in on
         // the staff host, so a session never exists on a host that 404s its
         // pages. Same response as an unknown email.
+        //
+        // The operator console host (OPERATOR_APP_HOST) takes operator sign-ins
+        // only, and no other host takes one (lib/proxy/operator-host.ts).
         const hostMode = process.env.APP_MODE
+        const consoleHost = operatorAppHost()
+        const onConsoleHost = consoleHost !== null && normaliseHost((request as Request).headers.get("host") ?? "") === consoleHost
         if (
-          (hostMode === "client" && loginType === "staff") ||
-          (hostMode === "staff" && loginType === "client")
+          (hostMode === "client" && loginType !== "client") ||
+          (hostMode === "staff" && loginType === "client") ||
+          onConsoleHost !== (loginType === "operator")
         ) {
           await equalizeAuthTiming(String(credentials.password))
           await recordFailure("wrong_audience")
           throw new WrongAudienceError()
+        }
+
+        if (loginType === "operator") {
+          const result = await authorizeOperator({
+            email, password: String(credentials.password), code: credentials.code,
+            recordFailure, equalizeTiming: equalizeAuthTiming,
+          })
+          if (result.ok) return result.user
+          if (result.error === "wrong_audience") throw new WrongAudienceError()
+          if (result.error === "totp_required") throw new TotpRequiredError()
+          if (result.error === "totp_invalid") throw new TotpInvalidError()
+          return null
         }
 
         // Staff audience — look up in User table only. Client emails get a
@@ -145,7 +155,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // to avoid leaking which audience an email belongs to).
         const user =
           loginType === "staff"
-            ? await prisma.user.findUnique({ where: { email } })
+            ? await prisma.user.findUnique({ where: { email }, include: { tenant: { select: { status: true } } } })
             : null
 
         if (loginType === "staff" && !user) {
@@ -158,12 +168,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Always run bcrypt regardless of active status to prevent a timing oracle
           // distinguishing active from inactive staff accounts.
           const passwordMatch = await bcrypt.compare(String(credentials.password), user.password)
-          if (!user.active || !passwordMatch || !user.tenantId) {
+          // The same rules revalidatePrincipal applies on every request
+          // (inactive, binding, a suspended lender).
+          const refusal = principalRefusal(user, "staff")
+          if (refusal || !passwordMatch || !user.tenantId) {
             const attempts: Array<Promise<unknown>> = [
               recordFailure(
                 !user.tenantId
                   ? "tenant_unassigned"
-                  : "wrong_password",
+                  : passwordMatch && refusal && refusal !== "inactive" ? refusal : "wrong_password",
               ),
             ]
             if (user.active && user.tenantId) {
@@ -180,39 +193,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Enforce TOTP if the flag or the secret is set (fail-closed on inconsistent state).
           // totpVerified records that THIS sign-in checked a code: enrolling TOTP
           // later in the same session does not set it (identity writes need it).
-          let totpVerified = false
+          const totp = await signInTotpOutcome(user, credentials.code)
+          if (totp.kind === "misconfigured") {
+            // totpEnabled but no secret — inconsistent DB state, deny login
+            await recordFailure("totp_misconfigured")
+            throw new TotpInvalidError()
+          }
+          if (totp.kind === "required") throw new TotpRequiredError()
+          if (totp.kind === "invalid") {
+            await Promise.all([
+              prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: false } })
+                .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
+              recordFailure("totp_invalid"),
+            ])
+            throw new TotpInvalidError()
+          }
+          if (totp.kind === "replayed") {
+            await recordFailure("totp_replay")
+            throw new TotpInvalidError()
+          }
+          const totpVerified = totp.kind === "verified"
           // The lender requires 2FA and this user has none: the session may
           // reach only the enrolment page (proxy.ts, lib/auth-guards.ts).
-          let totpEnrolmentRequired = false
-          if (user.totpEnabled || user.totpSecret) {
-            if (!user.totpSecret) {
-              // totpEnabled but no secret — inconsistent DB state, deny login
-              await recordFailure("totp_misconfigured")
-              throw new TotpInvalidError()
-            }
-            const code = typeof credentials.code === "string" ? credentials.code.trim() : ""
-            if (!code) {
-              throw new TotpRequiredError()
-            }
-            const { verifyTotpCode } = await import("./totp")
-            const matchedCounter = verifyTotpCode(code, user.totpSecret)
-            if (matchedCounter === null) {
-              await Promise.all([
-                prisma.loginLog.create({ data: { tenantId: loginTenantId, userId: user.id, ip, userAgent, success: false } })
-                  .catch((err: unknown) => { console.error("[auth] loginLog insert failed:", err) }),
-                recordFailure("totp_invalid"),
-              ])
-              throw new TotpInvalidError()
-            }
-            const claimed = await claimTotpCounter(user.id, matchedCounter)
-            if (!claimed) {
-              await recordFailure("totp_replay")
-              throw new TotpInvalidError()
-            }
-            totpVerified = true
-          } else {
-            totpEnrolmentRequired = await isStaffTotpRequired(loginTenantId)
-          }
+          const totpEnrolmentRequired = totp.kind === "not_enrolled" ? await enrolmentRequired(user, "staff") : false
+
+          // Working hours and IP allowlist, checked once both factors passed.
+          const access = await checkStaffSignIn({
+            tenantId: loginTenantId, userId: user.id, email: user.email, role: user.role, ip, userAgent,
+          })
+          if (!access.allowed) throw new StaffAccessRefusedError(access.reason)
 
           // Update last login + log the sign-in
           const now = new Date()
@@ -244,9 +253,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // returns a lazy thenable whose execution happens after `run()` exits,
         // by which point the admin frame is gone and the tenant-scope extension
         // throws `missing-context`.
-        const client = await withoutTenantScope(async () => {
-          return await prisma.client.findUnique({ where: { email } })
-        })
+        //
+        // Borrowers are per lender (Client is unique on tenantId + email), so
+        // the portal host's tenant names whose client this is. A host that
+        // resolves no tenant has no clients.
+        const portalTenant = await getTenantFromRequest(request as Request)
+        const client = portalTenant
+          ? await withoutTenantScope(async () => {
+              return await prisma.client.findUnique({
+                where: { tenantId_email: { tenantId: portalTenant.id, email } },
+              })
+            })
+          : null
 
         if (!client || !client.portalPassword) {
           // Symmetric timing equalization with the staff path so a staff email
@@ -267,6 +285,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           await recordFailure("wrong_password")
           return null
         }
+        if (!(await isPortalEnabled(client.tenantId))) {
+          await recordFailure("portal_disabled")
+          throw new PortalDisabledError()
+        }
 
         return {
           id: client.id,
@@ -285,13 +307,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Sign-in: copy claims from the User shape returned by authorize() into the JWT.
       if (user) {
         if (!user.id) return null  // should not happen with credentials auth
-        if (typeof user.tenantId !== "string" || user.tenantId.trim() === "") {
+        // Operator staff hold an operator and no tenant; everyone else a tenant.
+        const operator = isOperatorRole(user.role)
+        const binding = operator ? user.operatorId : user.tenantId
+        if (typeof binding !== "string" || binding.trim() === "") {
           return null
         }
         token.id = user.id
         token.role = user.role
         token.tokenVersion = user.tokenVersion ?? 0
-        token.tenantId = user.tenantId
+        token.tenantId = operator ? null : user.tenantId
+        if (operator) token.operatorId = user.operatorId
         token.totpVerified = user.totpVerified === true
         if (user.credentialStamp) token.credentialStamp = user.credentialStamp
         token.totpEnrolmentRequired = user.totpEnrolmentRequired === true
@@ -312,15 +338,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Minted before the enrolment claim existed: unknown, so not trusted.
         if (typeof token.totpEnrolmentRequired !== "boolean") return null
         const tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : 0
-        const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion)
+        // The audience the token was minted for; the row must still fit it
+        // (a lender user's token is never re-checked as an operator's).
+        const audience = audienceOf(token.role)
+        const freshPrincipal = await revalidatePrincipal(tokenId, tokenVersion, {
+          audience, totpVerified: token.totpVerified === true, totpEnrolmentRequired: token.totpEnrolmentRequired,
+        })
         if (freshPrincipal === "error") {
-          // A transient failure may retain an already tenant-bound token, but
-          // must never revive a legacy/null-tenant staff JWT.
-          return typeof token.tenantId === "string" ? token : null
+          // A transient failure may retain an already bound token, but must
+          // never revive a legacy/null-tenant staff JWT.
+          const bound = audience === "operator" ? token.operatorId : token.tenantId
+          return typeof bound === "string" ? token : null
         }
-        if (freshPrincipal === null) return null       // deactivated or version bump — force sign-out
-        token.role = freshPrincipal.role               // picks up role changes mid-session
+        if (freshPrincipal === null) return null       // refused, deactivated or version bump — force sign-out
+        if (audience === "staff") {
+          // Working hours and IP allowlist (#82), on the policy columns the
+          // same query read. Operator staff have no lender access policy.
+          const allowed = await staffSessionAllowed({
+            tenantId: freshPrincipal.tenantId as string, userId: tokenId, role: freshPrincipal.role,
+            email: typeof token.email === "string" ? token.email : null,
+          }, freshPrincipal.accessPolicy)
+          if (!allowed) return null                    // outside hours / off the allowlist: ends it like a revocation
+        }
+        token.role = freshPrincipal.role as AppRole    // picks up role changes mid-session
         token.tenantId = freshPrincipal.tenantId
+        token.totpEnrolmentRequired = freshPrincipal.totpEnrolmentRequired
+        if (audience === "operator") {
+          token.operatorId = freshPrincipal.operatorId
+          return token
+        }
       }
 
       if (token.role && typeof token.tenantId !== "string") return null
@@ -337,6 +383,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Staff-user writes re-check it on the caller's locked row
         // (refuseLockedStaffUserWrite in lib/auth-guards.ts).
         session.user.tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : undefined
+        session.user.operatorId = typeof token.operatorId === "string" ? token.operatorId : null
       }
       return session
     },

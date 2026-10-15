@@ -5,7 +5,11 @@ import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { LogOut } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { buildPortalNavigation, type NavItem } from "@/lib/navigation"
+import { useT } from "@/lib/i18n/client"
+import type { Locale } from "@/lib/i18n/locales"
+import type { MessageKey } from "@/lib/i18n/translate"
 import { cn } from "@/lib/utils"
 
 // Bottom nav on mobile shows a subset of the main portal nav: five items, plus
@@ -29,6 +33,23 @@ export function portalMobileItems(business: boolean): NavItem[] {
 const mobileItems = portalMobileItems(false)
 const mobileItemsWithBusiness = portalMobileItems(true)
 
+// Labels are translated by destination, so lib/navigation.ts (shared with the
+// staff sidebar) keeps its English labels. Support is the one external item
+// (a wa.me link).
+const NAV_LABEL_KEYS: Record<string, MessageKey<"portalShell">> = {
+  "/portal": "navOverview",
+  "/portal/business": "navBusiness",
+  "/portal/applications": "navApplications",
+  "/portal/apply": "navApply",
+  "/portal/loans": "navLoans",
+  "/portal/insurance": "navInsurance",
+  "/portal/documents": "navDocuments",
+  "/portal/statement": "navStatements",
+  "/portal/payment": "navPayment",
+  "/portal/notifications": "navNotifications",
+  "/portal/profile": "navProfile",
+}
+
 function isActive(pathname: string, href: string) {
   if (href === "/portal") return pathname === "/portal"
   return pathname === href || pathname.startsWith(`${href}/`)
@@ -42,10 +63,17 @@ type PortalSidebarProps = {
   whatsappE164: string | null
   /** The client may act for a business entity (asset finance). */
   showBusiness?: boolean
+  /** The tenant's enabled languages; fewer than two hides the switcher. */
+  enabledLocales?: readonly Locale[]
 }
 
-export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, showBusiness = false }: PortalSidebarProps) {
+export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, showBusiness = false, enabledLocales = [] }: PortalSidebarProps) {
   const pathname = usePathname()
+  const t = useT("portalShell")
+  const label = (item: NavItem) => {
+    const key = item.external ? "navSupport" : NAV_LABEL_KEYS[item.href]
+    return key ? t(key) : item.label
+  }
   const portalNavigation = buildPortalNavigation(whatsappE164, { business: showBusiness })
   const bottomItems = showBusiness ? mobileItemsWithBusiness : mobileItems
 
@@ -55,7 +83,7 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
         <div className="flex h-16 items-center border-b border-[var(--cf-border-subtle)] px-5">
           <div>
             <p className="text-xs font-semibold text-[var(--cf-text)]">{brandName}</p>
-            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">Client Portal</p>
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">{t("clientPortal")}</p>
           </div>
         </div>
 
@@ -84,7 +112,7 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
                   )}
                 >
                   <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--cf-brand-soft)]")} />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{label(item)}</span>
                 </Link>
               )
             })}
@@ -92,13 +120,14 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
         </nav>
 
         <div className="border-t border-[var(--cf-border-subtle)] p-3">
+          <LanguageSwitcher enabled={enabledLocales} className="mb-1 w-full px-3 text-[var(--cf-text-muted)]" />
           <ThemeToggle showLabel className="mb-1 w-full justify-start border-transparent" />
           <button
             onClick={() => signOut({ redirectTo: "/portal/login" })}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-[var(--cf-text-muted)] transition-colors hover:bg-[var(--cf-surface-hover)] hover:text-[var(--cf-text)]"
           >
             <LogOut className="h-4 w-4" />
-            Sign out
+            {t("signOut")}
           </button>
         </div>
       </aside>
@@ -121,7 +150,7 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
               )}
             >
               <Icon className="h-4 w-4" />
-              <span>{item.label}</span>
+              <span>{label(item)}</span>
               {active && <span className="h-1 w-1 rounded-full bg-[var(--cf-brand)]" />}
             </Link>
           )

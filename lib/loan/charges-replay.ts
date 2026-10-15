@@ -8,6 +8,8 @@ import {
 } from "@/lib/loan/default-charges"
 import { bookedServiceFee, letterCharges, type GoLiveInputs } from "@/lib/loan/charges-inputs"
 import { computeNonNcaCharges } from "@/lib/asset-finance/non-nca-charges"
+import type { ChargePause } from "@/lib/loan/charge-pauses"
+import { recoveryChargePauses, recoveryCostCharges } from "@/lib/loan/recovery-pauses"
 
 // Loads one loan's default-charges inputs and runs the pure replay: by
 // Loan.ncaRegime, lib/loan/default-charges.ts (NCA) or
@@ -126,13 +128,15 @@ export interface LoanRef {
  * --apply would switch the tenant to (goLiveInputs), whatever its flag says.
  * Nothing that writes may pass it. `decidingStatus` is for the sync, which
  * decides COMPLETED itself and so must not be bounded by a closing date a
- * writer stamped.
+ * writer stamped. `pauses` are extra days on which nothing accrues; the
+ * loan's recovery charge freeze (lib/loan/recovery-pauses.ts)
+ * is always added; every replayAt honours them.
  */
 export async function loadChargesReplay(
   tx: ChargesTx,
   ref: LoanRef,
   asOf: Date,
-  { preview, decidingStatus = false }: { preview?: GoLiveInputs; decidingStatus?: boolean } = {},
+  { preview, decidingStatus = false, pauses }: { preview?: GoLiveInputs; decidingStatus?: boolean; pauses?: ChargePause[] } = {},
 ) {
   const loan = await tx.loan.findUnique({
     where: { id: ref.loanId, tenantId: ref.tenantId },
@@ -177,8 +181,18 @@ export async function loadChargesReplay(
         },
       },
       repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
+      // A recovery's charge freeze (chargesFrozenFrom..chargesFrozenUntil), so that every writer's replay honours it.
+      recoveries: {
+        where: { chargesFrozenFrom: { not: null } },
+        select: {
+          chargesFrozenFrom: true, chargesFrozenUntil: true,
+          costs: { where: { status: "APPROVED", treatment: "CHARGE_TO_ACCOUNT" }, orderBy: { id: "asc" }, select: { id: true, grossCents: true } },
+        },
+      },
     },
   })
+  const allPauses = [...(pauses ?? []), ...(recoveryChargePauses(loan?.recoveries) ?? [])]
+  const recoveryCosts = recoveryCostCharges(loan?.recoveries)
   const config = loan?.tenant.config
   // Once charges were stopped nothing is ever derived again, not even a preview.
   if (!loan || !config || config.defaultChargesStoppedAt || !(chargesEnabled({ tenant: { config } }) || preview)) return null
@@ -252,6 +266,8 @@ export async function loadChargesReplay(
       asOf: at,
       accrueFrom: extraReceipts.length > 0 ? accrueFromWith(extraReceipts) : accrueFrom,
       accrueUntil,
+      pauses: allPauses.length > 0 ? allPauses : undefined,
+      recoveryCosts,
     }
     // NON_NCA: the agreement's arrears terms; no NCA caps, letters or service fee.
     if (loan.ncaRegime === "NON_NCA") {

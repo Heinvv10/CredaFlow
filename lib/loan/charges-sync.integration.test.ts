@@ -11,6 +11,7 @@ import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { storeStitchWebhookSecret } from "@/lib/integrations/stitch-webhook.integration-fixture"
 import {
   createChargesLoan,
   createChargesTenant,
@@ -37,7 +38,8 @@ vi.mock("@/lib/notifications", () => ({ triggerNotification: vi.fn(async () => u
 // initiate -> webhook path; the loan, request and receipt rows are real.
 const { portal } = vi.hoisted(() => ({ portal: { email: "", stitchId: "" } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: portal.email } })) }))
-vi.mock("@/lib/stitch", () => ({
+vi.mock("@/lib/stitch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stitch")>()),
   createStitchPayment: vi.fn(async () => ({ id: portal.stitchId, url: "https://stitch.invalid/pay" })),
 }))
 
@@ -345,7 +347,7 @@ suite.sequential("default charges through the receipt writers (real Postgres)", 
 
   it("splits a Stitch webhook receipt through the replay", async () => {
     const ids = await createLoan()
-    process.env.STITCH_WEBHOOK_SECRET = "charges-it-secret"
+    await storeStitchWebhookSecret(db, ids.tenantId, "charges-it-secret")
     const stitchId = `stitch_${ids.loanId}`
     await db.stitchPaymentRequest.create({
       data: {
@@ -369,7 +371,7 @@ suite.sequential("default charges through the receipt writers (real Postgres)", 
     await db.loan.update({ where: { id: ids.loanId }, data: { status: "DEFAULTED" } })
     portal.email = (await db.client.findUniqueOrThrow({ where: { id: ids.clientId } })).email
     portal.stitchId = `stitch_def_${ids.loanId}`
-    process.env.STITCH_WEBHOOK_SECRET = "charges-it-secret"
+    await storeStitchWebhookSecret(db, ids.tenantId, "charges-it-secret")
     // The Stitch redirect URL is built from it; CI sets no app env.
     process.env.NEXTAUTH_URL = "http://localhost:3000"
 
@@ -429,7 +431,7 @@ suite.sequential("default charges through the receipt writers (real Postgres)", 
     expect(await syncedBy(reversed.loanId)).toEqual({ source: "payment_reversal", userId: reversed.userId })
 
     const stitch = await createLoan()
-    process.env.STITCH_WEBHOOK_SECRET = "charges-it-secret"
+    await storeStitchWebhookSecret(db, stitch.tenantId, "charges-it-secret")
     const stitchId = `stitch_actor_${stitch.loanId}`
     await db.stitchPaymentRequest.create({
       data: {

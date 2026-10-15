@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateCertificateOfBalancePdf } from "@/lib/pdf/certificateOfBalance"
-import { certificatePaidToDate, certificateSettlement, loanSettlementFigures } from "@/lib/loan/charges-summary"
+import { certificatePaidToDate, certificateSettlement, documentLoanFigures, loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
@@ -56,12 +56,11 @@ export async function GET(req: NextRequest, { params }: RouteCtx) {
         startDate: loan.startDate,
         maturityDate: loan.maturityDate,
         principal: loan.principal,
-        totalRepayable: loan.totalRepayable,
         totalPaid: loan.totalPaid,
-        outstandingPrincipal: loan.outstandingPrincipal,
+        // Zero for a loan CANCELLED by a disbursement reversal (nothing owed).
+        ...documentLoanFigures(loan),
         // Charge-inclusive, as on the Section 129 notice.
         arrearsAmount: figures.arrearsIncludingCharges,
-        daysInArrears: loan.daysInArrears ?? 0,
         // NCA s.108: this certificate is a legal statement of the consumer's
         // account. The rate it states must be the rate they contracted at,
         // which disburse/route.ts freezes onto the Loan row from the approval

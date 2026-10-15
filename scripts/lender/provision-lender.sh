@@ -95,6 +95,9 @@ setting() {
   fi
 }
 add NEXT_PUBLIC_TENANT_SLUG "$SLUG"
+# The STITCH_/SMILE_IDENTITY_/EXPERIAN_ variables in this .env are this lender's
+# own accounts: name the tenant they belong to (lib/integrations/tenant-credentials.ts).
+add ENV_CREDENTIALS_TENANT_SLUG "$SLUG"
 setting APP_PORT "$port"
 [ -z "$bind" ] || setting APP_BIND "$bind"
 setting NEXTAUTH_URL "$public_url"

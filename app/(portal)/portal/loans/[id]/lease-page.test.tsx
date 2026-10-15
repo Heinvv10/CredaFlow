@@ -12,6 +12,10 @@ vi.mock("@/lib/asset-finance/portal-lease", () => ({ loadPortalLease: mocks.load
 vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
 vi.mock("@/lib/asset-finance/lease-portal-route", () => ({ clientLeaseRefusal: vi.fn() }))
 vi.mock("@/lib/asset-finance/meter-readings", () => ({ recordMeterReading: vi.fn() }))
+// The recovery card is an async server component (it reads the DB): stubbed here, and asserted by its props.
+vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({
+  PortalRecoverySection: ({ tenantId, loanId }: { tenantId: string; loanId: string }) => `recovery-section:${tenantId}:${loanId}`,
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: { client: { findFirst: vi.fn(async () => ({ id: "c1" })) }, loan: { findFirst: mocks.loan } },
 }))
@@ -42,6 +46,7 @@ describe("portal loan page, for a sole proprietor's lease", () => {
     expect(html).toContain("Lease TEST-LS-1")
     expect(html).not.toContain("Repayment Schedule")
     expect(html).not.toContain("Monthly Instalment")
+    expect(html).toContain("recovery-section:t1:L1")
   })
 
   it("shows the lease's charges as the loader read them: overdue including charges, and the other charges", async () => {

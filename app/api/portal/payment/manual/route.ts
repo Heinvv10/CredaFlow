@@ -6,6 +6,7 @@ import { saveFile, deleteFile } from "@/lib/storage"
 import { MAX_FILE_SIZE } from "@/lib/document-auth"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
+import { owesNothing } from "@/lib/loan/charges-summary"
 
 // Proof of payment accepts PDF/JPEG/PNG only (matches the form's accept attr).
 // Narrower than document-auth's ALLOWED_MIME_TYPES, which also permits webp.
@@ -89,10 +90,13 @@ export async function POST(req: Request) {
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, clientId: client.id, tenantId },
-      select: { id: true, reference: true },
+      select: { id: true, reference: true, status: true },
     })
     if (!loan) {
       return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+    }
+    if (owesNothing(loan)) {
+      return NextResponse.json({ error: "This loan was cancelled and nothing is owed on it" }, { status: 409 })
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())

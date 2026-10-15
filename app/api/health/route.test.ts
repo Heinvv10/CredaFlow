@@ -15,6 +15,10 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+// An operator session (lib/operator/) also gets the detail; read only when a cookie is sent.
+const { authMock } = vi.hoisted(() => ({ authMock: vi.fn() }))
+vi.mock("@/lib/auth", () => ({ auth: authMock }))
+
 vi.mock("@/lib/storage", () => ({
   storageEncryptionEnabled: () => Boolean(process.env.UPLOADS_ENC_KEY),
   saveFileToManagedPath: async (buf: Buffer, _mime: string, key: string) => {
@@ -134,5 +138,68 @@ describe("/api/health, operator (x-cron-secret)", () => {
     const { body } = await operator()
     expect(body.checks.cron).toBe("not_scheduled")
     expect(heartbeats).not.toHaveBeenCalled()
+  })
+})
+
+// Platform setup warnings (W0): the runtime role bypasses row-level security,
+// or env credentials are owned by no tenant. Shown with the other detail to an
+// x-cron-secret caller or an operator session; the public answer is unchanged.
+describe("/api/health, platform setup warnings", () => {
+  const OPERATOR_SESSION = { user: { id: "op1", role: "OPERATOR_SUPPORT", tenantId: null } }
+  const withCookie = { cookie: "authjs.session-token=synthetic" }
+  /** pg_roles answers as `role`; every other query (SELECT 1) as before. */
+  const roleIs = (role: { su: boolean; bypass: boolean }) =>
+    queryRaw.mockImplementation(async (strings: TemplateStringsArray) =>
+      strings.join("").includes("pg_roles") ? [role] : [{ "?column?": 1 }])
+
+  beforeEach(() => {
+    authMock.mockReset().mockResolvedValue(null)
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  })
+
+  it("an operator session gets the checks and warnings, the RLS one included", async () => {
+    roleIs({ su: true, bypass: false })
+    authMock.mockResolvedValue(OPERATOR_SESSION)
+    const { body } = await getHealth(withCookie)
+    expect(body.checks).toMatchObject({ database: "ok" })
+    expect(body.warnings).toContain("db_role_bypasses_rls")
+  })
+
+  it("an x-cron-secret caller gets them too, without any session", async () => {
+    roleIs({ su: false, bypass: true })
+    const { body } = await operator()
+    expect(body.warnings).toContain("db_role_bypasses_rls")
+    expect(authMock).not.toHaveBeenCalled()
+  })
+
+  it("warns an operator when env credentials are set but owned by no tenant", async () => {
+    roleIs({ su: false, bypass: false })
+    vi.stubEnv("STITCH_CLIENT_ID", "env-client")
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "")
+    authMock.mockResolvedValue(OPERATOR_SESSION)
+    expect((await getHealth(withCookie)).body.warnings).toContain("env_credentials_unowned")
+  })
+
+  it("keeps the public answer minimal: no cookie, lender staff, or an unreadable session", async () => {
+    roleIs({ su: true, bypass: false })
+    vi.stubEnv("STITCH_CLIENT_ID", "env-client")
+    expect(Object.keys((await getHealth()).body).sort()).toEqual(PUBLIC_KEYS)
+    expect(authMock).not.toHaveBeenCalled()
+    authMock.mockResolvedValue({ user: { id: "u1", role: "SUPER_ADMIN", tenantId: "t1" } })
+    expect(Object.keys((await getHealth(withCookie)).body).sort()).toEqual(PUBLIC_KEYS)
+    authMock.mockRejectedValue(new Error("session decode failed"))
+    const failed = await getHealth(withCookie)
+    expect(failed.response.status).toBe(200)
+    expect(Object.keys(failed.body).sort()).toEqual(PUBLIC_KEYS)
+  })
+
+  it("logs the RLS warning once per process, even when only public probes ask", async () => {
+    vi.resetModules()
+    const { GET: freshGet } = await import("./route")
+    roleIs({ su: true, bypass: false })
+    await freshGet(new Request("http://localhost/api/health"))
+    await freshGet(new Request("http://localhost/api/health"))
+    const rls = vi.mocked(console.warn).mock.calls.filter(([m]) => String(m).includes("row-level security is not enforced"))
+    expect(rls).toHaveLength(1)
   })
 })

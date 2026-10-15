@@ -5,17 +5,19 @@ import { Calculator, PiggyBank, ArrowLeftRight } from "lucide-react"
 import RepaymentTab from "./RepaymentTab"
 import AffordabilityTab from "./AffordabilityTab"
 import ComparisonTab from "./ComparisonTab"
+import { useT } from "@/lib/i18n/client"
 
 const TABS = [
-  { key: "repayment", label: "Product calculator", icon: Calculator },
-  { key: "affordability", label: "Affordability", icon: PiggyBank },
-  { key: "comparison", label: "Compare scenarios", icon: ArrowLeftRight },
+  { key: "repayment", label: "tabProduct", icon: Calculator },
+  { key: "affordability", label: "tabAffordability", icon: PiggyBank },
+  { key: "comparison", label: "tabCompare", icon: ArrowLeftRight },
 ] as const
 
 type TabKey = (typeof TABS)[number]["key"]
 
 export default function CalculatorTabs() {
   const [active, setActive] = useState<TabKey>("repayment")
+  const t = useT("websiteCalculators")
 
   return (
     <div className="premium-calculator">
@@ -34,7 +36,7 @@ export default function CalculatorTabs() {
               }`}
             >
               <Icon size={16} />
-              {tab.label}
+              {t(tab.label)}
             </button>
           )
         })}

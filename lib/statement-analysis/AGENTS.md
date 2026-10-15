@@ -4,6 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: statement-analysis
+<!-- summary: statement reading; the balance check is the oracle -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
@@ -16,8 +17,8 @@ for `lib/credit-checks/`; categories and insights on read. Pipeline: `analyse.ts
   reader change is only right if bank-produced corpus files still PASS.
 - **Text readers** (`TEXT_READERS`): Capitec, FNB, Nedbank, ABSA (two layouts),
   Standard Bank, Discovery. Standard Bank and Discovery are **limited evidence**
-  (6–9 corpus files) until 20+ have been seen. Every bank marked in the text is
-  tried in turn (`detectBanks`): a payee can name another bank. Other banks,
+  (6–9 corpus files) until 20+ have been seen. Banks the header (above the first row)
+  names are tried first, then any other the text names (`detectBanks`). Other banks,
   scans and photos go to the vision reader (`vlm-reader.ts`).
 - **What arithmetic cannot check goes to a person** (MANUAL_REVIEW): a derived opening
   (ABSA Transaction History, Discovery: FIRST_ROW_UNVERIFIED) or closing (Discovery:

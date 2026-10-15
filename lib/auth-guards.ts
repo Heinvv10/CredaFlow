@@ -3,9 +3,13 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
 import { Prisma, type UserRole } from "@prisma/client"
+import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/permissions"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
+import { isOperatorRole } from "@/lib/operator/roles"
+import { resolveOperatorTenantAccess } from "@/lib/operator/tenant-access"
+import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
 
 export type { AppRole }
 
@@ -111,6 +115,9 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
   if (!session?.user) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) }
   }
+  if (isOperatorRole(session.user.role)) {
+    return operatorApiGuard(session.user, minRole)
+  }
   if (!session.user.tenantId) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
@@ -121,6 +128,37 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { user: session.user as StaffUser }
+}
+
+/**
+ * An operator user (no tenant of their own) on a lender's API route: allowed
+ * only through that lender's active support grant, as READONLY, audited
+ * (lib/operator/tenant-access.ts). The lender is the request's tenant.
+ */
+async function operatorApiGuard(
+  user: { id: string; email: string; totpVerified?: boolean },
+  minRole: UserRole,
+): Promise<ApiGuardResult> {
+  const forbidden = { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
+  const { getResolvedTenantId } = await import("@/lib/tenant")
+  let tenantId: string
+  try {
+    tenantId = await getResolvedTenantId()
+  } catch (err) {
+    // No resolvable lender for this request: nothing to grant access to.
+    console.error("[auth-guards] operator request resolved no tenant — refusing:", err)
+    return forbidden
+  }
+  // The method and request id as proxy.ts stamped them (a route handler
+  // cannot see its own method from here); no stamp counts as a write.
+  const { headers } = await import("next/headers")
+  const h = await headers()
+  const access = await resolveOperatorTenantAccess({
+    session: user, tenantId, requiredRole: minRole, resource: `api:${minRole}`,
+    method: h.get(REQUEST_METHOD_HEADER), requestId: h.get(REQUEST_ID_HEADER),
+  })
+  if (!access.allowed) return forbidden
+  return { user: access.principal }
 }
 
 // Role hierarchy — higher index = more permissions. CLIENT is not listed; it
@@ -324,31 +362,10 @@ export function staffUserWriteConflict(err: unknown): NextResponse | null {
   return conflict ? NextResponse.json({ error: "This user is being changed elsewhere. Try again." }, { status: 409 }) : null
 }
 
-// Permissions map: action → minimum required role
-export const PERMISSIONS = {
-  disburse_loan: "LOAN_ADMIN" as UserRole,
-  approve_loan: "LOAN_ADMIN" as UserRole,
-  decline_loan: "LOAN_ADMIN" as UserRole,
-  delete_client: "ADMIN" as UserRole,
-  manage_users: "BRANCH_MANAGER" as UserRole,
-  view_reports: "READONLY" as UserRole,
-  manage_settings: "ADMIN" as UserRole,
-  view_audit_log: "LOAN_ADMIN" as UserRole,
-  manage_branches: "ADMIN" as UserRole,
-  // Mirrors lib/permissions.ts (the client-safe copy already had this key —
-  // this file was missing it, so canDo(role, "record_payment") server-side
-  // was previously unusable despite the docstring in permissions.ts claiming
-  // to mirror this map).
-  record_payment: "CREDIT_OFFICER" as UserRole,
-  // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/permissions.ts.
-  // manage: capture entities, deals, assets, suppliers and documents.
-  // decide: credit decisions, NCA regime overrides, supplier bank approvals, payouts.
-  manage_asset_finance: "CREDIT_OFFICER" as UserRole,
-  decide_asset_finance: "LOAN_ADMIN" as UserRole,
-  // FIC Act tooling (lib/fic). Keep identical to lib/permissions.ts.
-  manage_fic_compliance: "ADMIN" as UserRole,
-  raise_suspicious_report: "COLLECTIONS_OFFICER" as UserRole,
-} as const
+// Permissions map: action → minimum required role. One file per domain under
+// lib/registry/permissions/ (merged by scripts/gen-registries.ts;
+// docs/ARCHITECTURE.md, "Registries").
+export const PERMISSIONS: { readonly [K in keyof typeof REGISTRY_PERMISSIONS]: UserRole } = REGISTRY_PERMISSIONS
 
 export type PermissionKey = keyof typeof PERMISSIONS
 

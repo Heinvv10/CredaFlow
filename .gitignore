@@ -84,3 +84,7 @@ lib/ocr/accuracy/*.png
 /scripts/demo/.sim-*
 /scripts/demo/.out/
 /scripts/demo/.private/
+
+# Conflict-free registries (scripts/gen-registries.ts): generated, never committed
+/lib/registry/generated/
+/docs/module-rules.md

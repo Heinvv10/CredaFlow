@@ -116,6 +116,9 @@ export default async function DisbursementsPage() {
             Manage loan disbursements and track funding
           </p>
         </div>
+        <Link href="/disbursements/payouts" className="text-sm font-medium text-[var(--cf-brand)] hover:underline">
+          Outstanding payouts
+        </Link>
       </div>
 
       {/* KPI Cards */}

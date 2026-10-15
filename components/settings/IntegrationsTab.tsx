@@ -415,6 +415,7 @@ function CollectionsCard(props: {
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
               <SelectItem value="netcash">Netcash</SelectItem>
+              <SelectItem value="simulated">Simulated (no money moves)</SelectItem>
             </SelectContent>
           </Select>
         </div>

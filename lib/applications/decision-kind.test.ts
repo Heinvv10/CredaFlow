@@ -1,22 +1,24 @@
 import { describe, expect, it } from "vitest"
-import { canCancelApplication, isDeclinedTerminal, showDebtEvidenceBlocker, portalDecisionLabel } from "./decision-kind"
+import { canCancelApplication, decisionKind, isDeclinedTerminal, showDebtEvidenceBlocker } from "./decision-kind"
 
 const approvedAt = new Date("2026-10-12T10:00:00Z")
 
-describe("portalDecisionLabel", () => {
-  it("says approved only for an approved or disbursed application", () => {
-    expect(portalDecisionLabel({ status: "APPROVED", approvedAt, declineCategory: null })).toBe("Application approved")
-    expect(portalDecisionLabel({ status: "DISBURSED", approvedAt, declineCategory: null })).toBe("Application approved")
+// The portal timeline labels these outcomes (portalApplications.tlApproved /
+// tlDeclined); the decision itself is decisionKind's.
+describe("decisionKind", () => {
+  it("is approved only for an approved or disbursed application", () => {
+    expect(decisionKind({ status: "APPROVED", approvedAt, declineCategory: null })).toBe("approved")
+    expect(decisionKind({ status: "DISBURSED", approvedAt, declineCategory: null })).toBe("approved")
   })
 
-  it("says declined for a decline, including one later cancelled", () => {
-    expect(portalDecisionLabel({ status: "DECLINED", approvedAt, declineCategory: "IDENTITY" })).toBe("Application declined")
-    expect(portalDecisionLabel({ status: "CANCELLED", approvedAt, declineCategory: "IDENTITY" })).toBe("Application declined")
+  it("is declined for a decline, including one later cancelled", () => {
+    expect(decisionKind({ status: "DECLINED", approvedAt, declineCategory: "IDENTITY" })).toBe("declined")
+    expect(decisionKind({ status: "CANCELLED", approvedAt, declineCategory: "IDENTITY" })).toBe("declined")
   })
 
-  it("says neither for a cancelled application that was never declined, or with no decision time", () => {
-    expect(portalDecisionLabel({ status: "CANCELLED", approvedAt, declineCategory: null })).toBeNull()
-    expect(portalDecisionLabel({ status: "APPROVED", approvedAt: null, declineCategory: null })).toBeNull()
+  it("is neither for a cancelled application that was never declined, or with no decision time", () => {
+    expect(decisionKind({ status: "CANCELLED", approvedAt, declineCategory: null })).toBeNull()
+    expect(decisionKind({ status: "APPROVED", approvedAt: null, declineCategory: null })).toBeNull()
   })
 })
 

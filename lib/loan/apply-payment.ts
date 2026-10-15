@@ -20,6 +20,7 @@ import {
   valueDateEvidence,
   VALUE_DATE_MESSAGES,
   type ValueDateOverride,
+  type ValueDateSource,
 } from "@/lib/loan/value-date"
 import {
   backdatingInterestRebate,
@@ -68,6 +69,14 @@ export interface ManualReceiptInput {
    * the audit alongside the interest it rebated.
    */
   valueDateOverride?: ValueDateOverride | null
+  /**
+   * AuditLog.userId is a User foreign key. A machine writer (the collections
+   * engine) records its label in capturedById and passes null here. Defaults
+   * to capturedById, so staff captures are unchanged.
+   */
+  auditUserId?: string | null
+  /** Who dated the receipt. Defaults to STAFF_ASSERTED (manual capture). */
+  valueDateSource?: ValueDateSource
 }
 
 /**
@@ -92,6 +101,7 @@ export type PaymentDb = Pick<typeof prisma, "$transaction">
 export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInput) {
   return db.$transaction(async (tx) => {
     const paymentMethod = (input.paymentMethod || "EFT") as PaymentMethod
+    const auditUserId = input.auditUserId === undefined ? input.capturedById : input.auditUserId
     const reference = input.reference ?? null
     const notes = input.notes ?? null
 
@@ -271,7 +281,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
       // completed rows the loop skipped: re-date every row from the replay.
       if (!chargesOn) {
         await restampSchedulePaidAt(tx, chargesRef, {
-          source: "manual_capture", userId: input.capturedById, userEmail: input.capturedByEmail ?? null,
+          source: "manual_capture", userId: auditUserId, userEmail: input.capturedByEmail ?? null,
         })
       }
 
@@ -315,7 +325,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
     await tx.auditLog.create({
       data: {
         tenantId: input.tenantId,
-        userId: input.capturedById,
+        userId: auditUserId,
         userEmail: input.capturedByEmail ?? null,
         action: AuditAction.PAYMENT_RECORDED,
         entity: "Loan",
@@ -328,7 +338,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
           ...valueDateEvidence({
             receivedAt,
             asOf,
-            source: "STAFF_ASSERTED",
+            source: input.valueDateSource ?? "STAFF_ASSERTED",
             interestRebateCents: backdating.rebateCents + chargesBackdating.rebateCents,
             defaultChargesRebateCents: chargesBackdating.rebateCents,
             override: input.valueDateOverride ?? null,
@@ -348,7 +358,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
       await tx.auditLog.create({
         data: {
           tenantId: input.tenantId,
-          userId: input.capturedById,
+          userId: auditUserId,
           userEmail: input.capturedByEmail ?? null,
           action: AuditAction.LOAN_STATUS_CHANGED,
           entity: "Loan",
@@ -376,7 +386,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
     const synced = chargesOn && !fullyUnapplied
       ? await syncLoanCharges(tx, chargesRef, asOf, {
           source: "manual_capture",
-          userId: input.capturedById,
+          userId: auditUserId,
           userEmail: input.capturedByEmail ?? null,
         })
       : null

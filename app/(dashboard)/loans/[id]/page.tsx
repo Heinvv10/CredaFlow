@@ -26,7 +26,11 @@ import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
+import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
+import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
+import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
+import { loadPayoutView } from "@/lib/payouts/view"
 
 async function getLoan(id: string, tenantId: string) {
   return prisma.loan.findUnique({
@@ -71,6 +75,7 @@ export default async function LoanDetailPage(
         userId={session?.user?.id ?? ""}
         canManageLease={role ? canDo(role, "manage_asset_finance") : false}
         canDecideLease={role ? canDo(role, "decide_asset_finance") : false}
+        canRecordPayment={role ? canDo(role, "record_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
       />
@@ -100,9 +105,11 @@ export default async function LoanDetailPage(
   const canManageCharges = session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false
   const initials = getInitials(loan.client.firstName, loan.client.lastName)
   const avatarColor = getAvatarColor(loan.client.firstName + loan.client.lastName)
-  const nextPayment = loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
+  // A CANCELLED loan (reversed disbursement) has no next payment.
+  const nextPayment = loan.status === "CANCELLED" ? undefined : loan.repaymentSchedule.find(s => s.status === "PENDING" || s.status === "PARTIAL")
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
+  const payout = await loadPayoutView(tenantId, loan.id, loan.status)
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -188,6 +195,8 @@ export default async function LoanDetailPage(
               </div>
             </div>
           </DataPanel>
+
+          {payout && <PayoutStatusPanel view={payout} canAct={canManageCharges} />}
 
           <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={loan.status === "ACTIVE"} />
         </div>
@@ -302,6 +311,8 @@ export default async function LoanDetailPage(
             </DataPanel>
           )}
 
+          <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
+
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (
               <p className="text-sm text-[var(--cf-text-muted)]">No payments recorded</p>
@@ -336,6 +347,18 @@ export default async function LoanDetailPage(
           </DataPanel>
         </div>
       </div>
+
+      {/* A sole proprietor's instalment sale is a client's loan but still an asset: court action and recovery apply. */}
+      {hasRecoveryPanels(loan) && (
+        <AssetLoanRecoveryPanels
+          tenantId={tenantId}
+          loanId={loan.id}
+          userId={session?.user?.id ?? ""}
+          canManage={session?.user?.role ? canDo(session.user.role, "manage_asset_finance") : false}
+          canDecide={session?.user?.role ? canDo(session.user.role, "decide_asset_finance") : false}
+          canRecordPayment={session?.user?.role ? canDo(session.user.role, "record_payment") : false}
+        />
+      )}
 
       <DataPanel title="Contact history & notes" variant="default" density="loose">
         <LoanNotes loanId={loan.id} />

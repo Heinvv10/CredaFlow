@@ -43,12 +43,18 @@ describe("portal entity access", () => {
 // two wet-ink suretyship scans).
 describe("portal entity documents (POPIA: another surety's signed suretyship)", () => {
   it("withholds every SIGNED_SURETYSHIP but the one bound to this client's own suretyship signer row", () => {
-    expect(portalVisibleEntityDocumentWhere("c1")).toEqual({
+    expect(portalVisibleEntityDocumentWhere("c1").AND).toContainEqual({
       OR: [
         { docType: { not: "SIGNED_SURETYSHIP" } },
         { signerScans: { some: { clientId: "c1", document: "SURETYSHIP" } } },
       ],
     })
+  })
+
+  it("withholds the lender's legal-matter evidence and any refund's bank-verification document", () => {
+    const and = portalVisibleEntityDocumentWhere("c1").AND
+    expect(and).toContainEqual({ docType: { not: "LEGAL_DOCUMENT" } })
+    expect(and).toContainEqual({ recoveryRefunds: { none: {} } })
   })
 
   it("lists only the live documents of this tenant and entity that the client may see", async () => {

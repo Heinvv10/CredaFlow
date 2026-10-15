@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { redactTenantCredentials } from "@/lib/integrations/tenant-credentials"
 import { DEFAULT_TENANT_COLOURS, tenantColourErrors } from "@/lib/theme/tenant-colours"
-import { redactTenantBureauCredentials } from "@/lib/bureau/credentials"
+import { normaliseTenantDomain, tenantDomainRefusal, tenantSlugRefusal } from "@/lib/config/tenant-domain"
 import type { Session } from "next-auth"
 
 function isAuthorized(req: NextRequest, session: Session | null): boolean {
@@ -25,8 +26,9 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "asc" },
   })
 
-  // A whole TenantConfig row leaves only with its sealed bureau credentials redacted.
-  return NextResponse.json(tenants.map(redactTenantBureauCredentials))
+  // A whole TenantConfig row leaves only with every credential masked and the
+  // sealed bureau credentials redacted, sealed or not.
+  return NextResponse.json(tenants.map(redactTenantCredentials))
 }
 
 export async function POST(req: NextRequest) {
@@ -64,6 +66,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Tenant colours fail validation", fields: colourErrors }, { status: 422 })
   }
 
+  // Normalised, and never a host the deployment or another lender serves
+  // (lib/config/tenant-domain.ts).
+  const domain = normaliseTenantDomain(body.domain)
+  if (!domain.ok) return NextResponse.json({ error: domain.error }, { status: 422 })
+  const domainRefusal = domain.domain ? await tenantDomainRefusal(domain.domain, null) : null
+  if (domainRefusal) return NextResponse.json({ error: domainRefusal }, { status: 422 })
+  const slugRefusal = await tenantSlugRefusal(body.slug)
+  if (slugRefusal) return NextResponse.json({ error: slugRefusal }, { status: 422 })
+
   const existing = await prisma.tenant.findUnique({ where: { slug: body.slug } })
   if (existing) {
     return NextResponse.json({ error: "Tenant slug already exists" }, { status: 409 })
@@ -75,7 +86,7 @@ export async function POST(req: NextRequest) {
       data: {
         slug: body.slug,
         name: body.name,
-        domain: body.domain ?? null,
+        domain: domain.domain,
         status: "PROVISIONING",
         config: { create: colours },
       },
@@ -93,5 +104,5 @@ export async function POST(req: NextRequest) {
     return created
   })
 
-  return NextResponse.json(redactTenantBureauCredentials(tenant), { status: 201 })
+  return NextResponse.json(redactTenantCredentials(tenant), { status: 201 })
 }

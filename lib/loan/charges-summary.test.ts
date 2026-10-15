@@ -8,7 +8,7 @@ vi.mock("./charges-replay", async (importOriginal) => ({
 }))
 
 import {
-  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
+  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
 } from "./charges-summary"
 import { currentSettlementAmount } from "./settlement"
 
@@ -89,6 +89,23 @@ describe("loanSettlementFigures", () => {
     expect(db.payment.aggregate).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ paymentMethod: { not: "WAIVER" }, reversed: false, allocationStatus: "ALLOCATED" }),
     }))
+  })
+
+  it("states nothing owed for a loan CANCELLED by a disbursement reversal, charges live or not", async () => {
+    loadChargesReplay.mockResolvedValue({
+      result: result({ postings: [{ type: "DEFAULT_INTEREST", day: "2026-09-25", amount: 8_000 }], interestAccrued: 8_000, interestOutstanding: 8_000 }),
+      goLive: new Date("2026-01-01"), accrueFrom: new Date("2026-01-01"),
+      loan: { defaultChargesExempt: false, defaultChargesExemptReason: null },
+    })
+    const cancelled = { ...loan, status: "CANCELLED", totalPaid: 0, outstandingPrincipal: 0, arrearsAmount: 0 }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const figures = await loanSettlementFigures(db as any, cancelled, new Date("2026-09-26"))
+    expect(figures).toMatchObject({
+      live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
+      interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0,
+    })
+    expect(documentLoanFigures(cancelled)).toEqual({ totalRepayable: 0, outstandingPrincipal: 0, daysInArrears: 0 })
+    expect(documentLoanFigures({ ...loan, status: "ACTIVE", daysInArrears: 3 })).toEqual({ totalRepayable: 216_900, outstandingPrincipal: 174_900, daysInArrears: 3 })
   })
 
   it("is the plain contractual settlement while charges are off", async () => {

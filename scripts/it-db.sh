@@ -75,7 +75,7 @@ check() {
 }
 
 port_in_use() {
-  ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
+  ss -ltnH 2>/dev/null | awk '{print $4}' | grep -E "[:.]$1\$" >/dev/null
 }
 
 up() {

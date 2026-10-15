@@ -7,7 +7,7 @@ import { callerIp } from "@/lib/rate-limit"
 import { parseCreditPolicyInput } from "@/lib/decision/credit-policy-input"
 import { lockAffordabilityTenantPolicy } from "@/lib/affordability/evidence-locks"
 
-// Schema defaults (prisma/schema.prisma model TenantConfig). Used to hydrate the
+// Schema defaults (prisma/schema/tenancy.prisma model TenantConfig). Used to hydrate the
 // form and to record the "old" audit value when no config row exists yet.
 const DEFAULTS = { bureauMinScore: 450, bureauBlockAdverse: false, ndiBufferPct: 110 } as const
 

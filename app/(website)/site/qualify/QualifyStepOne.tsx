@@ -1,5 +1,7 @@
 "use client"
 
+import { useT } from "@/lib/i18n/client"
+
 interface StepOneData {
   employmentStatus: string
   monthlyIncome: string
@@ -13,13 +15,14 @@ interface StepOneProps {
 }
 
 const EMPLOYMENT_OPTIONS = [
-  { value: "employed", label: "Employed" },
-  { value: "self-employed", label: "Self-employed" },
-  { value: "pensioner", label: "Pensioner" },
-  { value: "unemployed", label: "Unemployed" },
-]
+  { value: "employed", label: "employed" },
+  { value: "self-employed", label: "selfEmployed" },
+  { value: "pensioner", label: "pensioner" },
+  { value: "unemployed", label: "unemployed" },
+] as const
 
 export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps) {
+  const t = useT("websiteQualify")
   const canProceed =
     data.employmentStatus !== "" &&
     Number(data.monthlyIncome) > 0 &&
@@ -29,7 +32,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
     <div className="space-y-4">
       <div>
         <label className="mb-2 block text-sm font-semibold text-white/78">
-          Employment Status
+          {t("employmentStatus")}
         </label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {EMPLOYMENT_OPTIONS.map((opt) => (
@@ -43,7 +46,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
                   : "border-white/12 bg-white/[0.04] text-white/62 hover:border-white/22 hover:text-white"
               }`}
             >
-              {opt.label}
+              {t(opt.label)}
             </button>
           ))}
         </div>
@@ -51,7 +54,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-white/78">
-          Monthly Gross Income (Rands)
+          {t("incomeLabel")}
         </label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
@@ -68,7 +71,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-white/78">
-          Monthly Expenses (Rands)
+          {t("expensesLabel")}
         </label>
         <div className="relative">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/38">R</span>
@@ -88,7 +91,7 @@ export default function QualifyStepOne({ data, onChange, onNext }: StepOneProps)
         disabled={!canProceed}
         className="w-full bg-[#a5b4fc] py-2.5 text-sm font-bold text-[#11141b] transition-colors hover:bg-[#c7d2fe] disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/30"
       >
-        Continue
+        {t("continue")}
       </button>
     </div>
   )

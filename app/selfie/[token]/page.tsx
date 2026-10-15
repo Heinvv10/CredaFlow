@@ -3,6 +3,8 @@ import {
   SELFIE_LINK_REJECTION_MESSAGE,
 } from "@/lib/kyc/selfie-link-token.server"
 import { SelfieLinkCapture } from "./SelfieLinkCapture"
+import { isPortalEnabled } from "@/lib/portal/portal-policy"
+import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
 
 export const dynamic = "force-dynamic"
 
@@ -30,6 +32,9 @@ export default async function SelfieLinkPage({
       </div>
     )
   }
+
+  // The lender switched its portal off: its borrower-facing links close too.
+  if (!(await isPortalEnabled(resolved.link.tenantId))) return <PortalUnavailable />
 
   return <SelfieLinkCapture token={token} firstName={resolved.link.clientFirstName} />
 }

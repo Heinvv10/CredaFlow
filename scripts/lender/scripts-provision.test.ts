@@ -133,6 +133,9 @@ describe("provision-lender.sh", () => {
     expect(envText).toContain("PORTAL_NEXTAUTH_URL=https://portal.example")
     expect(envText).toContain("NEXT_PUBLIC_PORTAL_LOGIN_URL=https://portal.example/portal/login")
     expect(envText).toContain("TRUSTED_PROXY=1")
+    // A dedicated stack names the one tenant its environment credentials belong to.
+    expect(envText).toMatch(/^ENV_CREDENTIALS_TENANT_SLUG=\S+$/m)
+    expect(envText.match(/^ENV_CREDENTIALS_TENANT_SLUG=(.*)$/m)?.[1]).toBe(envText.match(/^NEXT_PUBLIC_TENANT_SLUG=(.*)$/m)?.[1])
     expect(r.out).not.toContain(staff)
 
     expect(provision(dir).status).toBe(0)

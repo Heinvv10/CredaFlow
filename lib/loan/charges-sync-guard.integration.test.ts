@@ -13,6 +13,7 @@ import { PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { storeStitchWebhookSecret } from "@/lib/integrations/stitch-webhook.integration-fixture"
 import { createChargesLoan, createChargesTenant, DEFAULT_INTEREST, NOW, SCHEDULE_TOTAL } from "./charges.integration-fixture"
 
 const { ctx } = vi.hoisted(() => ({ ctx: { tenantId: "", userId: "" } }))
@@ -176,7 +177,7 @@ suite.sequential("sync guard: no caller moves booked money or re-opens a settled
     const ids = await createLoan()
     await capture(ids, 20_000)
     const before = await overstate(ids)
-    process.env.STITCH_WEBHOOK_SECRET = "guard-secret"
+    await storeStitchWebhookSecret(db, ids.tenantId, "guard-secret")
     const stitchId = `stitch_guard_${ids.loanId}`
     await db.stitchPaymentRequest.create({
       data: { stitchId, loanId: ids.loanId, clientId: ids.clientId, amount: 10_000, redirectUrl: "https://x.invalid", stitchUrl: "https://x.invalid", externalReference: stitchId },

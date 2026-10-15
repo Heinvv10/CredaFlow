@@ -15,12 +15,19 @@ vi.mock("@/lib/auth", () => ({ auth: authMock }))
 vi.mock("@/lib/prisma", () => ({ prisma: { tenant: { findUnique, update }, $transaction: transaction } }))
 vi.mock("@/lib/audit", () => ({
   logAuditStrict,
-  AuditAction: { BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED" },
+  AuditAction: {
+    BUREAU_CONFIG_UPDATED: "BUREAU_CONFIG_UPDATED", TENANT_COLOURS_UPDATED: "TENANT_COLOURS_UPDATED",
+    PROVIDER_CREDENTIALS_UPDATED: "PROVIDER_CREDENTIALS_UPDATED",
+    TENANT_LANGUAGES_UPDATED: "TENANT_LANGUAGES_UPDATED",
+  },
 }))
 vi.mock("next/cache", () => ({ revalidateTag }))
 vi.mock("@/lib/bureau-submission/generate", () => ({ SUPPLIER_NUMBER: /^[A-Z0-9]{1,10}$/ }))
 
+import { randomBytes } from "node:crypto"
 import { PATCH } from "./route"
+import { catalogueHash } from "@/lib/i18n/catalogue-hash"
+import { openCredential } from "@/lib/integrations/tenant-credentials"
 
 // Covers only the bureau-submission fields this route gained. They decide
 // whether real people's loans are reported to a credit bureau, so they are
@@ -124,10 +131,111 @@ describe("PATCH /api/admin/tenants/[tenantId] — bureau submission fields", () 
     expect(transaction).not.toHaveBeenCalled()
   })
 
+  it("seals provider credentials, audits only their names, and never returns them", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      update.mockResolvedValue({ id: "t1", config: { netcashKey: "enc:v1:stored", bulkSmsKey: null, bureauCredentials: "enc:v1:bag:x:y", primaryColor: "#123456" } })
+      const response = await patch({ netcashKey: "synthetic-service-key", transunionKey: null })
+      expect(response.status).toBe(200)
+      expect(openCredential(configWritten().netcashKey)).toBe("synthetic-service-key")
+      expect(configWritten().transunionKey).toBeNull()
+      expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+        action: "PROVIDER_CREDENTIALS_UPDATED", newValue: { updatedKeys: ["netcashKey", "transunionKey"], cleared: ["transunionKey"] },
+      }), expect.objectContaining({ isTx: true }))
+      expect(JSON.stringify(logAuditStrict.mock.calls)).not.toContain("synthetic-service-key")
+      expect((await response.json()).config).toEqual({ netcashKey: "********", bulkSmsKey: "", bureauCredentialsConfigured: true, primaryColor: "#123456" })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("refuses a client-supplied sealed credential (400) and writes nothing", async () => {
+    vi.stubEnv("WABA_ENC_KEY", randomBytes(32).toString("base64"))
+    try {
+      const response = await patch({ bulkSmsKey: "enc:v1:forged:sealed:value" })
+      expect(response.status).toBe(400)
+      expect(update).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("is refused without the super-admin session and the admin secret", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", role: "ADMIN" } })
     expect((await patch({ featureBureauSubmission: true })).status).toBe(403)
     expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/admin/tenants/[tenantId] — borrower languages", () => {
+  const upsert = vi.fn()
+  const executeRaw = vi.fn()
+  const STORED_AF = { reviewer: "A. Reviewer", acknowledgedAt: "2026-10-01T08:00:00.000Z", acknowledgedById: "u0", acknowledgedByEmail: "old@test.invalid", catalogueHash: catalogueHash("af") }
+
+  beforeEach(() => {
+    process.env.ADMIN_SECRET = "s3cret"
+    authMock.mockReset().mockResolvedValue({ user: { id: "u1", email: "root@test.invalid", role: "SUPER_ADMIN" } })
+    findUnique.mockReset().mockResolvedValue({ id: "t1" })
+    update.mockReset().mockResolvedValue({ id: "t1", config: {} })
+    upsert.mockReset().mockResolvedValue({})
+    executeRaw.mockReset().mockResolvedValue(0)
+    configBefore.mockReset().mockResolvedValue({ enabledLanguages: ["en", "af"], languageReviews: { af: STORED_AF } })
+    transaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn({
+      tenant: { update }, tenantConfig: { findUnique: configBefore, upsert }, $queryRaw: queryRaw, $executeRaw: executeRaw, isTx: true,
+    }))
+    logAuditStrict.mockReset().mockResolvedValue(undefined)
+    revalidateTag.mockReset()
+  })
+
+  it("enables a language with a named, confirmed review acknowledgement, records who and when, audits it", async () => {
+    const response = await patch({
+      enabledLanguages: ["zu", "en", "af", "zu"],
+      languageReviewAcknowledgements: { zu: { reviewer: "T. Mkhize", confirmed: true } },
+    })
+    expect(response.status).toBe(200)
+    const written = upsert.mock.calls[0][0].update
+    expect(written.enabledLanguages).toEqual(["en", "af", "zu"])
+    expect(written.languageReviews.af).toEqual(STORED_AF)
+    expect(written.languageReviews.zu).toMatchObject({ reviewer: "T. Mkhize", acknowledgedById: "u1", acknowledgedByEmail: "root@test.invalid", catalogueHash: catalogueHash("zu") })
+    expect(typeof written.languageReviews.zu.acknowledgedAt).toBe("string")
+    expect(logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "TENANT_LANGUAGES_UPDATED", entity: "TenantConfig",
+      oldValue: { enabledLanguages: ["en", "af"] },
+      newValue: { enabledLanguages: ["en", "af", "zu"], reviewAcknowledgements: { zu: "T. Mkhize" } },
+    }), expect.objectContaining({ isTx: true }))
+    expect(revalidateTag).toHaveBeenCalledWith("tenant-config-t1", { expire: 0 })
+  })
+
+  it("refuses to enable a language nobody acknowledged as reviewed, and writes nothing", async () => {
+    const response = await patch({ enabledLanguages: ["en", "af", "xh"] })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Acknowledge a native-speaker review before enabling: xh" })
+    expect(upsert).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("refuses to keep a language whose text changed since its review, until re-acknowledged", async () => {
+    configBefore.mockResolvedValue({ enabledLanguages: ["en", "af"], languageReviews: { af: { ...STORED_AF, catalogueHash: "reviewed-an-older-text" } } })
+    const refused = await patch({ enabledLanguages: ["en", "af"] })
+    expect(refused.status).toBe(400)
+    expect((await refused.json()).error).toBe("The text changed since its review; acknowledge a new native-speaker review for: af")
+    expect(upsert).not.toHaveBeenCalled()
+
+    const ok = await patch({ enabledLanguages: ["en", "af"], languageReviewAcknowledgements: { af: { reviewer: "B. Reviewer", confirmed: true } } })
+    expect(ok.status).toBe(200)
+    expect(upsert.mock.calls[0][0].update.languageReviews.af).toMatchObject({ reviewer: "B. Reviewer", catalogueHash: catalogueHash("af") })
+  })
+
+  it.each([
+    [{ enabledLanguages: ["af", "zu"] }],
+    [{ enabledLanguages: ["en", "fr"] }],
+    [{ enabledLanguages: "en,af" }],
+    [{ enabledLanguages: ["en", "zu"], languageReviewAcknowledgements: { zu: { reviewer: "X", confirmed: false } } }],
+  ])("refuses %j and writes nothing", async (body) => {
+    expect((await patch(body)).status).toBe(400)
+    expect(upsert).not.toHaveBeenCalled()
+    expect(logAuditStrict).not.toHaveBeenCalled()
   })
 })
 

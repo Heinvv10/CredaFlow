@@ -54,6 +54,12 @@ describe('upgrade-stack.sh install and build', () => {
     expectStackUntouched()
   })
 
+  it('reads docker output whole: more after the match is no SIGPIPE refusal (DEMO_MODE guard, db port)', () => {
+    const r = run([commits.c2!], { STUB_OUTPUT_TAIL: '1' })
+    expect(r.out).not.toMatch(/refusing/)
+    expect(r.calls.find((c) => c.startsWith('docker build'))).toContain('--label credaflow.tenant_slug=acme')
+  })
+
   it('builds with the slug label', () => {
     const r = run([commits.c2!])
     expect(r.calls.find((c) => c.startsWith('docker build'))).toContain('--label credaflow.tenant_slug=acme')
