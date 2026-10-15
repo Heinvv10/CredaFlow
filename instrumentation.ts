@@ -188,6 +188,13 @@ export async function register() {
       timezone: SAST,
     })
 
+    // Asset-finance recoveries whose post-sale charge freeze ended: move the
+    // shortfall loan on to collections and ring the bell
+    // (lib/asset-finance/recovery-freeze-deadline.ts). Never writes off. Idempotent.
+    cron.schedule("20 2 * * *", () => callCron("/api/cron/asset-finance-recovery-deadlines"), {
+      timezone: SAST,
+    })
+
     // PEP / sanctions re-screen of active clients whose latest run is older
     // than SCREENING_MAX_AGE_DAYS (lib/screening/refresh.ts). Idle for tenants
     // without TenantConfig.screeningProvider. Nightly, outside business hours,
@@ -228,6 +235,6 @@ export async function register() {
       timezone: SAST,
     })
 
-    console.log("[cron] scheduler registered — 20 jobs active")
+    console.log("[cron] scheduler registered — 21 jobs active")
   }
 }
