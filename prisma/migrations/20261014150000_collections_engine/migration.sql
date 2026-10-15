@@ -177,7 +177,7 @@ CREATE UNIQUE INDEX "CollectionResult_tenantId_id_key" ON "CollectionResult"("te
 CREATE UNIQUE INDEX "CollectionResult_tenantId_provider_resultKey_key" ON "CollectionResult"("tenantId", "provider", "resultKey");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "RepaymentSchedule_tenantId_id_key" ON "RepaymentSchedule"("tenantId", "id");
+CREATE UNIQUE INDEX IF NOT EXISTS "RepaymentSchedule_tenantId_id_key" ON "RepaymentSchedule"("tenantId", "id");
 
 -- AddForeignKey
 ALTER TABLE "DebitMandate" ADD CONSTRAINT "DebitMandate_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
