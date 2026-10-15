@@ -125,6 +125,12 @@ export const TENANT_SCOPED_MODELS = [
   // Signing OTP challenges (lib/signing-otp). Non-null tenantId, passed
   // explicitly on every query (sign routes run inside withTenantContext too).
   "SigningOtpChallenge",
+  // Collections engine (lib/collections-engine). Non-null tenantId, passed
+  // explicitly on every query: the crons run outside a request frame.
+  "DebitMandate",
+  "CollectionBatch",
+  "CollectionInstruction",
+  "CollectionResult",
   // Operating and full-maintenance leases (slice 3). Non-null tenantId,
   // passed explicitly on every query (the invoice cron has no frame).
   "LeaseRental",

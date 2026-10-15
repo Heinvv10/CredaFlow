@@ -160,6 +160,7 @@ const avsEvidenceSelect = {
   applicationId: true,
   subjectFingerprint: true,
   passed: true,
+  provider: true,
 } as const
 
 type AvsEvidenceCheck = {
@@ -167,6 +168,7 @@ type AvsEvidenceCheck = {
   applicationId: string | null
   subjectFingerprint: string | null
   passed: boolean
+  provider: string
 }
 
 type AvsEvidenceReader = {
