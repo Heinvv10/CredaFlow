@@ -105,10 +105,10 @@ export function PayoutStatusPanel({ view, canAct }: { view: PayoutView; canAct: 
             <div className="space-y-2">
               <Textarea placeholder="What the bank statement shows (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "not_paid", note }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>Provider was wrong: not paid</Button>
+                <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: "not_paid", note, conflictState: conflicted.conflict?.state, conflictAt: conflicted.conflict?.at }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>Provider was wrong: not paid</Button>
                 {conflicted.conflict.state === "PAID" && (
                   // On a reversed loan the money is recovered, never "paid": the loan stays cancelled.
-                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: reversed ? "recovery" : "paid", note, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>
+                  <Button size="sm" disabled={busy || note.trim().length < 5} onClick={() => postAction(`/api/payouts/${conflicted.id}`, { action: "resolve_conflict", outcome: reversed ? "recovery" : "paid", note, conflictState: conflicted.conflict?.state, conflictAt: conflicted.conflict?.at, ...(paidOn ? { paidAt: paidOn } : {}) }).then((o) => { setMessage(o.message); if (o.ok) router.refresh() })}>
                     {reversed ? "It was paid: open a recovery case" : "It was paid"}
                   </Button>
                 )}

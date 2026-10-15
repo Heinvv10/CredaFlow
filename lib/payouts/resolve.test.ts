@@ -59,6 +59,16 @@ describe("resolvePayout — staff actions", () => {
     expect(rows[0].paidAt?.toISOString()).toBe(new Date("2026-10-12T12:00:00+02:00").toISOString())
   })
 
+  it("takes a conflict resolution only with the report it was decided on (state and time)", () => {
+    const base = { action: "resolve_conflict", outcome: "not_paid", note: "Bank statement shows nothing left" }
+    expect(parseResolveAction(base)).toBeNull()
+    expect(parseResolveAction({ ...base, conflictState: "PAID" })).toBeNull()
+    expect(parseResolveAction({ ...base, conflictState: "PAID", conflictAt: "not a date" })).toBeNull()
+    expect(parseResolveAction({ ...base, conflictState: "PAID", conflictAt: "2026-10-15T07:00:00.123Z" })).toMatchObject({
+      action: "resolve_conflict", outcome: "not_paid", seen: { state: "PAID", at: new Date("2026-10-15T07:00:00.123Z") },
+    })
+  })
+
   it("takes today's value date given before noon (SAST) as now, not as the future", () => {
     const morning = new Date("2026-10-15T07:13:00+02:00")
     expect(valueDate("2026-10-15", morning)?.toISOString()).toBe(morning.toISOString())

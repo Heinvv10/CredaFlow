@@ -7,7 +7,7 @@ import type { DisbursementPayout } from "@prisma/client"
 import { dispatchPayout, transitionPayout, type Actor, type DispatchOutcome, type PayoutDb } from "./dispatch"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ReportOutcome } from "./conflicts"
+import { CONFLICTABLE, recordProviderConflict, resolveProviderConflict, type ConflictOutcome, type ReportOutcome, type SeenConflict } from "./conflicts"
 import { findPayoutProvider } from "./registry"
 import { nextFromProvider, type PayoutStatus } from "./state"
 import type { PayoutNotification, ProviderPayoutState } from "./types"
@@ -20,7 +20,9 @@ export type ResolveAction =
   | { action: "check" }
   | { action: "confirm_paid"; note: string; providerReference?: string | null; paidAt?: Date | null }
   | { action: "confirm_failed"; note: string }
-  | { action: "resolve_conflict"; outcome: ConflictOutcome; note: string; paidAt?: Date | null }
+  // `seen`: the report the decision was made on. Required from staff (the
+  // API); without it the report as loaded here is pinned.
+  | { action: "resolve_conflict"; outcome: ConflictOutcome; note: string; paidAt?: Date | null; seen?: SeenConflict }
 
 export type ResolveResult =
   | { ok: true; status: PayoutStatus; changed: boolean; dispatch?: DispatchOutcome }
@@ -54,9 +56,13 @@ export function parseResolveAction(body: unknown): ResolveAction | null {
     case "confirm_failed":
       if (note.length < 5) return null
       return { action: "confirm_failed", note: note.slice(0, 1000) }
-    case "resolve_conflict":
+    case "resolve_conflict": {
       if (note.length < 5 || (b.outcome !== "paid" && b.outcome !== "not_paid" && b.outcome !== "recovery")) return null
-      return { action: "resolve_conflict", outcome: b.outcome, note: note.slice(0, 1000), paidAt: paidAt ?? null }
+      // The decision applies only to the report the person was looking at.
+      const seenAt = typeof b.conflictAt === "string" ? new Date(b.conflictAt) : null
+      if (typeof b.conflictState !== "string" || !seenAt || Number.isNaN(seenAt.getTime())) return null
+      return { action: "resolve_conflict", outcome: b.outcome, note: note.slice(0, 1000), paidAt: paidAt ?? null, seen: { state: b.conflictState, at: seenAt } }
+    }
     default:
       return null
   }
@@ -161,7 +167,7 @@ export async function resolvePayout(db: PayoutDb, args: {
   }
 
   if (req.action === "resolve_conflict") {
-    const out = await resolveProviderConflict(db, { tenantId: args.tenantId, payout, outcome: req.outcome, note: req.note, paidAt: req.paidAt ?? null, actor: args.actor })
+    const out = await resolveProviderConflict(db, { tenantId: args.tenantId, payout, outcome: req.outcome, note: req.note, paidAt: req.paidAt ?? null, seen: req.seen, actor: args.actor })
     return out.ok ? { ok: true, status: out.status, changed: true } : out
   }
 

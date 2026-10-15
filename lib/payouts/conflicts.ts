@@ -48,7 +48,6 @@ export async function recordProviderConflict(db: PayoutDb, args: {
   source: string
   actor: Actor
 }): Promise<ReportOutcome> {
-  const now = new Date()
   const detail = `${args.source} reported ${args.state} after the attempt was ${args.payout.status}${args.reason ? `: ${args.reason}` : ""}`.slice(0, 500)
   const audit = (tx: Parameters<Parameters<PayoutDb["$transaction"]>[0]>[0], outcome: ReportOutcome, extra: Record<string, unknown> = {}) => logAuditStrict({
     tenantId: args.tenantId, userId: args.actor.id ?? undefined, userEmail: args.actor.email,
@@ -71,7 +70,8 @@ export async function recordProviderConflict(db: PayoutDb, args: {
     let outcome: ReportOutcome = "dropped"
     let data: Record<string, unknown> | null = null
     if (row && CONFLICTABLE.includes(row.status as PayoutStatus)) {
-      const reported = { providerConflictState: args.state, providerConflictAt: now, providerConflictDetail: detail }
+      // Stamped under the loan lock: after any resolution that committed while this report waited.
+      const reported = { providerConflictState: args.state, providerConflictAt: new Date(), providerConflictDetail: detail }
       if (!row.providerConflictAt) [outcome, data] = ["recorded", reported]
       else if (!row.conflictResolvedAt) {
         if (strength(args.state) > strength(row.providerConflictState)) [outcome, data] = ["strengthened", reported]
@@ -92,6 +92,10 @@ export async function recordProviderConflict(db: PayoutDb, args: {
 }
 
 export type ConflictOutcome = "not_paid" | "paid" | "recovery"
+/** The provider report a staff decision was made on. */
+export interface SeenConflict { state: string; at: Date }
+
+const REPORTED_AGAIN = (now: string | null) => `The provider has reported again since this was loaded (now ${now ?? "nothing"}); review the latest report and decide again`
 
 const REVERSED_PAID = "This loan's disbursement was reversed, so the attempt is not resolved as paid and the loan is not reinstated: open a recovery case for the money instead"
 const NOT_REVERSED = "A recovery case is for money paid out on a reversed loan; this loan was not reversed"
@@ -102,10 +106,17 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
   outcome: ConflictOutcome
   note: string
   paidAt: Date | null
+  seen?: SeenConflict
   actor: Actor & { id: string }
 }): Promise<{ ok: true; status: PayoutStatus } | { ok: false; status: number; error: string }> {
   const p = args.payout
   if (!p.providerConflictAt || p.conflictResolvedAt) return { ok: false, status: 409, error: "This payout has no provider report awaiting resolution" }
+  // A decision stands only for the report it was made on (scan, round 3): a
+  // stronger or newer report since then is decided afresh.
+  const seen: SeenConflict = args.seen ?? { state: p.providerConflictState ?? "", at: p.providerConflictAt }
+  if (seen.state !== p.providerConflictState || seen.at.getTime() !== p.providerConflictAt.getTime()) {
+    return { ok: false, status: 409, error: REPORTED_AGAIN(p.providerConflictState) }
+  }
   if ([p.disbursedById, p.createdById, p.approvedById].includes(args.actor.id)) {
     await logAuditStrict({
       tenantId: args.tenantId, userId: args.actor.id, userEmail: args.actor.email,
@@ -138,13 +149,17 @@ export async function resolveProviderConflict(db: PayoutDb, args: {
     if (args.outcome === "paid" && locked?.status === "CANCELLED") return { ok: false as const, status: 409, error: REVERSED_PAID }
     if (args.outcome === "recovery" && locked?.status !== "CANCELLED") return { ok: false as const, status: 409, error: NOT_REVERSED }
     const moved = await tx.disbursementPayout.updateMany({
-      where: { id: p.id, tenantId: args.tenantId, status: p.status, conflictResolvedAt: null },
+      // Pinned to the report decided on, under the loan lock every report write also takes.
+      where: { id: p.id, tenantId: args.tenantId, status: p.status, conflictResolvedAt: null, providerConflictState: seen.state, providerConflictAt: seen.at },
       data: {
         conflictResolvedAt: now, conflictResolvedById: args.actor.id, conflictResolutionNote: args.note,
         ...(args.outcome === "paid" ? { status: "PAID", paidAt: args.paidAt ?? now, resolvedAt: now } : {}),
       },
     })
-    if (moved.count !== 1) return { ok: false as const, status: 409, error: "The payout changed; refresh and try again" }
+    if (moved.count !== 1) {
+      const now = await tx.disbursementPayout.findFirst({ where: { id: p.id, tenantId: args.tenantId }, select: { providerConflictState: true } })
+      return { ok: false as const, status: 409, error: REPORTED_AGAIN(now?.providerConflictState ?? null) }
+    }
     const recovery = args.outcome === "recovery"
       ? await openRecoveryCase(tx, { tenantId: args.tenantId, payout: p, paidAt: args.paidAt ?? p.providerConflictAt ?? now, note: args.note, actor: args.actor })
       : null

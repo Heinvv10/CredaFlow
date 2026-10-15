@@ -154,4 +154,38 @@ suite.sequential("provider reports on an attempt already over (real Postgres)", 
     const risks = (await loadDoublePayoutRisks(prisma, tenant.tenantId)).filter((r) => r.loanId === loan.loanId)
     expect(risks).toEqual([expect.objectContaining({ payoutId: loan.payoutId, attempt: 1, reported: "PAID", liveAttempt: 2, liveStatus: "PAID", reference: loan.reference })])
   })
+
+  // ── Stale decisions (scan: TOCTOU on resolution) ──
+
+  const resolveSeen = (payoutId: string, outcome: "paid" | "not_paid", seen: { providerConflictState: string | null; providerConflictAt: Date | null }) =>
+    resolvePayout(prisma, {
+      tenantId: tenant.tenantId, payoutId, actor: resolver(),
+      request: { action: "resolve_conflict", outcome, note: "Checked the bank statement", seen: { state: seen.providerConflictState!, at: seen.providerConflictAt! } },
+    })
+
+  it("refuses a not-paid decision made on an older report once a stronger one landed, and the PAID report stays blocking", async () => {
+    const loan = await failedLoan()
+    await report(loan.payoutId, "RETURNED")
+    const seenByStaff = await row(loan.payoutId)
+    await new Promise((r) => setTimeout(r, 5))
+    expect(await report(loan.payoutId, "PAID")).toMatchObject({ report: "strengthened" })
+    expect(await resolveSeen(loan.payoutId, "not_paid", seenByStaff)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("reported again") })
+    expect(await row(loan.payoutId)).toMatchObject({ providerConflictState: "PAID", conflictResolvedAt: null })
+    expect(await requestPayoutRetry(prisma, { tenantId: tenant.tenantId, loanId: loan.loanId, actor: requester() })).toMatchObject({ ok: false, status: 409 })
+    // Decided on what is there now, it goes through.
+    expect(await resolveSeen(loan.payoutId, "not_paid", await row(loan.payoutId))).toMatchObject({ ok: true })
+  })
+
+  it("never ends with a PAID report resolved by a decision made before it arrived, however the two race", async () => {
+    for (let i = 0; i < 6; i++) {
+      const loan = await failedLoan()
+      await report(loan.payoutId, "RETURNED")
+      const seenByStaff = await row(loan.payoutId)
+      await new Promise((r) => setTimeout(r, 5))
+      await Promise.allSettled([report(loan.payoutId, "PAID"), resolveSeen(loan.payoutId, "not_paid", seenByStaff)])
+      // Either the PAID report strengthened the open conflict (and the stale
+      // decision was refused) or it reopened the resolved one: both block.
+      expect(await row(loan.payoutId), `race ${i}`).toMatchObject({ providerConflictState: "PAID", conflictResolvedAt: null })
+    }
+  })
 })
