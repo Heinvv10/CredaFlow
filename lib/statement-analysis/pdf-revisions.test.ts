@@ -126,6 +126,12 @@ describe("an appended save that adds no object and no xref entry", () => {
     expect(count(wordSave(o.pdf, o.trailer, `/XRefStm ${o.xrefStreams[0]}`))).toBe(1)
   })
 
+  it.each(["00000000013 0 obj", "13 00000000000 obj", `${"0".repeat(50)}13 0 obj`, "+13 0 obj", "13 +0 obj"])("counts a compressed object the body also defines as %s", (header) => {
+    const o = original({ xrefStreams: 1, objStm: { 13: "<< /Lang (en) >>" }, streamOverrides: { 13: [2, "objStm", 0] }, padding: 80 })
+    const defined = o.pdf.replace(/%x{80}\n/, `%\n${`${header} <<>> endobj`.padEnd(79)}\n`)
+    expect(count(wordSave(defined, o.trailer, `/XRefStm ${o.xrefStreams[0]}`))).toBe(1)
+  })
+
   it("counts one whose /XRefStm stream frees, compresses or re-generations an object the table has in use", () => {
     const four = pdf.indexOf("\n4 0 obj") + 1
     const entries: Array<[string, [number, number, number]]> = [["free", [0, four, 0]], ["compressed", [2, four, 0]], ["generation", [1, four, 1]]]

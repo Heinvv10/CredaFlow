@@ -18,8 +18,23 @@ describe("objectHeaders", () => {
   })
 
   it("does not take a token that merely contains the parts for a header", () => {
-    expect(headers("/x5 0 obj 5 0 objx 5 x 0 obj 99999999999 0 obj")).toEqual({})
+    expect(headers("/x5 0 obj 5 0 objx 5 x 0 obj")).toEqual({})
     expect(headers("1 % 0 obj")).toEqual({})
+  })
+
+  it.each([
+    ["a zero-padded object number", "00000000003 0 obj"],
+    ["a zero-padded generation", "3 00000000000 obj"],
+    ["fifty leading zeros", `${"0".repeat(50)}3 0 obj`],
+    ["a plus sign on the object number", "+3 0 obj"],
+    ["a plus sign on the generation", "3 +0 obj"],
+  ])("reads %s as poppler does", (_label, text) => {
+    expect(headers(text)).toEqual({ 3: [0] })
+  })
+
+  it("does not round a number too long for any xref stream to name onto one it can", () => {
+    // Number("9007199254740993") is 9007199254740992; neither fits an xref stream's 6-byte field.
+    expect(headers("9007199254740993 0 obj -3 0 obj")).toEqual({})
   })
 
   it("takes the last two integers before obj", () => {
