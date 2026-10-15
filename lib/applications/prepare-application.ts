@@ -500,7 +500,7 @@ export async function prepareApplicationFields(
       purpose: data.purpose || null,
       // Wizard string → Prisma enum. The wizard dropdown values are
       // constrained to the same labels as the Prisma `LoanPurposeCategory`
-      // enum (see prisma/schema.prisma:409-419); the cast asserts that
+      // enum (see prisma/schema/applications.prisma); the cast asserts that
       // alignment rather than introducing a new freedom.
       loanPurposeCategory: (data.loanPurposeCategory || null) as LoanPurposeCategory | null,
       agreementType: classifyAgreementType(data.appliedAmount),

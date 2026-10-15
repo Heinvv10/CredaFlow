@@ -1,0 +1,276 @@
+enum LoanPurposeCategory {
+  DEBT_CONSOLIDATION
+  MEDICAL
+  EDUCATION
+  HOME_IMPROVEMENT
+  VEHICLE
+  BUSINESS
+  HOUSEHOLD
+  FUNERAL
+  OTHER
+}
+
+enum AgreementType {
+  SMALL
+  INTERMEDIATE
+  LARGE
+  DEVELOPMENTAL
+}
+
+model LoanApplication {
+  id                                      String               @id @default(cuid())
+  tenantId                                String
+  tenant                                  Tenant               @relation(fields: [tenantId], references: [id])
+  reference                               String               @unique
+  clientId                                String?
+  // Exactly one of clientId / entityId (CHECK LoanApplication_borrower_xor).
+  entityId                                String?
+  // Authorised director/member/trustee/signatory who performs the NCA document
+  // ceremony for an entity borrower. Null for natural-person applications.
+  ncaRepresentativeClientId               String?
+  // NCA classification snapshot (DESIGN D5), written by
+  // lib/asset-finance/classification.ts; an override goes through
+  // NcaRegimeOverride. Null until classified.
+  ncaRegime                               NcaRegime?
+  ncaClassificationRule                   String?
+  ncaClassificationInputs                 Json?
+  ncaClassificationEvidenceIds            String[]             @default([])
+  ncaClassifiedAt                         DateTime?
+  ncaClassifiedById                       String?
+  productId                               String
+  branchId                                String?
+  branch                                  Branch?              @relation(fields: [branchId], references: [id])
+  appliedAmount                           Int
+  appliedTermDays                         Int
+  purpose                                 String?
+  status                                  AppStatus            @default(DRAFT)
+  assignedToId                            String?
+  approvedById                            String?
+  affordabilityResult                     Json?
+  decisionReason                          String?
+  // Coarse, for internal reporting. NOT the NCA s.62 statement of reasons.
+  declineCategory                         DeclineCategory?
+  loanPurposeCategory                     LoanPurposeCategory?
+  productRecommendationNote               String?
+  existingDebtObligations                 Json?
+  totalExistingDebt                       Int?
+  netDisposableIncome                     Int?
+  affordabilityNDI                        Int?
+  recklessLendingAssessed                 Boolean              @default(false)
+  recklessLendingAssessedById             String?
+  recklessLendingAssessedAt               DateTime?
+  recklessLendingNote                     String?
+  bureauOverrideReason                    String?
+  bureauOverrideById                      String?
+  bureauOverrideBy                        User?                @relation("BureauOverrideBy", fields: [bureauOverrideById], references: [id])
+  bureauOverrideAt                        DateTime?
+  // Identifies the current review cycle. Async bureau responses must carry
+  // this exact value or they are stale evidence for a prior assessment.
+  bureauReviewGeneration                  String?
+  pasqAcknowledgedAt                      DateTime?
+  pasqAcknowledgedBy                      String?
+  pasqAcknowledgedSha256                  String?
+  pasqVersion                             String?
+  pasqGeneratedAt                         DateTime?
+  pasqDocumentId                          String?
+  pasqDocumentSha256                      String?
+  pasqEvidence                            Json?
+  pasqEvidenceSha256                      String?
+  approvedPasqDocumentSha256              String?
+  clientAffordabilityDeclaredAt           DateTime?
+  agreementType                           AgreementType?
+  // Consumer's NCA s.101 initiation-fee payment option, captured at agreement
+  // generation. DEFERRED (default) = full advance, fee interest-free in the
+  // schedule; UPFRONT = fee deducted from the advance.
+  initiationFeePayment                    InitiationFeePayment @default(DEFERRED)
+  creditLifeElection                      CreditLifeElection?
+  creditLifeProductId                     String?
+  creditLifeProductName                   String?
+  creditLifeInsurerId                     String?
+  creditLifeInsurerName                   String?
+  creditLifeMonthlyPremiumCents           Int?
+  creditLifeDisclosureVersion             String?
+  creditLifeDisclosureSha256              String?
+  creditLifeDisclosureAcknowledgedAt      DateTime?
+  creditLifeDisclosureAcknowledgedBy      String?
+  incomeVerificationMethod                String?
+  incomeVerifiedAt                        DateTime?
+  incomeVerifiedById                      String?
+  agreementGeneratedAt                    DateTime?
+  agreementDocumentId                     String?
+  agreementDocumentSha256                 String?
+  agreementSignedAt                       DateTime?
+  agreementSignedMethod                   String?
+  agreementSignedByIp                     String?
+  agreementSignedByUserId                 String?
+  agreementSignatureData                  String? // base64 PNG data URL (drawn) or typed name — the e-signature artifact
+  agreementCountersignedAt                DateTime?
+  agreementCountersignedById              String?
+  agreementCountersignedByName            String?
+  agreementCountersignedByEmail           String?
+  agreementCountersignatureData           String?
+  agreementCountersignatureSha256         String?
+  agreementCountersignatureEnvelopeSha256 String?
+  agreementCountersignedDocumentSha256    String?
+  /// The EXECUTED agreement: the artifact that actually carries both
+  /// signatures, minted once inside the countersign transaction. Distinct from
+  /// agreementDocumentId, which stays bound to the UNSIGNED document the
+  /// consumer was shown — the same draft-vs-signed split the debit mandate
+  /// already uses (debitMandateDraftSha256 vs debitMandateDocumentId).
+  agreementExecutedDocumentId             String?
+  agreementExecutedDocumentSha256         String?
+  /// The RETURNED signed packet on the paper path: the PDF the consumer
+  /// physically signed, uploaded before the signature is recorded. Bound here
+  /// rather than left discoverable only through the document's own
+  /// validationResult JSON, so the documents folder can name the artifact
+  /// without matching on a filename — on a lender that risks offering one
+  /// client's signed packet inside another's folder.
+  ///
+  /// Only writable while agreementSignedAt is NULL: once the signature is
+  /// recorded the binding is the record of WHICH bytes were signed, and a
+  /// later upload must not be able to move it.
+  signedPacketDocumentId                  String?
+  signedPacketDocumentSha256              String?
+  debitMandatePreparedAt                  DateTime?
+  debitMandateReference                   String?
+  debitMandateDraftSha256                 String?
+  debitMandateEvidence                    Json?
+  debitMandateEvidenceSha256              String?
+  debitMandateSignedAt                    DateTime?
+  debitMandateSignedMethod                String?
+  debitMandateSignedByIp                  String?
+  debitMandateSignatureData               String?
+  debitMandateSignatureSha256             String?
+  debitMandateDocumentId                  String?
+  debitMandateDocumentSha256              String?
+  repaymentMethod                         LoanRepaymentMethod?
+  approvedAmount                          Int?
+  approvedTermDays                        Int?
+  approvedRate                            Float?
+  approvedAt                              DateTime?
+  disbursedAt                             DateTime?
+  disbursementBank                        String?
+  disbursementAccountNo                   String?
+  disbursementBranchCode                  String?
+  disbursementAccountType                 String?
+  disbursementRef                         String?
+  submittedAt                             DateTime?
+  createdAt                               DateTime             @default(now())
+  updatedAt                               DateTime             @updatedAt
+  client                                  Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  entity                                  BusinessEntity?      @relation(fields: [tenantId, entityId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  ncaRepresentative                       Client?              @relation("NcaRepresentative", fields: [tenantId, ncaRepresentativeClientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict, map: "LoanApplication_ncaRepresentativeClientId_fkey")
+  product                                 LoanProduct          @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creditLifeProduct                       InsuranceProduct?    @relation("ApplicationCreditLifeProduct", fields: [tenantId, creditLifeProductId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creditLifeInsurer                       Insurer?             @relation("ApplicationCreditLifeInsurer", fields: [tenantId, creditLifeInsurerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  assignedTo                              User?                @relation("AssignedTo", fields: [assignedToId], references: [id])
+  approvedBy                              User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  agreementCountersignedBy                User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  agreementSignedBy                       User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // PostgreSQL partial unique index (not expressible in Prisma schema):
+  // LoanApplication_debitMandateReference_key, created by the baseline
+  // migration.
+  // PostgreSQL partial unique index (not expressible in Prisma schema):
+  // LoanApplication_one_open_per_client_product_idx, created by the baseline
+  // migration.
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  assetFinanceDeal          AssetFinanceDeal?
+  checkFlags                ApplicationCheckFlag[]
+  conversations             Conversation[]
+  convertedLead             Lead?                      @relation("LeadConvertedApplication")
+  loan                      Loan?
+  ncaRegimeOverrides        NcaRegimeOverride[]
+  pasqAcknowledgementTokens PasqAcknowledgementToken[]
+  selfieCaptureTokens       SelfieCaptureToken[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, id, clientId])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([agreementDocumentId])
+}
+
+/// One-time link that lets a consumer with no portal account receive and
+/// acknowledge the PASQ on their own device (NCA s.92(1)). Only the SHA-256 of
+/// the emitted secret is stored, so a database read cannot reconstruct a
+/// working link.
+model PasqAcknowledgementToken {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  applicationId  String
+  clientId       String
+  application    LoanApplication @relation(fields: [tenantId, applicationId, clientId], references: [tenantId, id, clientId], onDelete: Restrict, onUpdate: Restrict)
+  documentSha256 String
+  tokenHash      String          @unique
+  channel        String
+  sentTo         String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  invalidatedAt  DateTime?
+  createdById    String
+  createdBy      User            @relation("PasqAckTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt      DateTime        @default(now())
+  // PostgreSQL CHECK constraints (not expressible in Prisma schema):
+  // PasqAcknowledgementToken_channel_check (SMS/WHATSAPP/EMAIL),
+  // PasqAcknowledgementToken_tokenHash_format_check and
+  // PasqAcknowledgementToken_documentSha256_format_check, created by the
+  // baseline migration.
+
+  @@index([tenantId, applicationId])
+}
+
+/// One-time links that let a consumer capture a KYC selfie bound to ONE
+/// application without a portal account. Deliberately modelled on
+/// PasqAcknowledgementToken: the secret is never stored, only its SHA-256, and
+/// at most one link per application is live at a time. Divergence between the
+/// two is a smell — if one grows a control, so should the other.
+model SelfieCaptureToken {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  applicationId String
+  clientId      String
+  application   LoanApplication @relation(fields: [tenantId, applicationId, clientId], references: [tenantId, id, clientId], onDelete: Restrict, onUpdate: Restrict)
+  tokenHash     String          @unique
+  channel       String
+  sentTo        String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  invalidatedAt DateTime?
+  /// The ClientDocument this token produced. Set once, on use. Deliberately not
+  /// a foreign key: ClientDocument is soft-deleted, and this field is evidence
+  /// of what the link produced, which must survive that.
+  documentId    String?
+  createdById   String
+  createdBy     User            @relation("SelfieCaptureTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime        @default(now())
+  // Partial unique index (not expressible in Prisma schema):
+  // SelfieCaptureToken_one_active_per_application, created by the baseline
+  // migration — at most one live link per application.
+
+  @@index([tenantId, applicationId])
+}
+
+enum AppStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  DECLINED
+  DISBURSED
+  CANCELLED
+}
+
+// ─── Decline categories ────────────────────────────────────────────────────
+
+enum DeclineCategory {
+  AFFORDABILITY
+  BUREAU_SCORE
+  ADVERSE_LISTING
+  DEBT_REVIEW
+  DOCUMENTS_INCOMPLETE
+  IDENTITY
+  WITHDRAWN
+}

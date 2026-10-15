@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync } from "fs"
-import { join } from "path"
 import { annualisedInterestRate, formatAnnualisedRate, termInterestPercent } from "./annualised-rate"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
 // This number goes on NCA documents (PASQ, credit agreement, statement), so the
 // tests below check it against what the CALCULATOR actually charges rather than
@@ -151,11 +150,11 @@ describe("an unknown model fails loudly rather than guessing", () => {
   })
 
   it("covers every InterestModel the SCHEMA defines", () => {
-    // Reads prisma/schema.prisma rather than restating the list here — a
+    // Reads the Prisma schema (prisma/schema/) rather than restating the list here — a
     // hardcoded copy would agree with the switch by construction and could
     // never fail. Adding an enum value now breaks this until the annualisation
     // basis for it is decided.
-    const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8")
+    const schema = readPrismaSchema()
     const block = schema.match(/enum InterestModel \{([^}]*)\}/)
     expect(block, "InterestModel enum not found — did the schema change shape?").toBeTruthy()
     const models = block![1].split("\n").map((l) => l.trim()).filter((l) => /^[A-Z_]+$/.test(l))

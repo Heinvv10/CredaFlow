@@ -1,12 +1,12 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { readBaselineSql } from "../db-baseline.test-helpers"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
-const schema = readFileSync("prisma/schema.prisma", "utf8")
+const schema = readPrismaSchema()
 
 function enumMembers(name: string): string[] {
   const body = schema.match(new RegExp(`enum\\s+${name}\\s*\\{([\\s\\S]*?)\\}`))?.[1]
-  if (!body) throw new Error(`Enum ${name} is missing from prisma/schema.prisma`)
+  if (!body) throw new Error(`Enum ${name} is missing from prisma/schema/`)
   return body
     .split("\n")
     .map((line) => line.replace(/\/\/.*$/, "").trim())

@@ -3,6 +3,8 @@
  * Mirrors the server-side canDo() logic in lib/auth-guards.ts
  */
 
+import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/permissions"
+
 export type UserRole =
   | "SUPER_ADMIN"
   | "ADMIN"
@@ -42,30 +44,9 @@ export function hasMinRole(userRole: UserRole, minRole: UserRole): boolean {
   return userIdx >= minIdx
 }
 
-const PERMISSIONS: Record<string, UserRole> = {
-  disburse_loan: "LOAN_ADMIN",
-  approve_loan: "LOAN_ADMIN",
-  decline_loan: "CREDIT_OFFICER",
-  delete_client: "ADMIN",
-  manage_users: "BRANCH_MANAGER",
-  view_reports: "READONLY",
-  manage_settings: "ADMIN",
-  view_audit_log: "LOAN_ADMIN",
-  manage_branches: "ADMIN",
-  record_payment: "CREDIT_OFFICER",
-  manage_insurance: "INSURANCE_OFFICER",
-  manage_collections: "COLLECTIONS_OFFICER",
-  // Asset finance (docs/asset-finance/DESIGN.md). Keep identical to lib/auth-guards.ts.
-  manage_asset_finance: "CREDIT_OFFICER",
-  decide_asset_finance: "LOAN_ADMIN",
-  // FIC Act tooling (lib/fic). Keep identical to lib/auth-guards.ts. No
-  // COMPLIANCE role exists; ADMIN stands in for the lender's compliance
-  // officer: the STR register, CTR filings, goAML exports and the RMCP.
-  // Raising an STR is open to every operational role (every employee must be
-  // able to report internally); seeing the register is not.
-  manage_fic_compliance: "ADMIN",
-  raise_suspicious_report: "COLLECTIONS_OFFICER",
-}
+// One file per domain under lib/registry/permissions/ (merged by
+// scripts/gen-registries.ts; docs/ARCHITECTURE.md, "Registries").
+const PERMISSIONS: Record<string, UserRole> = REGISTRY_PERMISSIONS
 
 export function canDo(userRole: UserRole | string, permission: string): boolean {
   const minRole = PERMISSIONS[permission]

@@ -1,0 +1,11 @@
+// The schema is one file per domain in this folder (prismaSchemaFolder);
+// docs/ARCHITECTURE.md, "Registries". Migrations stay in prisma/migrations.
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["prismaSchemaFolder"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

@@ -97,11 +97,11 @@ describe("planReferralUpdate — authorisation", () => {
 describe("ROLE_HIERARCHY drift guard", () => {
   // This gate runs on lib/permissions' hasMinRole (that module has zero imports,
   // so it stays usable from a node-env test; lib/auth-guards pulls in next-auth).
-  // lib/permissions describes itself as a "client-safe mirror" of auth-guards —
-  // and the two files have ALREADY drifted elsewhere (PERMISSIONS.decline_loan is
-  // CREDIT_OFFICER in one and LOAN_ADMIN in the other). So do not take the mirror
-  // on trust: read BOTH files from disk and compare the orderings directly. Two
-  // independent sources means a real divergence fails this test.
+  // lib/permissions describes itself as a "client-safe mirror" of auth-guards,
+  // and their permission maps once drifted apart (they are one generated map
+  // now, lib/registry/permissions/). So do not take the mirror on trust: read
+  // BOTH files from disk and compare the orderings directly. Two independent
+  // sources means a real divergence fails this test.
   const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8")
   const hierarchy = (src: string) => {
     const block = src.match(/ROLE_HIERARCHY[^=]*=\s*\[([\s\S]*?)\]/)

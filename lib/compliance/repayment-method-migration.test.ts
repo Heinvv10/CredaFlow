@@ -1,14 +1,12 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   baselineConstraintSql,
   baselineTriggerSql,
   readBaselineSql,
 } from "../db-baseline.test-helpers"
+import { readPrismaSchema } from "@/prisma/schema-source"
 
-const root = process.cwd()
-const schema = readFileSync(join(root, "prisma/schema.prisma"), "utf8")
+const schema = readPrismaSchema()
 
 describe("loan repayment-method database enforcement", () => {
   it("models the approval decision as a dedicated EFT or debit-order enum", () => {
