@@ -19,6 +19,7 @@ Suites:
 - `guards` = `lib/accounting/isaflow/isaflow-guards.integration.test.ts`
 - `conn_route` = `app/api/integrations/isaflow/route.test.ts`
 - `push_route` = `app/api/accounting/batches/[id]/isaflow/route.test.ts`
+- `card` = `components/settings/IsaFlowConnectionCard.test.tsx`
 
 The ITs ran with `RUN_ACCOUNTING_IT=1`.
 
@@ -45,6 +46,10 @@ The ITs ran with `RUN_ACCOUNTING_IT=1`.
 | S2 | connect: the role is not re-checked on the locked row (`superAdminPolicyWrite`) | conn_route | RED: "refuses a SUPER_ADMIN demoted between the check and the write" |
 | S3 | the status (GET) carries the sealed token | conn_route | RED: "is ADMIN's to read and never carries the token" |
 | S4 | the connect audit row carries the token | it | RED: "no audit row carries the token" |
+| U1 | settings card: the token field is not cleared after a successful connect | card | RED: "connects with the typed address and token, then clears the token and never shows it" |
+| U2 | settings card: Verify posts the connect action | card | RED: "verifies and disconnects through the same route, each with its own action" |
+| U3 | settings card: the token is echoed into the page | card | RED: "connects with…never shows it" |
+| U4 | settings card: connect sends no token | card | RED: "connects with…never shows it" |
 | G1 | DB: deleting a push allowed | guards | RED: "is never deleted or truncated" |
 | G2 | DB: PUSHED → SENDING allowed | guards | RED: "records an IsaFlow journal id once; PUSHED needs one and is final" |
 | G3 | DB: request and its sha256 may change | guards | RED: "never changes its request, hash, key or IsaFlow company" |
