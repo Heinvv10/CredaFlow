@@ -159,7 +159,7 @@ suite.sequential("review gates: deals, signing, people and assets (real Postgres
     const director = `"EntityRelationship" WHERE "entityId" = '${fx.evidenced}' AND "clientId" = '${fx.director}' AND "role" = 'DIRECTOR'`
     for (const attempt of [`UPDATE ${surety.replace(" WHERE", ` SET "active" = false WHERE`)}`, `DELETE FROM ${surety}`,
       `UPDATE ${director.replace(" WHERE", ` SET "role" = 'MEMBER' WHERE`)}`]) {
-      expect(refusedSql("", attempt)).toContain("The entity has an approved deal: its sureties and signatories are fixed")
+      expect(refusedSql("", attempt)).toContain("The entity has a deal under review or approved: its directors, trustees, sureties and other parties are fixed")
     }
     acceptedSql(cancelA(), `UPDATE ${surety.replace(" WHERE", ` SET "active" = false WHERE`)}`)
   })

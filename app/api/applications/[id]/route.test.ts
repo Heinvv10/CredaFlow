@@ -12,9 +12,11 @@ const transactionMock = vi.fn()
 const prepareApplicationFieldsMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const auditLogCreateMock = vi.fn()
+const assetFinanceDealCountMock = vi.fn()
 const clientDocumentFindFirstMock = vi.fn()
 
 const tx = {
+  assetFinanceDeal: { count: (a: unknown) => assetFinanceDealCountMock(a) },
   $queryRaw: (query: unknown) => queryRawMock(query),
   loanApplication: {
     findUnique: (a: unknown) => findUniqueMock(a),
@@ -176,6 +178,7 @@ beforeEach(() => {
   findFirstMock.mockResolvedValue(null)
   triggerNotificationMock.mockResolvedValue(undefined)
   auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
+  assetFinanceDealCountMock.mockResolvedValue(0)
 })
 
 it("allows DRAFT -> SUBMITTED", async () => {
@@ -495,6 +498,27 @@ it("PATCH action:update — 404 when the application does not exist in the tenan
 
   expect(res.status).toBe(404)
   expect(prepareApplicationFieldsMock).not.toHaveBeenCalled()
+})
+
+it("PATCH action:update — 409 for an asset-finance deal's application: never re-validated against consumer products (Fair Score E4)", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", status: "DRAFT", updatedAt: new Date(), affordabilityResult: null })
+  assetFinanceDealCountMock.mockResolvedValue(1)
+
+  const res = await PATCH(patchReq(draftUpdateBody), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toMatch(/asset-finance deal/)
+  expect(assetFinanceDealCountMock).toHaveBeenCalledWith({ where: { tenantId: expect.any(String), applicationId: "app-1" } })
+  expect(prepareApplicationFieldsMock).not.toHaveBeenCalled()
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("DRAFT -> SUBMITTED is refused (409) for an asset-finance deal's application: it is submitted on the deal", async () => {
+  findUniqueMock.mockResolvedValue(draftForSubmission)
+  assetFinanceDealCountMock.mockResolvedValue(1)
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+  expect(res.status).toBe(409)
+  expect(updateManyMock).not.toHaveBeenCalled()
 })
 
 it("PATCH action:update — 400 when the application is no longer DRAFT", async () => {

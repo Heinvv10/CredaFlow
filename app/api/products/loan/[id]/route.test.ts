@@ -202,6 +202,53 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
   })
 })
 
+describe("PUT /api/products/loan/[id] product kind (Fair Score E4)", () => {
+  const plant = { ...before, code: "PLANT", name: "Plant finance", productType: "PERSONAL", interestModel: "REDUCING_BALANCE", minTermDays: 180, maxTermDays: 1_800 }
+  const retype = (row: typeof plant, productType: string) => {
+    findUnique.mockResolvedValue(row)
+    return PUT(request({ code: row.code, name: row.name, productType, interestModel: row.interestModel, minTermDays: row.minTermDays, maxTermDays: row.maxTermDays }), context)
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...plant, ...data }))
+    queryRaw.mockResolvedValue([])
+    auditCreate.mockResolvedValue({ id: "audit-1" })
+    transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
+      $queryRaw: queryRaw, loanProduct: { findUnique, update }, loanApplication: { count }, auditLog: { create: auditCreate },
+    }))
+  })
+
+  it("refuses moving a product with applications into or out of ASSET_FINANCE", async () => {
+    count.mockResolvedValue(3)
+    const into = await retype(plant, "ASSET_FINANCE")
+    expect(into.status).toBe(422)
+    expect((await into.json()).error).toMatch(/3 application/)
+    expect(count).toHaveBeenCalledWith({ where: { tenantId: "tenant-1", productId: "product-1" } })
+    expect((await retype({ ...plant, productType: "ASSET_FINANCE" }, "PERSONAL")).status).toBe(422)
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("refuses making a portal-stable consumer code an asset-finance product", async () => {
+    count.mockResolvedValue(0)
+    const response = await retype({ ...plant, code: "PERSONAL" }, "ASSET_FINANCE")
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/PERSONAL is a stable consumer product code/)
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("re-types an unused product, and leaves the kind check out of edits that keep the kind", async () => {
+    count.mockResolvedValue(0)
+    expect((await retype(plant, "ASSET_FINANCE")).status).toBe(200)
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ productType: "ASSET_FINANCE" }) }))
+    vi.clearAllMocks()
+    count.mockResolvedValue(5)
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...plant, ...data }))
+    expect((await retype(plant, "MICRO")).status).toBe(200)
+  })
+})
+
 describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
   const personal = { ...before, code: "PLANT", name: "Plant instalment sale", productType: "PERSONAL", interestModel: "REDUCING_BALANCE",
     minTermDays: 180, maxTermDays: 1_800, nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null }

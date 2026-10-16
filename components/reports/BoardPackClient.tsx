@@ -47,6 +47,7 @@ const PRODUCT_COLORS: Record<string, string> = {
   MICRO: "#4F46E5",
   PERSONAL: "#1565c0",
   PO_FUNDING: "#1e6b3f",
+  ASSET_FINANCE: "#8a5908",
 }
 
 export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clients, collectionsRate, arrearsRate, totalArrears, totalDisbursed, buckets, nonNcaArrears, topLoans, productMix, insurancePolicies, monthlyPremiums, nplRatio, nplAmount, par30, par60, par90, monthlyCollectionRate, delinquentAccounts, defaultCharges }: Props) {

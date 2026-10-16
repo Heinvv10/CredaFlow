@@ -3,11 +3,11 @@
 // CPA scope and, for a sole-proprietor lessee, the lessee's particulars.
 // Read with the rest of the deal (../deal-document-data.ts).
 import type { ContractType } from "@prisma/client"
-import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
 import type { VatTransaction } from "@/lib/vat/db"
 import { isLeaseContract, type LeaseContractType, type LeaseTerms } from "../../lease-input"
-import { isLeaseTerms, leaseEndDate, priceLeaseTerms } from "../../lease-structure"
-import { leaseScheduleView, type LeaseScheduleView } from "../../lease-view"
+import { isLeaseTerms } from "../../lease-structure"
+import { pricedLeaseSchedule } from "../../lease-schedule"
+import type { LeaseScheduleView } from "../../lease-view"
 import type { StructureTerms } from "../../deal-input"
 import type { AssetPrice, ResolvedRate } from "../../deal-structure"
 
@@ -60,17 +60,13 @@ export async function leaseDocumentTerms(
   if (!isLeaseTerms(structure) || deal.cpaApplies === null || deal.cpaRule === null) {
     throw new LeaseDocumentError("The lease deal is missing its lease terms or CPA scope")
   }
-  const vat = await loadRateOn(db, startDate).catch((error: unknown) => {
-    if (error instanceof NoVatRateError) throw new LeaseDocumentError(error.message)
-    throw error
-  })
-  const priced = priceLeaseTerms(asset, structure, rate, startDate, vat.rateTenThousandths)
-  if (!priced.ok) throw new LeaseDocumentError(`The rentals cannot be priced: ${priced.error}`)
+  const priced = await pricedLeaseSchedule(db, asset, structure, rate, startDate)
+  if (!priced.ok) throw new LeaseDocumentError(priced.reason === "vat" ? priced.error : `The rentals cannot be priced: ${priced.error}`)
   return {
     contractType: deal.contractType,
     terms: structure.lease,
-    schedule: leaseScheduleView(priced.lease, vat.rate),
-    endDate: leaseEndDate(structure, startDate),
+    schedule: priced.schedule,
+    endDate: priced.endDate,
     cpaApplies: deal.cpaApplies,
     cpaRule: deal.cpaRule,
   }

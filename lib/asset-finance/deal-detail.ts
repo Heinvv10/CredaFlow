@@ -2,7 +2,7 @@
 // staff pages. Every query passes the tenant explicitly (pages run outside
 // withTenantContext). JSON-safe: cents are numbers, Decimals strings, dates
 // ISO strings (./big-cents.ts).
-import type { AssetDealStatus } from "@prisma/client"
+import type { AssetDealStatus, ContractType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { figureFromDb } from "./big-cents"
 import type { StructureTerms } from "./deal-input"
@@ -10,6 +10,9 @@ import type { Solved } from "./deal-structure"
 import { DEAL_STRUCTURE_SELECT, solveStoredDeal, termsFromDeal } from "./deal-terms"
 import { loadDealBureauResults, type DealBureauResult } from "./deal-bureau-results"
 import { isoOfDbDate } from "./dates"
+import { isLeaseTerms } from "./lease-structure"
+import { dealLeaseSchedule, type DealLeaseSchedule } from "./lease-schedule"
+import { loadDealExceptions, type DealExceptions } from "./deal-exceptions"
 
 export interface DealPerson {
   clientId: string
@@ -37,7 +40,7 @@ export interface DealFinancialsView {
 export interface DealDetail {
   id: string
   status: AssetDealStatus
-  contractType: string
+  contractType: ContractType
   createdAt: string
   baseInstalmentCents: number | null
   application: {
@@ -60,17 +63,22 @@ export interface DealDetail {
   product: { id: string; name: string }
   terms: StructureTerms
   schedule: Solved
+  /** An operating or full-maintenance lease's rentals as its agreement prints them (./lease-schedule.ts); null otherwise. */
+  leaseSchedule: DealLeaseSchedule | null
   financials: DealFinancialsView | null
   /** The entity's active SURETY relationships: a deal has no surety table of its own. */
   sureties: DealPerson[]
   directorsAndTrustees: DealPerson[]
   bureau: DealBureauResult[]
+  /** Internal arrears and bureau checks not on record: shown on the credit memo, answered at approval. */
+  exceptions: DealExceptions
   decision: { decision: string | null; reasons: string[]; decidedById: string | null; decidedAt: string | null }
 }
 
 export interface DealListRow {
   id: string
   status: AssetDealStatus
+  contractType: ContractType
   applicationReference: string
   entityName: string
   assetDescription: string
@@ -89,6 +97,7 @@ export async function loadDealList(tenantId: string): Promise<DealListRow[]> {
     select: {
       id: true,
       status: true,
+      contractType: true,
       baseInstalmentCents: true,
       createdAt: true,
       application: { select: { reference: true, appliedAmount: true } },
@@ -100,6 +109,7 @@ export async function loadDealList(tenantId: string): Promise<DealListRow[]> {
   return rows.map((r) => ({
     id: r.id,
     status: r.status,
+    contractType: r.contractType,
     applicationReference: r.application.reference,
     entityName: r.entity?.legalName ?? (r.client ? `${r.client.firstName} ${r.client.lastName}` : "Unknown borrower"),
     assetDescription: `${r.asset.year} ${r.asset.make} ${r.asset.model}`,
@@ -123,6 +133,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
       decisionReasons: true,
       decidedById: true,
       decidedAt: true,
+      plannedStartDate: true,
       ...DEAL_STRUCTURE_SELECT,
       application: {
         select: {
@@ -151,6 +162,8 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
   })
   const { application: app, financials: f, asset } = deal
   const pendingOverrideId = app.ncaRegimeOverrides[0]?.id ?? null
+  const terms = termsFromDeal(deal)
+  const plannedStartDate = deal.plannedStartDate ? isoOfDbDate(deal.plannedStartDate) : null
 
   return {
     id: deal.id,
@@ -173,8 +186,9 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
     },
     supplier: deal.supplier,
     product: app.product,
-    terms: termsFromDeal(deal),
+    terms,
     schedule: await solveStoredDeal(prisma, tenantId, deal, asset),
+    leaseSchedule: isLeaseTerms(terms) ? await dealLeaseSchedule(prisma, tenantId, asset, terms, plannedStartDate) : null,
     financials: f && {
       periodEnd: isoOfDbDate(f.periodEnd),
       turnoverCents: figureFromDb(f.turnoverCents),
@@ -193,6 +207,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
     sureties: people.filter((p) => p.role === "SURETY").map(toPerson),
     directorsAndTrustees: people.filter((p) => p.role !== "SURETY").map(toPerson),
     bureau: await loadDealBureauResults(tenantId, app.id),
+    exceptions: await loadDealExceptions(prisma, tenantId, { applicationId: app.id, entityId: deal.entityId, clientId: deal.client?.id ?? null }),
     decision: {
       decision: deal.decision,
       reasons: deal.decisionReasons,

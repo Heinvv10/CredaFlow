@@ -157,7 +157,7 @@ export function afSqlFixture(label: string) {
         VALUES ('${ids.clientId}', '${tenantId}', 'CLI-${token}', 'ID-${token}', 'Test', 'Director', 'c-${token}@test.invalid', '+27820000000', CURRENT_TIMESTAMP);
       INSERT INTO "LoanProduct" ("id", "tenantId", "code", "name", "productType", "minAmount", "maxAmount",
         "minTermDays", "maxTermDays", "interestRatePm", "interestModel")
-        VALUES ('${ids.productId}', '${tenantId}', '${label}-${token}', 'AF test product', 'PERSONAL', 100, 1000000000, 30, 3650, 1.0, 'DAILY_ACCRUAL');
+        VALUES ('${ids.productId}', '${tenantId}', '${label}-${token}', 'AF test product', 'ASSET_FINANCE', 100, 1000000000, 30, 3650, 1.0, 'DAILY_ACCRUAL');
       INSERT INTO "BusinessEntity" ("id", "tenantId", "type", "legalName", "registrationNumber", "updatedAt")
         VALUES ('${ids.entityId}', '${tenantId}', 'COMPANY', 'TEST Plant Hire (Pty) Ltd', '2099/${token.slice(0, 6)}/07', CURRENT_TIMESTAMP),
                ('${ids.otherEntityId}', '${tenantId}', 'COMPANY', 'TEST Earthmoving (Pty) Ltd', '2099/${token.slice(0, 6)}/08', CURRENT_TIMESTAMP);

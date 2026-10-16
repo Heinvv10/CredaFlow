@@ -62,7 +62,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
     (await db.user.create({ data: { tenantId, email: `${label}-${t}@staff.invalid`, password: "x", role } })).id
   const product = await db.loanProduct.create({
     data: {
-      tenantId, code: `AF-${t}`, name: "TEST plant instalment sale", productType: "PERSONAL",
+      tenantId, code: `AF-${t}`, name: "TEST plant instalment sale", productType: "ASSET_FINANCE",
       minAmount: 100, maxAmount: 1_000_000_000, minTermDays: 30, maxTermDays: 3650,
       interestRatePm: 1.0, interestModel: "DAILY_ACCRUAL",
     },

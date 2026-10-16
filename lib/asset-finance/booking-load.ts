@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client"
 import type { SigningTx } from "./signing-prepare"
 import { DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { isLeaseContract } from "./lease-input"
+import { dealCreditGateProblem } from "./deal-credit-gate"
 
 export interface BookingRefusal {
   kind: "refused"
@@ -109,5 +110,7 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
   if (payout.supplierBankAccount.status !== "APPROVED") {
     return refuse("account_not_approved", "The payout's bank account is no longer the supplier's APPROVED account")
   }
+  const credit = await dealCreditGateProblem(tx, tenantId, dealId)
+  if (credit) return refuse(credit.kind, credit.message)
   return { kind: "loaded", deal: { ...deal, payout } }
 }

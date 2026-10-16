@@ -13,12 +13,15 @@ import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
 /**
  * The credit decision on a SUBMITTED or REFERRED deal (decide_asset_finance;
  * lib/asset-finance/deal-decision.ts). Body:
- * `{ decision: "APPROVE" | "DECLINE" | "REFER", reasons: string[] }` — at
- * least one reason, each at least 5 characters, for every decision.
+ * `{ decision: "APPROVE" | "DECLINE" | "REFER", reasons: string[], exceptionReason?: string }`
+ * — at least one reason, each at least 5 characters, for every decision.
  *
  * APPROVE needs a credit memo. NCA deals additionally need a recorded,
  * affordable s81 assessment and reckless-lending note; the database repeats
- * that gate. A pending NON_NCA override is decided before approval.
+ * that gate. A pending NON_NCA override is decided before approval. A deal
+ * with exceptions (internal arrears, a bureau check not on record) needs
+ * `exceptionReason` and `exceptionsShown` (the sentences it answers): 409
+ * listing them when missing or when they changed (audited refusal).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -99,6 +102,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
       case "screening_blocked":
         return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+      case "exceptions_changed":
+        return refuse("exceptions_changed", 409, `The exceptions changed since the page was loaded; review them and decide again: ${result.exceptions.join("; ")}`)
+      case "exception_reason_without_exceptions":
+        return refuse("exception_reason_without_exceptions", 422, "The deal has no exceptions to answer: decide without an exception reason")
+      case "product_not_asset_finance":
+        return refuse("product_not_asset_finance", 409, "The deal's product is not an asset-finance product")
+      case "exceptions_unanswered":
+        return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
       case "refused_nca":
         return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
       case "decided":
