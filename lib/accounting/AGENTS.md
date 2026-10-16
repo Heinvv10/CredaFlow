@@ -8,7 +8,8 @@
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
-Double-entry journals from money events, closed one SAST month at a time; CSV, Xero or IsaFlow.
+Double-entry journals derived from money events, closed one SAST month at a
+time, exported as CSV (generic, Sage-style) or pushed to Xero.
 
 ## Critical Rules
 - **Derived, never hand-entered.** `lib/accounting/sources.ts` says what each
@@ -37,9 +38,11 @@ Double-entry journals from money events, closed one SAST month at a time; CSV, X
 - **Xero is unproven**: built to the public API, tests stub fetch. A push is claimed first; a stale or
   unknown one is NEEDS_REVIEW, never resent. BANK must be mapped (Xero refuses manual journals to bank
   accounts). Tokens are sealed in `XeroConnection` under `WABA_ENC_KEY` until W0's store lands.
-- **IsaFlow** (`lib/accounting/isaflow/`, DESIGN.md slice 4b part 2): one DRAFT journal per month over MCP; the request is
-  stored with the claim and resent byte for byte under `credaflow:batch:<id>`, read back first. TOTP SUPER_ADMIN
-  connects (DB-enforced), ADMIN+TOTP pushes, origin in `ISAFLOW_ALLOWED_ORIGINS`. Proven only against the fake.
+- **IsaFlow** (`lib/accounting/isaflow/`, contract refs in `contract.ts`): one DRAFT journal per closed
+  month over the MCP endpoint (PAT bound to one company). The request is stored with the SENDING claim and
+  resent byte for byte under `credaflow:batch:<batchId>`; IsaFlow is read back before any retry. Refused
+  before claim: unmapped/remapped role, tax code, code missing or inactive in IsaFlow. Connect is TOTP
+  SUPER_ADMIN (DB-enforced), push ADMIN + TOTP; origin must be in `ISAFLOW_ALLOWED_ORIGINS`. Fake-proven only.
 - **Asset finance** (`sources-asset-finance.ts`, `sources-recovery.ts`; the rules are in
   `docs/asset-finance/DESIGN.md`, slice 4b) never uses the consumer sources; its VAT is explicit lines.
   Credit notes post on lease invoices, inception invoices (`AF_PRICE_CREDITS`) and buyer invoices
@@ -54,3 +57,4 @@ Double-entry journals from money events, closed one SAST month at a time; CSV, X
 | `lib/accounting/generate.ts` | `closePeriod`: lock, plan, store, seal |
 | `lib/accounting/opening.ts` | Go-live opening entry and positions |
 | `lib/accounting/xero/push.ts` | One DRAFT manual journal per closed month |
+| `lib/accounting/isaflow/push.ts` | One DRAFT IsaFlow journal per closed month; `retry.ts` reads back first |
