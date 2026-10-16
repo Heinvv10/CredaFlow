@@ -1,4 +1,4 @@
-import { it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import {
   createCreditLifeDisclosureSha256,
@@ -33,6 +33,7 @@ const txDocumentCountMock = vi.fn()
 const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
+const referenceRateFindFirstMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 // The gate's own behaviour is tested in lib/screening; here, only that the
@@ -63,6 +64,7 @@ vi.mock("@/lib/prisma", () => ({
     clientDocument: { findMany: (a: unknown) => clientDocumentFindManyMock(a) },
     creditBureauCheck: { findFirst: (a: unknown) => creditBureauCheckFindFirstMock(a) },
     tenantConfig: { findFirst: (a: unknown) => tenantConfigFindFirstMock(a) },
+    referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a) },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))
@@ -969,6 +971,56 @@ it("approves an UNDER_REVIEW application (happy path)", async () => {
         creditLifePremiumCents: 0,
       }),
     }),
+  })
+})
+
+describe("NCA interest-rate cap at approval (Regulation 42)", () => {
+  // R30,000 over 18 months: an unsecured credit transaction, capped at repo + 21%.
+  const unsecured = (interestRatePm: number) => ({
+    ...underReviewApplication,
+    appliedAmount: 3_000_000,
+    appliedTermDays: 540,
+    creditLifeDisclosureSha256: createCreditLifeDisclosureSha256({
+      version: "credit-life-election-v1",
+      election: "DECLINED",
+      principalCents: 3_000_000,
+      termDays: 540,
+      monthlyPremiumCents: 2250,
+      productId: "credit-life-1",
+      productName: "Acme Credit Life",
+      insurerId: "insurer-1",
+      insurerName: "Test Life",
+    }),
+    product: { ...underReviewApplication.product, interestRatePm, interestModel: "REDUCING_BALANCE" },
+  })
+  const repo = (rate: number) => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => rate } })
+
+  it("refuses the demo Personal Loan's 3% a month at a 7% repo, before the approve transaction", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(repo(0.07))
+    findUniqueMock.mockResolvedValue(unsecured(0.03))
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    const json = await res.json() as { error: string; interestRateCap: string }
+    expect(json.interestRateCap).toBe("ABOVE_CAP")
+    expect(json.error).toContain("exceeds the NCA maximum of 28.00%")
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses an unsecured approval when no repo rate is recorded", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(null)
+    findUniqueMock.mockResolvedValue(unsecured(0.02))
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect((await res.json() as { interestRateCap: string }).interestRateCap).toBe("NO_REPO_RATE")
+  })
+
+  it("reads the repo rate in effect on the decision day, for this tenant", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(repo(0.07))
+    findUniqueMock.mockResolvedValue(unsecured(0.03))
+    await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(referenceRateFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", basis: "REPO", status: "APPROVED" }),
+    }))
   })
 })
 

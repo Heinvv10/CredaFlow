@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
-const { requireApiRole, create } = vi.hoisted(() => ({
+const { requireApiRole, create, repo } = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   create: vi.fn(),
+  // The tenant's approved SARB repo rate (Asset finance → Reference rates).
+  repo: { rate: 0.07 as number | null },
 }))
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole }))
@@ -16,6 +18,11 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanProduct: { create: (...args: unknown[]) => create(...args) },
+    referenceRate: {
+      findFirst: vi.fn(async () => repo.rate === null
+        ? null
+        : { effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => repo.rate } }),
+    },
   },
 }))
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }))
@@ -31,7 +38,8 @@ function request(change: Record<string, unknown> = {}) {
     maxAmount: 10_000,
     minTermDays: 30,
     maxTermDays: 90,
-    interestRatePm: 5,
+    // 24% a year: inside the NCA unsecured cap of repo 7% + 21%.
+    interestRatePm: 2,
     interestModel: "REDUCING_BALANCE",
     initiationFeeModel: "FLAT_PCT",
     initiationFeePct: 10,
@@ -179,5 +187,43 @@ describe("POST /api/products/loan NON_NCA arrears terms", () => {
     expect(response.status).toBe(422)
     expect((await response.json()).invalidFields).toEqual(["nonNcaDefaultInterestMargin", "nonNcaCollectionFeeCents"])
     expect(create).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/products/loan NCA interest-rate cap (Regulation 42)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    repo.rate = 0.07
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "product-9", ...data }))
+  })
+
+  it("refuses an unsecured product above repo + 21% (the demo Personal Loan's 3% a month), without writing", async () => {
+    const response = await POST(request({ interestRatePm: 3, maxAmount: 100_000, maxTermDays: 1_800 }))
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.invalidFields).toEqual(["interestRatePm"])
+    expect(body.error).toContain("exceeds the NCA maximum of 28.00%")
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("accepts an unsecured product exactly at the cap", async () => {
+    const response = await POST(request({ interestRatePm: 28 / 12, maxAmount: 100_000, maxTermDays: 1_800 }))
+    expect(response.status).toBe(201)
+  })
+
+  it("refuses an unsecured product when no repo rate is recorded", async () => {
+    repo.rate = null
+    const response = await POST(request())
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toContain("no approved repo rate is recorded")
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("holds a short-term product (≤ R8,000, ≤ 6 months) to 5% a month, with no repo rate needed", async () => {
+    repo.rate = null
+    const micro = { maxAmount: 2_000, minTermDays: 30, maxTermDays: 30, interestModel: "DAILY_ACCRUAL" }
+    expect((await POST(request({ ...micro, interestRatePm: 5 }))).status).toBe(201)
+    expect((await POST(request({ ...micro, interestRatePm: 5.5 }))).status).toBe(422)
   })
 })

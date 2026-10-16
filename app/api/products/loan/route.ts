@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
 import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
+import { loanProductInterestCapRefusal } from "@/lib/product-config/interest-cap"
 import { micro30ContractIssues } from "@/lib/product-config/micro30"
 import { nonNcaArrearsAudit, parseNonNcaArrearsTerms } from "@/lib/product-config/non-nca-arrears"
 
@@ -72,6 +73,10 @@ export async function POST(req: NextRequest) {
         { status: 422 },
       )
     }
+    // NCA Regulation 42: the rate may not exceed the cap for the credit type
+    // the product writes (lib/loan/nca-interest-cap.ts).
+    const capRefusal = await loanProductInterestCapRefusal(tenant.id, data)
+    if (capRefusal) return NextResponse.json(capRefusal, { status: 422 })
     const product = await prisma.loanProduct.create({
       data,
     })

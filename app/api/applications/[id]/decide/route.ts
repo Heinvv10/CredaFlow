@@ -10,6 +10,8 @@ import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-g
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { ncaCreditType } from "@/lib/loan/nca-interest-cap"
+import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
 import { Prisma } from "@prisma/client"
 import {
   APPROVAL_AFFORDABILITY_POLICY_VERSION,
@@ -679,6 +681,22 @@ export async function POST(
             },
             { status: 400 },
           )
+        }
+        // NCA Regulation 42: the product's rate may not exceed the cap for this
+        // transaction's credit type (lib/loan/nca-interest-cap.ts). The product
+        // save is checked too; this catches a repo cut since, or seeded rows.
+        if (application.ncaRegime !== "NON_NCA") {
+          const rateCap = await checkNcaInterestRateFor(prisma, tenant.id, {
+            creditType: ncaCreditType(application.appliedAmount, application.appliedTermDays),
+            interestRatePm: application.product.interestRatePm,
+            interestModel: application.product.interestModel,
+          })
+          if (!rateCap.ok) {
+            return NextResponse.json(
+              { error: `Approval blocked: ${rateCap.message}`, interestRateCap: rateCap.reason, requiresOverride: false },
+              { status: 422 },
+            )
+          }
         }
         // An OTHER account cannot carry a debit order: the Netcash AVS wire has
         // only "Current" and "Savings" to send, so `requireDebitMandateBankDetails`

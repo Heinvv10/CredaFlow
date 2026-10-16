@@ -29,6 +29,10 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: (...args: unknown[]) => transaction(...args),
+    // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
+    referenceRate: {
+      findFirst: vi.fn(async () => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => 0.07 } })),
+    },
   },
 }))
 vi.mock("@/lib/audit", () => ({
@@ -48,7 +52,9 @@ const before = {
   name: "30-Day Micro Loan",
   productType: "MICRO",
   minAmount: 50_000,
-  maxAmount: 1_000_000,
+  // R2,000 for 30 days, as seeded: a short-term credit transaction, so 5% a
+  // month is within the NCA cap (lib/loan/nca-interest-cap.ts).
+  maxAmount: 200_000,
   minTermDays: 30,
   maxTermDays: 30,
   interestRatePm: 0.05,
@@ -90,6 +96,7 @@ const personal = {
   name: "Custom Loan",
   productType: "PERSONAL",
   interestModel: "REDUCING_BALANCE",
+  interestRatePm: 2, // percent a month, as the form sends it: 24% a year
   minTermDays: 30,
   maxTermDays: 90,
 }
@@ -155,7 +162,7 @@ describe("PUT /api/products/loan/[id] bounds validation", () => {
     expect(response.status).toBe(200)
     expect(transaction).toHaveBeenCalledOnce()
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ minAmount: 50_000, maxAmount: 1_000_000, maxTermDays: 90 }),
+      data: expect.objectContaining({ minAmount: 50_000, maxAmount: 200_000, maxTermDays: 90 }),
     }))
   })
 })

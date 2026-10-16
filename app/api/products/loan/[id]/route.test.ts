@@ -29,6 +29,10 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: (...args: unknown[]) => transaction(...args),
+    // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
+    referenceRate: {
+      findFirst: vi.fn(async () => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => 0.07 } })),
+    },
   },
 }))
 vi.mock("@/lib/audit", () => ({
@@ -48,7 +52,9 @@ const before = {
   name: "30-Day Micro Loan",
   productType: "MICRO",
   minAmount: 50_000,
-  maxAmount: 1_000_000,
+  // R2,000 for 30 days, as seeded: a short-term credit transaction, so 5% a
+  // month is within the NCA cap (lib/loan/nca-interest-cap.ts).
+  maxAmount: 200_000,
   minTermDays: 30,
   maxTermDays: 30,
   interestRatePm: 0.05,
@@ -165,7 +171,7 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
 
   it("blocks a decision-bearing edit while applications are in flight", async () => {
     count.mockResolvedValue(2)
-    const response = await PUT(request({ maxAmount: 9_000 }), context)
+    const response = await PUT(request({ maxAmount: 1_900 }), context)
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual(expect.objectContaining({
@@ -204,10 +210,10 @@ describe("PUT /api/products/loan/[id] MICRO30 guard", () => {
 
 describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
   const personal = { ...before, code: "PLANT", name: "Plant instalment sale", productType: "PERSONAL", interestModel: "REDUCING_BALANCE",
-    minTermDays: 180, maxTermDays: 1_800, nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null }
+    interestRatePm: 0.01, minTermDays: 180, maxTermDays: 1_800, nonNcaDefaultInterestMargin: null, nonNcaCollectionFeeCents: null }
   const edit = (change: Record<string, unknown>) => PUT(request({
     code: personal.code, name: personal.name, productType: personal.productType, interestModel: personal.interestModel,
-    minTermDays: personal.minTermDays, maxTermDays: personal.maxTermDays, ...change,
+    interestRatePm: personal.interestRatePm * 100, minTermDays: personal.minTermDays, maxTermDays: personal.maxTermDays, ...change,
   }), context)
 
   beforeEach(() => {
@@ -237,6 +243,13 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
     const data = update.mock.calls[0][0].data as Record<string, unknown>
     expect("nonNcaDefaultInterestMargin" in data).toBe(false)
     expect("nonNcaCollectionFeeCents" in data).toBe(false)
+  })
+
+  it("refuses a rate above the NCA unsecured cap (repo 7% + 21%) 422 before any write", async () => {
+    const response = await edit({ interestRatePm: 3 })
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toContain("36.00% per year (nominal) exceeds the NCA maximum of 28.00%")
+    expect(transaction).not.toHaveBeenCalled()
   })
 
   it("refuses a negative fee 422 before any write", async () => {
