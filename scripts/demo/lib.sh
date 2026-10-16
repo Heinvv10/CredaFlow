@@ -28,6 +28,9 @@ DEMO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEMO_DATA_DIR="${DEMO_DATA_DIR:-$HOME/credaflow-demo-data}"
 LIVE_DIR="${LIVE_DIR:-$HOME/Workspace/CredaFlow-demo}"
 SHARED_SECRETS="$DEMO_DATA_DIR/secrets.env"
+# Optional SEED_*_PASSWORD=… lines (chmod 600): the seed sets these passwords on
+# every bake, so presenters' logins survive a rebake. Absent, they are random.
+SEED_PASSWORDS="$DEMO_DATA_DIR/seed-passwords.env"
 SNAP_DIR="$DEMO_DATA_DIR/snapshots"
 LOG_DIR="$DEMO_DATA_DIR/logs"
 BAKE_LOCK="$DEMO_DATA_DIR/bake.lock"
