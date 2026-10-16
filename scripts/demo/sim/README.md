@@ -135,7 +135,9 @@ scripts/demo/upgrade-stack.sh # another lender's stack, in place, keeping its db
   Turnstile site key. `build-image.sh` also takes `DEMO_BUILD_ROOT` (build
   another source tree) and `DEMO_IMAGE_NAME` (its own tag, and the image is then
   labelled `credaflow.tenant_slug=<slug>`); `upgrade-stack.sh` sets both.
-- **bake.sh**: sim image on the live image → `fresh-stack.sh` → `simulate.ts`
+- **bake.sh**: sim image on the live image → `fresh-stack.sh` → `sim_env_preflight`
+  (lib.sh: fails in seconds, naming the key, unless the sim app has `DEMO_MODE=true` and
+  `UNSUB_TOKEN_SECRET` and `secrets.env` has the latter) → `simulate.ts`
   → `check-dates` → `assert_payment_allocation_reconciles()` →
   `verify-pages` → `db.dump` (pg_dump -Fc), `uploads.tar.gz`, `meta.json`
   (image, sim window, tenant id, counts, checks) and the bake's staff

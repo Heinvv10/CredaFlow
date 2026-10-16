@@ -39,6 +39,7 @@ export const ACCOUNT_ROLES = [
   "RECOVERY_COSTS_RECHARGED",
   "RECOVERY_REFUND_PAYABLE",
   "RECOVERY_RESULT",
+  "AF_PRICE_CREDITS",
 ] as const
 
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
@@ -54,7 +55,7 @@ export const NOT_CARRIED_AT_OPENING: readonly AccountRole[] = [
   "BANK", "INTEREST_INCOME", "FEE_INCOME", "DEFAULT_INTEREST_INCOME", "DEFAULT_FEE_INCOME",
   "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE",
   "RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE",
-  "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS",
+  "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS", "AF_PRICE_CREDITS",
 ]
 
 /** Fee income roles a lender may mark VAT-inclusive (interest is VAT-exempt). */
@@ -114,6 +115,7 @@ export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
   RECOVERY_COSTS_RECHARGED: { code: "6210", name: "Recovery costs recharged", description: "Contra-expense: recovery costs charged to the borrower's account" },
   RECOVERY_REFUND_PAYABLE: { code: "2520", name: "Recovery surplus refunds payable", description: "Surplus owed back to the debtor after a recovery sale" },
   RECOVERY_RESULT: { code: "6300", name: "Recovery result", description: "Gain or loss left in recovery clearing: output VAT less repossession and cost input VAT" },
+  AF_PRICE_CREDITS: { code: "6400", name: "Asset-finance price credits", description: "Price excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it" },
 }
 
 export function isAccountRole(value: unknown): value is AccountRole {

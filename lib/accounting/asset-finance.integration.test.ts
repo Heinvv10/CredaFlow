@@ -123,16 +123,6 @@ suite.sequential("asset-finance journals (real Postgres)", () => {
     expect((await plan("2026-10")).controls).toEqual([])
   })
 
-  it("refuses, rather than posts wrongly, a credit note against an instalment sale's inception invoice", async () => {
-    await replica(db.$executeRawUnsafe(`INSERT INTO "CreditNote" ("id", "tenantId", "number", "creditNoteNumber", "issueDate", "invoiceId", "reason", "exclVatCents", "vatCents", "inclVatCents")
-      VALUES ('cn-is-it', '${tenant.tenantId}', 9001, 'CN-9001', '2026-08-20', 'inv-is1', 'synthetic', 1000, 150, 1150)`))
-    try {
-      expect((await plan("2026-08")).refusal).toMatchObject({ code: "AF_SOURCE_UNSUPPORTED", message: expect.stringContaining("AF-IS-0001") })
-    } finally {
-      await replica(db.$executeRawUnsafe(`DELETE FROM "CreditNote" WHERE "id" = 'cn-is-it'`))
-    }
-  })
-
   it("refuses a lease it cannot post yet (a deposit or trade-in) instead of posting it wrongly", async () => {
     await replica(db.$executeRawUnsafe(`UPDATE "Payout" SET "amountCents" = "amountCents" - 100 WHERE "id" = 'payout-jrn-ls'`))
     try {

@@ -108,7 +108,10 @@ export interface SourceInvoice {
   fundBilledExclVatCents?: number
 }
 
-/** A credit note against a lease tax invoice, with the income the invoice credited (the credit is spread over it). */
+/**
+ * A credit note against a lease tax invoice or an instalment sale's or finance lease's inception invoice, with what the
+ * invoice credited (the credit is spread over it). An inception invoice's whole value is the asset's price: AF_PRICE_CREDITS.
+ */
 export interface SourceCreditNote {
   id: string
   invoiceId: string
@@ -118,7 +121,17 @@ export interface SourceCreditNote {
   vatCents: number
   inclVatCents: number
   /** What the original invoice credited to each income role, excluding VAT. */
-  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS" | "MAINTENANCE_FUND_LIABILITY"; exclVatCents: number }>
+  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS" | "MAINTENANCE_FUND_LIABILITY" | "AF_PRICE_CREDITS"; exclVatCents: number }>
+}
+
+/** A credit note against a remarketing sale's buyer invoice. */
+export interface SourceSaleCreditNote {
+  id: string
+  /** SAST midnight of the issue date. */
+  issueDate: Date
+  exclVatCents: number
+  vatCents: number
+  inclVatCents: number
 }
 
 export interface SourceRecovery {
@@ -132,8 +145,8 @@ export interface SourceRecovery {
   costs: Array<{ id: string; netCents: number; vatCents: number; grossCents: number; treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT"; incurredOn: Date }>
   /** Repossession VAT events that carry an input-tax claim. */
   vatEvents: Array<{ id: string; eventDate: Date; inputTaxClaimCents: number }>
-  /** The completed sale and its buyer invoice. */
-  sale: { id: string; priceInclVatCents: number; invoice: SourceInvoice } | null
+  /** The completed sale, its buyer invoice and the credit notes against that invoice (none when absent). */
+  sale: { id: string; priceInclVatCents: number; invoice: SourceInvoice; creditNotes?: SourceSaleCreditNote[] } | null
   refund: { id: string; amountCents: number; releasedAt: Date } | null
 }
 
@@ -149,7 +162,7 @@ export interface SourceAssetFinance {
   rentals: Array<{ id: string; invoice: SourceInvoice; rentalExclVatCents: number; maintenanceExclVatCents: number; vatCents: number; totalCents: number }>
   /** Lease tax invoices that are not a rental's: end of term, purchase, early termination. */
   sundryInvoices: SourceInvoice[]
-  /** Credit notes against the rental and other lease invoices. */
+  /** Credit notes against the rental and other lease invoices, or against an instalment sale's or finance lease's inception invoice. */
   creditNotes: SourceCreditNote[]
   fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
   recoveries: SourceRecovery[]
