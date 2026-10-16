@@ -127,6 +127,19 @@ describe("dashboard tenant authority", () => {
     await DashboardLayout({ children: null })
     expect(loanCountMock).toHaveBeenCalledWith({ where: inArrearsWhere("tenant-authoritative", false) })
   })
+
+  // #145 breaker review: a role without the loan book is not sent its counts.
+  it("computes no loan-book badge counts for INSURANCE_OFFICER, only its inbox", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "io-1", email: "io@example.invalid", name: "IO", role: "INSURANCE_OFFICER", tenantId: "tenant-authoritative" },
+    })
+    await DashboardLayout({ children: null })
+    for (const count of [applicationCountMock, loanCountMock, opportunityCountMock, leadCountMock]) {
+      expect(count).not.toHaveBeenCalled()
+    }
+    expect(queryRawMock).toHaveBeenCalled()
+  })
+
   // A session held at TOTP enrolment (proxy.ts) gets a bare shell: no sidebar,
   // no counts, no navigation, nothing that queries tenant data.
   it("gives a held session the bare enrolment shell, and runs no sidebar queries", async () => {

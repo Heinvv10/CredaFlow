@@ -64,4 +64,6 @@ export const portalApplications: Catalog["portalApplications"] = {
   notFoundBack: "Buyela kwiphotali yam",
   execAgreement: "Isivumelwano setyala",
   execDownload: "Khuphela isivumelwano esityikitywe",
+  appStatus_SETTLED: "Kuhlawulwe",
+  loanSettled: "Imali-mboleko ihlawulwe",
 }

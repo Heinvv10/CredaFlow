@@ -112,6 +112,14 @@ describe("POST /api/documents/[id]/extract", () => {
     })
   })
 
+  // #145 breaker review: an extraction writes what a lending decision reads.
+  it("refuses INSURANCE_OFFICER before reading the document", async () => {
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "io-1", role: "INSURANCE_OFFICER", tenantId: "tenant-1" })
+    const res = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+    expect(res.status).toBe(403)
+    expect(scopeFindFirstMock).not.toHaveBeenCalled()
+  })
+
   it("clears stale evidence and completes only the claimed generation", async () => {
     const response = await POST(request(), {
       params: Promise.resolve({ id: "doc-1" }),

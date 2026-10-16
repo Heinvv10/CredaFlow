@@ -12,7 +12,7 @@ import { PARSER_VERSION } from "@/lib/statement-analysis/analyse"
 import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/lib/statement-analysis/types"
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
 import { areNamesSimilar } from "@/lib/ocr/name-matching"
-import { STATEMENT_UPLOAD_LOOKBACK_DAYS } from "./policy"
+import { statementWindowStart } from "./policy"
 import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import { hasClientBorrower } from "@/lib/borrower"
 import type { ApplicationFacts, DebtFacts, PayslipFacts, StatementFacts } from "./types"
@@ -161,7 +161,7 @@ export async function loadApplicationFacts(
   // bureau record; an entity (asset-finance) application has none.
   if (!app || !hasClientBorrower(app)) return null
   const applicationDate = isoDay(app.submittedAt ?? app.createdAt)!
-  const since = new Date(app.createdAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
+  const since = statementWindowStart(app.createdAt)
   // A document deleted recently counts however long ago it was uploaded: waiting
   // out the window and then deleting must not hide what it showed.
   const deletedInWindow = { deletedAt: { not: null }, OR: [{ createdAt: { gte: since } }, { deletedAt: { gte: since } }] }

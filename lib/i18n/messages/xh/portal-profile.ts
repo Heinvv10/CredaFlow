@@ -40,7 +40,7 @@ export const portalProfile: Catalog["portalProfile"] = {
   postalCode: "Ikhowudi yeposi",
   saving: "Iyagcina...",
   saveChanges: "Gcina utshintsho",
-  pwTooShort: "Igama lokugqitha elitsha kufuneka libe noonobumba aba-8 ubuncinane.",
+  pwTooShort: "Igama lokugqitha elitsha kufuneka libe noonobumba abali-10 ubuncinane.",
   pwMismatch: "Amagama okugqitha amatsha awafani.",
   pwFailed: "Asikwazanga ukuhlaziya igama lokugqitha. Nceda uzame kwakhona.",
   unexpected: "Kuvele impazamo engalindelekanga. Nceda uzame kwakhona.",

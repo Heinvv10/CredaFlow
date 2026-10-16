@@ -1,5 +1,6 @@
 import { escapeHtml, formatZAR } from "@/lib/utils"
 import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/identity-schema"
+import { section129FspNumber } from "@/lib/pdf/section129"
 
 /**
  * Section 129 cover-letter email body.
@@ -25,8 +26,9 @@ import { requireLenderIdentityFields, type LenderIdentity } from "@/lib/config/i
  * email must name the same credit provider as the notice it carries.
  */
 
+// The FSP number prints only for a lender that holds one (section129FspNumber).
 const IDENTITY_FIELDS = [
-  "legalName", "ncrNumber", "fspNumber", "collectionsEmail", "collectionsPhone",
+  "legalName", "ncrNumber", "collectionsEmail", "collectionsPhone",
   "collectionsPhoneSecondary", "brandTagline",
 ] as const
 
@@ -37,11 +39,12 @@ interface Section129Data {
   outstandingBalance: number  // cents
   daysInArrears: number
   noticeDate: string          // formatted date string (en-ZA)
-  lender: Pick<LenderIdentity, (typeof IDENTITY_FIELDS)[number]>
+  lender: Pick<LenderIdentity, (typeof IDENTITY_FIELDS)[number] | "fspNumber">
 }
 
 export function section129Html(d: Section129Data): string {
   const lender = requireLenderIdentityFields(d.lender, IDENTITY_FIELDS)
+  const fspNumber = section129FspNumber(d.lender)
   const name = escapeHtml(lender.legalName)
   const collectionsEmail = escapeHtml(lender.collectionsEmail)
   const phones = [lender.collectionsPhone, lender.collectionsPhoneSecondary].filter(Boolean).map((p) => escapeHtml(p as string)).join(" &nbsp;/&nbsp; ")
@@ -74,7 +77,7 @@ export function section129Html(d: Section129Data): string {
 
 <div class="letterhead">
   <h1>${name}</h1>${tagline}
-  <div class="compliance">Registered Credit Provider — NCR ${lender.ncrNumber} &nbsp;·&nbsp; Authorised FSP ${lender.fspNumber}</div>
+  <div class="compliance">Registered Credit Provider — NCR ${lender.ncrNumber}${fspNumber ? ` &nbsp;·&nbsp; Authorised FSP ${fspNumber}` : ""}</div>
 </div>
 
 <div class="body">
@@ -117,7 +120,7 @@ export function section129Html(d: Section129Data): string {
 
 <div class="footer">
   This notice is issued in compliance with Section 129(1)(a) of the National Credit Act, No. 34 of 2005. The attached PDF is the operative notice; this email is the covering communication. If you believe this notice has been sent to you in error, contact us immediately at ${collectionsEmail}.<br><br>
-  ${name} is a Registered Credit Provider (NCR ${lender.ncrNumber}) and an Authorised Financial Services Provider (FSP ${lender.fspNumber}).
+  ${name} is a Registered Credit Provider (NCR ${lender.ncrNumber})${fspNumber ? ` and an Authorised Financial Services Provider (FSP ${fspNumber})` : ""}.
 </div>
 
 </body>
@@ -127,6 +130,7 @@ export function section129Html(d: Section129Data): string {
 
 export function section129Text(d: Section129Data): string {
   const lender = requireLenderIdentityFields(d.lender, IDENTITY_FIELDS)
+  const fspNumber = section129FspNumber(d.lender)
   const phones = [lender.collectionsPhone, lender.collectionsPhoneSecondary].filter(Boolean).join(" / ")
   return `
 SECTION 129 NOTICE — ${lender.legalName.toUpperCase()}
@@ -165,6 +169,6 @@ outstanding balance without further notice.
 Yours faithfully,
 Collections Department
 ${lender.legalName}
-NCR ${lender.ncrNumber} · FSP ${lender.fspNumber}
+NCR ${lender.ncrNumber}${fspNumber ? ` · FSP ${fspNumber}` : ""}
 `.trim()
 }

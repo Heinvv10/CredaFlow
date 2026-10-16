@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 import { Bell } from "lucide-react"
 import { NotificationTabs } from "./NotificationTabs"
 import { getPortalTenantId } from "@/lib/session-tenant"
-import { SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
+import { borrowerNotificationStatus, hiddenFromBorrower } from "@/lib/portal/notification-status"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
@@ -104,9 +104,10 @@ export default async function NotificationsPage() {
     //
     // Costs nothing: this query has no take/skip, so the rows were being
     // fetched either way.
-    notifications = rows.filter(
-      (n) => !(n.status === "blocked" && n.error === SMS_CHANNEL_OFF_REASON),
-    )
+    // The same applies to the WhatsApp channel being off and to a WhatsApp
+    // leg suppressed because another reminder already sent one
+    // (hiddenFromBorrower, lib/portal/notification-status.ts).
+    notifications = rows.filter((n) => !hiddenFromBorrower(n))
   }
 
   const locale = await getLocale()
@@ -116,8 +117,9 @@ export default async function NotificationsPage() {
     event: n.event,
     eventLabel: eventLabel(t, n.event),
     channel: n.channel,
-    status: n.status,
-    error: n.error,
+    // The borrower's view of the delivery, never the internal state or its
+    // error text (lib/portal/notification-status.ts).
+    status: borrowerNotificationStatus(n.status),
     createdAt: n.createdAt.toISOString(),
     createdAtLabel: notificationDate(n.createdAt, locale),
   }))

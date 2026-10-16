@@ -10,7 +10,11 @@ const auditCreateMock = vi.fn()
 const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // act_on_collections itself is proved with the real guards in app/api/collections-scope-rbac.test.ts.
+  canDo: () => true,
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string }) => Promise<unknown>) => cb({ id: "t1" }),
 }))

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
 import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
@@ -199,7 +200,11 @@ export async function POST(req: NextRequest) {
       const buffer = decryption.bytes
       const { storagePath, fileSize } = await saveFile(buffer, file.type)
       const contentSha256 = sha256DocumentBytes(buffer)
-      const shouldExtract = caller.type === "staff" || client.popiaConsentGiven
+      // Staff uploads are read (due diligence), except by a role without the
+      // loan book: extraction, statement analysis and the credit-check
+      // recompute are lending reads (as POST /api/documents/[id]/extract).
+      // Portal uploads need POPIA consent.
+      const shouldExtract = caller.type === "staff" ? !lacksLoanBook(caller.role) : client.popiaConsentGiven
       const extractionGeneration = shouldExtract ? randomUUID() : null
       const extractionStartedAt = shouldExtract ? new Date() : null
 

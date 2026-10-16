@@ -82,4 +82,5 @@ export const portalApply: Catalog["portalApply"] = {
   purposeHint: "(vereis, 3–500 karakters)",
   cancel: "Kanselleer",
   submit: "Dien aansoek in",
+  termMonthsBetween: "Termyn (maande) — tussen {min} en {max}",
 }

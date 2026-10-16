@@ -62,4 +62,6 @@ export const portalApplications = {
   notFoundBack: "Back to my portal",
   execAgreement: "Credit agreement",
   execDownload: "Download signed agreement",
+  appStatus_SETTLED: "Settled",
+  loanSettled: "Loan settled",
 } as const

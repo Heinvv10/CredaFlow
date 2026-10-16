@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { PASSWORD_MIN_LENGTH } from "@/lib/security/password-policy"
 import { useT } from "@/lib/i18n/client"
 
 export function PasswordFields() {
@@ -17,7 +18,7 @@ export function PasswordFields() {
     setError(null)
     setSuccess(false)
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       setError(t("pwTooShort"))
       return
     }

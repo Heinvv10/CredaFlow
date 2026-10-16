@@ -184,6 +184,25 @@ describe("DocumentsTab generic document actions", () => {
     expect(markup).toContain('"Delete"')
   })
 
+  // #145 re-review: a role without the loan book receives the document with
+  // its lending read (extraction, validation) absent. The tab still renders
+  // it, and claims neither a mismatch nor "could not be read".
+  it("renders a document whose lending read was withheld", async () => {
+    const {
+      extractionResult: _er, validationResult: _vr, validationScore: _vs, validationMismatch: _vm, ...withheld
+    } = { ...baseDocument, docType: "BANK_STATEMENT", fileName: "bank-statement.pdf", extractionStatus: "failed" }
+    stubFetch([withheld])
+
+    await act(async () => {
+      renderer = create(<DocumentsTab clientId="client-1" popiaConsentGiven />)
+    })
+
+    const markup = rendered(renderer)
+    expect(markup).toContain("bank-statement.pdf")
+    expect(markup).not.toContain("Document Mismatch")
+    expect(markup).not.toContain("Could not be read automatically")
+  })
+
   // READONLY views and lists only (Hein, 2026-10-16): the server refuses every
   // write, so offering one would be a dead button.
   it("offers a read-only role View and nothing that changes a document", async () => {

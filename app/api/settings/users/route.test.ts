@@ -179,6 +179,16 @@ describe("POST /api/settings/users", () => {
     expect(h.userCreate).not.toHaveBeenCalled()
   })
 
+  // Fair Score audit 2026-10-16: the staff floor was 8 characters, any word.
+  it.each(["synth-8c", "password12", "Welcome2026!"])("refuses a weak password (%s) with 400 and creates nothing", async (password) => {
+    signedIn("ADMIN")
+    const res = await post({ role: "CREDIT_OFFICER", password })
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/at least 10 characters|too common/)
+    expect(h.userCreate).not.toHaveBeenCalled()
+  })
+
   it("creates nothing when the refused attempt cannot be audited", async () => {
     signedIn("ADMIN")
     h.logAuditStrict.mockRejectedValue(new Error("audit table unavailable"))

@@ -14,6 +14,7 @@ import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finance/relationship-input"
 import type { SeedActor } from "./asset-finance-documents"
 import { PEOPLE, personEmail, type AfPersonKey } from "./asset-finance-data"
+import { seedEnvPassword } from "./env-password"
 
 /** The four synthetic clients, by key. KYC stays PENDING: no verification is claimed. */
 export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey, string>> {
@@ -24,7 +25,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       where: { tenantId_idNumber: { tenantId, idNumber: p.idNumber }, tenantId },
       select: { id: true },
     })
-    const envPassword = p.portalPasswordEnv ? process.env[p.portalPasswordEnv] || undefined : undefined
+    const envPassword = p.portalPasswordEnv ? seedEnvPassword(p.portalPasswordEnv) : undefined
     if (existing) {
       if (envPassword) {
         await prisma.client.update({ where: { id: existing.id }, data: { portalPassword: await bcrypt.hash(envPassword, 12) } })

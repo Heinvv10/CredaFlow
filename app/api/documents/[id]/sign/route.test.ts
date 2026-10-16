@@ -23,6 +23,8 @@ const {
   logAudit: vi.fn(),
 }))
 
+// The row the route reads back after signing, as the database holds it.
+const signedRow = vi.hoisted(() => ({ value: {} as Record<string, unknown> }))
 vi.mock("@/lib/document-auth", () => ({ getDocumentCaller }))
 vi.mock("@/lib/audit-refusals", () => ({ auditDocumentAccessRefusal, auditRefusal: vi.fn() }))
 vi.mock("@/lib/tenant", () => ({
@@ -34,7 +36,7 @@ vi.mock("@/lib/prisma", () => {
   const tx = {
     clientDocument: {
       updateMany: updateClientDocument,
-      findFirstOrThrow: async () => ({ id: "doc1", tenantId: "t1", clientId: "client-1", signatureState: "signed" }),
+      findFirstOrThrow: async () => signedRow.value,
     },
     signingOtpChallenge,
   }
@@ -72,6 +74,7 @@ const PENDING_DOC = {
   tenantId: "t1",
   clientId: "client-1",
   deletedAt: null,
+  docType: "OTHER",
   signatureState: "pending",
 }
 
@@ -79,6 +82,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv("TRUSTED_PROXY", "1")
   findFirstClientDocument.mockResolvedValue(PENDING_DOC)
+  signedRow.value = { id: "doc1", tenantId: "t1", clientId: "client-1", docType: "OTHER", signatureState: "signed" }
   updateClientDocument.mockResolvedValue({ count: 1 })
   createDocumentAccessLog.mockResolvedValue({})
   logAudit.mockResolvedValue(undefined)
@@ -404,3 +408,39 @@ describe("POST /api/documents/[id]/sign — a read-only role", () => {
     expect(auditDocumentAccessRefusal).not.toHaveBeenCalled()
   })
 })
+
+// #145 re-review (MEDIUM): signing returned the whole document row: the
+// storage path to everyone, and to an INSURANCE_OFFICER who "signed" a payslip,
+// its extracted income. Only generated documents (OTHER) are signed here, and
+// the response is the sanitised document.
+describe("POST /api/documents/[id]/sign — what is signed and what comes back", () => {
+  it.each(["PAYSLIP", "BANK_STATEMENT", "ID_COPY", "SELFIE", "PROOF_OF_ADDRESS", "PROOF_OF_PAYMENT", "PO_DOCUMENT", "FORM_20_PRE_AGREEMENT", "EXECUTED_CREDIT_AGREEMENT", "SIGNED_AGREEMENT_PACKET"])(
+    "refuses to sign a %s, changing nothing", async (docType) => {
+      getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+      findFirstClientDocument.mockResolvedValue({ ...PENDING_DOC, docType })
+      const res = await POST(req({ method: "branch" }), ctx())
+      expect(res.status).toBe(409)
+      expect(updateClientDocument).not.toHaveBeenCalled()
+    },
+  )
+
+  it("never returns the storage path, and returns the lending read only to a role with the loan book", async () => {
+    signedRow.value = {
+      id: "doc1", tenantId: "t1", clientId: "client-1", docType: "OTHER", signatureState: "signed", storagePath: "/uploads/doc1.pdf",
+      extractionResult: { netPay: 1_500_000 }, validationResult: { mismatches: [] }, validationScore: 90, validationMismatch: false,
+    }
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "io1", role: "INSURANCE_OFFICER", tenantId: "t1" })
+    const forOfficer = await (await POST(req({ method: "branch" }), ctx())).json()
+    expect(forOfficer).toEqual({ id: "doc1", tenantId: "t1", clientId: "client-1", docType: "OTHER", signatureState: "signed" })
+
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "t1" })
+    const forAdmin = await (await POST(req({ method: "branch" }), ctx())).json()
+    expect(forAdmin).not.toHaveProperty("storagePath")
+    expect(forAdmin).toMatchObject({ extractionResult: { netPay: 1_500_000 }, validationScore: 90 })
+
+    getDocumentCaller.mockResolvedValue({ type: "client", clientId: "client-1", email: "x@y.com" })
+    const forClient = await (await POST(req({ method: "portal" }), ctx())).json()
+    expect(forClient).not.toHaveProperty("storagePath")
+  })
+})
+
