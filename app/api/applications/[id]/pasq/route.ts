@@ -864,6 +864,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               billing: current.evidence.billing,
             }
           : undefined,
+      // From the bound record, never from the absence of an offer identity.
+      creditLifeNotOffered: current.evidence.creditLife.disclosureVersion === CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
       initiationFeePayment: application.initiationFeePayment,
     })
     const documentSha256 = sha256DocumentBytes(pdf)

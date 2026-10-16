@@ -13,15 +13,9 @@ import { generateStatementPdf } from "./statement"
 // history rows. Pinned on the code that silently truncated longer tables, so a
 // document that already printed in full must stay byte-for-byte what it was.
 // These come from scripts/nca-pdf-fingerprint.ts.
-// agreement38 / pasq38 re-pinned 2026-10-16 (Fair Score audit B6, NCA wording —
-// legal sign-off gate): the fixture offers no credit life, and the only change
-// to either document is one added table row, "Credit Life" / "Not offered — no
-// credit-life cover is included", after "Total Interest". Same 4 pages; every
-// other text run identical (decoded content-stream diff in the PR). Previous:
-// agreement38 715aaf12…e282, pasq38 a5881ac1…3009.
 const BOUNDARY = {
-  agreement38: "9ec43db3421811cd7b1f8450d93664de1eae62cbb7534238076533467ad5bbaa",
-  pasq38: "ed43544b8ce6d243e34124139fe1c70993b08f2c41c815161a41906dd9544b84",
+  agreement38: "715aaf12662573c1138eb5179a7bf2ff7c45f3c47c57174d43c62727e415e282",
+  pasq38: "a5881ac186e9b4f5c73ec5b65dfd0acfc9aeb2ef5c317493a93ba794ce273009",
   statement37: "abf4499d41ec6441669197aa8e4d622c9b1bc226dc3c6569b7e182afe1bf3c7b",
 }
 

@@ -20,6 +20,7 @@ import {
   requireDebitMandateBankDetails,
 } from "@/lib/loan/debit-mandate"
 import { quotationValidUntilDateFromDatabase } from "@/lib/compliance/sa-business-calendar.server"
+import { agreementCreditLifeFromRecord } from "@/lib/documents/agreement-credit-life"
 
 export type TemplateGenerationContext = {
   client: true
@@ -166,6 +167,9 @@ async function creditAgreementAdapter(ctx: SystemDocContext): Promise<Buffer> {
   // repricing would flow through undetected. The agreement route solves
   // this by rebasing through createAffordabilityContractEvidence and
   // 409-ing on drift — this adapter must do the same before exposure.
+  // Credit life from the stored record, never inferred (Fair Score audit B6).
+  const { creditLife, creditLifeNotOffered, elected: clElected } = agreementCreditLifeFromRecord(application)
+
   const startDate = new Date()
   const maturityDate = new Date()
   maturityDate.setDate(maturityDate.getDate() + application.appliedTermDays)
@@ -205,8 +209,11 @@ async function creditAgreementAdapter(ctx: SystemDocContext): Promise<Buffer> {
     quotePresentedAt,
     quoteValidUntilDate,
     // Interim compliance containment — must mirror the signed agreement and
-    // disbursement paths. Missing configuration defaults to no auto-bundle.
-    willAutoBundleCl: creditLifeAutoBundleDecision(application.appliedAmount).eligible,
+    // disbursement paths (an accepted election that is still eligible).
+    // Missing configuration defaults to no auto-bundle.
+    willAutoBundleCl: clElected && creditLifeAutoBundleDecision(application.appliedAmount).eligible,
+    creditLife,
+    creditLifeNotOffered,
     initiationFeePayment: application.initiationFeePayment,
   })
 }
