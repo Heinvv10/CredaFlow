@@ -121,6 +121,13 @@ describe("POST /api/integrations/isaflow verify", () => {
     expect(actions).toEqual(["ISAFLOW_NEEDS_RECONNECT", "ISAFLOW_CONNECT_REFUSED"])
   })
 
+  it("never audits a token that came back inside IsaFlow's refusal text", async () => {
+    h.verify.mockRejectedValue(new IsaFlowError("auth", `IsaFlow refused ${TOKEN} (401)`, 401))
+    expect((await post({ action: "verify" })).status).toBe(422)
+    expect(h.audit).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(h.audit.mock.calls)).not.toContain(TOKEN)
+  })
+
   it("writes nothing for a SUPER_ADMIN demoted while IsaFlow was being asked", async () => {
     h.verify.mockRejectedValue(refusedToken)
     h.locked.mockResolvedValue([{ id: "super-1", role: "ADMIN", active: true, tokenVersion: 2 }])

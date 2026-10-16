@@ -22,6 +22,7 @@ Suites:
 - `card` = `components/settings/IsaFlowConnectionCard.test.tsx`
 - `edges` = `lib/accounting/isaflow/isaflow-edges.integration.test.ts`
 - `breaker` / `breaker_it` = `lib/accounting/isaflow/breaker.test.ts` / `breaker.integration.test.ts` (the tester's repros)
+- `breaker2_it` = `lib/accounting/isaflow/breaker2.integration.test.ts` (the tester's round-2 probes)
 - `history` = `components/accounting/AccountingHistory.test.tsx`, `control` = `components/accounting/IsaFlowPushControl.test.tsx`
 
 The ITs ran with `RUN_ACCOUNTING_IT=1`.
@@ -104,6 +105,8 @@ restores the original code: the timer is armed first and a throw escapes `done`.
 | M1′ | deleted draft: the message (now without the re-key clause) no longer says to post from the CSV | breaker_it | RED: "7: after 'not_pushed' on a deleted draft…" |
 | U6′ | push control: no CSV hint for a replayed deleted draft | control | RED: "tells a person to post from the CSV…" |
 | U7 | push control: the push button is offered again for a replayed deleted draft | control | RED: "tells a person to post from the CSV…" |
+| T1 | audit reasons stored unredacted (`redactTokens` returns its input) | breaker2_it | RED: "token drop: audited exactly once with the actor and no token…" |
+| T2 | the same, via the verify route's refusal audit | conn_route | RED: "never audits a token that came back inside IsaFlow's refusal text" |
 
 ## A test that could not fail (found and fixed during this run)
 

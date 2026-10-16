@@ -69,6 +69,8 @@ suite.sequential("round 2 guards", () => {
     expect(await prisma.$transaction((tx) => markIsaFlowNeedsReconnect(tx, { tenantId: B.tenantId, actor: act(B), reason: "again" }))).toBe(false)
     const rows = await db.auditLog.findMany({ where: { tenantId: B.tenantId, action: "ISAFLOW_NEEDS_RECONNECT" } })
     expect(rows).toHaveLength(before + 1)
+    // The reason came in carrying the token: the audit row must not.
+    expect(JSON.stringify(rows)).not.toContain("pat_isaflow_it_0123456789abcdef")
     expect(await db.isaFlowConnection.findUniqueOrThrow({ where: { tenantId: B.tenantId } })).toMatchObject({ status: "NEEDS_RECONNECT", tokenSealed: null })
   })
 })

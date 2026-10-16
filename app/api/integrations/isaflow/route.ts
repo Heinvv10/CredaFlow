@@ -6,7 +6,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { superAdminPolicyWrite, type PolicyWriteContext } from "@/lib/security/policy-write-guard"
 import { IsaFlowError } from "@/lib/accounting/isaflow/client"
 import {
-  disconnectIsaFlow, isaflowStatus, markIsaFlowNeedsReconnect, parseConnectInput, probeIsaFlow, recordIsaFlowVerified, saveIsaFlowConnection, verifyProbe,
+  disconnectIsaFlow, isaflowStatus, markIsaFlowNeedsReconnect, parseConnectInput, probeIsaFlow, recordIsaFlowVerified, redactTokens, saveIsaFlowConnection,
+  verifyProbe,
   type Probe,
 } from "@/lib/accounting/isaflow/connection"
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
       if (input.action === "verify" && kind === "auth") await markIsaFlowNeedsReconnect(tx, { ...who, reason: message })
       await logAuditStrict({
         tenantId: ctx.tenantId, userId: ctx.actor.id, userEmail: ctx.actor.email, action: AuditAction.ISAFLOW_CONNECT_REFUSED,
-        entity: "IsaFlowConnection", entityId: ctx.tenantId, ipAddress: ctx.ip, newValue: { action: input.action, kind, reason: message.slice(0, 500) },
+        entity: "IsaFlowConnection", entityId: ctx.tenantId, ipAddress: ctx.ip, newValue: { action: input.action, kind, reason: redactTokens(message).slice(0, 500) },
       }, tx)
       return NextResponse.json({ error: message }, { status: kind === "unknown" ? 502 : 422 })
     }

@@ -99,6 +99,11 @@ export async function isaflowTarget(db: ConnectionDb, tenantId: string): Promise
   return { baseUrl: row.baseUrl, token: open(row.tokenSealed), companyId: row.isaflowCompanyId }
 }
 
+/** Free text bound for an audit row, with anything shaped like a token or a sealed value cut out. */
+export function redactTokens(text: string): string {
+  return text.replace(/\b(?:pat|oat)_[\x21-\x7e]*/g, "[token]").replace(/enc:v1:[\x21-\x7e]*/g, "[sealed]")
+}
+
 /**
  * IsaFlow refused the token (or it is bound to another company now): it is
  * dropped and a SUPER_ADMIN must connect again. Audited, whichever path saw it.
@@ -106,7 +111,7 @@ export async function isaflowTarget(db: ConnectionDb, tenantId: string): Promise
 export async function markIsaFlowNeedsReconnect(tx: ConnectionTx, args: { tenantId: string; actor: Actor; ip?: string | null; reason: string }): Promise<boolean> {
   const moved = await tx.isaFlowConnection.updateMany({ where: { tenantId: args.tenantId, status: "CONNECTED" }, data: { status: "NEEDS_RECONNECT", tokenSealed: null } })
   if (moved.count !== 1) return false
-  await audit(tx, args.tenantId, args.actor, args.ip ?? null, AuditAction.ISAFLOW_NEEDS_RECONNECT, { reason: args.reason.slice(0, 500) })
+  await audit(tx, args.tenantId, args.actor, args.ip ?? null, AuditAction.ISAFLOW_NEEDS_RECONNECT, { reason: redactTokens(args.reason).slice(0, 500) })
   return true
 }
 
