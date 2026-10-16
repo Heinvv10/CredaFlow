@@ -53,6 +53,13 @@ export async function POST(
             error: "The evidence on file no longer supports VERIFIED. Reload the page to see what is outstanding.",
             reason: result.kind,
           }, { status: 409 })
+        case "manual_pending_stands":
+          return NextResponse.json({
+            error: result.evidenceVerifies
+              ? "A staff member set this client's KYC to PENDING deliberately. Approve KYC instead if it should be VERIFIED."
+              : "A staff member set this client's KYC to PENDING deliberately, and the evidence on file does not support VERIFIED. Reload the page to see what is outstanding.",
+            reason: result.kind,
+          }, { status: 409 })
         case "rederived":
           return NextResponse.json({ kycStatus: result.kycStatus })
       }

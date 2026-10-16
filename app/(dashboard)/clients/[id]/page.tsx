@@ -49,6 +49,7 @@ import {
 } from "@/lib/kyc/override-policy"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { expireAndListPendingKycOverrideRequests } from "@/lib/kyc/override-requests"
+import { manualPendingStands } from "@/lib/kyc/manual-pending.server"
 import { verificationRestorable } from "@/lib/kyc/verification-restorable"
 
 async function getClient(id: string, tenantId: string) {
@@ -105,7 +106,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   // The session role is revalidated against the User row on every request
   // (lib/auth.ts), so this hides exactly the controls the document routes refuse.
   const documentsReadOnly = isDocumentReadOnlyRole(staffRole)
-  const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests] = await Promise.all([
+  const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests, kycManualPendingStands] = await Promise.all([
     readCompositeKycState(
       prisma as unknown as CompositeKycReader,
       {
@@ -125,6 +126,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
           actor: { id: session.user.id, email: session.user.email },
         })
       : Promise.resolve([]),
+    manualPendingStands(prisma, { tenantId, clientId: client.id }),
   ])
   const manualException = compositeKyc.manualException
     ? {
@@ -182,7 +184,8 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   // Derived, not stored: the loans are already loaded above, so this costs no
   // extra query and cannot fall out of step with them.
   const status = clientStatus(client)
-  const kycBadge = compositeKyc.manualExceptionActive
+  // The STORED status; the derived exception only names a stored VERIFIED.
+  const kycBadge = compositeKyc.manualExceptionActive && client.kycStatus === "VERIFIED"
     ? {
         label: "MANUAL EXCEPTION",
         className: "bg-amber-100 text-amber-900",
@@ -458,7 +461,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 kycStatus={client.kycStatus}
                 manualExceptionActive={compositeKyc.manualExceptionActive}
                 substituteKind={compositeKyc.substituteKind}
-                verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc)}
+                verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc, {
+                  manualPendingStands: kycManualPendingStands,
+                })}
                 selfieAlternatives={selfieAlternatives}
                 signedAgreementReturn={signedAgreementReturn}
                 readOnly={documentsReadOnly}

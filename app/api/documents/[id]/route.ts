@@ -7,6 +7,7 @@ import { recordedCallerIp } from "@/lib/rate-limit"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { AuditAction } from "@/lib/audit"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import {
   clientKycAuditValue,
   isCoreKycDocumentType,
@@ -242,7 +243,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           if (!clientPromotion) {
             clientAfter = await tx.client.update({
               where: { id: current.clientId, tenantId: tenant.id },
-              data: compositeKyc.state,
+              data: await holdManualPending(tx, {
+                tenantId: tenant.id, clientId: current.clientId, storedKycStatus: clientBefore.kycStatus, state: compositeKyc.state,
+              }),
               select: {
                 kycStatus: true,
                 kycVerifiedAt: true,

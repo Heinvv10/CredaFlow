@@ -30,6 +30,7 @@ import { canonicalBiometricImage } from "@/lib/kyc/biometric-image.server"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
 import { SWEPT_ATTEMPT_CONDITIONS } from "@/lib/kyc/selfie-sweeper.server"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -509,7 +510,9 @@ async function persistBiometricOutcome(args: {
     if (outcomeIsCurrent) {
       clientAfter = await tx.client.update({
         where: { id: args.clientId, tenantId: args.tenantId },
-        data: compositeKyc.state,
+        data: await holdManualPending(tx, {
+          tenantId: args.tenantId, clientId: args.clientId, storedKycStatus: clientBefore.kycStatus, state: compositeKyc.state,
+        }),
         select: {
           kycStatus: true,
           kycVerifiedAt: true,
