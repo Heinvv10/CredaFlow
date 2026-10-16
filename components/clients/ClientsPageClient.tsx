@@ -61,7 +61,11 @@ function formatDate(d?: Date | null) {
   return new Date(d).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric", timeZone: SAST_TIME_ZONE })
 }
 
-export function ClientsPageClient({ clients }: { clients: Client[] }) {
+/**
+ * `loanBook` false (a role without view_loan_book): no loan, application,
+ * repayment or income figure is shown; the page also sends none.
+ */
+export function ClientsPageClient({ clients, loanBook = true }: { clients: Client[]; loanBook?: boolean }) {
   const [selected, setSelected] = useState<Client | null>(null)
   const [search, setSearch] = useState("")
 
@@ -87,7 +91,7 @@ export function ClientsPageClient({ clients }: { clients: Client[] }) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {clients.length} registered clients · {clients.filter(c => c._count.loans > 0).length} with active loans
+              {clients.length} registered clients{loanBook && ` · ${clients.filter(c => c._count.loans > 0).length} with active loans`}
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -119,7 +123,7 @@ export function ClientsPageClient({ clients }: { clients: Client[] }) {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ backgroundColor: "#F8F8F8", borderBottom: "1px solid #E5E7EB" }}>
-                  {["Client", "ID Number", "Phone", "Active Loans", "KYC Status", ""].map(h => (
+                  {["Client", "ID Number", "Phone", ...(loanBook ? ["Active Loans"] : []), "KYC Status", ""].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -169,14 +173,14 @@ export function ClientsPageClient({ clients }: { clients: Client[] }) {
                       </td>
                       <td className="px-4 py-3.5 font-mono text-xs text-gray-600">{client.idNumber}</td>
                       <td className="px-4 py-3.5 text-[13px] text-gray-600">{client.phone}</td>
-                      <td className="px-4 py-3.5">
+                      {loanBook && <td className="px-4 py-3.5">
                         <span
                           className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-semibold"
                           style={{ backgroundColor: loanLabel.bg, color: loanLabel.text }}
                         >
                           {loanLabel.label}
                         </span>
-                      </td>
+                      </td>}
                       <td className="px-4 py-3.5">
                         <span
                           className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-semibold"
@@ -245,10 +249,12 @@ export function ClientsPageClient({ clients }: { clients: Client[] }) {
                   { label: "ID Number", value: selected.idNumber },
                   { label: "Date of Birth", value: selected.dateOfBirth ? formatDate(selected.dateOfBirth) : "—" },
                   { label: "Employment", value: selected.employmentStatus ? selected.employmentStatus.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "—" },
-                  { label: "Income", value: <span className="whitespace-nowrap">{`${formatZAR(selected.monthlyIncome)}/mo`}</span> },
+                  ...(loanBook ? [{ label: "Income", value: <span className="whitespace-nowrap">{`${formatZAR(selected.monthlyIncome)}/mo`}</span> }] : []),
                   { label: "Bank", value: selected.bankName ? `${selected.bankName} · ${selected.bankAccountType || "Account"}` : "—" },
-                  { label: "Loans taken", value: `${selected._count.applications} (${selected._count.loans} active)` },
-                  { label: "Total repaid", value: <span className="whitespace-nowrap">{formatZAR(totalRepaid(selected))}</span> },
+                  ...(loanBook ? [
+                    { label: "Loans taken", value: `${selected._count.applications} (${selected._count.loans} active)` },
+                    { label: "Total repaid", value: <span className="whitespace-nowrap">{formatZAR(totalRepaid(selected))}</span> },
+                  ] : []),
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between">
                     <span className="text-gray-400 text-[12px]">{row.label}</span>

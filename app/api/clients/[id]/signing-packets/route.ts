@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import type { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -69,6 +70,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       })
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
+
+    // The packets are the client's loan agreements: none for a role without the loan book.
+    if (caller.type === "staff" && lacksLoanBook(caller.role)) return NextResponse.json([])
 
     return withTenantContextLoggingRefusal(req, { documentId: `client:${clientId}:signing-packets`, caller }, async (tenant) => {
       const applications = await prisma.loanApplication.findMany({

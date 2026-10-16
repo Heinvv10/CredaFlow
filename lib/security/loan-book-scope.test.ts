@@ -45,3 +45,24 @@ describe("the sidebar for INSURANCE_OFFICER", () => {
     }
   })
 })
+
+describe("isLoanBookPath matches as the router does", () => {
+  it.each([
+    ["/api/loans", true], ["/api/loans/", true], ["/api//loans/x", true], ["//api/loans", true], ["/api/%6Coans", true],
+    ["/api/./loans", true], ["/api/x/../loans", true], ["/api/%E0%A4%A", true],
+    ["/api/loansx", false], ["/api/Loans", false], ["/api/clients/loans", false], ["/api", false],
+    ["/loans", true], ["/loans//x/", true], ["/loansx", false], ["/clients/loans", false], ["/", false],
+  ])("%s → %s", (path, expected) => {
+    expect(isLoanBookPath(path)).toBe(expected)
+  })
+})
+
+describe("client redaction", () => {
+  it("removes the loan-book relations and figures and keeps the client", async () => {
+    const { clientWithoutLoanBook, clientRelationsWithoutLoanBook } = await import("./client-redaction")
+    const client = { id: "c1", firstName: "Lerato", applications: [1], loans: [1], expenseBreakdown: {}, debtObligations: [1], monthlyIncome: 1, creditScore: 600 }
+    expect(clientWithoutLoanBook(client)).toEqual({ id: "c1", firstName: "Lerato" })
+    expect(clientRelationsWithoutLoanBook(client)).toMatchObject({ applications: [], loans: [], debtObligations: [], expenseBreakdown: null, firstName: "Lerato" })
+  })
+})
+

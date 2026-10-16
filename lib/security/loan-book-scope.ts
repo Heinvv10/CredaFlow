@@ -18,16 +18,41 @@ export const LOAN_BOOK_PAGES = [
 export const LOAN_BOOK_APIS = [
   "applications", "loans", "payments", "collections", "collections-engine", "asset-finance",
   "reports", "crm", "payouts", "accounting", "agent-tasks",
+  // Client-notified payments awaiting reconciliation (#141).
+  "payment-notifications",
 ] as const
 
 /** Where a role without the loan book lands instead of the executive dashboard. */
 export const NO_LOAN_BOOK_HOME = "/clients"
 
-const firstSegment = (path: string, offset: number) => path.split("/")[offset] ?? ""
+/**
+ * The path's segments as a router sees them: percent-decoded, empty segments
+ * (duplicate and trailing slashes) and "." dropped. Null when it cannot be
+ * read (malformed escapes, or a ".." a router would resolve elsewhere): the
+ * caller refuses rather than guess.
+ */
+export function pathSegments(path: string): string[] | null {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(path)
+  } catch {
+    return null
+  }
+  const segments = decoded.split("/").filter((s) => s !== "" && s !== ".")
+  return segments.includes("..") ? null : segments
+}
 
+/**
+ * Whether a request path is the loan book: its first segment (or, under /api,
+ * its second) is a listed one, compared exactly and case-sensitively, as Next
+ * routes. An unreadable path counts as the loan book, so a role without it is
+ * refused rather than let through on a parsing difference.
+ */
 export function isLoanBookPath(path: string): boolean {
-  if (path.startsWith("/api/")) return (LOAN_BOOK_APIS as readonly string[]).includes(firstSegment(path, 2))
-  return (LOAN_BOOK_PAGES as readonly string[]).includes(firstSegment(path, 1))
+  const segments = pathSegments(path)
+  if (!segments) return true
+  if (segments[0] === "api") return (LOAN_BOOK_APIS as readonly string[]).includes(segments[1] ?? "")
+  return (LOAN_BOOK_PAGES as readonly string[]).includes(segments[0] ?? "")
 }
 
 /**

@@ -8,7 +8,7 @@ import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { operatorAppHost, staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
-import { isLoanBookPath, lacksLoanBook, NO_LOAN_BOOK_HOME } from "@/lib/security/loan-book-scope"
+import { isLoanBookPath, lacksLoanBook, NO_LOAN_BOOK_HOME, pathSegments } from "@/lib/security/loan-book-scope"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { operatorHostGate, operatorOffHostRefusal } from "@/lib/proxy/operator-host"
@@ -56,7 +56,7 @@ function route(req: NextAuthRequest): Response {
   // (lib/proxy/operator-host.ts).
   const consoleHost = operatorAppHost()
   if (consoleHost !== null && baseHostname === consoleHost) {
-    return operatorHostGate(req, req.auth, stampRequest(buildTenantHeaders(req, null), req.method), APP_MODE)
+    return operatorHostGate(req, req.auth, stampRequest(buildTenantHeaders(req, null), req.method, req.nextUrl.pathname), APP_MODE)
   }
   const offHostRefusal = operatorOffHostRefusal(path, req.auth?.user?.role)
   if (offHostRefusal) return offHostRefusal
@@ -272,7 +272,7 @@ function route(req: NextAuthRequest): Response {
   }
 
   // Forward tenant slug to Server Components via request header
-  const requestHeaders = stampRequest(buildTenantHeaders(req, tenantSlug), req.method)
+  const requestHeaders = stampRequest(buildTenantHeaders(req, tenantSlug), req.method, req.nextUrl.pathname)
 
   // Operator support access is read-only: no write, server action included.
   const operatorRefusal = operatorWriteRefusal(req.auth?.user?.role, req.method, path)
@@ -336,7 +336,8 @@ function route(req: NextAuthRequest): Response {
   // so that one sends it to its own home instead of the no-access page.
   if (lacksLoanBook(role) && isLoanBookPath(path)) {
     if (isApiPath) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    const target = path === "/dashboard" ? NO_LOAN_BOOK_HOME : NO_ACCESS_PAGE
+    const segments = pathSegments(path)
+    const target = segments?.length === 1 && segments[0] === "dashboard" ? NO_LOAN_BOOK_HOME : NO_ACCESS_PAGE
     return NextResponse.redirect(new URL(target, req.url))
   }
 

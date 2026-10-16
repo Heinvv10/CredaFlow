@@ -8,6 +8,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
 import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
+import { refusesLoanBook } from "@/lib/security/loan-book-guard"
+import { lacksLoanBook, NO_LOAN_BOOK_HOME } from "@/lib/security/loan-book-scope"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { resolveOperatorTenantAccess } from "@/lib/operator/tenant-access"
 import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
@@ -59,7 +61,7 @@ export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {
     redirect(ENROLMENT_PAGE)
   }
 
-  if (!allowedRoles.includes(session.user.role)) {
+  if (!allowedRoles.includes(session.user.role) || await refusesLoanBook(session.user.role)) {
     redirect(NO_ACCESS_PAGE)
   }
 
@@ -93,7 +95,7 @@ export async function requireMinRole(minRole: UserRole): Promise<StaffUser> {
     redirect(ENROLMENT_PAGE)
   }
 
-  if (!hasMinRole(session.user.role, minRole)) {
+  if (!hasMinRole(session.user.role, minRole) || await refusesLoanBook(session.user.role)) {
     redirect(NO_ACCESS_PAGE)
   }
 
@@ -127,10 +129,21 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
   if (session.user.totpEnrolmentRequired === true) {
     return { error: enrolmentRequiredResponse() }
   }
-  if (!hasMinRole(session.user.role, minRole)) {
+  if (!hasMinRole(session.user.role, minRole) || await refusesLoanBook(session.user.role)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { user: session.user as StaffUser }
+}
+
+/**
+ * For a loan-book page segment's layout (lib/security/loan-book-scope.ts): a
+ * role without view_loan_book goes to the no-access page, or from the
+ * executive dashboard to its own home.
+ */
+export async function requireLoanBookPage(opts: { home?: boolean } = {}): Promise<void> {
+  // The dashboard layout above already refuses a missing or stale session.
+  const session = await auth()
+  if (lacksLoanBook(session?.user?.role)) redirect(opts.home ? NO_LOAN_BOOK_HOME : NO_ACCESS_PAGE)
 }
 
 /**
@@ -415,7 +428,7 @@ export async function requireOwnerOrStaff(
   if (session.user.totpEnrolmentRequired === true) {
     return { error: enrolmentRequiredResponse() }
   }
-  if (!hasMinRole(session.user.role, minStaffRole)) {
+  if (!hasMinRole(session.user.role, minStaffRole) || await refusesLoanBook(session.user.role)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) }
   }
   return { type: "staff", user: session.user as StaffUser }

@@ -22,6 +22,11 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
   withTenantContext: async (_req: unknown, handler: (tenant: { id: string; name: string }) => Promise<unknown>) =>
     handler({ id: "tenant-1", name: "RBAC Test Lender" }),
 }))
+// These routes are all in the loan book, which the guards' second layer
+// (lib/security/loan-book-guard.ts) already refuses to INSURANCE_OFFICER. It
+// is turned off here so the act_on_collections permission is proved on its
+// own; the scope has its own tests (lib/__tests__/auth-guards.loan-book.test.ts).
+vi.mock("@/lib/security/loan-book-guard", () => ({ refusesLoanBook: async () => false }))
 const touched = vi.hoisted(() => ({ prisma: false }))
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
