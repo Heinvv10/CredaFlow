@@ -34,6 +34,7 @@ const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
+const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: Date; maturityDate: Date }>)
 
 // The client's own loans with this lender: none here (the real-DB behaviour is
 // lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
@@ -71,7 +72,8 @@ vi.mock("@/lib/prisma", () => ({
     clientDocument: { findMany: (a: unknown) => clientDocumentFindManyMock(a) },
     creditBureauCheck: { findFirst: (a: unknown) => creditBureauCheckFindFirstMock(a) },
     tenantConfig: { findFirst: (a: unknown) => tenantConfigFindFirstMock(a) },
-    referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a) },
+    referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a), findMany: async () => [] },
+    loan: { findMany: (a: unknown) => loanFindManyMock(a) },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))
@@ -1010,6 +1012,31 @@ describe("the client's own loans with this lender count in affordability", () =>
     for (const list of [approval.debts.application, approval.debts.client]) {
       expect(list).toContainEqual(expect.objectContaining({ sourceId: "own-loan:own-loan-1", monthlyInstalmentCents: 10_000, provider: "Acme Lending" }))
     }
+  })
+})
+
+describe("Regulation 42: 3% a month on a repeat short-term loan in the calendar year", () => {
+  afterEach(() => { loanFindManyMock.mockResolvedValue([]) })
+
+  it("refuses the client's second short-term loan this year at 5% a month, without re-pricing it", async () => {
+    // A 30-day R2,000 loan earlier this year.
+    loanFindManyMock.mockResolvedValue([{ startDate: new Date("2026-03-01T08:00:00Z"), maturityDate: new Date("2026-03-31T08:00:00Z") }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    const json = await res.json() as { error: string; interestRateCap: string }
+    expect(json.interestRateCap).toBe("REPEAT_SHORT_TERM")
+    expect(json.error).toContain("at most 3.00% per month")
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", principal: { lte: 800_000 } }),
+    }))
+  })
+
+  it("ignores an earlier loan that was not short-term (over 6 months)", async () => {
+    loanFindManyMock.mockResolvedValue([{ startDate: new Date("2026-01-05T08:00:00Z"), maturityDate: new Date("2026-12-05T08:00:00Z") }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
   })
 })
 

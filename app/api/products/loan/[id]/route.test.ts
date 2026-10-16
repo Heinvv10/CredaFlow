@@ -31,6 +31,7 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: (...args: unknown[]) => transaction(...args),
     // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
     referenceRate: {
+      findMany: vi.fn(async () => []),
       findFirst: vi.fn(async () => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => 0.07 } })),
     },
   },
@@ -245,11 +246,20 @@ describe("PUT /api/products/loan/[id] NON_NCA arrears terms", () => {
     expect("nonNcaCollectionFeeCents" in data).toBe(false)
   })
 
-  it("refuses a rate above the NCA unsecured cap (repo 7% + 21%) 422 before any write", async () => {
+  it("refuses a rate above the NCA unsecured cap (repo 7% + 21%) 422 without writing", async () => {
     const response = await edit({ interestRatePm: 3 })
     expect(response.status).toBe(422)
     expect((await response.json()).error).toContain("36.00% per year (nominal) exceeds the NCA maximum of 28.00%")
-    expect(transaction).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("lets an over-cap product be deactivated or renamed: only a price change or an activation is capped", async () => {
+    // Stored at 3% a month (36% a year), over the cap.
+    findUnique.mockResolvedValue({ ...personal, interestRatePm: 0.03 })
+    expect((await edit({ interestRatePm: 3, active: false })).status).toBe(200)
+    expect((await edit({ interestRatePm: 3, name: "Renamed" })).status).toBe(200)
+    findUnique.mockResolvedValue({ ...personal, interestRatePm: 0.03, active: false })
+    expect((await edit({ interestRatePm: 3, active: true })).status).toBe(422)
   })
 
   it("refuses a negative fee 422 before any write", async () => {

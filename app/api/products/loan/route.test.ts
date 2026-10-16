@@ -19,6 +19,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanProduct: { create: (...args: unknown[]) => create(...args) },
     referenceRate: {
+      findMany: vi.fn(async () => []),
       findFirst: vi.fn(async () => repo.rate === null
         ? null
         : { effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => repo.rate } }),

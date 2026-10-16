@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { PRODUCT_PRICING } from "@/lib/product-pricing"
 import { REPO } from "@/prisma/seed/asset-finance-data"
-import { checkNcaInterestRate, ncaCreditType, productCreditType } from "./nca-interest-cap"
+import { checkNcaInterestRate, checkRepeatShortTermRate, ncaCreditType, productCreditType } from "./nca-interest-cap"
 
 describe("NCA credit type (s1 short-term credit transaction)", () => {
   it("is short-term at R8,000 and 180 days, and unsecured one cent or one day beyond", () => {
@@ -74,5 +74,13 @@ describe("the demo products (prisma/seed.ts, mirrored by lib/product-pricing.ts)
     for (const key of ["personal", "purchase-order", "invoice-discounting"] as const) {
       expect(checkNcaInterestRate({ creditType: "UNSECURED", ...PRODUCT_PRICING[key], repoAnnualRate })).toEqual({ ok: true })
     }
+  })
+})
+
+describe("repeat short-term cap: 3% a month after the first loan in a calendar year", () => {
+  it("allows 5% on the first, exactly 3% on a later one, and refuses 3.01%", () => {
+    expect(checkRepeatShortTermRate(0.05, 0)).toEqual({ ok: true })
+    expect(checkRepeatShortTermRate(0.03, 1)).toEqual({ ok: true })
+    expect(checkRepeatShortTermRate(0.0301, 2)).toMatchObject({ ok: false, reason: "REPEAT_SHORT_TERM" })
   })
 })

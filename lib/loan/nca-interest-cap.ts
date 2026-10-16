@@ -26,10 +26,11 @@
 // The older "(RR x 2.2) + 20%" unsecured formula predates GN R1080 and is not
 // used.
 //
-// NOT IMPLEMENTED: the 3%-per-month ceiling on a consumer's subsequent
-// short-term loans within a calendar year. A product carries one rate, so it
-// needs a per-application rate or a separate repeat product: a product
-// decision, reported rather than guessed.
+// The 3%-per-month ceiling on a consumer's subsequent short-term loans within
+// a calendar year is enforced at approval (approvalInterestCapRefusal,
+// ./nca-interest-cap.server.ts), from the client's own loans with the lender.
+// It refuses; it never re-prices: a product carries one rate, and repeat
+// pricing is a product decision.
 
 import { annualisedInterestRate } from "@/lib/loan/annualised-rate"
 
@@ -78,7 +79,7 @@ export interface InterestRateCapInput {
 
 export type InterestRateCapResult =
   | { ok: true }
-  | { ok: false; reason: "ABOVE_CAP" | "NO_REPO_RATE"; message: string }
+  | { ok: false; reason: "ABOVE_CAP" | "NO_REPO_RATE" | "REPO_IMPLAUSIBLE" | "REPEAT_SHORT_TERM"; message: string }
 
 // Float tolerance: 0.0233 x 12 must not fail a 27.96% cap by a rounding hair.
 const EPSILON = 1e-9
@@ -99,7 +100,7 @@ export function checkNcaInterestRate(input: InterestRateCapInput): InterestRateC
     return {
       ok: false,
       reason: "NO_REPO_RATE",
-      message: `The NCA maximum for an ${type} is the repo rate + 21% per year, and no approved repo rate is recorded. Record the SARB repo rate under Asset finance → Reference rates first.`,
+      message: `The NCA maximum for an ${type} is the repo rate + 21% per year, and no approved repo rate is recorded. Record the SARB repo rate under Settings → Repo rate first.`,
     }
   }
   const capPercent = (input.repoAnnualRate + NCA_INTEREST_CAP.unsecuredRepoMargin) * 100
@@ -111,4 +112,19 @@ export function checkNcaInterestRate(input: InterestRateCapInput): InterestRateC
         reason: "ABOVE_CAP",
         message: `${annual.percent.toFixed(2)}% ${annual.basisLabel} exceeds the NCA maximum of ${capPercent.toFixed(2)}% (repo ${(input.repoAnnualRate * 100).toFixed(2)}% + 21%) for an ${type} (Regulation 42).`,
       }
+}
+
+/**
+ * Regulation 42 Table A: 3% per month on a consumer's SUBSEQUENT short-term
+ * credit transactions within a calendar year (5% on the first).
+ */
+export const REPEAT_SHORT_TERM_MONTHLY_RATE = 0.03
+
+export function checkRepeatShortTermRate(interestRatePm: number, earlierShortTermLoansThisYear: number): InterestRateCapResult {
+  if (earlierShortTermLoansThisYear === 0 || interestRatePm <= REPEAT_SHORT_TERM_MONTHLY_RATE + EPSILON) return { ok: true }
+  return {
+    ok: false,
+    reason: "REPEAT_SHORT_TERM",
+    message: `This client already had ${earlierShortTermLoansThisYear} short-term loan${earlierShortTermLoansThisYear === 1 ? "" : "s"} with you this calendar year: a subsequent short-term credit transaction may charge at most ${(REPEAT_SHORT_TERM_MONTHLY_RATE * 100).toFixed(2)}% per month (Regulation 42), and this product charges ${(interestRatePm * 100).toFixed(2)}%. Price it on a product within that limit.`,
+  }
 }

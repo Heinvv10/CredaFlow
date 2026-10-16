@@ -31,6 +31,7 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: (...args: unknown[]) => transaction(...args),
     // Approved SARB repo 7%: the NCA unsecured cap is 28% a year (2.33% a month).
     referenceRate: {
+      findMany: vi.fn(async () => []),
       findFirst: vi.fn(async () => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => 0.07 } })),
     },
   },
