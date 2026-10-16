@@ -33,6 +33,8 @@ const post = (body: unknown) => POST(new NextRequest("https://acme.example/api/a
 }), ctx)
 const REASON = "Salary paid in cash; confirmed with the employer."
 
+afterEach(() => vi.unstubAllEnvs())
+
 beforeEach(() => {
   vi.resetAllMocks()
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@test.invalid", role: "LOAN_ADMIN", tenantId: "t1", totpVerified: true } })
@@ -67,6 +69,8 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
   })
 
   it("refuses a session that did not verify two-factor authentication", async () => {
+    vi.stubEnv("DEMO_MODE", "")
+    vi.stubEnv("DEMO_CLEAR_STAFF_TOTP", "")
     requireApiRoleMock.mockResolvedValue({ user: { id: "u1", role: "LOAN_ADMIN", tenantId: "t1", totpVerified: false } })
     const res = await post({ reason: REASON })
     expect(res.status).toBe(403)
@@ -76,7 +80,6 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
   describe("a demo stack without TOTP (DEMO_MODE and DEMO_CLEAR_STAFF_TOTP both exactly true)", () => {
     const passwordOnly = () =>
       requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@test.invalid", role: "LOAN_ADMIN", tenantId: "t1", totpVerified: false } })
-    afterEach(() => vi.unstubAllEnvs())
 
     it("lets a password-only session clear and records the waiver in the audit row", async () => {
       vi.stubEnv("DEMO_MODE", "true")
@@ -98,7 +101,8 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
     it.each([
       ["only DEMO_MODE", { DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "" }],
       ["only DEMO_CLEAR_STAFF_TOTP", { DEMO_MODE: "", DEMO_CLEAR_STAFF_TOTP: "true" }],
-      ["not exactly true", { DEMO_MODE: "TRUE", DEMO_CLEAR_STAFF_TOTP: "true " }],
+      ["DEMO_MODE not exactly true", { DEMO_MODE: "TRUE", DEMO_CLEAR_STAFF_TOTP: "true" }],
+      ["DEMO_CLEAR_STAFF_TOTP not exactly true", { DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "true " }],
     ])("still refuses a password-only session with %s", async (_what, env) => {
       for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
       passwordOnly()
