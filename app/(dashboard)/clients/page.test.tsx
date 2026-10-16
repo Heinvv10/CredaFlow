@@ -45,9 +45,9 @@ describe("clients list", () => {
     }])
     try {
       renderToStaticMarkup(await ClientsPage())
-      const props = clientsProps.mock.calls[0][0] as { loanBook: boolean; clients: Array<{ monthlyIncome: number; _count: unknown; loans: unknown[] }> }
+      const props = clientsProps.mock.calls[0][0] as { loanBook: boolean; clients: Array<Record<string, unknown>> }
       expect(props.loanBook).toBe(false)
-      expect(props.clients[0]).toMatchObject({ monthlyIncome: 0, _count: { loans: 0, applications: 0 }, loans: [] })
+      expect(props.clients[0]).toEqual({ id: "c1", unreadCount: 0 })
     } finally {
       session.role = "CREDIT_OFFICER"
     }

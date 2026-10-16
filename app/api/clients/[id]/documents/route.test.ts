@@ -137,6 +137,19 @@ describe("GET /api/clients/[id]/documents", () => {
     mocks.documentFindFirst.mockResolvedValue(selfie)
   })
 
+  // #145 breaker review: the extraction is the lending read of a document; a
+  // role without the loan book still sees the files, not that read.
+  it("withholds extractionResult from INSURANCE_OFFICER and keeps it for credit staff", async () => {
+    const doc = { id: "doc-1", docType: "PAYSLIP", storagePath: "private/p", extractionResult: { netPay: 1_500_000 } }
+    mocks.documentFindMany.mockResolvedValue([doc])
+    mocks.getDocumentCaller.mockResolvedValue({ type: "staff", userId: "io-1", role: "INSURANCE_OFFICER", tenantId: "tenant-portal" })
+    const forOfficer = await (await GET(request(false), params)).json()
+    expect(forOfficer).toEqual([{ id: "doc-1", docType: "PAYSLIP" }])
+    mocks.getDocumentCaller.mockResolvedValue({ type: "staff", userId: "co-1", role: "CREDIT_OFFICER", tenantId: "tenant-portal" })
+    const forCredit = await (await GET(request(false), params)).json()
+    expect(forCredit).toEqual([{ id: "doc-1", docType: "PAYSLIP", extractionResult: { netPay: 1_500_000 } }])
+  })
+
   it("rejects an unauthenticated caller before document access", async () => {
     mocks.getDocumentCaller.mockResolvedValue(null)
 

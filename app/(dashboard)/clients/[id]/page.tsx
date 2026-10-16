@@ -333,7 +333,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 cannedReplies={cannedRepliesSafe}
               />
               {showLoanBook && <Link href={`/applications/new?clientId=${client.id}`}><Button><Plus className="h-4 w-4 mr-2" />New Application</Button></Link>}
-              <Link href={`/clients/${client.id}/edit`}><Button variant="outline"><Edit className="h-4 w-4 mr-2" />Edit</Button></Link>
+              {showLoanBook && <Link href={`/clients/${client.id}/edit`}><Button variant="outline"><Edit className="h-4 w-4 mr-2" />Edit</Button></Link>}
             </div>
           </div>
           {/* Gated to match the API guard on PATCH /api/clients/[id]/status.
@@ -374,7 +374,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
               <h4 className="text-sm font-medium text-gray-500 mb-2">Employment</h4>
               <p className="text-sm">{client.employmentStatus?.replace("_", " ") || "N/A"}</p>
               <p className="text-sm">{client.employerName || "N/A"}</p>
-              {client.incomeSourceType && <p className="text-sm">{client.incomeSourceType.replace(/_/g, " ")}</p>}
+              {showLoanBook && client.incomeSourceType && <p className="text-sm">{client.incomeSourceType.replace(/_/g, " ")}</p>}
             </div>
             {showLoanBook && <div>
               <h4 className="text-sm font-medium text-gray-500 mb-2">Financial</h4>

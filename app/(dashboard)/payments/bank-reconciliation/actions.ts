@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache"
 
 async function ctx() {
   const session = await auth()
-  if (!session?.user || !canDo(session.user.role, "record_payment")) {
+  if (!session?.user || !canDo(session.user.role, "record_payment") || !canDo(session.user.role, "view_loan_book")) {
     throw new Error("Insufficient permissions")
   }
   // The staff session's tenant, never the deployment default; no tenant, no access.

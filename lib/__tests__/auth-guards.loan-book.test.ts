@@ -16,7 +16,7 @@ vi.mock("next/headers", () => ({
   },
 }))
 
-import { requireApiRole, requireLoanBookPage, requireMinRole, requireOwnerOrStaff } from "../auth-guards"
+import { requireApiRole, requireLoanBookPage, requireLoanBookStaff, requireMinRole, requireOwnerOrStaff } from "../auth-guards"
 
 const as = (role: string) => mockAuth.mockResolvedValue({ user: { id: "u1", email: "u1@lender.example", name: "U", role, tenantId: "t1" } })
 
@@ -81,5 +81,15 @@ describe("page and mixed-caller guards for INSURANCE_OFFICER", () => {
     await expect(requireLoanBookPage({ home: true })).rejects.toThrow("REDIRECT /clients")
     as("LOAN_ADMIN")
     await expect(requireLoanBookPage()).resolves.toBeUndefined()
+  })
+
+  // Server actions on loan data check view_loan_book themselves, not from the
+  // page the action happened to be posted from (#145 breaker review).
+  it("requireLoanBookStaff refuses it whatever path is stamped", async () => {
+    as("INSURANCE_OFFICER")
+    stamp.path = "/insurance"
+    await expect(requireLoanBookStaff("READONLY")).rejects.toThrow("REDIRECT /no-access")
+    as("CREDIT_OFFICER")
+    expect((await requireLoanBookStaff("CREDIT_OFFICER")).id).toBe("u1")
   })
 })

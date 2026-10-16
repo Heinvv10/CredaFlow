@@ -3,6 +3,7 @@ import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import {
   PORTAL_KYC_SNAPSHOT_OPTIONS,
@@ -41,6 +42,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
+    // The extraction is the lending read of a document (payslip income, bank
+    // statement lines): a role without the loan book gets the files, not it.
+    const withoutLoanBook = caller.type === "staff" && lacksLoanBook(caller.role)
+    const shown = <T extends { storagePath: unknown; extractionResult?: unknown }>(doc: T) => {
+      const { storagePath: _sp, ...rest } = doc
+      if (!withoutLoanBook) return rest
+      const { extractionResult: _er, ...visible } = rest
+      return visible
+    }
+
     return withTenantContextLoggingRefusal(req, { documentId: `client:${clientId}`, caller }, async (tenant) => {
       const includeKycChecklist =
         req.nextUrl.searchParams.get("includeKycChecklist") === "1"
@@ -56,10 +67,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           return NextResponse.json({ error: "Client not found" }, { status: 404 })
         }
 
-        const safe = client.documents.map((doc) => {
-          const { storagePath: _sp, ...rest } = doc
-          return rest
-        })
+        const safe = client.documents.map(shown)
         return NextResponse.json({
           documents: safe,
           kycChecklist: client.kycChecklist,
@@ -72,11 +80,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       })
 
       // Strip storagePath from response
-      const safe = docs.map((doc) => {
-        const { storagePath: _sp, ...rest } = doc
-        return rest
-      })
-      return NextResponse.json(safe)
+      return NextResponse.json(docs.map(shown))
     })
   } catch (error) {
     console.error("List documents failed:", error)

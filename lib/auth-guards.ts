@@ -136,6 +136,16 @@ export async function requireApiRole(minRole: UserRole): Promise<ApiGuardResult>
 }
 
 /**
+ * For a server action on loan-book data: requireMinRole, and view_loan_book
+ * checked explicitly, not inferred from the page the action was posted from.
+ */
+export async function requireLoanBookStaff(minRole: UserRole): Promise<StaffUser> {
+  const user = await requireMinRole(minRole)
+  if (lacksLoanBook(user.role)) redirect(NO_ACCESS_PAGE)
+  return user
+}
+
+/**
  * For a loan-book page segment's layout (lib/security/loan-book-scope.ts): a
  * role without view_loan_book goes to the no-access page, or from the
  * executive dashboard to its own home.

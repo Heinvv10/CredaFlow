@@ -27,6 +27,17 @@ describe("INSURANCE_OFFICER and the loan book", () => {
     }
   })
 
+  // #145 breaker review: the NCR return is the credit book in figures; the
+  // FSCA return (the insurance book) stays open.
+  it("is refused the NCR return, page and API, and keeps the FSCA return", async () => {
+    for (const url of ["/compliance/ncr-return", "/compliance//ncr-return/"]) {
+      expect(new URL(location(await visit(url, "INSURANCE_OFFICER"))).pathname).toBe("/no-access")
+    }
+    expect((await visit("/api/compliance/ncr-return", "INSURANCE_OFFICER")).status).toBe(403)
+    expect((await visit("/api/compliance/ncr-return", "CREDIT_OFFICER")).status).toBe(200)
+    expect((await visit("/compliance/fsca-return", "INSURANCE_OFFICER")).status).toBe(200)
+  })
+
   it("lands on its clients list instead of the executive dashboard", async () => {
     const res = await visit("/dashboard", "INSURANCE_OFFICER")
     expect(new URL(location(res)).pathname).toBe("/clients")
@@ -38,14 +49,14 @@ describe("INSURANCE_OFFICER and the loan book", () => {
     }
   })
 
-  it.each(["/clients", "/clients/sample", "/insurance", "/insurance/claims", "/compliance", "/compliance/ncr-return", "/settings/security", "/learn", "/no-access"])(
+  it.each(["/clients", "/clients/sample", "/insurance", "/insurance/claims", "/compliance", "/compliance/fsca-return", "/settings/security", "/learn", "/no-access"])(
     "still opens %s", async (url) => {
       const res = await visit(url, "INSURANCE_OFFICER")
       expect([url, res.status]).toEqual([url, 200])
     },
   )
 
-  it.each(["/api/clients/sample", "/api/insurance/claims", "/api/compliance/ncr-return", "/api/notifications"])(
+  it.each(["/api/clients/sample", "/api/insurance/claims", "/api/compliance/fsca-return", "/api/notifications"])(
     "still reaches %s", async (url) => {
       expect((await visit(url, "INSURANCE_OFFICER")).status).toBe(200)
     },
@@ -126,11 +137,12 @@ describe("the loan-book classification", () => {
 const routeFiles = (dir: string): string[] =>
   readdirSync(path.join(__dirname, dir), { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? routeFiles(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name)] : [])
-const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|from "@\/lib\/asset-finance\/(recovery-route|recovery-sale-route|lease-route|payout-route|signing-route)"/
+const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|\b(withRecoveryStaff|recoveryWrite|leaseStaffAction|withPayoutStaff|withSigningStaff)\(/
 // Session-checked by hand, and closed to INSURANCE_OFFICER by their own rule.
 const OWN_CHECK: Record<string, string> = {
-  "app/api/applications/[id]/agreement/sign/route.ts": "CLIENT or CREDIT_OFFICER and above",
-  "app/api/applications/[id]/debit-mandate/sign/route.ts": "CLIENT only",
+  "app/api/applications/[id]/agreement/sign/route.ts POST": "CLIENT or CREDIT_OFFICER and above",
+  "app/api/applications/[id]/debit-mandate/sign/route.ts POST": "CLIENT only",
+  "app/api/applications/[id]/debit-mandate/route.ts POST": "CLIENT only",
 }
 
 describe("the second layer covers every loan-book route", () => {
@@ -140,13 +152,42 @@ describe("the second layer covers every loan-book route", () => {
     expect(files.length).toBeGreaterThan(150)
   })
 
-  it.each(files)("%s goes through a re-checking guard", (file) => {
+  // Per handler, not per file: each exported GET/POST/PUT/PATCH/DELETE, read
+  // up to the next export, must itself reach a re-checking guard (directly or
+  // through a function of the same file that does).
+  const handlers = files.flatMap((file) => {
     const source = readFileSync(path.join(__dirname, file), "utf8")
-    expect(GUARDS.test(source) || file in OWN_CHECK).toBe(true)
+    const starts = [...source.matchAll(/^export (?:async function|const) (GET|POST|PUT|PATCH|DELETE)\b/gm)]
+    return starts.map((m, i) => [`${file} ${m[1]}`, source, source.slice(m.index, starts[i + 1]?.index ?? source.length)] as const)
+  }).filter(([name]) => !(name in OWN_CHECK))
+
+  it.each(Object.keys(OWN_CHECK))("%s (own check) refuses every staff role below its floor", (name) => {
+    const [file, handler] = name.split(" ")
+    const source = readFileSync(path.join(__dirname, file), "utf8")
+    const body = source.slice(source.indexOf(`export async function ${handler}`))
+    expect(body).toMatch(/role !== "CLIENT"|=== "CLIENT"[\s\S]{0,400}hasMinRole\([^)]*"CREDIT_OFFICER"\)/)
+  })
+  const localGuarded = (source: string) =>
+    new Set([...source.matchAll(/^(?:async )?function (\w+)\([\s\S]*?^\}/gm)].filter((m) => GUARDS.test(m[0])).map((m) => m[1]))
+
+  it("finds every handler", () => {
+    expect(handlers.length).toBeGreaterThan(files.length)
+  })
+
+  it.each(handlers.map(([name, source, body]) => [name, source, body]))("%s reaches a re-checking guard", (_name, source, body) => {
+    const viaLocal = [...localGuarded(source)].some((fn) => new RegExp(`\\b${fn}\\(`).test(body))
+    expect(GUARDS.test(body) || viaLocal).toBe(true)
   })
 
   it.each(["recovery-route", "recovery-sale-route", "lease-route", "payout-route", "signing-route"])("lib/asset-finance/%s.ts calls requireApiRole", (helper) => {
     expect(readFileSync(path.join(__dirname, "lib/asset-finance", `${helper}.ts`), "utf8")).toMatch(/requireApiRole\(/)
+  })
+
+  it.each([
+    ["withRecoveryStaff", "recovery-route"], ["recoveryWrite", "recovery-sale-route"], ["leaseStaffAction", "lease-route"],
+    ["withPayoutStaff", "payout-route"], ["withSigningStaff", "signing-route"],
+  ])("%s (lib/asset-finance/%s.ts) is the helper the routes import", (fn, helper) => {
+    expect(readFileSync(path.join(__dirname, "lib/asset-finance", `${helper}.ts`), "utf8")).toMatch(new RegExp(`export (async )?function ${fn}\\b`))
   })
 
   it.each(LOAN_BOOK_PAGES)("the %s page segment calls requireLoanBookPage", (page) => {
@@ -176,3 +217,41 @@ describe("the insurance module calls nothing in the loan book", () => {
   })
 })
 
+
+// Server actions are posted to whatever page rendered them, so a path cannot
+// decide them: every "use server" file is classified, and one on loan data
+// checks view_loan_book itself (requireLoanBookStaff or canDo(…, "view_loan_book")).
+describe("server actions", () => {
+  const LOAN_BOOK_ACTIONS = ["app/actions/crm.ts", "app/actions/lead-activities.ts", "app/(dashboard)/payments/bank-reconciliation/actions.ts"]
+  const OPEN_ACTIONS = ["app/actions/locale.ts", "app/(dashboard)/learn/actions.ts"]
+  const sources = (dir: string): string[] =>
+    readdirSync(path.join(__dirname, dir), { withFileTypes: true }).flatMap((e) =>
+      e.name === "node_modules" ? [] : e.isDirectory() ? sources(path.join(dir, e.name))
+        : /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [path.join(dir, e.name)] : [])
+  const actionFiles = ["app", "lib", "components"].flatMap(sources)
+    .filter((file) => /^\s*["']use server["']/.test(readFileSync(path.join(__dirname, file), "utf8")))
+    .sort()
+
+  it("are all classified", () => {
+    expect(actionFiles).toEqual([...LOAN_BOOK_ACTIONS, ...OPEN_ACTIONS].sort())
+  })
+
+  it.each(LOAN_BOOK_ACTIONS)("%s checks view_loan_book in every exported action", (file) => {
+    const source = readFileSync(path.join(__dirname, file), "utf8")
+    const exported = [...source.matchAll(/^export async function (\w+)/gm)].map((m) => m[1])
+    expect(exported.length).toBeGreaterThan(0)
+    const gate = /requireLoanBookStaff\(|canDo\([^)]*"view_loan_book"\)/
+    const guardedHelpers = new Set([...source.matchAll(/^(?:async )?function (\w+)\([\s\S]*?^\}/gm)].filter((m) => gate.test(m[0])).map((m) => m[1]))
+    const bodyOf = (name: string) => {
+      const start = source.indexOf(`export async function ${name}`)
+      const next = source.indexOf("\nexport ", start + 1)
+      return source.slice(start, next === -1 ? undefined : next)
+    }
+    const direct = (name: string) => gate.test(bodyOf(name)) || [...guardedHelpers].some((h) => bodyOf(name).includes(`${h}(`))
+    // An action that only delegates to another gated action is gated too.
+    const gated = new Set(exported.filter(direct))
+    for (const name of exported) {
+      expect([name, gated.has(name) || [...gated].some((g) => bodyOf(name).includes(`${g}(`))]).toEqual([name, true])
+    }
+  })
+})

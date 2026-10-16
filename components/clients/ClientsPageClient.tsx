@@ -13,14 +13,15 @@ type Client = {
   email: string
   phone: string
   kycStatus: string
-  monthlyIncome: number
+  /** Absent for a role without the loan book (lib/security/client-redaction.ts). */
+  monthlyIncome?: number
   employmentStatus: string | null
   bankName: string | null
   bankAccountType?: string | null
   dateOfBirth?: Date | null
   createdAt: Date
-  _count: { loans: number; applications: number }
-  loans: { daysInArrears: number; cashPaid: number }[]
+  _count?: { loans: number; applications: number }
+  loans?: { daysInArrears: number; cashPaid: number }[]
   unreadCount: number
 }
 
@@ -40,8 +41,8 @@ function getAvatarColor(initials: string) {
 }
 
 function getActiveLoansLabel(client: Client) {
-  const active = client._count.loans
-  const overdue = client.loans.filter(l => l.daysInArrears > 0).length
+  const active = client._count?.loans ?? 0
+  const overdue = (client.loans ?? []).filter(l => l.daysInArrears > 0).length
   if (overdue > 0) return { label: `${overdue} Overdue`, bg: "#FEE2E2", text: "#991B1B" }
   if (active > 0) return { label: `${active} Active`, bg: "#DCFCE7", text: "#166534" }
   return { label: "None", bg: "#F3F4F6", text: "#6B7280" }
@@ -80,7 +81,7 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
   })
 
   const totalRepaid = (client: Client) =>
-    client.loans.reduce((s, l) => s + l.cashPaid, 0)
+    (client.loans ?? []).reduce((s, l) => s + l.cashPaid, 0)
 
   return (
     <div className="flex gap-6">
@@ -91,7 +92,7 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {clients.length} registered clients{loanBook && ` · ${clients.filter(c => c._count.loans > 0).length} with active loans`}
+              {clients.length} registered clients{loanBook && ` · ${clients.filter(c => (c._count?.loans ?? 0) > 0).length} with active loans`}
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -249,10 +250,10 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
                   { label: "ID Number", value: selected.idNumber },
                   { label: "Date of Birth", value: selected.dateOfBirth ? formatDate(selected.dateOfBirth) : "—" },
                   { label: "Employment", value: selected.employmentStatus ? selected.employmentStatus.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "—" },
-                  ...(loanBook ? [{ label: "Income", value: <span className="whitespace-nowrap">{`${formatZAR(selected.monthlyIncome)}/mo`}</span> }] : []),
+                  ...(loanBook ? [{ label: "Income", value: <span className="whitespace-nowrap">{`${formatZAR(selected.monthlyIncome ?? 0)}/mo`}</span> }] : []),
                   { label: "Bank", value: selected.bankName ? `${selected.bankName} · ${selected.bankAccountType || "Account"}` : "—" },
                   ...(loanBook ? [
-                    { label: "Loans taken", value: `${selected._count.applications} (${selected._count.loans} active)` },
+                    { label: "Loans taken", value: `${selected._count?.applications ?? 0} (${selected._count?.loans ?? 0} active)` },
                     { label: "Total repaid", value: <span className="whitespace-nowrap">{formatZAR(totalRepaid(selected))}</span> },
                   ] : []),
                 ].map(row => (
