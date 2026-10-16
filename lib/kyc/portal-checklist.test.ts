@@ -50,7 +50,7 @@ describe("derivePortalKycChecklist", () => {
         { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({
       documentId: "id-new",
@@ -68,7 +68,7 @@ describe("derivePortalKycChecklist", () => {
         { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({
       documentId: "id-old",
@@ -83,7 +83,7 @@ describe("derivePortalKycChecklist", () => {
         { id: "id-verified", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z") },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-verified", status: "verified" })
   })
@@ -96,7 +96,7 @@ describe("derivePortalKycChecklist", () => {
         { id: "id-2", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: at },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-2", status: "pending_review" })
   })
@@ -108,7 +108,7 @@ describe("derivePortalKycChecklist", () => {
       { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z"), contentSha256: sha },
     ]
     const item = (newerSha: string | undefined) => derivePortalKycChecklist({
-      documents: documents(newerSha), composite: composite(), latestSelfieId: null,
+      documents: documents(newerSha), composite: composite(), storedKycStatus: "PENDING", latestSelfieId: null,
     }).coreDocuments.ID_COPY
     expect(item(sha)).toEqual({ documentId: "id-old", status: "verified" })
     // No digest on the read is never identical.
@@ -123,7 +123,7 @@ describe("derivePortalKycChecklist", () => {
         { id: "id-other", docType: "ID_COPY", verified: false, verificationNote: null, createdAt: new Date("2026-07-02T00:00:00Z"), contentSha256: "b".repeat(64) },
         { id: "id-old", docType: "ID_COPY", verified: true, verificationNote: null, createdAt: new Date("2026-07-01T00:00:00Z"), contentSha256: sha },
       ],
-      composite: composite(), latestSelfieId: null,
+      composite: composite(), storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(checklist.coreDocuments.ID_COPY).toEqual({ documentId: "id-other", status: "pending_review" })
   })
@@ -146,7 +146,7 @@ describe("derivePortalKycChecklist", () => {
         },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(refused.coreDocuments.BANK_STATEMENT.status).toBe("action_required")
 
@@ -163,7 +163,7 @@ describe("derivePortalKycChecklist", () => {
         },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(systemReflagged.coreDocuments.BANK_STATEMENT.status).toBe("pending_review")
   })
@@ -183,7 +183,7 @@ describe("derivePortalKycChecklist", () => {
         },
       ],
       composite: composite(),
-      latestSelfieId: null,
+      storedKycStatus: "PENDING", latestSelfieId: null,
     })
     expect(result.coreDocuments.PAYSLIP.status).toBe("action_required")
   })
@@ -202,7 +202,7 @@ describe("derivePortalKycChecklist", () => {
         },
       ],
       composite: composite(),
-      latestSelfieId: "selfie-current",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-current",
     })
 
     expect(result.customerActionCount).toBe(0)
@@ -232,7 +232,7 @@ describe("derivePortalKycChecklist", () => {
         biometricAwaitingIdVerification: true,
         missingCoreDocuments: ["ID_COPY"],
       }),
-      latestSelfieId: "selfie-matched-new-id",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-matched-new-id",
     })
 
     expect(result.selfie).toEqual({
@@ -263,7 +263,7 @@ describe("derivePortalKycChecklist", () => {
         biometricEvidence: "subject_identity_changed",
         biometricAttemptFailed: true,
       }),
-      latestSelfieId: "selfie-identity-changed",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-identity-changed",
     })
 
     expect(result.selfie.status).toBe("action_required")
@@ -292,7 +292,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: null,
         },
       }),
-      latestSelfieId: "selfie-terminal-failure",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-terminal-failure",
     })
 
     expect(result.selfie.status).toBe("action_required")
@@ -325,7 +325,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: null,
         },
       }),
-      latestSelfieId: "selfie-staff-rejected",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-staff-rejected",
     })
 
     expect(result.selfie).toEqual({
@@ -363,7 +363,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: null,
         },
       }),
-      latestSelfieId: "selfie-current",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-current",
     })
 
     expect(result.complete).toBe(false)
@@ -403,7 +403,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: null,
         },
       }),
-      latestSelfieId: "selfie-latest",
+      storedKycStatus: "PENDING", latestSelfieId: "selfie-latest",
     })
 
     expect(result.selfie.documentId).toBe("selfie-latest")
@@ -435,13 +435,40 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: "SMILE_IDENTITY",
         },
       }),
-      latestSelfieId: "selfie-current",
+      storedKycStatus: "VERIFIED", latestSelfieId: "selfie-current",
     })
 
     expect(result.complete).toBe(true)
     expect(result.customerActionCount).toBe(0)
     expect(result.pendingReviewCount).toBe(0)
     expect(result.selfie.status).toBe("verified")
+  })
+
+  // Badges show the stored status: staff holding the client PENDING on
+  // complete evidence leaves the borrower "awaiting the final decision".
+  it("is not complete while the stored status is PENDING, though the evidence passes", () => {
+    const result = derivePortalKycChecklist({
+      documents: [
+        ...uploadedCoreDocuments.map((document) => ({ ...document, verified: true })),
+        { id: "selfie-current", docType: "SELFIE", verified: true, verificationNote: null, biometricMatchScore: 96 },
+      ],
+      composite: composite({
+        ok: true,
+        biometricEvidence: null,
+        state: {
+          kycStatus: "VERIFIED",
+          kycVerifiedAt: new Date("2026-07-23T03:00:00.000Z"),
+          kycVerifiedById: null,
+          kycVerificationMethod: "BIOMETRIC",
+        },
+      }),
+      storedKycStatus: "PENDING",
+      latestSelfieId: "selfie-current",
+    })
+
+    expect(result.complete).toBe(false)
+    expect(result.customerActionCount).toBe(0)
+    expect(result.pendingReviewCount).toBe(0)
   })
 
   it("shows a senior exception as distinct from biometric verification", () => {
@@ -485,7 +512,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: "PHYSICAL",
         },
       }),
-      latestSelfieId: "selfie-current",
+      storedKycStatus: "VERIFIED", latestSelfieId: "selfie-current",
     })
 
     expect(result.complete).toBe(true)
@@ -525,7 +552,7 @@ describe("derivePortalKycChecklist", () => {
           kycVerificationMethod: null,
         },
       }),
-      latestSelfieId: "selfie-current",
+      storedKycStatus: "FAILED", latestSelfieId: "selfie-current",
     })
 
     expect(result.complete).toBe(false)

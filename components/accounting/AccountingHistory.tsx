@@ -17,6 +17,7 @@ export interface Batch {
   totalCreditCents: number
   closedAt: string
   xeroPush: { status: string; xeroManualJournalId: string | null; error: string | null } | null
+  isaflowPush?: { status: string; isaflowJournalId: string | null; foundOnReadBack: boolean; error: string | null } | null
 }
 
 type Post = (url: string, body: unknown, done: (json: Record<string, unknown>) => string) => Promise<void>
@@ -41,9 +42,18 @@ function ResolvePush({ batch, busy, post }: { batch: Batch; busy: boolean; post:
   )
 }
 
-export function AccountingHistory({ batches, canAdmin, xeroConnected, busy, post }: { batches: Batch[]; canAdmin: boolean; xeroConnected: boolean; busy: boolean; post: Post }) {
+function historyDescription(xeroConnected: boolean, isaflowConnected: boolean): string {
+  if (!xeroConnected && !isaflowConnected) return "Closed months. Connect Xero or IsaFlow under Settings → Integrations to push journals."
+  return [
+    "Closed months.",
+    xeroConnected ? "Push sends one DRAFT manual journal per month to Xero." : null,
+    isaflowConnected ? "Push a month to IsaFlow as one draft journal from its panel above." : null,
+  ].filter(Boolean).join(" ")
+}
+
+export function AccountingHistory({ batches, canAdmin, xeroConnected, isaflowConnected, busy, post }: { batches: Batch[]; canAdmin: boolean; xeroConnected: boolean; isaflowConnected: boolean; busy: boolean; post: Post }) {
   return (
-    <DataPanel title="Export history" description={xeroConnected ? "Closed months. Push sends one DRAFT manual journal per month to Xero." : "Closed months. Connect Xero under Settings → Integrations to push journals."}>
+    <DataPanel title="Export history" description={historyDescription(xeroConnected, isaflowConnected)}>
       {batches.length === 0 ? (
         <p className="text-sm text-[var(--cf-text-muted)]">No month has been closed yet.</p>
       ) : (
@@ -55,6 +65,7 @@ export function AccountingHistory({ batches, canAdmin, xeroConnected, busy, post
               <TableHead className="text-right">Debits = Credits</TableHead>
               <TableHead>Closed</TableHead>
               <TableHead>Xero</TableHead>
+              <TableHead>IsaFlow</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -71,6 +82,11 @@ export function AccountingHistory({ batches, canAdmin, xeroConnected, busy, post
                   <TableCell>
                     {push ? <StatusPill tone={PUSH_TONE[push.status] ?? "info"}>{push.status.replace("_", " ")}</StatusPill> : <span className="text-xs text-[var(--cf-text-muted)]">Not pushed</span>}
                     {push?.error && <p className="mt-1 max-w-xs text-[11px] text-[var(--cf-text-muted)]">{push.error}</p>}
+                  </TableCell>
+                  <TableCell>
+                    {b.isaflowPush
+                      ? <StatusPill tone={PUSH_TONE[b.isaflowPush.status] ?? "info"}>{b.isaflowPush.status.replace("_", " ")}</StatusPill>
+                      : <span className="text-xs text-[var(--cf-text-muted)]">Not pushed</span>}
                   </TableCell>
                   <TableCell className="space-x-2 text-right align-top">
                     <a className="text-xs text-[var(--cf-brand)] hover:underline" href={`/api/accounting/batches/${b.id}/csv?format=generic`} download>CSV</a>

@@ -14,6 +14,7 @@ import {
   type BankEvidenceTuple,
 } from "@/lib/compliance/bank-evidence"
 import { updateClientWithBiometricIdentityRevocation } from "@/lib/kyc/identity-revocation"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { avsSubjectFingerprint } from "@/lib/compliance/avs-subject"
@@ -571,12 +572,15 @@ export async function POST(
               preserveVerifiedProvenance: true,
             },
           )
+          const projectedState = await holdManualPending(tx, {
+            tenantId: tenant.id, clientId, storedKycStatus: clientAfterBankInvalidation.kycStatus, state: compositeKyc.state,
+          })
           const previousKyc = clientKycAuditValue(clientAfterBankInvalidation)
-          const currentKyc = clientKycAuditValue(compositeKyc.state)
+          const currentKyc = clientKycAuditValue(projectedState)
           if (JSON.stringify(previousKyc) !== JSON.stringify(currentKyc)) {
             const projectedClient = await tx.client.update({
               where: { id: clientId, tenantId: tenant.id },
-              data: compositeKyc.state,
+              data: projectedState,
               select: {
                 kycStatus: true,
                 kycVerifiedAt: true,

@@ -11,12 +11,19 @@ export const VERIFICATION_RESTORABLE_COPY =
  * only ever lowers the stored status (app/api/documents/[id]/route.ts), so the
  * client stays PENDING on evidence that would verify. Nothing promotes it
  * automatically; this only tells staff a verification would succeed.
+ *
+ * Not while a staff member's deliberate manual PENDING is the latest status
+ * change (manualPendingStands, lib/kyc/manual-pending.server.ts): staff chose
+ * PENDING on that evidence, and a re-derive would quietly undo the decision.
  */
 export function verificationRestorable(
   storedKycStatus: string,
   composite: Pick<CompositeKycResult, "state">,
+  history: { manualPendingStands: boolean },
 ): boolean {
-  return storedKycStatus === "PENDING" && composite.state.kycStatus === "VERIFIED"
+  return storedKycStatus === "PENDING" &&
+    composite.state.kycStatus === "VERIFIED" &&
+    !history.manualPendingStands
 }
 
 /** A row of the staff document list (dates arrive as JSON strings). */

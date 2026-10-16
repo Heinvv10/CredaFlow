@@ -52,6 +52,7 @@ model AccountingExportBatch {
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   entries          AccountingLedgerEntry[]
+  isaflowPush      AccountingIsaFlowPush?
   lines            AccountingJournalLine[]
   openingPositions AccountingOpeningPosition[]
   xeroPush         AccountingXeroPush?
