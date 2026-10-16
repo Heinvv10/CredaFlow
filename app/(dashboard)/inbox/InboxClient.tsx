@@ -28,20 +28,23 @@ type Props = {
 export function InboxClient(props: Props) {
   const [queue, setQueue] = useState<InboxQueue>(props.initialQueue)
   const [conversations, setConversations] = useState<ConversationSummary[]>(props.initialConversations)
-  const [selectedId, setSelectedIdState] = useState<string | null>(null)
+  // A deep link (?conversationId=), resolved server-side into initialSelectedId,
+  // starts selected; its thread is fetched by the mount effect below.
+  const [selectedId, setSelectedIdState] = useState<string | null>(props.initialSelectedId ?? null)
   // Mirror of selectedId, so reloadList can read the current selection without
   // taking it as a dependency (which would re-create the callback on every
   // click and re-fire the queue effect). Written together with the state, not
-  // in an effect: reloadList runs from an effect itself, and a ref updated in a
-  // later effect would still hold the previous selection when it reads it.
-  const selectedIdRef = useRef<string | null>(null)
+  // in an effect: the list load runs from an effect itself, and a ref updated
+  // in a later effect would still hold the previous selection when it reads it.
+  const selectedIdRef = useRef<string | null>(props.initialSelectedId ?? null)
   const setSelectedId = useCallback((id: string | null) => {
     selectedIdRef.current = id
     setSelectedIdState(id)
   }, [])
   const [thread, setThread] = useState<ThreadDTO | null>(null)
   const [search, setSearch] = useState("")
-  const [loading, setLoading] = useState(false)
+  // True from the start: the mount effect loads the list.
+  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [fallback, setFallback] = useState<{ reason: string; detail?: string } | null>(null)
   const cursorRef = useRef<string | null>(null)
@@ -60,45 +63,64 @@ export function InboxClient(props: Props) {
     props.initialSelectedId ? (props.initialConversations.find((c) => c.id === props.initialSelectedId) ?? null) : null,
   )
 
+  // Applies a loaded list. Called from promise callbacks and handlers, never
+  // from an effect body.
   // keepSelection: the reload follows an action on the open thread (join, leave, status).
   // That action is often what moved the thread out of this queue; the agent is still
   // working in it, so the pane keeps it (it loads by id) until they pick something else.
-  const reloadList = useCallback(async (q: InboxQueue, keepSelection = false) => {
-    setLoading(true)
-    try {
-      const res = await inboxApi.list(q)
-      const pinned = pinnedRef.current
-      const needsPin = pinned && q === props.initialQueue && !res.conversations.some((c) => c.id === pinned.id)
-      const next = needsPin ? [pinned, ...res.conversations] : res.conversations
-      setConversations(next)
-      cursorRef.current = null
-      // A tab switch used to leave the previously selected thread rendered even
-      // when it wasn't in the new tab's list (switch to Mine while viewing
-      // someone else's thread). Drop a selection the new list doesn't hold.
-      //
-      // Resolved OUTSIDE the setSelectedId updater deliberately: a state
-      // updater must be pure, and React invokes it twice under StrictMode —
-      // clearing the thread from in there fired the other setState calls twice
-      // per switch. selectedIdRef mirrors selectedId so the current value is
-      // readable here without making reloadList depend on it.
-      const current = selectedIdRef.current
-      const resolved = keepSelection ? current : nextSelection(next, current)
-      if (resolved !== current) {
-        activeThreadId.current = null
-        setThread(null)
-        setFallback(null)
-        setSelectedId(resolved)
-      }
-    } finally {
-      setLoading(false)
+  const applyList = useCallback((q: InboxQueue, res: { conversations: ConversationSummary[] }, keepSelection: boolean) => {
+    const pinned = pinnedRef.current
+    const needsPin = pinned && q === props.initialQueue && !res.conversations.some((c) => c.id === pinned.id)
+    const next = needsPin ? [pinned, ...res.conversations] : res.conversations
+    setConversations(next)
+    cursorRef.current = null
+    // A tab switch used to leave the previously selected thread rendered even
+    // when it wasn't in the new tab's list (switch to Mine while viewing
+    // someone else's thread). Drop a selection the new list doesn't hold.
+    //
+    // Resolved OUTSIDE the setSelectedId updater deliberately: a state
+    // updater must be pure, and React invokes it twice under StrictMode —
+    // clearing the thread from in there fired the other setState calls twice
+    // per switch. selectedIdRef mirrors selectedId so the current value is
+    // readable here without making applyList depend on it.
+    const current = selectedIdRef.current
+    const resolved = keepSelection ? current : nextSelection(next, current)
+    if (resolved !== current) {
+      activeThreadId.current = null
+      setThread(null)
+      setFallback(null)
+      setSelectedId(resolved)
     }
   }, [props.initialQueue, setSelectedId])
 
-  useEffect(() => { reloadList(queue) }, [queue, reloadList])
+  // Reload after an action on the open thread (a handler, so it may set state).
+  const reloadList = useCallback(async (q: InboxQueue, keepSelection = false) => {
+    setLoading(true)
+    try {
+      applyList(q, await inboxApi.list(q), keepSelection)
+    } finally {
+      setLoading(false)
+    }
+  }, [applyList])
 
-  const loadThread = useCallback(async (id: string) => {
-    activeThreadId.current = id
-    const t = await readThread(id)
+  // First load and every queue switch. `ignore` drops a list that lands after
+  // the agent has already moved to another queue.
+  useEffect(() => {
+    let ignore = false
+    inboxApi.list(queue)
+      .then((res) => { if (!ignore) applyList(queue, res, false) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [queue, applyList])
+
+  function changeQueue(q: InboxQueue) {
+    if (q === queue) return
+    setLoading(true)
+    setQueue(q)
+  }
+
+  // Shows a loaded thread, unless the agent has moved to another one meanwhile.
+  const applyThread = useCallback((id: string, t: ThreadDTO | null) => {
     if (t && activeThreadId.current === id) {
       setThread(t)
       setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)))
@@ -110,7 +132,12 @@ export function InboxClient(props: Props) {
         pinnedRef.current = null
       }
     }
-  }, [props.initialQueue, props.currentUserId, readThread])
+  }, [props.initialQueue, props.currentUserId])
+
+  const loadThread = useCallback(async (id: string) => {
+    activeThreadId.current = id
+    applyThread(id, await readThread(id))
+  }, [applyThread, readThread])
 
   function select(id: string) {
     setFallback(null)
@@ -118,11 +145,15 @@ export function InboxClient(props: Props) {
     loadThread(id)
   }
 
-  // Deep link (?conversationId=) resolved server-side into initialSelectedId;
-  // select it once on mount. Safe under StrictMode's dev double-invoke —
-  // loadThread's activeThreadId ref makes a repeat call for the same id a no-op.
+  // Deep link: load the thread of the conversation selected at mount. Safe under
+  // StrictMode's dev double-invoke — the activeThreadId ref and the
+  // newest-read-wins reader make a repeat call for the same id harmless.
   useEffect(() => {
-    if (props.initialSelectedId) select(props.initialSelectedId)
+    const id = props.initialSelectedId
+    if (!id) return
+    activeThreadId.current = id
+    readThread(id).then((t) => applyThread(id, t))
+    // Mount only: a later change of the prop must not hijack the agent's selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -262,7 +293,7 @@ export function InboxClient(props: Props) {
     <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[320px_1fr_300px]">
       <QueuePanel
         queue={queue}
-        onQueueChange={setQueue}
+        onQueueChange={changeQueue}
         conversations={conversations}
         selectedId={selectedId}
         onSelect={select}

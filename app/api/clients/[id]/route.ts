@@ -30,6 +30,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { updateClientWithBiometricIdentityRevocation } from "@/lib/kyc/identity-revocation"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import type { BankAccountType } from "@prisma/client"
 
 
@@ -953,7 +954,9 @@ export async function PUT(
           )
           updated = await tx.client.update({
             where: { id, tenantId: tenant.id },
-            data: compositeKyc.state,
+            data: await holdManualPending(tx, {
+              tenantId: tenant.id, clientId: id, storedKycStatus: currentClientAfterBankRevocation.kycStatus, state: compositeKyc.state,
+            }),
           })
           await tx.auditLog.create({
             data: {
@@ -1298,6 +1301,8 @@ export async function PATCH(
         })
         if (!existing) return null
 
+        // Resolving to PENDING is itself a deliberate manual PENDING: it holds
+        // the client PENDING like one (lib/kyc/manual-pending.server.ts).
         const resolvingManualRejection =
           existing.kycManualRejectionActive && status !== "FAILED"
         if (resolvingManualRejection && !resolutionRequested) {

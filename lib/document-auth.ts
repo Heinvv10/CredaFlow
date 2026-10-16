@@ -3,13 +3,18 @@ import { prisma } from "@/lib/prisma"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import type { UserRole } from "@prisma/client"
 
+// Every tenant staff role (Hein, 2026-10-16). Operator roles are absent: they
+// reach borrower rows only through a support grant (lib/operator/.claude.md).
 const STAFF_ROLES: UserRole[] = [
   "SUPER_ADMIN",
   "ADMIN",
   "CREDIT_OFFICER",
   "LOAN_ADMIN",
+  "COLLECTIONS_OFFICER",
   "COLLECTIONS_AGENT",
+  "INSURANCE_OFFICER",
   "BRANCH_MANAGER",
+  "READONLY",
 ]
 
 export type CallerInfo =
@@ -24,9 +29,13 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
   if (session.user.role && STAFF_ROLES.includes(session.user.role as UserRole)) {
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { id: true, role: true, tenantId: true },
+      select: { id: true, role: true, tenantId: true, active: true },
     })
     if (user) {
+      // The stored row decides, not the session: a deactivated user, or one
+      // whose role has since left the staff list, gets no documents and never
+      // falls through to the portal lookup below.
+      if (!user.active || !STAFF_ROLES.includes(user.role)) return null
       return {
         type: "staff",
         userId: user.id,
@@ -34,6 +43,8 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
         tenantId: user.tenantId,
       }
     }
+    // A staff session whose user row is gone is not a portal client either.
+    return null
   }
 
   // Check if this is a portal client. Document routes call this before the

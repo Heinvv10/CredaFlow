@@ -48,7 +48,7 @@ export default async function PortalContractPage({ params }: Params) {
     // A lease is rentals, not instalments: its own view, behind the lease gate (lib/asset-finance/lease-portal-route.ts).
     const lease = await loadPortalLease(tenantId, clientId, loanId)
     if (!lease) notFound()
-    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<PortalRecoverySection tenantId={tenantId} loanId={loanId} />} />
+    return <PortalLeaseDetail view={lease} back={{ href: `/portal/business/${entityId}`, label: `Back to ${view.entity.legalName}` }} documents={view.documents} extra={<PortalRecoverySection tenantId={tenantId} loanId={loanId} locale="en" />} />
   }
   const asset = view.asset
   // A voluntary surrender (NCA s127) can be asked for until the lender holds the asset; an existing request still shows.
@@ -102,7 +102,8 @@ export default async function PortalContractPage({ params }: Params) {
       <DataPanel title="Repayment schedule" density="compact">
         <PortalContractSchedule rows={view.schedule} />
       </DataPanel>
-      <PortalRecoverySection tenantId={tenantId} loanId={loanId} />
+      {/* The business contract pages are not translated: the recovery card on them stays English too. */}
+      <PortalRecoverySection tenantId={tenantId} loanId={loanId} locale="en" />
       {surrenderApplies && (view.surrender || canRequestSurrender) && (
         <DataPanel title="Voluntary surrender" description="NCA section 127 request and notices">
           <SurrenderRequestCard loanId={view.loan.id} existing={view.surrender} canRequest={canRequestSurrender} />

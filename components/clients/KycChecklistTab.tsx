@@ -19,6 +19,12 @@ import {
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { newestVerifiedIdCopyId } from "@/lib/kyc/verification-restorable"
+import {
+  isIdenticalToVerifiedIdCopy,
+  pendingIdReplacementId,
+  sameBytesAsVerifiedIdCopy,
+  verifiedCoreDocumentCount,
+} from "@/lib/kyc/staff-checklist"
 import { RestorableVerificationHint } from "@/components/clients/RestorableVerificationHint"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
@@ -77,7 +83,7 @@ function getExtractedItems(doc: DocumentRecord): DisplayItem[] {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DocStatus = "missing" | "uploaded" | "verified" | "flagged" | "rejected"
+type DocStatus = "missing" | "uploaded" | "verified" | "identical" | "flagged" | "rejected"
 
 interface RejectDialogState {
   docId: string
@@ -134,15 +140,19 @@ interface Props {
   verificationRestorable?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no upload, verify, reject or apply-extraction controls. */
+  readOnly?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const KYC_DOC_TYPES = [...REQUIRED_DOC_TYPES] as const
 
-function docStatus(doc: DocumentRecord | undefined): DocStatus {
+function docStatus(doc: DocumentRecord | undefined, docs: readonly DocumentRecord[]): DocStatus {
   if (!doc) return "missing"
   if (doc.verified) return "verified"
+  // An identical re-upload of the verified ID copy IS that copy.
+  if (isIdenticalToVerifiedIdCopy(doc, docs)) return "identical"
   // Verified (incl. accepted-with-override) docs returned above. A note alone
   // cannot say who wrote it — the system writes one when a bank-detail change
   // re-flags a statement (app/api/clients/[id]/route.ts). Only a recorded
@@ -156,6 +166,7 @@ const STATUS_BADGE: Record<DocStatus, { label: string; className: string }> = {
   missing:  { label: "Missing",  className: "bg-red-100 text-red-800" },
   uploaded: { label: "Pending",  className: "bg-amber-100 text-amber-800" },
   verified: { label: "Verified", className: "bg-green-100 text-green-800" },
+  identical: { label: "Identical to verified copy", className: "bg-green-100 text-green-800" },
   flagged:  { label: "Flagged",  className: "bg-amber-100 text-amber-900" },
   rejected: { label: "Rejected", className: "bg-red-100 text-red-800" },
 }
@@ -164,8 +175,16 @@ const STATUS_ICON: Record<DocStatus, React.ReactNode> = {
   missing:  <AlertCircle className="h-4 w-4 text-red-400" />,
   uploaded: <Clock       className="h-4 w-4 text-amber-500" />,
   verified: <CheckCircle className="h-4 w-4 text-green-600" />,
+  identical: <CheckCircle className="h-4 w-4 text-green-600" />,
   flagged:  <AlertCircle className="h-4 w-4 text-amber-500" />,
   rejected: <XCircle     className="h-4 w-4 text-red-500" />,
+}
+
+/** The client's documents, or null when the route refuses (the list stays as it was). */
+async function loadDocuments(clientId: string): Promise<DocumentRecord[] | null> {
+  const res = await fetch(`/api/clients/${clientId}/documents`)
+  if (!res.ok) return null
+  return (await res.json()) as DocumentRecord[]
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -178,6 +197,7 @@ export function KycChecklistTab({
   verificationRestorable = false,
   selfieAlternatives,
   signedAgreementReturn,
+  readOnly = false,
 }: Props) {
   const [docs, setDocs]                       = useState<DocumentRecord[]>([])
   const [loading, setLoading]                 = useState(true)
@@ -199,20 +219,34 @@ export function KycChecklistTab({
   // (verify/reject) without a full page reload. Seeded from the server prop.
   const [kyc, setKyc]                         = useState(kycStatus)
 
+  // A different client is a different list: show the spinner for it.
+  const [prevClientId, setPrevClientId]       = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
+  // Refresh after a mutation. Handlers await this so a dialog or button state
+  // only settles once the new list is on screen.
   const fetchDocs = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (res.ok) {
-        const data = await res.json()
-        setDocs(data as DocumentRecord[])
-      }
+      const loaded = await loadDocuments(clientId)
+      if (loaded) setDocs(loaded)
     } finally {
       setLoading(false)
     }
   }, [clientId])
 
-  useEffect(() => { fetchDocs() }, [fetchDocs])
+  // First load, and a change of client. `ignore` drops a response that lands
+  // after the client changed or the tab unmounted.
+  useEffect(() => {
+    let ignore = false
+    loadDocuments(clientId)
+      .then((loaded) => { if (!ignore && loaded) setDocs(loaded) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [clientId])
 
   // Latest non-deleted doc per docType
   const docsByType = new Map<string, DocumentRecord>()
@@ -221,10 +255,12 @@ export function KycChecklistTab({
       docsByType.set(d.docType, d)
     }
   }
+  // While a copy of other bytes holds the client PENDING, the ID row shows it.
+  const pendingIdCopyId = pendingIdReplacementId(docs)
+  const pendingIdCopy = docs.find((d) => d.id === pendingIdCopyId)
+  if (pendingIdCopy) docsByType.set("ID_COPY", pendingIdCopy)
 
-  const verifiedCount = KYC_DOC_TYPES.filter(
-    (dt) => docsByType.get(dt)?.verified
-  ).length
+  const verifiedCount = verifiedCoreDocumentCount(KYC_DOC_TYPES, docs)
   const totalRequired = KYC_DOC_TYPES.length
 
   // ── Actions ──────────────────────────────────────────────────────────────────
@@ -362,14 +398,17 @@ export function KycChecklistTab({
         <div className="flex items-center gap-3">
           <div>
             <p className="text-sm font-medium text-gray-700">KYC Status</p>
-            <Badge className={manualExceptionActive
+            {/* The STORED status; the derived provenance only names a stored VERIFIED. */}
+            <Badge className={manualExceptionActive && kyc === "VERIFIED"
               ? "bg-amber-100 text-amber-900"
               : kycBadgeClass[kyc] ?? "bg-gray-100 text-gray-800"}>
-              {substituteKind === "in_person"
-                ? "VERIFIED IN PERSON"
-                : manualExceptionActive
-                  ? "MANUAL EXCEPTION"
-                  : kyc}
+              {kyc !== "VERIFIED"
+                ? kyc
+                : substituteKind === "in_person"
+                  ? "VERIFIED IN PERSON"
+                  : manualExceptionActive
+                    ? "MANUAL EXCEPTION"
+                    : kyc}
             </Badge>
           </div>
           <div className="ml-6">
@@ -387,8 +426,9 @@ export function KycChecklistTab({
         )}
       </div>
 
-      {/* Derived on the server; the local status hides it once a decision lands. */}
-      {verificationRestorable && kyc === "PENDING" && (
+      {/* Derived on the server; the local status hides it once a decision lands.
+          Read-only viewers cannot re-derive (the route needs CREDIT_OFFICER). */}
+      {!readOnly && verificationRestorable && kyc === "PENDING" && (
         <RestorableVerificationHint
           clientId={clientId}
           idDocumentId={newestVerifiedIdCopyId(docs)}
@@ -416,7 +456,7 @@ export function KycChecklistTab({
           <div className="divide-y">
             {KYC_DOC_TYPES.map((docType) => {
               const doc    = docsByType.get(docType)
-              const status = docStatus(doc)
+              const status = docStatus(doc, docs)
               const badge  = STATUS_BADGE[status]
               const extractedItems = doc ? getExtractedItems(doc) : []
               const alreadyApplied = doc ? appliedDocIds.has(doc.id) : false
@@ -457,14 +497,16 @@ export function KycChecklistTab({
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     {!doc ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setUploadDocType(docType)}
-                      >
-                        <Upload className="h-3 w-3 mr-1" />
-                        Upload
-                      </Button>
+                      !readOnly && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setUploadDocType(docType)}
+                        >
+                          <Upload className="h-3 w-3 mr-1" />
+                          Upload
+                        </Button>
+                      )
                     ) : (
                       <>
                         <Button
@@ -476,7 +518,7 @@ export function KycChecklistTab({
                           View
                         </Button>
 
-                        {status !== "verified" && (
+                        {!readOnly && status !== "verified" && !sameBytesAsVerifiedIdCopy(doc, docs) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -493,7 +535,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {status !== "rejected" && status !== "flagged" && (
+                        {!readOnly && status !== "rejected" && status !== "flagged" && status !== "identical" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -510,7 +552,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {(status === "rejected" || status === "flagged" || status === "verified") && (
+                        {!readOnly && (status === "rejected" || status === "flagged" || status === "verified" || status === "identical") && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -526,7 +568,7 @@ export function KycChecklistTab({
                 </div>
 
                 {/* OCR suggestions — shown when extraction is done and not yet applied */}
-                {extractedItems.length > 0 && !alreadyApplied && (
+                {!readOnly && extractedItems.length > 0 && !alreadyApplied && (
                   <div className="flex items-start gap-3 px-4 py-2.5 bg-blue-50 border-t border-blue-100">
                     <Sparkles className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
                     <div className="flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -687,7 +729,7 @@ export function KycChecklistTab({
       )}
 
       {/* ── Dialogs ───────────────────────────────────────────────── */}
-      {uploadDocType && (
+      {!readOnly && uploadDocType && (
         <UploadDialog
           open={!!uploadDocType}
           onOpenChange={(open) => { if (!open) setUploadDocType(null) }}

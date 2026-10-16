@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Square, Clock, AlertTriangle, Loader2 } from "lucide-react"
 import {
@@ -9,6 +9,7 @@ import {
   MAX_TASK_TITLE,
   type TaskPriority,
 } from "@/lib/crm/lead-tasks"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { type AssignableStaff } from "@/lib/crm/lead-assignment"
 import { formatDateTime } from "@/lib/utils"
 
@@ -77,10 +78,12 @@ export function LeadTasksPanel({
   // hydrates: the server would decide on ITS clock and the browser on its own,
   // so a task due near now — or merely a browser a few minutes skewed — flips
   // the label and icon between the two renders and React throws a hydration
-  // mismatch. Staying null until mounted makes the first client render match
-  // the server's exactly; the real answer lands a tick later.
-  const [now, setNow] = useState<number | null>(null)
-  useEffect(() => setNow(Date.now()), [])
+  // mismatch. Ignoring the clock until hydrated makes the first client render match
+  // the server's exactly; the real answer lands a tick later. `useHydrated()`
+  // is false on the server and during hydration, and `now` is only read once it
+  // is true.
+  const hydrated = useHydrated()
+  const [now] = useState(() => Date.now())
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -251,7 +254,7 @@ export function LeadTasksPanel({
           <p className="px-5 py-8 text-center text-sm text-gray-400">No open tasks for this lead</p>
         )}
         {tasks.map((task) => {
-          const overdue = now !== null && isTaskOverdue(task, now)
+          const overdue = hydrated && isTaskOverdue(task, now)
           const ps = PRIORITY_STYLE[task.priority] ?? PRIORITY_STYLE.MEDIUM
           // The assignment is the authorisation: your own task is yours to
           // close, whoever you are. Otherwise the cron nags you about work the

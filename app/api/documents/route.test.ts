@@ -82,6 +82,11 @@ vi.mock("@/lib/ocr/documentValidationService", () => ({
   validateDocumentAgainstClient: (...args: unknown[]) => validateDocumentAgainstClientMock(...args),
 }))
 
+const auditDocumentAccessRefusalMock = vi.fn()
+vi.mock("@/lib/audit-refusals", () => ({
+  auditDocumentAccessRefusal: (...args: unknown[]) => auditDocumentAccessRefusalMock(...args),
+  auditRefusal: vi.fn(),
+}))
 vi.mock("@/lib/audit", () => ({
   logAuditStrict: (...args: unknown[]) => logAuditMock(...args),
   AuditAction: { DOCUMENT_DECRYPTED_AT_INTAKE: "DOCUMENT_DECRYPTED_AT_INTAKE" },
@@ -579,5 +584,56 @@ describe("POST /api/documents", () => {
     expect((await response.json()).signedAgreementWarning).toBeUndefined()
     // The application lookup must not even run for a core KYC type.
     expect(applicationFindFirstMock).not.toHaveBeenCalled()
+  })
+
+  describe("a read-only role", () => {
+    it("refuses READONLY with 403 before reading the body, storing nothing, and audits it", async () => {
+      getDocumentCallerMock.mockResolvedValue({
+        type: "staff",
+        userId: "viewer-1",
+        role: "READONLY",
+        tenantId: "tenant-1",
+      })
+      const req = request("BANK_STATEMENT")
+
+      const response = await POST(req as never)
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({ error: "Your role can view documents but not change them." })
+      expect(req.bodyUsed).toBe(false)
+      expect(saveFileMock).not.toHaveBeenCalled()
+      expect(documentCreateMock).not.toHaveBeenCalled()
+      expect(transactionMock).not.toHaveBeenCalled()
+      expect(extractDocumentDataMock).not.toHaveBeenCalled()
+      expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
+      expect(recomputeClientApplicationsMock).not.toHaveBeenCalled()
+      expect(auditDocumentAccessRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+        documentId: "upload",
+        reason: "document_write_read_only_role",
+        status: 403,
+        tenantId: "tenant-1",
+        actorUserId: "viewer-1",
+        detail: { action: "upload", role: "READONLY" },
+      }))
+    })
+
+    it.each(["COLLECTIONS_OFFICER", "INSURANCE_OFFICER"])("still lets %s upload", async (role) => {
+      getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "staff-1", role, tenantId: "tenant-1" })
+
+      const response = await POST(request("PAYSLIP") as never)
+
+      expect(response.status).toBe(201)
+      expect(documentCreateMock).toHaveBeenCalled()
+      expect(auditDocumentAccessRefusalMock).not.toHaveBeenCalled()
+    })
+
+    it("still lets a portal client upload their own document", async () => {
+      getDocumentCallerMock.mockResolvedValue({ type: "client", clientId: "client-1", email: "client@example.test" })
+
+      const response = await POST(request("PAYSLIP") as never)
+
+      expect(response.status).toBe(201)
+      expect(auditDocumentAccessRefusalMock).not.toHaveBeenCalled()
+    })
   })
 })

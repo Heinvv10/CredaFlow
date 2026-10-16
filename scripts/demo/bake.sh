@@ -14,7 +14,7 @@
 #   DEMO_LENDER_LOGO  optional PNG uploaded as the lender's logo during setup.
 #
 # Steps: rebuild the sim image on --image → fresh-stack.sh (DESTROYS the sim
-# volumes) → simulate.ts to today → check-dates → ledger invariant →
+# volumes) → sim env preflight → simulate.ts to today → check-dates → ledger invariant →
 # verify-pages → pg_dump -Fc + uploads tarball + meta.json → `latest` symlink
 # → keep the newest 4 snapshots. A snapshot is written only when every check
 # passed; any failure exits non-zero and leaves `latest` where it was.
@@ -28,6 +28,7 @@ cd "$DEMO_ROOT"
 # The sim stack is one per host, whatever DEMO_DATA_DIR or DEMO_LENDER says: a
 # second bake would wipe it under the first. Taken first, so an interactive run
 # fails in a second; cron-run.sh sets DEMO_SIM_LOCK_WAIT so a cron bake queues.
+case "${DEMO_SIM_LOCK_WAIT:-0}" in *[!0-9]*) die "DEMO_SIM_LOCK_WAIT=$DEMO_SIM_LOCK_WAIT is not a whole number of seconds" ;; esac
 exec 8>>"$SIM_LOCK"
 flock -w "${DEMO_SIM_LOCK_WAIT:-0}" 8 || die "the sim stack is in use by another bake (lock $SIM_LOCK)"
 
@@ -83,6 +84,9 @@ sim_compose build app >&2
 
 note "fresh sim stack from $start"
 scripts/demo/sim/fresh-stack.sh "${start}T07:30:00+02:00"
+
+note "sim env preflight"
+sim_env_preflight
 
 note "simulate $start → today (report: $work/simulate-report.txt)"
 npx tsx scripts/demo/simulate.ts --start "$start" > "$work/simulate-report.txt" \

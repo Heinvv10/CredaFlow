@@ -12,12 +12,16 @@ const biometricSubject = {
 }
 
 const getDocumentCallerMock = vi.fn()
-const outsideDocumentFindFirstMock = vi.fn()
+const outsideIdCopiesMock = vi.fn()
 const outsideClientFindUniqueMock = vi.fn()
 const txDocumentFindFirstMock = vi.fn()
 const txDocumentCreateMock = vi.fn()
 const txDocumentUpdateManyMock = vi.fn()
 const txDocumentFindManyMock = vi.fn()
+// The client's live ID copies: read by capture inside the evidence lock (with
+// the storage fields the worker needs) and by the outcome's binding re-check.
+const txCaptureIdCopiesMock = vi.fn()
+const txBindingIdCopiesMock = vi.fn()
 const txClientFindUniqueMock = vi.fn()
 const txClientUpdateMock = vi.fn()
 const auditCreateMock = vi.fn()
@@ -35,7 +39,10 @@ const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
   clientDocument: {
     findFirst: (args: unknown) => txDocumentFindFirstMock(args),
-    findMany: (args: unknown) => txDocumentFindManyMock(args),
+    findMany: (args: { where?: { docType?: unknown }; select?: { storagePath?: boolean; verificationRejectedAt?: boolean } }) =>
+      args.where?.docType === "ID_COPY" && args.select?.verificationRejectedAt
+        ? (args.select.storagePath ? txCaptureIdCopiesMock(args) : txBindingIdCopiesMock(args))
+        : txDocumentFindManyMock(args),
     create: (args: unknown) => txDocumentCreateMock(args),
     updateMany: (args: unknown) => txDocumentUpdateManyMock(args),
   },
@@ -60,7 +67,7 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     clientDocument: {
-      findFirst: (args: unknown) => outsideDocumentFindFirstMock(args),
+      findMany: (args: unknown) => outsideIdCopiesMock(args),
     },
     client: {
       findUnique: (args: unknown) => outsideClientFindUniqueMock(args),
@@ -122,6 +129,9 @@ const ID_DOCUMENT_ROW = {
   storagePath: "tenant-1/client-1/id.jpg",
   mimeType: "image/jpeg",
   contentSha256: "c".repeat(64),
+  verified: true,
+  createdAt: new Date("2026-07-01T09:00:00.000Z"),
+  verificationRejectedAt: null,
 }
 
 function persistedSelfieFromLatestUpdate(id = "selfie-doc-1") {
@@ -144,7 +154,9 @@ describe("POST /api/documents/selfie", () => {
       role: "CREDIT_OFFICER",
       tenantId: "tenant-1",
     })
-    outsideDocumentFindFirstMock.mockResolvedValue({ id: "id-doc-1", contentSha256: "c".repeat(64) })
+    outsideIdCopiesMock.mockResolvedValue([ID_DOCUMENT_ROW])
+    txCaptureIdCopiesMock.mockResolvedValue([ID_DOCUMENT_ROW])
+    txBindingIdCopiesMock.mockResolvedValue([ID_DOCUMENT_ROW])
     outsideClientFindUniqueMock.mockResolvedValue({
       idNumber: "9001015000086",
       firstName: "Synthetic",
@@ -153,7 +165,6 @@ describe("POST /api/documents/selfie", () => {
       updatedAt: new Date("2026-07-21T09:00:00.000Z"),
     })
     txDocumentFindFirstMock
-      .mockResolvedValueOnce(ID_DOCUMENT_ROW)
       .mockResolvedValueOnce({
         id: "selfie-doc-1",
         verified: false,
@@ -248,7 +259,7 @@ describe("POST /api/documents/selfie", () => {
     )
 
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
-    expect(txDocumentFindFirstMock.mock.calls[1][0]).toEqual(expect.objectContaining({
+    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining({
       where: expect.objectContaining({
         id: "selfie-doc-1",
         extractionGeneration: generation,
@@ -362,13 +373,12 @@ describe("POST /api/documents/selfie", () => {
   it("does not let a stale callback overwrite a later manual document decision", async () => {
     txDocumentFindFirstMock
       .mockReset()
-      .mockResolvedValueOnce(ID_DOCUMENT_ROW)
       .mockResolvedValueOnce(null)
 
     const response = await POST(request() as never)
 
     expect(response.status).toBe(201)
-    await vi.waitFor(() => expect(txDocumentFindFirstMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(txDocumentFindFirstMock).toHaveBeenCalledTimes(1))
     expect(txDocumentUpdateManyMock).not.toHaveBeenCalled()
     expect(txClientUpdateMock).not.toHaveBeenCalled()
     expect(auditCreateMock).toHaveBeenCalledOnce()
@@ -486,10 +496,8 @@ describe("POST /api/documents/selfie", () => {
   })
 
   it("keeps client KYC pending when a valid selfie is missing a verified core document", async () => {
-    // First findMany is the ID-binding persist gate; the SECOND is the
-    // composite core-document read this test manipulates.
+    // The composite core-document read this test manipulates.
     txDocumentFindManyMock
-      .mockResolvedValueOnce(verifiedCoreDocuments)
       .mockResolvedValueOnce(
         verifiedCoreDocuments.filter(({ docType }) => docType !== "PAYSLIP"),
       )
@@ -577,7 +585,6 @@ describe("POST /api/documents/selfie", () => {
       updatedAt: new Date("2026-07-21T09:00:00.000Z"),
     })
     txDocumentFindFirstMock.mockReset()
-      .mockResolvedValueOnce(ID_DOCUMENT_ROW)
       .mockResolvedValueOnce({
         id: "selfie-doc-1",
         verified: false,
@@ -594,7 +601,7 @@ describe("POST /api/documents/selfie", () => {
 
     expect(response.status).toBe(201)
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
-    expect(txDocumentFindFirstMock.mock.calls[2][0]).toEqual(expect.objectContaining({
+    expect(txDocumentFindFirstMock.mock.calls[1][0]).toEqual(expect.objectContaining({
       where: expect.not.objectContaining({ deletedAt: null }),
     }))
     expect(txClientUpdateMock).not.toHaveBeenCalledWith(expect.objectContaining({
@@ -615,7 +622,6 @@ describe("POST /api/documents/selfie", () => {
 
   it("does not accept an older successful callback after a newer selfie attempt exists", async () => {
     txDocumentFindFirstMock.mockReset()
-      .mockResolvedValueOnce(ID_DOCUMENT_ROW)
       .mockResolvedValueOnce({
         id: "selfie-doc-1",
         verified: false,
@@ -1592,9 +1598,12 @@ describe("POST /api/documents/selfie", () => {
 
   it("does not bind provider evidence to an ID document replaced during the callback", async () => {
     // The persist gate re-reads the CURRENT ID document inside the money
-    // transaction; the evidence names id-doc-1, but a newer ID landed.
-    // Same digest, so only the row comparison can refuse it.
-    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-REPLACED", contentSha256: "c".repeat(64) }])
+    // transaction; the evidence names id-doc-1, but staff verified a newer
+    // copy. Same digest, so only the row comparison can refuse it.
+    txBindingIdCopiesMock.mockResolvedValueOnce([
+      ID_DOCUMENT_ROW,
+      { ...ID_DOCUMENT_ROW, id: "id-doc-REPLACED", createdAt: new Date("2026-07-02T09:00:00.000Z") },
+    ])
 
     const response = await POST(request() as never)
 
@@ -1614,16 +1623,15 @@ describe("POST /api/documents/selfie", () => {
 
   it("re-checks the bound ID copy against the newest uploaded one, digest included", async () => {
     // Same row, different bytes: the compared copy is no longer what is on file.
-    txDocumentFindManyMock.mockResolvedValueOnce([{ id: "id-doc-1", contentSha256: "d".repeat(64) }])
+    txBindingIdCopiesMock.mockResolvedValueOnce([{ ...ID_DOCUMENT_ROW, contentSha256: "d".repeat(64) }])
 
     const response = await POST(request() as never)
 
     expect(response.status).toBe(201)
     await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
-    // Verified or not (the composite gate's call), but never one staff rejected.
-    expect(txDocumentFindManyMock.mock.calls[0][0]).toEqual(expect.objectContaining({
-      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    // Every live copy: resolveCurrentIdDocument picks among them as capture does.
+    expect(txBindingIdCopiesMock.mock.calls[0][0]).toEqual(expect.objectContaining({
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
     }))
     expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -1637,20 +1645,40 @@ describe("POST /api/documents/selfie", () => {
     const response = await POST(request() as never)
 
     expect(response.status).toBe(201)
-    const newestIdCopy = {
-      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verificationRejectedAt: null },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    // Every live copy; resolveCurrentIdDocument picks the newest not rejected.
+    const liveIdCopies = {
+      where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
     }
-    expect(outsideDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
-    expect(txDocumentFindFirstMock.mock.calls[0][0]).toEqual(expect.objectContaining(newestIdCopy))
+    expect(outsideIdCopiesMock.mock.calls[0][0]).toEqual(expect.objectContaining(liveIdCopies))
+    expect(txCaptureIdCopiesMock.mock.calls[0][0]).toEqual(expect.objectContaining(liveIdCopies))
+  })
+
+  it("binds the selfie to the verified copy when the newest copy is an identical re-upload of it", async () => {
+    const twin = { ...ID_DOCUMENT_ROW, id: "id-doc-twin", verified: false, createdAt: new Date("2026-07-02T09:00:00.000Z") }
+    outsideIdCopiesMock.mockResolvedValue([twin, ID_DOCUMENT_ROW])
+    txCaptureIdCopiesMock.mockResolvedValue([twin, ID_DOCUMENT_ROW])
+    txBindingIdCopiesMock.mockResolvedValue([twin, ID_DOCUMENT_ROW])
+
+    const response = await POST(request() as never)
+
+    expect(response.status).toBe(201)
+    expect(auditCreateMock.mock.calls[0][0]).toEqual({
+      data: expect.objectContaining({ newValue: expect.objectContaining({ idDocumentId: "id-doc-1" }) }),
+    })
+    await vi.waitFor(() => expect(txDocumentUpdateManyMock).toHaveBeenCalledOnce())
+    expect(txDocumentUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        biometricResult: expect.objectContaining({ idDocumentId: "id-doc-1", biometricFailureReason: null }),
+      }),
+    }))
   })
 
   it.each([
     ["there is no ID copy at all", null],
     ["the newest copy has no digest", { contentSha256: null }],
   ])("refuses capture when %s", async (_label, newestCopy) => {
-    outsideDocumentFindFirstMock.mockReset()
-    outsideDocumentFindFirstMock.mockResolvedValueOnce(newestCopy)
+    outsideIdCopiesMock.mockReset()
+    outsideIdCopiesMock.mockResolvedValueOnce(newestCopy === null ? [] : [{ ...ID_DOCUMENT_ROW, ...newestCopy }])
 
     const response = await POST(request() as never)
 
@@ -1661,8 +1689,8 @@ describe("POST /api/documents/selfie", () => {
   })
 
   it("refuses inside the evidence lock when the ID copy lost its digest", async () => {
-    txDocumentFindFirstMock.mockReset()
-    txDocumentFindFirstMock.mockResolvedValueOnce({ ...ID_DOCUMENT_ROW, contentSha256: null })
+    txCaptureIdCopiesMock.mockReset()
+    txCaptureIdCopiesMock.mockResolvedValueOnce([{ ...ID_DOCUMENT_ROW, contentSha256: null }])
 
     const response = await POST(request() as never)
 

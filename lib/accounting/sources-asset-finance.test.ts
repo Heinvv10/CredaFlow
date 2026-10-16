@@ -3,6 +3,7 @@ import { CLIENT_JOURNAL_DEALS, day, type JournalDeal } from "@/lib/asset-finance
 import { INSTALMENT_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance-journal-deals"
 import { LEASE_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance-journal-lease-deals"
 import { RECOVERY_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance-journal-recovery-deals"
+import { CREDIT_NOTE_JOURNAL_DEALS } from "@/lib/asset-finance/__fixtures__/acceptance-journal-credit-note-deals"
 import { defaultAccounts, ledger, loan as consumerLoan, runWith } from "./derive.test-helpers"
 import { RECEIVABLE_ROLES } from "./accounts"
 import { desiredSources, deriveEntries } from "./derive"
@@ -10,7 +11,7 @@ import { parsePeriodKey } from "./period"
 import { loanSources, type Vector } from "./sources"
 import { creditShares } from "./sources-asset-finance"
 
-const DEALS: JournalDeal[] = [...INSTALMENT_JOURNAL_DEALS, ...LEASE_JOURNAL_DEALS, ...RECOVERY_JOURNAL_DEALS]
+const DEALS: JournalDeal[] = [...INSTALMENT_JOURNAL_DEALS, ...LEASE_JOURNAL_DEALS, ...RECOVERY_JOURNAL_DEALS, ...CREDIT_NOTE_JOURNAL_DEALS]
 const nonEmpty = (v: Vector) => Object.fromEntries(Object.entries(v).filter(([, cents]) => cents !== 0))
 const sum = (v: Vector) => Object.values(v).reduce((s, c) => s + (c ?? 0), 0)
 

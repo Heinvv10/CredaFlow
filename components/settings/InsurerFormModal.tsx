@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 
 function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
@@ -55,7 +55,16 @@ function InsurerForm({
   error: string | null
 }) {
   const [form, setForm] = useState<InsurerFormState>(initial)
-  useEffect(() => { setForm(initial) }, [initial])
+  // The form follows `initial`, adjusted while rendering. Compared by content,
+  // not identity: InsurersTable builds the edit `initial` afresh on every render,
+  // so an identity check would wipe the user's edits whenever `saving` or `error`
+  // changes (e.g. after a failed save).
+  const initialKey = JSON.stringify(initial)
+  const [prevInitialKey, setPrevInitialKey] = useState(initialKey)
+  if (initialKey !== prevInitialKey) {
+    setPrevInitialKey(initialKey)
+    setForm(initial)
+  }
   const set = (key: keyof InsurerFormState, value: string | boolean) => setForm(f => ({ ...f, [key]: value }))
 
   return (

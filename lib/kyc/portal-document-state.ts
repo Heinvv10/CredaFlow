@@ -117,6 +117,7 @@ export async function readPortalKycDocumentState(
     kycChecklist: derivePortalKycChecklist({
       documents: client.documents,
       composite,
+      storedKycStatus: client.kycStatus,
       latestSelfieId,
     }),
   }

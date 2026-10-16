@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { toast } from "@/lib/toast"
 import Link from "next/link"
 import {
@@ -73,13 +73,18 @@ export function RateTableDetailPanel({
 
   // The panel is reused across selections, so the fields have to follow the
   // table it is showing. Without this, selecting version 2 leaves version 1's
-  // name in the box and a save would rename the wrong card.
-  useEffect(() => {
+  // name in the box and a save would rename the wrong card. Adjusted while
+  // rendering, keyed on the table's id and editable fields rather than the
+  // `table` object: the manager hands over a fresh object on every refresh.
+  const tableKey = JSON.stringify([table.id, table.name, table.basis, table.effectiveFrom])
+  const [prevTableKey, setPrevTableKey] = useState(tableKey)
+  if (tableKey !== prevTableKey) {
+    setPrevTableKey(tableKey)
     setName(table.name)
     setBasis(table.basis)
     setEffectiveFrom(toDateInput(table.effectiveFrom))
     setError(null)
-  }, [table.id, table.name, table.basis, table.effectiveFrom])
+  }
 
   async function send(url: string, method: string, body?: unknown, success?: string) {
     setBusy(true)

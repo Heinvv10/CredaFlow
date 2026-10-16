@@ -640,7 +640,7 @@ suite("application submission evidence locking", () => {
     const policyId = `policy_rollback_${token}`
     const referralEventId = `referral_event_rollback_${token}`
 
-    type Tx = Parameters<Parameters<typeof submissionDb.$transaction>[0]>[0]
+    type Tx = Prisma.TransactionClient
     const writeBeforeAudit = async (tx: Tx) => {
       await writePasqV3Disbursement(tx, scenario, { loanId, policyId })
       await tx.referralEvent.create({

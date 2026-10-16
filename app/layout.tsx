@@ -34,6 +34,10 @@ const metadata: Metadata = {
   ...(metadataBase ? { metadataBase } : {}),
   title: "Client and staff workspace",
   description: "Loan management workspace",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 // Read per request: DEMO_MODE is runtime env, and the same image runs with and

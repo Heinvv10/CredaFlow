@@ -12,6 +12,8 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { assessBiometricEvidence } from "@/lib/kyc/biometric-evidence"
+import { identicalToVerifiedIdCopy } from "@/lib/kyc/id-replacement"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import { biometricFailureCopy } from "@/lib/kyc/biometric-failure-copy"
 import { isLockedStatutoryEvidence } from "@/lib/documents/generic-action-policy"
 
@@ -124,6 +126,13 @@ export async function PATCH(
             return { error: "immutable_signed_packet" as const }
           }
           return { error: "immutable_form_20" as const }
+        }
+        if (verified && doc.docType === "ID_COPY") {
+          const idCopies = await tx.clientDocument.findMany({
+            where: { tenantId: tenant.id, clientId, docType: "ID_COPY", deletedAt: null },
+            select: { id: true, verified: true, createdAt: true, contentSha256: true },
+          })
+          if (identicalToVerifiedIdCopy(doc, idCopies)) return { error: "identical_id_copy" as const }
         }
         if (doc.docType === "SELFIE") {
           const latestSelfie = await tx.clientDocument.findFirst({
@@ -268,7 +277,9 @@ export async function PATCH(
         )
         const updatedClient = await tx.client.update({
           where: { id: clientId, tenantId: tenant.id },
-          data: compositeKyc.state,
+          data: await holdManualPending(tx, {
+            tenantId: tenant.id, clientId, storedKycStatus: clientCheck.kycStatus, state: compositeKyc.state,
+          }),
           select: {
             kycStatus: true,
             kycVerifiedAt: true,
@@ -323,6 +334,12 @@ export async function PATCH(
       }
       if (mutation.error === "document") {
         return NextResponse.json({ error: "Document not found" }, { status: 404 })
+      }
+      if (mutation.error === "identical_id_copy") {
+        return NextResponse.json(
+          { error: "This ID copy holds the same bytes as the verified copy on file, which already carries its verification; there is nothing to verify." },
+          { status: 409 },
+        )
       }
       if (mutation.error === "immutable_agreement") {
         return NextResponse.json(

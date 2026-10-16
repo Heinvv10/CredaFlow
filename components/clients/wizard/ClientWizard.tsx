@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { StepBar } from "@/components/wizard/StepBar"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { sessionWizardStore } from "@/lib/wizard/session-storage"
 import {
   earliestStepWithErrors,
@@ -52,37 +53,35 @@ export function ClientWizard({ mode, onCreated }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const hydrated = useRef(false)
-
-  // Hydrate from sessionStorage + URL on mount
-  useEffect(() => {
-    if (hydrated.current) return
+  // Hydrate from sessionStorage + URL once after hydration, while rendering
+  // (before that render commits): the server and the first client render both
+  // show the blank wizard on step 1.
+  const hydrated = useHydrated()
+  const [restored, setRestored] = useState(false)
+  if (hydrated && !restored) {
+    setRestored(true)
     const saved = store.load()
     if (saved) setData(saved)
+    setStep(clampStep(Number(searchParams.get("step") ?? "1")))
+  }
 
+  // Sync state.step when the URL changes (browser back/forward). Adjusted while
+  // rendering, on the identity of `searchParams` (new object per navigation).
+  const [prevSearchParams, setPrevSearchParams] = useState(searchParams)
+  if (searchParams !== prevSearchParams) {
+    setPrevSearchParams(searchParams)
     const urlStep = clampStep(Number(searchParams.get("step") ?? "1"))
-    setStep(urlStep)
-    hydrated.current = true
-  }, [searchParams, store])
-
-  // Sync state.step when the URL changes (browser back/forward)
-  useEffect(() => {
-    if (!hydrated.current) return
-    const urlStep = clampStep(Number(searchParams.get("step") ?? "1"))
-    setStep((prev) => {
-      if (urlStep !== prev) {
-        setEditingFromReview(false)
-        setErrors({})
-        return urlStep
-      }
-      return prev
-    })
-  }, [searchParams])
+    if (urlStep !== step) {
+      setStep(urlStep)
+      setEditingFromReview(false)
+      setErrors({})
+    }
+  }
 
   // Persist data on every change
   useEffect(() => {
-    if (hydrated.current) store.save(data)
-  }, [data, store])
+    if (restored) store.save(data)
+  }, [data, store, restored])
 
   const patch = (partial: Partial<ClientWizardData>) =>
     setData((d) => ({ ...d, ...partial }))

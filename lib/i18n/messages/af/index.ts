@@ -11,6 +11,7 @@ import { portalLoans } from "./portal-loans"
 import { portalNotifications } from "./portal-notifications"
 import { portalPayment } from "./portal-payment"
 import { portalProfile } from "./portal-profile"
+import { portalRecovery } from "./portal-recovery"
 import { portalShell } from "./portal-shell"
 import { portalStatement } from "./portal-statement"
 import { websiteApply } from "./website-apply"
@@ -33,6 +34,7 @@ export const af: Catalog = {
   portalNotifications,
   portalPayment,
   portalProfile,
+  portalRecovery,
   portalShell,
   portalStatement,
   websiteApply,

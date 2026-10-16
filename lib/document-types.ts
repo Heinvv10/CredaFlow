@@ -113,6 +113,8 @@ export interface DocumentRecord {
   verified: boolean
   /** Set only when a named reviewer refused the document; null for a system re-flag. */
   verificationRejectedById?: string | null
+  /** Digest of the stored bytes; an identical ID re-upload shares it (lib/kyc/staff-checklist.ts). */
+  contentSha256?: string | null
   uploadedByType: string
   uploadedById: string | null
   deletedAt: string | null

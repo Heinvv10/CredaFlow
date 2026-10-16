@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { Menu, X, ChevronDown } from "lucide-react"
 import { APPLY_DRAFT_KEY, QUALIFY_DRAFT_KEY } from "@/lib/draft-keys"
@@ -21,7 +21,6 @@ const navLinks: NavLink[] = [
 ]
 
 function browserHasApplicationDraft() {
-  if (typeof window === "undefined") return false
   try {
     return (
       Boolean(window.localStorage.getItem(APPLY_DRAFT_KEY)) ||
@@ -32,12 +31,26 @@ function browserHasApplicationDraft() {
   }
 }
 
+// The apply and qualify pages fire lms:draft-updated when they save; storage
+// covers other tabs.
+function subscribeToDrafts(onChange: () => void) {
+  window.addEventListener("storage", onChange)
+  window.addEventListener("lms:draft-updated", onChange)
+  return () => {
+    window.removeEventListener("storage", onChange)
+    window.removeEventListener("lms:draft-updated", onChange)
+  }
+}
+
 export default function NavBar({ enabledLocales = [] }: { enabledLocales?: readonly Locale[] }) {
   const identity = useWebsiteIdentity()
   const t = useT("websiteShell")
   const [open, setOpen] = useState(false)
   const [dropdown, setDropdown] = useState<string | null>(null)
-  const [hasDraft, setHasDraft] = useState(browserHasApplicationDraft)
+  // localStorage is an external store: the server (and the hydration render)
+  // see no draft, so the Login href matches the server HTML, then the browser's
+  // answer lands. Reading it in a useState initializer mismatched on hydration.
+  const hasDraft = useSyncExternalStore(subscribeToDrafts, browserHasApplicationDraft, () => false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   // Marketing "Login" is always for clients — staff use the workspace URL
   // directly, not surfaced from marketing.
@@ -67,19 +80,6 @@ export default function NavBar({ enabledLocales = [] }: { enabledLocales?: reado
     }
     document.addEventListener("mousedown", handleClick)
     return () => document.removeEventListener("mousedown", handleClick)
-  }, [])
-
-  useEffect(() => {
-    function syncDraftState() {
-      setHasDraft(browserHasApplicationDraft())
-    }
-
-    window.addEventListener("storage", syncDraftState)
-    window.addEventListener("lms:draft-updated", syncDraftState)
-    return () => {
-      window.removeEventListener("storage", syncDraftState)
-      window.removeEventListener("lms:draft-updated", syncDraftState)
-    }
   }, [])
 
   return (

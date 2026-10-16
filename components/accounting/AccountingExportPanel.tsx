@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatZAR } from "@/lib/utils"
 import { ControlsList, RefusalNotice, type ControlRow } from "./AccountingChecks"
 import { AccountingHistory, type Batch } from "./AccountingHistory"
+import { IsaFlowPushControl } from "./IsaFlowPushControl"
 
 interface Preview {
   period: string
@@ -27,25 +28,39 @@ interface Preview {
   reconciliation: { journalTotalCents: number; bookTotalCents: number; mismatches: Array<{ loanId: string; reference: string; journalCents: number; bookCents: number }> } | null
 }
 
-export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean }) {
+type Snapshot = { preview: (Preview & { error?: string }) | null; previewError: string | null; batches: Batch[] | null }
+
+async function fetchSnapshot(period: string): Promise<Snapshot> {
+  const [p, h] = await Promise.all([
+    fetch(`/api/accounting/preview?period=${encodeURIComponent(period)}`),
+    fetch("/api/accounting/periods"),
+  ])
+  const pj = (await p.json().catch(() => ({}))) as Preview & { error?: string }
+  const batches = h.ok ? ((await h.json()) as { batches: Batch[] }).batches : null
+  return p.ok
+    ? { preview: pj, previewError: null, batches }
+    : { preview: null, previewError: pj.error ?? `Preview failed (${p.status})`, batches }
+}
+
+export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean }) {
   const [period, setPeriod] = useState(initialPeriod)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [batches, setBatches] = useState<Batch[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const [p, h] = await Promise.all([
-      fetch(`/api/accounting/preview?period=${encodeURIComponent(period)}`),
-      fetch("/api/accounting/periods"),
-    ])
-    const pj = (await p.json().catch(() => ({}))) as Preview & { error?: string }
-    if (p.ok) setPreview(pj)
-    else { setPreview(null); setMessage(pj.error ?? `Preview failed (${p.status})`) }
-    if (h.ok) setBatches(((await h.json()) as { batches: Batch[] }).batches)
-  }, [period])
+  function applySnapshot(snap: Snapshot) {
+    setPreview(snap.preview)
+    if (snap.previewError !== null) setMessage(snap.previewError)
+    if (snap.batches) setBatches(snap.batches)
+  }
 
-  useEffect(() => { void load() }, [load])
+  // A stale response (the month changed while it was in flight) is ignored.
+  useEffect(() => {
+    let ignore = false
+    void fetchSnapshot(period).then((snap) => { if (!ignore) applySnapshot(snap) })
+    return () => { ignore = true }
+  }, [period])
 
   async function post(url: string, body: unknown, done: (json: Record<string, unknown>) => string) {
     setBusy(true)
@@ -54,7 +69,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
       const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
       setMessage(res.ok ? done(json) : String(json.error ?? `Failed (${res.status})`))
-      await load()
+      applySnapshot(await fetchSnapshot(period))
     } catch {
       setMessage("Network error; refresh to see the current state.")
     } finally {
@@ -64,6 +79,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
 
   const balanced = preview ? preview.debitCents === preview.creditCents : false
   const rec = preview?.reconciliation ?? null
+  const closedBatch = preview?.closed && preview.batchId ? batches.find((b) => b.id === preview.batchId) : undefined
 
   return (
     <div className="space-y-6">
@@ -145,12 +161,13 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
                 </>
               )}
             </div>
+            {closedBatch && <IsaFlowPushControl batch={closedBatch} canAdmin={canClose} connected={isaflowConnected} busy={busy} post={post} />}
           </div>
         )}
         {message && <p className="mt-3 text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
       </DataPanel>
 
-      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} busy={busy} post={post} />
+      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} isaflowConnected={isaflowConnected} busy={busy} post={post} />
     </div>
   )
 }

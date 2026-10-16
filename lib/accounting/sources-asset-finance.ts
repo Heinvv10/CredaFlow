@@ -16,6 +16,12 @@
  *               balance each row's interest accrued on. That includes interest
  *               capitalised in a skip period; the balloon is principal already
  *               inside F and posts nothing of its own.
+ *   credit note on the inception invoice, on its issue date once the inception has posted:
+ *               Dr AF_PRICE_CREDITS excl; Dr OUTPUT_VAT; Cr AF_INSTALMENT_DEBTORS incl.
+ *               The price the debtor owes falls; the schedule does not change, so
+ *               the reconciliation takes the credit off what the schedule says.
+ *               The inception netted the sale against the dealer's price, so the
+ *               credit is the lender's cost unless the dealer credits it in turn.
  * Operating and full-maintenance lease (the lessor owns the asset):
  *   asset       Dr LEASED_ASSETS cost; Dr INPUT_VAT; Cr BANK (the supplier payout)
  *   rental      per rental tax invoice, on its supply date: Dr LEASE_DEBTORS total;
@@ -36,6 +42,8 @@
  * // UNTESTED: tax — the lender claims input VAT on the dealer's invoice at inception and accounts for output VAT on its own supply.
  * AF contracts never split fee VAT out of a VAT-inclusive fee account: their VAT is explicit only (lib/accounting/derive.ts).
  * // UNTESTED: tax — VAT on maintenance claims is not posted (a claim's amount is ex VAT in the fund).
+ * // UNTESTED: accounting — an inception credit note: the excl. VAT value is an expense (AF_PRICE_CREDITS), input VAT on the dealer's
+ * // invoice is untouched (a dealer's own credit note is the accountant's entry), and the schedule is settled separately (DESIGN.md).
  */
 import { addTo, before, type DesiredSource, type EventType, type SourceCreditNote, type SourceInvoice, type SourceLoan, type Vector } from "./source-types"
 import { recoverySources } from "./sources-recovery"
@@ -140,17 +148,23 @@ export function creditShares(note: SourceCreditNote): Array<{ role: SourceCredit
   return shares.map(({ role, cents }) => ({ role, cents }))
 }
 
-function creditNoteSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
-  return loan.assetFinance!.creditNotes.map((note) => {
+function creditNoteSources(loan: SourceLoan, asOf: Date, lease: boolean): DesiredSource[] {
+  const af = loan.assetFinance!
+  return af.creditNotes.map((note) => {
     const vector: Vector = {}
     const shares = creditShares(note)
+    // An inception invoice's credit posts once the inception has (the payout released), dated by the later of the two.
+    const releasedAt = af.payout?.releasedAt ?? null
+    const on = lease ? note.issueDate : releasedAt && new Date(Math.max(note.issueDate.getTime(), releasedAt.getTime()))
     // A credit with no income to spread over would not balance: it posts nothing and the loader refuses the close.
-    if (shares.length > 0 && before(note.issueDate, asOf)) {
+    if (shares.length > 0 && before(on, asOf)) {
       for (const share of shares) addTo(vector, share.role, share.cents)
       addTo(vector, "OUTPUT_VAT", note.vatCents)
-      addTo(vector, "LEASE_DEBTORS", -note.inclVatCents)
+      addTo(vector, lease ? "LEASE_DEBTORS" : "AF_INSTALMENT_DEBTORS", -note.inclVatCents)
     }
-    return source(loan, `lease-credit:${note.id}`, vector, "CREDIT_NOTE", note.issueDate, `Credit note on a lease invoice of ${loan.reference}`, "Credit note")
+    return lease
+      ? source(loan, `lease-credit:${note.id}`, vector, "CREDIT_NOTE", note.issueDate, `Credit note on a lease invoice of ${loan.reference}`, "Credit note")
+      : source(loan, `af-credit:${note.id}`, vector, "CREDIT_NOTE", on ?? note.issueDate, `Credit note on the inception invoice of ${loan.reference}`, "Credit note")
   })
 }
 
@@ -186,8 +200,8 @@ function fundSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
 export function assetFinanceSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   const lease = loan.assetFinance!.contractType === "OPERATING_LEASE" || loan.assetFinance!.contractType === "FULL_MAINTENANCE_LEASE"
   const out: DesiredSource[] = lease
-    ? [leaseAssetSource(loan, asOf), ...leaseInvoiceSources(loan, asOf), ...creditNoteSources(loan, asOf), ...fundSources(loan, asOf)]
-    : [inceptionSource(loan, asOf), ...instalmentSources(loan, asOf)]
+    ? [leaseAssetSource(loan, asOf), ...leaseInvoiceSources(loan, asOf), ...creditNoteSources(loan, asOf, true), ...fundSources(loan, asOf)]
+    : [inceptionSource(loan, asOf), ...instalmentSources(loan, asOf), ...creditNoteSources(loan, asOf, false)]
   out.push(...chargeSources(loan, asOf, true, null))
   out.push(...receiptSources(loan, asOf, writtenOffAt(loan, asOf)))
   out.push(...recoverySources(loan, asOf, out))

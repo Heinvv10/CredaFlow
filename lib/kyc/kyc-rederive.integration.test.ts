@@ -37,11 +37,8 @@ vi.mock("@/lib/tenant", async () => {
 import { POST as rederive } from "@/app/api/clients/[id]/kyc-rederive/route"
 import { PATCH as verify } from "@/app/api/clients/[id]/documents/[docId]/verify/route"
 import { requireApiRole } from "@/lib/auth-guards"
-import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
-import {
-  IN_PERSON_KYC_VERIFICATION_KIND,
-  IN_PERSON_KYC_VERIFICATION_VERSION,
-} from "@/lib/kyc/in-person-verification"
+import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
+import { ATTESTED_AT, B, day, rederiveFixture } from "@/lib/kyc/kyc-rederive.integration-fixture"
 
 const RUN = process.env.RUN_KYC_REDERIVE_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
@@ -52,52 +49,7 @@ ctx.tenantId = tenantId
 const attesterId = `attester_${token}`
 const officer1 = `officer1_${token}`
 const officer2 = `officer2_${token}`
-const [A, B, C] = ["a", "b", "c"].map((hex) => hex.repeat(64))
-const DOB = new Date("1990-04-05T00:00:00.000Z")
-const day = (n: number) => new Date(Date.UTC(2026, 6, 1 + n))
-const ATTESTED_AT = new Date("2026-07-10T09:00:00.000Z")
-let sequence = 0
-
-/**
- * Stored PENDING on four verified core documents and an in-person attestation
- * over the ID copy `id_<client>` (day 0), or over extra copy `attestExtra`.
- */
-async function seedRestorableClient(
-  extraIdCopies: Array<{ sha: string; verified: boolean; on: number }> = [],
-  attestExtra?: number,
-) {
-  sequence += 1
-  const clientId = `c_rederive_${sequence}_${token}`
-  const subject = { id: clientId, idNumber: `REDERIVE-${sequence}-${token}`, firstName: "Synthetic", lastName: "Rederive", dateOfBirth: DOB }
-  await db.client.create({ data: {
-    ...subject, tenantId, reference: `CLI-REDERIVE-${sequence}-${token}`,
-    email: `rederive-${sequence}-${token}@test.invalid`, phone: "+27820000067",
-  } })
-  const idCopyId = `id_${clientId}`
-  const attestedId = attestExtra === undefined ? idCopyId : `id_extra${attestExtra}_${clientId}`
-  await db.clientDocument.createMany({ data: [
-    { id: idCopyId, tenantId, clientId, docType: "ID_COPY", fileUrl: "", fileName: "id.pdf", verified: true, verifiedAt: day(0), contentSha256: A, createdAt: day(0) },
-    ...extraIdCopies.map((copy, index) => ({
-      id: `id_extra${index}_${clientId}`, tenantId, clientId, docType: "ID_COPY" as const, fileUrl: "", fileName: "id.pdf",
-      verified: copy.verified, verifiedAt: copy.verified ? day(copy.on) : null, contentSha256: copy.sha, createdAt: day(copy.on),
-    })),
-    ...(["PROOF_OF_ADDRESS", "PAYSLIP", "BANK_STATEMENT"] as const).map((docType) => ({
-      id: `${docType}_${clientId}`, tenantId, clientId, docType, fileUrl: "", fileName: "core.pdf",
-      verified: true, verifiedAt: day(0), contentSha256: C, createdAt: day(0),
-    })),
-  ] })
-  await db.complianceRecord.create({ data: {
-    tenantId, type: "KYC_EXCEPTION", referenceId: clientId, status: "COMPLETED", completedAt: ATTESTED_AT,
-    data: {
-      kind: IN_PERSON_KYC_VERIFICATION_KIND, version: IN_PERSON_KYC_VERIFICATION_VERSION, clientId,
-      idDocumentId: attestedId, idDocumentSha256: attestExtra === undefined ? A : extraIdCopies[attestExtra].sha, subjectFingerprint: biometricSubjectFingerprint(subject),
-      method: "IN_PERSON_BRANCH", note: "Synthetic client attended a branch; face matched the ID photo.",
-      approvedAt: ATTESTED_AT.toISOString(), approvedById: attesterId,
-      approvedByEmail: `attester-${token}@test.invalid`, approvedWithTotp: true,
-    },
-  } })
-  return { clientId, idCopyId }
-}
+const { seedClient, seedRestorableClient, seedPassedSelfie } = rederiveFixture(db, { tenantId, token, attesterId, label: "rederive" })
 
 const post = (clientId: string, idDocumentId: string, as = officer1) => {
   ctx.userId = as
@@ -174,12 +126,12 @@ suite("KYC re-derive (Re-verify ID)", () => {
     expect((await post(clientId, `id_extra0_${clientId}`)).status).toBe(200)
   })
 
-  it("refuses a verified copy that carries a refusal marker", async () => {
-    const { clientId, idCopyId } = await seedRestorableClient()
-    await db.clientDocument.update({ where: { id: idCopyId }, data: { verificationRejectedAt: new Date() } })
-
-    expect((await post(clientId, idCopyId)).status).toBe(409)
-    expect((await stored(clientId)).kycStatus).toBe("PENDING")
+  // The re-derive still refuses one (defence in depth), but since 20261016120000
+  // the database cannot hold a verified copy that carries a refusal marker.
+  it("never meets a verified copy that carries a refusal marker", async () => {
+    const { idCopyId } = await seedRestorableClient()
+    await expect(db.clientDocument.update({ where: { id: idCopyId }, data: { verificationRejectedAt: new Date() } }))
+      .rejects.toThrow("ClientDocument_verified_not_refused_check")
   })
 
   it("refuses a deleted copy", async () => {
@@ -198,6 +150,49 @@ suite("KYC re-derive (Re-verify ID)", () => {
     expect((await stored(clientId)).kycStatus).toBe("PENDING")
     expect(await rederivedAudits(clientId)).toHaveLength(0)
   })
+
+  it("re-derives a selfie-backed client as BIOMETRIC, no verifier, stamped when the selfie passed", async () => {
+    const { clientId, idCopyId, subject } = await seedClient()
+    const passedAt = new Date("2026-07-12T08:30:00.000Z")
+    await seedPassedSelfie(clientId, idCopyId, subject, passedAt)
+
+    const res = await post(clientId, idCopyId)
+
+    expect(res.status).toBe(200)
+    // The provenance is the passed selfie's, never the acting officer's.
+    expect(await stored(clientId)).toMatchObject({
+      kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC", kycVerifiedById: null, kycVerifiedAt: passedAt,
+    })
+    const audits = await rederivedAudits(clientId)
+    expect(audits).toHaveLength(1)
+    expect(audits[0].newValue).toMatchObject({
+      clientKyc: { kycStatus: "VERIFIED", kycVerificationMethod: "BIOMETRIC", kycVerifiedById: null, kycVerifiedAt: passedAt.toISOString() },
+    })
+  })
+
+  it.each(["VERIFIED", "FAILED", "EXPIRED"] as const)(
+    "refuses when the stored status is %s, though the copy is current and the evidence derives VERIFIED",
+    async (status) => {
+      const { clientId, idCopyId } = await seedRestorableClient()
+      await db.client.update({ where: { id: clientId }, data: status === "VERIFIED"
+        ? { kycStatus: status, kycVerifiedAt: ATTESTED_AT, kycVerifiedById: attesterId, kycVerificationMethod: "PHYSICAL" }
+        : { kycStatus: status } })
+      // Only the stored status stands in the way: the evidence still derives VERIFIED.
+      const client = await stored(clientId)
+      const composite = await readCompositeKycState(db as unknown as CompositeKycReader, {
+        tenantId, clientId, subject: client, existing: client, preserveVerifiedProvenance: true,
+      })
+      expect(composite.state.kycStatus).toBe("VERIFIED")
+
+      const res = await post(clientId, idCopyId)
+
+      expect(res.status).toBe(409)
+      // The ID copy check passed; the refusal is the evidence/status one.
+      expect(await res.json()).toMatchObject({ reason: "evidence_does_not_hold" })
+      expect((await stored(clientId)).kycStatus).toBe(status)
+      expect(await rederivedAudits(clientId)).toHaveLength(0)
+    },
+  )
 
   it("is a 404 for a copy of another client", async () => {
     const { clientId } = await seedRestorableClient()

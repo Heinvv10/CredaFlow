@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { Buffer } from "node:buffer"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
 import { faceModelEvidenceRefusal } from "@/lib/kyc/face-model/evidence"
+import { resolveCurrentIdDocument } from "@/lib/kyc/usable-id-document"
 
 // Minimum face-match and liveness scores (0–100) for payout-grade biometric
 // KYC. The provider is the VLM comparing the live selfie against the printed
@@ -351,25 +352,6 @@ export interface BiometricIdDocumentCopy extends BiometricIdDocument {
   createdAt: Date
 }
 
-/**
- * The copy capture would compare a selfie against now (CURRENT_ID_DOCUMENT in
- * lib/kyc/usable-id-document.ts): the newest not rejected, createdAt DESC then
- * id DESC. The copies are already the non-deleted ones. Code-unit comparison,
- * as readCompositeKycState breaks the same tie.
- */
-function currentIdDocumentCopy(
-  copies: readonly BiometricIdDocumentCopy[],
-): BiometricIdDocumentCopy | null {
-  return copies
-    .filter((copy) => (copy.verificationRejectedAt ?? null) === null)
-    .reduce<BiometricIdDocumentCopy | null>((newest, copy) => {
-      if (newest === null) return copy
-      const byCreatedAt = copy.createdAt.getTime() - newest.createdAt.getTime()
-      if (byCreatedAt !== 0) return byCreatedAt > 0 ? copy : newest
-      return copy.id > newest.id ? copy : newest
-    }, null)
-}
-
 export function assessBiometricEvidence(
   evidence: BiometricDocumentEvidence,
   options: {
@@ -555,7 +537,7 @@ export function assessBiometricEvidence(
       options.priorAdverseAttempt === false &&
       boundCopy !== undefined &&
       options.idDocumentCopies !== null &&
-      currentIdDocumentCopy(options.idDocumentCopies)?.id === boundCopy.id &&
+      resolveCurrentIdDocument(options.idDocumentCopies)?.id === boundCopy.id &&
       isSha256Digest(boundCopy.contentSha256) &&
       boundCopy.contentSha256 === providerResult.idDocumentSha256 &&
       (boundCopy.verificationRejectedById ?? null) === null

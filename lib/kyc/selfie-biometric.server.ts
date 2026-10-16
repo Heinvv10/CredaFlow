@@ -28,8 +28,14 @@ import {
 import { compareFaces, type FaceComparison } from "@/lib/kyc/face-model/compare.server"
 import { canonicalBiometricImage } from "@/lib/kyc/biometric-image.server"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
-import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
+import {
+  CURRENT_ID_DOCUMENT_FIELDS,
+  LIVE_ID_COPIES,
+  resolveCurrentIdDocument,
+  type CurrentIdDocumentCandidate,
+} from "@/lib/kyc/usable-id-document"
 import { SWEPT_ATTEMPT_CONDITIONS } from "@/lib/kyc/selfie-sweeper.server"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 
 /**
  * The VLM liveness + face-match chain that runs after a selfie is stored.
@@ -320,8 +326,9 @@ async function persistBiometricOutcome(args: {
       biometricSubjectFingerprint(clientBefore) === args.subjectFingerprint
     // The provider evidence names the exact ID document the selfie was
     // compared against. That binding is a live gate, not metadata: unless it
-    // is still the copy capture would choose (CURRENT_ID_DOCUMENT: newest,
-    // not deleted, not rejected), with the same digest, the attempt fails
+    // is still the copy capture would choose (resolveCurrentIdDocument: newest,
+    // not deleted, not rejected, an identical re-upload of the verified copy
+    // being that copy), with the same digest, the attempt fails
     // closed, so a newer upload, a deletion or a staff rejection while the
     // callback ran fails it. Whether that copy is VERIFIED is the KYC gates'
     // question (subject_has_composite_kyc): an attempt against an unverified
@@ -342,17 +349,14 @@ async function persistBiometricOutcome(args: {
       : args.idDocument.contentSha256
     let idDocumentUnchanged = true
     if (boundIdDocumentId) {
-      const currentIdDocuments = await tx.clientDocument.findMany({
+      const currentIdDocument = resolveCurrentIdDocument(await tx.clientDocument.findMany({
         where: {
           tenantId: args.tenantId,
           clientId: args.clientId,
-          ...CURRENT_ID_DOCUMENT,
+          ...LIVE_ID_COPIES,
         },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: 1,
-        select: { id: true, contentSha256: true },
-      } as never) as unknown as Array<{ id: string; contentSha256: string | null }>
-      const currentIdDocument = currentIdDocuments[0]
+        select: CURRENT_ID_DOCUMENT_FIELDS,
+      } as never) as unknown as CurrentIdDocumentCandidate[])
       idDocumentUnchanged = currentIdDocument?.id === boundIdDocumentId
         && isSha256Digest(currentIdDocument.contentSha256)
         && currentIdDocument.contentSha256 === boundIdDocumentSha256
@@ -509,7 +513,9 @@ async function persistBiometricOutcome(args: {
     if (outcomeIsCurrent) {
       clientAfter = await tx.client.update({
         where: { id: args.clientId, tenantId: args.tenantId },
-        data: compositeKyc.state,
+        data: await holdManualPending(tx, {
+          tenantId: args.tenantId, clientId: args.clientId, storedKycStatus: clientBefore.kycStatus, state: compositeKyc.state,
+        }),
         select: {
           kycStatus: true,
           kycVerifiedAt: true,
