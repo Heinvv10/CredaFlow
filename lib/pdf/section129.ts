@@ -21,14 +21,25 @@ import { LenderIdentityError, requireLenderIdentityFields, type LenderIdentity }
  * office, collections contacts — is the lender's own, re-validated here.
  */
 
-/** The identity the notice prints. */
+/**
+ * The identity the notice prints. The FSP number is not among them: it prints
+ * only for a lender that holds one (fspNumber below).
+ */
 export const SECTION_129_IDENTITY_FIELDS = [
-  "legalName", "ncrNumber", "fspNumber", "companyRegNumber", "registeredOfficeLines",
+  "legalName", "ncrNumber", "companyRegNumber", "registeredOfficeLines",
   "collectionsEmail", "collectionsPhone", "collectionsPhoneSecondary", "brandTagline",
 ] as const
 
+/**
+ * The lender's FSP number when it holds one, validated like the rest of the
+ * identity; null for a lender with none, whose notice omits the FSP line.
+ */
+export function section129FspNumber(lender: Pick<LenderIdentity, "fspNumber">): string | null {
+  return lender.fspNumber == null ? null : requireLenderIdentityFields(lender, ["fspNumber"]).fspNumber
+}
+
 interface Section129Opts {
-  lender: Pick<LenderIdentity, (typeof SECTION_129_IDENTITY_FIELDS)[number]>
+  lender: Pick<LenderIdentity, (typeof SECTION_129_IDENTITY_FIELDS)[number] | "fspNumber">
   /** Letterhead logo, PNG bytes. Absent → text header. */
   logo?: Uint8Array
   client: { firstName: string; lastName: string; idNumber: string; identityLabel?: "ID" | "Registration no."; addressLine1?: string; city?: string }
@@ -56,6 +67,7 @@ export async function generateSection129Pdf(opts: Section129Opts): Promise<Buffe
   const { client, loan } = opts
   // Before anything is drawn: a notice naming the wrong lender is worse than none.
   const lender = requireLenderIdentityFields(opts.lender, SECTION_129_IDENTITY_FIELDS)
+  const fspNumber = section129FspNumber(opts.lender)
   const totalOutstanding = loan.totalOutstanding ?? loan.outstandingPrincipal
   const noticeDate = opts.noticeDate ?? new Date()
   const doc = await PDFDocument.create()
@@ -130,7 +142,8 @@ export async function generateSection129Pdf(opts: Section129Opts): Promise<Buffe
 
   // Compliance strip under letterhead.
   page.drawLine({ start: { x: MARGIN, y: headerBottom }, end: { x: A4_WIDTH - MARGIN, y: headerBottom }, thickness: 1.2, color: ACCENT })
-  const stripText = `Registered Credit Provider — NCR ${lender.ncrNumber}    ·    Authorised Financial Services Provider — FSP ${lender.fspNumber}    ·    Reg. No. ${lender.companyRegNumber}`
+  const fspSegment = fspNumber ? `Authorised Financial Services Provider — FSP ${fspNumber}    ·    ` : ""
+  const stripText = `Registered Credit Provider — NCR ${lender.ncrNumber}    ·    ${fspSegment}Reg. No. ${lender.companyRegNumber}`
   drawText(page, stripText, MARGIN, headerBottom - 12, regular, 7.5, GRAY)
 
   y = headerBottom - 32
