@@ -23,6 +23,8 @@
 #     POLICY_OFF_SQL) so they are not held at enrolment. The bake enrols TOTP,
 #     so without this every restore turns it back on. This is the CLAUDE.md TOTP
 #     exception for demo stacks;
+#   - every tenant marked as a demo lender (TENANT_DEMO_LENDER_SQL), which the
+#     demo's simulated Section 129 email needs;
 #   - uploads unpacked into <volume>/.restore-<ts>, file count checked.
 # Then the swap (the only downtime): stop app + portal → rename <db> to
 # <db>_old_<ts> and the staged db to <db> (one transaction) → move the old
@@ -225,6 +227,9 @@ want="$(jq -cS '.counts | del(.uploadFiles)' "$snap/meta.json")"
 got="$(live_sql "$tmp_db" "$SNAPSHOT_COUNTS_SQL" | jq -cS .)"
 [ "$got" = "$want" ] || die "restored row counts $got differ from the snapshot's $want"
 note "database staged in $tmp_db ($got)"
+step="demo lender marker"
+live_sql "$tmp_db" "$TENANT_DEMO_LENDER_SQL" >/dev/null
+note "tenants marked as demo lenders in the staged db (TenantConfig.isDemoLender)"
 
 step="staff TOTP off"
 if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | grep -x 'DEMO_CLEAR_STAFF_TOTP=true' >/dev/null; then

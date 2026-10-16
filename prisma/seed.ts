@@ -121,6 +121,10 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     featureAssetFinance: true,
+    // This seed only ever creates a synthetic demo lender. The marker lets a
+    // DEMO_MODE stack simulate a Section 129 email to its undeliverable
+    // mailboxes (lib/collections/section129-email.ts); provisioning refuses it.
+    isDemoLender: true,
     // The demo shows every borrower language. A real lender starts on English
     // only (the column default) until its translations are reviewed.
     enabledLanguages: ["en", "af", "zu", "xh"],

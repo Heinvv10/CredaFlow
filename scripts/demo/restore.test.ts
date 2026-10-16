@@ -73,6 +73,7 @@ function run(env: Record<string, string> = {}) {
 
 const clearCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "User"'))
 const policyCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "requireStaffTotp" = false'))
+const markerCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "isDemoLender" = true'))
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'demo-restore-'))
@@ -129,8 +130,8 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(policy).toHaveLength(1)
     expect(policy[0]).toContain('DB=demo ')
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
-    expect(idx('UPDATE "TenantConfig"')).toBeGreaterThan(idx('UPDATE "User"'))
-    expect(idx('UPDATE "TenantConfig"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
+    expect(idx('UPDATE "TenantConfig" SET "requireStaffTotp"')).toBeGreaterThan(idx('UPDATE "User"'))
+    expect(idx('UPDATE "TenantConfig" SET "requireStaffTotp"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
     expect(r.out).toMatch(/staff 2FA policy switched off/)
   })
 
@@ -142,7 +143,7 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(policy[0]).toMatch(/DB=demo_restore_/)
     expect(clearCalls(r.calls)).toHaveLength(2)
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
-    expect(idx('UPDATE "TenantConfig"')).toBeLessThan(idx('RENAME TO "demo"'))
+    expect(idx('UPDATE "TenantConfig" SET "requireStaffTotp"')).toBeLessThan(idx('RENAME TO "demo"'))
     expect(policy[1]).toContain('DB=demo ')
   })
 
@@ -183,6 +184,30 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(r.status).not.toBe(0)
     expect(r.out).toMatch(/DEMO_MODE=true/)
     expect(clearCalls(r.calls)).toHaveLength(0)
+  })
+})
+
+// #147 review: the demo's simulated Section 129 email keys on
+// TenantConfig.isDemoLender, which arrives false on rows older than the column.
+describe('restore.sh demo lender marker', { timeout: TEST_TIMEOUT_MS }, () => {
+  it('marks the tenants in the staged db, before the swap, with or without DEMO_CLEAR_STAFF_TOTP', () => {
+    for (const env of [{}, { STUB_CLEAR_TOTP: '1' }]) {
+      writeFileSync(log, '')
+      const r = run(env)
+      expect(r.status).toBe(0)
+      const marker = markerCalls(r.calls)
+      expect(marker).toHaveLength(1)
+      expect(marker[0]).toMatch(/exec -e DB=demo_restore_\S+ -e SQL=DO \$demo\$/)
+      const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
+      expect(idx('"isDemoLender" = true')).toBeLessThan(idx('RENAME TO "demo"'))
+      expect(r.out).toMatch(/tenants marked as demo lenders in the staged db/)
+    }
+  })
+
+  it('does not mark anything on a stack that is not DEMO_MODE=true, nor when the restore fails before staging', () => {
+    expect(markerCalls(run({ STUB_DEMO_MODE: 'false' }).calls)).toHaveLength(0)
+    writeFileSync(log, '')
+    expect(markerCalls(run({ STUB_COUNTS: '{}' }).calls)).toHaveLength(0)
   })
 })
 

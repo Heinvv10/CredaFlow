@@ -117,6 +117,14 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(await prisma.documentTemplate.count({ where: { tenantId: tenant.id } })).toBeGreaterThan(0)
   })
 
+  it("marks the tenant as a demo lender, which provisioning never does", async () => {
+    const prisma = freshDb()
+    expect(await prisma.tenantConfig.findFirstOrThrow({
+      where: { tenant: { slug: "acme" } },
+      select: { isDemoLender: true },
+    })).toEqual({ isDemoLender: true })
+  })
+
   it("enrols every seeded staff user in TOTP", async () => {
     const prisma = freshDb()
 

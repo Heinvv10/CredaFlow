@@ -24,6 +24,17 @@ describe("parseTenantConfig", () => {
     expect(r.config.features).toMatchObject({ featureCrm: true, featurePortal: false })
   })
 
+  // #147 review: only the demo seed marks a demo lender (TenantConfig.isDemoLender).
+  it.each([
+    ["at the top level", { isDemoLender: true }],
+    ["among the features", { features: { isDemoLender: true } }],
+    ["in the identity", { identity: { ...validFile().identity, isDemoLender: true } }],
+  ])("refuses the demo-lender marker %s, by name", (_where, over) => {
+    expect(errorsOf({ ...validFile(), ...over })).toContain(
+      "isDemoLender: only the demo seed marks a demo lender; a lender file may not set it",
+    )
+  })
+
   it("rejects an identity the app's own schema rejects, naming the field", () => {
     const f = validFile()
     f.identity.ncrNumber = "NCR-1"
