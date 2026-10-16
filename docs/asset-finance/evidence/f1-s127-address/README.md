@@ -5,23 +5,53 @@ the whole value before splitting it on `\n`. `winAnsiSafe` replaces any
 character outside WinAnsi, a newline included, with `?`, so the split never
 fired and a multi-line address printed as one line joined by `?`.
 
-The fix splits first and sanitises each line. `winAnsiSafe` works character by
-character, so a value without a newline sanitises to exactly the same string
-either way: only renders whose value contains `\n` change.
+The fix splits on every line break first (CRLF, LF, lone CR, NEL U+0085, and
+U+2028/U+2029), turns each line's whitespace runs (tabs included) into single
+spaces, and only then sanitises. `winAnsiSafe` works character by character
+and the old code already split words on whitespace after it, so a value with
+no line break and no tab-like whitespace prints exactly as before: only renders
+whose values contain one change. (Review round 1 widened the split from
+`\r?\n` and added the whitespace step; the pins and renders below were
+re-checked after it and are unchanged.)
 
 ## Who is affected
 
 `wrapText` is called only by `DealDocumentWriter.paragraph` and
-`DealDocumentWriter.labelValues`. The values that contain `\n` are the three
-`addressLines.join("\n")` rows:
+`DealDocumentWriter.labelValues` (`placeholderClause` goes through
+`paragraph`). The `lib/pdf/*` consumer documents each have their own local
+`wrapText` and do not import this one.
 
-- `lib/asset-finance/documents/nca/surrender-pdf.ts` — "Consumer address" on
-  the s127 valuation notice and the s127 final notice;
-- `lib/asset-finance/documents/nca/quote-pdf.ts` — "Consumer address";
-- `lib/asset-finance/documents/nca/agreement-pdf.ts` — "Address".
+### Every caller, and which runtime values can carry a line break
 
-The `lib/pdf/*` consumer documents each have their own local `wrapText` and do
-not import this one. Other asset-finance documents join addresses with `", "`.
+The 65 `paragraph` / `labelValues` call sites in `lib/asset-finance/documents/`
+(agreement, suretyship, resolution, NCA quote/agreement, s127 surrender
+notices, s131 recovery notices, post-sale statement, lease agreement,
+statement, termination quote, expiry notice, inspection report, and the row
+builders in `document-parts.ts` and `lease/lease-docs-parts.ts`) print these
+kinds of value. The table records whether a line break can reach `wrapText` at
+runtime, from the write path's validation (traced by reading it, not run):
+
+| Value printed | Source | Line break possible? |
+|---|---|---|
+| Consumer address on the s127 notices, NCA quote, NCA agreement | `addressLines.join("\n")` in the renderer | **Always**, when the address has more than one line (the reported bug) |
+| Every other address (s131 notices, post-sale statement, lease agreement, entity rows) | `addressLines.join(", ")` | Only inside a line itself, as below |
+| Client names and address columns (consumer, lessee, surety, signatories) | client wizard, `lib/validation/client-wizard.ts` (required, trimmed) | Yes: nothing refuses an inner newline |
+| Entity legal/trading name, registration and VAT number, Master's reference, address columns | `lib/asset-finance/entity-input.ts` `text()` (trim + max length) | Yes |
+| Recovery `condition`, `location` ("Recorded condition", "Held at") | `lib/asset-finance/recovery-input.ts` `text()` (trim) | Yes (staff free text) |
+| Surrender `assetCondition` | `lib/asset-finance/surrender-store.ts` (trim, 3–2000 chars) | Yes (borrower free text from the portal) |
+| Valuer name | `recovery-store.ts` / `surrender-store.ts` (trim); `asset-input.ts` `readText` (trim) | Yes |
+| Lease inspection `condition` | `lib/asset-finance/lease-end-of-term.ts` (trim) | Yes |
+| Asset make / model (in "Goods", "Asset") | `asset-input.ts` `readText` (trim) | Yes |
+| Supplier name | supplier write path | Not traced |
+| Lender legal name, registered office lines, NCR/company numbers, contacts | `lib/config/identity-schema.ts` `PRINTABLE` (refuses control characters) | No |
+| Serial / VIN / engine / registration numbers | `asset-input.ts` serial rule (`asset-input.test.ts` refuses `\t`, `\n`) | No |
+| Money, dates, percentages, rate descriptions | `formatZarPdf`, `formatIsoDatePdf`, `percentPdf`, … | No |
+| Fixed wording, `PLACEHOLDER_CLAUSE`, the draft notes, the termination `basis` (`basisText` template) | code constants | No |
+
+So besides the three `"\n"`-joined addresses, a free-text value typed with a
+line break (a condition, a location, a name or address line) now prints as
+separate lines where it printed `?` before, and a tab prints as a space. No
+pinned render has such a value.
 
 ## Pins moved: none
 
@@ -36,7 +66,10 @@ hash moves and nothing was re-pinned.
 | `scripts/nca-pdf-fingerprint.ts` (s129, cob, statement, agreement38, pasq38, statement37, statementCharges, statementReversed, statementOfWhich) | output identical before and after (`diff` empty) | same |
 
 `npx vitest run lib/pdf lib/asset-finance/documents`: 28 files, 321 tests passed
-after the fix, with no pin edited.
+after the fix, with no pin edited. After the round-1 change (every line break,
+whitespace normalised): 29 files, 327 tests passed, including the tester's
+`pdf-layout.breaker.test.ts` (lone CR, NEL and U+2028, tab: no `?`), and the
+fingerprint and the eight renders below were re-rendered with identical hashes.
 
 ## Renders that do change (multi-line address; none pinned)
 
