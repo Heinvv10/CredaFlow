@@ -24,6 +24,10 @@ export function creditLifeOfferFindFirstArgs(tenantId: string) {
           name: { not: "" },
         },
       },
+      // A lender with no FSP number issues no insurance, so it offers no cover
+      // (Fair Score audit goal §2a.2). The identity writer stores a cleared
+      // number as null; "" is excluded as well.
+      tenant: { config: { is: { AND: [{ fscaNumber: { not: null } }, { NOT: { fscaNumber: "" } }] } } },
     },
     orderBy: [
       { createdAt: "asc" },

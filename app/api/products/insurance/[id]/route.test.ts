@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const { requireApiRole, findUnique, update } = vi.hoisted(() => ({
@@ -14,8 +14,10 @@ vi.mock("@/lib/tenant", () => ({
     callback: (tenant: { id: string }) => unknown,
   ) => callback({ id: "tenant-1" }),
 }))
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    tenantConfig: { findUnique: async () => ({ fscaNumber: fsp.number }) },
     insuranceProduct: {
       findUnique: (...args: unknown[]) => findUnique(...args),
       update: (...args: unknown[]) => update(...args),
@@ -83,5 +85,28 @@ describe("PUT /api/products/insurance/[id] credit-life terms", () => {
     findUnique.mockResolvedValue({ id: "product-1", type: "FUNERAL_COVER", premiumAmount: 0, sumAssured: 0, commissionRate: 0 })
     const response = await PUT(request({ type: "FUNERAL_COVER", premiumAmount: 0 }), ctx)
     expect(response.status).toBe(200)
+  })
+})
+
+// #143 blind review: no FSP number, no active credit-life product (an offer).
+describe("PUT /api/products/insurance/[id] without an FSP number", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    findUnique.mockResolvedValue({ id: "product-1", type: "CREDIT_LIFE", premiumAmount: 22.5, sumAssured: 5_000, commissionRate: 0, active: true })
+    update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "product-1", ...data }))
+    fsp.number = null
+  })
+  afterEach(() => { fsp.number = "12345" })
+
+  it("refuses to keep or make a credit-life product active (409)", async () => {
+    const res = await PUT(request({ type: "CREDIT_LIFE", active: true }), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED" })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it("still lets it be deactivated", async () => {
+    expect((await PUT(request({ type: "CREDIT_LIFE", active: false }), ctx)).status).toBe(200)
   })
 })

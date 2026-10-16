@@ -33,6 +33,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
+import { FSP_NOT_CONFIGURED, FSP_REQUIRED_ERROR } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
 import { hashDraftToken, signDraftToken } from "@/lib/insurance/disclosure-token"
@@ -261,6 +262,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           409,
         )
       }
+      if (!lender.fspNumber) return refuse(FSP_NOT_CONFIGURED, FSP_REQUIRED_ERROR, 409)
 
       // One statement closes two holes at once:
       //

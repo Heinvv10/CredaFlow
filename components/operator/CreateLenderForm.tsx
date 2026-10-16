@@ -15,7 +15,7 @@ type Props = {
 }
 
 const LABEL: Record<string, string> = {
-  legalName: "Legal name", brandName: "Brand name", ncrNumber: "NCR number", fscaNumber: "FSP number",
+  legalName: "Legal name", brandName: "Brand name", ncrNumber: "NCR number", fscaNumber: "FSP number (optional)",
   companyRegNumber: "Company registration number", registeredOffice: "Registered office (one address line per line)", publicEmail: "Public email",
   publicPhone: "Public phone", publicWhatsapp: "Public WhatsApp", collectionsEmail: "Collections email",
   collectionsPhone: "Collections phone", collectionsPhoneSecondary: "Collections phone (second)", brandTagline: "Tagline",
