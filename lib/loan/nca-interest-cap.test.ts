@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { PRODUCT_PRICING } from "@/lib/product-pricing"
+import { REPO } from "@/prisma/seed/asset-finance-data"
 import { checkNcaInterestRate, ncaCreditType, productCreditType } from "./nca-interest-cap"
 
 describe("NCA credit type (s1 short-term credit transaction)", () => {
@@ -60,5 +62,17 @@ describe("unsecured cap: repo + 21% per year", () => {
 
   it("refuses rather than guesses when no repo rate is recorded", () => {
     expect(unsecured(0.01, null)).toMatchObject({ ok: false, reason: "NO_REPO_RATE" })
+  })
+})
+
+describe("the demo products (prisma/seed.ts, mirrored by lib/product-pricing.ts)", () => {
+  // Seeded REPO (prisma/seed/asset-finance-data.ts) is 8.25%; 7% is the stricter check.
+  it.each([0.0825, 0.07])("are within the cap at a %s repo", (repoAnnualRate) => {
+    expect(REPO.rate).toBe("0.0825")
+    const micro = PRODUCT_PRICING["short-term"]
+    expect(checkNcaInterestRate({ creditType: "SHORT_TERM", ...micro, repoAnnualRate })).toEqual({ ok: true })
+    for (const key of ["personal", "purchase-order", "invoice-discounting"] as const) {
+      expect(checkNcaInterestRate({ creditType: "UNSECURED", ...PRODUCT_PRICING[key], repoAnnualRate })).toEqual({ ok: true })
+    }
   })
 })

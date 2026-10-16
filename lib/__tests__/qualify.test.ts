@@ -72,10 +72,10 @@ describe("computeQualification", () => {
     expect(result.poFunding.monthlyInterest).toBeLessThanOrEqual(result.maxInstalment)
   })
 
-  it("PO monthly interest equals 5% of maxAmount (prod POFUND rate)", () => {
+  it("PO monthly interest equals 2.25% of maxAmount (the POFUND rate, inside the NCA cap)", () => {
     const result = computeQualification(10000000, 2000000, 0)
     expect(result.poFunding.maxAmount).toBeGreaterThan(0)
-    expect(result.poFunding.monthlyInterest).toBe(Math.round(result.poFunding.maxAmount * 0.05))
+    expect(result.poFunding.monthlyInterest).toBe(Math.round(result.poFunding.maxAmount * 0.0225))
   })
 
   // -------------------------------------------------------------------------
