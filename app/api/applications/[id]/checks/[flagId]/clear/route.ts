@@ -77,7 +77,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         entity: "ApplicationCheckFlag",
         entityId: flag.id,
         oldValue: { status: "OPEN" },
-        newValue: { status: "CLEARED", applicationId: id, check: flag.check, code: flag.code, reason, clearedAt: clearedAt.toISOString(), ...(totpWaived ? { twoFactor: "waived: demo stack without TOTP" } : {}) },
+        newValue: {
+          status: "CLEARED", applicationId: id, check: flag.check, code: flag.code, reason, clearedAt: clearedAt.toISOString(),
+          ...(totpWaived ? { twoFactor: "waived: demo stack without TOTP" } : {}),
+        },
       }, tx)
       return { status: 200 as const }
     })
