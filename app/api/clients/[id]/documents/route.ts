@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { lacksLoanBook } from "@/lib/security/loan-book-scope"
+import { documentWithoutLoanBook } from "@/lib/security/client-redaction"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import {
   PORTAL_KYC_SNAPSHOT_OPTIONS,
@@ -42,14 +43,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // The extraction is the lending read of a document (payslip income, bank
-    // statement lines): a role without the loan book gets the files, not it.
+    // The extraction and its validation are the lending read of a document:
+    // a role without the loan book gets the files, not that read
+    // (LOAN_BOOK_DOCUMENT_FIELDS, lib/security/client-redaction.ts).
     const withoutLoanBook = caller.type === "staff" && lacksLoanBook(caller.role)
-    const shown = <T extends { storagePath: unknown; extractionResult?: unknown }>(doc: T) => {
+    const shown = <T extends { storagePath: unknown }>(doc: T) => {
       const { storagePath: _sp, ...rest } = doc
-      if (!withoutLoanBook) return rest
-      const { extractionResult: _er, ...visible } = rest
-      return visible
+      return withoutLoanBook ? documentWithoutLoanBook(rest) : rest
     }
 
     return withTenantContextLoggingRefusal(req, { documentId: `client:${clientId}`, caller }, async (tenant) => {
