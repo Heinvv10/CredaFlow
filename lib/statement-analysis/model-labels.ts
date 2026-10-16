@@ -25,13 +25,13 @@ import { LIVING_CATEGORIES, type Category } from "./categories"
 import { VlmUnavailableError } from "./vlm-reader"
 
 /**
- * Off: reads are not labelled. Measured 2026-10-15 (goal 2026-10-15 §3 A3) on
- * the held-out corpus merchant keys, rules + model scored 90.3%, 67.1%, 67.1%
- * over three runs against the 95% gate (rules alone 90.2%): the local model is
- * not deterministic at temperature 0 and in two runs put a high-volume
- * non-credit key in CREDIT_INSTALMENT. Labels would make the figures worse,
- * so the background step stays off until a run passes the gate. (An object
- * only so tests can turn it on.)
+ * Off: reads are not labelled. On the held-out corpus merchant keys against
+ * the 95% gate (rules alone 90.2%), rules + model scored 90.3%, 67.1%, 67.1%
+ * with labels-p2 (2026-10-15: a high-volume non-credit key put in
+ * CREDIT_INSTALMENT) and 92.5%, 91.8%, 91.4% with labels-p3 voting
+ * (2026-10-16: living keys the rules put in another category stay missed,
+ * and the vote still differs between runs). The background step stays off
+ * until a run passes the gate. (An object only so tests can turn it on.)
  */
 export const MODEL_LABELS = { enabled: false }
 

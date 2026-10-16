@@ -31,7 +31,7 @@ for `lib/credit-checks/`; categories and insights on read. Pipeline: `analyse.ts
   `CATEGORISER_VERSION` when `categorise.ts`/`merchants.ts` do (checks' lists stay in policy.ts).
   Categories are computed on read; the one stored input is the model's label per masked debit key no
   rule categorises (`model-labels.ts`; the read's own row, `modelCategories`), shown model-assigned;
-  off (`MODEL_LABELS`) until a run passes the §6.4 gate (2026-10-15: 67.1–90.3%).
+  off (`MODEL_LABELS`) until a run passes the §6.4 gate (2026-10-15: 67.1–90.3%; 2026-10-16, vote of 3: 91.4–92.5%).
 - **FNB marks only credits** ("Cr"); unmarked is a debit / overdrawn. A row
   printing an amount that moves no money is `nonPosting` only when the balance
   confirms it: FNB "EDO Collection Attempt", ABSA "( PENDING )"/"DECLINED FEE".

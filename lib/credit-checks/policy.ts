@@ -162,6 +162,8 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * split only): held-out 90.3%, 67.1%, 67.1% over three runs; rules alone
  * 90.2%. The model is not deterministic at temperature 0 and mislabels a
  * high-volume key, so model labelling ships off (MODEL_LABELS) and this stays off.
+ * 2026-10-16, prompt labels-p3 with a vote of three (credit and gambling
+ * unanimous): held-out 92.5%, 91.8%, 91.4%; still below the gate.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 
