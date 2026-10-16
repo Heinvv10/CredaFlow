@@ -14,12 +14,13 @@ export const metadata = { title: "Accounting export — Reports" }
 
 export default async function AccountingExportPage() {
   // Book-level money figures: the same gate as the other reports. Closing a
-  // month, editing the mapping and pushing to Xero need ADMIN (the APIs check).
+  // month, editing the mapping and pushing to Xero or IsaFlow need ADMIN (the APIs check).
   const user = await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
-  const [latest, xero, doubles] = await Promise.all([
+  const [latest, xero, isaflow, doubles] = await Promise.all([
     prisma.accountingExportBatch.findFirst({ where: { tenantId }, orderBy: { periodStart: "desc" }, select: { periodKey: true } }),
     prisma.xeroConnection.findUnique({ where: { tenantId }, select: { status: true } }),
+    prisma.isaFlowConnection.findUnique({ where: { tenantId }, select: { status: true } }),
     loadDoublePayoutRisks(prisma, tenantId),
   ])
   // Two payouts of one loan that may both have gone out: the books carry one.
@@ -52,7 +53,7 @@ export default async function AccountingExportPage() {
         </InfoStrip>
       )}
       <AccountingSettingsPanel canEdit={canAdmin} locked={latest !== null} />
-      <AccountingExportPanel initialPeriod={initialPeriod} canClose={canAdmin} xeroConnected={xero?.status === "CONNECTED"} />
+      <AccountingExportPanel initialPeriod={initialPeriod} canClose={canAdmin} xeroConnected={xero?.status === "CONNECTED"} isaflowConnected={isaflow?.status === "CONNECTED"} />
       <AccountMappingEditor canEdit={canAdmin} />
     </div>
   )

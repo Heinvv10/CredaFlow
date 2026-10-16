@@ -416,7 +416,9 @@ export function SelfieKycTab({
 
   const failureCopy = biometricFailureCopy(biometricEvidence)
 
-  const kycBadgeClass = manualException
+  // The STORED status; the derived exception only names a stored VERIFIED.
+  const exceptionBadge = Boolean(manualException) && kycStatus === "VERIFIED"
+  const kycBadgeClass = exceptionBadge
     ? "bg-amber-100 text-amber-900"
     : {
     PENDING: "bg-amber-100 text-amber-800",
@@ -424,7 +426,7 @@ export function SelfieKycTab({
     FAILED: "bg-red-100 text-red-800",
     EXPIRED: "bg-gray-100 text-gray-800",
       }[kycStatus]
-  const kycBadgeLabel = manualException ? "MANUAL EXCEPTION" : kycStatus
+  const kycBadgeLabel = exceptionBadge ? "MANUAL EXCEPTION" : kycStatus
 
   // Shared with the upload dialog's selfie step, which points staff here. If
   // this is false the pointer is not shown, so the two surfaces cannot

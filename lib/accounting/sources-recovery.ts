@@ -10,6 +10,8 @@
  *               both: Dr INPUT_VAT; Cr RECOVERY_COSTS_PAYABLE gross (paid through AP)
  *   vat         repossession deemed supply: Dr INPUT_VAT claim; Cr CLEARING
  *   sale        Dr BANK price; Cr OUTPUT_VAT; Cr CLEARING price excl. VAT
+ *   sale credit a credit note on the buyer's invoice: Dr OUTPUT_VAT; Dr CLEARING excl. VAT;
+ *               Cr BANK incl. VAT, on its issue date (the buyer is refunded in cash, as it paid)
  *   proceeds    (generic receipt) Dr CLEARING; Cr the receivable
  *   surplus     Dr CLEARING; Cr RECOVERY_REFUND_PAYABLE
  *   refund      Dr RECOVERY_REFUND_PAYABLE; Cr BANK once released
@@ -20,6 +22,8 @@
  *
  * // UNTESTED: accounting — the result account takes the gap between output VAT and the input VAT claimed; whether it is a P&L item is for the lender's accountant.
  * // UNTESTED: tax — the sale's cash is taken in on the completion day (the buyer's invoice date).
+ * // UNTESTED: accounting — a credit note on the buyer's invoice is refunded on its issue date (no buyer-refund record exists), and the
+ * // proceeds applied to the debtor are the sale price before it, so the credit lands in the recovery result.
  */
 import { addTo, before, type DesiredSource, type SourceLoan, type SourceRecovery, type Vector } from "./source-types"
 import { adjustment } from "./sources-shared"
@@ -57,6 +61,15 @@ function ownSources(loan: SourceLoan, rec: SourceRecovery, asOf: Date): DesiredS
       addTo(vector, "RECOVERY_CLEARING", -invoice.exclVatCents)
     }
     out.push(recoverySource(loan, key(`sale:${rec.sale.id}`), vector, "RECOVERY_SALE", invoice.issueDate, `Repossessed asset of ${loan.reference} sold`, "Remarketing sale"))
+    for (const note of rec.sale.creditNotes ?? []) {
+      const credit: Vector = {}
+      if (before(note.issueDate, asOf)) {
+        addTo(credit, "OUTPUT_VAT", note.vatCents)
+        addTo(credit, "RECOVERY_CLEARING", note.exclVatCents)
+        addTo(credit, "BANK", -note.inclVatCents)
+      }
+      out.push(recoverySource(loan, key(`sale-credit:${note.id}`), credit, "CREDIT_NOTE", note.issueDate, `Credit note on the sale of the repossessed asset of ${loan.reference}`, "Sale credit note"))
+    }
   }
   const surplus: Vector = {}
   if (rec.proceedsDate && before(rec.proceedsDate, asOf)) {

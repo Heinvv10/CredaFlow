@@ -325,8 +325,12 @@ sign-off. 4b (journals, IsaFlow push) waits for PR #89.
 Asset-finance contracts export through the accounting engine (`lib/accounting/`), never the consumer
 sources. Sources: instalment sale and finance lease (financed amount at inception, then the interest
 each row accrues, capitalised interest included, the balloon posts nothing), leases per tax invoice
-(rentals, end-of-term and termination invoices, credit notes), the maintenance fund, and a
-repossession through `RECOVERY_CLEARING` to nil. Every month ties to independent SQL and six controls
+(rentals, end-of-term and termination invoices, credit notes), credit notes on an inception invoice
+or a repossession sale's invoice, the maintenance fund, and a repossession through `RECOVERY_CLEARING`
+to nil. An instalment sale or finance lease posts its inception when the supplier payout is released
+(each row's interest is `B(next) - B(this) + totalDue`); a lease's end-of-term and termination invoices
+are schedule rows, so they sit on the receivable. A contract that predates the first open month posts
+there, dated by origin. Every month ties to independent SQL and six controls
 (VAT in and out, recovery clearing and result, refund payable, fund liability); a control that
 differs refuses the close. Hand-worked acceptance deals are in
 `lib/asset-finance/__fixtures__/acceptance-journal-*.ts` (`CLIENT_JOURNAL_DEALS` empty until the
@@ -340,16 +344,42 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
 - **Charged-cost VAT.** A recovery cost charged to the account claims its input VAT, and the
   recharge to the borrower is the gross amount with no output VAT, so the VAT portion lands in
   profit and loss (via the recharge contra account).
-- Input VAT claimed at inception on the dealer's invoice; interest recognised as it falls due (no
+- Input VAT claimed at inception on the dealer's invoice (an inception credit note leaves it claimed
+  until the dealer credits the lender; reversing it then is the accountant's entry); interest recognised as it falls due (no
   deferred finance income); the recovery-result account (output VAT less the input VAT claimed on
   repossession and on deducted costs); the split of a credit note between rental, maintenance and
   asset-sale income, and that a credited maintenance contribution stays in the lessee's fund; the
   sale's cash taken in on the completion day; the lease asset's net book value is derecognised in
   the fixed-asset register, not posted.
 - **Not exported yet (refuses the close):** a lease with a deposit or trade-in, and a credit note
-  against an instalment sale's inception invoice or a repossession sale's invoice.
-- A credit note adjusts the ledger's lease debtors but not the loan's schedule: staff settle the
-  schedule balance separately.
+  against an instalment sale's tax invoice other than its inception invoice (the app issues none).
+- A credit note adjusts the ledger's lease or instalment debtors but not the loan's schedule: staff
+  settle the schedule balance separately. No screen or route issues a credit note today; only
+  `issueCreditNote` (`lib/vat/credit-note.ts`) does, and nothing reprices the schedule after one.
+- **Credit note on an instalment sale's or finance lease's inception invoice:** Dr `AF_PRICE_CREDITS`
+  (6400, new) the value excl. VAT, Dr output VAT; Cr instalment debtors incl. VAT, on its issue date,
+  or with the inception when the payout is released later. The invoice is one line, the asset's cash
+  price, so a credit lowers the price and the amount financed F by its incl. VAT value. The inception
+  netted the sale to the debtor against the dealer's price and posted no sales account, so there is
+  no income to reverse: the excl. VAT value is the lender's cost unless the dealer credits the lender
+  in turn, which the accountant books against the same account (and reverses that input VAT). Fee
+  income is untouched (financed fees are not on the invoice); input VAT is untouched (no dealer credit
+  is recorded). The independent SQL subtracts the credit from what the schedule says is owed, as for a
+  lease, so the receivable ties while the schedule still carries the full price.
+  A credit is at the invoice's incl. VAT value, but the debtors were booked at F, which excludes the
+  deposit and trade-in the debtor paid outside the contract. So a large enough credit on such a deal
+  (the whole invoice, say) leaves instalment debtors in credit: on a R11 500.00 cash price with a
+  R1 500.00 deposit (F R10 000.00), a full credit takes R11 500.00 off a R10 000.00 debt. That is the
+  lender's policy, not a fault: refunding or offsetting the credit balance is the accountant's step,
+  and the code leaves it as is (repro R1 in `lib/accounting/af-break-credit-notes.integration.test.ts`).
+- **Credit note on a repossession sale's buyer invoice:** Dr output VAT, Dr `RECOVERY_CLEARING` excl.
+  VAT; Cr bank incl. VAT, on its issue date. The sale source takes the buyer's cash in on the invoice
+  date with no buyer debtor account (Q2 of the 4b spec), so the refund goes out the same way: a
+  payable would never clear from data the app holds. The proceeds applied to the debtor are the sale
+  price before the credit (`lib/asset-finance/recovery-proceeds.ts`), so the credit is the lender's
+  loss: the result source sweeps it from clearing to `RECOVERY_RESULT` (a credit issued after the
+  proceeds were applied moves the result in its own month), clearing stays nil, and the result
+  control adds the credit's excl. VAT value.
 - **Input VAT on a dealer that is not a VAT vendor.** The instalment-sale and finance-lease input VAT
   control reads the inception invoice's VAT, the same figure the journal posts, so it checks the date
   (posted once, when the supplier payout is released), not the dealer's own VAT. Whether the lender may
@@ -362,6 +392,79 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
   VAT is the VAT of its tax invoices, which the VAT control reads. Whether VAT is due on a financed fee
   is for the tax adviser.
 - A billed maintenance deficit credits the lessee's fund liability (it settles the fund) and not income.
+
+## Slice 4b part 2: IsaFlow draft push (built against a fake IsaFlow; live push not yet done)
+
+A tenant connects one IsaFlow company. After that, an ADMIN whose session verified a TOTP code
+(always, whatever the lender's 2FA policy) pushes each closed month as ONE draft journal. Nothing is
+posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accounting/isaflow/`.
+
+- **Transport: IsaFlow's MCP endpoint.** `/api/mcp` JSON-RPC `tools/call`, with a personal access
+  token (`pat_…`) that IsaFlow binds to one company. The REST journal endpoint takes only a session
+  cookie and has no external reference. Everything above `client.ts` talks to `IsaFlowTransport`, so
+  a REST adapter can replace `mcpTransport` once IsaFlow ships Bearer auth plus `external_ref`.
+  Contract with IsaFlow file:line references: `contract.ts`. `contract.test.ts` pins the fake to it.
+- **Connection** (`IsaFlowConnection`, one per tenant). Connect, verify and disconnect go through
+  `superAdminPolicyWrite` (a TOTP-verified SUPER_ADMIN, re-checked on the locked row).
+  - The IsaFlow calls (`list_companies` for the bound company id, `list_gl_accounts` to prove
+    `read:reports`) run in its `prepare` step, before the write's transaction. They write nothing:
+    a refusal, and a token IsaFlow no longer takes, are recorded inside the write, after the role
+    re-check. `company_profile` has no id.
+  - A token IsaFlow refuses on any path (verify, chart read, send, read-back) moves the connection
+    to NEEDS_RECONNECT, drops the token and writes an `ISAFLOW_NEEDS_RECONNECT` audit row.
+  - The token is sealed with `sealCredential` and opened strictly. It is never returned and never
+    audited.
+  - The base URL must be an origin listed in `ISAFLOW_ALLOWED_ORIGINS`. An https origin must
+    resolve to public addresses only (`lib/lender-api/webhooks/ssrf.ts`). Every request dials
+    through `guardedLookup` (`dial.ts`), so the address connected to is the one checked at that
+    moment: a listed name that re-points to a private address is refused (DNS rebinding).
+    Redirects are not followed.
+  - http is accepted only for a listed loopback origin, under NODE_ENV `development` or `test`. That
+    covers the fake, `scripts/fake-isaflow.ts`.
+  - The database refuses CONNECTED unless `connectedWithTotp` is set and the connector is an active
+    SUPER_ADMIN of the tenant. It also refuses an unsealed token, and a token on a connection that
+    is not CONNECTED (`guardIsaFlowConnection`).
+- **Push** (`AccountingIsaFlowPush`, one per CLOSED batch). Nothing is claimed or sent before each
+  check passes:
+  - the batch's digest;
+  - every line's role has a stored mapping to the line's code, and no line carries a tax code;
+  - every code exists once and is active in IsaFlow's chart. Otherwise a 422 lists the codes.
+
+  Then the request is built once: net per account, rands to 2 dp, dated the last day of the month,
+  memo `CredaFlow journals <month> [credaflow:<batchId>]`, `company_id` asserted. It is stored with
+  the SENDING claim and sent under `credaflow:batch:<batchId>`. IsaFlow replays the same key with the
+  same arguments, so a resend never makes a second draft.
+- **Before any retry**, IsaFlow is read back: `list_journals`, drafts of that day, with lines. This
+  covers a FAILED push pushed again, and a NEEDS_REVIEW push checked. A draft with the memo tag and
+  identical lines is the push (PUSHED, `foundOnReadBack`). A tagged draft with other lines waits
+  for a person. Otherwise the stored request is resent byte for byte with the same key, and the
+  draft IsaFlow answers with counts only if a second read-back finds it.
+  - SENDING for 10 minutes becomes NEEDS_REVIEW.
+  - An auth refusal drops the token (NEEDS_RECONNECT).
+- **Guards** (`20261016100000_isaflow_connection_push`): a copy of the Xero push guard, plus:
+  - request, hash, key, reference and IsaFlow company are immutable;
+  - the journal id is written once, and PUSHED needs one;
+  - NEEDS_REVIEW may go back to SENDING. That is safe only because the request and key never change.
+  - a claim starts with no journal id, resolver, note or read-back flag, and is made by a user of the
+    tenant; a retry claim clears any earlier resolver, so leaving review other than by a resend names
+    the resolver of this resolution, a user of the tenant;
+  - DELETE and TRUNCATE are refused.
+- **Known limits.**
+  - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
+    result (the deleted draft's id). The push then stays NEEDS_REVIEW ("draft deleted in IsaFlow;
+    key replays the old id") for a person to resolve. Resolving it "not pushed" and pushing again
+    only replays the deleted id again, back to review: that month is posted in IsaFlow from the CSV
+    download and then resolved, which the screen and the 409 message say. Sending it again would need
+    a new key, which IsaFlow does not support today (out of scope).
+  - `write:journals` is proven only by the first push.
+  - A tax code on a mapping (meant for Xero) refuses the IsaFlow push; post that month from the CSV.
+  - A remap after close refuses the push for that month.
+  - Account ids are resolved at push time. A code renamed in IsaFlow afterwards gives a definite
+    refusal on resend, never a misposting.
+- **Evidence.** Integration tests against the fake: `isaflow.integration.test.ts` and
+  `isaflow-guards.integration.test.ts` (`RUN_ACCOUNTING_IT=1`). Mutation record:
+  `evidence/slice4b-isaflow/MUTATIONS.md`. The live push to Hein's IsaFlow dev company is still to
+  do; it waits for his credentials (goal §9).
 
 ## Acceptance (every slice)
 

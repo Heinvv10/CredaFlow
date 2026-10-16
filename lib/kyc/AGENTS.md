@@ -34,6 +34,12 @@
   route refuses it (409); the staff checklist counts it verified.
 - Stored PENDING, evidence derives VERIFIED: hint + Re-verify ID re-derives
   only (`kyc-rederive.server.ts`, 409 if the copy is stale); attests nothing.
+  Hidden, and 409, while a staff manual PENDING is the latest status change
+  (`manual-pending.server.ts` reads the audit trail; no column records it).
+  No automatic writer promotes while it stands (`holdManualPending`), even
+  after a FAILED; only a later audited VERIFIED (Approve KYC, a staff grant)
+  ends it. Every KYC writer must audit `newValue.kycStatus` or
+  `newValue.clientKyc.kycStatus`, or the hold cannot see it.
 
 ## Enforcement and proof
 - PostgreSQL independently enforces enabled, active minimum-role actors,

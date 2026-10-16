@@ -3,6 +3,7 @@ import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-lo
 import { databaseNow } from "@/lib/db-clock"
 import { prisma } from "@/lib/prisma"
 import type { BiometricEvidenceFailureReason } from "@/lib/kyc/biometric-evidence"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import {
   clientKycAuditValue,
   readCompositeKycState,
@@ -185,7 +186,9 @@ export async function sweepStuckSelfie(
     const clientAfter = latestSelfie
       ? await tx.client.update({
           where: { id: candidate.clientId, tenantId },
-          data: composite.state,
+          data: await holdManualPending(tx, {
+            tenantId, clientId: candidate.clientId, storedKycStatus: clientNow.kycStatus, state: composite.state,
+          }),
           select: CLIENT_KYC_SELECT,
         })
       : clientNow
