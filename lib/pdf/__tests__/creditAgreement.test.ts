@@ -444,6 +444,46 @@ describe("generateCreditAgreementPdf — Credit Life disclosure", () => {
     expect(content).not.toContain(pdfHex("Credit Life Insurance Disclosure"))
   })
 
+  // Fair Score audit B6: with no cover offered the PASQ said nothing about
+  // credit life. The stored no-offer record now prints "Not offered" — but
+  // only when the caller says so explicitly, never inferred from a missing
+  // `creditLife` (that would relabel a declined offer).
+  it("states 'not offered' with no product rows when the record says no cover was offered", async () => {
+    for (const variant of ["pasq", "agreement"] as const) {
+      const content = extractPdfContent(await generateCreditAgreementPdf({ ...baseInput, variant, creditLifeNotOffered: true }))
+      expect(content).toContain(pdfHex("Not offered"))
+      expect(content).toContain(pdfHex("no credit-life cover is included"))
+      expect(content).not.toContain(pdfHex("Offered Credit Life Product"))
+      expect(content).not.toContain(pdfHex("Offered Credit Life Insurer"))
+      expect(content).not.toContain(pdfHex("Credit Life Election"))
+    }
+  })
+
+  it("prints no 'not offered' row when the flag is omitted (the default)", async () => {
+    for (const input of [baseInput, { ...baseInput, willAutoBundleCl: false }]) {
+      const content = extractPdfContent(await generateCreditAgreementPdf(input))
+      expect(content).not.toContain(pdfHex("Not offered"))
+    }
+  })
+
+  it("does not say 'not offered' when an offer was declined", async () => {
+    const content = extractPdfContent(await generateCreditAgreementPdf({
+      ...baseInput,
+      willAutoBundleCl: false,
+      creditLife: { elected: false, productName: "Acme Credit Life", insurerName: "Test Life", monthlyPremiumCents: 2_250 },
+    }))
+    expect(content).not.toContain(pdfHex("Not offered"))
+    expect(content).toContain(pdfHex("Offered Credit Life Product"))
+  })
+
+  it("refuses a record that is both offered and not offered", async () => {
+    await expect(generateCreditAgreementPdf({
+      ...baseInput,
+      creditLifeNotOffered: true,
+      creditLife: { elected: false, productName: "Acme Credit Life", insurerName: "Test Life", monthlyPremiumCents: 2_250 },
+    })).rejects.toThrow(/both offered and not offered/)
+  })
+
   it("omits the CL disclosure block when willAutoBundleCl is omitted (safe default)", async () => {
     // willAutoBundleCl is optional; omitting should behave like false
     const buf = await generateCreditAgreementPdf(baseInput)
@@ -725,6 +765,24 @@ describe("PASQ / Form 20 — approved-render pin", () => {
   // Pinning a markerless render would pin a document nobody ships — the exact
   // scope-of-pin trap this file has been bitten by before.
   const PINNED_CEREMONY_MARKER = "4af7707c7ba1"
+
+  // Fair Score audit B6: the same quotation for a stored no-offer record. Its
+  // one extra row ("Credit Life" / "Not offered — no credit-life cover is
+  // included") was signed off by Hein on 2026-10-16 (PR #142).
+  const SIGNED_OFF_NOT_OFFERED_SHA256 = "b1b8afaef729760baca4414622e23cbddcdab9165d554442f753c3697b1e58f7"
+
+  it("matches the not-offered render signed off on 2026-10-16", async () => {
+    const pdf = await generateCreditAgreementPdf({
+      ...baseInput,
+      ceremonyMarker: PINNED_CEREMONY_MARKER,
+      creditLifeNotOffered: true,
+    } as never)
+    expect(
+      renderHash(pdf),
+      "The not-offered PASQ render changed. The 2026-10-16 sign-off covers the previous " +
+        "content only. Re-obtain approval before shipping; do not re-pin to go green.",
+    ).toBe(SIGNED_OFF_NOT_OFFERED_SHA256)
+  })
 
   it("matches the render legal signed off", async () => {
     const pdf = await generateCreditAgreementPdf({

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { sendEmail } from "@/lib/email/service"
 import { sendMessage } from "@/lib/messaging/send"
@@ -34,6 +34,10 @@ import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "@/lib/collecti
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("COLLECTIONS_OFFICER")
   if (guard.error) return guard.error
+  // act_on_collections: the COLLECTIONS_OFFICER ladder minus INSURANCE_OFFICER.
+  if (!canDo(guard.user.role, "act_on_collections")) {
+    return NextResponse.json({ error: "Your role cannot act on collections." }, { status: 403 })
+  }
 
   return withTenantContext(req, async (tenant) => {
     const { loanId } = await req.json()

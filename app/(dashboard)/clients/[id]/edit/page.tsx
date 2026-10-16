@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/Header"
 import { ClientForm } from "@/components/clients/ClientFormLegacy"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { auth } from "@/lib/auth"
+import { requireLoanBookPage } from "@/lib/auth-guards"
 import { canReassignReferralAgent } from "@/lib/clients/referral-update"
 
 async function getClient(id: string, tenantId: string) {
@@ -25,6 +26,10 @@ export default async function EditClientPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  // The form carries the client's income, expenses, expense breakdown and
+  // declared debt, the affordability evidence: a role without the loan book
+  // (INSURANCE_OFFICER, which cannot save it either) does not open it.
+  await requireLoanBookPage()
   const { id } = await params
   const tenantId = await getStaffTenantId()
   const [client, session] = await Promise.all([getClient(id, tenantId), auth()])

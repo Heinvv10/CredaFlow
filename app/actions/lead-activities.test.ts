@@ -5,7 +5,8 @@ const getDefaultTenantIdMock = vi.fn()
 const transactionMock = vi.fn()
 const logAuditMock = vi.fn()
 
-vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r) }))
+// requireLoanBookStaff is requireMinRole plus view_loan_book (lib/__tests__/auth-guards.loan-book.test.ts).
+vi.mock("@/lib/auth-guards", () => ({ requireMinRole: (r: string) => requireMinRoleMock(r), requireLoanBookStaff: (r: string) => requireMinRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: () => getDefaultTenantIdMock() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: { $transaction: (fn: (tx: unknown) => Promise<unknown>) => transactionMock(fn) },

@@ -3,6 +3,8 @@ import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
+import { clientRelationsWithoutLoanBook } from "@/lib/security/client-redaction"
 import { formatZAR, formatDate, formatDateTime } from "@/lib/utils"
 import { formatStatusLabel } from "@/lib/status-style"
 import { clientStatus, CLIENT_STATUS_BADGE } from "@/lib/clients/status"
@@ -97,12 +99,18 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   const { tab } = await searchParams
   const defaultTab = resolveClientTab(tab)
   const tenantId = await getStaffTenantId()
-  const [client, selfieDoc, bureauHistory, cannedReplies, generatableTemplates] = await Promise.all([
+  const [loadedClient, selfieDoc, loadedBureauHistory, cannedReplies, generatableTemplates] = await Promise.all([
     getClient(id, tenantId), getAuthoritativeStaffSelfie(id, tenantId), getBureauHistory(id, tenantId), listCannedReplies(tenantId), listGeneratableCustomTemplates(tenantId, { client: true }),
   ])
-  if (!client) notFound()
+  if (!loadedClient) notFound()
   const session = await auth()
   const staffRole = session?.user?.role && session.user.role !== "CLIENT" ? session.user.role : null
+  // A role without the loan book (INSURANCE_OFFICER) sees the client, not its
+  // applications, loans, affordability evidence, lending figures or bureau
+  // history (lib/security/client-redaction.ts).
+  const showLoanBook = !lacksLoanBook(staffRole)
+  const client = showLoanBook ? loadedClient : clientRelationsWithoutLoanBook(loadedClient)
+  const bureauHistory = showLoanBook ? loadedBureauHistory : []
   // The session role is revalidated against the User row on every request
   // (lib/auth.ts), so this hides exactly the controls the document routes refuse.
   const documentsReadOnly = isDocumentReadOnlyRole(staffRole)
@@ -324,8 +332,8 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 clientName={`${client.firstName} ${client.lastName}`}
                 cannedReplies={cannedRepliesSafe}
               />
-              <Link href={`/applications/new?clientId=${client.id}`}><Button><Plus className="h-4 w-4 mr-2" />New Application</Button></Link>
-              <Link href={`/clients/${client.id}/edit`}><Button variant="outline"><Edit className="h-4 w-4 mr-2" />Edit</Button></Link>
+              {showLoanBook && <Link href={`/applications/new?clientId=${client.id}`}><Button><Plus className="h-4 w-4 mr-2" />New Application</Button></Link>}
+              {showLoanBook && <Link href={`/clients/${client.id}/edit`}><Button variant="outline"><Edit className="h-4 w-4 mr-2" />Edit</Button></Link>}
             </div>
           </div>
           {/* Gated to match the API guard on PATCH /api/clients/[id]/status.
@@ -366,9 +374,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
               <h4 className="text-sm font-medium text-gray-500 mb-2">Employment</h4>
               <p className="text-sm">{client.employmentStatus?.replace("_", " ") || "N/A"}</p>
               <p className="text-sm">{client.employerName || "N/A"}</p>
-              {client.incomeSourceType && <p className="text-sm">{client.incomeSourceType.replace(/_/g, " ")}</p>}
+              {showLoanBook && client.incomeSourceType && <p className="text-sm">{client.incomeSourceType.replace(/_/g, " ")}</p>}
             </div>
-            <div>
+            {showLoanBook && <div>
               <h4 className="text-sm font-medium text-gray-500 mb-2">Financial</h4>
               {client.grossMonthlyIncome && <p className="text-sm"><span className="text-gray-500">Gross:</span> {formatZAR(client.grossMonthlyIncome)}</p>}
               <p className="text-sm"><span className="text-gray-500">Net Income:</span> {formatZAR(client.monthlyIncome)}</p>
@@ -378,21 +386,21 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 <span className="text-gray-500">Disposable:</span>{" "}
                 <span className={disposableIncome > 0 ? "text-green-600" : "text-red-600"}>{formatZAR(disposableIncome)}</span>
               </p>
-            </div>
+            </div>}
           </div>
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue={defaultTab} className="space-y-4">
+        <Tabs defaultValue={showLoanBook || !["applications", "loans", "bureau"].includes(defaultTab) ? defaultTab : "documents"} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="applications" className="flex items-center gap-2"><FileText className="h-4 w-4" />Applications ({client.applications.length})</TabsTrigger>
-            <TabsTrigger value="loans" className="flex items-center gap-2"><Wallet className="h-4 w-4" />Loans ({client.loans.length})</TabsTrigger>
+            {showLoanBook && <TabsTrigger value="applications" className="flex items-center gap-2"><FileText className="h-4 w-4" />Applications ({client.applications.length})</TabsTrigger>}
+            {showLoanBook && <TabsTrigger value="loans" className="flex items-center gap-2"><Wallet className="h-4 w-4" />Loans ({client.loans.length})</TabsTrigger>}
             <TabsTrigger value="documents" className="flex items-center gap-2"><FolderOpen className="h-4 w-4" />Documents ({client.documents.length})</TabsTrigger>
             <TabsTrigger value="kyc" className="flex items-center gap-2"><Shield className="h-4 w-4" />KYC</TabsTrigger>
             <TabsTrigger value="compliance" className="flex items-center gap-2"><Shield className="h-4 w-4" />Compliance</TabsTrigger>
             <TabsTrigger value="consent" className="flex items-center gap-2"><Shield className="h-4 w-4" />Consent</TabsTrigger>
             <TabsTrigger value="comms" className="flex items-center gap-2"><MessageSquare className="h-4 w-4" />Comms{comms ? ` (${comms.messages.length})` : ""}</TabsTrigger>
-            <TabsTrigger value="bureau" className="flex items-center gap-2"><TrendingUp className="h-4 w-4" />Bureau ({bureauHistory.length})</TabsTrigger>
+            {showLoanBook && <TabsTrigger value="bureau" className="flex items-center gap-2"><TrendingUp className="h-4 w-4" />Bureau ({bureauHistory.length})</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="applications">

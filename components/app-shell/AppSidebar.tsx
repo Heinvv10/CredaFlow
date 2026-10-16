@@ -8,6 +8,7 @@ import { useState } from "react"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { badgeDescription, staffNavigation, type NavGroup, type NavItem, type StaffBadgeKey } from "@/lib/navigation"
 import { hasMinRole, type UserRole } from "@/lib/permissions"
+import { isLoanBookPath, lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { cn } from "@/lib/utils"
 
 
@@ -32,6 +33,9 @@ export function groupEnabled(group: NavGroup, features: Features) {
 }
 
 export function itemEnabled(item: NavItem, role: UserRole) {
+  // The loan book is closed to a role without view_loan_book, whatever the
+  // item's minimum role (proxy.ts refuses the page itself).
+  if (lacksLoanBook(role) && isLoanBookPath(item.href)) return false
   if (!item.minRole) return true
   return hasMinRole(role, item.minRole)
 }
@@ -75,6 +79,8 @@ export function AppSidebar({
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {staffNavigation
           .filter(group => groupEnabled(group, features))
+          // A group with nothing the role may open is left out, heading and all.
+          .filter(group => group.items.some(item => itemEnabled(item, role)))
           .map(group => (
             <div key={group.label} className="mb-5">
               <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--cf-text-muted)]">

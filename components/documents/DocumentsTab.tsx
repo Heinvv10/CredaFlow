@@ -407,7 +407,7 @@ export function DocumentsTab({
                 validationScore={doc.validationScore}
                 extractionStatus={doc.extractionStatus}
                 extractionError={doc.extractionError}
-                hasExtractedData={doc.extractionResult != null}
+                hasExtractedData={doc.extractionResult === undefined ? undefined : doc.extractionResult != null}
                 docType={doc.docType}
                 verified={doc.verified}
                 docId={doc.id}

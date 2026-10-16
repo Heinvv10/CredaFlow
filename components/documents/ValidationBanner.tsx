@@ -9,14 +9,19 @@ import type { ValidationResult, ValidationMismatch } from "@/lib/document-types"
 /** The doc types whose extracted fields the disbursement gate actually reads. */
 const BANKING_EVIDENCE_DOC_TYPES = new Set(["BANK_STATEMENT"])
 
+/**
+ * The validation props are absent when the viewer may not see the document's
+ * lending read (lib/security/client-redaction.ts); the banner then shows only
+ * the extraction status, never a verdict.
+ */
 interface Props {
-  validationResult: ValidationResult | null
-  validationMismatch: boolean
-  validationScore: number | null
+  validationResult?: ValidationResult | null
+  validationMismatch?: boolean
+  validationScore?: number | null
   extractionStatus: string
   extractionError: string | null
-  /** Present when extraction SUCCEEDED, even if validation later failed. */
-  hasExtractedData: boolean
+  /** Present when extraction SUCCEEDED, even if validation later failed; undefined when withheld. */
+  hasExtractedData?: boolean
   docType: string
   verified: boolean
   docId: string
@@ -57,6 +62,9 @@ export function ValidationBanner({
   // afterwards — the route stores the data and still marks the status failed.
   // Claiming "could not be read" there would be false, and the password hint
   // would send staff after the wrong remedy.
+  // Withheld (undefined): whether the read succeeded is not this viewer's to know.
+  if (hasExtractedData === undefined) return null
+
   if (extractionStatus === "failed" && !hasExtractedData) {
     const passwordProtected = /password/i.test(extractionError ?? "")
     return (
@@ -88,7 +96,7 @@ export function ValidationBanner({
     )
   }
 
-  if (!validationResult || validationScore === null) return null
+  if (!validationResult || validationScore == null) return null
 
   const criticalMismatches = validationResult.mismatches.filter(
     (m: ValidationMismatch) => m.severity === "critical"
