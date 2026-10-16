@@ -1,19 +1,25 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { wouldRegressCollectionsStage } from "@/lib/collections/stages"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { createNotification } from "@/lib/notifications/bell"
 import { prisma } from "@/lib/prisma"
-import { dbDate } from "./dates"
+import { dbDate, isoOfDbDate } from "./dates"
 
 export interface RecoveryDeadlineRun {
   ok: boolean
   day: string
   handled: number
   alreadyHandled: number
+  reminded: number
+  alreadyReminded: number
   failed: number
 }
 
 type Outcome = "handled" | "already_handled"
+
+/** SA business days an NCA recovery may sit at PROCEEDS_APPLIED, charges frozen, before its creator is reminded of the final notice. */
+export const FINAL_NOTICE_REMINDER_BUSINESS_DAYS = 5
 
 async function handleRecovery(recovery: { id: string; tenantId: string; loanId: string; createdById: string }, day: string): Promise<Outcome> {
   const { tenantId } = recovery
@@ -47,6 +53,44 @@ async function handleRecovery(recovery: { id: string; tenantId: string; loanId: 
   })
 }
 
+// The open-ended NCA freeze: charges stay frozen from the proceeds until the
+// final notice fixes the deadline, so a forgotten notice freezes them for good.
+// The reminder changes nothing on the recovery or the loan.
+async function remindFinalNotice(recovery: { id: string; tenantId: string; loanId: string; createdById: string }, day: string): Promise<"reminded" | "already_reminded"> {
+  const { tenantId } = recovery
+  return prisma.$transaction(async (tx) => {
+    await lockLoanForUpdate(tx, recovery.loanId)
+    const done = await tx.auditLog.count({ where: { tenantId, action: AuditAction.ASSET_RECOVERY_FINAL_NOTICE_REMINDED, entity: "Recovery", entityId: recovery.id } })
+    if (done > 0) return "already_reminded"
+    const loan = await tx.loan.findFirst({ where: { id: recovery.loanId, tenantId }, select: { reference: true } })
+    if (!loan) throw new Error(`Loan ${recovery.loanId} of recovery ${recovery.id} not found`)
+    await createNotification({
+      tenantId, userId: recovery.createdById, type: "RECOVERY_FINAL_NOTICE_DUE",
+      title: `Loan ${loan.reference}: the final notice after the sale has not been issued`,
+      body: `Sale proceeds were applied ${FINAL_NOTICE_REMINDER_BUSINESS_DAYS} or more business days ago. Charges stay frozen until the final notice sets the deadline; nothing happens automatically.`,
+      entityType: "Recovery", entityId: recovery.id,
+    }, tx.notification)
+    await logAuditStrict({
+      tenantId, action: AuditAction.ASSET_RECOVERY_FINAL_NOTICE_REMINDED, entity: "Recovery", entityId: recovery.id,
+      newValue: { loanId: recovery.loanId, day },
+    }, tx)
+    return "reminded"
+  })
+}
+
+/** NCA recoveries at PROCEEDS_APPLIED (no final notice yet) whose charges froze at least FINAL_NOTICE_REMINDER_BUSINESS_DAYS business days before `day`. */
+async function finalNoticesDue(tenantId: string, day: string) {
+  const rows = await prisma.recovery.findMany({
+    where: {
+      // PROCEEDS_APPLIED is "no final notice yet": issuing it moves an NCA recovery to FINAL_NOTICE_ISSUED.
+      tenantId, status: "PROCEEDS_APPLIED", route: { in: ["NCA_S127_SURRENDER", "NCA_S131_ATTACHMENT"] },
+      chargesFrozenFrom: { not: null, lt: dbDate(day) },
+    },
+    orderBy: { id: "asc" }, select: { id: true, tenantId: true, loanId: true, createdById: true, chargesFrozenFrom: true },
+  })
+  return rows.filter((r) => addSouthAfricanBusinessDays(isoOfDbDate(r.chargesFrozenFrom!), FINAL_NOTICE_REMINDER_BUSINESS_DAYS) <= day)
+}
+
 /**
  * The deadline sweep behind app/api/cron/asset-finance-recovery-deadlines.
  * For every SHORTFALL_OPEN recovery whose charge freeze ended before `day`
@@ -57,11 +101,14 @@ async function handleRecovery(recovery: { id: string; tenantId: string; loanId: 
  * and an audit row is written. That audit row is the "handled" marker, written in
  * the same transaction, so a rerun changes nothing. Charges themselves resume by
  * the replay (lib/loan/recovery-pauses.ts), not here. Write-off
- * is never automatic. Each recovery runs in its own transaction; one failure is
- * logged and counted and the sweep goes on.
+ * is never automatic. It also reminds the creator, once per recovery (the
+ * ASSET_RECOVERY_FINAL_NOTICE_REMINDED audit row is the marker), of every NCA
+ * recovery whose final notice is still missing 5 SA business days after the
+ * proceeds froze its charges. Each recovery runs in its own transaction; one
+ * failure is logged and counted and the sweep goes on.
  */
 export async function runRecoveryDeadlineSweep(day: string): Promise<RecoveryDeadlineRun> {
-  const run: RecoveryDeadlineRun = { ok: true, day, handled: 0, alreadyHandled: 0, failed: 0 }
+  const run: RecoveryDeadlineRun = { ok: true, day, handled: 0, alreadyHandled: 0, reminded: 0, alreadyReminded: 0, failed: 0 }
   const tenants = await prisma.tenantConfig.findMany({ where: { featureAssetFinance: true }, orderBy: { tenantId: "asc" }, select: { tenantId: true } })
   for (const { tenantId } of tenants) {
     const due = await prisma.recovery.findMany({
@@ -76,6 +123,16 @@ export async function runRecoveryDeadlineSweep(day: string): Promise<RecoveryDea
       } catch (error) {
         run.failed++
         console.error("[asset-finance-recovery-deadlines] recovery failed", { tenantId, recoveryId: recovery.id, error: error instanceof Error ? error.name : "unknown" })
+      }
+    }
+    for (const recovery of await finalNoticesDue(tenantId, day)) {
+      try {
+        const outcome = await remindFinalNotice(recovery, day)
+        if (outcome === "reminded") run.reminded++
+        else run.alreadyReminded++
+      } catch (error) {
+        run.failed++
+        console.error("[asset-finance-recovery-deadlines] final-notice reminder failed", { tenantId, recoveryId: recovery.id, error: error instanceof Error ? error.name : "unknown" })
       }
     }
   }
