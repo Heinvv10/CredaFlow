@@ -13,6 +13,7 @@ import {
   sastMonthBounds,
 } from "@/lib/compliance/quarters"
 import { disbursedInQuarterWhere, getNcrReturnData } from "@/lib/compliance/ncr-return"
+import { ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
 import { inArrearsWhere, overdueWhere } from "@/lib/reports/book-arrears"
 import { logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
@@ -345,11 +346,7 @@ export async function GET(req: NextRequest) {
       },
       {
         Field: "Position Basis",
-        Value: asFiled
-          ? "Position lines are the figures frozen at submission"
-          : ncr.positionIsStale
-            ? "Position lines reflect the book today, NOT the quarter end"
-            : "Position lines reflect the book at generation",
+        Value: ncrPositionBasis(ncr, asFiled, (d) => d.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE })),
       },
     ]
 

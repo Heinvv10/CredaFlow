@@ -1,0 +1,32 @@
+// Daily arrears history for the NCR return (Fair Score audit 2026-10-16,
+// workstream G). The loan's own columns (daysInArrears, arrearsAmount,
+// outstandingPrincipal, status) carry no history, so a closed quarter's
+// position lines could only ever show today's book. The nightly
+// /api/cron/arrears-snapshot writes one row per collectible loan per SAST day
+// (lib/reports/arrears-snapshot.ts); the return reads the quarter-end day.
+// History starts from the first run: nothing is backfilled.
+model LoanArrearsSnapshot {
+  id                        String           @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant           @relation(fields: [tenantId], references: [id])
+  loanId                    String
+  loan                      Loan             @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The SAST calendar day the position describes.
+  snapshotDate              DateTime         @db.Date
+  status                    LoanStatus
+  ncaRegime                 NcaRegime
+  collectionsStage          CollectionsStage
+  daysInArrears             Int
+  /// Cents: overdue unpaid instalments.
+  arrearsCents              Int
+  /// Cents.
+  outstandingPrincipalCents Int
+  /// Cents: default charges owed.
+  chargesOutstandingCents   Int
+  /// Whether default charges were live for the tenant that day (lib/reports/book-arrears.ts).
+  chargesLive               Boolean
+  createdAt                 DateTime         @default(now())
+
+  @@unique([tenantId, loanId, snapshotDate])
+  @@index([tenantId, snapshotDate])
+}

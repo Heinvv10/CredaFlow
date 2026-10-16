@@ -184,6 +184,7 @@ model Loan {
   bureauAdverseConfirmations BureauAdverseConfirmation[]
   bureauSubmissionRecords    BureauSubmissionRecord[]
   charges                    LoanCharge[]
+  arrearsSnapshots           LoanArrearsSnapshot[]
   collectionInstructions     CollectionInstruction[]
   contractRates              ContractRate[]
   conversations              Conversation[]

@@ -9,6 +9,8 @@ const complianceFindFirst = vi.fn()
 const complianceFindMany = vi.fn()
 const tenantConfigFindUnique = vi.fn()
 const userFindUnique = vi.fn()
+const snapshotFindMany = vi.fn()
+const snapshotAggregate = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -24,6 +26,10 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenantConfig: { findUnique: (a: unknown) => tenantConfigFindUnique(a) },
     user: { findUnique: (a: unknown) => userFindUnique(a) },
+    loanArrearsSnapshot: {
+      findMany: (a: unknown) => snapshotFindMany(a),
+      aggregate: (a: unknown) => snapshotAggregate(a),
+    },
   },
 }))
 
@@ -77,6 +83,9 @@ function stubQueries() {
   complianceFindMany.mockResolvedValue([])
   tenantConfigFindUnique.mockResolvedValue({ ncrNumber: "NCRCP99999" })
   userFindUnique.mockResolvedValue(null)
+  // No arrears history yet unless a test says so.
+  snapshotFindMany.mockResolvedValue([])
+  snapshotAggregate.mockResolvedValue({ _min: { snapshotDate: null } })
 }
 
 const line = (data: Awaited<ReturnType<typeof getNcrReturnData>>, key: string) => {
@@ -595,5 +604,58 @@ describe("NCR return covers NCA credit agreements only", () => {
     const paymentWheres = paymentAggregate.mock.calls.map(([args]) => (args as { where: Record<string, unknown> }).where)
     expect(paymentWheres.length).toBeGreaterThan(0)
     for (const where of paymentWheres) expect(where.loan).toEqual({ ncaRegime: "NCA" })
+  })
+})
+
+// Workstream G (Fair Score audit 2026-10-16): a closed quarter's position lines
+// come from the daily arrears history for its last day when that exists.
+describe("closed quarter read from the arrears history", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    status: "ACTIVE", ncaRegime: "NCA", collectionsStage: "NONE", daysInArrears: 0, arrearsCents: 0,
+    outstandingPrincipalCents: 100_00, chargesOutstandingCents: 0, chargesLive: false, ...over,
+  })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stubQueries()
+  })
+
+  it("uses the quarter's last day of history for every position line, and says so", async () => {
+    snapshotFindMany.mockResolvedValue([
+      row(),
+      row({ daysInArrears: 45, arrearsCents: 30_00, outstandingPrincipalCents: 200_00 }),
+      row({ status: "DEFAULTED", daysInArrears: 120, arrearsCents: 90_00, outstandingPrincipalCents: 300_00, collectionsStage: "ATTORNEY_REFERRED" }),
+      // Outside the NCA scope of the return.
+      row({ ncaRegime: "NON_NCA", daysInArrears: 10, arrearsCents: 5_00 }),
+    ])
+    snapshotAggregate.mockResolvedValue({ _min: { snapshotDate: new Date("2026-05-01T00:00:00Z") } })
+    const data = await getNcrReturnData(TENANT, QUARTER, NOW)
+
+    expect(snapshotFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: TENANT, snapshotDate: new Date("2026-06-30T00:00:00.000Z") },
+    }))
+    const by = Object.fromEntries(data.lines.map((l) => [l.key, l]))
+    expect(by.book).toMatchObject({ count: 3, value: 600_00 })
+    expect(by.arrears).toMatchObject({ count: 2, value: 120_00 })
+    expect(by.par30).toMatchObject({ count: 2, value: 500_00 })
+    expect(by.par90).toMatchObject({ count: 1, value: 300_00 })
+    expect(by.defaulted).toMatchObject({ count: 1, value: 300_00 })
+    expect(by.attorney).toMatchObject({ count: 1 })
+    expect(data).toMatchObject({
+      positionSource: "SNAPSHOT",
+      positionAsOf: new Date("2026-06-30T00:00:00.000Z"),
+      positionIsStale: false,
+      historyStartsOn: new Date("2026-05-01T00:00:00Z"),
+    })
+  })
+
+  it("keeps today's book, flagged stale, when there is no history for that day", async () => {
+    const data = await getNcrReturnData(TENANT, QUARTER, NOW)
+    expect(data).toMatchObject({ positionSource: "LIVE", positionAsOf: null, positionIsStale: true, historyStartsOn: null })
+    expect(Object.fromEntries(data.lines.map((l) => [l.key, l])).book).toMatchObject({ count: 20, value: 1000_00 })
+  })
+
+  it("never reads history for the open quarter", async () => {
+    await getNcrReturnData(TENANT, "2026-Q3", NOW)
+    expect(snapshotFindMany).not.toHaveBeenCalled()
   })
 })
