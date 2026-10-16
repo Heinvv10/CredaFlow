@@ -15,6 +15,7 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { hasClientBorrowerId } from "@/lib/borrower"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 async function getData(tenantId: string) {
   const [clientRows, productRows, creditLifeProduct] = await Promise.all([
@@ -37,7 +38,7 @@ async function getData(tenantId: string) {
       },
     }),
     prisma.loanProduct.findMany({
-      where: { tenantId, active: true },
+      where: { tenantId, active: true, ...CONSUMER_PRODUCT_WHERE },
       orderBy: { name: "asc" },
       select: {
         id: true,

@@ -55,13 +55,17 @@ async function ensureReferenceRate(tenantId: string, requester: SeedActor, appro
   if (outcome.kind !== "decided") throw new Error(`Seed: ${input.basis} approval refused (${outcome.kind})`)
 }
 
-/** The asset-finance product: NON_NCA arrears terms 2% over the contract rate and a R250 collection fee. */
+/**
+ * The asset-finance product (ProductType ASSET_FINANCE: offered on deals only,
+ * never to consumers): NON_NCA arrears terms 2% over the contract rate and a
+ * R250 collection fee. A product seeded before the type existed is re-typed.
+ */
 export async function ensureProduct(tenantId: string): Promise<string> {
   const product = await prisma.loanProduct.upsert({
     where: { tenantId_code: { tenantId, code: AF_PRODUCT_CODE } },
-    update: {},
+    update: { productType: "ASSET_FINANCE" },
     create: {
-      tenantId, code: AF_PRODUCT_CODE, name: "Plant & Vehicle Instalment Sale", productType: "PERSONAL",
+      tenantId, code: AF_PRODUCT_CODE, name: "Plant & Vehicle Finance", productType: "ASSET_FINANCE",
       minAmount: 10_000_000, maxAmount: 1_000_000_000, minTermDays: 180, maxTermDays: 3_660,
       // Indicative only: each deal carries its own contract rate (ContractRate).
       interestRatePm: 0.01, interestModel: "REDUCING_BALANCE",

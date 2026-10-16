@@ -147,6 +147,15 @@ describe("prepareApplicationFields — validation failure", () => {
   })
 })
 
+describe("prepareApplicationFields — consumer products only", () => {
+  it("validates against active consumer products: an asset-finance product is never offered (Fair Score E4)", async () => {
+    await prepareApplicationFields(validInput(), "t1", "u1", { action: "create" })
+    expect(loanProductFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "t1", active: true, productType: { not: "ASSET_FINANCE" } },
+    }))
+  })
+})
+
 describe("prepareApplicationFields — client lookup", () => {
   it("returns 404 when the client does not exist in the tenant", async () => {
     clientFindUniqueMock.mockResolvedValue(null)

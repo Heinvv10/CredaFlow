@@ -12,6 +12,7 @@ import type { ApiCaller } from "@/lib/lender-api/handler"
 import { isIdShaped } from "@/lib/lender-api/pagination"
 import { hasScope } from "@/lib/lender-api/scopes"
 import { applicationSelect, toApiApplication } from "@/lib/lender-api/serializers"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 /**
  * POST /api/v1/applications: a DRAFT application for an existing client.
@@ -88,7 +89,7 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
           where: { id: input.clientId, tenantId },
           select: { monthlyIncome: true, monthlyExpenses: true, debtObligations: { select: { monthlyInstalment: true } } },
         }),
-        tx.loanProduct.findFirst({ where: { id: input.productId, tenantId, active: true } }),
+        tx.loanProduct.findFirst({ where: { id: input.productId, tenantId, active: true, ...CONSUMER_PRODUCT_WHERE } }),
       ])
       if (!client) return fail(404, "not_found", "No such client.")
       if (!productRow) return fail(400, "invalid_body", "productId is not an active loan product.")

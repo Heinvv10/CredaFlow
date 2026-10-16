@@ -22,8 +22,7 @@ export default async function NewDealPage() {
       select: { id: true, assetClass: true, year: true, make: true, model: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true },
     }),
     prisma.supplier.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    // There is no product-kind flag yet. Any active product can be selected;
-    // a null NON_NCA margin deliberately means that default interest is off.
+    // Active ASSET_FINANCE products only; the create route refuses the rest.
     prisma.loanProduct.findMany({
       where: { tenantId, ...ASSET_FINANCE_PRODUCT_WHERE },
       orderBy: { name: "asc" },

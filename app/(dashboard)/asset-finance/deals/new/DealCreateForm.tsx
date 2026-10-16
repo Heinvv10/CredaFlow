@@ -152,7 +152,7 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
               <SelectField id="productId" label="Product" required value={parties.productId}
                 onChange={(productId) => setParties((p) => ({ ...p, productId }))} options={choices(options.products, "Choose a product")} error={fields.productId} />
               <p className="text-xs text-[var(--cf-text-muted)]">
-                Lists only products with non-NCA arrears terms (a default-interest margin) configured.
+                Lists only active asset-finance products (product type &quot;Asset finance&quot; in Settings → Products).
               </p>
             </div>
           </div>

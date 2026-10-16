@@ -495,7 +495,16 @@ describe("POST /api/portal/applications", () => {
     // would stay green if the primary resolution dropped the code filter.
     const productWhere = (findFirstProduct.mock.calls[0][0] as { where: Record<string, unknown> }).where
     expect(productWhere).toEqual(expect.objectContaining({ code: "MICRO30", active: true }))
-    expect(productWhere).not.toHaveProperty("productType")
+    // Never resolved BY type: the only type filter is the asset-finance exclusion.
+    expect(productWhere.productType).toEqual({ not: "ASSET_FINANCE" })
+  })
+
+  it("never resolves an asset-finance product: both the lookup and the in-transaction re-read exclude it (Fair Score E4)", async () => {
+    await POST(buildReq(validBody))
+    for (const [args] of findFirstProduct.mock.calls as unknown as Array<[{ where: Record<string, unknown> }]>) {
+      expect(args.where.productType).toEqual({ not: "ASSET_FINANCE" })
+    }
+    expect(findFirstProduct.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
   it("happy path: 201 creates the application and records exactly ONE CREATE-cap hit", async () => {
