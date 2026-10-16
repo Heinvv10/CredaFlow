@@ -123,11 +123,11 @@ function transactionFor(
     .mockResolvedValueOnce([{ id: "config-1" }])
   return {
     $queryRaw: queryRaw,
-    loanApplication: { findUnique: vi.fn().mockResolvedValue(application) },
     creditBureauCheck: { findFirst: vi.fn().mockResolvedValue(bureauCheck) },
     tenantConfig: { findUnique: vi.fn().mockResolvedValue(tenantConfig) },
     // No own loans with this lender (lib/affordability/own-lender-debt.ts).
     loan: { findMany: vi.fn().mockResolvedValue([]) },
+    loanApplication: { findUnique: vi.fn().mockResolvedValue(application), findMany: vi.fn().mockResolvedValue([]) },
     tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
       findMany: vi.fn().mockResolvedValue(kyc.documents ?? verifiedCoreDocuments),
@@ -646,6 +646,18 @@ describe("product pricing terms are frozen at approval", () => {
     })
 
     expect(result).toMatchObject({ ok: true })
+  })
+
+  it("fails signing and payout closed when the client owes this lender more than the approval recorded", async () => {
+    const application = repricedAfterApproval(applicationFixture("APPROVED"))
+    const tx = transactionFor(application)
+    // Another loan of the client was paid out after this approval.
+    tx.loan.findMany.mockResolvedValue([{
+      id: "loan-later", clientId: "client-1", reference: "LN-LATER", status: "ACTIVE", outstandingPrincipal: 300_000,
+      daysInArrears: 0, arrearsAmount: 0, repaymentSchedule: [{ totalDue: 110_000 }, { totalDue: 105_000 }],
+    }])
+    const result = await verifyLockedCurrentAffordabilityApproval(tx as never, { tenantId: "tenant-1", applicationId: "application-1" })
+    expect(result).toEqual({ ok: false, reason: "changed" })
   })
 
   it("permits signing and payout after the product is repriced post-approval", async () => {

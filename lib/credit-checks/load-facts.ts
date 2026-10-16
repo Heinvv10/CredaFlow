@@ -13,6 +13,7 @@ import type { AuthenticityFacts, StatementRead, StatementTransaction } from "@/l
 import { PAYSLIP_MONEY_FIELDS, type ExtractedFields } from "@/lib/vlm-extract"
 import { areNamesSimilar } from "@/lib/ocr/name-matching"
 import { STATEMENT_UPLOAD_LOOKBACK_DAYS } from "./policy"
+import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import { hasClientBorrower } from "@/lib/borrower"
 import type { ApplicationFacts, DebtFacts, PayslipFacts, StatementFacts } from "./types"
 
@@ -139,7 +140,7 @@ export interface LoadOptions {
    */
   persistedOnly?: boolean
   /** The transaction holding the application lock: every query runs on it. */
-  db?: Pick<typeof prisma, "loanApplication" | "clientDocument" | "creditBureauCheck" | "statementAnalysis">
+  db?: Pick<typeof prisma, "loanApplication" | "clientDocument" | "creditBureauCheck" | "statementAnalysis" | "loan" | "tenant" | "tenantConfig">
   /** With persistedOnly: why each statement was still pending in the first pass. */
   pendingReasons?: Map<string, NonNullable<StatementFacts["pendingReason"]>>
 }
@@ -242,9 +243,12 @@ export async function loadApplicationFacts(
   const declared = app.client.monthlyIncome > 0 ? app.client.monthlyIncome : null
   const slipNet = payslip?.validated && payslip.matchesClient ? payslip.netPayCents : null
   const income = slipNet !== null && declared !== null ? Math.min(slipNet, declared) : slipNet ?? declared
+  // The lender's own debit order is a known debt, not an undisclosed one.
+  const own = await loadOwnLenderDebts(db, tenantId, app.clientId, app.id)
   const debts: DebtFacts[] = [
     ...app.client.debtObligations.map((d) => ({ name: d.creditProvider, monthlyInstalmentCents: d.monthlyInstalment, source: "DECLARED" as const })),
     ...bureauDebts(bureau?.obligations, bureau?.provider),
+    ...own.loans.map((loan) => ({ name: own.lenderNames.join(" "), monthlyInstalmentCents: loan.instalmentCents, source: "LENDER" as const })),
   ]
   return {
     status: app.status,

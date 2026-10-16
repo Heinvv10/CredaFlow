@@ -1,5 +1,3 @@
-import type { prisma } from "@/lib/prisma"
-import { recurringInstalmentDue } from "@/lib/loan/instalment"
 import type { AffordabilityDebtInput } from "@/lib/affordability/snapshot"
 
 // The client's own loans with THIS lender, in the affordability assessment.
@@ -74,7 +72,11 @@ export function withOwnLenderDebts(
   debts: readonly AffordabilityDebtInput[] | null | undefined,
   own: OwnLenderDebts,
 ): AffordabilityDebtInput[] {
-  const list = (debts ?? []).map((debt) => (isOwnLoanSourceId(debt.sourceId) ? { ...debt, sourceId: null } : debt))
+  const list = (debts ?? []).map((debt) => ({
+    ...debt,
+    ...(isOwnLoanSourceId(debt.sourceId) ? { sourceId: null } : {}),
+    ...(isOwnLoanSourceId(debt.id) ? { id: null } : {}),
+  }))
   // Declarations of this lender by name, not tied to one loan: credited across
   // the own loans, oldest first.
   let declaredToLender = list
@@ -104,92 +106,6 @@ export function withOwnLenderDebts(
 /** The own-loan entries a stored snapshot list carries (to re-check it later on the same evidence). */
 export function ownLenderDebtEntries<T extends { sourceId: string | null }>(debts: readonly T[]): T[] {
   return debts.filter((debt) => debt.sourceId?.startsWith(OWN_LOAN_SOURCE_PREFIX))
-}
-
-// Structural, so both the extended client and its transaction client fit.
-type OwnLoanDb = Pick<typeof prisma, "loan" | "tenant" | "tenantConfig">
-
-// Open, and still owing: principal outstanding, or instalments overdue.
-const OWES_MONEY = {
-  status: { in: [...OWN_LOAN_STATUSES] },
-  OR: [{ outstandingPrincipal: { gt: 0 } }, { arrearsAmount: { gt: 0 } }],
-}
-
-const OWN_LOAN_SELECT = {
-  id: true, clientId: true, reference: true, status: true, outstandingPrincipal: true, daysInArrears: true, arrearsAmount: true,
-  repaymentSchedule: { orderBy: { installmentNo: "asc" as const }, select: { totalDue: true } },
-}
-
-async function lenderNamesOf(db: OwnLoanDb, tenantId: string): Promise<string[]> {
-  const [tenant, config] = await Promise.all([
-    db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
-    db.tenantConfig.findUnique({ where: { tenantId }, select: { brandName: true, legalName: true } }),
-  ])
-  const names = [config?.brandName, config?.legalName]
-    .filter((name): name is string => typeof name === "string" && name.trim() !== "")
-  // A lender with no configured identity is known by its tenant name only.
-  return names.length > 0 ? names : [tenant?.name].filter((name): name is string => !!name?.trim())
-}
-
-function toOwnLoan(loan: {
-  id: string; reference: string; status: string; outstandingPrincipal: number; daysInArrears: number; arrearsAmount: number
-  repaymentSchedule: { totalDue: number }[]
-}): OwnLenderLoan {
-  return {
-    id: loan.id,
-    reference: loan.reference,
-    status: loan.status,
-    instalmentCents: recurringInstalmentDue(loan.repaymentSchedule),
-    outstandingPrincipal: loan.outstandingPrincipal,
-    daysInArrears: loan.daysInArrears,
-    arrearsAmount: loan.arrearsAmount,
-  }
-}
-
-/**
- * The client's ACTIVE / DEFAULTED loans with this tenant, and the names it
- * lends under. `excludeApplicationId`: the loan booked from the application
- * being viewed is not an obligation it was assessed against.
- */
-export async function loadOwnLenderDebts(
-  db: OwnLoanDb,
-  tenantId: string,
-  clientId: string,
-  excludeApplicationId?: string,
-): Promise<OwnLenderDebts> {
-  const [loans, lenderNames] = await Promise.all([
-    db.loan.findMany({
-      where: {
-        ...OWES_MONEY,
-        tenantId, clientId,
-        ...(excludeApplicationId ? { applicationId: { not: excludeApplicationId } } : {}),
-      },
-      orderBy: { startDate: "asc" },
-      select: OWN_LOAN_SELECT,
-    }),
-    lenderNamesOf(db, tenantId),
-  ])
-  return { lenderNames, loans: loans.map(toOwnLoan) }
-}
-
-/** loadOwnLenderDebts for every client of the tenant at once (the new-application client picker). */
-export async function loadOwnLenderDebtsByClient(db: OwnLoanDb, tenantId: string): Promise<Map<string, OwnLenderDebts>> {
-  const [loans, lenderNames] = await Promise.all([
-    db.loan.findMany({
-      where: { ...OWES_MONEY, tenantId, clientId: { not: null } },
-      orderBy: { startDate: "asc" },
-      select: OWN_LOAN_SELECT,
-    }),
-    lenderNamesOf(db, tenantId),
-  ])
-  const byClient = new Map<string, OwnLenderDebts>()
-  for (const loan of loans) {
-    if (!loan.clientId) continue
-    const own = byClient.get(loan.clientId) ?? { lenderNames, loans: [] }
-    own.loans.push(toOwnLoan(loan))
-    byClient.set(loan.clientId, own)
-  }
-  return byClient
 }
 
 /** "In arrears with us" across the client's own loans: the worst DPD and the total overdue. */

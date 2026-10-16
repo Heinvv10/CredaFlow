@@ -13,6 +13,7 @@ import {
   createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { loadOwnLenderDebts, ownAwareDebtTotal, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import {
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
@@ -215,9 +216,8 @@ export async function prepareApplicationFields(
     }
   }
 
-  const totalExistingDebt = client.debtObligations.reduce(
-    (sum, d) => sum + d.monthlyInstalment, 0
-  )
+  const own = await loadOwnLenderDebts(db, tenantId, client.id) // obligations to this lender count too
+  const totalExistingDebt = ownAwareDebtTotal(client.debtObligations, own)
   const netDisposableIncome = client.monthlyIncome - client.monthlyExpenses - totalExistingDebt
 
   // Persist the exact server-side submission inputs, rather than only the NDI
@@ -467,8 +467,8 @@ export async function prepareApplicationFields(
     capturedAt: now,
     capturedById: userId,
     client,
-    applicationDebts: debtSnapshot,
-    clientDebts: client.debtObligations,
+    applicationDebts: withOwnLenderDebts(debtSnapshot, own),
+    clientDebts: withOwnLenderDebts(client.debtObligations, own),
     application: {
       appliedAmount: data.appliedAmount,
       appliedTermDays: data.appliedTermDays,

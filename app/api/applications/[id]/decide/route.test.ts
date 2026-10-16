@@ -39,10 +39,19 @@ const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: D
 // The client's own loans with this lender: none here (the real-DB behaviour is
 // lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
 const ownLenderLoansMock = vi.hoisted(() => ({ loans: [] as Array<Record<string, unknown>> }))
-vi.mock("@/lib/affordability/own-lender-debt", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt")>()),
-  loadOwnLenderDebts: async () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans }),
-}))
+vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => {
+  const { withOwnLenderDebts } = await import("@/lib/affordability/own-lender-debt")
+  const { readAffordabilityDebtInputs } = await import("@/lib/affordability/snapshot")
+  const own = () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans as never[] })
+  return {
+    ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
+    loadOwnLenderDebts: async () => own(),
+    liveOwnAwareDebtInputs: async (_db: unknown, _t: string, _id: string, source: { existingDebtObligations: unknown; client: { debtObligations: never[] } }) => ({
+      application: withOwnLenderDebts(readAffordabilityDebtInputs(source.existingDebtObligations), own()),
+      client: withOwnLenderDebts(source.client.debtObligations, own()),
+    }),
+  }
+})
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 // The gate's own behaviour is tested in lib/screening; here, only that the
 // route obeys it before and inside the approve transaction.

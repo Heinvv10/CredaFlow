@@ -15,9 +15,9 @@ import {
   affordabilityExpenseEvidenceNeedsMleJustification,
   affordabilityExpenseEvidenceIsIntact,
   createAffordabilityExpenseEvidence,
-  createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-load"
 import {
   isUniqueConstraintViolation,
   OPEN_APPLICATION_STATUSES,
@@ -637,7 +637,7 @@ export async function POST(req: NextRequest) {
               principalCents: appliedAmount,
               termDays: lockedTermDays,
             })
-        const submissionSnapshot = createSubmissionAffordabilitySnapshot({
+        const submissionSnapshot = await ownAwareSubmissionSnapshot(tx, tenant.id, currentClient.id, {
           capturedAt: submittedAt,
           capturedById: currentClient.id,
           client: currentClient,

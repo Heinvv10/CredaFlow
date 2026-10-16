@@ -11,7 +11,7 @@ import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
-import { loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
 import {
   APPROVAL_AFFORDABILITY_POLICY_VERSION,
@@ -24,7 +24,6 @@ import {
   createAffordabilityExpenseEvidence,
   createAffordabilitySnapshot,
   normaliseAffordabilityDebts,
-  readAffordabilityDebtInputs,
   readAffordabilitySnapshotStore,
   returnAffordabilityToDraft,
   returnAffordabilityToReview,
@@ -999,15 +998,10 @@ export async function POST(
         let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
         let applicationDebtCents: number
         let clientDebtCents: number
-        // The client's own loans with this lender count as obligations unless
-        // declared (lib/affordability/own-lender-debt.ts).
-        const ownLenderDebts = await loadOwnLenderDebts(prisma, tenant.id, application.client.id, application.id)
         try {
-          applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts(
-            readAffordabilityDebtInputs(application.existingDebtObligations),
-            ownLenderDebts,
-          ))
-          clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts(application.client.debtObligations, ownLenderDebts))
+          const debts = await liveOwnAwareDebtInputs(prisma, tenant.id, application.id, application) // + obligations to this lender
+          applicationDebts = normaliseAffordabilityDebts(debts.application)
+          clientDebts = normaliseAffordabilityDebts(debts.client)
           applicationDebtCents = totalAffordabilityDebt(applicationDebts)
           clientDebtCents = totalAffordabilityDebt(clientDebts)
         } catch (error) {

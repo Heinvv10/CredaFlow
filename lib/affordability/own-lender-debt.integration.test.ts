@@ -23,7 +23,9 @@ import {
   type AffordabilityDebtInput,
 } from "@/lib/affordability/snapshot"
 import { prisma } from "@/lib/prisma"
-import { loadOwnLenderDebts, loadOwnLenderDebtsByClient, ownLenderArrears, withOwnLenderDebts, type OwnLenderDebts } from "./own-lender-debt"
+import { ownLenderArrears, withOwnLenderDebts, type OwnLenderDebts } from "./own-lender-debt"
+import { liveOwnAwareDebtInputs, loadOwnLenderDebts, ownLenderDebtIncreasedSinceApproval } from "./own-lender-debt-load"
+import { createApprovedPasqV3Application } from "@/lib/compliance/pasq-v3-application.integration-fixture"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -113,15 +115,10 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
     expect(ownLenderArrears(own)).toEqual({ days: 95, amountCents: 84_330 + 254_100 })
   })
 
-  it("gives the new-application client picker the same loans, per client", async () => {
-    const byClient = await loadOwnLenderDebtsByClient(prisma, tenant.tenantId)
-    expect(byClient.get(elize)).toEqual(own)
-    expect([...byClient.keys()]).toEqual([elize])
-  })
 
   it("leaves out the loan booked from the application being viewed", async () => {
     const loan = await db.loan.findFirstOrThrow({ where: { reference: activeRef } })
-    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, elize, loan.applicationId)).loans.map((l) => l.reference)).toEqual([pendingRef])
+    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, elize, loan.applicationId)).loans.map((l: { reference: string }) => l.reference)).toEqual([pendingRef])
   })
 
   it("counts them on top of the declared R870, once", () => {
@@ -195,4 +192,55 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
     `)
     expect(row).toEqual({ intact: true, consistent: true })
   })
+})
+
+suite.sequential("two applications for one client at once (real Postgres)", () => {
+  it("counts an approved, not yet paid out application as an obligation of the other, and fails a payout closed when one appears after approval", async () => {
+    // A: APPROVED and countersigned, not paid out; its approval recorded no obligation to this lender.
+    const a = await createApprovedPasqV3Application("own-debt-a")
+    const approvedA = await db.loanApplication.findUniqueOrThrow({ where: { id: a.applicationId } })
+    const instalmentA = (approvedA.affordabilityResult as { approval: { inputs: { proposedInstalmentCents: number } } }).approval.inputs.proposedInstalmentCents
+    const source = async (applicationId: string) => {
+      const app = await db.loanApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        include: { client: { include: { debtObligations: true } } },
+      })
+      // The fixture approves without an application-level declaration: read it as none.
+      return { ...app, existingDebtObligations: app.existingDebtObligations ?? [], client: { ...app.client!, id: app.clientId! } }
+    }
+
+    // One open application per client and product: B and C use their own products.
+    const product = async () => (await db.loanProduct.create({
+      data: {
+        tenantId: a.tenantId, code: `P-${randomUUID().slice(0, 8)}`, name: "Micro", productType: "MICRO", minAmount: 1, maxAmount: 1_000_000,
+        minTermDays: 1, maxTermDays: 365, interestRatePm: 0.05, interestModel: "FLAT", monthlyServiceFee: 0,
+      },
+    })).id
+    // B: a second application of the same client, being assessed now.
+    const b = await db.loanApplication.create({
+      data: { tenantId: a.tenantId, reference: `APP-B-${randomUUID().slice(0, 8)}`, clientId: a.clientId, productId: await product(), appliedAmount: 200_000, appliedTermDays: 30, existingDebtObligations: [] },
+    })
+    const debtsOfB = await liveOwnAwareDebtInputs(prisma, a.tenantId, b.id, await source(b.id))
+    expect(debtsOfB.client).toContainEqual(expect.objectContaining({ sourceId: `own-loan:application:${a.applicationId}`, monthlyInstalmentCents: instalmentA }))
+    expect(totalAffordabilityDebt(normaliseAffordabilityDebts(debtsOfB.application))).toBe(instalmentA)
+    // A's own assessment does not count A.
+    expect((await loadOwnLenderDebts(prisma, a.tenantId, a.clientId, a.applicationId)).loans).toEqual([])
+
+    // At A's payout nothing has changed: the live obligations equal what A's approval recorded.
+    expect(await ownLenderDebtIncreasedSinceApproval(prisma, a.tenantId, a.applicationId, await source(a.applicationId))).toBe(false)
+    // Another loan to the same client is paid out first.
+    const productC = await product()
+    const sibling = await db.loanApplication.create({
+      data: { tenantId: a.tenantId, reference: `APP-C-${randomUUID().slice(0, 8)}`, clientId: a.clientId, productId: productC, appliedAmount: 300_000, appliedTermDays: 90 },
+    })
+    await db.loan.create({
+      data: {
+        tenantId: a.tenantId, reference: `LN-C-${randomUUID().slice(0, 8)}`, applicationId: sibling.id, clientId: a.clientId, productId: productC,
+        principal: 300_000, totalInterest: 15_000, initiationFee: 0, totalRepayable: 315_000, outstandingPrincipal: 300_000,
+        startDate: new Date(), maturityDate: new Date(Date.now() + 90 * 86_400_000), interestRatePm: 0.05, interestModel: "FLAT", status: "ACTIVE",
+        repaymentSchedule: { create: [1, 2, 3].map((i) => ({ tenantId: a.tenantId, installmentNo: i, dueDate: new Date(Date.now() + i * 30 * 86_400_000), principalDue: 100_000, interestDue: 5_000, feesDue: 0, totalDue: 105_000 })) },
+      },
+    })
+    expect(await ownLenderDebtIncreasedSinceApproval(prisma, a.tenantId, a.applicationId, await source(a.applicationId))).toBe(true)
+  }, 60_000)
 })

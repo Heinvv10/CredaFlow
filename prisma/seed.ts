@@ -102,9 +102,6 @@ const CLIENTS = [
 const PRODUCTS = [
   // Fixed 30-day term (min == max): the Apply form hides the term field.
   { code: "MICRO30", name: "30-Day Micro Loan", productType: "MICRO", minAmount: 50_000, maxAmount: 200_000, minTermDays: 30, maxTermDays: 30, interestRatePm: 0.05, interestModel: "DAILY_ACCRUAL", initiationFeePct: 0.15, initiationFeeMax: 100_000, monthlyServiceFee: 6_900 },
-  // Unsecured credit (lib/loan/nca-interest-cap.ts): at most repo + 21% a year.
-  // 2.25% a month is 27.0% a year reducing (PERSONAL) and 27.4% daily (POFUND),
-  // inside the cap at the seeded repo of 8.25% (29.25%) and at 7% (28%).
   { code: "PERSONAL", name: "Personal Loan", productType: "PERSONAL", minAmount: 500_000, maxAmount: 10_000_000, minTermDays: 90, maxTermDays: 1_800, interestRatePm: 0.0225, interestModel: "REDUCING_BALANCE", initiationFeePct: 0.165, initiationFeeMax: 108_000, monthlyServiceFee: 6_900 },
   { code: "POFUND", name: "Purchase Order Funding", productType: "PO_FUNDING", minAmount: 1_000_000, maxAmount: 50_000_000, minTermDays: 30, maxTermDays: 120, interestRatePm: 0.0225, interestModel: "DAILY_ACCRUAL", initiationFeePct: 0.02, initiationFeeMax: 0, monthlyServiceFee: 0 },
 ] as const

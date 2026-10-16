@@ -15,11 +15,9 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { hasClientBorrowerId } from "@/lib/borrower"
-import { loadOwnLenderDebtsByClient, ownLenderArrears, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
-import type { AffordabilityDebtInput } from "@/lib/affordability/snapshot"
 
 async function getData(tenantId: string) {
-  const [clientRows, productRows, creditLifeProduct, ownLenderDebts] = await Promise.all([
+  const [clientRows, productRows, creditLifeProduct] = await Promise.all([
     prisma.client.findMany({
       // A deceased client is excluded from the picker for the same reason a
       // blacklisted one is: this list is the set of people staff may start a
@@ -34,7 +32,7 @@ async function getData(tenantId: string) {
         monthlyIncome: true,
         monthlyExpenses: true,
         debtObligations: {
-          select: { creditProvider: true, monthlyInstalment: true },
+          select: { monthlyInstalment: true },
         },
       },
     }),
@@ -59,28 +57,20 @@ async function getData(tenantId: string) {
       },
     }),
     prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
-    loadOwnLenderDebtsByClient(prisma, tenantId),
   ])
 
   // Coerce Prisma Decimal / Int to plain number; shape as wizard types.
-  // The client's own loans with this lender count as obligations unless
-  // declared, as the approval counts them (lib/affordability/own-lender-debt.ts).
-  const clients: ClientWithFinancials[] = clientRows.map((c) => {
-    const own = ownLenderDebts.get(c.id) ?? null
-    const debts: AffordabilityDebtInput[] = own ? withOwnLenderDebts(c.debtObligations, own) : c.debtObligations
-    return {
-      id: c.id,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      email: c.email,
-      monthlyIncome: Number(c.monthlyIncome),
-      monthlyExpenses: Number(c.monthlyExpenses),
-      debtObligations: debts.map((d) => ({
-        monthlyInstalment: Number(d.monthlyInstalment ?? d.monthlyInstalmentCents ?? 0),
-      })),
-      ownLenderArrears: own ? ownLenderArrears(own) : null,
-    }
-  })
+  const clients: ClientWithFinancials[] = clientRows.map((c) => ({
+    id: c.id,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    email: c.email,
+    monthlyIncome: Number(c.monthlyIncome),
+    monthlyExpenses: Number(c.monthlyExpenses),
+    debtObligations: c.debtObligations.map((d) => ({
+      monthlyInstalment: Number(d.monthlyInstalment),
+    })),
+  }))
 
   const products: ApplicationProduct[] = productRows
     .map(toApplicationProduct)

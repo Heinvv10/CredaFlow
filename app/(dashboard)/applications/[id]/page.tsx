@@ -72,7 +72,8 @@ import {
   totalAffordabilityDebt,
 } from "@/lib/affordability/snapshot"
 import { hasClientBorrower } from "@/lib/borrower"
-import { loadOwnLenderDebts, ownLenderArrears, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { ownLenderArrears, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import { OwnLenderArrearsNotice } from "@/components/applications/OwnLenderArrearsNotice"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 import { signingOtpView } from "@/lib/signing-otp/view"

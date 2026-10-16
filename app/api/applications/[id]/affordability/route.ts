@@ -26,7 +26,8 @@ import {
   creditLifePremiumPaymentLoadCents,
 } from "@/lib/insurance/credit-life-billing"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
-import { isOwnLoanSourceId, loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { isOwnLoanSourceId, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 
 export async function PATCH(
   req: NextRequest,
@@ -62,7 +63,7 @@ export async function PATCH(
         )
       }
       // `own-loan:` entries are written by the lender only (lib/affordability/own-lender-debt.ts).
-      if (body.existingDebtObligations.some((debt) => isOwnLoanSourceId(debt?.sourceId))) {
+      if (body.existingDebtObligations.some((debt) => isOwnLoanSourceId(debt?.sourceId) || isOwnLoanSourceId((debt as { id?: unknown } | null)?.id))) {
         return NextResponse.json(
           { error: "Loans with this lender are counted automatically; remove the own-loan rows from the declaration." },
           { status: 422 },
