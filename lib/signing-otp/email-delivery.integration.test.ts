@@ -55,8 +55,10 @@ function startSink(port: number): Promise<ChildProcess> {
       env: { ...process.env, SMTP_SINK_PORT: String(port), SIM_MAIL_DIR: mailDir },
       stdio: ["ignore", "ignore", "pipe"],
     })
-    const timer = setTimeout(() => reject(new Error("smtp-sink did not start in 15 s")), 15_000)
-    child.once("error", reject)
+    // A sink that never says "listening" is killed, not left running.
+    const fail = (err: Error) => { clearTimeout(timer); child.kill(); reject(err) }
+    const timer = setTimeout(() => fail(new Error("smtp-sink did not start in 15 s")), 15_000)
+    child.once("error", fail)
     child.stderr?.on("data", (chunk: Buffer) => {
       if (chunk.toString().includes("listening")) { clearTimeout(timer); resolve(child) }
     })
