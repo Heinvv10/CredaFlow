@@ -85,6 +85,13 @@ describe('bake.sh sim stack lock', () => {
     expect(r.out).toMatch(/demo:typecheck failed/)
   }, 15_000)
 
+  it('refuses a DEMO_SIM_LOCK_WAIT that is not a whole number of seconds, before running anything', () => {
+    const r = bake('acme-data', { DEMO_SIM_LOCK_WAIT: '3h' })
+    expect(r.status).toBe(1)
+    expect(r.out).toMatch(/DEMO_SIM_LOCK_WAIT=3h is not a whole number of seconds/)
+    expect(logged()).toBe('')
+  })
+
   it('goes past the lock when nobody holds it', () => {
     const r = bake('acme-data')
     expect(r.out).not.toMatch(/in use by another bake/)
