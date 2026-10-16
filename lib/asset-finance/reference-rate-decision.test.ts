@@ -14,7 +14,7 @@ const PENDING = {
 }
 
 function fakeDb(state: { pending?: typeof PENDING | null; wouldReprice?: number; alreadyLater?: number; later?: boolean }) {
-  const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...PENDING, ...data }))
+  const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...(state.pending ?? PENDING), ...data }))
   const createMany = vi.fn(async () => ({ count: 1 }))
   const count = vi.fn(async ({ where }: { where: { AND?: unknown } }) => (where.AND ? state.alreadyLater ?? 0 : state.wouldReprice ?? 0))
   const db = {
@@ -43,6 +43,14 @@ describe("decideReferenceRate", () => {
     expect(await decide(fake.db, "APPROVE", "u1")).toEqual({ kind: "self_decision" })
     expect(fake.update).not.toHaveBeenCalled()
     expect(m.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it("a SARB feed value has no requester: any user decides it, and the audit row records the null", async () => {
+    const feedRow = { ...PENDING, requestedById: null as unknown as string, source: "SARB_FEED" }
+    const fake = fakeDb({ pending: feedRow })
+    expect(await decide(fake.db, "APPROVE", "u1")).toMatchObject({ kind: "decided" })
+    expect(fake.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "APPROVED", decidedById: "u1" }) }))
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ requestedById: null }) }), fake.db)
   })
 
   it("refuses a decided or missing rate", async () => {

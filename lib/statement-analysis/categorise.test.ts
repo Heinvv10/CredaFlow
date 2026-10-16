@@ -31,6 +31,12 @@ describe("categorise", () => {
     ["Prepaid Airtime: VODACOM", "UTILITIES_TELECOM"],
     ["Payment To: SYNTH RENTALS RENT", "HOUSING"],
     ["DEBIT ORDER SYNTH PRIMARY SCHOOL FEES", "EDUCATION"],
+    // categoriser-v3: a POS key keeps one word of the merchant; names known from that word.
+    ["POS PURCHASE PICK", "FOOD"],
+    ["POS PURCHASE DIS", "MEDICAL"],
+    ["POS PURCHASE CELL", "UTILITIES_TELECOM"],
+    ["Card Purchase: PICKNPAY SOWETO", "FOOD"],
+    ["Prepaid: CELLC TOPUP", "UTILITIES_TELECOM"],
   ])("puts %s in a living category: %s", (description, expected) => {
     expect(cat(description)).toBe(expected)
     expect(isLiving(expected)).toBe(true)
@@ -41,6 +47,8 @@ describe("categorise", () => {
     ["OTT BETTING LOTTERY VOUCHER", "GAMBLING"],
     ["DebiCheck Debit: SYNTHLEND FINANCE", "CREDIT_INSTALMENT"],
     ["PAYFLEX SANDTON CARD", "CREDIT_INSTALMENT"],
+    ["DebiCheck: SA TAXI", "CREDIT_INSTALMENT"],
+    ["TOYOTA FINANCIAL SERVICES", "CREDIT_INSTALMENT"],
     ["DebiCheck Insufficient Funds Fee", "RETURNED_DEBIT"],
     ["Monthly Account Admin Fee", "BANK_FEES"],
     ["SMS Payment Notification", "BANK_FEES"],
@@ -49,6 +57,12 @@ describe("categorise", () => {
     ["Payment To Investment Account", "SAVINGS_INVESTMENT"],
     ["Inter account transfer to savings", "TRANSFER_OWN"],
     ["Payment To: J SOAP", "UNCATEGORISED"],
+    // Generic words and names categoriser-v3 must not file as living spend.
+    ["IMMEDIATE PAYMENT TOP UP T TESTER", "UNCATEGORISED"],
+    ["EFT BUNDLE OF JOY DONATION", "UNCATEGORISED"],
+    ["PAYSHAP TO LEVIS TESTER", "UNCATEGORISED"],
+    ["PAYMENT HBO TESTER", "UNCATEGORISED"],
+    ["POS PURCHASE STUDIO HAIR SALON", "UNCATEGORISED"],
   ])("keeps %s out of living spend: %s", (description, expected) => {
     expect(cat(description)).toBe(expected)
     expect(isLiving(expected)).toBe(false)
@@ -139,6 +153,6 @@ describe("CATEGORISER_VERSION names the rules", () => {
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v2", hash: "4c50afdbea7fc174" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v3", hash: "cc7e08f3c830464d" })
   })
 })
