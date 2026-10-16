@@ -28,7 +28,7 @@ vi.mock("@/lib/tenant", () => ({
 // a call here would itself be the failure.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    clientDocument: { findFirst: vi.fn().mockResolvedValue(null) },
+    clientDocument: { findMany: vi.fn().mockResolvedValue([]) },
     client: { findUnique: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
   },
