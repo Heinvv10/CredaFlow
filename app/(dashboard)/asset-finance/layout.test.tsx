@@ -12,7 +12,7 @@ const m = vi.hoisted(() => ({
 }))
 
 vi.mock("next/navigation", () => ({ redirect: m.redirect }))
-vi.mock("@/lib/auth-guards", () => ({ requireMinRole: m.requireMinRole, canDo: () => false }))
+vi.mock("@/lib/auth-guards", () => ({ requireMinRole: m.requireMinRole, canDo: () => false, requireLoanBookPage: async () => undefined }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),
   getTenantConfig: m.getTenantConfig,

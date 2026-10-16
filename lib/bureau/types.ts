@@ -146,6 +146,11 @@ export interface BureauProvider {
   readonly capabilities: BureauCapabilities
   /** Credential keys the adapter reads from its bag. */
   readonly credentialFields: readonly string[]
+  /**
+   * Where a consumer gets their free credit report or disputes a listing,
+   * shown when a decline rests on this bureau's record. Absent when unknown.
+   */
+  readonly consumerContact?: { readonly phone?: string; readonly website: string }
   /** Resolves a report, or throws BureauProviderError. */
   enquiry(request: BureauEnquiryRequest, context: BureauEnquiryContext): Promise<BureauReport>
 }

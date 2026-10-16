@@ -107,6 +107,18 @@ beforeEach(() => {
   h.userUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "target-1", role: "CREDIT_OFFICER", ...data }))
 })
 
+describe("PATCH /api/settings/users/[id] — password policy", () => {
+  it.each(["synth-8c", "password12"])("refuses a weak new password (%s) and writes nothing", async (password) => {
+    signedIn("ADMIN")
+    target("CREDIT_OFFICER")
+    const res = await patch({ password })
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/at least 10 characters|too common/)
+    expect(h.userUpdate).not.toHaveBeenCalled()
+  })
+})
+
 describe("PATCH /api/settings/users/[id] — role ceiling", () => {
   // Equal rank is as out of reach as higher rank: a password, email or demotion
   // on a peer's account takes it over.

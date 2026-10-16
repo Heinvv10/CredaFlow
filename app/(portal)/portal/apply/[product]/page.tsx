@@ -81,6 +81,7 @@ export default async function PortalApplyProductPage({
         maxAmount: product.maxAmount,
         minTermDays: product.minTermDays,
         maxTermDays: product.maxTermDays,
+        interestModel: product.interestModel,
       }}
       client={{
         firstName: client.firstName,

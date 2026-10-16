@@ -82,4 +82,5 @@ export const portalApply: Catalog["portalApply"] = {
   purposeHint: "(iyafuneka, oonobumba aba-3–500)",
   cancel: "Rhoxisa",
   submit: "Ngenisa isicelo",
+  termMonthsBetween: "Ixesha (iinyanga) — phakathi kwe-{min} ne-{max}",
 }

@@ -6,6 +6,7 @@ import { getPortalTenantId } from "@/lib/session-tenant"
 import Link from "next/link"
 import { FileText, AlertCircle, ArrowRight, Clock } from "lucide-react"
 import type { AppStatus } from "@prisma/client"
+import { portalApplicationStatus, type PortalApplicationStatus } from "@/lib/portal/application-view"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/app-shell/EmptyState"
 import { getLocale } from "@/lib/i18n/server"
@@ -20,7 +21,12 @@ async function getApplications(email: string) {
 
   const applications = await prisma.loanApplication.findMany({
     where: { clientId: client.id, tenantId },
-    include: { product: { select: { name: true } } },
+    // An explicit select: never the staff-only declineInternalNote.
+    select: {
+      id: true, reference: true, status: true, appliedAmount: true, createdAt: true,
+      agreementGeneratedAt: true, agreementSignedAt: true, decisionReason: true,
+      product: { select: { name: true } }, loan: { select: { status: true } },
+    },
     orderBy: { createdAt: "desc" },
   })
 
@@ -29,7 +35,7 @@ async function getApplications(email: string) {
 
 type AppsT = Translator<"portalApplications">
 
-const STATUS_CONFIG: Record<AppStatus, { label: MessageKey<"portalApplications">; bg: string; color: string }> = {
+const STATUS_CONFIG: Record<PortalApplicationStatus, { label: MessageKey<"portalApplications">; bg: string; color: string }> = {
   DRAFT:        { label: "appStatus_DRAFT",        bg: "#F3F4F6", color: "#6B7280" },
   SUBMITTED:    { label: "appStatus_SUBMITTED",    bg: "#DBEAFE", color: "#1E40AF" },
   UNDER_REVIEW: { label: "appStatus_UNDER_REVIEW", bg: "#FEF9C3", color: "#92400E" },
@@ -37,11 +43,12 @@ const STATUS_CONFIG: Record<AppStatus, { label: MessageKey<"portalApplications">
   DECLINED:     { label: "appStatus_DECLINED",     bg: "#FEE2E2", color: "#991B1B" },
   DISBURSED:    { label: "appStatus_DISBURSED",    bg: "#EDE9FE", color: "#5B21B6" },
   CANCELLED:    { label: "appStatus_CANCELLED",    bg: "#F3F4F6", color: "#6B7280" },
+  SETTLED:      { label: "appStatus_SETTLED",      bg: "#DBEAFE", color: "#1D4ED8" },
 }
 
 const JOURNEY_STEPS: AppStatus[] = ["SUBMITTED", "UNDER_REVIEW", "APPROVED", "DISBURSED"]
 
-function StatusBadge({ status, t }: { status: AppStatus; t: AppsT }) {
+function StatusBadge({ status, t }: { status: PortalApplicationStatus; t: AppsT }) {
   const cfg = STATUS_CONFIG[status]
   return (
     <span
@@ -155,7 +162,7 @@ export default async function ApplicationsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-bold text-gray-900 text-sm">{app.reference}</p>
-                      <StatusBadge status={app.status} t={t} />
+                      <StatusBadge status={portalApplicationStatus(app.status, app.loan?.status)} t={t} />
                     </div>
                     <p className="text-sm text-gray-500 mt-0.5">{app.product.name}</p>
                   </div>

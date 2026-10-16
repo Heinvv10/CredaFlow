@@ -45,7 +45,7 @@ describe("portal Make Payment", () => {
     const loan = (id: string, reference: string, contractType: string) =>
       ({ id, reference, contractType, interestModel: "AMORTISED", outstandingPrincipal: 100_000, repaymentSchedule: [] })
     loanFindMany.mockResolvedValue([loan("a", "LS-1", "OPERATING_LEASE"), loan("b", "LN-2", "TERM_LOAN")])
-    // The per-loan references sit in the bank transfer panel.
+    // The per-loan references sit in the payment reference panel.
     for (const [k, v] of Object.entries({ STITCH_BENEFICIARY_NAME: "Acme", STITCH_BANK_NAME: "Test Bank", STITCH_ACCOUNT_NUMBER: "1", STITCH_BRANCH_CODE: "2", STITCH_ACCOUNT_TYPE: "Current" })) vi.stubEnv(k, v)
     const html = renderToStaticMarkup(await PaymentPage()).replace(/<!-- -->/g, "")
     vi.unstubAllEnvs()
@@ -54,6 +54,17 @@ describe("portal Make Payment", () => {
     expect(formProps).toHaveBeenLastCalledWith(expect.objectContaining({
       loans: [expect.objectContaining({ id: "a", lease: true }), expect.objectContaining({ id: "b", lease: false })],
     }))
+  })
+
+  it("shows each loan's payment reference prominently, with a copy button, even with no bank panel", async () => {
+    loanFindMany.mockResolvedValue([
+      { id: "b", reference: "LN-MNSKSZ0Y-GCRU", contractType: "LOAN", interestModel: "REDUCING_BALANCE", outstandingPrincipal: 100_000, repaymentSchedule: [] },
+    ])
+    const html = renderToStaticMarkup(await PaymentPage()).replace(/<!-- -->/g, "")
+    expect(html).not.toContain("Bank Transfer Details")
+    expect(html).toContain("Your payment reference")
+    expect(html).toContain(">LN-MNSKSZ0Y-GCRU<")
+    expect(html).toMatch(/<button[^>]*aria-label="Copy payment reference LN-MNSKSZ0Y-GCRU"/)
   })
 
   describe("bank transfer panel", () => {

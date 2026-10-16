@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateReference } from "@/lib/utils"
+import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
@@ -1323,7 +1324,8 @@ export async function POST(
         const newLoan = await tx.loan.create({
           data: {
             tenantId: tenant.id,
-            reference: lockedMandate?.evidence.collectionReference ?? generateReference("LN"),
+            reference: lockedMandate?.evidence.collectionReference ?? await unusedLoanReference(async (reference) =>
+              Boolean(await tx.loan.findFirst({ where: { reference }, select: { id: true } }))),
             applicationId: txApplication.id,
             clientId: txApplication.clientId,
             productId: txApplication.productId,

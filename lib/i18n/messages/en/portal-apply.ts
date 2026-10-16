@@ -85,4 +85,5 @@ export const portalApply = {
   purposeHint: "(required, 3–500 chars)",
   cancel: "Cancel",
   submit: "Submit application",
+  termMonthsBetween: "Term (months) — between {min} and {max}",
 } as const
