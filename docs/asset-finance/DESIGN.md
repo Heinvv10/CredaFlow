@@ -404,7 +404,8 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Before any retry**, IsaFlow is read back: `list_journals`, drafts of that day, with lines. This
   covers a FAILED push pushed again, and a NEEDS_REVIEW push checked. A draft with the memo tag and
   identical lines is the push (PUSHED, `foundOnReadBack`). A tagged draft with other lines waits
-  for a person. Otherwise the stored request is resent byte for byte with the same key.
+  for a person. Otherwise the stored request is resent byte for byte with the same key, and the
+  draft IsaFlow answers with counts only if a second read-back finds it.
   - SENDING for 10 minutes becomes NEEDS_REVIEW.
   - An auth refusal drops the token (NEEDS_RECONNECT).
 - **Guards** (`20261016100000_isaflow_connection_push`): a copy of the Xero push guard, plus:
@@ -414,7 +415,9 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   - DELETE and TRUNCATE are refused.
 - **Known limits.**
   - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
-    result, and the push records the deleted draft's id.
+    result (the deleted draft's id). The push then stays NEEDS_REVIEW ("draft deleted in IsaFlow;
+    key replays the old id") for a person to resolve. Sending it again needs a new key, which
+    needs IsaFlow-side support or an explicit operator re-key; both are out of scope.
   - `write:journals` is proven only by the first push.
   - A tax code on a mapping (meant for Xero) refuses the IsaFlow push; post that month from the CSV.
   - A remap after close refuses the push for that month.

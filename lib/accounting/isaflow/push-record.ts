@@ -39,12 +39,25 @@ export async function markStaleIsaFlowPush(db: PushDb, args: { tenantId: string;
   })
 }
 
-/** Step 6 and 7: send the stored request, record what happened. The row must be SENDING (claimed by the caller). */
-export async function sendClaimed(db: PushDb, args: { tenantId: string; batchId: string; actor: Actor; argsJson: string }, isa: IsaFlowTransport): Promise<PushOutcome> {
+/**
+ * Step 6 and 7: send the stored request, record what happened. The row must be
+ * SENDING (claimed by the caller). `confirm` (a resend) says why the draft
+ * IsaFlow answered with cannot be recorded as the push, or null: it then waits
+ * for a person instead.
+ */
+export async function sendClaimed(
+  db: PushDb,
+  args: { tenantId: string; batchId: string; actor: Actor; argsJson: string },
+  isa: IsaFlowTransport,
+  confirm?: (journalId: string) => Promise<string | null>,
+): Promise<PushOutcome> {
   let result: PushOutcome
   try {
     const created = await isa.createDraftJournal(args.argsJson)
-    result = { ok: true, status: "PUSHED", journalId: created.id, foundOnReadBack: false }
+    const problem = confirm ? await confirm(created.id) : null
+    result = problem
+      ? { ok: false, httpStatus: 409, status: "NEEDS_REVIEW", error: problem.slice(0, 500) }
+      : { ok: true, status: "PUSHED", journalId: created.id, foundOnReadBack: false }
   } catch (error) {
     const isaflow = error instanceof IsaFlowError ? error : null
     if (isaflow?.kind === "auth") await markIsaFlowNeedsReconnect(db, args.tenantId)

@@ -8,7 +8,9 @@
  *
  * Known limit (IsaFlow's registry, registry.ts:146-157): a draft a person
  * deleted in IsaFlow is not recreated by a resend; IsaFlow replays the stored
- * result and the push records the deleted draft's id.
+ * result. The answer is read back once more, and an id IsaFlow no longer holds
+ * leaves the push NEEDS_REVIEW for a person (a new key would need IsaFlow-side
+ * support or an explicit re-key).
  */
 import { AuditAction } from "@/lib/audit"
 import { IsaFlowError, mcpTransport, type IsaFlowHttp } from "./client"
@@ -71,7 +73,16 @@ export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; bat
     await recordOutcome(db, args, result)
     return result
   }
-  return sendClaimed(db, { ...args, argsJson: push.requestJson }, isa)
+  // IsaFlow replays a key's stored answer even when that draft was deleted since:
+  // the id it answers with counts only if IsaFlow now holds it.
+  return sendClaimed(db, { ...args, argsJson: push.requestJson }, isa, async (journalId) => {
+    try {
+      if (findPushedDraft(await isa.listDraftJournals(date), push.requestJson).found?.id === journalId) return null
+      return `draft deleted in IsaFlow; key replays the old id (${journalId}). Nothing new was created: check IsaFlow, then resolve`
+    } catch (error) {
+      return `IsaFlow answered with draft ${journalId} but could not be read back to confirm it (${error instanceof Error ? error.message : "error"}); check IsaFlow, then resolve`
+    }
+  })
 }
 
 /**

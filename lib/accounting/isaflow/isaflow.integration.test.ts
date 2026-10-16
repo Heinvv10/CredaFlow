@@ -82,18 +82,20 @@ suite.sequential("IsaFlow push (real Postgres, fake IsaFlow)", () => {
     expect(await pushRow(sep)).toMatchObject({ status: "PUSHED", foundOnReadBack: true, isaflowJournalId: draft.id })
   })
 
-  it("a draft deleted in IsaFlow is resent byte for byte under the same key; IsaFlow replays, never duplicates", async () => {
+  it("a draft deleted in IsaFlow: resent byte for byte under the same key, IsaFlow replays the old id, never duplicates; left for a person", async () => {
     const oct = await closeMonth(db, A, "2026-10", new Date("2026-11-01T00:00:00Z"))
     fake.commitThenDrop()
     expect(await push(oct)).toMatchObject({ status: "NEEDS_REVIEW" })
     const deleted = fake.listDrafts().find((d) => d.description?.includes(`[credaflow:${oct}]`))!
     fake.deleteDraft(deleted.id)
-    expect(await check(oct)).toEqual({ ok: true, status: "PUSHED", journalId: deleted.id, foundOnReadBack: false })
+    expect(await check(oct)).toMatchObject({ ok: false, status: "NEEDS_REVIEW", error: expect.stringContaining("draft deleted in IsaFlow; key replays the old id") })
     const sent = creates(oct)
     expect(sent.map((c) => c.outcome)).toEqual(["dropped", "replayed"])
-    const { requestJson } = (await pushRow(oct))!
-    for (const call of sent) expect(call.rawBody).toContain(`"arguments":${requestJson}}`)
+    const row = (await pushRow(oct))!
+    expect(row).toMatchObject({ status: "NEEDS_REVIEW", isaflowJournalId: null })
+    for (const call of sent) expect(call.rawBody).toContain(`"arguments":${row.requestJson}}`)
     expect(fake.listDrafts().some((d) => d.description?.includes(`[credaflow:${oct}]`))).toBe(false)
+    expect(await resolveIsaFlowPush(prisma, { tenantId: A.tenantId, batchId: oct, outcome: "not_pushed", journalId: null, note: "draft was deleted in IsaFlow", actor: actor() })).toBe(true)
   })
 
   it("refuses a role without a stored mapping to the line's code before any request", async () => {
@@ -132,7 +134,8 @@ suite.sequential("IsaFlow push (real Postgres, fake IsaFlow)", () => {
     const reads = fake.calls.filter((c) => c.tool === "list_journals").length
     const out = await push(nov)
     expect(out).toMatchObject({ ok: true, status: "PUSHED", foundOnReadBack: false })
-    expect(fake.calls.filter((c) => c.tool === "list_journals").length).toBe(reads + 1)
+    // Read back before the resend, and again to confirm the draft it answered with.
+    expect(fake.calls.filter((c) => c.tool === "list_journals").length).toBe(reads + 2)
     const [first, second] = creates(nov)
     expect([first.outcome, second.outcome]).toEqual(["refused", "created"])
     expect(second.rawBody.slice(second.rawBody.indexOf('"arguments"'))).toBe(first.rawBody.slice(first.rawBody.indexOf('"arguments"')))

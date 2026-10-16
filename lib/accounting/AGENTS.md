@@ -50,7 +50,8 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   endpoint (PAT bound to one company; contract and file:line refs in `contract.ts`). The request is
   built once, stored with the SENDING claim and always resent byte for byte under
   `credaflow:batch:<batchId>` (IsaFlow replays it); IsaFlow is read back (memo tag + identical lines)
-  before any retry. Refused before claim: a role without a stored mapping to the line's code, a tax
+  before any retry, and a resend's answer counts only if IsaFlow still holds it (a deleted draft's
+  replayed id waits in NEEDS_REVIEW). Refused before claim: a role without a stored mapping to the line's code, a tax
   code, a code missing/inactive in IsaFlow. Connect is TOTP SUPER_ADMIN only (DB-enforced); push is
   ADMIN with TOTP always. Base URL must be in `ISAFLOW_ALLOWED_ORIGINS`. Proven only against the fake.
 - **Asset finance** (`sources-asset-finance.ts`, `sources-recovery.ts`) never goes through the

@@ -39,6 +39,8 @@ The ITs ran with `RUN_ACCOUNTING_IT=1`.
 | P3 | an already PUSHED batch is not refused before IsaFlow is called | it | RED: "two pushes give one draft…" |
 | R1 | no read-back before a resend | it | RED: "an unknown outcome…check finds the draft on read-back…without a second create", "a FAILED push is read back…" |
 | R2 | the resend uses a fresh key instead of the stored bytes | it | RED: "a draft deleted in IsaFlow is resent byte for byte under the same key…", plus 2 more |
+| R3 | resend: the id IsaFlow answers with is recorded without a second read-back (a replayed, deleted draft becomes PUSHED) | it | RED: "a draft deleted in IsaFlow: …replays the old id, never duplicates; left for a person", "a FAILED push is read back…" |
+| R4 | resend: the second read-back does not compare the answered id | it | RED: "a draft deleted in IsaFlow: …left for a person" |
 | S1 | push route: TOTP not required | push_route | RED: "refuses an ADMIN or a SUPER_ADMIN without a verified TOTP code…" |
 | S2 | connect: the role is not re-checked on the locked row (`superAdminPolicyWrite`) | conn_route | RED: "refuses a SUPER_ADMIN demoted between the check and the write" |
 | S3 | the status (GET) carries the sealed token | conn_route | RED: "is ADMIN's to read and never carries the token" |
