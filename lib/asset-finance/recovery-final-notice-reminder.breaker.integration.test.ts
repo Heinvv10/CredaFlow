@@ -5,7 +5,9 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { isoOfDbDate } from "./dates"
+import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { dbDate, isoOfDbDate } from "./dates"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { ladderRecovery } from "./recovery-path.integration-fixture"
 import { runRecoveryDeadlineSweep } from "./recovery-freeze-deadline"
@@ -118,5 +120,71 @@ suite.sequential("REPRO F2 breaker", () => {
     await runRecoveryDeadlineSweep("2027-06-01")
     expect(await bells(fx.tenantId, r.id)).toHaveLength(0)
     expect(isoOfDbDate((await d().recovery.findUniqueOrThrow({ where: { id: r.id } })).chargesFrozenFrom!)).toBe("2027-06-01")
+  }, 60_000)
+})
+
+// ---- Round 2: lock order and the admin fallback ----
+suite.sequential("REPRO F2 round 2", () => {
+  const t3 = randomUUID().replaceAll("-", "").slice(0, 16)
+  let f3: RecoveryFixture
+  beforeAll(async () => { f3 = await createRecoveryFixture(d(), t3) }, 120_000)
+  afterAll(async () => { await cleanupRecoveryFixture(d(), recoveryFixtureTenantId(t3)).catch(() => undefined) }, 60_000)
+
+  it("R2-a: sweeps racing the final-notice transition (loan->recovery lock vs recovery->loan trigger locks) neither deadlock nor lose the transition", async () => {
+    const recs: Awaited<ReturnType<typeof ladderRecovery>>[] = []
+    for (let i = 0; i < 8; i++) recs.push(await ladderRecovery(d(), f3, true, "PROCEEDS_APPLIED"))
+    const day = "2027-12-01"
+    const issue = (r: (typeof recs)[number]) => d().recovery.update({ where: { id: r.id }, data: { status: "FINAL_NOTICE_ISSUED", finalNoticeIssuedOn: dbDate(sastCalendarDate(new Date())), finalNoticePath: "/nonexistent/fn.pdf", finalNoticeSha256: "a".repeat(64), chargesFrozenUntil: dbDate(addSouthAfricanBusinessDays(sastCalendarDate(new Date()), 10)) } })
+    const results = await Promise.allSettled([
+      runRecoveryDeadlineSweep(day), runRecoveryDeadlineSweep(day), ...recs.map(issue), runRecoveryDeadlineSweep(day),
+    ])
+    for (const r of results) if (r.status === "rejected") throw new Error(`rejected: ${String(r.reason)}`)
+    const sweeps = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof runRecoveryDeadlineSweep>>> => r.status === "fulfilled" && typeof r.value === "object" && r.value !== null && "failed" in r.value)
+    expect(sweeps.every((s) => s.value.failed === 0)).toBe(true)
+    for (const r of recs) {
+      expect((await d().recovery.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("FINAL_NOTICE_ISSUED")
+      expect((await bells(f3.tenantId, r.id)).length).toBeLessThanOrEqual(1)
+    }
+  }, 120_000)
+
+  it("R2-b: inactive creator, active admins => every active ADMIN/SUPER_ADMIN belled once, nobody inactive, marker once; second run adds nothing", async () => {
+    for (const role of ["ADMIN", "SUPER_ADMIN"] as const) await d().user.create({ data: { tenantId: f3.tenantId, email: `${role}-${randomUUID().slice(0, 8)}@staff.invalid`, password: "x", role } })
+    const r = await nca(f3, "2027-02-01")
+    const creator = (await d().recovery.findUniqueOrThrow({ where: { id: r.id } })).createdById
+    await d().user.update({ where: { id: creator }, data: { active: false } })
+    try {
+      const first = await runRecoveryDeadlineSweep("2027-02-08")
+      expect(first.failed).toBe(0)
+      await runRecoveryDeadlineSweep("2027-02-09")
+      const items = await bells(f3.tenantId, r.id)
+      const users = await d().user.findMany({ where: { id: { in: items.map((i) => i.userId) } }, select: { id: true, active: true, role: true, tenantId: true } })
+      expect(users.length).toBeGreaterThan(0)
+      expect(users.every((u) => u.active && u.tenantId === f3.tenantId && ["ADMIN", "SUPER_ADMIN"].includes(u.role))).toBe(true)
+      expect(new Set(items.map((i) => i.userId)).size).toBe(items.length)
+      expect(await d().auditLog.count({ where: { tenantId: f3.tenantId, action: "ASSET_RECOVERY_FINAL_NOTICE_REMINDED", entityId: r.id } })).toBe(1)
+    } finally { await d().user.update({ where: { id: creator }, data: { active: true } }) }
+  }, 60_000)
+
+  it("R2-c: inactive creator and no active admin => no marker, noRecipient counted, failed 0; once an admin is active the next run reminds", async () => {
+    const r = await nca(f3, "2027-03-01")
+    const creator = (await d().recovery.findUniqueOrThrow({ where: { id: r.id } })).createdById
+    const admins = await d().user.findMany({ where: { tenantId: f3.tenantId, role: { in: ["ADMIN", "SUPER_ADMIN"] }, active: true }, select: { id: true } })
+    await d().user.updateMany({ where: { id: { in: [creator, ...admins.map((a) => a.id)] } }, data: { active: false } })
+    try {
+      const run = await runRecoveryDeadlineSweep("2027-03-09")
+      expect(run.failed).toBe(0)
+      expect((run as { noRecipient?: number }).noRecipient).toBeGreaterThanOrEqual(1)
+      expect(await bells(f3.tenantId, r.id)).toHaveLength(0)
+      expect(await d().auditLog.count({ where: { tenantId: f3.tenantId, action: "ASSET_RECOVERY_FINAL_NOTICE_REMINDED", entityId: r.id } })).toBe(0)
+    } finally { await d().user.updateMany({ where: { id: { in: [creator, ...admins.map((a) => a.id)] } }, data: { active: true } }) }
+    await runRecoveryDeadlineSweep("2027-03-10")
+    expect(await bells(f3.tenantId, r.id)).toHaveLength(1)
+  }, 60_000)
+
+  it("R2-d: a recovery that is no longer PROCEEDS_APPLIED at lock time is skipped (no bell, no marker)", async () => {
+    const r = await nca(f3, "2027-04-01")
+    await testSetup(d(), [`UPDATE "Recovery" SET "status" = 'LISTED', "chargesFrozenFrom" = '2027-04-01' WHERE "id" = $1`, r.id])
+    await runRecoveryDeadlineSweep("2027-04-09")
+    expect(await bells(f3.tenantId, r.id)).toHaveLength(0)
   }, 60_000)
 })

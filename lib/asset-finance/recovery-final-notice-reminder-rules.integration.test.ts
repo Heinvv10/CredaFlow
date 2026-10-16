@@ -1,6 +1,6 @@
 /**
  * The NCA final-notice reminder's rules (real migrated Postgres): a final
- * notice issued while the sweep waits on the loan lock cancels the reminder;
+ * notice issued while the sweep waits on the recovery lock cancels the reminder;
  * an inactive creator's reminder goes to the tenant's active ADMIN and
  * SUPER_ADMIN users, and with none of those nothing is marked, so the next run
  * tries again; the loan's status does not matter, the final notice is owed.
@@ -56,21 +56,20 @@ suite.sequential("NCA final-notice reminder rules (real Postgres)", () => {
     await db?.$disconnect()
   }, 60_000)
 
-  it("skips a recovery whose final notice is issued while the sweep waits for the loan lock", async () => {
+  it("skips a recovery whose final notice is issued while the sweep waits for the recovery lock", async () => {
     const r = await due(fx)
     let sweep: Promise<RecoveryDeadlineRun> | undefined
     await d().$transaction(async (tx) => {
-      // Hold the loan lock, and issue the final notice in the same (still uncommitted) transaction.
-      await tx.$queryRawUnsafe(`SELECT 1 FROM "Loan" WHERE "id" = $1 FOR UPDATE`, r.loan.loanId)
+      // Issue the final notice in a still-uncommitted transaction, which holds the recovery row's lock.
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
       await tx.$executeRawUnsafe(`UPDATE "Recovery" SET "status" = 'FINAL_NOTICE_ISSUED', "finalNoticeIssuedOn" = $1::date WHERE "id" = $2`, DUE, r.id)
-      // The sweep's query still sees PROCEEDS_APPLIED; it then blocks on the loan lock.
+      // The sweep's query still sees PROCEEDS_APPLIED; it then blocks on the recovery lock.
       sweep = runRecoveryDeadlineSweep(DUE)
       const deadline = Date.now() + 30_000
       for (;;) {
         const [{ waiting }] = await d().$queryRaw<{ waiting: number }[]>`SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted`
         if (waiting > 0) break
-        if (Date.now() > deadline) throw new Error("the sweep never waited for the loan lock")
+        if (Date.now() > deadline) throw new Error("the sweep never waited for the recovery lock")
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
     }, { timeout: 60_000 })

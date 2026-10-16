@@ -7,7 +7,8 @@ F1's red-first proof is in [`../f1-s127-address/README.md`](../f1-s127-address/R
 ## F2 — NCA final-notice reminder
 
 Tests (`RUN_ASSET_FINANCE_RECOVERY_IT=1`, `TENANT_RLS=on`, real migrated
-Postgres 16), run together for every mutation (14 tests):
+Postgres 16), run together for every mutation (14 tests at round 1; the
+breaker file has 12 since round 2):
 
 - `recovery-final-notice-reminder.integration.test.ts`: the cron route with an
   injected clock. Freeze dates are pinned and due days written out by hand:
@@ -17,7 +18,7 @@ Postgres 16), run together for every mutation (14 tests):
   still one after repeat runs, never a bell for a NON_NCA or noticed control,
   no name or ID number, and every recovery and loan row unchanged.
 - `recovery-final-notice-reminder-rules.integration.test.ts`: a final notice
-  issued while the sweep waits on the loan lock; an inactive creator (active
+  issued while the sweep waits on the recovery lock (the loan lock until round 2); an inactive creator (active
   ADMIN and SUPER_ADMIN belled, an inactive ADMIN not); no active admin (no
   marker, the next run bells); a COMPLETED or WRITTEN_OFF loan still belled.
 - `recovery-final-notice-reminder.breaker.integration.test.ts`: the tester's
@@ -36,6 +37,7 @@ Postgres 16), run together for every mutation (14 tests):
 | M7 the reminder moves the loan's collections stage | RED | clock IT (rows changed) |
 | M8 the title names the borrower | RED | clock IT |
 | R1 no re-read of the recovery under the lock | RED | rules: the final notice issued while the sweep waits |
+| D1 (round 2) the loan lock put back before the recovery lock | RED in 4 of 5, 4 of 5 and 1 of 3 whole-file runs | breaker R2-a: a sweep counts a failure; the Postgres log shows `deadlock detected` between `SELECT 1 FROM "Loan" … FOR UPDATE` and `SELECT "status" … FROM "Recovery" … FOR UPDATE` |
 | R2 always the creator, active or not | RED | rules (admins; no admin); breaker F2-f |
 | R3 inactive admins belled too | RED | rules: never an inactive admin |
 | R4 marker written with no recipient | RED | rules: no marker, the next run bells |
@@ -49,6 +51,17 @@ M6 alone survives because the status is checked twice: by the sweep's query
 and by the re-read under the lock (R1, added in review round 1). A recovery
 the widened query lets through is refused by the re-read. Removing both goes
 red. The unmutated suite passed after the runs (14/14).
+
+### Round 2: the lock order
+
+The round-1 reminder locked the loan, then the recovery. Issuing a final
+notice updates the recovery first and its guard trigger then takes the loan
+`FOR KEY SHARE`, so the two could deadlock (40P01, the tester's R2-a). The
+reminder now locks only the recovery row and never the loan; nothing else in
+its transaction locks the loan (a plain loan read, the bell insert, the audit
+insert, whose triggers act only on `Message` rows). With that fix the breaker
+file passed 5 of 5 whole-file serial runs (12/12 each), and the clock and rules
+ITs passed (6/6). Mutation D1 above restores the loan lock.
 
 ## F4 — portal recovery card in the borrower's language
 

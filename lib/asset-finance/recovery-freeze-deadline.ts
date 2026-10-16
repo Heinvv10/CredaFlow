@@ -74,9 +74,11 @@ async function reminderRecipients(tx: Tx, tenantId: string, createdById: string)
 async function remindFinalNotice(recovery: { id: string; tenantId: string; loanId: string; createdById: string }, day: string): Promise<Reminder> {
   const { tenantId } = recovery
   return prisma.$transaction(async (tx) => {
-    // The loan, then the recovery, as the proceeds path locks them. Re-read under the lock:
-    // a final notice issued since the sweep's query has moved the recovery on.
-    await lockLoanForUpdate(tx, recovery.loanId)
+    // The recovery row only, never the loan: issuing the final notice updates the recovery
+    // first and its guard trigger then key-share locks the loan, so loan-then-recovery here
+    // would deadlock with it. Nothing below locks the loan (a plain read, the bell and the
+    // audit insert). Re-read under the lock: a final notice issued since the sweep's query
+    // has moved the recovery on.
     const [current] = await tx.$queryRaw<{ status: string }[]>`SELECT "status"::TEXT AS "status" FROM "Recovery" WHERE "id" = ${recovery.id} AND "tenantId" = ${tenantId} FOR UPDATE`
     if (current?.status !== "PROCEEDS_APPLIED") return "no_longer_due"
     const done = await tx.auditLog.count({ where: { tenantId, action: AuditAction.ASSET_RECOVERY_FINAL_NOTICE_REMINDED, entity: "Recovery", entityId: recovery.id } })
@@ -157,7 +159,10 @@ export async function runRecoveryDeadlineSweep(day: string): Promise<RecoveryDea
         const outcome = await remindFinalNotice(recovery, day)
         if (outcome === "reminded") run.reminded++
         else if (outcome === "already_reminded") run.alreadyReminded++
-        else if (outcome === "no_recipient") run.noRecipient++
+        else if (outcome === "no_recipient") {
+          run.noRecipient++
+          console.warn("[asset-finance-recovery-deadlines] final-notice reminder has no active recipient; retrying next run", { tenantId, recoveryId: recovery.id })
+        }
       } catch (error) {
         run.failed++
         console.error("[asset-finance-recovery-deadlines] final-notice reminder failed", { tenantId, recoveryId: recovery.id, error: error instanceof Error ? error.name : "unknown" })
