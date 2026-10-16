@@ -15,6 +15,11 @@ import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finan
 import type { SeedActor } from "./asset-finance-documents"
 import { PEOPLE, personEmail, type AfPersonKey } from "./asset-finance-data"
 
+// The people whose consumer bureau check the seed runs (the director, the
+// trustees): they consent, so the check is made and the approval reasons that
+// cite it are true (Fair Score audit E6). The surety is not checked.
+const BUREAU_CONSENT: readonly AfPersonKey[] = ["director", "trusteeOne", "trusteeTwo"]
+
 /** The four synthetic clients, by key. KYC stays PENDING: no verification is claimed. */
 export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey, string>> {
   const ids = {} as Record<AfPersonKey, string>
@@ -32,6 +37,9 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       if (p.key === "director") await prisma.client.update({ where: { id: existing.id }, data: {
         monthlyIncome: 12_000_000, monthlyExpenses: 3_000_000, popiaConsentGiven: true, popiaConsentAt: new Date(),
       } })
+      else if (BUREAU_CONSENT.includes(p.key)) {
+        await prisma.client.updateMany({ where: { id: existing.id, popiaConsentGiven: false }, data: { popiaConsentGiven: true, popiaConsentAt: new Date() } })
+      }
       ids[p.key] = existing.id
       continue
     }
@@ -47,7 +55,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
         employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING",
         monthlyIncome: p.key === "director" ? 12_000_000 : 0,
         monthlyExpenses: p.key === "director" ? 3_000_000 : 0,
-        popiaConsentGiven: p.key === "director", popiaConsentAt: p.key === "director" ? new Date() : null,
+        popiaConsentGiven: BUREAU_CONSENT.includes(p.key), popiaConsentAt: BUREAU_CONSENT.includes(p.key) ? new Date() : null,
         portalPassword: portalPassword ? await bcrypt.hash(portalPassword, 12) : null,
       },
       select: { id: true },

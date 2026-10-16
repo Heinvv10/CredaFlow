@@ -16,11 +16,14 @@ const DECISIONS = [
 
 /**
  * The credit decision (decide_asset_finance). Every decision needs reasons,
- * one per line, each at least 5 characters; the API enforces it again.
+ * one per line, each at least 5 characters; the API enforces it again. A deal
+ * with exceptions (internal arrears, a bureau check not on record) also needs
+ * the reason it is approved despite them; the decision records both.
  */
-export function DecidePanel({ dealId }: { dealId: string }) {
+export function DecidePanel({ dealId, exceptions = [] }: { dealId: string; exceptions?: string[] }) {
   const router = useRouter()
   const [reasons, setReasons] = useState("")
+  const [exceptionReason, setExceptionReason] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
 
@@ -28,7 +31,9 @@ export function DecidePanel({ dealId }: { dealId: string }) {
     setSaving(decision)
     setError(null)
     const list = reasons.split("\n").map((r) => r.trim()).filter(Boolean)
-    const result = await sendJson(`/api/asset-finance/deals/${dealId}/decide`, "POST", { decision, reasons: list })
+    const result = await sendJson(`/api/asset-finance/deals/${dealId}/decide`, "POST", {
+      decision, reasons: list, ...(exceptions.length > 0 && exceptionReason.trim() !== "" ? { exceptionReason } : {}),
+    })
     setSaving(null)
     // Refresh either way: a refused APPROVE on an NCA deal still changes it (REFUSED_NCA).
     if (!result.ok) setError(result.error)
@@ -43,6 +48,15 @@ export function DecidePanel({ dealId }: { dealId: string }) {
       </Label>
       <Textarea id="decision-reasons" rows={4} value={reasons} onChange={(e) => setReasons(e.target.value)}
         placeholder={"DSCR 1.8 on audited AFS\nDirectors' bureau records clean"} />
+      {exceptions.length > 0 && (
+        <>
+          <Label htmlFor="exception-reason" className="text-xs text-[var(--cf-text-secondary)]">
+            Why approve despite the {exceptions.length === 1 ? "exception" : `${exceptions.length} exceptions`} above (required to approve) *
+          </Label>
+          <Textarea id="exception-reason" rows={3} value={exceptionReason} onChange={(e) => setExceptionReason(e.target.value)}
+            placeholder="e.g. The arrears are under a signed payment plan and the deal is fully secured by the asset and the sureties" />
+        </>
+      )}
       <div className="flex gap-2">
         {DECISIONS.map(([value, label]) => (
           <Button key={value} size="sm" variant={value === "APPROVE" ? "default" : "outline"} onClick={() => decide(value)}

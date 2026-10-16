@@ -8,7 +8,7 @@ import { DealCreateForm } from "./DealCreateForm"
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 const options = {
   entities: [{ id: "e-1", label: "TEST Entity (Pty) Ltd" }], clients: [{ id: "c-1", label: "Synthetic Sole · C-1" }],
-  assets: [{ id: "a-1", label: "2024 TEST Loader" }], suppliers: [{ id: "s-1", label: "TEST Supplier" }], products: [{ id: "p-1", label: "TEST Product" }],
+  assets: [{ id: "a-1", label: "2024 TEST Loader", usageUnit: "HOURS" as const }, { id: "a-2", label: "2025 TEST Bakkie", usageUnit: "KM" as const }], suppliers: [{ id: "s-1", label: "TEST Supplier" }], products: [{ id: "p-1", label: "TEST Product" }],
 }
 const lease = {
   startDate: "2030-02-01", termDays: 1800, rate: { annualRate: "0.125" }, financedAmountCents: 100_000_00, baseInstalmentCents: 2_000_00, rows: [], totalInterestCents: 0, totalPayableCents: 0,
@@ -40,6 +40,7 @@ async function fillCommon(renderer: ReactTestRenderer) {
   await change(renderer, "select", "assetId", "a-1")
   await change(renderer, "input", "firstDueDate", "2030-02-01")
   await change(renderer, "input", "ratePercent", "12.5")
+  await change(renderer, "input", "periods", "60")
 }
 const settle = () => act(async () => { await vi.advanceTimersByTimeAsync(500) })
 
@@ -72,6 +73,31 @@ describe("DealCreateForm", () => {
     for (const key of ["depositCents", "tradeInCents", "financedFeesCents"]) expect(body).not.toHaveProperty(key)
     for (const id of ["deposit", "tradeIn", "fees"]) expect(find(renderer, "input", id)).toBeUndefined()
     expect(JSON.stringify(renderer.toJSON())).toContain("By lease year")
+  })
+
+  it("the term starts blank with a placeholder, so typing a term never appends to a prefilled one", async () => {
+    let renderer!: ReactTestRenderer
+    await act(async () => { renderer = create(<DealCreateForm options={options} />) })
+    expect(find(renderer, "input", "periods").props).toMatchObject({ value: "", placeholder: "60" })
+    await change(renderer, "select", "assetId", "a-1")
+    await change(renderer, "input", "firstDueDate", "2030-02-01")
+    await change(renderer, "input", "ratePercent", "12.5")
+    await settle()
+    expect(previewBodies()).toHaveLength(0)
+    expect(JSON.stringify(renderer.toJSON())).toContain("A whole number of months, e.g. 60")
+    await change(renderer, "input", "periods", "36")
+    await settle()
+    expect(previewBodies()[0]).toMatchObject({ preset: { kind: "MONTHLY", periods: 36 } })
+  })
+
+  it("a lease's usage unit follows the asset: km for a vehicle, hours for machinery", async () => {
+    let renderer!: ReactTestRenderer
+    await act(async () => { renderer = create(<DealCreateForm options={options} />) })
+    await change(renderer, "select", "contractType", "FULL_MAINTENANCE_LEASE")
+    await change(renderer, "select", "assetId", "a-2")
+    expect(find(renderer, "select", "usageUnit").props.value).toBe("KM")
+    await change(renderer, "select", "assetId", "a-1")
+    expect(find(renderer, "select", "usageUnit").props.value).toBe("HOURS")
   })
 
   it("asks for the maintenance and usage fields only on a full-maintenance lease", async () => {

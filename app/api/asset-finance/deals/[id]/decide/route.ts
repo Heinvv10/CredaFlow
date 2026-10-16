@@ -13,12 +13,14 @@ import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
 /**
  * The credit decision on a SUBMITTED or REFERRED deal (decide_asset_finance;
  * lib/asset-finance/deal-decision.ts). Body:
- * `{ decision: "APPROVE" | "DECLINE" | "REFER", reasons: string[] }` — at
- * least one reason, each at least 5 characters, for every decision.
+ * `{ decision: "APPROVE" | "DECLINE" | "REFER", reasons: string[], exceptionReason?: string }`
+ * — at least one reason, each at least 5 characters, for every decision.
  *
  * APPROVE needs a credit memo. NCA deals additionally need a recorded,
  * affordable s81 assessment and reckless-lending note; the database repeats
- * that gate. A pending NON_NCA override is decided before approval.
+ * that gate. A pending NON_NCA override is decided before approval. A deal
+ * with exceptions (internal arrears, a bureau check not on record) needs
+ * `exceptionReason`: 409 listing them otherwise (audited refusal).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -99,6 +101,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
       case "screening_blocked":
         return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+      case "exceptions_unanswered":
+        return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
       case "refused_nca":
         return NextResponse.json({ error: result.reason, deal: await loadDealDetail(tenant.id, id) }, { status: 409 })
       case "decided":

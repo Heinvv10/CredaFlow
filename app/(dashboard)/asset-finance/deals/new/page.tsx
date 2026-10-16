@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { CLOSED_DEAL_STATUSES } from "@/lib/asset-finance/deal-create"
 import { ASSET_FINANCE_PRODUCT_WHERE } from "@/lib/asset-finance/deal-products"
+import { defaultUsageUnit } from "@/lib/asset-finance/lease-input"
 import { DealCreateForm, type DealFormOptions } from "./DealCreateForm"
 
 export default async function NewDealPage() {
@@ -18,7 +19,7 @@ export default async function NewDealPage() {
     prisma.financedAsset.findMany({
       where: { tenantId, releasedAt: null, deals: { none: { status: { notIn: [...CLOSED_DEAL_STATUSES] } } } },
       orderBy: { createdAt: "desc" },
-      select: { id: true, year: true, make: true, model: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true },
+      select: { id: true, assetClass: true, year: true, make: true, model: true, serialNumber: true, cashPriceExclVatCents: true, vatCents: true },
     }),
     prisma.supplier.findMany({ where: { tenantId, active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     // There is no product-kind flag yet. Any active product can be selected;
@@ -35,6 +36,7 @@ export default async function NewDealPage() {
     assets: assets.map((a) => ({
       id: a.id,
       label: `${a.year} ${a.make} ${a.model} · ${a.serialNumber} · ${formatMoney(a.cashPriceExclVatCents + a.vatCents)} incl. VAT`,
+      usageUnit: defaultUsageUnit(a.assetClass),
     })),
     suppliers: suppliers.map((s) => ({ id: s.id, label: s.name })),
     products: products.map((p) => ({ id: p.id, label: p.name })),

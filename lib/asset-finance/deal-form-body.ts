@@ -31,6 +31,8 @@ export interface DealFormValues {
 const numberList = (text: string) => text.split(",").map((s) => s.trim()).filter(Boolean).map(Number)
 
 function presetBody(v: DealFormValues, errors: Record<string, string>): Record<string, unknown> {
+  // Blank by default (a placeholder, never a prefilled value a keystroke appends to).
+  if (!/^\d+$/.test(v.periods.trim()) || Number(v.periods) < 1) errors["preset.periods"] = "A whole number of months, e.g. 60"
   const periods = Number(v.periods)
   const preset: Record<string, unknown> = { kind: v.preset, periods }
   switch (v.preset) {

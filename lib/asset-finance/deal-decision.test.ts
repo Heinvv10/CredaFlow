@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Prisma } from "@prisma/client"
 import type { RegimeTx } from "./classification"
+import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { decideDeal, parseDecideInput } from "./deal-decision"
 
 // The screening re-check's own rules are proven in lib/screening; here, only
@@ -11,8 +12,28 @@ vi.mock("@/lib/screening/gate", () => ({ lockedBorrowerScreeningAllows: (...a: u
 const REASONS = ["Strong DSCR on audited AFS"]
 const actor = { tenantId: "tenant-1", userId: "admin-a", userEmail: "a@lender.test" }
 
-function fakeTx(deal: Record<string, unknown> | null, pendingOverride = false) {
+interface Related {
+  people?: Array<{ clientId: string; role: string; trusteeKind?: string | null; name: string }>
+  loans?: Array<Record<string, unknown>>
+  checks?: Array<Record<string, unknown>>
+  attempts?: Array<{ data: Record<string, unknown>; createdAt: Date }>
+}
+
+function fakeTx(deal: Record<string, unknown> | null, pendingOverride = false, related: Related = {}) {
+  const people = related.people ?? []
   const tx = {
+    entityRelationship: {
+      findMany: vi.fn(async () => people.map((p) => {
+        const [firstName, lastName] = p.name.split(" ")
+        return { clientId: p.clientId, role: p.role, trusteeKind: p.trusteeKind ?? null, client: { firstName, lastName } }
+      })),
+    },
+    loan: { findMany: vi.fn(async () => related.loans ?? []) },
+    creditBureauCheck: { findMany: vi.fn(async () => related.checks ?? []) },
+    complianceRecord: { findMany: vi.fn(async () => related.attempts ?? []) },
+    client: {
+      findMany: vi.fn(async () => people.map((p) => ({ id: p.clientId, firstName: p.name.split(" ")[0], lastName: p.name.split(" ")[1] }))),
+    },
     $queryRaw: vi.fn(async () => [{ id: "app-1" }]),
     assetFinanceDeal: {
       findFirst: vi.fn(async () => deal),
@@ -60,7 +81,15 @@ describe("parseDecideInput: reasons are mandatory for every decision", () => {
     expect(parseDecideInput({ decision: "DECLINE", reasons: ["  Gearing too high  "] })).toEqual({
       decision: "DECLINE",
       reasons: ["Gearing too high"],
+      exceptionReason: null,
     })
+  })
+
+  it("takes an optional exception reason of at least 20 characters", () => {
+    expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionReason: "  Arrears under a signed payment plan  " }))
+      .toMatchObject({ exceptionReason: "Arrears under a signed payment plan" })
+    expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionReason: "too short" })).toMatch(/exception reason must be 20/)
+    expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionReason: 7 })).toMatch(/exceptionReason must be text/)
   })
 })
 
@@ -122,6 +151,74 @@ describe("decideDeal", () => {
     expect(fake.tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ action: "ASSET_DEAL_DECIDED", newValue: expect.objectContaining({ reasons: REASONS, dscr: "1.8000" }) }),
     })
+  })
+
+  // Fair Score audit E5: a director in default with this lender is an exception the approver must answer.
+  const director = { clientId: "c-dir", role: "DIRECTOR", name: "Synthetic Director" }
+  const defaulted = {
+    id: "loan-9", reference: "LN-TEST-0009", status: "DEFAULTED", daysInArrears: 166, arrearsAmount: 9_812_345, clientId: "c-dir", entityId: null,
+    client: { firstName: "Synthetic", lastName: "Director" }, entity: null,
+  }
+  const storedCheck = (clientId: string, name: string) => ({
+    clientId,
+    subjectFingerprint: bureauSubjectFingerprint({ id: clientId, idNumber: "0000000000000", firstName: name.split(" ")[0], lastName: name.split(" ")[1], gender: null, dateOfBirth: null }), provider: "experian", score: 700, riskGrade: "B", hasAdverse: false, deceased: false, underDebtReview: false,
+    hasJudgement: false, ok: true, errorMessage: null, createdAt: new Date("2026-10-16T08:00:00Z"),
+    client: { id: clientId, idNumber: "0000000000000", firstName: name.split(" ")[0], lastName: name.split(" ")[1], gender: null, dateOfBirth: null },
+  })
+
+  it("E5: APPROVE with a director's loan in default with this lender needs an exception reason, writing nothing without one", async () => {
+    fake = fakeTx(deal(), false, { people: [director], loans: [defaulted] })
+    const refused = await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })
+    expect(refused).toMatchObject({ kind: "exceptions_unanswered" })
+    const [line] = (refused as { exceptions: string[] }).exceptions
+    expect(line).toContain("Synthetic Director (Director) has loan LN-TEST-0009 with this lender: Defaulted, 166 days in arrears")
+    expect(line).toContain("98,123.45 overdue")
+    expect(fake.tx.loanApplication.update).not.toHaveBeenCalled()
+    expect(fake.tx.assetFinanceDeal.update).not.toHaveBeenCalled()
+  })
+
+  it("E5: with the reason, the approval stores and audits each exception and the reason", async () => {
+    fake = fakeTx(deal(), false, { people: [director], loans: [defaulted], checks: [storedCheck("c-dir", "Synthetic Director")] })
+    const exceptionReason = "The director's arrears are under a signed settlement"
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason })).toEqual({ kind: "decided", status: "APPROVED" })
+    const stored = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[] } }])[0].data.decisionReasons
+    expect(stored[0]).toBe(REASONS[0])
+    expect(stored[1]).toMatch(/^Exception: Synthetic Director \(Director\) has loan LN-TEST-0009/)
+    expect(stored[2]).toBe(`Approved despite the exceptions: ${exceptionReason}`)
+    expect(fake.tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ newValue: expect.objectContaining({ exceptions: [expect.stringContaining("LN-TEST-0009")], exceptionReason }) }),
+    })
+  })
+
+  it("E5: a loan that is current is no exception", async () => {
+    fake = fakeTx(deal(), false, { people: [director], loans: [{ ...defaulted, status: "ACTIVE", daysInArrears: 0, arrearsAmount: 0 }], checks: [storedCheck("c-dir", "Synthetic Director")] })
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "decided", status: "APPROVED" })
+  })
+
+  it("E6: a trustee whose bureau check was skipped for missing consent cannot be approved on a reason claiming it ran", async () => {
+    const trustee = { clientId: "c-tr2", role: "TRUSTEE", trusteeKind: "NATURAL", name: "Synthetic Trustee" }
+    const attempts = [{ data: { clientId: "c-tr2", outcome: "skipped", skipped: true, reason: "CONSENT_MISSING", provider: "experian" }, createdAt: new Date("2026-10-16T08:00:00Z") }]
+    fake = fakeTx(deal(), false, { people: [trustee], attempts })
+    const refused = await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: ["Natural trustees' bureau records were checked"] })
+    expect(refused).toEqual({ kind: "exceptions_unanswered", exceptions: ["Synthetic Trustee (Trustee): the bureau check was skipped (no bureau consent on record)"] })
+    expect(fake.tx.assetFinanceDeal.update).not.toHaveBeenCalled()
+
+    fake = fakeTx(deal(), false, { people: [trustee], attempts })
+    await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: ["Trust cash flow supports the rental"], exceptionReason: "Trustee consent is being obtained; the deal is secured" })
+    const stored = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[] } }])[0].data.decisionReasons
+    expect(stored).toContain("Exception: Synthetic Trustee (Trustee): the bureau check was skipped (no bureau consent on record)")
+  })
+
+  it("E6: the person's latest attempt decides: a failure after a stored check is an exception, a stored check after a skip is not", async () => {
+    const skipped = { data: { clientId: "c-dir", outcome: "skipped", skipped: true, reason: "CONSENT_MISSING", provider: "experian" }, createdAt: new Date("2026-10-15T08:00:00Z") }
+    const failed = { data: { clientId: "c-dir", outcome: "failed", error: "bureau timeout", provider: "experian" }, createdAt: new Date("2026-10-17T08:00:00Z") }
+    fake = fakeTx(deal(), false, { people: [director], checks: [storedCheck("c-dir", "Synthetic Director")], attempts: [failed] })
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS }))
+      .toEqual({ kind: "exceptions_unanswered", exceptions: ["Synthetic Director (Director): the bureau check failed (bureau timeout)"] })
+    fake = fakeTx(deal(), false, { people: [director], checks: [storedCheck("c-dir", "Synthetic Director")], attempts: [skipped] })
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "decided", status: "APPROVED" })
+    fake = fakeTx(deal(), false, { people: [{ clientId: "c-jt", role: "TRUSTEE", trusteeKind: "JURISTIC", name: "Synthetic Trustees" }] })
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })).toEqual({ kind: "decided", status: "APPROVED" })
   })
 
   it("DECLINE needs no memo and no NON_NCA; REFER leaves the application UNDER_REVIEW", async () => {

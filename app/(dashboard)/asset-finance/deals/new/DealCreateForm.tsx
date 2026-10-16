@@ -10,9 +10,9 @@ import { ScheduleTable } from "@/components/asset-finance/ScheduleTable"
 import { LeaseSchedulePreview } from "@/components/asset-finance/lease/LeaseSchedulePreview"
 import { dealStructureBody, type DealFormValues } from "@/lib/asset-finance/deal-form-body"
 import { LEASE_INITIAL, leaseDealBody, type LeaseFormValues } from "@/lib/asset-finance/lease-form-body"
-import { isLeaseContract, type LeaseContractType } from "@/lib/asset-finance/lease-input"
+import { isLeaseContract, type LeaseContractType, type UsageUnit } from "@/lib/asset-finance/lease-input"
 import type { LeaseScheduleView } from "@/lib/asset-finance/lease-view"
-import { ratePercent } from "@/lib/asset-finance/deal-labels"
+import { CONTRACT_TYPE_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
 import { dealFieldLabel, describeFieldErrors, describeSolverError } from "@/lib/asset-finance/labels"
 import { formatIsoDate } from "@/lib/asset-finance/format"
 import type { StructureResult } from "@/lib/asset-finance/types"
@@ -23,21 +23,16 @@ type Option = { id: string; label: string }
 export interface DealFormOptions {
   entities: Option[]
   clients: Option[]
-  assets: Option[]
+  /** usageUnit: the asset class's default unit for a lease's contracted usage. */
+  assets: (Option & { usageUnit?: UsageUnit })[]
   suppliers: Option[]
   products: Option[]
 }
 type Preview = StructureResult & { startDate: string; termDays: number; rate: { annualRate: string }; lease?: LeaseScheduleView }
-const AGREEMENT_LABELS = {
-  INSTALMENT_SALE: "Instalment sale",
-  FINANCE_LEASE: "Finance lease",
-  OPERATING_LEASE: "Operating lease",
-  FULL_MAINTENANCE_LEASE: "Full-maintenance lease",
-}
 
 const INITIAL: DealFormValues = {
   assetId: "", contractType: "INSTALMENT_SALE", depositRands: "", tradeInRands: "", feesRands: "", balloonRands: "", firstDueDate: "",
-  vatDeferralPeriod: "", rateBasis: "PRIME", ratePercent: "", preset: "MONTHLY", periods: "60", skipFirst: "",
+  vatDeferralPeriod: "", rateBasis: "PRIME", ratePercent: "", preset: "MONTHLY", periods: "", skipFirst: "",
   seasonMonths: "", seasonWeight: "", offWeight: "", months: "", steps: "",
 }
 const choices = (options: Option[], placeholder: string) =>
@@ -143,9 +138,14 @@ export function DealCreateForm({ options }: { options: DealFormOptions }) {
                 setLeaseType(null)
                 set("contractType")(contractType)
               }}
-              options={AGREEMENT_LABELS} error={fields.contractType} />
+              options={CONTRACT_TYPE_LABELS} error={fields.contractType} />
             <SelectField id="assetId" label="Asset" required value={values.assetId}
-              onChange={set("assetId")} options={choices(options.assets, "Choose an asset")} error={fields.assetId} />
+              onChange={(assetId) => {
+                set("assetId")(assetId)
+                const unit = options.assets.find((a) => a.id === assetId)?.usageUnit
+                if (unit) setLeaseValues((prev) => ({ ...prev, usageUnit: unit }))
+              }}
+              options={choices(options.assets, "Choose an asset")} error={fields.assetId} />
             <SelectField id="supplierId" label="Supplier" required value={parties.supplierId}
               onChange={(supplierId) => setParties((p) => ({ ...p, supplierId }))} options={choices(options.suppliers, "Choose a supplier")} error={fields.supplierId} />
             <div className="space-y-1.5">

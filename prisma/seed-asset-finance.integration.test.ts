@@ -93,6 +93,10 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       creditLifeElection: "DECLINED",
     })
     expect(deal.loan).toMatchObject({ ncaRegime: "NCA", contractType: "FINANCE_LEASE", balloonAmount: 6_900_000, clientId: null, entityId: trust.id })
+    // Fair Score audit E6: the approval says the trustees' bureau records were checked, so each trustee's latest check stored a report.
+    expect(deal.decisionReasons).toContain("Natural trustees' bureau records were checked")
+    const stored = await fresh().creditBureauCheck.findMany({ where: { applicationId: deal.applicationId, ok: true }, select: { clientId: true } })
+    for (const r of trust.relationships) expect(stored.map((c) => c.clientId)).toContain(r.clientId)
     expect(await fresh().auditLog.count({ where: { entityId: deal.id, action: "ASSET_DEAL_BOOKED" } })).toBe(1)
   })
 
