@@ -102,7 +102,7 @@ suite.sequential("F3 credit-note breakers", () => {
     const replica = (...ops: Array<ReturnType<typeof db.$executeRawUnsafe>>) => db.$transaction([db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"), ...ops])
     await replica(
       db.$executeRawUnsafe(`INSERT INTO "TaxInvoice" ("id","tenantId","number","invoiceNumber","issueDate","supplyDate","loanId","supplierName","supplierAddress","supplierVatNumber","recipientName","recipientAddress","vatRate","totalExclVatCents","vatCents","totalInclVatCents")
-        VALUES ('inv-cons-r6','${consumer.tenantId}',9101,'INV-9101','2026-08-20','2026-08-20','${(cl as { id: string }).id}','TEST','1 Test St','4000000001','TEST','2 Test Rd',0.15,1000,150,1150)`),
+        VALUES ('inv-cons-r6','${consumer.tenantId}',9101,'INV-9101','2026-08-20','2026-08-20','${cl.loanId}','TEST','1 Test St','4000000001','TEST','2 Test Rd',0.15,1000,150,1150)`),
       db.$executeRawUnsafe(`INSERT INTO "CreditNote" ("id","tenantId","number","creditNoteNumber","issueDate","invoiceId","reason","exclVatCents","vatCents","inclVatCents")
         VALUES ('cn-cons-r6','${consumer.tenantId}',9101,'CN-9101','2026-08-21','inv-cons-r6','x',1000,150,1150)`),
     )
