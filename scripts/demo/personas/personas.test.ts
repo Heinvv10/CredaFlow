@@ -23,7 +23,7 @@ function worstInstalmentCents(p: Persona): number {
   const result = calculateLoan({
     principal: p.loanRequest.amountCents,
     termDays: p.loanRequest.termDays,
-    interestRatePm: micro ? 0.05 : 0.03,
+    interestRatePm: micro ? 0.05 : 0.0225, // PERSONAL: 2.25% pm, inside the NCA cap (#138)
     interestModel: micro ? 'DAILY_ACCRUAL' : 'REDUCING_BALANCE',
     initiationFeeModel: 'FLAT_PCT',
     initiationFeePct: micro ? 0.15 : 0.165,
@@ -49,7 +49,9 @@ describe('demo personas', () => {
       'live-clean-approve', 'live-affordability-decline', 'live-returning-client',
     ])
     expect(PERSONAS).toHaveLength(45)
-    for (const [storyline, count] of BACKGROUND_PLAN) {
+    const planned = new Map<string, number>()
+    for (const [storyline, count] of BACKGROUND_PLAN) planned.set(storyline, (planned.get(storyline) ?? 0) + count)
+    for (const [storyline, count] of planned) {
       expect(PERSONAS.filter((p) => p.storyline === storyline)).toHaveLength(count)
     }
   })

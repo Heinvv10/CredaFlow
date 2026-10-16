@@ -18,11 +18,11 @@ import type { SeedActor } from "./asset-finance-documents"
 import { legalMatterSeedDates } from "./asset-finance-recovery-dates"
 
 async function ensureAttorney(tenantId: string, officer: SeedActor): Promise<string> {
-  const name = "TEST Collections Attorneys Inc"
+  const name = "Mahlangu Collections Attorneys Inc"
   const existing = await prisma.supplier.findFirst({ where: { tenantId, name }, select: { id: true } })
   if (existing) return existing.id
   return (await prisma.supplier.create({
-    data: { tenantId, name, contactName: "TEST Attorney", contactEmail: "attorney@test.invalid", contactPhone: "0110000099", createdById: officer.id },
+    data: { tenantId, name, contactName: "Thabo Mahlangu", contactEmail: "attorney@mahlangu-attorneys.invalid", contactPhone: "0110000099", createdById: officer.id },
   })).id
 }
 
@@ -63,18 +63,18 @@ export async function seedTlbLegalMatter(tenantId: string, officer: SeedActor, l
     // The notice's effect on the loan: the collections stage the attorney appointment requires.
     await prisma.loan.update({ where: { id: loanId, tenantId }, data: { collectionsStage: "SECTION_129_SENT", collectionsStageUpdatedAt: new Date(`${s129On}T10:00:00+02:00`) } })
   }
-  await record("S129_SENT", s129On, { section129RecordId: await ensureS129Record(tenantId, loanId, s129On), note: "Synthetic section 129 notice sent" })
+  await record("S129_SENT", s129On, { section129RecordId: await ensureS129Record(tenantId, loanId, s129On), note: "Section 129 notice sent" })
   if (!matter.attorneySupplierId) {
     const appointed = await appointAttorney(actor, matterId, { supplierId: await ensureAttorney(tenantId, officer), appointedOn: dates.attorneyAppointedOn })
     if (appointed.kind !== "done") throw new Error(`Seed: attorney appointment refused (${JSON.stringify(appointed)})`)
   }
   const summons = dates.summonsIssuedOn
   if (toDayNumber(addSouthAfricanBusinessDays(s129On, 10)) > toDayNumber(summons)) throw new Error("Seed: the summons date is inside the section 129 window")
-  await record("SUMMONS_ISSUED", summons, { note: "Synthetic summons issued" })
+  await record("SUMMONS_ISSUED", summons, { note: "Summons issued" })
   await record("SUMMONS_SERVED", dates.summonsServedOn)
-  await record("JUDGMENT", dates.judgmentOn, { note: "Synthetic default judgment" })
-  await record("ATTACHMENT_ORDER", dates.attachmentOrderOn, { note: "Synthetic attachment order" })
-  await record("ASSET_RECOVERED", dates.assetRecoveredOn, { recovery: { location: "TEST Sheriff's Yard, Johannesburg", condition: "Used, fair condition; hours as at the inspection." } })
+  await record("JUDGMENT", dates.judgmentOn, { note: "Default judgment granted" })
+  await record("ATTACHMENT_ORDER", dates.attachmentOrderOn, { note: "Attachment order granted" })
+  await record("ASSET_RECOVERED", dates.assetRecoveredOn, { recovery: { location: "Sheriff's yard, Johannesburg", condition: "Used, fair condition; hours as at the inspection." } })
 
   const recovery = await prisma.recovery.findFirst({ where: { tenantId, loanId, legalMatterId: matterId }, select: { id: true } })
   if (!recovery) throw new Error("Seed: the ASSET_RECOVERED step opened no recovery")

@@ -12,7 +12,8 @@
  * simulated day: the day's crons at their SAST slots interleaved with the
  * day's scenario events (origination steps, debit-order runs, receipts,
  * statement imports, collections actions), plus the breadth storylines —
- * CRM, insurance, compliance, referral agents, inbox (breadth/index.ts). The
+ * CRM, insurance, compliance, referral agents, inbox (breadth/index.ts) — and
+ * the base seed's own loans are kept current (simulate/seed-book.ts). The
  * bureau crons production leaves unscheduled run too, in TEST mode.
  *
  * Progress goes to stderr; the verification report to stdout. Exit 1 when any
@@ -38,6 +39,7 @@ import { scheduleStatementImports } from "./simulate/money"
 import { scheduleOrigination } from "./simulate/origination-events"
 import { buildPlans } from "./simulate/plan"
 import { report } from "./simulate/report"
+import { scheduleSeedBook } from "./simulate/seed-book"
 import { planServicing, scheduleArrangementPayments } from "./simulate/servicing"
 import { loadState, newState, saveState } from "./simulate/state"
 import { simWindow } from "./simulate/window"
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
   for (const plan of plans) scheduleOrigination(sim, plan)
   scheduleStatementImports(sim)
   scheduleBreadth(sim)
+  await scheduleSeedBook(sim)
   if (saved) await replanDisbursed(sim)
 
   const realCutoff = () => new Date(Date.now() - 2 * 60_000)

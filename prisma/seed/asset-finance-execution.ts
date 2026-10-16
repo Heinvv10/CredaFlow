@@ -67,7 +67,7 @@ export async function signAndContract(tenantId: string, staff: SeedStaff, dealId
   }
   const ncaRegime = (await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, select: { application: { select: { ncaRegime: true } }, entityId: true } }))
   const entityNca = ncaRegime.entityId && ncaRegime.application.ncaRegime === "NCA"
-  const contracted = await contractDeal(entityNca ? dealActor(tenantId, staff.adminOne) : officer, dealId, entityNca ? "TEST Provider" : undefined)
+  const contracted = await contractDeal(entityNca ? dealActor(tenantId, staff.adminOne) : officer, dealId, entityNca ? "Authorised Signatory" : undefined)
   if (contracted.kind !== "contracted") throw new Error(`Seed: contract refused (${JSON.stringify(contracted)})`)
 }
 
@@ -79,9 +79,9 @@ export async function confirmChecklist(tenantId: string, officer: SeedActor, dea
     const types = CHECKLIST_EVIDENCE_TYPES[item as PayoutChecklistItemKind]
     let evidenceDocumentId: string | null = null
     if (types.length > 0 && borrower.entityId) {
-      evidenceDocumentId = await ensureDocument(tenantId, officer, borrower.entityId, types[0], `${CHECKLIST_LABELS[item]} (TEST evidence)`, dealId)
+      evidenceDocumentId = await ensureDocument(tenantId, officer, borrower.entityId, types[0], `${CHECKLIST_LABELS[item]} (copy on file)`, dealId)
     } else if (types.length > 0 && borrower.clientId) {
-      const upload = await syntheticUpload(types[0], `${CHECKLIST_LABELS[item]} (TEST evidence)`, types, dealId)
+      const upload = await syntheticUpload(types[0], `${CHECKLIST_LABELS[item]} (copy on file)`, types, dealId)
       evidenceDocumentId = (await storeDealEvidenceDocument({
         tenantId, dealId, entityId: null, clientId: borrower.clientId, upload,
         uploader: { type: "staff", id: officer.id, email: officer.email },
@@ -90,7 +90,7 @@ export async function confirmChecklist(tenantId: string, officer: SeedActor, dea
     const result = await confirmChecklistItem(dealActor(tenantId, officer), dealId, item, {
       evidenceDocumentId,
       attestedSerial: item === "SUPPLIER_INVOICE_MATCHES_ASSET" ? deal.asset.serialNumber : null,
-      note: "Synthetic evidence checked (TEST)",
+      note: "Evidence checked against the original",
     })
     if (result.kind !== "confirmed") throw new Error(`Seed: checklist item ${item} refused (${JSON.stringify(result)})`)
   }
@@ -127,7 +127,7 @@ async function recordReceipt(tenantId: string, officer: SeedActor, loanId: strin
   })
   await applyManualReceipt(prisma, {
     loanId, tenantId, amount: first.totalDue, paymentMethod: "EFT", reference: loan.reference,
-    notes: `Synthetic early receipt of instalment ${first.installmentNo} (demo seed)`,
+    notes: `Early receipt of instalment ${first.installmentNo}`,
     capturedById: officer.id, capturedByEmail: officer.email,
     idempotencyKey: `seed-af-${loan.reference}-${first.installmentNo}`,
   })
