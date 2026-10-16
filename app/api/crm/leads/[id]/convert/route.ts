@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { PO_FUNDING_NEEDS_ORDER, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -469,6 +470,8 @@ export async function POST(
           where: { id: data.productId, tenantId: tenant.id },
         })
         if (!product || !product.active) return { kind: "product_unavailable" as const }
+        // A lead carries no purchase order; PO funding is applied for with it.
+        if (requiresPoFundingFacts(product.productType)) return { kind: "po_funding_needs_order" as const }
         if (resolveTermDays(data.appliedTermDays, product) === null) {
           return {
             kind: "term_out_of_range" as const,
@@ -807,6 +810,9 @@ export async function POST(
           { error: `A client with this ${result.conflict} already exists.` },
           { status: 409 },
         )
+      }
+      if (result.kind === "po_funding_needs_order") {
+        return NextResponse.json({ error: PO_FUNDING_NEEDS_ORDER }, { status: 422 })
       }
       if (result.kind === "product_unavailable") {
         return NextResponse.json(

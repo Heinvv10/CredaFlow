@@ -46,10 +46,12 @@ export function hasMinRole(userRole: UserRole, minRole: UserRole): boolean {
 
 // One file per domain under lib/registry/permissions/ (merged by
 // scripts/gen-registries.ts; docs/ARCHITECTURE.md, "Registries").
-const PERMISSIONS: Record<string, UserRole> = REGISTRY_PERMISSIONS
+const PERMISSIONS: Record<string, UserRole | readonly UserRole[]> = REGISTRY_PERMISSIONS
 
 export function canDo(userRole: UserRole | string, permission: string): boolean {
-  const minRole = PERMISSIONS[permission]
-  if (!minRole) return false
-  return hasMinRole(userRole as UserRole, minRole)
+  const rule = PERMISSIONS[permission]
+  if (!rule) return false
+  // A list names exactly who holds it (lib/registry/define.ts).
+  if (typeof rule !== "string") return rule.includes(userRole as UserRole)
+  return hasMinRole(userRole as UserRole, rule)
 }

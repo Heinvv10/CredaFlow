@@ -73,18 +73,18 @@ const SPECS: readonly PlanSpec[] = [
   { id: "bg-15", anchor: { dbe: 7 }, servicing: { channel: DO } },
   { id: "bg-16", anchor: { dbe: 145 }, servicing: { channel: "EFT_STATEMENT_NO_REF" } },
   { id: "bg-17", anchor: { dbe: 48 }, servicing: { channel: DO } },
-  // arrears
+  // arrears (personas/index.ts: fewer and smaller than the roster first had)
   { id: "bg-18", anchor: { missed: { row: 3, dpd: 29 } }, servicing: { channel: DO, paidRows: 2, bounceRow: 3, reminders: true } },
   { id: "bg-19", anchor: { missed: { row: 1, dpd: 30 } }, servicing: { channel: DO, paidRows: 0, reminders: true } },
-  { id: "bg-20", anchor: { missed: { row: 2, dpd: 28 } }, servicing: { channel: DO, paidRows: 1, reminders: true } },
+  { id: "bg-20", anchor: { dbe: 160 }, servicing: { channel: DO } },
   { id: "bg-21", anchor: { missed: { row: 3, dpd: 59 } }, servicing: { channel: DO, paidRows: 2, reminders: true } },
-  { id: "bg-22", anchor: { missed: { row: 2, dpd: 58 } }, servicing: { channel: DO, paidRows: 1, reminders: true } },
-  { id: "bg-23", anchor: { missed: { row: 2, dpd: 89 } }, servicing: { channel: DO, paidRows: 1, reminders: true } },
-  { id: "bg-24", anchor: { missed: { row: 3, dpd: 88 } }, servicing: { channel: DO, paidRows: 2, reminders: true } },
+  { id: "bg-22", anchor: { dbe: 112 }, servicing: { channel: "EFT_STATEMENT" } },
+  { id: "bg-23", anchor: { dbe: 90 }, servicing: { channel: DO } },
+  { id: "bg-24", anchor: { dbe: 75 }, servicing: { channel: DO } },
   // Section 129, attorney
-  { id: "bg-25", anchor: { missed: { row: 2, dpd: 122 } }, servicing: { channel: DO, paidRows: 1, reminders: true, s129AtDpd: 95 } },
-  { id: "bg-26", anchor: { missed: { row: 1, dpd: 125 } },
+  { id: "bg-25", anchor: { missed: { row: 1, dpd: 125 } },
     servicing: { channel: DO, paidRows: 0, reminders: true, s129AtDpd: 93, attorneyAfterBusinessDays: 12 } },
+  { id: "bg-26", anchor: { dbe: 150 }, servicing: { channel: DO } },
   // payment arrangement with resumed payments
   // Anchored on the missed instalment, like the arrears storylines: the
   // arrangement starts ~75 days before the end, so three of its four payments
@@ -94,7 +94,8 @@ const SPECS: readonly PlanSpec[] = [
     servicing: { channel: DO, paidRows: 2, reminders: true, arrangement: { atDpd: 35, periods: 6, withPlan: true } } },
   // written off
   { id: "bg-29", anchor: { missed: { row: 2, dpd: 122 } }, servicing: { channel: DO, paidRows: 1, reminders: true, s129AtDpd: 92, writeOffAtDpd: 110 } },
-  { id: "bg-30", anchor: { dbe: 186 }, servicing: { channel: DO, paidRows: 0, reminders: true, writeOffAtDpd: 100 } },
+  // 90 days in arrears: a 30-day micro loan never repaid
+  { id: "bg-30", anchor: { missed: { row: 1, dpd: 89 } }, servicing: { channel: DO, paidRows: 0, reminders: true } },
   // ended without a loan
   { id: "bg-31", anchor: { startDbe: 168 } },
   { id: "bg-32", anchor: { startDbe: 112 } },

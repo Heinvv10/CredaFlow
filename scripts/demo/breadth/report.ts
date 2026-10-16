@@ -4,6 +4,7 @@
  * every board-pack section has data. Read-only. Returns false when a module's
  * list would be empty.
  */
+import { demoLender } from "../../../prisma/demo-lender"
 import { readDb } from "../sim/readonly-db"
 
 type Row = Record<string, string | number | bigint | null>
@@ -33,10 +34,15 @@ const MODULE_TABLES: ReadonlyArray<readonly [string, string]> = [
   ["Referral events", "ReferralEvent"], ["Branches", "Branch"],
 ]
 
+/** The insurance module's tables: empty by design for a lender with no FSP number (it sells no insurance). */
+const INSURANCE_TABLES = new Set(["Insurer", "InsuranceProduct", "InsuranceRateTable", "InsuranceEligibilityRule", "InsuranceQuote",
+  "InsuranceAdviceRecord", "InsurancePolicy", "InsuranceClaim", "AdvisorCommission"])
+
 export async function breadthReport(): Promise<boolean> {
   let ok = true
+  const sellsInsurance = Boolean(demoLender().identity.fscaNumber)
   out("\n## Rows per module table")
-  for (const [label, t] of MODULE_TABLES) {
+  for (const [label, t] of MODULE_TABLES.filter(([, t]) => sellsInsurance || !INSURANCE_TABLES.has(t))) {
     const [r] = await readDb().$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM "${t}"`)
     const n = Number(r.n)
     if (n === 0) ok = false

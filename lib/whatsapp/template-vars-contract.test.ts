@@ -39,6 +39,7 @@ describe("the seeded rows and the module cannot drift", () => {
     payment_reminder_1d: "payment_reminder_1d_whatsapp",
     payment_reminder_0d: "payment_reminder_0d_whatsapp",
     payment_reminder_0d_v2: "payment_reminder_0d_v2_whatsapp",
+    payment_reminder_0d_v3: "payment_reminder_0d_v3_whatsapp",
     payment_reminder_overdue_1d: "payment_reminder_overdue_1d_whatsapp",
     payment_reminder_overdue_3d: "payment_reminder_overdue_3d_whatsapp",
     loan_overdue_1d: "loan_overdue_1d_whatsapp",
@@ -178,5 +179,13 @@ describe("WABA body templates vs the vars the code supplies", () => {
       const blank = Object.entries(vars).filter(([, v]) => v.trim() === "").map(([k]) => k)
       expect(blank, `${event} supplies blank var(s)`).toEqual([])
     }
+  })
+})
+
+describe("payment_reminder_0d_v3", () => {
+  it("states the due-day payment without threatening charges or fees", () => {
+    expect(WABA_BODY_TEMPLATES.payment_reminder_0d_v3).not.toMatch(/avoid|late fee|default interest|charges/i)
+    expect(WABA_BODY_TEMPLATES.payment_reminder_0d_v3).toContain("{{amount}}")
+    expect(WABA_BODY_TEMPLATES.payment_reminder_0d_v3).toContain("{{reference}}")
   })
 })

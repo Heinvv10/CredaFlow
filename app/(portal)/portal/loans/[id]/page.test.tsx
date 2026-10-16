@@ -27,6 +27,7 @@ const defaultedLoan = () => ({
 })
 
 import PortalLoanPage from "./page"
+import { elizeScheduleAsAudited, kabeloScheduleAsAudited } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
 
 const render = async () =>
   renderToStaticMarkup(await PortalLoanPage({ params: Promise.resolve({ id: "l1" }) }))
@@ -69,5 +70,55 @@ describe("portal loan page", () => {
   it("offers a payment on a loan that is owed", async () => {
     portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
     expect(await render()).toContain("/portal/payment")
+  })
+
+  it("shows Elize's future instalments as Upcoming, not Partial, although stored PARTIAL", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-16T10:00:00.000Z"))
+    portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
+    loanFindFirst.mockResolvedValue({
+      ...defaultedLoan(), status: "ACTIVE", daysInArrears: 29,
+      repaymentSchedule: elizeScheduleAsAudited(),
+    })
+    let html: string
+    try {
+      html = await render()
+    } finally {
+      vi.useRealTimers()
+    }
+    const body = html.slice(html.indexOf("<tbody>"))
+    const rows = body.slice(0, body.indexOf("</tbody>")).split("<tr").slice(1)
+    expect(rows).toHaveLength(18)
+    expect(rows[4]).toContain("PARTIAL · OVERDUE")
+    expect(rows[4]).toContain("bg-red-100")
+    for (const row of rows.slice(5)) {
+      expect(row).toContain("UPCOMING")
+      expect(row).not.toContain("PARTIAL")
+    }
+  })
+
+  it("shows Kabelo's unpaid past-due instalments as Overdue in red, from the due date not the stored status", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-16T10:00:00.000Z"))
+    portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
+    loanFindFirst.mockResolvedValue({
+      ...defaultedLoan(), status: "ACTIVE", daysInArrears: 137,
+      // Stored PENDING, as the writers now store an unpaid row.
+      repaymentSchedule: kabeloScheduleAsAudited().map((r) => (r.status === "PARTIAL" ? { ...r, status: "PENDING" } : r)),
+    })
+    let html: string
+    try {
+      html = await render()
+    } finally {
+      vi.useRealTimers()
+    }
+    const body = html.slice(html.indexOf("<tbody>"))
+    const rows = body.slice(0, body.indexOf("</tbody>")).split("<tr").slice(1)
+    // #4–#8 fell due 1 Jun–1 Oct 2026; #9 (1 Nov) is not yet due.
+    for (const row of rows.slice(3, 8)) {
+      expect(row).toContain(">OVERDUE<")
+      expect(row).toContain("bg-red-100")
+    }
+    expect(rows[8]).toContain("UPCOMING")
   })
 })

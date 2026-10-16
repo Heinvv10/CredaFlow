@@ -5,8 +5,9 @@ import { withTenantContext } from "@/lib/tenant"
 import { saveFile, deleteFile } from "@/lib/storage"
 import { MAX_FILE_SIZE } from "@/lib/document-auth"
 import { logAudit, AuditAction } from "@/lib/audit"
-import { callerIp } from "@/lib/rate-limit"
+import { callerIp, checkRateLimit } from "@/lib/rate-limit"
 import { owesNothing } from "@/lib/loan/charges-summary"
+import { recordPaymentNotification } from "@/lib/payments/payment-notifications"
 
 // Proof of payment accepts PDF/JPEG/PNG only (matches the form's accept attr).
 // Narrower than document-auth's ALLOWED_MIME_TYPES, which also permits webp.
@@ -23,10 +24,28 @@ function matchesMagic(head: Uint8Array, mime: string): boolean {
   return sigs.some((sig) => sig.every((b, i) => head[i] === b))
 }
 
+// Each report stores a file and rings every reconciling staff member's bell,
+// so a client is held to a handful an hour (a few payments plus retries).
+const NOTIFY_RATE_LIMIT = { limit: 10, windowMs: 60 * 60 * 1000 } as const
+
+/** A real calendar day as YYYY-MM-DD (2026-02-31 is not one). */
+function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const gate = checkRateLimit(`portal:payment-notify:${session.user.email}`, NOTIFY_RATE_LIMIT)
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many payment notifications. Please try again later or contact us." },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    )
   }
 
   let form: FormData
@@ -63,7 +82,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File content does not match its type" }, { status: 400 })
   }
 
-  if (typeof paymentDate === "string" && paymentDate && !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
+  if (typeof paymentDate === "string" && paymentDate && !isCalendarDay(paymentDate)) {
     return NextResponse.json({ error: "Invalid payment date" }, { status: 400 })
   }
 
@@ -107,6 +126,8 @@ export async function POST(req: Request) {
     try {
       // Document + linking note are written atomically: a retained POPIA
       // ClientDocument must never exist without its manual_payment_claim note.
+      // The claim itself is an item awaiting reconciliation on the Payments
+      // page, with a bell item for the staff who reconcile, in the same commit.
       // Retained, POPIA-access-logged proof. Skip VLM extraction — a bank slip
       // is not a KYC doc and validating it against client fields is just noise.
       doc = await prisma.$transaction(async (tx) => {
@@ -143,6 +164,22 @@ export async function POST(req: Request) {
             ].filter(Boolean).join("\n"),
             createdBy: `client:${client.id}`,
           },
+        })
+
+        await recordPaymentNotification(tx, {
+          tenantId,
+          loanId: loan.id,
+          loanReference: loan.reference,
+          clientId: client.id,
+          clientName: `${client.firstName} ${client.lastName}`,
+          amount,
+          reference: typeof reference === "string" && reference ? reference : null,
+          // The SAST calendar day the client named, at SAST midnight.
+          paymentDate: typeof paymentDate === "string" && paymentDate ? new Date(`${paymentDate}T00:00:00+02:00`) : null,
+          notes: typeof notes === "string" && notes ? notes : null,
+          documentId: created.id,
+          actorEmail: session.user.email ?? null,
+          ipAddress: callerIp(req),
         })
 
         return created
