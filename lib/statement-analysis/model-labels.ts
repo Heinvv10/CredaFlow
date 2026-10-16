@@ -157,21 +157,25 @@ Categories:
 FOOD: supermarkets, grocers, butchers, bakeries, takeaways, restaurants, coffee shops
 TRANSPORT: fuel, garages, taxis, ride-hailing, buses, trains, flights, tolls, parking, vehicle parts and repairs
 HOUSING: rent, levies, body corporate, a landlord or letting agent
-UTILITIES_TELECOM: electricity, water, municipal accounts, airtime, data, cellphone contracts, internet, fibre
+UTILITIES_TELECOM: electricity, water, municipal accounts, airtime, data, cellphone contracts, internet, fibre, prepaid airtime, data or electricity bought in a banking app
 EDUCATION: schools, creches, universities, colleges, school fees, books, stationery
 INSURANCE: life, funeral, vehicle, household or health insurance premiums
 MEDICAL: pharmacies, doctors, dentists, clinics, hospitals, pathology, medical aid
 CLOTHING: clothing, shoes and fashion stores
 ENTERTAINMENT: streaming, music and app subscriptions, liquor stores, taverns, gyms, cinemas, games
-CREDIT_INSTALMENT: loans, credit cards, store or retail accounts, vehicle or home finance, device finance, lay-by
+CREDIT_INSTALMENT: loans, microlenders, credit cards, store or retail accounts, vehicle or home finance, device finance, pay-later instalment plans, lay-by
 GAMBLING: betting, lottery, casinos
 BANK_FEES: bank charges, fees, interest charged
 CASH_WITHDRAWAL: ATM withdrawals, cash send, e-wallets, money vouchers
 SAVINGS_INVESTMENT: savings, investments, stokvels, unit trusts
 UNCATEGORISED: a person's name, a generic transfer or payment, a reference, or anything you are not sure of
-Use UNCATEGORISED unless the words clearly name a business or a service of that category.
+Many items are South African chain stores, fuel brands, pharmacies, telecoms providers, insurers and lenders,
+sometimes run together or shortened (INS for insurance, FIN for finance). An item is often a brand followed by a
+town and CARD, ZA or a country: the brand decides the category, never the town or CARD.
+When you recognise the business, use its category. Use UNCATEGORISED when you do not.
 Words that only say how the money moved are not a business: POS PURCHASE, CARD PURCHASE, INTERNET PAYMENT,
 PAYSHAP, EFT, DEBIT ORDER, TRANSFER, and card-machine or payment-app names such as YOCO, SNAPSCAN, ZAPPER or IKHOKHA.
+A voucher (digital content, gift or prepaid voucher) does not say what it buys: UNCATEGORISED.
 If nothing else in the item names a business, use UNCATEGORISED. A name, initials, a place or a single
 ordinary word on its own is UNCATEGORISED.
 Return ONLY JSON: an object with every item, copied exactly, as a key and its category as the value,

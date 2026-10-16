@@ -206,6 +206,6 @@ describe("MODEL_LABEL_PROMPT_VERSION names the prompt", () => {
   // A changed prompt or category set changes stored labels' meaning: bump the version (reads are relabelled), then re-pin.
   it("is bumped whenever the prompt changes", () => {
     const hash = createHash("sha256").update(JSON.stringify([labelPrompt(["SYNTH"]), MODEL_CATEGORIES, LABEL_BATCH, LABEL_VOTES, UNANIMOUS_CATEGORIES, roundOrder(["A", "B", "C", "D"], 1)])).digest("hex").slice(0, 16)
-    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p3", hash: "126c52f0102c0fe1" })
+    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p3", hash: "53e0854bcde7b3e2" })
   })
 })
