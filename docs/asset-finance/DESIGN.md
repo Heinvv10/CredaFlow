@@ -316,7 +316,9 @@ migration `20261015400000_asset_finance_recovery`. Evidence:
   released by two people.
 
 Known limits: only the loan's current recovery shows on the staff panel; an
-NCA freeze is open-ended between proceeds and the final notice; the
+NCA freeze is open-ended between proceeds and the final notice (the deadline
+cron bells the recovery's creator once after 5 SA business days without a
+final notice; charges stay frozen and nothing else happens); the
 cost-type allow-lists, deadlines and VAT treatment await legal and tax
 sign-off. 4b (journals, IsaFlow push) waits for PR #89.
 
