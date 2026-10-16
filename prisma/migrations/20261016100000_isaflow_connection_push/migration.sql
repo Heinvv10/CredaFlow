@@ -144,7 +144,8 @@ ALTER TABLE "AccountingIsaFlowPush" ADD CONSTRAINT "AccountingIsaFlowPush_pushed
 -- hash, the key and the company never change, so they are immutable here, and
 -- the IsaFlow journal id, once recorded, is never replaced. A claim starts
 -- empty and is made by a user of the tenant; leaving review other than by a
--- resend names the user of the tenant who resolved it.
+-- resend names the user of the tenant who resolved it (a claim clears any
+-- earlier resolver, so it is always this resolution's).
 CREATE OR REPLACE FUNCTION public."guardAccountingIsaFlowPush"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -181,6 +182,12 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN
     RETURN NEW;
+  END IF;
+  -- A push claimed again sheds any earlier resolution, so a push in review never carries one and
+  -- every resolution names the user who made it (not one left from before the retry).
+  IF NEW."status" = 'SENDING' AND NEW."resolvedById" IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'Accounting push guard: a claim carries no earlier resolution';
   END IF;
   -- Out of review, other than by resending, only by a person's resolution.
   IF OLD."status" = 'NEEDS_REVIEW' AND NEW."status" IN ('PUSHED', 'FAILED')

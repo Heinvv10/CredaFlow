@@ -92,7 +92,13 @@ suite.sequential("IsaFlow guards (real Postgres)", () => {
       await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED" } })).rejects.toThrow(/resolved by a user of its tenant/)
       await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED", resolvedById: B.userId } })).rejects.toThrow(/resolved by a user of its tenant/)
       await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED", resolvedById: A.userId, resolutionNote: "checked" } })
-      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING" } })
+      // A retry claim sheds the earlier resolver, so the next resolution cannot ride on it.
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING" } })).rejects.toThrow(/carries no earlier resolution/)
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING", resolvedById: null, resolutionNote: null } })
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "NEEDS_REVIEW" } })
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED" } })).rejects.toThrow(/resolved by a user of its tenant/)
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED", resolvedById: A.userId, resolutionNote: "checked again" } })
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING", resolvedById: null } })
       await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { tenantId: B.tenantId } })).rejects.toThrow()
     })
 

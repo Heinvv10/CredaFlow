@@ -35,13 +35,15 @@ describe("IsaFlow push control", () => {
   })
 
   it("tells a person to post from the CSV when IsaFlow replays a deleted draft for this month's key", () => {
-    const error = "draft deleted in IsaFlow; key replays the old id (j-1). IsaFlow will not create this month again under its key: post it in IsaFlow from the CSV download (or have IsaFlow re-key it), then resolve"
+    const error = "draft deleted in IsaFlow; key replays the old id (j-1). IsaFlow will not create this month again under its key: post it in IsaFlow from the CSV download, then resolve"
     for (const status of ["NEEDS_REVIEW", "FAILED"]) {
       const html = render(push(status, { error }))
       expect(html).toContain("/api/accounting/batches/b-1/csv?format=generic")
-      expect(html).toContain("re-key")
+      expect(html).not.toContain("re-key")
     }
-    expect(render(push("FAILED", { error }))).toContain("Push again (after IsaFlow re-keys it)")
+    expect(render(push("NEEDS_REVIEW", { error }))).toContain("then resolve it here")
+    // Pushing again would only replay the deleted draft: no push button, only the CSV.
+    expect(render(push("FAILED", { error }))).not.toContain("Push to IsaFlow")
     expect(render(push("FAILED", { error: "IsaFlow refused create_draft_journal: Entry is not balanced" }))).not.toContain("CSV download</a>")
   })
 })

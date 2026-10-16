@@ -95,6 +95,16 @@ D3 was first tried as "arm the deadline before the request" alone. That stayed g
 clears the timer in the new catch, so that ordering is harmless now. The mutation in the table
 restores the original code: the timer is armed first and a throw escapes `done`.
 
+## Review round 2 fixes (2026-10-16)
+
+| # | Mutation | Suite | Result: failing test(s) |
+|---|---|---|---|
+| G15 | DB: a retry claim may keep an earlier resolver | guards | RED: "may go from review back to SENDING…" |
+| R6 | retry: the claim does not clear the earlier resolver | edges | RED: "each resolution names its own resolver…" (the DB refuses the claim) |
+| M1′ | deleted draft: the message (now without the re-key clause) no longer says to post from the CSV | breaker_it | RED: "7: after 'not_pushed' on a deleted draft…" |
+| U6′ | push control: no CSV hint for a replayed deleted draft | control | RED: "tells a person to post from the CSV…" |
+| U7 | push control: the push button is offered again for a replayed deleted draft | control | RED: "tells a person to post from the CSV…" |
+
 ## A test that could not fail (found and fixed during this run)
 
 The first database run left G1, G3, G4, G5 and G11 green. The cause was in the test, not the guard.

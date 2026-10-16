@@ -10,8 +10,8 @@
  * deleted in IsaFlow is not recreated by a resend; IsaFlow replays the stored
  * result. The answer is read back once more, and an id IsaFlow no longer holds
  * leaves the push NEEDS_REVIEW for a person. Pushing it again only replays the
- * old id, so the month is posted from the CSV, or IsaFlow re-keys it (a new
- * key would need IsaFlow-side support or an explicit re-key).
+ * old id, so the month is posted in IsaFlow from the CSV and then resolved (a
+ * new key would need IsaFlow-side support that does not exist today).
  */
 import { AuditAction } from "@/lib/audit"
 import { IsaFlowError, mcpTransport, type IsaFlowHttp } from "./client"
@@ -37,7 +37,8 @@ export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; bat
   const claimed = await db.$transaction(async (tx) => {
     const moved = await tx.accountingIsaFlowPush.updateMany({
       where: { batchId: args.batchId, tenantId: args.tenantId, status: args.from },
-      data: { status: "SENDING", error: null, pushedById: args.actor.id },
+      // An earlier resolution goes with the old attempt (guardAccountingIsaFlowPush requires it).
+      data: { status: "SENDING", error: null, pushedById: args.actor.id, resolvedById: null, resolutionNote: null },
     })
     if (moved.count !== 1) return false
     await audit(tx, args.tenantId, args.actor, args.batchId, AuditAction.ACCOUNTING_ISAFLOW_PUSH_CLAIMED, { retryFrom: args.from })

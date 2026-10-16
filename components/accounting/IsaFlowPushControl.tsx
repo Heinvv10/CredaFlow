@@ -40,15 +40,15 @@ export function IsaFlowPushControl({ batch, canAdmin, connected, busy, post }: {
           This month&apos;s draft was deleted in IsaFlow, and IsaFlow answers its key with that deleted draft, so pushing again will not
           create it. Post this month in IsaFlow from the{" "}
           <a className="text-[var(--cf-brand)] underline" href={`/api/accounting/batches/${batch.id}/csv?format=generic`} download>CSV download</a>
-          {" "}(or have IsaFlow re-key it), then resolve it here.
+          {push?.status === "NEEDS_REVIEW" ? ", then resolve it here." : "."}
         </p>
       )}
       {!connected && !push && <p className="text-xs text-[var(--cf-text-muted)]">Connect IsaFlow under Settings → Integrations to push this month as a draft journal.</p>}
       {canAdmin && (
         <div className="flex flex-wrap gap-2">
-          {connected && (!push || push.status === "FAILED") && (
+          {connected && (!push || (push.status === "FAILED" && !replayed)) && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => post(url, { action: "push" }, pushed)}>
-              {!push ? "Push to IsaFlow" : replayed ? "Push again (after IsaFlow re-keys it)" : "Push to IsaFlow again"}
+              {push ? "Push to IsaFlow again" : "Push to IsaFlow"}
             </Button>
           )}
           {(push?.status === "SENDING" || push?.status === "NEEDS_REVIEW") && (

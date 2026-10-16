@@ -416,15 +416,16 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   - the journal id is written once, and PUSHED needs one;
   - NEEDS_REVIEW may go back to SENDING. That is safe only because the request and key never change.
   - a claim starts with no journal id, resolver, note or read-back flag, and is made by a user of the
-    tenant; leaving review other than by a resend names a resolver of the tenant;
+    tenant; a retry claim clears any earlier resolver, so leaving review other than by a resend names
+    the resolver of this resolution, a user of the tenant;
   - DELETE and TRUNCATE are refused.
 - **Known limits.**
   - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
     result (the deleted draft's id). The push then stays NEEDS_REVIEW ("draft deleted in IsaFlow;
     key replays the old id") for a person to resolve. Resolving it "not pushed" and pushing again
     only replays the deleted id again, back to review: that month is posted in IsaFlow from the CSV
-    download, which the screen and the 409 message say. Sending it again needs a new key, which
-    needs IsaFlow-side support or an explicit operator re-key; both are out of scope.
+    download and then resolved, which the screen and the 409 message say. Sending it again would need
+    a new key, which IsaFlow does not support today (out of scope).
   - `write:journals` is proven only by the first push.
   - A tax code on a mapping (meant for Xero) refuses the IsaFlow push; post that month from the CSV.
   - A remap after close refuses the push for that month.

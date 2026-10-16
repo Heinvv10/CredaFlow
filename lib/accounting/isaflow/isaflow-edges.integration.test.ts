@@ -14,7 +14,7 @@ import { prisma } from "@/lib/prisma"
 import type { IsaFlowHttp } from "./client"
 import { disconnectIsaFlow } from "./connection"
 import { closeMonth, connectTenant, fakeWithDefaultChart, isaflowTenant, IT_KEY } from "./isaflow.integration-fixture"
-import { pushBatchToIsaFlow } from "./push"
+import { pushBatchToIsaFlow, resolveIsaFlowPush } from "./push"
 import { markStaleIsaFlowPush, STALE_SENDING_MS } from "./push-record"
 import { checkIsaFlowPush } from "./retry"
 
@@ -187,6 +187,19 @@ suite.sequential("IsaFlow push edges (real Postgres, fake IsaFlow)", () => {
     expect(await connection(t)).toMatchObject({ status: "NEEDS_RECONNECT" })
     expect(await reconnectAudits(t)).toBe(1)
     expect(calls(fake, "create_draft_journal", batch)).toBe(creates)
+  })
+
+  it("each resolution names its own resolver: a retry sheds the earlier one, and the same admin may resolve again", async () => {
+    const { t, batch } = await month()
+    fake.failNext("500")
+    expect(await push(t, batch)).toMatchObject({ status: "NEEDS_REVIEW" })
+    expect(await resolveIsaFlowPush(prisma, { tenantId: t.tenantId, batchId: batch, outcome: "not_pushed", journalId: null, note: "not in IsaFlow drafts", actor: me(t) })).toBe(true)
+    expect(await row(batch)).toMatchObject({ status: "FAILED", resolvedById: t.userId })
+    fake.failNext("500")
+    expect(await push(t, batch)).toMatchObject({ status: "NEEDS_REVIEW" })
+    expect(await row(batch)).toMatchObject({ status: "NEEDS_REVIEW", resolvedById: null, resolutionNote: null })
+    expect(await resolveIsaFlowPush(prisma, { tenantId: t.tenantId, batchId: batch, outcome: "not_pushed", journalId: null, note: "still not there", actor: me(t) })).toBe(true)
+    expect(await row(batch)).toMatchObject({ status: "FAILED", resolvedById: t.userId, resolutionNote: "still not there" })
   })
 
   it("an auth refusal reading the chart drops the token (audited) and claims nothing", async () => {
