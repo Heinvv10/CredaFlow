@@ -84,7 +84,7 @@ async function seedTlbRecovery(ctx: RecoverySeedContext, today: string): Promise
     if (!sale) {
       // R400 000 against a R450 000 valuation: under it, so the reason is recorded and a second admin approves.
       const proposed = await proposeSale(officer, recoveryId, {
-        channel: "AUCTION", buyerType: "ENTITY", buyerName: "Lowveld Plant Traders (Pty) Ltd", buyerIdentifier: "2098/700001/07", buyerAddress: "9 Industrial Road, Germiston, 1401",
+        channel: "AUCTION", buyerType: "ENTITY", buyerName: "Lowveld Plant Traders (Pty) Ltd", buyerIdentifier: "2098/700001/07", buyerAddress: "9 Demo Industrial Road, Germiston, 1401",
         buyerVatNumber: null, priceInclVatCents: 40_000_000, valuationId, belowValuationReason: "Highest bid at the auction; hydraulic wear found at inspection",
       })
       expectDone("sale proposal", proposed)

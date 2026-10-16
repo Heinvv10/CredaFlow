@@ -234,7 +234,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const loan = await leaseLoan("OPERATING_LEASE", { soleProprietor: true })
     expect(loan).toMatchObject({ status: "ACTIVE", cpaApplies: true, entityId: null })
     expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", cpaRule: "CPA_NATURAL_PERSON" })
-    expect(loan.assetFinanceDeal?.asset).toMatchObject({ assetClass: "LIGHT_COMMERCIAL", registrationNumber: "KDW001GP" })
+    expect(loan.assetFinanceDeal?.asset).toMatchObject({ assetClass: "LIGHT_COMMERCIAL", registrationNumber: "DEMO001GP" })
     expect(loan.leaseRentals).toHaveLength(36)
     expect(loan.leaseRentals.filter((r) => r.taxInvoiceId !== null).map((r) => r.periodNo)).toEqual([1])
     expect(loan.leaseRentals.some((r) => r.cancelledAt !== null)).toBe(false)

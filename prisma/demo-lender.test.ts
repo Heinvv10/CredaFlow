@@ -47,7 +47,7 @@ describe("demoLender", () => {
         brandName: "Fair Score",
         ncrNumber: "NCRCP98765",
         fscaNumber: "98765",
-        companyRegNumber: "2021/905731/07",
+        companyRegNumber: "2099/000021/07",
         publicEmail: "hello@fairscore.example",
         collectionsEmail: "collections@fairscore.example",
         brandTagline: "Demo lender: fair credit, clearly scored",

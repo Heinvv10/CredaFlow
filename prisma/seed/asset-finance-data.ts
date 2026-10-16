@@ -31,7 +31,7 @@ export const SUPPLIER = {
   contactName: "Ayanda Mkhize",
   contactEmail: "sales@kwela-plant-sales.invalid",
   contactPhone: "+27 11 000 0099",
-  address: "3 Steenbok Street, Boksburg North, 1459",
+  address: "3 Demo Industrial Road, Boksburg, 1459",
 }
 export const SUPPLIER_ACCOUNT = {
   bankName: "Highveld Merchant Bank",
@@ -75,7 +75,7 @@ export const TRUST = {
   registrationNumber: "IT 000001/2099",
   annualTurnover: 80_000_000, // R800 000
   financialYearEnd: "2026-02-28",
-  addressLine1: "1 Rietvlei Farm Road",
+  addressLine1: "1 Demo Farm Road",
   city: "Bethlehem",
   province: "Free State",
   postalCode: "9999",
@@ -91,7 +91,7 @@ export const COMPANY = {
   annualTurnover: 2_500_000_000,
   totalAssetValue: 1_800_000_000,
   financialYearEnd: "2026-02-28",
-  addressLine1: "9 Quarry Road",
+  addressLine1: "9 Demo Quarry Road",
   city: "eMalahleni",
   province: "Mpumalanga",
   postalCode: "9998",

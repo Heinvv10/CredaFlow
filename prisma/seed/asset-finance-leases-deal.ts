@@ -68,7 +68,7 @@ export async function ensureLeaseClient(tenantId: string): Promise<string> {
     data: {
       tenantId, reference: p.reference, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName,
       dateOfBirth: new Date(p.dob), gender: p.gender, email: leaseClientEmail(), phone: p.phone, whatsapp: p.phone,
-      addressLine1: "5 Bakery Lane", city: "Benoni", province: "Gauteng", postalCode: "0005",
+      addressLine1: "5 Demo Bakery Lane", city: "Benoni", province: "Gauteng", postalCode: "0005",
       employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING", popiaConsentGiven: true, popiaConsentAt: new Date(),
     },
     select: { id: true },

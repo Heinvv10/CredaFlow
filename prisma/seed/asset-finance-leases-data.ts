@@ -40,7 +40,7 @@ export const LEASE_BAKKIE: LeaseAsset = {
   serialNumber: "KMBAK000000001", vin: "MBX00000000000005", engineNumber: "MBENG0000005", hours: null,
   cashPriceExclVatCents: 40_000_000, vatCents: 6_000_000,
   insurer: "Umoya Insurance Ltd", policyNumber: "UMY-POL-0005", trackerProvider: "Kudu Tracking", trackerId: "KDT-0005",
-  lenderNotedConfirmed: true, registrationNumber: "KDW001GP", odometerKm: 1_500, natisTitleholder: null, natisOwner: null,
+  lenderNotedConfirmed: true, registrationNumber: "DEMO001GP", odometerKm: 1_500, natisTitleholder: null, natisOwner: null,
 }
 
 // R200 000 ex VAT + 15% VAT; unregistered.
