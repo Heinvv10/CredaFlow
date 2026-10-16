@@ -10,6 +10,19 @@ const PERSONAL = PRODUCT_PRICING["personal"]
 const MICRO = PRODUCT_PRICING["short-term"]
 const PO = PRODUCT_PRICING["purchase-order"]
 
+/** A product's live amount range in cents (LoanProduct.minAmount / maxAmount). */
+export interface ProductAmountBounds {
+  minAmount: number
+  maxAmount: number
+}
+
+/**
+ * The live ranges of the products the portal sells. Absent entries fall back
+ * to the catalogue defaults below; a figure above a product's live maximum is
+ * never offered, because the apply form would then refuse it.
+ */
+export type QualificationBounds = Partial<Record<"micro" | "personal" | "po", ProductAmountBounds>>
+
 export interface QualificationResult {
   ndi: number
   maxInstalment: number
@@ -28,8 +41,8 @@ function maxQualifyingPrincipal(
   if (maxPayment <= 0) return 0
   if (paymentFn(minCents) > maxPayment) return 0
 
-  let lo = Math.round(minCents / stepCents)
-  let hi = Math.round(maxCents / stepCents)
+  let lo = Math.ceil(minCents / stepCents)
+  let hi = Math.floor(maxCents / stepCents)
   let result = 0
 
   while (lo <= hi) {
@@ -47,15 +60,19 @@ function maxQualifyingPrincipal(
 export function computeQualification(
   monthlyIncome: number,
   monthlyExpenses: number,
-  existingDebt: number
+  existingDebt: number,
+  bounds: QualificationBounds = {},
 ): QualificationResult {
   const ndi = monthlyIncome - monthlyExpenses - existingDebt
   const maxInstalment = Math.max(0, Math.floor(ndi * 0.70))
+  const personalRange = bounds.personal ?? { minAmount: 200000, maxAmount: 10000000 }
+  const microRange = bounds.micro ?? { minAmount: 50000, maxAmount: 1000000 }
+  const poRange = bounds.po ?? { minAmount: 1000000, maxAmount: 50000000 }
 
-  // Personal Loan: 3% pm reducing balance, 60 months. Ceiling R100,000 (matches
-  // the PERSONAL LoanProduct maxAmount, the source of truth).
+  // Personal Loan: 3% pm reducing balance, 60 months. Default ceiling R100,000;
+  // the live PERSONAL LoanProduct range is the source of truth when given.
   const personalMax = maxQualifyingPrincipal(
-    200000, 10000000, 100000,
+    personalRange.minAmount, personalRange.maxAmount, 100000,
     (p) => calculateLoan({
       principal: p, termDays: 1800,
       interestRatePm: PERSONAL.interestRatePm,
@@ -82,7 +99,7 @@ export function computeQualification(
 
   // Micro Loan: 5%/mo daily accrual, 30 days (single repayment)
   const microMax = maxQualifyingPrincipal(
-    50000, 1000000, 10000,
+    microRange.minAmount, microRange.maxAmount, 10000,
     (p) => calculateLoan({
       principal: p, termDays: 30,
       interestRatePm: MICRO.interestRatePm,
@@ -116,7 +133,7 @@ export function computeQualification(
 
   // PO Funding: 2.5% pm, 120 days — interest-only monthly
   const poMax = maxQualifyingPrincipal(
-    1000000, 50000000, 100000,
+    poRange.minAmount, poRange.maxAmount, 100000,
     (p) => Math.round(p * PO.interestRatePm),
     maxInstalment
   )

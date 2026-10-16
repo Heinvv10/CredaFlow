@@ -165,7 +165,7 @@ export const WA_TEMPLATES = {
     `Hi ${name},\n\nReminder: A payment of *${amount}* is due on *${dueDate}*.\n\nPayment reference: *${ref}*\n\nPlease ensure funds are available. Log in to the portal to pay or view your schedule.`,
 
   payment_due_today: (name: string, amount: string, ref: string) =>
-    `Hi ${name},\n\n⚠️ Your loan payment of *${amount}* is due *today*.\n\nPayment reference: *${ref}*\n\nPlease pay to avoid further default interest and charges. Contact us if you need assistance.`,
+    `Hi ${name},\n\nYour loan payment of *${amount}* is due *today*.\n\nPayment reference: *${ref}*\n\nContact us if you need assistance.`,
 
   payment_overdue_1d: (name: string, amount: string, ref: string) =>
     `Hi ${name},\n\n⚠️ Your payment of *${amount}* on loan *${ref}* was due yesterday.\n\nPlease pay urgently to avoid additional charges. Contact us immediately if you are experiencing difficulty.`,

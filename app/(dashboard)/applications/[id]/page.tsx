@@ -762,6 +762,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
               <p><span className="text-[var(--cf-text-muted)]">Phone:</span> {application.client.phone}</p>
               <p><span className="text-[var(--cf-text-muted)]">Employment:</span> {application.client.employmentStatus || "N/A"}</p>
               {application.loanPurposeCategory && <p><span className="text-[var(--cf-text-muted)]">Loan Purpose:</span> {application.loanPurposeCategory.replace(/_/g, " ")}</p>}
+              {application.poNumber && <p><span className="text-[var(--cf-text-muted)]">Purchase order:</span> {application.poNumber} · buyer {application.poBuyerName}{application.poDocumentId && <> · <a href={`/api/documents/${application.poDocumentId}/view`} target="_blank" rel="noopener noreferrer" className="text-[var(--cf-brand-soft)] hover:underline">view order</a></>}</p>}
             </div>
           </DataPanel>
 
