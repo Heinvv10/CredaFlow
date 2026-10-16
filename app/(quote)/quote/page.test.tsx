@@ -96,6 +96,13 @@ describe("quote page — lender identity", () => {
     expectNoOtherLender(html)
   })
 
+  // §2a.2: the quote host names the lender as the FSP; without an FSP number it is not there.
+  it("is not found for a lender with no FSP number", async () => {
+    mocks.identity = { ...ACME_LENDER, fspNumber: null }
+    await expect(render()).rejects.toThrow("NEXT_NOT_FOUND")
+    expect(mocks.widgetViews).toEqual([])
+  })
+
   it("renders nothing while the lender identity is unconfigured", async () => {
     mocks.identity = null
     expect(await render()).toBe("")

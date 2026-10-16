@@ -20,8 +20,10 @@ export function organizationLd(identity: LenderIdentity) {
     ...(siteUrl() ? { url: siteUrl() } : {}),
     description:
       `${identity.legalName} is a South African credit provider. ` +
-      `Registered with the National Credit Regulator under ${identity.ncrNumber} and ` +
-      `authorised by the Financial Sector Conduct Authority as a financial services provider under FSP number ${identity.fspNumber}.`,
+      `Registered with the National Credit Regulator under ${identity.ncrNumber}` +
+      (identity.fspNumber
+        ? ` and authorised by the Financial Sector Conduct Authority as a financial services provider under FSP number ${identity.fspNumber}.`
+        : "."),
     // Schema.org telephone + Google's structured-data guidance prefer E.164
     // format (no spaces, leading +). Visible copy uses the spaced form.
     telephone: identity.publicPhoneE164,
@@ -34,7 +36,7 @@ export function organizationLd(identity: LenderIdentity) {
     areaServed: { "@type": "Country", name: "South Africa" },
     identifier: [
       { "@type": "PropertyValue", propertyID: "NCR Registration", value: identity.ncrNumber },
-      { "@type": "PropertyValue", propertyID: "FSP Licence", value: identity.fspNumber },
+      ...(identity.fspNumber ? [{ "@type": "PropertyValue", propertyID: "FSP Licence", value: identity.fspNumber }] : []),
       { "@type": "PropertyValue", propertyID: "CIPC Registration", value: identity.companyRegNumber },
     ],
     contactPoint: [

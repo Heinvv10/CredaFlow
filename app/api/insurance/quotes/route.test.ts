@@ -113,7 +113,7 @@ function roleRefusal() {
 
 beforeEach(() => {
   requireApiRole.mockResolvedValue({ user: { id: "user-1", email: "officer@acme-lending.example" } })
-  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
+  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true, fscaNumber: "12345" })
   findManyQuotes.mockResolvedValue([])
   findFirstClient.mockResolvedValue({ id: "client-1" })
   findManyClients.mockResolvedValue([{ id: "client-1", dateOfBirth: new Date("1990-05-10T00:00:00Z") }])
@@ -217,6 +217,14 @@ describe("POST /api/insurance/quotes — rejected requests write NO audit row", 
     const res = await POST(postReq({ ...VALID_BODY, lives: [{ ...LIFE, firstName: "" }] }))
     expect(res.status).toBe(422)
     expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("refuses with 409 and the Settings hint when the lender holds no FSP number, creating nothing", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true, fscaNumber: null })
+    const res = await POST(postReq(VALID_BODY))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+    expect(createQuote).not.toHaveBeenCalled()
   })
 
   it("another tenant's client is 404, not 403, and unaudited", async () => {

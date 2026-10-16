@@ -9,6 +9,7 @@ vi.mock("@/lib/website/identity", () => ({ getWebsiteIdentity: () => identityMoc
 import PrivacyPage from "./privacy/page"
 import TermsPage from "./terms/page"
 import RegulatoryInformationPage from "./regulatory-information/page"
+import { generateMetadata as applyMetadata } from "./apply/layout"
 
 const REGULATORY = { ncrRegistrationDate: "2025-10-07", fscaAuthorisationDate: "2026-02-27", ncrStatus: "Registered" as const, headOfficeCity: "Sandton" }
 const render = async (Page: () => Promise<React.ReactElement | null>, identity: unknown = ACME_LENDER) => {
@@ -31,6 +32,19 @@ describe.each([
 
   it("renders nothing when the identity is not configured (the layout shows the not-configured state)", async () => {
     expect(await render(Page, null)).toBe("")
+  })
+})
+
+// §2a.2: no FSP number, no FSP or FAIS claim on the legal pages.
+describe.each([
+  ["terms", TermsPage],
+  ["regulatory-information", RegulatoryInformationPage],
+] as const)("%s page for a lender with no FSP number", (_name, Page) => {
+  it("makes no FSP, FAIS or FSCA-authorisation claim", async () => {
+    const html = await render(Page, { ...ACME_LENDER, ...REGULATORY, fspNumber: null })
+    expect(html).toContain("NCRCP99999")
+    // "FAIS Ombud" as a complaints route is not a claim; authorisation is.
+    expect(html).not.toMatch(/\bFSP\b|FAIS[- ]authori|authorised financial services provider|FSCA authorisation/i)
   })
 })
 
@@ -73,5 +87,27 @@ describe("regulatory-information page", () => {
     expect(await render(RegulatoryInformationPage)).not.toContain("wa.me")
     const html = await render(RegulatoryInformationPage, { ...ACME_LENDER, publicWhatsapp: "+27 82 000 0000", publicWhatsappE164: "+27820000000" })
     expect(html).toContain("https://wa.me/27820000000")
+  })
+})
+
+// #143 blind review: no new public factual claim for a lender with no FSP
+// number ("does not offer insurance"); its insurance section is simply absent,
+// and the apply page's description makes no FAIS claim.
+describe("a lender with no FSP number", () => {
+  const NO_FSP = { ...ACME_LENDER, ...REGULATORY, fspNumber: null }
+
+  it("terms: no insurance section and no statement about insurance, the rest numbered in order", async () => {
+    const html = await render(TermsPage, NO_FSP)
+    expect(html).not.toMatch(/does not offer insurance|Insurance enquiries|insurance enquiry/)
+    const headings = [...html.matchAll(/<h2[^>]*>(\d+)\. /g)].map((m) => Number(m[1]))
+    expect(headings).toEqual(headings.map((_, i) => i + 1))
+    expect(headings.length).toBeGreaterThan(4)
+  })
+
+  it("apply page description makes no FAIS claim", async () => {
+    identityMock.mockResolvedValue(NO_FSP)
+    expect(String((await applyMetadata()).description)).not.toMatch(/FAIS/)
+    identityMock.mockResolvedValue(ACME_LENDER)
+    expect(String((await applyMetadata()).description)).toContain("FAIS-authorised")
   })
 })

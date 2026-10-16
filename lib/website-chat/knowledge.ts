@@ -29,17 +29,20 @@ export type InsuranceFact = { name: string; type: string }
 export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLoanProduct[]; insurance: InsuranceFact[] }): string {
   const { identity: id, products, insurance } = a
   const company = [
-    `${id.legalName}. NCR registration ${id.ncrNumber}. FSP licence ${id.fspNumber}. Company registration ${id.companyRegNumber}.`,
+    `${id.legalName}. NCR registration ${id.ncrNumber}.${id.fspNumber ? ` FSP licence ${id.fspNumber}.` : ""} Company registration ${id.companyRegNumber}.`,
     id.ncrStatus && `NCR status: ${id.ncrStatus}.`,
     id.ncrRegistrationDate && `Registered with the NCR on ${formatIdentityDate(id.ncrRegistrationDate)}.`,
-    id.fscaAuthorisationDate && `Authorised as an FSP on ${formatIdentityDate(id.fscaAuthorisationDate)}.`,
+    id.fspNumber && id.fscaAuthorisationDate && `Authorised as an FSP on ${formatIdentityDate(id.fscaAuthorisationDate)}.`,
     id.headOfficeCity && `Head office: ${id.headOfficeCity}.`,
   ].filter((l): l is string => Boolean(l))
   const contact = `Phone ${id.publicPhone}.${id.publicWhatsapp ? ` WhatsApp ${id.publicWhatsapp}.` : ""} Email ${id.publicEmail}.`
   const productLines = products.map((p) =>
     `- ${p.label}: ${p.description} Amounts ${formatProductRange(p)}; terms ${formatProductTermRange(p)}; ${formatInterestLabel(p)}.`)
-  const insuranceLines = insurance.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
-  const pages = insurance.length ? [...PAGES, ["Insurance", "/site/products/insurance"] as const] : PAGES
+  // A lender with no FSP number offers no insurance: none is named, and its
+  // insurance page (which 404s) is not linked.
+  const offered = id.fspNumber ? insurance : []
+  const insuranceLines = offered.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
+  const pages = offered.length ? [...PAGES, ["Insurance", "/site/products/insurance"] as const] : PAGES
 
   return [
     "## Company",
