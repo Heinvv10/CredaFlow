@@ -192,8 +192,15 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
               setCreditLifeDisclosureAcknowledged(false)
             }}
             className={inputClass}
+            aria-invalid={amountOutOfRange && amount.trim() !== ""}
+            aria-describedby="amount-error"
             required
           />
+          {amountOutOfRange && amount.trim() !== "" && (
+            <p id="amount-error" role="alert" className="mt-1 text-xs text-red-600">
+              {t("amountOutOfRange", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) })}
+            </p>
+          )}
         </div>
 
         {!fixedTerm && (
