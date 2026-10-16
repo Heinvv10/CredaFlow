@@ -2,6 +2,9 @@ import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import type { PortalRecoveryView } from "@/lib/asset-finance/recovery-view"
+import { formatDay } from "@/lib/i18n/format"
+import { DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n/locales"
+import { createTranslator } from "@/lib/i18n/translate"
 import { STATUS_LABELS, TREATMENT_LABELS } from "./recovery-model"
 
 function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -17,19 +20,26 @@ function Figure({ label, value, strong }: { label: string; value: string; strong
  * The borrower's view of the recovery of their asset: where it stands, which
  * notices have been issued, and, once the account is final, what the sale
  * raised, the costs and the shortfall or surplus. Never the buyer or the sale.
+ * Only the heading, the description and the notices label are in the
+ * borrower's language; the statuses (the legal state of the s127/s131 process)
+ * and every line that mirrors the notices or states what is owed stay English
+ * (lib/i18n/messages/en/portal-recovery.ts says which and why).
  */
-export function PortalRecoveryCard({ view }: { view: PortalRecoveryView }) {
+export function PortalRecoveryCard({ view, locale: requested }: { view: PortalRecoveryView; locale: Locale }) {
+  // getLocale only ever returns a known locale; anything else prints English rather than failing.
+  const locale = isLocale(requested) ? requested : DEFAULT_LOCALE
+  const t = createTranslator(locale, "portalRecovery")
   const account = view.finalAccount
   const notices = [view.notices.valuation ? "Valuation notice" : null, view.notices.final ? "Final notice" : null].filter(Boolean)
   const tone = view.status === "WITHDRAWN" ? "neutral" : view.status === "SHORTFALL_OPEN" ? "danger" : view.status === "CLOSED" ? "success" : "warning"
   return (
-    <DataPanel title="Recovery of your asset" description={`${view.asset}, recovered on ${formatIsoDate(view.recoveredOn)}`}
+    <DataPanel title={t("title")} description={t("description", { asset: view.asset, date: formatDay(`${view.recoveredOn}T12:00:00+02:00`, locale) })}
       actions={<StatusPill tone={tone}>{STATUS_LABELS[view.status]}</StatusPill>}>
       <div className="space-y-5 text-sm">
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
           {/* The server withholds the valuation until the borrower may see it: absent says nothing, so nothing is printed. */}
           {view.valuationAmountCents !== null && <Figure label="Valuation" value={formatMoney(view.valuationAmountCents)} />}
-          <Figure label="Notices issued" value={notices.length > 0 ? notices.join(", ") : "None yet"} />
+          <Figure label={t("noticesIssued")} value={notices.length > 0 ? notices.join(", ") : t("noneYet")} />
         </dl>
         {account && (
           <>

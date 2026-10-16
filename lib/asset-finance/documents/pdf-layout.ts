@@ -37,11 +37,15 @@ export interface SignatureLine {
   detail?: string
 }
 
+/** CRLF, LF, CR, NEL and the Unicode line and paragraph separators. */
+const LINE_BREAK = /\r\n|[\n\r\u2028\u2029\u0085]/
+
 export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = []
-  for (const paragraph of winAnsiSafe(text).split(/\r?\n/)) {
+  // Split and space before sanitising: winAnsiSafe turns a line break or a tab into "?".
+  for (const paragraph of text.split(LINE_BREAK)) {
     let current = ""
-    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+    for (const word of winAnsiSafe(paragraph.replace(/\s+/g, " ")).split(/\s+/).filter(Boolean)) {
       const candidate = current ? `${current} ${word}` : word
       if (current && font.widthOfTextAtSize(candidate, size) > maxWidth) {
         lines.push(current)

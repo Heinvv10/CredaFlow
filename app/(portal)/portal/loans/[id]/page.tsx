@@ -41,7 +41,8 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     // A sole proprietor's lease: rentals, not a loan. The lease gate decides who may see it.
     const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
     if (!lease) redirect("/portal")
-    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />} />
+    // The lease pages stay English for now (lib/i18n/.claude.md), the recovery card on them too.
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} locale="en" />} />
   }
 
   const nextPayment = loan.repaymentSchedule.find(
@@ -175,7 +176,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
       <PortalLoanTabs loan={loan} t={t} l={l} locale={locale} />
       {loan.contractType !== "LOAN" && loan.assetId && (
         <div className="mt-6">
-          <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} />
+          <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} locale={locale} />
         </div>
       )}
       {surrenderApplies && (loan.surrenderRequests[0] || canRequestSurrender) && (
