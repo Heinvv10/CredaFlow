@@ -35,7 +35,7 @@ async function reservedNotice(lifecycle: "DISPATCHING" | "READY", extra: Partial
     fileName: "s129.pdf", pdfSha256: "a".repeat(64), reservedById: ids.userId, reservedAt: at.toISOString(), dispatchStartedAt: at.toISOString(),
     ...extra,
   } satisfies Section129RecordData
-  const idempotencyKey = `s129-sim-${ids.loanId}`
+  const idempotencyKey = `${ids.tenantId}:SECTION_129_NOTICE:${ids.loanId}`
   const record = await db.complianceRecord.create({
     data: { tenantId: ids.tenantId, type: "SECTION_129_NOTICE", referenceId: ids.loanId, idempotencyKey, status: "PENDING", data: recordData },
   })
