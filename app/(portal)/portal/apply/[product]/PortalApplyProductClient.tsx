@@ -94,9 +94,12 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
     && creditLifePrincipalIsEligible(cents)
   const creditLifeAvailable = coverAvailableFor(amountCents)
   // What the disclosure acknowledgement confirms for an amount: whether cover
-  // is offered and, for accepted cover, its exact premium.
-  const confirmedQuote = (cents: number | null) =>
-    `${coverAvailableFor(cents)}:${creditLifeElection === "ACCEPTED" ? creditLifePremiumForAmount(cents) : ""}`
+  // is offered and, when it is, the exact premium shown — whichever option was
+  // chosen: declining is a decision about that premium too.
+  const confirmedQuote = (cents: number | null) => {
+    const available = coverAvailableFor(cents)
+    return `${available}:${available ? creditLifePremiumForAmount(cents) : ""}`
+  }
 
   const termNum = Number(termDays)
   const termOutOfRange = !fixedTerm && (

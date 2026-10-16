@@ -119,10 +119,14 @@ function request(body: unknown) {
 }
 
 const ctx = { params: Promise.resolve({ id: "app-1" }) }
+const referenceHeldByLoan = vi.fn()
+const referenceHeldByApplication = vi.fn()
 
 describe("POST /api/applications/[id]/debit-mandate", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    referenceHeldByLoan.mockResolvedValue(null)
+    referenceHeldByApplication.mockResolvedValue(null)
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-23T16:00:00.000Z"))
     auth.mockResolvedValue({
@@ -153,7 +157,9 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
         loanApplication: {
           findUnique: applicationFindUnique,
           updateMany: applicationUpdateMany,
+          findFirst: referenceHeldByApplication,
         },
+        loan: { findFirst: referenceHeldByLoan },
         tenant: { findUnique: tenantFindUnique },
         client: { update: clientUpdate },
         auditLog: { create: auditLogCreate },
@@ -319,6 +325,26 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
         }),
       }),
     )
+  })
+
+  // Review of #152: the reference becomes the loan's at payout and cannot
+  // change once signed, so a clash is caught here.
+  it("draws a new reference when one is already held by a loan or another mandate", async () => {
+    referenceHeldByLoan.mockResolvedValueOnce({ id: "loan-x" })
+    referenceHeldByApplication.mockResolvedValueOnce({ id: "app-x" })
+
+    const response = await POST(request({
+      bankName: "FNB",
+      branchCode: "250655",
+      accountNumber: "123456789",
+      accountType: "SAVINGS",
+    }), ctx)
+
+    expect(response.status).toBe(200)
+    // Draw 1: a loan holds it. Draw 2: another mandate holds it. Draw 3: free.
+    expect(referenceHeldByLoan).toHaveBeenCalledTimes(3)
+    const drawn = referenceHeldByLoan.mock.calls.map((c) => (c[0] as { where: { reference: string } }).where.reference)
+    expect(applicationUpdateMany.mock.calls[0][0].data.debitMandateReference).toBe(drawn[2])
   })
 
   it("cannot replace a signed mandate", async () => {

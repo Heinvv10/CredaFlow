@@ -138,7 +138,7 @@ describe("portal notifications — channel-disabled rows", () => {
     ])
     renderToStaticMarkup(await NotificationsPage())
     const items = tabsProps.mock.calls.at(-1)![0].items as Array<Record<string, unknown>>
-    expect(items.map((i) => i.status)).toEqual(["sent", "not_delivered", "sent", "not_delivered", "simulated"])
+    expect(items.map((i) => i.status)).toEqual(["pending", "not_delivered", "sent", "not_delivered", "simulated"])
     for (const item of items) expect(item).not.toHaveProperty("error")
   })
 

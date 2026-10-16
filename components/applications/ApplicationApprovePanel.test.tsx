@@ -466,6 +466,8 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     expect(body.get("declineCategory")).toBe("POLICY")
     expect(body.get("reason")).toBe("We could not confirm your employment.")
     expect(body.get("internalNote")).toBe("Employer number is residential.")
+    // The WhatsApp notice carries no reason; the help text must not promise it does.
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("WhatsApp")
 
     await act(async () => renderer.unmount())
   })

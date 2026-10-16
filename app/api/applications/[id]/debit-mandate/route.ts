@@ -28,7 +28,7 @@ import {
   sha256DocumentBytes,
 } from "@/lib/documents/content-integrity"
 import { readFile } from "@/lib/storage"
-import { generateReference } from "@/lib/utils"
+import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
 import { EntityBorrowerError, hasClientBorrower, isEntityBorrowerError } from "@/lib/borrower"
@@ -267,7 +267,9 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         // what the borrower quotes on every EFT: a human reference in the
         // application style, never the raw application id.
         const collectionReference =
-          application.debitMandateReference ?? generateReference("LN")
+          application.debitMandateReference ?? await unusedLoanReference(async (reference) =>
+            Boolean(await tx.loan.findFirst({ where: { reference }, select: { id: true } }))
+            || Boolean(await tx.loanApplication.findFirst({ where: { debitMandateReference: reference }, select: { id: true } })))
         const evidence = createDebitMandateEvidence({
           applicationId: application.id,
           clientId: application.clientId,

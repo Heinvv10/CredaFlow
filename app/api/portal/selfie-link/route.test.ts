@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ auth: vi.fn(), findFirst: vi.fn(), mint: vi.fn(), logAudit: vi.fn(), live: vi.fn() }))
+const h = vi.hoisted(() => ({ auth: vi.fn(), findFirst: vi.fn(), mint: vi.fn(), logAudit: vi.fn(), live: vi.fn(), kyc: vi.fn() }))
+vi.mock("@/lib/kyc/portal-document-state", () => ({ PORTAL_KYC_SNAPSHOT_OPTIONS: {}, readPortalKycDocumentState: h.kyc }))
 vi.mock("@/lib/auth", () => ({ auth: h.auth }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, callback: (tenant: { id: string }) => unknown) => callback({ id: "tenant-1" }),
@@ -32,6 +33,7 @@ beforeEach(() => {
   h.auth.mockResolvedValue({ user: { id: `client-${n}`, email: "c@example.test", role: "CLIENT", tenantId: "tenant-1" } })
   h.findFirst.mockResolvedValue({ id: "app-1", clientId: `client-${n}` })
   h.live.mockResolvedValue([])
+  h.kyc.mockResolvedValue({ kycChecklist: { selfie: { status: "missing" } } })
   h.mint.mockResolvedValue({ id: "tok-1", secret: SECRET, tokenHash: "h", expiresAt: new Date("2026-10-17T10:00:00Z") })
 })
 
@@ -89,6 +91,19 @@ describe("POST /api/portal/selfie-link", () => {
     apps.push({ id: "app-own", tenantId: "tenant-1", clientId: `client-${n}`, status: "SUBMITTED" })
     expect((await post()).status).toBe(200)
     expect(h.mint).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ applicationId: "app-own", clientId: `client-${n}`, tenantId: "tenant-1" }))
+  })
+
+  // Review of #152: only while a selfie is still wanted.
+  it.each(["verified", "verified_in_person", "exception_accepted"])("409s when the selfie is %s", async (status) => {
+    h.kyc.mockResolvedValue({ kycChecklist: { selfie: { status } } })
+    expect((await post()).status).toBe(409)
+    expect(h.mint).not.toHaveBeenCalled()
+  })
+
+  it.each(["missing", "action_required", "pending_review"])("still mints when the selfie is %s", async (status) => {
+    h.kyc.mockResolvedValue({ kycChecklist: { selfie: { status } } })
+    expect((await post()).status).toBe(200)
+    expect(h.kyc).toHaveBeenCalledWith(expect.anything(), { tenantId: "tenant-1", clientWhere: { id: `client-${n}` } })
   })
 
   it("refuses staff and anonymous callers", async () => {

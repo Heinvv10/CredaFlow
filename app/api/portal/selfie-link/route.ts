@@ -7,9 +7,12 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { requirePortalBaseUrl } from "@/lib/config/deployment-urls"
 import { mintSelfieLinkToken } from "@/lib/kyc/selfie-link-token.server"
+import { PORTAL_KYC_SNAPSHOT_OPTIONS, readPortalKycDocumentState } from "@/lib/kyc/portal-document-state"
 
 /** Mirrors CAPTURABLE_STATUSES in lib/kyc/selfie-link-token.server.ts. */
 const CAPTURABLE_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] as const
+/** A selfie that is done (or not needed): a new capture link would only replace nothing. */
+const SELFIE_SETTLED: ReadonlySet<string> = new Set(["verified", "verified_in_person", "exception_accepted"])
 const HANDOFF_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
 /** Same origin rule as the staff send-link route (app/api/applications/[id]/selfie/send-link). */
@@ -52,6 +55,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "You have no application waiting for a photo." }, { status: 409 })
     }
     const clientId = application.clientId
+
+    // Only while a selfie is still wanted: the same checklist the documents
+    // page shows (lib/kyc/portal-checklist.ts).
+    const kyc = await prisma.$transaction(
+      (tx) => readPortalKycDocumentState(tx, { tenantId: tenant.id, clientWhere: { id: clientId } }),
+      PORTAL_KYC_SNAPSHOT_OPTIONS,
+    )
+    if (!kyc || SELFIE_SETTLED.has(kyc.kycChecklist.selfie.status)) {
+      return NextResponse.json({ error: "No selfie is needed: your identity is already confirmed." }, { status: 409 })
+    }
 
     let result
     try {

@@ -6,7 +6,7 @@ import { DeclineCategorySelect } from "./DeclineCategorySelect"
 
 export interface DeclineDraft {
   category: string
-  /** What the client is shown (portal, email, WhatsApp). */
+  /** What the client is shown (portal and the decline email). */
   clientReason: string
   /** Staff-only; never shown to the client. */
   internalNote: string
@@ -55,7 +55,7 @@ export function DeclineFields({ draft, onChange, disabled }: {
           className="mt-1 w-full"
         />
         <span className="mt-0.5 block text-xs text-[var(--cf-text-muted)]">
-          Sent to the client in the portal, by email and WhatsApp.
+          Shown to the client in the portal and in the decline email.
         </span>
       </label>
       <label className="w-full text-sm text-[var(--cf-text-secondary)]">

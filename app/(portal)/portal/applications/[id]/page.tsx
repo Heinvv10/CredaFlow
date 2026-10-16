@@ -34,7 +34,19 @@ async function getApplicationDetail(id: string, email: string) {
 
   const application = await prisma.loanApplication.findFirst({
     where: { id, tenantId },
-    include: { product: { select: { name: true, id: true } } },
+    // An explicit select: the borrower's page never loads the staff-only
+    // declineInternalNote (or anything else it does not show).
+    select: {
+      id: true, tenantId: true, clientId: true, reference: true, status: true,
+      appliedAmount: true, appliedTermDays: true, approvedAmount: true, purpose: true,
+      createdAt: true, updatedAt: true, submittedAt: true, incomeVerifiedAt: true,
+      pasqGeneratedAt: true, pasqDocumentId: true, pasqDocumentSha256: true,
+      pasqAcknowledgedAt: true, pasqAcknowledgedSha256: true,
+      approvedAt: true, declineCategory: true, decisionReason: true,
+      agreementGeneratedAt: true, agreementSignedAt: true, agreementExecutedDocumentId: true,
+      debitMandatePreparedAt: true, debitMandateSignedAt: true, disbursedAt: true, repaymentMethod: true,
+      product: { select: { name: true, id: true } },
+    },
   })
 
   if (!application || application.clientId !== client.id) return null

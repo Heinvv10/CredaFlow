@@ -21,7 +21,12 @@ async function getApplications(email: string) {
 
   const applications = await prisma.loanApplication.findMany({
     where: { clientId: client.id, tenantId },
-    include: { product: { select: { name: true } }, loan: { select: { status: true } } },
+    // An explicit select: never the staff-only declineInternalNote.
+    select: {
+      id: true, reference: true, status: true, appliedAmount: true, createdAt: true,
+      agreementGeneratedAt: true, agreementSignedAt: true, decisionReason: true,
+      product: { select: { name: true } }, loan: { select: { status: true } },
+    },
     orderBy: { createdAt: "desc" },
   })
 

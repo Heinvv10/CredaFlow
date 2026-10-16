@@ -2,24 +2,43 @@ import { SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 
 /**
  * What a borrower is told about a message we sent them. NotificationLog.status
- * is an internal delivery/reconciliation state ("review_required" means the
- * provider accepted it but its receipt is not yet linked; "blocked" can mean a
- * consent suppression). None of that is the borrower's business, and showing
- * it made a working account look broken (Fair Score audit 2026-10-16). The row
- * itself is unchanged for staff and the audit trail.
+ * is an internal delivery/reconciliation state ("review_required" and
+ * "reconciliation_required" mean the provider's answer is not yet matched to
+ * the message; "blocked" can mean a consent suppression). None of that is the
+ * borrower's business, and showing it made a working account look broken (Fair
+ * Score audit 2026-10-16). The row itself is unchanged for staff and the audit
+ * trail.
+ *
+ * Only a confirmed send reads "Sent": a state still being reconciled is
+ * "Pending", never claimed as delivered.
  */
 export type BorrowerNotificationStatus = "sent" | "not_delivered" | "pending" | "simulated"
 
-const SENT = new Set(["sent", "delivered", "read", "review_required"])
-const NOT_DELIVERED = new Set(["failed", "skipped", "blocked"])
+/**
+ * Every status the NotificationLog writers produce: lib/notifications.ts and
+ * lib/notifications/status.ts, lib/messaging/dispatch-control.ts,
+ * lib/messaging/retry.ts, lib/messaging/reconcile-held-message.ts,
+ * lib/messaging/staff-task-reminder.ts and the renewal/licence crons.
+ */
+export const BORROWER_NOTIFICATION_STATUS: Readonly<Record<string, BorrowerNotificationStatus>> = {
+  sent: "sent",
+  delivered: "sent",
+  read: "sent",
+  simulated: "simulated",
+  pending: "pending",
+  queued: "pending",
+  review_required: "pending",
+  reconciliation_required: "pending",
+  failed: "not_delivered",
+  blocked: "not_delivered",
+  skipped: "not_delivered",
+  expired: "not_delivered",
+  suppressed_by_consent: "not_delivered",
+}
 
 export function borrowerNotificationStatus(status: string): BorrowerNotificationStatus {
-  if (SENT.has(status)) return "sent"
-  if (NOT_DELIVERED.has(status)) return "not_delivered"
-  // Only a demo transport writes "simulated"; it is not a real message, so it
-  // must not claim to have been sent.
-  if (status === "simulated") return "simulated"
-  return "pending"
+  // An unknown state claims nothing either way.
+  return BORROWER_NOTIFICATION_STATUS[status] ?? "pending"
 }
 
 // Legs WE chose not to send: the lender has the channel off, or another

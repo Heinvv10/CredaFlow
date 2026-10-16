@@ -84,15 +84,29 @@ describe("portal apply form layout", () => {
     expect(submitButton().props.disabled).toBe(true)
   })
 
-  it("keeps the confirmation when the amount changes but the confirmed option does not", async () => {
+  it("keeps the confirmation when the amount changes but the premium shown does not", async () => {
+    await mount()
+    await act(async () => byId("amount").props.onChange({ target: { value: "30000" } }))
+    await act(async () => radios()[1].props.onChange())
+    const ack = () => labelByText("before PASQ generation")!.findByProps({ type: "checkbox" })
+    await act(async () => ack().props.onChange({ target: { checked: true } }))
+    // R4.50 per R1,000 in whole cents: one cent more borrowed, the same premium.
+    await act(async () => byId("amount").props.onChange({ target: { value: "30000.01" } }))
+    expect(ack().props.checked).toBe(true)
+    expect(text()).not.toContain("please confirm")
+  })
+
+  // Review of #152: declining is a decision about the premium shown too, so a
+  // declined borrower must reconfirm when the premium changes.
+  it("clears a DECLINED confirmation when the premium shown changes", async () => {
     await mount()
     await act(async () => byId("amount").props.onChange({ target: { value: "30000" } }))
     await act(async () => radios()[1].props.onChange())
     const ack = () => labelByText("before PASQ generation")!.findByProps({ type: "checkbox" })
     await act(async () => ack().props.onChange({ target: { checked: true } }))
     await act(async () => byId("amount").props.onChange({ target: { value: "35000" } }))
-    expect(ack().props.checked).toBe(true)
-    expect(text()).not.toContain("please confirm")
+    expect(ack().props.checked).toBe(false)
+    expect(text()).toContain("please confirm your choice again")
   })
 
   it("clears the confirmation when the premium it confirmed changes, and says so", async () => {

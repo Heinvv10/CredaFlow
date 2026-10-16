@@ -1493,7 +1493,7 @@ export async function POST(
             { status: 400 }
           )
         }
-        // `reason` is what the CLIENT is shown (portal, email, WhatsApp); the
+        // `reason` is what the CLIENT is shown (portal, decline email); the
         // internal note is staff-only. Kept apart so a note never reaches them.
         const clientReason = clientDeclineReason(declineCategory, reason)
         if (!clientReason) {

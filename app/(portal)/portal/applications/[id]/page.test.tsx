@@ -61,4 +61,15 @@ describe("portal application detail", () => {
     expect(html).toContain("What you can do next")
     expect(html).not.toContain("Score 512")
   })
+
+  // Review of #152: the borrower's page never loads the staff-only note.
+  it("selects the application without the staff-only internal note", async () => {
+    h.app.mockResolvedValue(app)
+    h.loan.mockResolvedValue(null)
+    await render()
+    const args = h.app.mock.calls[0][0] as { select?: Record<string, unknown>; include?: unknown }
+    expect(args.include).toBeUndefined()
+    expect(args.select).toBeDefined()
+    expect(args.select).not.toHaveProperty("declineInternalNote")
+  })
 })

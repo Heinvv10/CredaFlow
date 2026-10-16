@@ -24,7 +24,7 @@ export const DECLINE_CATEGORIES = Object.keys(DECLINE_CATEGORY_LABELS) as Declin
 /**
  * The reason the CLIENT is shown for each category: the starting text of the
  * staff decline form's "reason shown to the client", which staff may edit. It
- * reaches the borrower in the portal, by email and WhatsApp, so it says what
+ * reaches the borrower in the portal and the decline email, so it says what
  * the decision rested on in plain words and never carries an internal finding
  * (a suspected fraud is "could not verify"). Other has no default: staff write it.
  */
