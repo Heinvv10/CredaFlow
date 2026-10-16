@@ -1,15 +1,15 @@
 /**
  * What a prospect reads off the dashboard and the applications board (Fair
- * Score audit), checked on the bake's end date: PAR30 on the product's own
- * definition (lib/reports/par.ts: outstanding principal of the collectible
- * book at 30+ DPD over the whole collectible book), defaults and write-offs a
+ * Score audit), checked on the bake's end date: PAR30 as the dashboard states
+ * it (getPortfolioPar, lib/reports/par.ts: the product's public PAR entry
+ * point, whatever its definition moves to), defaults and write-offs a
  * small minority, no open application older than 30 days, and the presenter's
  * two new-client personas not yet in the book. plan.test.ts holds the scripted
  * storylines to the same limits.
  */
-import { collectibleLoanWhere, collectibleParWhere } from "../../../lib/loan/collectible-book"
 import { demoLender } from "../../../prisma/demo-lender"
 import { getPersona } from "../personas"
+import { simEnv } from "../sim/env"
 import { readDb } from "../sim/readonly-db"
 
 /** The goal is "PAR30 at most ~15%"; the bake is held under it. */
@@ -45,12 +45,26 @@ export function bookHealthChecks(f: BookFacts): BookCheck[] {
   ]
 }
 
+/**
+ * The dashboard's own PAR, computed by the app's code against the sim
+ * database through a read-only session: lib/prisma reads DATABASE_URL when
+ * first imported, which nothing else in the simulator process does.
+ */
+async function dashboardPar(tenantId: string): Promise<{ book: number; par30: number }> {
+  const url = new URL(simEnv("SIM_HOST_DATABASE_URL"))
+  url.searchParams.set("options", "-c default_transaction_read_only=on")
+  process.env.DATABASE_URL = url.toString()
+  const { runWithTenant } = await import("../../../lib/tenant-scope")
+  const { getPortfolioPar } = await import("../../../lib/reports/par")
+  const par = await runWithTenant(tenantId, () => getPortfolioPar(tenantId))
+  return { book: par.book, par30: par.par30.value }
+}
+
 export async function readBookFacts(until: string): Promise<BookFacts> {
   const db = readDb()
   const tenant = await db.tenant.findUniqueOrThrow({ where: { slug: demoLender().slug }, select: { id: true } })
-  const [book, par30, loans, badLoans, apps, kit] = await Promise.all([
-    db.loan.aggregate({ where: collectibleLoanWhere(tenant.id), _sum: { outstandingPrincipal: true } }),
-    db.loan.aggregate({ where: collectibleParWhere(tenant.id, 30), _sum: { outstandingPrincipal: true } }),
+  const [par, loans, badLoans, apps, kit] = await Promise.all([
+    dashboardPar(tenant.id),
     db.loan.count({ where: { tenantId: tenant.id } }),
     db.loan.count({ where: { tenantId: tenant.id, status: { in: ["DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF"] } } }),
     db.loanApplication.findFirst({
@@ -64,8 +78,8 @@ export async function readBookFacts(until: string): Promise<BookFacts> {
   ])
   const oldest = apps ? Math.floor((Date.parse(`${until}T23:59:59+02:00`) - apps.createdAt.getTime()) / 86_400_000) : 0
   return {
-    bookCents: Number(book._sum.outstandingPrincipal ?? 0),
-    par30Cents: Number(par30._sum.outstandingPrincipal ?? 0),
+    bookCents: par.book,
+    par30Cents: par.par30,
     loans,
     badLoans,
     oldestOpenApplicationDays: oldest,
