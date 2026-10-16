@@ -21,13 +21,15 @@ describe("segregation of duties in the migrations", () => {
       .toContain(`FOREIGN KEY ("tenantId", "disbursedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT`)
   })
 
-  it("freezes a recorded consumer signature unless it is cleared whole", () => {
+  it("freezes a recorded consumer signature unless it is cleared whole by a return to review or draft", () => {
     expect(baselineTriggerSql("LoanApplication_z_guard_consumer_signature_frozen")).toContain(`EXECUTE FUNCTION "guardLoanApplicationConsumerSignature"()`)
     const fn = baselineFunctionSql("guardLoanApplicationConsumerSignature")
     for (const column of ["agreementSignedMethod", "agreementSignedByUserId", "agreementSignedByIp", "agreementSignatureData"]) {
       expect(fn).toContain(`NEW."${column}" IS DISTINCT FROM OLD."${column}"`)
       expect(fn).toContain(`AND NEW."${column}" IS NULL`)
     }
+    expect(fn).toContain(`AND NEW."status" IS DISTINCT FROM OLD."status"`)
+    expect(fn).toContain(`AND NEW."status" IN ('UNDER_REVIEW', 'DRAFT')`)
   })
 
   it("makes every payout dual-approval while the setting is on", () => {

@@ -12,6 +12,7 @@
  * app/api/settings/segregation-of-duties/route.integration.test.ts.
  */
 import { describe, expect, it } from "vitest"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import {
   createApprovedApplication,
@@ -24,6 +25,31 @@ const suite = process.env.RUN_SEGREGATION_OF_DUTIES_IT === "1" ? describe : desc
 const APPROVER_DISBURSES = /Segregation of duties: the staff member who approved an application cannot disburse it/
 const WITNESS_COUNTERSIGNS = /Segregation of duties: the staff witness of the in-branch signature cannot countersign/
 const COUNTERSIGNED_AT = new Date("2026-07-24T08:12:00.000Z")
+const SIGNATURE_CLEARED = {
+  agreementSignedAt: null, agreementSignedMethod: null, agreementSignedByUserId: null,
+  agreementSignedByIp: null, agreementSignatureData: null,
+}
+// The columns the decide route's return_to_review clears in its one write.
+const RETURN_TO_REVIEW = {
+  ...SIGNATURE_CLEARED,
+  status: "UNDER_REVIEW", repaymentMethod: null, approvedById: null, approvedAt: null, approvedAmount: null,
+  approvedTermDays: null, approvedRate: null, decisionReason: null, bureauOverrideReason: null,
+  bureauOverrideById: null, bureauOverrideAt: null, bureauReviewGeneration: "sod-it-return-to-review",
+  recklessLendingAssessed: false, recklessLendingAssessedById: null, recklessLendingAssessedAt: null,
+  pasqAcknowledgedAt: null, pasqAcknowledgedBy: null, pasqAcknowledgedSha256: null, pasqVersion: null,
+  pasqGeneratedAt: null, pasqDocumentId: null, pasqDocumentSha256: null, pasqEvidence: Prisma.DbNull,
+  pasqEvidenceSha256: null, approvedPasqDocumentSha256: null, clientAffordabilityDeclaredAt: null,
+  agreementGeneratedAt: null, agreementDocumentId: null, agreementDocumentSha256: null,
+  agreementCountersignedAt: null, agreementCountersignedById: null, agreementCountersignedByName: null,
+  agreementCountersignedByEmail: null, agreementCountersignatureData: null, agreementCountersignatureSha256: null,
+  agreementCountersignatureEnvelopeSha256: null, agreementCountersignedDocumentSha256: null,
+  agreementExecutedDocumentId: null, agreementExecutedDocumentSha256: null, signedPacketDocumentId: null,
+  signedPacketDocumentSha256: null, debitMandatePreparedAt: null, debitMandateReference: null,
+  debitMandateDraftSha256: null, debitMandateEvidence: Prisma.DbNull, debitMandateEvidenceSha256: null,
+  debitMandateSignedAt: null, debitMandateSignedMethod: null, debitMandateSignedByIp: null,
+  debitMandateSignatureData: null, debitMandateSignatureSha256: null, debitMandateDocumentId: null,
+  debitMandateDocumentSha256: null,
+}
 
 function countersign(
   scenario: Awaited<ReturnType<typeof createApprovedApplication>>,
@@ -153,20 +179,25 @@ suite("segregation of duties in the database", () => {
       await expect(countersign(scenario, "officer")).rejects.toThrow(WITNESS_COUNTERSIGNS)
     })
 
-    it("may be cleared as a whole, as a return to review does", async () => {
-      const scenario = await createApprovedApplication({ signing: "consumer_only", consumerSignedBy: { branchWitness: "officer" } })
-      const cleared = prisma.$transaction(async (tx) => {
-        await tx.loanApplication.update({
-          where: { id: scenario.applicationId, tenantId: scenario.tenantId },
-          data: {
-            agreementSignedAt: null, agreementSignedMethod: null, agreementSignedByUserId: null,
-            agreementSignedByIp: null, agreementSignatureData: null,
-          },
-        })
-        throw rollback
+    it("refuses a bare clear while approved, so a colleague cannot be swapped in as witness", async () => {
+      const scenario = await createApprovedApplication({
+        signing: "consumer_only", consumerSignedBy: { branchWitness: "officer" }, requireSegregationOfDuties: true,
       })
-      // Whatever else refuses the bare clear, it is not the signature freeze.
-      await expect(cleared).rejects.not.toThrow(FROZEN)
+      await expect(update(scenario, SIGNATURE_CLEARED)).rejects.toThrow(FROZEN)
+      await expect(update(scenario, { ...SIGNATURE_CLEARED, status: "DECLINED" })).rejects.toThrow(FROZEN)
+      // The witness is still the officer, so the officer still cannot countersign.
+      await expect(countersign(scenario, "officer")).rejects.toThrow(WITNESS_COUNTERSIGNS)
+    })
+
+    it("may be cleared as a whole by the write that returns the application to review", async () => {
+      const scenario = await createApprovedApplication({
+        signing: "consumer_only", consumerSignedBy: { branchWitness: "officer" }, requireSegregationOfDuties: true,
+      })
+      await expect(update(scenario, RETURN_TO_REVIEW)).resolves.toEqual({ id: scenario.applicationId })
+      expect(await prisma.loanApplication.findUniqueOrThrow({
+        where: { id: scenario.applicationId, tenantId: scenario.tenantId },
+        select: { status: true, agreementSignedAt: true, agreementSignedByUserId: true },
+      })).toEqual({ status: "UNDER_REVIEW", agreementSignedAt: null, agreementSignedByUserId: null })
     })
   })
 })
