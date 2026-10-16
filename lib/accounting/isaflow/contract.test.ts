@@ -95,6 +95,8 @@ describe("fake IsaFlow answers in the contract's shapes", () => {
     expect(await failure(isa.company())).toMatchObject({ kind: "definite", message: expect.stringContaining("not enabled") })
     fake.failNext("rate", "list_companies")
     expect(await failure(isa.company())).toMatchObject({ kind: "definite", message: expect.stringContaining(TEXTS.rateLimited) })
+    fake.failNext("429", "list_companies")
+    expect(await failure(isa.company())).toMatchObject({ kind: "definite", status: 429 })
     fake.failNext("500", "list_companies")
     expect(await failure(isa.company())).toMatchObject({ kind: "unknown" })
     const drafts = fake.listDrafts().length

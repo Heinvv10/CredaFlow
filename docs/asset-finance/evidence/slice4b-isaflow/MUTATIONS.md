@@ -20,6 +20,9 @@ Suites:
 - `conn_route` = `app/api/integrations/isaflow/route.test.ts`
 - `push_route` = `app/api/accounting/batches/[id]/isaflow/route.test.ts`
 - `card` = `components/settings/IsaFlowConnectionCard.test.tsx`
+- `edges` = `lib/accounting/isaflow/isaflow-edges.integration.test.ts`
+- `breaker` / `breaker_it` = `lib/accounting/isaflow/breaker.test.ts` / `breaker.integration.test.ts` (the tester's repros)
+- `history` = `components/accounting/AccountingHistory.test.tsx`, `control` = `components/accounting/IsaFlowPushControl.test.tsx`
 
 The ITs ran with `RUN_ACCOUNTING_IT=1`.
 
@@ -65,6 +68,32 @@ The ITs ran with `RUN_ACCOUNTING_IT=1`.
 | K2 | DB CHECK `IsaFlowConnection_token_sealed_iff_connected` dropped | guards | RED: "stores a token only sealed and only while CONNECTED" |
 | K3 | DB CHECK `AccountingIsaFlowPush_idempotency_key_bound` dropped | guards | RED: "starts as a SENDING claim…" |
 | K4 | DB CHECK `AccountingIsaFlowPush_pushed_has_journal` dropped | guards | RED: "records an IsaFlow journal id once; PUSHED needs one…" |
+
+## Review round 1 fixes (2026-10-16)
+
+Each fix is its own commit. Each mutation below turned its suite red, except where the row says
+otherwise.
+
+| # | Mutation | Suite | Result: failing test(s) |
+|---|---|---|---|
+| R5 | retry: a push built for one IsaFlow company is retried into the company connected since | edges | RED: "a push built for one IsaFlow company is never retried into another…" |
+| P5 | push: `definite` and `unknown` outcomes swapped | it | RED: "a FAILED push is read back…", "a SENDING claim older than 10 minutes…" |
+| P6 | push: the mapping check runs before the existing push answers | breaker_it | RED: "2b: a mapping changed AFTER the push…" (REPRO 3) |
+| A1 | CONNECTED → NEEDS_RECONNECT written without its audit row | edges | RED: "a 401 during the resend…(audited)…", "a failed read-back…drops the token" |
+| A2 | verify: a token IsaFlow refuses is not dropped in the guarded write | conn_route | RED: "drops a token IsaFlow refuses, audited, inside the guarded write" |
+| C4 | client: arguments that are not one JSON object are sent | client | RED: "sends arguments only when they are exactly one JSON object…" |
+| C5 | connect: the token shape accepts any non-space character again | conn_route | RED: "needs a pat_ token and an address" |
+| D3 | dial: deadline armed before the request exists, request() throwing outside `done` (the REPRO 1 code) | breaker | RED: "rejects without leaving a timer that throws later" |
+| M1 | deleted draft: the message no longer says to post from the CSV | breaker_it | RED: "7: after 'not_pushed' on a deleted draft…told to post from the CSV, no duplicate" (REPRO 2) |
+| U5 | history: the IsaFlow column is dropped | history | RED: "shows each closed month's IsaFlow push beside its Xero push" |
+| U6 | push control: no CSV hint for a replayed deleted draft | control | RED: "tells a person to post from the CSV…" |
+| G12 | DB: a claim may be inserted with a journal id, resolver, note or read-back flag | guards | RED: "starts empty and is claimed by a user of its own tenant" |
+| G13 | DB: `pushedById` need not be a user of the tenant | guards | RED: "starts empty and is claimed by a user of its own tenant" |
+| G14 | DB: leaving review needs no resolver of the tenant | guards | RED: "may go from review back to SENDING…" |
+
+D3 was first tried as "arm the deadline before the request" alone. That stayed green: `done()`
+clears the timer in the new catch, so that ordering is harmless now. The mutation in the table
+restores the original code: the timer is armed first and a throw escapes `done`.
 
 ## A test that could not fail (found and fixed during this run)
 

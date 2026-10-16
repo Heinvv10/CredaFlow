@@ -17,7 +17,7 @@ import type { AddressInfo } from "node:net"
 import { randomUUID } from "node:crypto"
 import { RPC_CODES, SCOPES, TEXTS, TOOLS, type GlAccountRow, type JournalListEntry } from "./contract"
 
-export type FailKind = "500" | "401" | "refuse" | "flows" | "disabled" | "rate"
+export type FailKind = "500" | "401" | "429" | "refuse" | "flows" | "disabled" | "rate"
 
 export interface FakeCall {
   tool: string
@@ -117,6 +117,8 @@ export class FakeIsaFlow {
     const failure = at >= 0 ? this.failures.splice(at, 1)[0].kind : undefined
     if (failure === "500") { record("failed"); return send(500, { success: false }) }
     if (failure === "401") { record("failed"); return send(401, { success: false, error: { code: "INVALID_TOKEN", message: "Invalid, revoked, or expired token" } }) }
+    // IsaFlow's per-IP throttle, HTTP 429 (pages/api/mcp/index.ts:268; there it answers even before auth).
+    if (failure === "429") { record("failed"); return send(429, { jsonrpc: "2.0", id, error: { code: RPC_CODES.SERVER_ERROR, message: "Too many requests. Slow down and retry." } }) }
     if (failure === "disabled") { record("failed"); return send(200, { jsonrpc: "2.0", id, error: { code: RPC_CODES.NOT_ENABLED, message: TEXTS.notEnabled } }) }
     if (failure === "rate") { record("failed"); return send(200, { jsonrpc: "2.0", id, error: { code: RPC_CODES.SERVER_ERROR, message: TEXTS.rateLimited } }) }
     const { result, outcome } = this.call(tool, args, scopes, failure)
