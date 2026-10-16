@@ -34,6 +34,7 @@ function hrefFor(item: BellItem): string | null {
   if (item.entityType === "Client" && item.entityId) return `/clients/${item.entityId}?tab=comms`
   if (item.entityType === "Conversation" && item.entityId) return `/inbox?conversationId=${item.entityId}`
   if (item.entityType === "BureauSubmission") return "/compliance/bureau-submissions"
+  if (item.entityType === "ReferenceRate") return "/asset-finance/reference-rates"
   return null
 }
 
