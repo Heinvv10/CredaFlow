@@ -39,9 +39,10 @@ export interface SignatureLine {
 
 export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = []
-  for (const paragraph of winAnsiSafe(text).split(/\r?\n/)) {
+  // Split before sanitising: winAnsiSafe turns a newline into "?".
+  for (const paragraph of text.split(/\r?\n/)) {
     let current = ""
-    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+    for (const word of winAnsiSafe(paragraph).split(/\s+/).filter(Boolean)) {
       const candidate = current ? `${current} ${word}` : word
       if (current && font.widthOfTextAtSize(candidate, size) > maxWidth) {
         lines.push(current)
