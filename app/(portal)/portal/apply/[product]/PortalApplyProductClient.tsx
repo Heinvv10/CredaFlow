@@ -21,6 +21,7 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
+import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
 
 interface ProductInfo {
@@ -52,11 +53,15 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
   const t = useT("portalApply")
 
   const fixedTerm = product.minTermDays === product.maxTermDays
+  // PO funding is business credit: Business purpose only, plus the order's facts.
+  const poFunding = product.productType === "PO_FUNDING"
+  const categories = poFunding ? PURPOSE_CATEGORIES.filter((c) => c.value === "BUSINESS") : PURPOSE_CATEGORIES
 
   const [amount, setAmount] = useState<string>("")
   const [termDays, setTermDays] = useState<string>(fixedTerm ? String(product.minTermDays) : "")
   const [purpose, setPurpose] = useState("")
-  const [category, setCategory] = useState<string>("")
+  const [category, setCategory] = useState<string>(poFunding ? "BUSINESS" : "")
+  const [po, setPo] = useState(EMPTY_PO_INPUT)
   const [affordabilityDeclared, setAffordabilityDeclared] = useState(false)
   const [pasqDeliveryUnderstood, setPasqDeliveryUnderstood] = useState(false)
   const [creditLifeElection, setCreditLifeElection] = useState<CreditLifeElection | "">("")
@@ -88,6 +93,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
     && !amountOutOfRange
     && !termOutOfRange
     && purpose.trim().length >= 3
+    && (!poFunding || poInputComplete(po))
     && affordabilityDeclared
     // With no configured credit-life product there is no cover to offer, so
     // there is no election to make and nothing to acknowledge.
@@ -109,6 +115,15 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
     setSubmitting(true)
 
     try {
+      let poDocumentId: string | undefined
+      if (poFunding && po.poFile) {
+        const uploaded = await uploadPoDocument(po.poFile)
+        if ("error" in uploaded) {
+          setError(uploaded.error || t("errPoUpload"))
+          return
+        }
+        poDocumentId = uploaded.id
+      }
       const res = await fetch("/api/portal/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -118,6 +133,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
           termDays: fixedTerm ? undefined : termNum,
           purpose: purpose.trim(),
           loanPurposeCategory: category || null,
+          ...(poFunding ? { poNumber: po.poNumber.trim(), poBuyerName: po.poBuyerName.trim(), poDocumentId } : {}),
           affordabilityDeclared,
           pasqDeliveryUnderstood,
           // No offer rendered ⇒ no election exists; never post the "" the
@@ -233,12 +249,14 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
             onChange={(e) => setCategory(e.target.value)}
             className={inputClass}
           >
-            <option value="">{t("categoryPlaceholder")}</option>
-            {PURPOSE_CATEGORIES.map(({ value, label }) => (
+            {!poFunding && <option value="">{t("categoryPlaceholder")}</option>}
+            {categories.map(({ value, label }) => (
               <option key={value} value={value}>{t(label)}</option>
             ))}
           </select>
         </div>
+
+        {poFunding && <PoFundingFields value={po} onChange={setPo} inputClass={inputClass} labelClass={labelClass} />}
 
         <div>
           <label htmlFor="purpose" className={labelClass}>

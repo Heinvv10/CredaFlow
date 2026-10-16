@@ -30,6 +30,7 @@ import {
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
   isCreditLifeElection,
 } from "@/lib/insurance/credit-life-election"
+import { isClientPoDocument, parsePoFundingFacts, type PoFundingFacts } from "@/lib/applications/po-funding"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import {
   createCreditLifeDisclosureSha256,
@@ -296,6 +297,17 @@ export async function POST(req: NextRequest) {
         )
       }
       appliedTermDays = requestedTerm
+    }
+
+    // PO funding is business credit tied to a confirmed order (lib/applications/po-funding.ts).
+    let poFacts: PoFundingFacts | null = null
+    if (product.productType === "PO_FUNDING") {
+      const parsed = parsePoFundingFacts(body, loanPurposeCategory)
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      if (!(await isClientPoDocument(prisma, { tenantId: tenant.id, clientId: client.id, documentId: parsed.facts.poDocumentId }))) {
+        return NextResponse.json({ error: "Upload the purchase order document again: the one sent was not found." }, { status: 422 })
+      }
+      poFacts = parsed.facts
     }
 
     // Block new applications if client has a defaulted loan (mirrors staff
@@ -673,6 +685,7 @@ export async function POST(req: NextRequest) {
             appliedTermDays: lockedTermDays,
             purpose,
             loanPurposeCategory,
+            ...poFacts,
             agreementType: classifyAgreementType(appliedAmount),
             existingDebtObligations: debtSnapshot,
             totalExistingDebt,

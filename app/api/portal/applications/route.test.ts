@@ -21,6 +21,7 @@ const {
   queryRaw,
   transaction,
   auditLogCreate,
+  findFirstDocument,
 } = vi.hoisted(() => ({
   auth: vi.fn(),
   checkRateLimit: vi.fn(),
@@ -38,6 +39,7 @@ const {
   queryRaw: vi.fn(),
   transaction: vi.fn(),
   auditLogCreate: vi.fn(),
+  findFirstDocument: vi.fn(),
 }))
 
 const tx = {
@@ -59,6 +61,7 @@ vi.mock("@/lib/prisma", () => ({
     insuranceProduct: { findFirst: findFirstInsuranceProduct },
     loan: { findFirst: findFirstLoan, count: countLoan },
     loanApplication: { findFirst: findFirstApplication, create: createApplication },
+    clientDocument: { findFirst: findFirstDocument },
   },
 }))
 vi.mock("@/lib/tenant", () => ({
@@ -689,5 +692,70 @@ describe("POST /api/portal/applications", () => {
     const res = await POST(buildReq(validBody))
     expect(res.status).toBe(201)
     expect(createApplication).toHaveBeenCalledOnce()
+  })
+})
+
+describe("POST /api/portal/applications — PO funding", () => {
+  const PO_PRODUCT = {
+    ...PRODUCT, id: "prod-po", code: "POFUND", name: "Purchase Order Funding", productType: "PO_FUNDING",
+    minAmount: 1_000_000, maxAmount: 50_000_000, minTermDays: 30, maxTermDays: 120,
+    interestModel: "DAILY_ACCRUAL", initiationFeePct: 0.02, initiationFeeMax: 0, monthlyServiceFee: 0,
+  }
+  const poBody = {
+    ...validBody, productCode: "POFUND", amount: 50_000, termDays: 60, purpose: "Supply 400 school uniforms",
+    creditLifeMonthlyPremiumCents: 22_500,
+    loanPurposeCategory: "BUSINESS", poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+  }
+
+  beforeEach(() => {
+    findFirstProduct.mockResolvedValue(PO_PRODUCT)
+    findFirstDocument.mockResolvedValue({ id: "doc-po" })
+  })
+
+  it("refuses a consumer purpose: PO funding is for a business", async () => {
+    const res = await POST(buildReq({ ...poBody, loanPurposeCategory: "MEDICAL" }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/business/i)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["poNumber", { poNumber: " " }],
+    ["poBuyerName", { poBuyerName: "" }],
+    ["poDocumentId", { poDocumentId: undefined }],
+  ])("refuses an application without %s", async (_field, missing) => {
+    const res = await POST(buildReq({ ...poBody, ...missing }))
+    expect(res.status).toBe(400)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("refuses a PO document that is not this client's purchase order", async () => {
+    findFirstDocument.mockResolvedValue(null)
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(422)
+    expect(findFirstDocument).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT" },
+    }))
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("stores the purchase-order facts with the application", async () => {
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        loanPurposeCategory: "BUSINESS",
+        poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+      }),
+    }))
+  })
+
+  it("ignores PO fields on a consumer product", async () => {
+    findFirstProduct.mockResolvedValue(PRODUCT)
+    const res = await POST(buildReq({ ...validBody, poNumber: "PO-1", poBuyerName: "X", poDocumentId: "doc-po" }))
+    expect(res.status).toBe(201)
+    const data = createApplication.mock.calls[0][0].data
+    expect(data.poNumber).toBeUndefined()
+    expect(findFirstDocument).not.toHaveBeenCalled()
   })
 })
