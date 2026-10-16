@@ -36,10 +36,8 @@ import { prisma } from "@/lib/prisma"
 import { parseNcrNumber } from "@/lib/config/identity"
 import { section129SentInPeriodWhere } from "@/lib/collections/section129-reporting"
 import { quarterBounds, isQuarterOpen } from "@/lib/compliance/quarters"
-import {
-  collectibleLoanWhere,
-  collectibleParWhere,
-} from "@/lib/loan/collectible-book"
+import { collectibleLoanWhere } from "@/lib/loan/collectible-book"
+import { getBookArrears } from "@/lib/reports/book-arrears"
 
 // The collectible book is a property of the loan book, not of this module —
 // see lib/loan/collectible-book.ts for the full rationale and the known
@@ -103,9 +101,6 @@ export type NcrReturnData = {
 
 const collectibleWhere = collectibleLoanWhere
 
-/** Accounts at or beyond `minDays` past due, within the collectible book. */
-export const parWhere = collectibleParWhere
-
 /** Loans whose agreement was entered into during the quarter. */
 /**
  * The NCR return reports NCA credit agreements only. A NON_NCA (juristic,
@@ -155,26 +150,20 @@ export async function getNcrReturnData(
 
   const [
     tenantConfig,
-    book,
+    bookArrears,
     newAgreements,
     receipts,
     applied,
     writeOffs,
     section129Issued,
-    arrears,
-    par30,
-    par60,
-    par90,
     defaulted,
     attorneyReferrals,
     submittedRecords,
   ] = await Promise.all([
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { ncrNumber: true } }),
-    prisma.loan.aggregate({
-      where: { ...collectibleWhere(tenantId), ...NCA_ONLY },
-      _count: true,
-      _sum: { outstandingPrincipal: true },
-    }),
+    // Book, arrears and PAR: the helper the dashboard, collections and the
+    // sidebar read, on the NCA scope (lib/reports/book-arrears.ts).
+    getBookArrears(tenantId, "NCA"),
     prisma.loan.aggregate({
       where: { ...disbursedInQuarterWhere(tenantId, start, end), ...NCA_ONLY },
       _count: true,
@@ -204,26 +193,6 @@ export async function getNcrReturnData(
       where: section129SentInPeriodWhere(tenantId, start, end),
     }),
     prisma.loan.aggregate({
-      where: { ...parWhere(tenantId, 1), ...NCA_ONLY },
-      _count: true,
-      _sum: { arrearsAmount: true, outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
-      where: { ...parWhere(tenantId, 30), ...NCA_ONLY },
-      _count: true,
-      _sum: { outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
-      where: { ...parWhere(tenantId, 60), ...NCA_ONLY },
-      _count: true,
-      _sum: { outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
-      where: { ...parWhere(tenantId, 90), ...NCA_ONLY },
-      _count: true,
-      _sum: { outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
       where: { tenantId, status: "DEFAULTED", ...NCA_ONLY },
       _count: true,
       _sum: { outstandingPrincipal: true },
@@ -250,9 +219,8 @@ export async function getNcrReturnData(
     }),
   ])
 
-  const bookValue = Number(book._sum.outstandingPrincipal ?? 0)
-  const parValue = (agg: { _sum: { outstandingPrincipal: number | null } }) =>
-    Number(agg._sum.outstandingPrincipal ?? 0)
+  const { book, arrears, par30, par60, par90 } = bookArrears
+  const bookValue = book.value
 
   const lines: NcrReturnLine[] = [
     {
@@ -298,7 +266,7 @@ export async function getNcrReturnData(
     {
       key: "book",
       label: "Collectible book (all still-owed accounts)",
-      count: book._count,
+      count: book.count,
       value: bookValue,
       basis: "POSITION",
       note: "Outstanding principal. The denominator for every percentage below.",
@@ -306,35 +274,35 @@ export async function getNcrReturnData(
     {
       key: "arrears",
       label: "Accounts in arrears (1+ days)",
-      count: arrears._count,
-      value: Number(arrears._sum.arrearsAmount ?? 0),
+      count: arrears.count,
+      value: arrears.amount,
       basis: "POSITION",
-      percentOfBook: pct(parValue(arrears), bookValue),
-      note: "Value is the arrears balance; the percentage is exposure at risk.",
+      percentOfBook: pct(arrears.outstandingPrincipal, bookValue),
+      note: "Value is the arrears balance (default charges included while they are live); the percentage is exposure at risk.",
     },
     {
       key: "par30",
       label: "PAR30 — 30+ days past due",
-      count: par30._count,
-      value: parValue(par30),
+      count: par30.count,
+      value: par30.value,
       basis: "POSITION",
-      percentOfBook: pct(parValue(par30), bookValue),
+      percentOfBook: par30.pct,
     },
     {
       key: "par60",
       label: "PAR60 — 60+ days past due",
-      count: par60._count,
-      value: parValue(par60),
+      count: par60.count,
+      value: par60.value,
       basis: "POSITION",
-      percentOfBook: pct(parValue(par60), bookValue),
+      percentOfBook: par60.pct,
     },
     {
       key: "par90",
       label: "PAR90 / NPL — 90+ days past due",
-      count: par90._count,
-      value: parValue(par90),
+      count: par90.count,
+      value: par90.value,
       basis: "POSITION",
-      percentOfBook: pct(parValue(par90), bookValue),
+      percentOfBook: par90.pct,
     },
     {
       key: "defaulted",
@@ -379,7 +347,7 @@ export async function getNcrReturnData(
     // Throws LenderIdentityError when unset or invalid: a regulator return
     // must carry the tenant's own registration, never a default.
     ncrNumber: parseNcrNumber(tenantConfig?.ncrNumber),
-    collectibleBook: { count: book._count, value: bookValue },
+    collectibleBook: { count: book.count, value: bookValue },
     lines,
     submittedAt: submittedRecord?.completedAt ?? null,
     submittedByName,

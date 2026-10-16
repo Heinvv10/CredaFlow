@@ -2,12 +2,11 @@ import { prisma } from "@/lib/prisma"
 import { arrearsWithCharges } from "@/lib/loan/charge-labels"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { CASH_RECEIPTS } from "@/lib/payments/waiver"
-import { collectibleLoanWhere, COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
+import { BOOK_DEFINITIONS, getBookArrears, inArrearsWhere } from "@/lib/reports/book-arrears"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { auth } from "@/lib/auth"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
-import { getPortfolioPar } from "@/lib/reports/par"
 import { getAvatarColor, getInitials, getInitialsFromName } from "@/lib/avatar"
 import { borrowerDisplayName } from "@/lib/borrower"
 import Link from "next/link"
@@ -17,6 +16,7 @@ import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
 import { SectionHeader } from "@/components/app-shell/SectionHeader"
 import { StatusPill } from "@/components/app-shell/StatusPill"
+import { BookDefinitions } from "@/components/reports/BookDefinitions"
 import {
   Plus, TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
   DollarSign, Users, BarChart3, ArrowRight
@@ -43,30 +43,23 @@ async function getDashboardData(tenantId: string) {
   const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const quarterStart = sastQuarterBounds(now).start
 
+  // Book, arrears and PAR come from the helper the collections page, the
+  // sidebar badge and the NCR return also read (lib/reports/book-arrears.ts).
+  // The NCR panel uses the NCA scope, so it states the return's own figures.
+  const chargesLive = await chargesLiveForTenant(prisma, tenantId)
   const [
-    collectibleLoans,
-    portfolioAgg,
-    arrearsAgg,
-    par,
+    book,
+    ncaBook,
     pendingApps,
     approvedReady,
     disbursedMonth, disbursedPrevMonth,
-    collectionsToday,
     paymentsWeek,
     topArrears,
     writeOffsQtr,
     recentPayments,
   ] = await Promise.all([
-    // Counts the same population as `bookValue` below, so the card's count and
-    // its value describe one set. It was an ACTIVE-only count sitting beside a
-    // collectible-book value.
-    prisma.loan.count({ where: collectibleLoanWhere(tenantId) }),
-    // The collectible book, so this figure shares its population with the PAR
-    // percentages rendered beside it. It was ACTIVE-only while those ratios
-    // divided by a wider book.
-    prisma.loan.aggregate({ where: collectibleLoanWhere(tenantId), _sum: { outstandingPrincipal: true } }),
-    prisma.loan.aggregate({ where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 }, arrearsAmount: { gt: 0 } }, _sum: { arrearsAmount: true, chargesOutstanding: true }, _count: true }),
-    getPortfolioPar(tenantId),
+    getBookArrears(tenantId, "ALL"),
+    getBookArrears(tenantId, "NCA"),
     prisma.loanApplication.findMany({
       where: { tenantId, status: { in: ["SUBMITTED","UNDER_REVIEW"] } },
       take: 6,
@@ -90,7 +83,6 @@ async function getDashboardData(tenantId: string) {
     }),
     prisma.loan.aggregate({ where: { tenantId, startDate: { gte: monthStart } }, _sum: { principal: true }, _count: true }),
     prisma.loan.aggregate({ where: { tenantId, startDate: { gte: prevMonthStart, lt: monthStart } }, _sum: { principal: true }, _count: true }),
-    prisma.loan.count({ where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 }, arrearsAmount: { gt: 0 } } }),
     prisma.payment.aggregate({
       where: {
         tenantId,
@@ -102,7 +94,7 @@ async function getDashboardData(tenantId: string) {
       _sum: { amount: true }, _count: true,
     }),
     prisma.loan.findMany({
-      where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 }, arrearsAmount: { gt: 0 } },
+      where: inArrearsWhere(tenantId, chargesLive),
       orderBy: { daysInArrears: "desc" },
       take: 6,
       include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
@@ -117,22 +109,16 @@ async function getDashboardData(tenantId: string) {
     }),
   ])
 
-  const bookValue = portfolioAgg._sum.outstandingPrincipal ?? 0
-  // Arrears shown to people include default charges owed (synced summary column).
-  const chargesLive = await chargesLiveForTenant(prisma, tenantId)
-  const totalArrears = (arrearsAgg._sum.arrearsAmount ?? 0) + (chargesLive ? arrearsAgg._sum.chargesOutstanding ?? 0 : 0)
-  const arrearsCount = arrearsAgg._count
   const thisMonth = disbursedMonth._sum.principal ?? 0
   const prevMonth = disbursedPrevMonth._sum.principal ?? 0
   const monthTrend = prevMonth > 0 ? ((thisMonth - prevMonth) / prevMonth) * 100 : 0
 
   return {
     chargesLive,
-    collectibleLoans, bookValue, totalArrears, arrearsCount,
-    par,
+    book, ncaBook,
     pendingApps, approvedReady,
     thisMonth, monthTrend, disbursedMonthCount: disbursedMonth._count,
-    collectionsToday, paymentsWeek: paymentsWeek._sum.amount ?? 0, paymentsWeekCount: paymentsWeek._count,
+    paymentsWeek: paymentsWeek._sum.amount ?? 0, paymentsWeekCount: paymentsWeek._count,
     topArrears, writeOffsQtr, recentPayments,
   }
 }
@@ -193,7 +179,7 @@ export default async function DashboardPage() {
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Book value" value={fmt(d.bookValue)} detail={`${d.collectibleLoans} loans owed`} />
+        <MetricCard label="Book value" value={fmt(d.book.book.value)} detail={`${d.book.book.count} loans owed`} />
         <MetricCard
           label={`Disbursed (${monthName})`}
           value={fmt(d.thisMonth)}
@@ -207,26 +193,26 @@ export default async function DashboardPage() {
         />
         <MetricCard
           label="Total arrears"
-          value={fmt(d.totalArrears)}
-          detail={`${d.arrearsCount} accounts`}
-          tone={d.arrearsCount > 0 ? "danger" : "neutral"}
-          className={d.arrearsCount > 0 ? "bg-[rgba(208,92,75,0.08)]" : undefined}
+          value={fmt(d.book.arrears.amount)}
+          detail={`${d.book.arrears.count} accounts`}
+          tone={d.book.arrears.count > 0 ? "danger" : "neutral"}
+          className={d.book.arrears.count > 0 ? "bg-[rgba(208,92,75,0.08)]" : undefined}
         />
         <MetricCard label="Collected (7 days)" value={fmt(d.paymentsWeek)} detail={`${d.paymentsWeekCount} payments`} tone="success" />
       </div>
 
       <DataPanel
         title="Portfolio at risk"
-        description={`${d.collectionsToday} account${d.collectionsToday === 1 ? "" : "s"} currently in the collections queue.`}
+        description={`${d.book.arrears.count} account${d.book.arrears.count === 1 ? "" : "s"} in arrears.`}
         variant="raised"
         density="loose"
         actions={<Button asChild variant="outline" size="sm"><Link href="/reports/arrears-aging">Full aging report</Link></Button>}
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
-            { label: "PAR 30+", b: d.par.par30, tone: "warning" as StatusTone },
-            { label: "PAR 60+", b: d.par.par60, tone: "warning" as StatusTone },
-            { label: "PAR 90+", b: d.par.par90, tone: "danger" as StatusTone },
+            { label: "PAR 30+", b: d.book.par30, tone: "warning" as StatusTone },
+            { label: "PAR 60+", b: d.book.par60, tone: "warning" as StatusTone },
+            { label: "PAR 90+", b: d.book.par90, tone: "danger" as StatusTone },
           ].map((bucket) => (
             <div key={bucket.label} className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-4">
               <div className="flex items-center justify-between">
@@ -240,6 +226,7 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
+        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} />
         {d.writeOffsQtr > 0 && (
           <InfoStrip variant="danger" className="mt-4">
             {d.writeOffsQtr} write-off{d.writeOffsQtr !== 1 ? "s" : ""} recorded this quarter.
@@ -428,21 +415,22 @@ export default async function DashboardPage() {
           <DataPanel title="NCR compliance" description="Snapshot for regulatory monitoring." variant="default">
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <span className="text-[var(--cf-text-muted)]">Collectible book</span>
-                <span className="font-bold tabular-nums text-[var(--cf-text)]">{fmt(d.bookValue)}</span>
+                <span className="text-[var(--cf-text-muted)]">Collectible book (NCA)</span>
+                <span className="font-bold tabular-nums text-[var(--cf-text)]">{fmt(d.ncaBook.book.value)}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[var(--cf-text-muted)]">PAR 30+</span>
-                <StatusPill tone={d.par.par30.count > 0 ? "warning" : "neutral"}>{d.par.par30.pct.toFixed(1)}% · {d.par.par30.count} accounts</StatusPill>
+                <StatusPill tone={d.ncaBook.par30.count > 0 ? "warning" : "neutral"}>{d.ncaBook.par30.pct.toFixed(1)}% · {d.ncaBook.par30.count} accounts</StatusPill>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[var(--cf-text-muted)]">NPL (PAR 90+)</span>
-                <StatusPill tone={d.par.par90.count > 0 ? "danger" : "neutral"}>{d.par.par90.pct.toFixed(1)}% · {d.par.par90.count} accounts</StatusPill>
+                <StatusPill tone={d.ncaBook.par90.count > 0 ? "danger" : "neutral"}>{d.ncaBook.par90.pct.toFixed(1)}% · {d.ncaBook.par90.count} accounts</StatusPill>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-[var(--cf-text-muted)]">Write-offs (QTR)</span>
                 <StatusPill tone={d.writeOffsQtr > 0 ? "danger" : "neutral"}>{d.writeOffsQtr}</StatusPill>
               </div>
+              <BookDefinitions scope={BOOK_DEFINITIONS.scopeNca} />
               <Button asChild variant="outline" size="sm" className="mt-2 w-full">
                 <Link href="/compliance/ncr-return">NCR return</Link>
               </Button>

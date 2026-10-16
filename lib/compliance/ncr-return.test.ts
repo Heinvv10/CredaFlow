@@ -27,9 +27,9 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+import { collectibleParWhere as parWhere } from "@/lib/loan/collectible-book"
 import {
   getNcrReturnData,
-  parWhere,
   disbursedInQuarterWhere,
   receiptsInQuarterWhere,
   submissionSnapshot,
@@ -50,7 +50,11 @@ const NOW = new Date("2026-08-16T10:00:00Z") // in 2026-Q3, so Q2 is closed
 function stubQueries() {
   loanAggregate.mockImplementation((args: { where: Prisma.LoanWhereInput }) => {
     const w = args.where as Record<string, unknown>
-    const dpd = (w.daysInArrears as { gte?: number } | undefined)?.gte
+    // Book, arrears and PAR come from lib/reports/book-arrears.ts: a PAR band
+    // narrows the arrears population with AND [{ daysInArrears: { gte } }].
+    const band = (w.AND as Array<{ daysInArrears?: { gte?: number } }> | undefined)?.[0]?.daysInArrears?.gte
+    const inArrears = (w.daysInArrears as { gt?: number } | undefined)?.gt === 0
+    const dpd = band ?? (inArrears ? 1 : undefined)
     if (w.startDate) return { _count: 7, _sum: { principal: 700_00 } }
     // Write-offs key on the timestamp, not the status: the query deliberately
     // carries no status predicate so the line stays reproducible.

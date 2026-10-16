@@ -12,7 +12,8 @@ import {
   quarterLabel,
   sastMonthBounds,
 } from "@/lib/compliance/quarters"
-import { disbursedInQuarterWhere, getNcrReturnData, parWhere } from "@/lib/compliance/ncr-return"
+import { disbursedInQuarterWhere, getNcrReturnData } from "@/lib/compliance/ncr-return"
+import { inArrearsWhere } from "@/lib/reports/book-arrears"
 import { logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
@@ -298,7 +299,8 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.loan.findMany({
-        where: { ...parWhere(tenant.id, 1), ncaRegime: "NCA" },
+        // The accounts behind the return's arrears line (lib/reports/book-arrears.ts).
+        where: inArrearsWhere(tenant.id, await chargesLiveForTenant(prisma, tenant.id), "NCA"),
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
           entity: { select: { legalName: true } },
