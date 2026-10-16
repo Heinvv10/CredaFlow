@@ -47,9 +47,20 @@ describe("bookArrearsFromSnapshot (book-arrears definitions)", () => {
 })
 
 describe("snapshotTenantArrears", () => {
-  it("derives DPD and arrears from the schedule as of the run and inserts idempotently", async () => {
-    const createMany = vi.fn(async () => ({ count: 1 }))
-    const runCreateMany = vi.fn(async () => ({ count: 1 }))
+  function writerDb(opts: { markerExists?: boolean; rowsFail?: boolean } = {}) {
+    const order: string[] = []
+    const createMany = vi.fn(async () => {
+      order.push("rows")
+      if (opts.rowsFail) throw new Error("connection reset")
+      return { count: 1 }
+    })
+    const runCreateMany = vi.fn(async () => { order.push("marker"); return { count: opts.markerExists ? 0 : 1 } })
+    const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      order.push("begin")
+      const result = await fn({ loanArrearsSnapshot: { createMany }, arrearsSnapshotRun: { createMany: runCreateMany } })
+      order.push("commit")
+      return result
+    })
     const db = {
       tenantConfig: { findUnique: vi.fn(async () => null) },
       loan: { findMany: vi.fn(async () => [{
@@ -60,23 +71,44 @@ describe("snapshotTenantArrears", () => {
           { dueDate: new Date("2026-10-17T06:30:01Z"), principalDue: 289_000, interestDue: 50_000, feesDue: 0, totalDue: 339_000, totalPaid: 0 },
         ],
       }]) },
-      loanArrearsSnapshot: { createMany },
-      arrearsSnapshotRun: { createMany: runCreateMany },
+      $transaction: transaction,
     } as unknown as Parameters<typeof snapshotTenantArrears>[2]
-    const result = await snapshotTenantArrears("t1", new Date("2026-10-16T21:45:00Z"), db)
+    return { db, createMany, runCreateMany, transaction, order }
+  }
+  const AS_OF = new Date("2026-10-16T21:45:00Z")
+
+  it("derives DPD and arrears from the schedule as of the run", async () => {
+    const { db, createMany, runCreateMany } = writerDb()
+    const result = await snapshotTenantArrears("t1", AS_OF, db)
     expect(result).toEqual({ snapshotDate: "2026-10-16", loans: 1, written: 1 })
     expect(createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({
         tenantId: "t1", loanId: "l1", snapshotDate: new Date("2026-10-16T00:00:00.000Z"),
         daysInArrears: 29, arrearsCents: 84_330, outstandingPrincipalCents: 2_713_391, chargesLive: false,
       })],
-      skipDuplicates: true,
     })
-    // The day's run marker, after the rows: an empty book still records a run.
     expect(runCreateMany).toHaveBeenCalledWith({
       data: [{ tenantId: "t1", snapshotDate: new Date("2026-10-16T00:00:00.000Z"), loanCount: 1 }],
       skipDuplicates: true,
     })
-    expect(runCreateMany.mock.invocationCallOrder[0]).toBeGreaterThan(createMany.mock.invocationCallOrder[0])
+  })
+
+  // Re-review of #153: the rows and the marker commit together.
+  it("writes the marker and the rows in one transaction", async () => {
+    const { db, order } = writerDb()
+    await snapshotTenantArrears("t1", AS_OF, db)
+    expect(order).toEqual(["begin", "marker", "rows", "commit"])
+  })
+
+  it("adds nothing to a day that already has its marker", async () => {
+    const { db, createMany } = writerDb({ markerExists: true })
+    expect(await snapshotTenantArrears("t1", AS_OF, db)).toMatchObject({ written: 0 })
+    expect(createMany).not.toHaveBeenCalled()
+  })
+
+  it("propagates a failed row insert out of the transaction, so the marker is rolled back with it", async () => {
+    const { db, order } = writerDb({ rowsFail: true })
+    await expect(snapshotTenantArrears("t1", AS_OF, db)).rejects.toThrow("connection reset")
+    expect(order).toEqual(["begin", "marker", "rows"])
   })
 })

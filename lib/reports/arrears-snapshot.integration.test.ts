@@ -52,6 +52,25 @@ suite("daily arrears history", () => {
     ])
   })
 
+  // Re-review of #153: rows and marker commit together, so a crash part-way
+  // leaves the day unrecorded rather than rows without a marker.
+  it("rolls the day's marker back with its rows when the write fails", async () => {
+    const crashing = {
+      ...appDb,
+      loan: db.loan, tenantConfig: db.tenantConfig,
+      $transaction: <T>(fn: (tx: never) => Promise<T>) => db.$transaction((tx) => fn({
+        arrearsSnapshotRun: tx.arrearsSnapshotRun,
+        loanArrearsSnapshot: { createMany: async () => { throw new Error("crash mid-write") } },
+      } as never)),
+    } as unknown as typeof appDb
+    const CRASH_DAY = new Date("2026-11-15T20:00:00Z")
+    await expect(snapshotTenantArrears(tenantId, CRASH_DAY, crashing)).rejects.toThrow("crash mid-write")
+    expect(await db.arrearsSnapshotRun.count({ where: { tenantId, snapshotDate: snapshotDay(CRASH_DAY) } })).toBe(0)
+    // The next run that day records it whole.
+    expect(await snapshotTenantArrears(tenantId, CRASH_DAY, appDb)).toMatchObject({ written: 1 })
+    expect(await db.arrearsSnapshotRun.count({ where: { tenantId, snapshotDate: snapshotDay(CRASH_DAY) } })).toBe(1)
+  })
+
   it("returns each closed quarter from its own last day: the earlier quarter from the earlier snapshot", async () => {
     const q3 = await getNcrReturnData(tenantId, "2026-Q3", AFTER_Q4)
     const q4 = await getNcrReturnData(tenantId, "2026-Q4", AFTER_Q4)

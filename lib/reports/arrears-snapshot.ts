@@ -39,13 +39,17 @@ export function snapshotDay(instant: Date): Date {
   return new Date(`${sastCalendarDate(instant)}T00:00:00.000Z`)
 }
 
-type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig" | "loanArrearsSnapshot" | "arrearsSnapshotRun">
+type WriterTx = Pick<typeof prisma, "loanArrearsSnapshot" | "arrearsSnapshotRun">
+type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig"> & {
+  $transaction: <T>(fn: (tx: WriterTx) => Promise<T>) => Promise<T>
+}
 
 /**
- * Record today's position for every collectible loan of one tenant, then the
- * day's run marker. Idempotent per day: a row that exists for (tenant, loan,
- * day) or (tenant, day) is left as written. The marker goes in last, so a run
- * interrupted between the two is completed by the next one the same day.
+ * Record today's position for every collectible loan of one tenant, with the
+ * day's run marker, in one transaction: all of the day or none of it. A day
+ * whose marker exists is complete and is never added to, so every row of a
+ * day comes from one run, one moment (a rerun or a concurrent run that loses
+ * the marker insert writes nothing).
  */
 export async function snapshotTenantArrears(
   tenantId: string,
@@ -77,8 +81,11 @@ export async function snapshotTenantArrears(
       chargesLive,
     }
   })
-  const written = data.length === 0 ? 0 : (await db.loanArrearsSnapshot.createMany({ data, skipDuplicates: true })).count
-  await db.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: loans.length }], skipDuplicates: true })
+  const written = await db.$transaction(async (tx) => {
+    const run = await tx.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: loans.length }], skipDuplicates: true })
+    if (run.count === 0) return 0
+    return data.length === 0 ? 0 : (await tx.loanArrearsSnapshot.createMany({ data })).count
+  })
   return { snapshotDate: sastCalendarDate(asOf), loans: loans.length, written }
 }
 
