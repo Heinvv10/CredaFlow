@@ -7,6 +7,7 @@ import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { formatCents, toCents } from "@/lib/insurance/rand-cents"
 import { DECIMAL_12_2_MAX_CENTS, parseDecimalAmount } from "../../decimal-input"
+import { CLAIM_ACTIONS, OPEN_CLAIM_STATUSES, parseGenericClaimUpdate, type ClaimPatchBody } from "@/lib/insurance/claims/claim-patch"
 
 export async function GET(
   req: NextRequest,
@@ -58,38 +59,53 @@ export async function PATCH(
       const blocked = await requireImsEnabled(tenant.id)
       if (blocked) return blocked
 
-      const body = await req.json() as {
-        action?: "approve" | "reject"
-        assessorId?: string
-        insurerRef?: string
-        approvedAmount?: number
-        rejectionReason?: string
-        // Generic status update
-        status?: string
-        notes?: string
-        // Enriched claim fields
-        claimType?: string
-        incidentDate?: string
-        fnolDate?: string
+      const body = (await req.json().catch(() => null)) as ClaimPatchBody | null
+      if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+      const action = body.action ?? undefined
+      if (action !== undefined && !(CLAIM_ACTIONS as readonly unknown[]).includes(action)) {
+        return NextResponse.json({ error: `action must be one of ${CLAIM_ACTIONS.join(", ")}` }, { status: 400 })
       }
+      if (body.assessorId !== undefined && body.assessorId !== null) {
+        const assessor = typeof body.assessorId === "string"
+          ? await prisma.user.findFirst({ where: { id: body.assessorId, tenantId: tenant.id, active: true }, select: { id: true } })
+          : null
+        if (!assessor) return NextResponse.json({ error: "assessorId must be an active staff user of this lender" }, { status: 400 })
+      }
+      const assessorId = body.assessorId as string | null | undefined
+      const insurerRef = typeof body.insurerRef === "string" ? body.insurerRef : undefined
+      const decisionFields = {
+        ...(assessorId !== undefined ? { assessorId } : {}),
+        ...(insurerRef !== undefined ? { insurerRef } : {}),
+      }
+      const audit = (auditAction: string, newValue: Record<string, unknown>) => logAudit({
+        tenantId: tenant.id,
+        userId: guard.user.id,
+        userEmail: guard.user.email,
+        action: auditAction,
+        entity: "InsuranceClaim",
+        entityId: id,
+        newValue,
+      })
+      const current = await prisma.insuranceClaim.findFirst({
+        where: { id, tenantId: tenant.id },
+        select: { status: true, claimAmount: true, approvedAmount: true, policy: { select: { sumAssured: true } } },
+      })
+      if (!current) return NextResponse.json({ error: "Claim not found" }, { status: 404 })
+      const decidable = (OPEN_CLAIM_STATUSES as readonly string[]).includes(current.status)
+      const changed = () => NextResponse.json({ error: "The claim changed while it was being updated. Refresh and try again." }, { status: 409 })
+      const reread = () => prisma.insuranceClaim.findFirst({ where: { id, tenantId: tenant.id } })
 
-      // A generic { status: "APPROVED" } is an approval: it needs an amount
-      // and the same bounds, never a bare status write.
-      if (body.action === "approve" || (body.action === undefined && body.status === "APPROVED")) {
+      if (action === "approve") {
         if (body.approvedAmount == null) {
           return NextResponse.json({ error: "approvedAmount is required for approval" }, { status: 400 })
         }
         const parsed = parseDecimalAmount("approvedAmount", body.approvedAmount, { maxCents: DECIMAL_12_2_MAX_CENTS })
         if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
         const approvedAmount = parsed.value
+        if (!decidable) return NextResponse.json({ error: `A ${current.status} claim has already been decided.` }, { status: 409 })
 
         // The insurer pays at most what was claimed, and never more than the
         // cover. Compared in exact cents (Decimal columns, never a float).
-        const current = await prisma.insuranceClaim.findFirst({
-          where: { id, tenantId: tenant.id },
-          select: { claimAmount: true, policy: { select: { sumAssured: true } } },
-        })
-        if (!current) return NextResponse.json({ error: "Claim not found" }, { status: 404 })
         const approvedCents = toCents(approvedAmount)
         if (approvedCents > toCents(current.claimAmount)) {
           return NextResponse.json(
@@ -104,104 +120,69 @@ export async function PATCH(
           )
         }
 
-        // Both bounds again in the write itself, so a claim or policy changed
-        // since the read cannot slip an amount past them.
+        // The status and both bounds again in the write itself, so a claim or
+        // policy changed since the read cannot slip an amount past them.
         const written = await prisma.insuranceClaim.updateMany({
           where: {
             id,
             tenantId: tenant.id,
+            status: { in: [...OPEN_CLAIM_STATUSES] },
             claimAmount: { gte: approvedAmount },
             policy: { sumAssured: { gte: approvedAmount } },
           },
-          data: {
-            status: "APPROVED",
-            approvedAmount,
-            resolvedAt: new Date(),
-            ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
-            ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
-          },
+          data: { status: "APPROVED", approvedAmount, resolvedAt: new Date(), ...decisionFields },
         })
-        if (written.count === 0) {
-          return NextResponse.json({ error: "The claim changed while it was being approved. Refresh and try again." }, { status: 409 })
-        }
-        const claim = await prisma.insuranceClaim.findFirst({ where: { id, tenantId: tenant.id } })
-
-        await logAudit({
-          tenantId: tenant.id,
-          userId: guard.user.id,
-          userEmail: guard.user.email,
-          action: AuditAction.INSURANCE_CLAIM_APPROVED,
-          entity: "InsuranceClaim",
-          entityId: id,
-          newValue: {
-            status: "APPROVED",
-            approvedAmount,
-            ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
-            ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
-          },
-        })
-
-        return NextResponse.json(claim)
+        if (written.count === 0) return changed()
+        await audit(AuditAction.INSURANCE_CLAIM_APPROVED, { status: "APPROVED", approvedAmount, ...decisionFields })
+        return NextResponse.json(await reread())
       }
 
-      if (body.action === "reject") {
-        if (!body.rejectionReason) {
+      if (action === "reject") {
+        if (typeof body.rejectionReason !== "string" || !body.rejectionReason.trim()) {
           return NextResponse.json({ error: "rejectionReason is required for rejection" }, { status: 400 })
         }
-
-        const claim = await prisma.insuranceClaim.update({
-          where: { id, tenantId: tenant.id },
-          data: {
-            status: "REJECTED",
-            resolvedAt: new Date(),
-            rejectionReason: body.rejectionReason,
-            ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
-            ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
-          },
+        const rejectionReason = body.rejectionReason
+        if (!decidable) return NextResponse.json({ error: `A ${current.status} claim has already been decided.` }, { status: 409 })
+        const written = await prisma.insuranceClaim.updateMany({
+          where: { id, tenantId: tenant.id, status: { in: [...OPEN_CLAIM_STATUSES] } },
+          data: { status: "REJECTED", resolvedAt: new Date(), rejectionReason, ...decisionFields },
         })
-
-        await logAudit({
-          tenantId: tenant.id,
-          userId: guard.user.id,
-          userEmail: guard.user.email,
-          action: AuditAction.INSURANCE_CLAIM_REJECTED,
-          entity: "InsuranceClaim",
-          entityId: id,
-          newValue: {
-            status: "REJECTED",
-            rejectionReason: body.rejectionReason,
-            ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
-            ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
-          },
-        })
-
-        return NextResponse.json(claim)
+        if (written.count === 0) return changed()
+        await audit(AuditAction.INSURANCE_CLAIM_REJECTED, { status: "REJECTED", rejectionReason, ...decisionFields })
+        return NextResponse.json(await reread())
       }
 
-      // Generic update (status / notes / enriched fields)
-      const updateData: Record<string, unknown> = {}
-      if (body.status) updateData.status = body.status
-      if (body.notes !== undefined) updateData.notes = body.notes
-      if (body.claimType !== undefined) updateData.claimType = body.claimType
-      if (body.incidentDate !== undefined) updateData.incidentDate = body.incidentDate ? new Date(body.incidentDate) : null
-      if (body.fnolDate !== undefined) updateData.fnolDate = body.fnolDate ? new Date(body.fnolDate) : null
-      if (body.assessorId !== undefined) updateData.assessorId = body.assessorId
-      if (body.insurerRef !== undefined) updateData.insurerRef = body.insurerRef
-      if (body.rejectionReason !== undefined) updateData.rejectionReason = body.rejectionReason
+      if (action === "mark_paid") {
+        if (current.status !== "APPROVED") {
+          return NextResponse.json({ error: `Only an APPROVED claim can be recorded as paid; this one is ${current.status}.` }, { status: 409 })
+        }
+        const written = await prisma.insuranceClaim.updateMany({
+          where: { id, tenantId: tenant.id, status: "APPROVED" },
+          data: { status: "PAID", ...decisionFields },
+        })
+        if (written.count === 0) return changed()
+        await audit(AuditAction.INSURANCE_CLAIM_PAID, {
+          status: "PAID",
+          approvedAmount: current.approvedAmount === null ? null : current.approvedAmount.toFixed(2),
+          ...decisionFields,
+        })
+        return NextResponse.json(await reread())
+      }
 
-      const claim = await prisma.insuranceClaim.update({ where: { id, tenantId: tenant.id }, data: updateData })
-
-      await logAudit({
-        tenantId: tenant.id,
-        userId: guard.user.id,
-        userEmail: guard.user.email,
-        action: AuditAction.INSURANCE_CLAIM_UPDATED,
-        entity: "InsuranceClaim",
-        entityId: id,
-        newValue: updateData,
+      // Generic update: details, and a move between the two open statuses only.
+      const generic = parseGenericClaimUpdate(body)
+      if (!generic.ok) return NextResponse.json({ error: generic.error }, { status: 400 })
+      const updateData: Record<string, unknown> = { ...generic.data, ...decisionFields }
+      if (updateData.status !== undefined && !decidable) {
+        return NextResponse.json({ error: `A ${current.status} claim has already been decided.` }, { status: 409 })
+      }
+      const written = await prisma.insuranceClaim.updateMany({
+        where: { id, tenantId: tenant.id, ...(updateData.status !== undefined ? { status: { in: [...OPEN_CLAIM_STATUSES] } } : {}) },
+        data: updateData,
       })
-
-      return NextResponse.json(claim)
+      if (written.count === 0) return changed()
+      await audit(AuditAction.INSURANCE_CLAIM_UPDATED, updateData)
+      return NextResponse.json(await reread())
     })
   } catch (error) {
     console.error("Failed to update claim:", error)
