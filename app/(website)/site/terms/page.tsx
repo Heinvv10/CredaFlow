@@ -69,7 +69,7 @@ const sections = (identity: Pick<LenderIdentity, "tradingName" | "legalName" | "
   {
     heading: "6. Complaints",
     body: [
-      "If something goes wrong, we want to put it right. You can lodge a complaint through our contact page, and we handle complaints in line with NCA and FAIS escalation routes, including referral to the National Credit Regulator, the National Consumer Tribunal or the FAIS Ombud where applicable.",
+      "If something goes wrong, we want to put it right. Lodge a complaint with us first, through our contact page. If we do not resolve it, you can take a credit complaint to the Credit Ombud or the National Credit Regulator, which can refer a matter to the National Consumer Tribunal; complaints about insurance or financial advice go to the FAIS Ombud.",
     ],
     links: [{ label: "Lodge a complaint", href: "/site/contact#complaints" }],
   },

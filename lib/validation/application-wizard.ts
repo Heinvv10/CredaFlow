@@ -2,6 +2,7 @@ import type {
   ApplicationProduct,
   ApplicationWizardData,
 } from "@/components/applications/wizard/types"
+import { AFFORDABILITY_FAIL_REVIEW_REQUIRED } from "@/lib/applications/wizard-copy"
 
 /**
  * Partial record of field-level validation error messages.
@@ -67,7 +68,7 @@ export function validateStep3Affordability(
     return errs
   }
   if (d.affordabilityFlag === "FAIL" && !d.recklessLendingConfirmed) {
-    errs.recklessLendingConfirmed = "Acknowledge reckless-lending risk to proceed"
+    errs.recklessLendingConfirmed = AFFORDABILITY_FAIL_REVIEW_REQUIRED
   }
   return errs
 }

@@ -158,7 +158,7 @@ describe("CollectionsTabs search", () => {
   })
 
   it("filters by product", () => {
-    setInput("Filter by product", "PERSONAL")
+    setInput("Filter by product", "Personal")
     expect(references()).toEqual(["COL-BBB", "COL-CCC"])
   })
 
@@ -205,12 +205,12 @@ describe("CollectionsTabs search", () => {
   // plainly has rows (COL-BBB) read as "no accounts match" while the visible
   // dropdown claimed no filter was on.
   it("keeps the product filter selected and visible when switching to a tab with no matching product", () => {
-    setInput("Filter by product", "MICRO")
+    setInput("Filter by product", "Micro")
     clickTab("Hard (30-59)")
 
     const select = renderer.root.findByProps({ "aria-label": "Filter by product" })
-    expect(select.props.value).toBe("MICRO")
-    expect(selectOptionValues("Filter by product")).toContain("MICRO")
+    expect(select.props.value).toBe("Micro")
+    expect(selectOptionValues("Filter by product")).toContain("Micro")
 
     // The row list is genuinely empty for this tab+filter combo (Hard only
     // has PERSONAL), but that must read as a FILTERED empty state, not the
@@ -277,5 +277,31 @@ describe("CollectionsTabs amount search is exact, not substring", () => {
   it("matches the exact cent value when the query names cents", () => {
     setInput("Search collections", "1500.50")
     expect(references()).toEqual(["COL-DDD"])
+  })
+})
+
+describe("CollectionsTabs rows", () => {
+  afterEach(() => {
+    act(() => renderer.unmount())
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+  })
+
+  function render(loans: ReturnType<typeof loan>[]) {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    act(() => {
+      renderer = create(<CollectionsTabs tabs={TABS} loans={loans} />)
+    })
+  }
+
+  it("names an asset-finance contract by its contract type", () => {
+    render([loan({ contractType: "INSTALMENT_SALE", product: { name: "Plant & Vehicle Instalment Sale", productType: "PERSONAL" } })])
+    expect(renderedText()).toContain("Instalment sale")
+    expect(renderedText()).not.toContain("Personal")
+  })
+
+  // Fair Score audit 2026-10-16: the queue said only "Failed".
+  it("shows why the last Section 129 notice was not sent", () => {
+    render([loan({ daysInArrears: 95, section129Failure: { failedAt: "2026-10-16T10:00:00.000Z", reason: "Email not configured for this tenant. Go to Settings → Email." } })])
+    expect(renderedText()).toContain("S.129 not sent: Email not configured for this tenant. Go to Settings → Email.")
   })
 })

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { sendEmail } from "@/lib/email/service"
+import { sendSection129Email } from "@/lib/collections/section129-email"
 import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
@@ -37,6 +37,8 @@ type BulkSection129Result = {
   outcome: "SENT" | "SKIPPED" | "FAILED" | "RECOVERY_REQUIRED" | "RECONCILIATION_REQUIRED"
   issuanceId?: string
   error?: string
+  /** Recorded as simulated (not sent): a demo stack's .invalid mailbox. */
+  simulated?: true
 }
 
 export async function POST(req: NextRequest) {
@@ -196,6 +198,8 @@ export async function POST(req: NextRequest) {
         acceptedAt?: Date
         error?: string
         providerOutcome?: "ACCEPTED" | "DEFINITELY_REJECTED" | "AMBIGUOUS"
+        /** Demo stack, .invalid mailbox: recorded, never sent (lib/collections/section129-email.ts). */
+        simulated?: true
       }
       let providerInvoked = false
 
@@ -291,7 +295,7 @@ export async function POST(req: NextRequest) {
             loanId: loan.id,
             actorId: actor.id,
             actorEmail: actor.email,
-            dispatch: (markProviderInvocation) => sendEmail({
+            dispatch: (markProviderInvocation) => sendSection129Email({
                 tenantId: tenant.id,
                 to: loan.client.email,
                 toName: clientName,
@@ -454,6 +458,7 @@ export async function POST(req: NextRequest) {
             ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
             : {}),
           issuedAt: result.acceptedAt,
+          ...(result.simulated ? { simulated: true } : {}),
         })
       } catch (error) {
         failed++
@@ -484,7 +489,10 @@ export async function POST(req: NextRequest) {
       }
 
       sent++
-      results.push({ loanId: loan.id, reference: loan.reference, outcome: "SENT", issuanceId: reservation.issuanceId })
+      results.push({
+        loanId: loan.id, reference: loan.reference, outcome: "SENT", issuanceId: reservation.issuanceId,
+        ...(result.simulated ? { simulated: true } : {}),
+      })
     }
 
     return NextResponse.json({

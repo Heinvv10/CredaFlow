@@ -209,6 +209,29 @@ describe("PATCH /api/complaints/[id]", () => {
     expect(complaints[0].acknowledgedAt).toBe(first)
   })
 
+  // Fair Score audit 2026-10-16: an Open complaint could not be acknowledged or
+  // resolved directly; it sat ">24h unacknowledged".
+  it("acknowledges an open complaint without changing its status, audited", async () => {
+    const response = await patch("complaint-a", { acknowledge: true })
+    expect(response.status).toBe(200)
+    expect(complaints[0].status).toBe("OPEN")
+    expect(complaints[0].acknowledgedAt).toBeInstanceOf(Date)
+    expect(auditData()).toMatchObject({
+      oldValue: { acknowledgedAt: null },
+      newValue: { acknowledgedAt: complaints[0].acknowledgedAt?.toISOString() },
+    })
+  })
+
+  it("answers 400 to an acknowledge that is not true, writing nothing", async () => {
+    expect((await patch("complaint-a", { acknowledge: "yes" })).status).toBe(400)
+    nothingWritten()
+  })
+
+  it("acknowledges a complaint resolved straight from Open", async () => {
+    await patch("complaint-a", { status: "RESOLVED" })
+    expect(complaints[0]).toMatchObject({ status: "RESOLVED", acknowledgedAt: expect.any(Date), resolvedAt: expect.any(Date) })
+  })
+
   it("answers 400 to a resolvedAt that is null or not a date, writing nothing", async () => {
     // new Date(null) is 1970-01-01: stored, it would falsify the complaint's timing record.
     for (const resolvedAt of [null, "not-a-date", 0]) {

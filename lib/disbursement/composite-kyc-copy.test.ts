@@ -1,6 +1,7 @@
 import { readFileSync } from "fs"
 import path from "path"
 import { describe, expect, it } from "vitest"
+import { kycApprovalBlockedMessage } from "@/lib/kyc/approval-blocked-message"
 
 /**
  * The composite KYC gate is satisfied by THREE independent substitutes —
@@ -18,7 +19,6 @@ const ROOT = path.resolve(__dirname, "..", "..")
 const SURFACES = [
   "lib/disbursement/preconditions.ts",
   "app/api/applications/[id]/disburse/route.ts",
-  "app/api/clients/[id]/route.ts",
 ]
 
 describe("composite KYC copy names every substitute path", () => {
@@ -39,5 +39,16 @@ describe("composite KYC copy names every substitute path", () => {
       expect(source).not.toMatch(/either the current valid biometric attempt or an exact reasoned senior exception/i)
       expect(source).not.toMatch(/Failed biometrics require the separate/i)
     }
+  })
+})
+
+// The KYC-approval refusal (app/api/clients/[id]/route.ts) now speaks plain
+// words (lib/kyc/approval-blocked-message.ts) and must still name all three.
+describe("KYC approval refusal names every substitute path", () => {
+  it("names a passing selfie, an in-person verification and a reasoned exception", () => {
+    const message = kycApprovalBlockedMessage({ enabled: true, minRole: "ADMIN" })
+    expect(message).toMatch(/selfie that passed/)
+    expect(message).toMatch(/in person/)
+    expect(message).toMatch(/reasoned exception/)
   })
 })

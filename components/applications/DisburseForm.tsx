@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
+import { formatZAR } from "@/lib/utils"
 
 interface Props {
   applicationId: string
@@ -21,10 +22,6 @@ interface Props {
     bankBranchCode: string | null
     accountType: string | null
   }
-}
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 /**

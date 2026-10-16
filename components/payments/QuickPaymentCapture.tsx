@@ -9,6 +9,7 @@ import {
   PAYMENT_IDEMPOTENCY_HEADER,
   type PaymentAttempt,
 } from "@/lib/payments/idempotency"
+import { formatZAR } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -22,10 +23,6 @@ const METHODS = [
   { value: "DEBIT_ORDER", label: "Debit Order" },
   { value: "CARD", label: "Card" },
 ]
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 export function QuickPaymentCapture({ loanId, loanRef, outstanding }: Props) {
   const router = useRouter()

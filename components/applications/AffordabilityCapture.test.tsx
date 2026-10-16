@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server"
+import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 import { AffordabilityCapture } from "./AffordabilityCapture"
+
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+vi.mock("@/lib/toast", () => ({ toast: toastMock }))
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -144,5 +148,47 @@ describe("AffordabilityCapture account-type rendering", () => {
 
     expect(html).toContain("Unrecognised (BOAT_FINANCE)")
     expect(html).not.toContain('value="HOME_LOAN" selected=""')
+  })
+})
+
+// Fair Score audit 2026-10-16: this panel printed "R 26 492,35" beside the
+// application page's "R 30,000.00". One house format (lib/utils formatZAR).
+describe("AffordabilityCapture money format", () => {
+  it("prints amounts in the house format", () => {
+    const html = renderToStaticMarkup(
+      <AffordabilityCapture
+        applicationId="application-1"
+        monthlyIncome={4_500_000}
+        monthlyExpenses={1_850_765}
+        existingDebts={[]}
+        clientDebtTotal={0}
+        proposedInstalment={200_000}
+        done={true}
+      />,
+    )
+    expect(html).toContain("R 26,492.35")
+    expect(html).not.toMatch(/R\s?\d{1,3}(\s\d{3})+,\d{2}/)
+  })
+})
+
+// Fair Score audit 2026-10-16: "Update Affordability" saved silently.
+describe("AffordabilityCapture save feedback", () => {
+  it("confirms a successful update with a toast", async () => {
+    const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    env.IS_REACT_ACT_ENVIRONMENT = true
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+    let r!: ReactTestRenderer
+    await act(async () => {
+      r = create(
+        <AffordabilityCapture applicationId="application-1" monthlyIncome={4_500_000} monthlyExpenses={1_000_000}
+          existingDebts={[]} clientDebtTotal={0} proposedInstalment={200_000} done={true} />,
+      )
+    })
+    const save = r.root.findAll((n) => n.type === "button" && [n.props.children].flat(3).includes("Update Affordability"))[0]
+    await act(async () => { await save.props.onClick() })
+    expect(toastMock.success).toHaveBeenCalledWith("Affordability saved", expect.any(String))
+    await act(async () => r.unmount())
+    vi.unstubAllGlobals()
+    delete env.IS_REACT_ACT_ENVIRONMENT
   })
 })

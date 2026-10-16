@@ -10,6 +10,7 @@ import { BulkUpload } from "./BulkUpload"
 import { matchesCentsAmount } from "@/lib/list-search"
 import { displayPaymentMethod } from "@/lib/payments/waiver"
 import { borrowerDisplayName } from "@/lib/borrower"
+import { formatZAR } from "@/lib/utils"
 
 interface Payment {
   id: string
@@ -54,10 +55,6 @@ const RECONCILIATION_REASON_LABELS: Record<string, string> = {
 }
 const reconciliationReasonLabel = (reason: string | null | undefined) =>
   (reason && RECONCILIATION_REASON_LABELS[reason]) || reason?.replaceAll("_", " ") || "Manual review required"
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 function formatDateTime(d: string) {
   // Explicit timeZone: without it this resolves to the JS runtime's local

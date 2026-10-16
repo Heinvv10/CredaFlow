@@ -17,6 +17,11 @@ export function formatZAR(cents: number): string {
   return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 }
 
+/** formatZAR for a value held in RANDS (form state, typed input). The house money format either way. */
+export function formatRands(rands: number): string {
+  return formatZAR(Math.round(rands * 100))
+}
+
 /**
  * Abbreviated rand from CENTS for compact KPI cards (Rx.xm / Rxk), full
  * formatZAR below R1,000. Converts cents → rands BEFORE abbreviating — the

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { sendEmail } from "@/lib/email/service"
+import { sendSection129Email, section129SentMessage } from "@/lib/collections/section129-email"
 import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
@@ -178,6 +178,8 @@ export async function POST(req: NextRequest) {
       acceptedAt?: Date
       error?: string
       providerOutcome?: "ACCEPTED" | "DEFINITELY_REJECTED" | "AMBIGUOUS"
+      /** Demo stack, .invalid mailbox: recorded, never sent (lib/collections/section129-email.ts). */
+      simulated?: true
     }
     let providerInvoked = false
 
@@ -293,7 +295,7 @@ export async function POST(req: NextRequest) {
           loanId: loan.id,
           actorId: guard.user.id,
           actorEmail: guard.user.email,
-          dispatch: (markProviderInvocation) => sendEmail({
+          dispatch: (markProviderInvocation) => sendSection129Email({
               tenantId: tenant.id,
               to: addressee.email,
               toName: clientName,
@@ -442,6 +444,7 @@ export async function POST(req: NextRequest) {
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
         issuedAt: result.acceptedAt,
+        ...(result.simulated ? { simulated: true } : {}),
       })
     } catch (error) {
       await markSection129ReconciliationRequired({
@@ -489,7 +492,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: `Section 129 notice accepted by the email provider for ${addressee.email}`,
+      message: section129SentMessage(addressee.email, result.simulated === true),
+      ...(result.simulated ? { simulated: true } : {}),
       messageId: result.messageId,
       issuanceId: reservation.issuanceId,
       providerAccepted: true,

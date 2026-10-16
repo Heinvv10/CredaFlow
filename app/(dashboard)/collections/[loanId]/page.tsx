@@ -21,6 +21,7 @@ import { WriteOffCard } from "@/components/collections/WriteOffCard"
 import { WriteOffApprovalCard } from "@/components/collections/WriteOffApprovalCard"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { getSection129IssuanceAvailability } from "@/lib/collections/section129-artifact"
+import { latestSection129Failures } from "@/lib/collections/section129-failures"
 import { hasClientBorrower } from "@/lib/borrower"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 
@@ -66,7 +67,7 @@ export default async function CollectionDetailPage({ params }: { params: Promise
   const section129Eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
 
   // Fetch arrangement + referral + (if pending) the current officer + requester
-  const [arrangement, referral, session, requester, section129Availability] = await Promise.all([
+  const [arrangement, referral, session, requester, section129Availability, section129Failures] = await Promise.all([
     prisma.paymentArrangement.findFirst({ where: { loanId, tenantId } }),
     prisma.attorneyReferral.findUnique({ where: { loanId } }),
     writeOffPending ? auth() : Promise.resolve(null),
@@ -74,7 +75,9 @@ export default async function CollectionDetailPage({ params }: { params: Promise
       ? prisma.user.findUnique({ where: { id: loan.writeOffRequestedById }, select: { name: true, email: true } })
       : Promise.resolve(null),
     getSection129IssuanceAvailability(tenantId, loan.id),
+    latestSection129Failures(tenantId, [loan.id]),
   ])
+  const section129Failure = section129Failures.get(loan.id) ?? null
 
   // Serialize for client components
   const serializedNotes = JSON.parse(JSON.stringify(loan.notes))
@@ -189,6 +192,13 @@ export default async function CollectionDetailPage({ params }: { params: Promise
               phone={loan.client.whatsapp ?? loan.client.phone}
             />
           )}
+        </div>
+      )}
+
+      {section129Failure && loan.status !== "WRITTEN_OFF" && (
+        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-[13px] text-red-800">
+          <p className="font-semibold">The last Section 129 notice was not sent ({formatDate(section129Failure.failedAt)})</p>
+          <p className="mt-1">{section129Failure.reason}</p>
         </div>
       )}
 

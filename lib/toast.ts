@@ -88,7 +88,8 @@ export const toast = {
   // ── Section 129 ──────────────────────────────────────────────────────────
   section129: {
     sent: () => sonner.success("Section 129 dispatch accepted", { description: "The email provider accepted the notice. This does not confirm delivery." }),
-    failed: () => sonner.error("Failed to send notice", { description: "Could not send the Section 129 notice." }),
+    simulated: () => sonner.success("Section 129 notice simulated", { description: "Demo mailbox: recorded as simulated (not sent)." }),
+    failed: (reason?: string) => sonner.error("Section 129 notice not sent", { description: reason ?? "Could not send the Section 129 notice." }),
   },
 
   // ── Agreement ───────────────────────────────────────────────────────────

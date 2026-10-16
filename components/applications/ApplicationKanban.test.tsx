@@ -149,3 +149,24 @@ describe("ApplicationKanban sort menu", () => {
     expect(disbursedSelect).not.toContain("ready_first")
   })
 })
+
+describe("ApplicationKanban Disbursed lane", () => {
+  // Fair Score audit 2026-10-16: Disbursed cards said "Waiting N days", and
+  // settled loans sat in the lane "Waiting 184 days".
+  it("says when a card was disbursed, not how long it is waiting", () => {
+    const html = render([app({ status: "DISBURSED", disbursedAt: new Date("2026-08-16T08:00:00.000Z"), loan: { status: "ACTIVE" } })])
+    expect(html).toContain("Disbursed 3 days ago")
+    expect(html).not.toContain("Waiting")
+  })
+
+  it("leaves a settled or closed loan's application out of the lane", () => {
+    const html = render([
+      app({ id: "active", client: { firstName: "ACTIVE", lastName: "LOAN" }, status: "DISBURSED", disbursedAt: NOW, loan: { status: "ACTIVE" } }),
+      app({ id: "settled", client: { firstName: "SETTLED", lastName: "LOAN" }, status: "DISBURSED", disbursedAt: NOW, loan: { status: "COMPLETED" } }),
+      app({ id: "written-off", client: { firstName: "WRITTEN", lastName: "OFF" }, status: "DISBURSED", disbursedAt: NOW, loan: { status: "WRITTEN_OFF" } }),
+    ])
+    expect(html).toContain("ACTIVE LOAN")
+    expect(html).not.toContain("SETTLED LOAN")
+    expect(html).not.toContain("WRITTEN OFF")
+  })
+})

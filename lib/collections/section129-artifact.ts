@@ -1277,6 +1277,8 @@ export async function finaliseSection129Issuance(args: {
   emergencyEvidenceAuditPersisted?: boolean
   reconciliationReason?: string
   issuedAt: Date
+  /** Demo stack, .invalid mailbox: recorded as "simulated (not sent)" (lib/collections/section129-email.ts). */
+  simulated?: boolean
 }): Promise<void> {
   const reconciledAt = new Date()
   const issuedAt = args.issuedAt
@@ -1389,6 +1391,7 @@ export async function finaliseSection129Issuance(args: {
           ...(providerMessageId ? { providerMessageId } : {}),
           ...(providerEvidenceReference ? { providerEvidenceReference } : {}),
           providerAcceptedAt: issuedAt.toISOString(),
+          ...(args.simulated ? { simulated: true, delivery: "simulated (not sent)" } : {}),
           ...(args.providerPersistenceWarning
             ? { providerPersistenceWarning: args.providerPersistenceWarning }
             : {}),
@@ -1445,6 +1448,7 @@ export async function finaliseSection129Issuance(args: {
         arrearsAmount: args.reservation.recordData.arrearsAmount,
         daysInArrears: args.reservation.recordData.daysInArrears,
         sentTo: args.reservation.recordData.clientEmail,
+        ...(args.simulated ? { simulated: true, delivery: "simulated (not sent)" } : {}),
         reconciliationReason: args.reconciliationReason,
         issuedAt: issuedAt.toISOString(),
         ...(args.reconciliationReason ? { reconciledAt: reconciledAt.toISOString() } : {}),

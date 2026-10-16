@@ -8,6 +8,7 @@ import {
   ageInDays,
   DEFAULT_COLUMN_SORT,
   payoutBlock,
+  pipelineColumnOf,
   PIPELINE_COLUMNS,
   readyCount,
   SORT_LABELS,
@@ -21,8 +22,13 @@ import { formatZAR } from "@/lib/utils"
 import { borrowerDisplayName } from "@/lib/borrower"
 
 function activityText(app: PipelineApplication, now: Date): string {
-  const verb = app.status === "DRAFT" ? "Saved" : "Waiting"
   const days = ageInDays(app, now)
+  // A disbursed card is done, not waiting on anyone.
+  if (app.status === "DISBURSED") {
+    if (days === 0) return "Disbursed today"
+    return days === 1 ? "Disbursed 1 day ago" : `Disbursed ${days} days ago`
+  }
+  const verb = app.status === "DRAFT" ? "Saved" : "Waiting"
   if (days === 0) return `${verb} since today`
   if (days === 1) return `${verb} 1 day`
   return `${verb} ${days} days`
@@ -75,7 +81,7 @@ export function ApplicationKanban({
       {PIPELINE_COLUMNS.map((col) => {
         const sort = columnSort[col.key] ?? DEFAULT_COLUMN_SORT[col.key] ?? "newest"
         const apps = sortApplications(
-          applications.filter((app) => app.status === col.key),
+          applications.filter((app) => pipelineColumnOf(app) === col.key),
           sort,
         )
         // Only the three lanes with a gate ahead of them carry a chip, so only

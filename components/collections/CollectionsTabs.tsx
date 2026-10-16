@@ -10,6 +10,7 @@ import { PaymentPlanButton } from "./PaymentPlanButton"
 import { CollectionsWaButton } from "./CollectionsWaButton"
 import { FilterSelect, FilterSummary, SearchInput } from "@/components/ui/list-filters"
 import { matchesCentsAmount } from "@/lib/list-search"
+import { collectionsLoanKind } from "@/lib/collections/loan-kind"
 
 interface Tab {
   key: string
@@ -23,8 +24,11 @@ interface LoanRow {
   clientId: string
   daysInArrears: number
   arrearsAmount: number
+  contractType?: string | null
   client: { firstName: string; lastName: string; phone: string; whatsapp?: string | null }
   product: { name: string; productType: string }
+  /** The latest Section 129 attempt, when it was not sent (lib/collections/section129-failures.ts). */
+  section129Failure?: { failedAt: string | Date; reason: string } | null
   notes: Array<{ createdAt: string | Date; type: string; note: string }>
   paymentPlan: { active: boolean; installments: number; installmentAmt: number; startDate: string | Date } | null
 }
@@ -46,13 +50,6 @@ function getDpdColor(dpd: number) {
   if (dpd >= 60) return "#E67E22"
   if (dpd >= 30) return "#F59E0B"
   return "#6B7280"
-}
-
-function getProductShort(pt: string) {
-  if (pt === "MICRO" || pt === "MICRO30") return "Micro"
-  if (pt === "PERSONAL") return "Personal"
-  if (pt === "PO_FUNDING" || pt === "POFUND") return "PO Fund"
-  return pt
 }
 
 function lastContactText(date: Date | string | null | undefined) {
@@ -92,7 +89,7 @@ export function CollectionsTabs({ tabs, loans }: Props) {
   // rows the search/product filter has hidden from the table.
   const matchesFilters = useMemo(() => {
     return (loan: LoanRow) => {
-      if (product !== "ALL" && loan.product.productType !== product) return false
+      if (product !== "ALL" && collectionsLoanKind(loan) !== product) return false
       if (!searchQuery) return true
       const clientName = `${loan.client.firstName} ${loan.client.lastName}`.toLowerCase()
       if (clientName.includes(searchQuery) || loan.reference.toLowerCase().includes(searchQuery)) {
@@ -126,7 +123,7 @@ export function CollectionsTabs({ tabs, loans }: Props) {
   // option[0] ("All products") while state keeps filtering by the old value,
   // so a tab with rows reads as empty and the dropdown claims no filter is on.
   const products = useMemo(
-    () => Array.from(new Set(loans.map((l) => l.product.productType))).sort(),
+    () => Array.from(new Set(loans.map(collectionsLoanKind))).sort(),
     [loans]
   )
 
@@ -177,7 +174,7 @@ export function CollectionsTabs({ tabs, loans }: Props) {
           label="Filter by product"
           options={[
             { value: "ALL", label: "All products" },
-            ...products.map((p) => ({ value: p, label: getProductShort(p) })),
+            ...products.map((p) => ({ value: p, label: p })),
           ]}
         />
         {isFiltered && (
@@ -241,7 +238,7 @@ export function CollectionsTabs({ tabs, loans }: Props) {
                           <span className="block text-[10px] font-semibold text-blue-600 mt-0.5">Plan active</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 text-[13px] text-gray-600">{getProductShort(loan.product.productType)}</td>
+                      <td className="px-4 py-3.5 text-[13px] text-gray-600">{collectionsLoanKind(loan)}</td>
                       <td className="px-4 py-3.5">
                         <span className="font-bold text-[15px]" style={{ color: dpdColor }}>{loan.daysInArrears}</span>
                       </td>
@@ -268,6 +265,14 @@ export function CollectionsTabs({ tabs, loans }: Props) {
                               arrearsAmount={loan.arrearsAmount}
                               arrearsAmountDisplay={formatZAR(loan.arrearsAmount)}
                             />
+                          )}
+                          {loan.section129Failure && (
+                            <span
+                              className="max-w-40 text-[10px] leading-3 text-red-700"
+                              title={loan.section129Failure.reason}
+                            >
+                              {`S.129 not sent: ${loan.section129Failure.reason}`}
+                            </span>
                           )}
                           <CollectionsWaButton
                             clientId={loan.clientId}

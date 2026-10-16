@@ -35,6 +35,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     loan: { findUnique: (args: unknown) => loanFindUniqueMock(args) },
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
+    // The demo transport's question: is email configured? Not here.
+    emailConfig: { findUnique: async () => null },
   },
 }))
 vi.mock("@/lib/email/service", () => ({
@@ -168,6 +170,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MESSAGING_NEW_SEND_S129
+  vi.unstubAllEnvs()
 })
 
 describe("POST /api/loans/section129", () => {
@@ -228,6 +231,32 @@ describe("POST /api/loans/section129", () => {
     }))
     expect(logAuditMock).not.toHaveBeenCalled()
     expect(triggerNotificationMock).toHaveBeenCalledOnce()
+  })
+
+  // Fair Score audit 2026-10-16: a demo stack has no email, so S129 dead-ended
+  // with "Email not configured". There, for a .invalid mailbox only, the notice
+  // is recorded as simulated (not sent).
+  it("records a simulated (not sent) notice on a demo stack for a .invalid mailbox", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    loanFindUniqueMock.mockResolvedValue({ ...loan, client: { ...loan.client, email: "kabelo@fairscore.invalid" } })
+    const response = await POST(request())
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      simulated: true,
+      dispatchState: "ISSUED",
+      message: "Section 129 notice simulated (not sent): kabelo@fairscore.invalid is a demo mailbox that cannot receive mail.",
+    })
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(finaliseIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
+  })
+
+  it("still refuses on a demo stack for a deliverable address", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    sendEmailMock.mockResolvedValue({ ok: false, error: "Email not configured for this tenant. Go to Settings → Email.", providerOutcome: "DEFINITELY_REJECTED" })
+    const response = await POST(request())
+    expect(await response.json()).toMatchObject({ ok: false, error: "Email not configured for this tenant. Go to Settings → Email." })
+    expect(finaliseIssuanceMock).not.toHaveBeenCalled()
   })
 
   it("states the charge-inclusive arrears and the amount that settles the loan on the notice, its snapshot and its email", async () => {

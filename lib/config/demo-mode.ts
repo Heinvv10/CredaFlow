@@ -54,12 +54,16 @@ const UNDELIVERABLE_MAILBOX = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.invali
  * set by mistake — therefore never gets its code in the response, so the
  * reveal can't be used to take over or enumerate a deliverable mailbox.
  */
+/** One plain `.invalid` mailbox: mail to it can never be delivered. */
+export function isUndeliverableMailbox(email: string): boolean {
+  return UNDELIVERABLE_MAILBOX.test(email.trim().toLowerCase())
+}
+
 export function demoCodeReveal(
   code: string,
   recipientEmail: string,
   env: Record<string, string | undefined> = process.env,
 ): { demoCode?: string } {
   if (!isDemoMode(env)) return {}
-  const email = recipientEmail.trim().toLowerCase()
-  return UNDELIVERABLE_MAILBOX.test(email) ? { demoCode: code } : {}
+  return isUndeliverableMailbox(recipientEmail) ? { demoCode: code } : {}
 }

@@ -306,7 +306,7 @@ describe("validateAllApplication", () => {
     }
     const errs = validateAllApplication(d, [PRODUCT], { forReview: true })
     expect(errs.recklessLendingConfirmed).toBe(
-      "Acknowledge reckless-lending risk to proceed",
+      "Confirm the application goes for a decline/override review to proceed",
     )
   })
 

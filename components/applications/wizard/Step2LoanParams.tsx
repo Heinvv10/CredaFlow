@@ -8,6 +8,7 @@ import type {
   WizardMode,
 } from "./types"
 import type { ValidationErrors } from "@/lib/validation/application-wizard"
+import { formatRands } from "@/lib/utils"
 
 interface StepProps {
   data: ApplicationWizardData
@@ -46,7 +47,7 @@ export function Step2LoanParams({ data, patch, errors, products }: StepProps) {
               />
               <span className="text-sm font-medium text-[var(--cf-text)]">{p.name}</span>
               <span className="ml-2 text-xs text-[var(--cf-text-muted)]">
-                R {p.minAmount.toLocaleString()}–R {p.maxAmount.toLocaleString()} · {p.minTermDays}–{p.maxTermDays} days
+                {formatRands(p.minAmount)}–{formatRands(p.maxAmount)} · {p.minTermDays}–{p.maxTermDays} days
               </span>
             </label>
           ))}
