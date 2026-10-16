@@ -61,8 +61,9 @@ export const UNANIMOUS_CATEGORIES: readonly Category[] = ["CREDIT_INSTALMENT", "
 
 /**
  * The label from one key's answers: the category more than half the rounds
- * gave, and every round for UNANIMOUS_CATEGORIES. A tie, no majority or a
- * missing round is UNCATEGORISED.
+ * gave, and every round for UNANIMOUS_CATEGORIES. A tie, no majority, a
+ * missing or extra round, or a vote outside MODEL_CATEGORIES (which never
+ * counts) is UNCATEGORISED.
  */
 export function vote(votes: readonly Category[]): Category {
   if (votes.length !== LABEL_VOTES) return "UNCATEGORISED"
