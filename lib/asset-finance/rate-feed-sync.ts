@@ -15,6 +15,9 @@
  *   - an observation dated before the latest live value is stale (a value
  *     pre-recorded for a coming date is not undone by the feed): skipped.
  *   - a PENDING feed row with the same value already waits: skipped.
+ *   - the basis's latest feed row is this value and was REJECTED: skipped, so a
+ *     rejection is not re-asked every morning. A different value since then
+ *     (the feed moved and came back) is asked again.
  * The observation date is the row's effectiveDate. A concurrent run, or a
  * value already recorded for that date, hits the live-value unique index
  * (P2002) and counts as already recorded. Each row is written with its audit
@@ -35,7 +38,7 @@ export const FEED_ACTOR_EMAIL = "system@sarb-rate-feed"
 /** ZARONIA is recorded only when it differs from the latest live value by at least this (25 bp). */
 export const ZARONIA_MIN_MOVE = new Prisma.Decimal("0.0025")
 
-export type FeedSkip = "unchanged" | "below_threshold" | "stale" | "already_pending" | "already_recorded"
+export type FeedSkip = "unchanged" | "below_threshold" | "stale" | "already_pending" | "rejected" | "already_recorded"
 
 export interface RecordedRate {
   id: string
@@ -62,7 +65,7 @@ interface LiveValue {
 }
 
 /** Why an observation is not recorded against the latest live value, or null if it should be. */
-export function feedSkipReason(latest: LiveValue | null, observation: SarbObservation): Exclude<FeedSkip, "already_pending" | "already_recorded"> | null {
+export function feedSkipReason(latest: LiveValue | null, observation: SarbObservation): Exclude<FeedSkip, "already_pending" | "rejected" | "already_recorded"> | null {
   if (!latest) return null
   if (latest.rate.equals(observation.rate)) return "unchanged"
   if (observation.basis === "ZARONIA" && latest.rate.minus(observation.rate).abs().lessThan(ZARONIA_MIN_MOVE)) return "below_threshold"
@@ -120,6 +123,12 @@ async function syncTenant(db: SyncDb, tenantId: string, observations: SarbObserv
         select: { id: true },
       })
       if (waiting) { skip("already_pending"); continue }
+      const lastFeed = await db.referenceRate.findFirst({
+        where: { tenantId, basis, source: "SARB_FEED" },
+        orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
+        select: { rate: true, status: true },
+      })
+      if (lastFeed?.status === "REJECTED" && lastFeed.rate.equals(rate)) { skip("rejected"); continue }
       const outcome = await recordObservation(db, tenantId, observation)
       if (outcome === "already_recorded") skip("already_recorded")
       else run.recorded.push(outcome)

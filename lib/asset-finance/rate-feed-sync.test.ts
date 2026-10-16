@@ -184,6 +184,22 @@ describe("syncReferenceRatesFromFeed", () => {
     expect(run.skipped).toEqual({ already_pending: 1 })
   })
 
+  it("does not re-ask a value whose latest feed row was REJECTED", async () => {
+    const rejected = existing("PRIME", "0.1100", { id: "rej", source: "SARB_FEED", status: "REJECTED", effectiveDate: day("2026-10-10"), createdAt: day("2026-10-10") })
+    const { db, created } = fakeDb([existing("PRIME", "0.1075"), rejected])
+    const [run] = await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.1100")])
+    expect(created).toHaveLength(0)
+    expect(run.skipped).toEqual({ rejected: 1 })
+  })
+
+  it("asks again when the feed moved after the rejection and came back", async () => {
+    const rejected = existing("PRIME", "0.1100", { id: "rej", source: "SARB_FEED", status: "REJECTED", effectiveDate: day("2026-10-10"), createdAt: day("2026-10-10") })
+    const later = existing("PRIME", "0.1125", { id: "later", source: "SARB_FEED", status: "REJECTED", effectiveDate: day("2026-10-13"), createdAt: day("2026-10-13") })
+    const { db, created } = fakeDb([existing("PRIME", "0.1075"), rejected, later])
+    await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.1100")])
+    expect(created.map((r) => r.rate.toString())).toEqual(["0.11"])
+  })
+
   it("a PENDING MANUAL row with the same value does not count as a waiting feed row", async () => {
     const { db, created } = fakeDb([
       existing("PRIME", "0.1075", { status: "PENDING", source: "MANUAL", effectiveDate: day("2026-10-01") }),
