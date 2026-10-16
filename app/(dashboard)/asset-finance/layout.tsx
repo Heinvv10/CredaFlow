@@ -1,3 +1,4 @@
+import { requireLoanBookPage } from "@/lib/auth-guards"
 import { redirect } from "next/navigation"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
@@ -9,6 +10,8 @@ import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 // queries (lib/asset-finance/staff-page.ts), never one resolved from the host.
 // The API routes answer 404 on their own (lib/asset-finance/require-enabled.ts).
 export default async function AssetFinanceLayout({ children }: { children: React.ReactNode }) {
+  // Loan book (lib/security/loan-book-scope.ts), behind proxy.ts.
+  await requireLoanBookPage()
   const { tenantId } = await requireAssetFinanceStaffPage()
   const { featureAssetFinance } = resolveFeatureFlags(await getTenantConfig(tenantId))
   if (!featureAssetFinance) redirect("/dashboard")

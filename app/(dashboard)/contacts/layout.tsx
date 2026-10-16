@@ -1,3 +1,4 @@
+import { requireLoanBookPage } from "@/lib/auth-guards"
 import { redirect } from "next/navigation"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -5,6 +6,8 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 // /contacts is part of the sidebar's "crm" nav group (lib/navigation.ts),
 // so it gates on featureCrm, same as /crm.
 export default async function ContactsLayout({ children }: { children: React.ReactNode }) {
+  // Loan book (lib/security/loan-book-scope.ts), behind proxy.ts.
+  await requireLoanBookPage()
   // The session's tenant, as the dashboard layout and the pages beneath read
   // it — not the request host's.
   const { featureCrm } = resolveFeatureFlags(await getTenantConfig(await getStaffTenantId()))
