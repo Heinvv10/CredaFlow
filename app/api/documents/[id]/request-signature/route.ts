@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { getSigner, type Signer } from "@/lib/documents/signing"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -28,6 +29,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params
+    const readOnly = await refuseReadOnlyDocumentWrite({
+      caller: { type: "staff", userId: guard.user.id, role: guard.user.role, tenantId: tenant.id },
+      documentId: id,
+      tenantId: tenant.id,
+      action: "request_signature",
+      req,
+    })
+    if (readOnly) return readOnly
 
     const doc = await prisma.clientDocument.findFirst({
       where: { id, tenantId: tenant.id },

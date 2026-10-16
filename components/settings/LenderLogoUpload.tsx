@@ -1,11 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 
 const LOGO_URL = "/api/settings/identity/logo"
+
+async function fetchLogoState(): Promise<{ hasLogo: boolean; version: string }> {
+  const res = await fetch(LOGO_URL, { method: "GET", cache: "no-store" })
+  return { hasLogo: res.ok, version: String(Date.now()) }
+}
 
 // Validation lives on the server (lib/config/lender-logo.ts): the file is
 // checked by its content, so this only sends the bytes and shows the reason.
@@ -16,15 +21,13 @@ export function LenderLogoUpload() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null)
 
-  const refresh = useCallback(async () => {
-    const res = await fetch(LOGO_URL, { method: "GET", cache: "no-store" })
-    setHasLogo(res.ok)
-    setVersion(String(Date.now()))
-  }, [])
-
   useEffect(() => {
-    refresh().catch(() => setMessage({ kind: "error", text: "Failed to load the logo." }))
-  }, [refresh])
+    let ignore = false
+    fetchLogoState()
+      .then((state) => { if (!ignore) { setHasLogo(state.hasLogo); setVersion(state.version) } })
+      .catch(() => { if (!ignore) setMessage({ kind: "error", text: "Failed to load the logo." }) })
+    return () => { ignore = true }
+  }, [])
 
   async function send(method: "POST" | "DELETE") {
     setBusy(true)
@@ -35,7 +38,9 @@ export function LenderLogoUpload() {
       if (res.ok) {
         setMessage({ kind: "success", text: method === "POST" ? (data.changed ? "Logo saved." : "That logo is already in use.") : "Logo removed." })
         setFile(null)
-        await refresh()
+        const state = await fetchLogoState()
+        setHasLogo(state.hasLogo)
+        setVersion(state.version)
       } else {
         setMessage({ kind: "error", text: data.error ?? "Failed to save the logo." })
       }

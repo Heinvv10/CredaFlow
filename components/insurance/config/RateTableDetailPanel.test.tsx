@@ -323,3 +323,38 @@ describe("the retire confirmation", () => {
     )
   })
 })
+
+describe("the editable fields follow the table being shown", () => {
+  const nameInput = (r: ReactTestRenderer) =>
+    r.root.findAll((n) => n.type === "input" && n.props.className?.includes("rounded-lg") && n.props.type !== "date")[0]
+  const props = (t: RateTableDetail) => ({
+    table: t,
+    productId: "p1",
+    rules: [],
+    canWrite: true,
+    onChanged: vi.fn(),
+    onCreateVersionFrom: vi.fn(),
+    creatingVersion: false,
+  })
+
+  it("replaces version 1's name with version 2's when another table is selected", async () => {
+    const renderer = await render({ table: table("DRAFT") })
+    expect(nameInput(renderer).props.value).toBe("Funeral rates 2026")
+    await act(async () => {
+      renderer.update(<RateTableDetailPanel {...props({ ...table("DRAFT"), id: "rt2", name: "Funeral rates 2027" })} />)
+    })
+    expect(nameInput(renderer).props.value).toBe("Funeral rates 2027")
+  })
+
+  it("keeps an unsaved edit across a parent re-render that hands over an equal table", async () => {
+    const renderer = await render({ table: table("DRAFT") })
+    await act(async () => {
+      nameInput(renderer).props.onChange({ target: { value: "Half-typed" } })
+    })
+    // The manager hands over a fresh object after every refresh.
+    await act(async () => {
+      renderer.update(<RateTableDetailPanel {...props(table("DRAFT"))} />)
+    })
+    expect(nameInput(renderer).props.value).toBe("Half-typed")
+  })
+})

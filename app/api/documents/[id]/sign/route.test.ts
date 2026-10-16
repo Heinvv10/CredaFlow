@@ -10,7 +10,9 @@ const {
   tenantConfigFindUnique,
   otpFindFirst,
   otpUpdateMany,
+  auditDocumentAccessRefusal,
 } = vi.hoisted(() => ({
+  auditDocumentAccessRefusal: vi.fn(),
   tenantConfigFindUnique: vi.fn(),
   otpFindFirst: vi.fn(),
   otpUpdateMany: vi.fn(),
@@ -22,6 +24,7 @@ const {
 }))
 
 vi.mock("@/lib/document-auth", () => ({ getDocumentCaller }))
+vi.mock("@/lib/audit-refusals", () => ({ auditDocumentAccessRefusal, auditRefusal: vi.fn() }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, fn: (t: { id: string }) => unknown) => fn({ id: "t1" }),
 }))
@@ -364,5 +367,40 @@ describe("POST /api/documents/[id]/sign — guarded claim and session-decided me
 
     expect(res.status).toBe(200)
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ method: "portal" }) }))
+  })
+})
+
+describe("POST /api/documents/[id]/sign — a read-only role", () => {
+  it("refuses READONLY with 403 before reading the body, signing nothing, and audits it", async () => {
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "viewer-1", role: "READONLY", tenantId: "t1" })
+    const request = req({ method: "branch" })
+
+    const res = await POST(request, ctx())
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Your role can view documents but not change them." })
+    expect(request.bodyUsed).toBe(false)
+    expect(findFirstClientDocument).not.toHaveBeenCalled()
+    expect(updateClientDocument).not.toHaveBeenCalled()
+    expect(createDocumentAccessLog).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditDocumentAccessRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: "doc1",
+      reason: "document_write_read_only_role",
+      status: 403,
+      tenantId: "t1",
+      actorUserId: "viewer-1",
+      detail: { action: "sign", role: "READONLY" },
+    }))
+  })
+
+  it.each(["COLLECTIONS_OFFICER", "INSURANCE_OFFICER"])("still lets %s record a branch signature", async (role) => {
+    getDocumentCaller.mockResolvedValue({ type: "staff", userId: "u1", role, tenantId: "t1" })
+
+    const res = await POST(req({ method: "branch" }), ctx())
+
+    expect(res.status).toBe(200)
+    expect(updateClientDocument).toHaveBeenCalled()
+    expect(auditDocumentAccessRefusal).not.toHaveBeenCalled()
   })
 })

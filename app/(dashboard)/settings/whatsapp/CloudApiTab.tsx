@@ -41,8 +41,16 @@ export function CloudApiTab({ waProvider, wabaPhoneNumberId }: { waProvider?: st
   // the SDK posts during the flow. Both must land before we can POST.
   const [esCode, setEsCode] = useState<string | null>(null)
   const [esIds, setEsIds] = useState<{ wabaId: string; phoneNumberId: string } | null>(null)
-  const [esConnecting, setEsConnecting] = useState(false)
   const [esResult, setEsResult] = useState<{ ok: boolean; message: string } | null>(null)
+  // Connecting exactly while both halves are held; the request's `finally`
+  // clears them.
+  const esConnecting = esCode !== null && esIds !== null
+  // A new attempt clears the previous outcome the moment both halves are in.
+  const [wasConnecting, setWasConnecting] = useState(false)
+  if (esConnecting !== wasConnecting) {
+    setWasConnecting(esConnecting)
+    if (esConnecting) setEsResult(null)
+  }
 
   // Connection status: seeded from server props, updated locally on disconnect
   // so the UI reflects the change without a full page reload.
@@ -83,8 +91,6 @@ export function CloudApiTab({ waProvider, wabaPhoneNumberId }: { waProvider?: st
   // Once we have both the code and the ids, complete the signup server-side.
   useEffect(() => {
     if (!esCode || !esIds) return
-    setEsConnecting(true)
-    setEsResult(null)
     fetch("/api/settings/whatsapp/embedded-signup", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -103,7 +109,6 @@ export function CloudApiTab({ waProvider, wabaPhoneNumberId }: { waProvider?: st
       })
       .catch(() => setEsResult({ ok: false, message: "Network error" }))
       .finally(() => {
-        setEsConnecting(false)
         setEsCode(null)
         setEsIds(null)
       })
