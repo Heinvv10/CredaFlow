@@ -3,8 +3,8 @@
  * against every automatic path that would roll the client up to VERIFIED:
  * the document verify and refuse route, a staff document delete and a passed
  * selfie. Each case runs with and without the hold, so the path is shown to
- * promote on its own. Only the explicit Approve KYC ends the hold
- * (kyc-rederive-manual-pending.integration.test.ts).
+ * promote on its own. A FAILED in between (a refusal, a failed selfie) does
+ * not open a way out; Approve KYC ends the hold.
  *
  * The routes and the selfie pipeline run for real. Stubbed: session and
  * tenant resolution, file storage, the VLM HTTP call (fetch) and the face
@@ -79,21 +79,22 @@ const verifyDoc = (clientId: string, docId: string, body: Record<string, unknown
   return verify(json("PATCH", body), { params: Promise.resolve({ id: clientId, docId }) })
 }
 
-/** A selfie attempt claimed for processing, then the real pipeline with a passing VLM reply. */
-async function passSelfie(clientId: string, idCopyId: string) {
+/** A selfie attempt claimed for processing, then the real pipeline with a passing (or failing) VLM reply. */
+async function passSelfie(clientId: string, idCopyId: string, opts: { suffix?: string; pass?: boolean } = {}) {
+  const pass = opts.pass ?? true
   vi.stubEnv("VLM_API_URL", "http://vlm.stub.invalid")
   vi.stubEnv("VLM_MODEL", "stub-model")
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
     faceDetected: true, facesCount: 1, quality: "good", isLive: true, livenessConfidence: 0.95,
     selfieIsRealPhotograph: true, idPhotoKind: "photograph", idPhotoIsRealPhotograph: true,
-    idPhotoFaceDetected: true, samePerson: "same", faceMatch: true, matchConfidence: 0.93,
+    idPhotoFaceDetected: true, samePerson: pass ? "same" : "different", faceMatch: pass, matchConfidence: pass ? 0.93 : 0.05,
   }) } }] }), { status: 200 })))
-  const selfieId = `selfie_${clientId}`
+  const selfieId = `selfie${opts.suffix ?? ""}_${clientId}`
   const generation = randomUUID()
   await db.clientDocument.create({ data: {
     id: selfieId, tenantId, clientId, docType: "SELFIE", fileUrl: "", fileName: "selfie.jpg", mimeType: "image/jpeg",
     storagePath: "stub/selfie", contentSha256: "e".repeat(64), uploadedByType: "client", extractionStatus: "processing",
-    extractionGeneration: generation, extractionStartedAt: new Date(),
+    extractionGeneration: generation, extractionStartedAt: new Date(), createdAt: new Date(),
   } })
   await runWithTenant(tenantId, () => runBiometricVerification(selfieId, clientId, tenantId, generation, SELFIE_JPEG, "image/jpeg", {
     id: idCopyId, storagePath: "stub/id", mimeType: "image/jpeg", contentSha256: "a".repeat(64),
@@ -167,5 +168,40 @@ suite("a manual PENDING holds against automatic promotion", () => {
     const selfie = await passSelfie(clientId, idCopyId)
     expect(selfie).toMatchObject({ verified: true, extractionStatus: "done" })
     expect(await status(clientId)).toBe(held ? "PENDING" : "VERIFIED")
+  })
+
+  // A FAILED in between is no way out: only a recorded VERIFIED ends the hold.
+  it("holds through a document refusal (FAILED) and the re-verify after it", async () => {
+    const { clientId } = await seedRestorableClient()
+    await holdIf(true, clientId)
+    const payslipId = `PAYSLIP_${clientId}`
+    expect((await verifyDoc(clientId, payslipId, { verified: false, rejectReason: "Synthetic: illegible payslip" })).status).toBe(200)
+    expect(await status(clientId)).toBe("FAILED")
+    expect((await verifyDoc(clientId, payslipId)).status).toBe(200)
+    expect(await status(clientId)).toBe("PENDING")
+  })
+
+  it("holds through the client's failed selfie (FAILED) and a passing one after it", async () => {
+    const { clientId, idCopyId } = await seedClient()
+    await holdIf(true, clientId)
+    expect(await passSelfie(clientId, idCopyId, { suffix: "_failed", pass: false })).toMatchObject({ verified: false })
+    expect(await status(clientId)).toBe("FAILED")
+    // A later createdAt, so the passing attempt is the latest one.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(await passSelfie(clientId, idCopyId, { suffix: "_passed" })).toMatchObject({ verified: true })
+    expect(await status(clientId)).toBe("PENDING")
+  })
+
+  it("promotes again once Approve KYC has ended the hold", async () => {
+    const { clientId } = await seedRestorableClient()
+    await holdIf(true, clientId)
+    ctx.userId = officer
+    expect((await setKycStatus(json("PATCH", { kycStatus: "VERIFIED" }), { params: Promise.resolve({ id: clientId }) })).status).toBe(200)
+    // A later automatic demotion, then an automatic path that would promote.
+    await db.client.update({ where: { id: clientId }, data: { kycStatus: "PENDING", kycVerifiedAt: null, kycVerifiedById: null, kycVerificationMethod: null } })
+    const otherId = `other_${clientId}`
+    await db.clientDocument.create({ data: { id: otherId, tenantId, clientId, docType: "OTHER", fileUrl: "", fileName: "misc.pdf", verified: false, contentSha256: C } })
+    expect((await verifyDoc(clientId, otherId)).status).toBe(200)
+    expect(await status(clientId)).toBe("VERIFIED")
   })
 })
