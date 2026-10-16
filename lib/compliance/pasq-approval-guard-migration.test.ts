@@ -155,5 +155,8 @@ describe("approved PASQ database guard migration", () => {
       `IF GREATEST(NEW."appliedAmount", COALESCE(NEW."approvedAmount", 0)) > ${CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS} AND EXISTS (`,
     )
     expect(creditLifeOffer).toContain("cover became available after this application recorded that none was offered")
+    // An amount change on an approved row re-runs the guard (it reads both amounts).
+    expect(creditLifeOffer).toContain(`OR NEW."appliedAmount" IS DISTINCT FROM OLD."appliedAmount"`)
+    expect(creditLifeOffer).toContain(`OR NEW."approvedAmount" IS DISTINCT FROM OLD."approvedAmount"`)
   })
 })

@@ -2,7 +2,8 @@
 -- be added, so an application there records the no-offer disclosure even while
 -- a credit-life product is active. The approval guard refused that record
 -- whenever any active product existed; it now refuses it only above the
--- threshold. Everything else in the function is unchanged from
+-- threshold, and an approved row whose applied or approved amount changes is
+-- re-checked. Everything else in the function is unchanged from
 -- 20261013090000_asset_finance_foundation.
 
 CREATE OR REPLACE FUNCTION public."guardLoanApplicationCreditLifeOffer"()
@@ -44,6 +45,10 @@ BEGIN
       OR NEW."creditLifeDisclosureAcknowledgedBy"
         IS DISTINCT FROM OLD."creditLifeDisclosureAcknowledgedBy"
       OR NEW."pasqEvidence" IS DISTINCT FROM OLD."pasqEvidence"
+      -- The no-offer branch below reads the amounts, so a change to either
+      -- on an approved row is re-checked too.
+      OR NEW."appliedAmount" IS DISTINCT FROM OLD."appliedAmount"
+      OR NEW."approvedAmount" IS DISTINCT FROM OLD."approvedAmount"
     );
 
   IF NOT entering_approved_state THEN

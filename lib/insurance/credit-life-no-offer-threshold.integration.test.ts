@@ -80,4 +80,27 @@ suite("approval guard: no-offer record and the credit-life threshold", () => {
     expect(await approveNoOffer(CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS, 150_000))
       .toMatch(/none was offered/)
   })
+
+  it("re-checks an approved no-offer row when its approved amount rises above the threshold", async () => {
+    let message: string | null = null
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`CREATE TEMP TABLE guarded_app (LIKE "LoanApplication" INCLUDING DEFAULTS) ON COMMIT DROP`)
+        await tx.$executeRawUnsafe(
+          `INSERT INTO guarded_app ("id", "tenantId", "reference", "clientId", "productId", "appliedAmount", "appliedTermDays",
+             "approvedAmount", "status", "creditLifeDisclosureVersion", "creditLifeElection", "updatedAt")
+           VALUES ('app_cl_it', $1, 'APP-CL-IT', 'c', 'p', 80000, 30, 80000, 'APPROVED', 'credit-life-no-offer-v1', 'DECLINED', now())`,
+          T,
+        )
+        await tx.$executeRawUnsafe(
+          `CREATE TRIGGER guard BEFORE UPDATE ON guarded_app FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationCreditLifeOffer"()`,
+        )
+        await tx.$executeRawUnsafe(`UPDATE guarded_app SET "approvedAmount" = 150000 WHERE "id" = 'app_cl_it'`)
+        throw new Error("rollback")
+      })
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toMatch(/none was offered/)
+  })
 })
