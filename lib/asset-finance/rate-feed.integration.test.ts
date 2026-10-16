@@ -156,7 +156,18 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
 
   describe("sync, against the real database", () => {
     const rows = (basis: string) => db.referenceRate.findMany({ where: { tenantId, basis: basis as "PRIME" }, orderBy: { effectiveDate: "asc" } })
-    const feedRun = (observations: SarbObservation[]) => runReferenceRateFeed(prisma, async () => ({ ok: true, observations }))
+    // The sync sweeps every flagged tenant in the database. Other suites share
+    // it and delete their tenants mid-run, so this file's sweep sees only its own two.
+    const scoped = new Proxy(prisma, {
+      get(target, key, receiver) {
+        if (key !== "tenantConfig") return Reflect.get(target, key, receiver)
+        return {
+          findMany: ({ where, ...rest }: { where?: Prisma.TenantConfigWhereInput; orderBy: { tenantId: "asc" }; select: { tenantId: true } }) =>
+            target.tenantConfig.findMany({ ...rest, where: { AND: [where ?? {}, { tenantId: { in: [tenantId, otherTenantId] } }] } }),
+        }
+      },
+    })
+    const feedRun = (observations: SarbObservation[]) => runReferenceRateFeed(scoped, async () => ({ ok: true, observations }))
 
     it("records PENDING feed rows for a tenant with asset finance on and none for one without", async () => {
       const run = await feedRun([obs("PRIME", "0.1075"), obs("ZARONIA", "0.07097", "2026-10-15")])
@@ -188,25 +199,25 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
     })
 
     it("a value changed since is recorded; a ZARONIA move under 25 bp is not", async () => {
-      const [run] = await syncReferenceRatesFromFeed(prisma, [obs("PRIME", "0.11", "2026-10-18"), obs("ZARONIA", "0.0725", "2026-10-18")])
+      const [run] = await syncReferenceRatesFromFeed(scoped, [obs("PRIME", "0.11", "2026-10-18"), obs("ZARONIA", "0.0725", "2026-10-18")])
       expect(run.recorded.map((r) => [r.basis, r.rate])).toEqual([["PRIME", "0.11"]])
       expect(run.skipped).toEqual({ below_threshold: 1 })
-      const [zaronia] = await syncReferenceRatesFromFeed(prisma, [obs("ZARONIA", "0.0723", "2026-10-19")]) // 22.97 bp above 0.07097... still under
+      const [zaronia] = await syncReferenceRatesFromFeed(scoped, [obs("ZARONIA", "0.0723", "2026-10-19")]) // 22.97 bp above 0.07097... still under
       expect(zaronia.recorded).toEqual([])
-      const [moved] = await syncReferenceRatesFromFeed(prisma, [obs("ZARONIA", "0.0735", "2026-10-20")]) // 25.03 bp
+      const [moved] = await syncReferenceRatesFromFeed(scoped, [obs("ZARONIA", "0.0735", "2026-10-20")]) // 25.03 bp
       expect(moved.recorded.map((r) => r.rate)).toEqual(["0.0735"])
     })
 
     it("a value already recorded for that date is the live-key P2002: skipped, not failed", async () => {
       await db.referenceRate.create({ data: { tenantId, basis: "REPO", effectiveDate: new Date("2026-10-16"), rate: "0.07", requestedById: ids.adminA } })
-      const [run] = await syncReferenceRatesFromFeed(prisma, [obs("REPO", "0.0725", "2026-10-16")])
+      const [run] = await syncReferenceRatesFromFeed(scoped, [obs("REPO", "0.0725", "2026-10-16")])
       expect(run).toMatchObject({ recorded: [], failed: 0, skipped: { already_recorded: 1 } })
     })
 
     it("an unreadable feed records nothing and leaves an audit row", async () => {
       const before = await db.referenceRate.count({ where: { tenantId } })
       vi.spyOn(console, "error").mockImplementation(() => undefined)
-      const run = await runReferenceRateFeed(prisma, async () => ({ ok: false, reason: "timeout", detail: `it-${t}` }))
+      const run = await runReferenceRateFeed(scoped, async () => ({ ok: false, reason: "timeout", detail: `it-${t}` }))
       expect(run).toMatchObject({ ok: false, reason: "feed_unavailable" })
       expect(await db.referenceRate.count({ where: { tenantId } })).toBe(before)
       const audit = await db.auditLog.findFirstOrThrow({ where: { action: "REFERENCE_RATE_FEED_FAILED", newValue: { path: ["detail"], equals: `it-${t}` } } })
