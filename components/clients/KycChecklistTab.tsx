@@ -414,8 +414,9 @@ export function KycChecklistTab({
         )}
       </div>
 
-      {/* Derived on the server; the local status hides it once a decision lands. */}
-      {verificationRestorable && kyc === "PENDING" && (
+      {/* Derived on the server; the local status hides it once a decision lands.
+          Read-only viewers cannot re-derive (the route needs CREDIT_OFFICER). */}
+      {!readOnly && verificationRestorable && kyc === "PENDING" && (
         <RestorableVerificationHint
           clientId={clientId}
           idDocumentId={newestVerifiedIdCopyId(docs)}

@@ -86,4 +86,14 @@ describe("KycChecklistTab status banner", () => {
     expect(textOf(shown.root)).toContain(VERIFICATION_RESTORABLE_COPY)
     expect(textOf(shown.root)).toContain("Re-verify ID")
   })
+
+  // A read-only role cannot re-derive (the route needs CREDIT_OFFICER), so it is not offered.
+  it("hides the Re-verify hint from a read-only viewer", async () => {
+    const readOnly = await mount({ kycStatus: "PENDING", verificationRestorable: true, readOnly: true })
+    expect(textOf(readOnly.root)).not.toContain(VERIFICATION_RESTORABLE_COPY)
+    expect(textOf(readOnly.root)).not.toContain("Re-verify ID")
+
+    const staff = await mount({ kycStatus: "PENDING", verificationRestorable: true, readOnly: false })
+    expect(textOf(staff.root)).toContain("Re-verify ID")
+  })
 })
