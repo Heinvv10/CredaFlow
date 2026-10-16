@@ -23,6 +23,8 @@ const INVOICE = {
   id: true, number: true, supplyDate: true, issueDate: true, totalExclVatCents: true, vatCents: true, totalInclVatCents: true,
 } satisfies Prisma.TaxInvoiceSelect
 
+const CREDIT_NOTE = { id: true, invoiceId: true, issueDate: true, exclVatCents: true, vatCents: true, inclVatCents: true } satisfies Prisma.CreditNoteSelect
+
 type InvoiceRow = { id: string; supplyDate: Date; issueDate: Date; totalExclVatCents: number; vatCents: number; totalInclVatCents: number }
 
 function toInvoice(row: InvoiceRow, assetSaleExclVatCents = 0, fundBilledExclVatCents = 0): SourceInvoice {
@@ -52,7 +54,7 @@ const LOAN_SELECT = {
     orderBy: { number: "asc" },
     select: {
       ...INVOICE, leaseRental: { select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true } },
-      creditNotes: { orderBy: { number: "asc" }, select: { id: true, invoiceId: true, issueDate: true, exclVatCents: true, vatCents: true, inclVatCents: true } },
+      creditNotes: { orderBy: { number: "asc" }, select: CREDIT_NOTE },
     },
   },
   leaseRentals: {
@@ -67,7 +69,7 @@ const LOAN_SELECT = {
       id: true, status: true, netProceedsCents: true, surplusCents: true, chargesFrozenFrom: true, proceedsPaymentId: true, closedAt: true,
       costs: { where: { status: "APPROVED" }, orderBy: { id: "asc" }, select: { id: true, netCents: true, vatCents: true, grossCents: true, treatment: true, incurredOn: true } },
       vatEvents: { where: { kind: "REPOSSESSION_DEEMED_SUPPLY" }, orderBy: { id: "asc" }, select: { id: true, eventDate: true, inputTaxClaimCents: true } },
-      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, completedAt: true, taxInvoice: { select: { ...INVOICE, creditNotes: { select: { id: true } } } } } },
+      sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, completedAt: true, taxInvoice: { select: { ...INVOICE, creditNotes: { orderBy: { number: "asc" }, select: CREDIT_NOTE } } } } },
       refund: { where: { status: "RELEASED" }, select: { id: true, amountCents: true, releasedAt: true } },
     },
   },
@@ -90,7 +92,6 @@ function recoveriesOf(loan: LoanRow, unsupported: Unsupported[]): SourceRecovery
     if (sale && (!sale.taxInvoice || sale.taxInvoice.totalInclVatCents !== sale.priceInclVatCents)) {
       unsupported.push({ loanId: loan.id, from: saleFrom, message: `${loan.reference}: the remarketing sale has no tax invoice for its price` })
     }
-    if (sale?.taxInvoice?.creditNotes.length) unsupported.push({ loanId: loan.id, from: saleFrom, message: `${loan.reference}: a credit note against the remarketing sale invoice is not exported yet` })
     // A repossession's VAT event is made when a sale completes and a recovery with a completed sale cannot be withdrawn: such a record is not a state the rules produce.
     if (r.status === "WITHDRAWN" && (sale || r.vatEvents.length > 0)) {
       // From the earliest of the withdrawal, any VAT event and the sale: what was posted before the withdrawal is what cannot be.
@@ -106,7 +107,10 @@ function recoveriesOf(loan: LoanRow, unsupported: Unsupported[]): SourceRecovery
       withdrawnAt: r.status === "WITHDRAWN" ? r.closedAt : null,
       costs: r.costs.map((c) => ({ ...c, incurredOn: dayOf(c.incurredOn) })),
       vatEvents: r.vatEvents.filter((e) => e.inputTaxClaimCents > 0).map((e) => ({ id: e.id, eventDate: dayOf(e.eventDate), inputTaxClaimCents: e.inputTaxClaimCents })),
-      sale: sale?.taxInvoice ? { id: sale.id, priceInclVatCents: sale.priceInclVatCents, invoice: toInvoice(sale.taxInvoice) } : null,
+      sale: sale?.taxInvoice ? {
+        id: sale.id, priceInclVatCents: sale.priceInclVatCents, invoice: toInvoice(sale.taxInvoice),
+        creditNotes: sale.taxInvoice.creditNotes.map((n) => ({ id: n.id, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents })),
+      } : null,
       refund: r.refund?.releasedAt ? { id: r.refund.id, amountCents: r.refund.amountCents, releasedAt: r.refund.releasedAt } : null,
     }
   })
@@ -132,7 +136,7 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   else if (lease) {
     if (released.amountCents !== asset.exclVatCents + asset.vatCents) flag("a lease with a deposit or trade-in is not exported yet")
   } else {
-    if (loan.taxInvoices.some((i) => i.creditNotes.length > 0)) flag("a credit note against the inception invoice is not exported yet")
+    if (loan.taxInvoices.slice(1).some((i) => i.creditNotes.length > 0)) flag("a credit note against a tax invoice other than the inception invoice is not exported yet")
     if (loan.taxInvoices.length === 0) flag("no inception tax invoice")
     if (loan.repaymentSchedule.some((r) => r.assetFinanceOpeningBalanceCents === null)) flag("a schedule row has no opening balance")
   }
@@ -150,7 +154,11 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
     sundryInvoices: lease
       ? loan.taxInvoices.filter((i) => !rentalInvoiceIds.has(i.id)).map((i) => toInvoice(i, assetSale(i.id), billed(i.id)))
       : [],
-    creditNotes: lease ? loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => {
+    creditNotes: !lease ? (loan.taxInvoices[0]?.creditNotes ?? []).map((n): SourceCreditNote => ({
+      id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
+      // The inception invoice is one line, the asset at its cash price (lib/vat/tax-invoice.ts): its whole value is the price.
+      invoiceIncome: [{ role: "AF_PRICE_CREDITS", exclVatCents: loan.taxInvoices[0].totalExclVatCents }],
+    })) : loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => {
       const note: SourceCreditNote = {
         id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
         invoiceIncome: i.leaseRental
@@ -163,7 +171,7 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
       // A credit with no income to spread over cannot be posted in balance: refuse the close rather than crash the preview.
       if (creditShares(note).length === 0) unsupported.push({ loanId: loan.id, from: note.issueDate, message: `${loan.reference}: a credit note on an invoice with no income to credit` })
       return note
-    })) : [],
+    })),
     fund: loan.maintenanceFund
       ? { riskModel: loan.maintenanceFund.riskModel, movements: loan.maintenanceFund.movements.map((m) => ({ ...m, occurredOn: dayOf(m.occurredOn) })) }
       : null,

@@ -7,7 +7,8 @@
  * journal's: debit +, credit -.
  *
  *   AF_OUTPUT_VAT              per contract: the VAT on its tax invoices (and the buyer invoices of its
- *                              recoveries) less credit notes; the journal holds it as OUTPUT_VAT credits
+ *                              recoveries) less their credit notes (an inception invoice's once its payout
+ *                              is released, when the inception posts); the journal holds it as OUTPUT_VAT credits
  *   AF_INPUT_VAT               per contract: the VAT on the dealer's invoice (the lease asset's VAT), on
  *                              approved recovery costs and the repossession input-tax claims. For an
  *                              instalment sale or finance lease the figure is the inception invoice's VAT, the
@@ -15,7 +16,8 @@
  *                              payout is released, once) and no supplier-side figure is read. // UNTESTED: tax —
  *                              input VAT on a dealer that is not a VAT vendor (DESIGN.md)
  *   RECOVERY_CLEARING          per recovery: nil once its proceeds are applied or it is withdrawn
- *   RECOVERY_RESULT            per recovery: what the clearing held when it was resolved
+ *   RECOVERY_RESULT            per recovery: what the clearing held when it was resolved, plus any later
+ *                              credit note on the buyer's invoice
  *   RECOVERY_REFUND_PAYABLE    per recovery: the surplus less the refund released
  *   MAINTENANCE_FUND_LIABILITY per fund: a lessee-settled fund's balance; nil for a lender-risk fund
  */
@@ -108,7 +110,12 @@ async function vatBooks(db: Db, tenantId: string, asOf: Date): Promise<{ output:
     UNION ALL
     SELECT 'OUT', i."loanId", -SUM(n."vatCents")::bigint
       FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
-      WHERE n."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN' AND ${credit} < ${asOf} GROUP BY i."loanId"
+      WHERE n."tenantId" = ${tenantId} AND ln."contractType" <> 'LOAN' AND ${credit} < ${asOf} AND (CASE WHEN ${isInception} THEN ${inceptionReleased} ELSE true END)
+      GROUP BY i."loanId"
+    UNION ALL
+    SELECT 'OUT', rec."loanId", -SUM(n."vatCents")::bigint
+      FROM "CreditNote" n JOIN "RemarketingSale" rs ON rs."taxInvoiceId" = n."invoiceId" AND rs."tenantId" = n."tenantId" JOIN "Recovery" rec ON rec."id" = rs."recoveryId" AND rec."tenantId" = rs."tenantId"
+      WHERE n."tenantId" = ${tenantId} AND rs."status" = 'COMPLETED' AND ${credit} < ${asOf} GROUP BY rec."loanId"
     UNION ALL
     SELECT 'IN', i."loanId", SUM(i."vatCents")::bigint
       FROM "TaxInvoice" i JOIN "Loan" ln ON ln."id" = i."loanId" AND ln."tenantId" = i."tenantId"
@@ -146,12 +153,14 @@ async function recoveryBooks(db: Db, tenantId: string, asOf: Date): Promise<Reco
   const incurred = sast('c."incurredOn"')
   const issue = sast('i."issueDate"')
   const event = sast('v."eventDate"')
+  const credit = sast('n."issueDate"')
   const rows = await db.$queryRaw<Array<{ id: string; proceedsPaymentId: string | null; resolved: boolean; result: bigint; refundPayable: bigint }>>(Prisma.sql`
     SELECT rec."id", rec."proceedsPaymentId",
       ((rec."netProceedsCents" IS NOT NULL AND ${frozen} < ${asOf}) OR (rec."status" = 'WITHDRAWN' AND rec."closedAt" < ${asOf})) AS "resolved",
       (COALESCE((SELECT SUM(c."netCents") FROM "RecoveryCost" c WHERE c."recoveryId" = rec."id" AND c."tenantId" = rec."tenantId" AND c."status" = 'APPROVED' AND c."treatment" = 'DEDUCT_FROM_PROCEEDS' AND ${incurred} < ${asOf}), 0)
         + CASE WHEN rec."netProceedsCents" IS NOT NULL THEN LEAST(rec."netProceedsCents", rec."settlementDueCents") + COALESCE(rec."surplusCents", 0) ELSE 0 END
         - COALESCE((SELECT SUM(i."totalExclVatCents") FROM "RemarketingSale" rs JOIN "TaxInvoice" i ON i."id" = rs."taxInvoiceId" AND i."tenantId" = rs."tenantId" WHERE rs."recoveryId" = rec."id" AND rs."tenantId" = rec."tenantId" AND rs."status" = 'COMPLETED' AND ${issue} < ${asOf}), 0)
+        + COALESCE((SELECT SUM(n."exclVatCents") FROM "RemarketingSale" rs JOIN "CreditNote" n ON n."invoiceId" = rs."taxInvoiceId" AND n."tenantId" = rs."tenantId" WHERE rs."recoveryId" = rec."id" AND rs."tenantId" = rec."tenantId" AND rs."status" = 'COMPLETED' AND ${credit} < ${asOf}), 0)
         - COALESCE((SELECT SUM(v."inputTaxClaimCents") FROM "RecoveryVatEvent" v WHERE v."recoveryId" = rec."id" AND v."tenantId" = rec."tenantId" AND v."kind" = 'REPOSSESSION_DEEMED_SUPPLY' AND ${event} < ${asOf}), 0))::bigint AS "result",
       (CASE WHEN rec."netProceedsCents" IS NOT NULL AND ${frozen} < ${asOf} THEN COALESCE(rec."surplusCents", 0) ELSE 0 END
         - COALESCE((SELECT SUM(f."amountCents") FROM "RecoveryRefund" f WHERE f."recoveryId" = rec."id" AND f."tenantId" = rec."tenantId" AND f."status" = 'RELEASED' AND f."releasedAt" < ${asOf}), 0))::bigint AS "refundPayable"

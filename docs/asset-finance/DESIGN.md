@@ -325,8 +325,12 @@ sign-off. 4b (journals, IsaFlow push) waits for PR #89.
 Asset-finance contracts export through the accounting engine (`lib/accounting/`), never the consumer
 sources. Sources: instalment sale and finance lease (financed amount at inception, then the interest
 each row accrues, capitalised interest included, the balloon posts nothing), leases per tax invoice
-(rentals, end-of-term and termination invoices, credit notes), the maintenance fund, and a
-repossession through `RECOVERY_CLEARING` to nil. Every month ties to independent SQL and six controls
+(rentals, end-of-term and termination invoices, credit notes), credit notes on an inception invoice
+or a repossession sale's invoice, the maintenance fund, and a repossession through `RECOVERY_CLEARING`
+to nil. An instalment sale or finance lease posts its inception when the supplier payout is released
+(each row's interest is `B(next) - B(this) + totalDue`); a lease's end-of-term and termination invoices
+are schedule rows, so they sit on the receivable. A contract that predates the first open month posts
+there, dated by origin. Every month ties to independent SQL and six controls
 (VAT in and out, recovery clearing and result, refund payable, fund liability); a control that
 differs refuses the close. Hand-worked acceptance deals are in
 `lib/asset-finance/__fixtures__/acceptance-journal-*.ts` (`CLIENT_JOURNAL_DEALS` empty until the
@@ -340,16 +344,42 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
 - **Charged-cost VAT.** A recovery cost charged to the account claims its input VAT, and the
   recharge to the borrower is the gross amount with no output VAT, so the VAT portion lands in
   profit and loss (via the recharge contra account).
-- Input VAT claimed at inception on the dealer's invoice; interest recognised as it falls due (no
+- Input VAT claimed at inception on the dealer's invoice (an inception credit note leaves it claimed
+  until the dealer credits the lender; reversing it then is the accountant's entry); interest recognised as it falls due (no
   deferred finance income); the recovery-result account (output VAT less the input VAT claimed on
   repossession and on deducted costs); the split of a credit note between rental, maintenance and
   asset-sale income, and that a credited maintenance contribution stays in the lessee's fund; the
   sale's cash taken in on the completion day; the lease asset's net book value is derecognised in
   the fixed-asset register, not posted.
 - **Not exported yet (refuses the close):** a lease with a deposit or trade-in, and a credit note
-  against an instalment sale's inception invoice or a repossession sale's invoice.
-- A credit note adjusts the ledger's lease debtors but not the loan's schedule: staff settle the
-  schedule balance separately.
+  against an instalment sale's tax invoice other than its inception invoice (the app issues none).
+- A credit note adjusts the ledger's lease or instalment debtors but not the loan's schedule: staff
+  settle the schedule balance separately. No screen or route issues a credit note today; only
+  `issueCreditNote` (`lib/vat/credit-note.ts`) does, and nothing reprices the schedule after one.
+- **Credit note on an instalment sale's or finance lease's inception invoice:** Dr `AF_PRICE_CREDITS`
+  (6400, new) the value excl. VAT, Dr output VAT; Cr instalment debtors incl. VAT, on its issue date,
+  or with the inception when the payout is released later. The invoice is one line, the asset's cash
+  price, so a credit lowers the price and the amount financed F by its incl. VAT value. The inception
+  netted the sale to the debtor against the dealer's price and posted no sales account, so there is
+  no income to reverse: the excl. VAT value is the lender's cost unless the dealer credits the lender
+  in turn, which the accountant books against the same account (and reverses that input VAT). Fee
+  income is untouched (financed fees are not on the invoice); input VAT is untouched (no dealer credit
+  is recorded). The independent SQL subtracts the credit from what the schedule says is owed, as for a
+  lease, so the receivable ties while the schedule still carries the full price.
+  A credit is at the invoice's incl. VAT value, but the debtors were booked at F, which excludes the
+  deposit and trade-in the debtor paid outside the contract. So a large enough credit on such a deal
+  (the whole invoice, say) leaves instalment debtors in credit: on a R11 500.00 cash price with a
+  R1 500.00 deposit (F R10 000.00), a full credit takes R11 500.00 off a R10 000.00 debt. That is the
+  lender's policy, not a fault: refunding or offsetting the credit balance is the accountant's step,
+  and the code leaves it as is (repro R1 in `lib/accounting/af-break-credit-notes.integration.test.ts`).
+- **Credit note on a repossession sale's buyer invoice:** Dr output VAT, Dr `RECOVERY_CLEARING` excl.
+  VAT; Cr bank incl. VAT, on its issue date. The sale source takes the buyer's cash in on the invoice
+  date with no buyer debtor account (Q2 of the 4b spec), so the refund goes out the same way: a
+  payable would never clear from data the app holds. The proceeds applied to the debtor are the sale
+  price before the credit (`lib/asset-finance/recovery-proceeds.ts`), so the credit is the lender's
+  loss: the result source sweeps it from clearing to `RECOVERY_RESULT` (a credit issued after the
+  proceeds were applied moves the result in its own month), clearing stays nil, and the result
+  control adds the credit's excl. VAT value.
 - **Input VAT on a dealer that is not a VAT vendor.** The instalment-sale and finance-lease input VAT
   control reads the inception invoice's VAT, the same figure the journal posts, so it checks the date
   (posted once, when the supplier payout is released), not the dealer's own VAT. Whether the lender may

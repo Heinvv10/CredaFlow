@@ -26,6 +26,12 @@ const invoiceRow = (t: ChargesTenant, inv: SourceInvoice, loanId: string | null)
 
 type Op = Prisma.PrismaPromise<unknown>
 
+const creditNote = (db: PrismaClient, t: ChargesTenant, invoiceId: string, n: { id: string; issueDate: Date; exclVatCents: number; vatCents: number; inclVatCents: number }): Op =>
+  db.creditNote.create({ data: {
+    id: n.id, tenantId: t.tenantId, number: ++creditCounter, creditNoteNumber: `CN-${creditCounter}`, issueDate: dbDay(n.issueDate), invoiceId, reason: "Synthetic credit",
+    exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
+  } })
+
 function recoveryOps(db: PrismaClient, t: ChargesTenant, loan: SourceLoan, assetId: string): Op[] {
   const af = loan.assetFinance!
   const ops: Op[] = []
@@ -70,6 +76,7 @@ function recoveryOps(db: PrismaClient, t: ChargesTenant, loan: SourceLoan, asset
         highestValuationCents: rec.sale.priceInclVatCents, belowValuation: false, relatedPartyMatch: false, screeningResult: {}, createdById: t.userId,
         completedAt: rec.sale.invoice.issueDate, taxInvoiceId: rec.sale.invoice.id, proceedsPaymentId: rec.proceedsPaymentId,
       } }))
+      for (const n of rec.sale.creditNotes ?? []) ops.push(creditNote(db, t, rec.sale.invoice.id, n))
     }
     if (rec.refund) {
       ops.push(db.recoveryRefund.create({ data: {
@@ -100,12 +107,6 @@ function leaseOps(db: PrismaClient, t: ChargesTenant, loan: SourceLoan): Op[] {
         tenantId: t.tenantId, loanId: loan.id, origin: "EXPIRY", outcome: "PURCHASE", status: "INVOICED", taxInvoiceId: inv.id, scheduleId: `sched-${inv.id}`, purchaseValuationId: `val-${inv.id}`, purchasePriceExclVatCents: inv.assetSaleExclVatCents,
       } }))
     }
-  }
-  for (const n of af.creditNotes) {
-    ops.push(db.creditNote.create({ data: {
-      id: n.id, tenantId: t.tenantId, number: ++creditCounter, creditNoteNumber: `CN-${creditCounter}`, issueDate: dbDay(n.issueDate), invoiceId: n.invoiceId, reason: "Synthetic credit",
-      exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
-    } }))
   }
   if (af.fund) {
     ops.push(db.maintenanceFund.create({ data: { id: `fund-${loan.id}`, tenantId: t.tenantId, loanId: loan.id, riskModel: af.fund.riskModel, leaseEndDate: dbDay(loan.startDate) } }))
@@ -166,7 +167,8 @@ export async function insertSourceLoan(db: PrismaClient, t: ChargesTenant, loan:
   for (const c of loan.charges) {
     ops.push(db.loanCharge.create({ data: { tenantId: t.tenantId, loanId: loan.id, type: c.type as "RECOVERY_COST", day: dbDay(c.day), amount: c.amount, sourceId: c.sourceId } }))
   }
-  await db.$transaction([...ops, ...(lease ? leaseOps(db, t, loan) : []), ...recoveryOps(db, t, loan, assetId)])
+  const credits = af.creditNotes.map((n) => creditNote(db, t, n.invoiceId, n))
+  await db.$transaction([...ops, ...(lease ? leaseOps(db, t, loan) : []), ...credits, ...recoveryOps(db, t, loan, assetId)])
 }
 
 /** Removes what insertSourceLoan wrote for these loans (triggers off), also left over by an earlier failed run. */
