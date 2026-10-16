@@ -10,13 +10,12 @@
 import type { LegalMatterStepKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
-import { fromDayNumber, toDayNumber } from "@/lib/asset-finance/dates"
+import { toDayNumber } from "@/lib/asset-finance/dates"
 import { appointAttorney, openLegalMatter } from "@/lib/asset-finance/legal-matter-store"
 import { recordLegalStep } from "@/lib/asset-finance/legal-matter-step"
 import type { LegalStepInput } from "@/lib/asset-finance/legal-matter-input"
 import type { SeedActor } from "./asset-finance-documents"
-
-const daysAgo = (today: string, days: number) => fromDayNumber(toDayNumber(today) - days)
+import { legalMatterSeedDates } from "./asset-finance-recovery-dates"
 
 async function ensureAttorney(tenantId: string, officer: SeedActor): Promise<string> {
   const name = "TEST Collections Attorneys Inc"
@@ -49,7 +48,8 @@ export async function seedTlbLegalMatter(tenantId: string, officer: SeedActor, l
     matter = { id: opened.id, attorneySupplierId: null }
   }
   const matterId = matter.id
-  const s129On = daysAgo(today, 60)
+  const dates = legalMatterSeedDates(today)
+  const s129On = dates.s129On
   const steps = new Set((await prisma.legalMatterStep.findMany({ where: { tenantId, matterId }, select: { kind: true } })).map((s) => s.kind))
   const record = async (kind: LegalMatterStepKind, stepDate: string, over: Partial<LegalStepInput> = {}) => {
     if (steps.has(kind)) return
@@ -65,16 +65,16 @@ export async function seedTlbLegalMatter(tenantId: string, officer: SeedActor, l
   }
   await record("S129_SENT", s129On, { section129RecordId: await ensureS129Record(tenantId, loanId, s129On), note: "Synthetic section 129 notice sent" })
   if (!matter.attorneySupplierId) {
-    const appointed = await appointAttorney(actor, matterId, { supplierId: await ensureAttorney(tenantId, officer), appointedOn: daysAgo(today, 55) })
+    const appointed = await appointAttorney(actor, matterId, { supplierId: await ensureAttorney(tenantId, officer), appointedOn: dates.attorneyAppointedOn })
     if (appointed.kind !== "done") throw new Error(`Seed: attorney appointment refused (${JSON.stringify(appointed)})`)
   }
-  const summons = daysAgo(today, 40)
+  const summons = dates.summonsIssuedOn
   if (toDayNumber(addSouthAfricanBusinessDays(s129On, 10)) > toDayNumber(summons)) throw new Error("Seed: the summons date is inside the section 129 window")
   await record("SUMMONS_ISSUED", summons, { note: "Synthetic summons issued" })
-  await record("SUMMONS_SERVED", daysAgo(today, 35))
-  await record("JUDGMENT", daysAgo(today, 20), { note: "Synthetic default judgment" })
-  await record("ATTACHMENT_ORDER", daysAgo(today, 10), { note: "Synthetic attachment order" })
-  await record("ASSET_RECOVERED", daysAgo(today, 3), { recovery: { location: "TEST Sheriff's Yard, Johannesburg", condition: "Used, fair condition; hours as at the inspection." } })
+  await record("SUMMONS_SERVED", dates.summonsServedOn)
+  await record("JUDGMENT", dates.judgmentOn, { note: "Synthetic default judgment" })
+  await record("ATTACHMENT_ORDER", dates.attachmentOrderOn, { note: "Synthetic attachment order" })
+  await record("ASSET_RECOVERED", dates.assetRecoveredOn, { recovery: { location: "TEST Sheriff's Yard, Johannesburg", condition: "Used, fair condition; hours as at the inspection." } })
 
   const recovery = await prisma.recovery.findFirst({ where: { tenantId, loanId, legalMatterId: matterId }, select: { id: true } })
   if (!recovery) throw new Error("Seed: the ASSET_RECOVERED step opened no recovery")
