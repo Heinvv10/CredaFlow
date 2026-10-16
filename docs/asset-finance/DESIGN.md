@@ -416,7 +416,9 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Known limits.**
   - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
     result (the deleted draft's id). The push then stays NEEDS_REVIEW ("draft deleted in IsaFlow;
-    key replays the old id") for a person to resolve. Sending it again needs a new key, which
+    key replays the old id") for a person to resolve. Resolving it "not pushed" and pushing again
+    only replays the deleted id again, back to review: that month is posted in IsaFlow from the CSV
+    download, which the screen and the 409 message say. Sending it again needs a new key, which
     needs IsaFlow-side support or an explicit operator re-key; both are out of scope.
   - `write:journals` is proven only by the first push.
   - A tax code on a mapping (meant for Xero) refuses the IsaFlow push; post that month from the CSV.

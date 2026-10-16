@@ -9,13 +9,15 @@
  * Known limit (IsaFlow's registry, registry.ts:146-157): a draft a person
  * deleted in IsaFlow is not recreated by a resend; IsaFlow replays the stored
  * result. The answer is read back once more, and an id IsaFlow no longer holds
- * leaves the push NEEDS_REVIEW for a person (a new key would need IsaFlow-side
- * support or an explicit re-key).
+ * leaves the push NEEDS_REVIEW for a person. Pushing it again only replays the
+ * old id, so the month is posted from the CSV, or IsaFlow re-keys it (a new
+ * key would need IsaFlow-side support or an explicit re-key).
  */
 import { AuditAction } from "@/lib/audit"
 import { IsaFlowError, mcpTransport, type IsaFlowHttp } from "./client"
 import { isaflowTarget, type Actor } from "./connection"
 import { findPushedDraft } from "./journal"
+import { deletedDraftError } from "./messages"
 import { audit, dropIsaFlowToken, markStaleIsaFlowPush, recordOutcome, refused, sendClaimed, type PushDb, type PushOutcome } from "./push-record"
 
 export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; batchId: string; actor: Actor; from: "FAILED" | "NEEDS_REVIEW" }, http: IsaFlowHttp = {}): Promise<PushOutcome> {
@@ -78,7 +80,7 @@ export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; bat
   return sendClaimed(db, { ...args, argsJson: push.requestJson }, isa, async (journalId) => {
     try {
       if (findPushedDraft(await isa.listDraftJournals(date), push.requestJson).found?.id === journalId) return null
-      return `draft deleted in IsaFlow; key replays the old id (${journalId}). Nothing new was created: check IsaFlow, then resolve`
+      return deletedDraftError(journalId)
     } catch (error) {
       return `IsaFlow answered with draft ${journalId} but could not be read back to confirm it (${error instanceof Error ? error.message : "error"}); check IsaFlow, then resolve`
     }

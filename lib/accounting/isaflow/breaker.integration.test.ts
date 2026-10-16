@@ -175,7 +175,7 @@ suite.sequential("breaker ITs", () => {
     expect((await rows(batch))[0]).toMatchObject({ status: "PUSHED", isaflowJournalId: "not-a-real-id" })
   })
 
-  it("7: after 'not_pushed' on a deleted draft the batch can never be pushed again (key replays the deleted id)", async () => {
+  it("7: after 'not_pushed' on a deleted draft, pushing again replays the deleted id: left in review, told to post from the CSV, no duplicate", async () => {
     const { t, batch } = await month()
     fake.commitThenDrop()
     await push(t, batch)
@@ -183,9 +183,10 @@ suite.sequential("breaker ITs", () => {
     expect(await check(t, batch)).toMatchObject({ status: "NEEDS_REVIEW" })
     await resolveIsaFlowPush(prisma, { tenantId: t.tenantId, batchId: batch, outcome: "not_pushed", journalId: null, note: "deleted on purpose", actor: actor(t) })
     const again = await push(t, batch)
-    console.info("REPRO7", JSON.stringify(again))
-    expect(again).toMatchObject({ ok: true })
-    expect(drafts(batch)).toHaveLength(1)
+    // Documented limit (DESIGN.md, IsaFlow push): the key replays the deleted draft's id.
+    expect(again).toMatchObject({ ok: false, httpStatus: 409, status: "NEEDS_REVIEW", error: expect.stringContaining("post it in IsaFlow from the CSV download") })
+    expect(drafts(batch)).toHaveLength(0)
+    expect((await rows(batch)).map((r) => [r.status, r.isaflowJournalId])).toEqual([["NEEDS_REVIEW", null]])
   })
 
   it("8: stale SENDING moves to review exactly once under concurrent checks", async () => {

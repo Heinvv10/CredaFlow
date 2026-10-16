@@ -4,6 +4,7 @@ import { useState } from "react"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DELETED_DRAFT_REPLAYED } from "@/lib/accounting/isaflow/messages"
 import type { Batch } from "./AccountingHistory"
 
 type Post = (url: string, body: unknown, done: (json: Record<string, unknown>) => string) => Promise<void>
@@ -16,6 +17,8 @@ export function IsaFlowPushControl({ batch, canAdmin, connected, busy, post }: {
   const [note, setNote] = useState("")
   const push = batch.isaflowPush ?? null
   const url = `/api/accounting/batches/${batch.id}/isaflow`
+  // IsaFlow answers this batch's key with a draft deleted since: pushing again only replays it.
+  const replayed = push?.error?.startsWith(DELETED_DRAFT_REPLAYED) ?? false
   const pushed = (j: Record<string, unknown>) => (j.foundOnReadBack ? `Found in IsaFlow as draft ${String(j.journalId)}; nothing was sent again.` : `In IsaFlow as draft journal ${String(j.journalId)}.`)
 
   return (
@@ -32,12 +35,20 @@ export function IsaFlowPushControl({ batch, canAdmin, connected, busy, post }: {
         )}
       </div>
       {push?.error && <p className="text-xs text-[var(--cf-text-muted)]">{push.error}</p>}
+      {replayed && (
+        <p className="rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-2 text-xs text-[var(--cf-text)]">
+          This month&apos;s draft was deleted in IsaFlow, and IsaFlow answers its key with that deleted draft, so pushing again will not
+          create it. Post this month in IsaFlow from the{" "}
+          <a className="text-[var(--cf-brand)] underline" href={`/api/accounting/batches/${batch.id}/csv?format=generic`} download>CSV download</a>
+          {" "}(or have IsaFlow re-key it), then resolve it here.
+        </p>
+      )}
       {!connected && !push && <p className="text-xs text-[var(--cf-text-muted)]">Connect IsaFlow under Settings → Integrations to push this month as a draft journal.</p>}
       {canAdmin && (
         <div className="flex flex-wrap gap-2">
           {connected && (!push || push.status === "FAILED") && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => post(url, { action: "push" }, pushed)}>
-              {push ? "Push to IsaFlow again" : "Push to IsaFlow"}
+              {!push ? "Push to IsaFlow" : replayed ? "Push again (after IsaFlow re-keys it)" : "Push to IsaFlow again"}
             </Button>
           )}
           {(push?.status === "SENDING" || push?.status === "NEEDS_REVIEW") && (
@@ -52,7 +63,7 @@ export function IsaFlowPushControl({ batch, canAdmin, connected, busy, post }: {
           <Input placeholder="What you checked (required)" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" disabled={busy || note.trim().length < 5 || !journalId.trim()} onClick={() => post(url, { action: "resolve", outcome: "pushed", journalId, note }, () => "Recorded as in IsaFlow.")}>It is in IsaFlow</Button>
-            <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => post(url, { action: "resolve", outcome: "not_pushed", note }, () => "Recorded as not in IsaFlow; it can be pushed again.")}>It is not in IsaFlow</Button>
+            <Button size="sm" variant="outline" disabled={busy || note.trim().length < 5} onClick={() => post(url, { action: "resolve", outcome: "not_pushed", note }, () => (replayed ? "Recorded as not in IsaFlow. Post this month from the CSV download." : "Recorded as not in IsaFlow; it can be pushed again."))}>It is not in IsaFlow</Button>
           </div>
         </div>
       )}
