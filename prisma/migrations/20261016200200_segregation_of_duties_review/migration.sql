@@ -128,4 +128,5 @@ BEGIN
 END;
 $function$;
 
-CREATE TRIGGER "LoanApplication_guard_consumer_signature_frozen" BEFORE UPDATE OF "agreementSignedAt", "agreementSignedMethod", "agreementSignedByUserId", "agreementSignedByIp", "agreementSignatureData" ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationConsumerSignature"();
+-- "z_": after every evidence guard, so each still refuses with its own sentence.
+CREATE TRIGGER "LoanApplication_z_guard_consumer_signature_frozen" BEFORE UPDATE OF "agreementSignedAt", "agreementSignedMethod", "agreementSignedByUserId", "agreementSignedByIp", "agreementSignatureData" ON "LoanApplication" FOR EACH ROW EXECUTE FUNCTION "guardLoanApplicationConsumerSignature"();

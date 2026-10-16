@@ -22,7 +22,7 @@ describe("segregation of duties in the migrations", () => {
   })
 
   it("freezes a recorded consumer signature unless it is cleared whole", () => {
-    expect(baselineTriggerSql("LoanApplication_guard_consumer_signature_frozen")).toContain(`EXECUTE FUNCTION "guardLoanApplicationConsumerSignature"()`)
+    expect(baselineTriggerSql("LoanApplication_z_guard_consumer_signature_frozen")).toContain(`EXECUTE FUNCTION "guardLoanApplicationConsumerSignature"()`)
     const fn = baselineFunctionSql("guardLoanApplicationConsumerSignature")
     for (const column of ["agreementSignedMethod", "agreementSignedByUserId", "agreementSignedByIp", "agreementSignatureData"]) {
       expect(fn).toContain(`NEW."${column}" IS DISTINCT FROM OLD."${column}"`)
