@@ -122,7 +122,7 @@ describe('bake.sh sim env preflight', () => {
   })
 
   it('never prints a secret value, on success or on failure', () => {
-    for (const env of [{}, { STUB_SIM_ENV: 'PATH=/usr/bin' }, { STUB_DROP_SECRET: '1' }]) {
+    for (const env of <Record<string, string>[]>[{}, { STUB_SIM_ENV: 'PATH=/usr/bin' }, { STUB_DROP_SECRET: '1' }]) {
       expect(bake(env).out).not.toContain(SECRET_VALUE)
     }
   })
