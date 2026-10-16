@@ -304,9 +304,7 @@ export async function POST(req: NextRequest) {
     if (product.productType === "PO_FUNDING") {
       const parsed = parsePoFundingFacts(body, loanPurposeCategory)
       if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
-      if (!(await isClientPoDocument(prisma, { tenantId: tenant.id, clientId: client.id, documentId: parsed.facts.poDocumentId }))) {
-        return NextResponse.json({ error: "Upload the purchase order document again: the one sent was not found." }, { status: 422 })
-      }
+      // The document itself is checked inside the create transaction, below.
       poFacts = parsed.facts
     }
 
@@ -356,6 +354,12 @@ export async function POST(req: NextRequest) {
         })
         if (!evidenceExists) {
           return { ok: false as const, status: 422, body: { error: "Application evidence is no longer available. Please refresh and try again." } }
+        }
+        // Under the client-evidence lock DELETE /api/documents/[id] also takes,
+        // so the purchase order cannot be deleted between this check and the
+        // insert that names it (that route then refuses: it is referenced).
+        if (poFacts && !(await isClientPoDocument(tx, { tenantId: tenant.id, clientId: client.id, documentId: poFacts.poDocumentId }))) {
+          return { ok: false as const, status: 422, body: { error: "Upload the purchase order document again: the one sent was not found." } }
         }
 
         const [currentClient, currentProduct] = await Promise.all([

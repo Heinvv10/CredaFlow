@@ -1,5 +1,5 @@
 import type { LoanPurposeCategory } from "@prisma/client"
-import type { prisma } from "@/lib/prisma"
+import type { ApplicationSubmissionTransaction } from "@/lib/applications/submission-lock"
 
 /**
  * Purchase-order funding is business credit: the advance pays a supplier for
@@ -40,13 +40,17 @@ export function parsePoFundingFacts(body: Record<string, unknown>, category: Loa
   return { ok: true, facts: { poNumber, poBuyerName, poDocumentId } }
 }
 
-/** The uploaded order is this client's own PO document in this tenant. */
+/**
+ * The uploaded order is this client's own, undeleted PO document in this
+ * tenant. Call it inside the create transaction after the client-evidence
+ * lock, so a concurrent delete cannot slip between the check and the insert.
+ */
 export async function isClientPoDocument(
-  db: Pick<typeof prisma, "clientDocument">,
+  db: Pick<ApplicationSubmissionTransaction, "clientDocument">,
   a: { tenantId: string; clientId: string; documentId: string },
 ): Promise<boolean> {
   const doc = await db.clientDocument.findFirst({
-    where: { id: a.documentId, tenantId: a.tenantId, clientId: a.clientId, docType: "PO_DOCUMENT" },
+    where: { id: a.documentId, tenantId: a.tenantId, clientId: a.clientId, docType: "PO_DOCUMENT", deletedAt: null },
     select: { id: true },
   })
   return doc !== null

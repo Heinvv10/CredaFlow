@@ -57,6 +57,7 @@ const auditCreateMock = vi.fn()
 const queryRawMock = vi.fn()
 const getDocumentCallerMock = vi.fn()
 const deleteFileMock = vi.fn()
+const loanApplicationFindFirstMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -70,6 +71,7 @@ const tx = {
     update: (args: unknown) => clientUpdateMock(args),
   },
   auditLog: { create: (args: unknown) => auditCreateMock(args) },
+  loanApplication: { findFirst: (args: unknown) => loanApplicationFindFirstMock(args) },
 }
 
 vi.mock("@/lib/prisma", () => ({
@@ -494,6 +496,45 @@ describe("document evidence mutations", () => {
     expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
     expect(auditCreateMock).not.toHaveBeenCalled()
     expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  // A PO funding application names its purchase order (LoanApplication.poDocumentId).
+  it("refuses to delete a purchase order an application relies on, checked under the evidence lock", async () => {
+    const po = { ...document, docType: "PO_DOCUMENT" }
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue(po)
+    loanApplicationFindFirstMock.mockResolvedValue({ id: "app-po" })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+      ctx,
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "This purchase order is part of a PO funding application and cannot be deleted",
+    })
+    expect(loanApplicationFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", poDocumentId: "doc-1" },
+    }))
+    // Asked after the evidence lock, like every other immutability check.
+    expect(queryRawMock.mock.invocationCallOrder[0])
+      .toBeLessThan(loanApplicationFindFirstMock.mock.invocationCallOrder[0])
+    expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it("still deletes a purchase order no application names", async () => {
+    const po = { ...document, docType: "PO_DOCUMENT", verified: false }
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue(po)
+    loanApplicationFindFirstMock.mockResolvedValue(null)
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+      ctx,
+    )
+
+    expect(response.status).not.toBe(409)
+    expect(clientDocumentUpdateManyMock).toHaveBeenCalled()
   })
 
   it("does not expose the unaudited generic verification PATCH to any staff role", () => {

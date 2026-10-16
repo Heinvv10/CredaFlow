@@ -50,6 +50,7 @@ const tx = {
   loan: { findFirst: findFirstLoan },
   loanApplication: { findFirst: findFirstApplication, create: createApplication },
   auditLog: { create: auditLogCreate },
+  clientDocument: { findFirst: findFirstDocument },
 }
 
 vi.mock("@/lib/auth", () => ({ auth }))
@@ -734,9 +735,20 @@ describe("POST /api/portal/applications — PO funding", () => {
     const res = await POST(buildReq(poBody))
     expect(res.status).toBe(422)
     expect(findFirstDocument).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT" },
+      where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT", deletedAt: null },
     }))
     expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("checks the PO document inside the create transaction, after the client evidence lock the delete route takes", async () => {
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(201)
+    expect(transaction).toHaveBeenCalled()
+    const lockSql = queryRaw.mock.calls.map((c) => JSON.stringify(c[0]))
+    expect(lockSql.some((q) => q.includes("affordability-client:t1:c1"))).toBe(true)
+    // The first raw query in the transaction is the advisory client-evidence lock.
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(findFirstDocument.mock.invocationCallOrder[0])
+    expect(findFirstDocument).toHaveBeenCalledTimes(1)
   })
 
   it("stores the purchase-order facts with the application", async () => {
