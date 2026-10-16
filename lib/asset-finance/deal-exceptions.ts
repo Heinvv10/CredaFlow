@@ -7,7 +7,11 @@
  *   active party of the entity (director, member, trustee, surety, authorised
  *   signatory, beneficial owner) has a loan with this lender that is in
  *   arrears (days or an amount overdue) or has defaulted (DEFAULTED,
- *   PENDING_WRITE_OFF, WRITTEN_OFF).
+ *   PENDING_WRITE_OFF, WRITTEN_OFF). A party removed from the entity within
+ *   FORMER_PARTY_LOOKBACK_MONTHS counts too ("former director, removed
+ *   <date>"), so a defaulting party cannot be stepped off before submission.
+ *   The removal date is the inactive row's updatedAt (the deactivation; a
+ *   later edit of an inactive row only lengthens the window).
  *
  *   BUREAU CHECK NOT ON RECORD. A bureau check was run for a natural director
  *   or trustee of the entity and its latest attempt stored nothing current:
@@ -33,6 +37,7 @@ import { loadDealBureauResults, type BureauResultsDb, type DealBureauResult } fr
 import { formatMoney } from "./format"
 import { ENTITY_ROLE_LABELS, statusLabel } from "./labels"
 import { exceptionsFingerprint, type RecordedException } from "./deal-exception-severity"
+import { formatDate } from "@/lib/utils"
 
 export type DealExceptionsDb = BureauResultsDb & Pick<RegimeTx, "entityRelationship" | "loan">
 
@@ -60,6 +65,9 @@ export interface DealExceptions {
 }
 
 const PARTY_ROLES: EntityRole[] = ["DIRECTOR", "MEMBER", "TRUSTEE", "SURETY", "AUTHORISED_SIGNATORY", "BENEFICIAL_OWNER"]
+
+/** How far back a removed party is still cross-checked (policy, Fair Score review of #151; Hein to confirm). */
+export const FORMER_PARTY_LOOKBACK_MONTHS = 12
 
 const DEFAULTED: LoanStatus[] = ["DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF"]
 const OPEN_OR_DEFAULTED: LoanStatus[] = ["ACTIVE", "RESTRUCTURED", ...DEFAULTED]
@@ -98,6 +106,20 @@ export async function loadDealExceptions(
   for (const p of people) {
     const party = parties.get(p.clientId) ?? { name: `${p.client.firstName} ${p.client.lastName}`, roles: [] }
     party.roles.push(ENTITY_ROLE_LABELS[p.role])
+    parties.set(p.clientId, party)
+  }
+  // Parties removed within the lookback, unless still active in another role.
+  const since = new Date()
+  since.setMonth(since.getMonth() - FORMER_PARTY_LOOKBACK_MONTHS)
+  const removed = deal.entityId === null ? [] : await db.entityRelationship.findMany({
+    where: { tenantId, entityId: deal.entityId, active: false, role: { in: PARTY_ROLES }, updatedAt: { gte: since } },
+    orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+    select: { clientId: true, role: true, updatedAt: true, client: { select: { firstName: true, lastName: true } } },
+  })
+  for (const p of removed) {
+    if (parties.has(p.clientId) && !parties.get(p.clientId)?.roles.some((r) => r.startsWith("former "))) continue
+    const party = parties.get(p.clientId) ?? { name: `${p.client.firstName} ${p.client.lastName}`, roles: [] }
+    party.roles.push(`former ${ENTITY_ROLE_LABELS[p.role].toLowerCase()}, removed ${formatDate(p.updatedAt)}`)
     parties.set(p.clientId, party)
   }
   const clientIds = [...parties.keys(), ...(deal.clientId ? [deal.clientId] : [])]

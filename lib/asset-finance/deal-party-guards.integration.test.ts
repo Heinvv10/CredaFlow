@@ -24,6 +24,10 @@ import { DELETE as deactivatePersonRoute } from "@/app/api/asset-finance/entitie
 import { cleanupDealFixture, dealFixtureTenantId, dealRoutes } from "./deal.integration-fixture"
 import { bookingRoutes, type SessionUser } from "./payout-booking.integration-fixture"
 import { addMonthsClamped } from "./dates"
+import { prisma } from "@/lib/prisma"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { formatDate } from "@/lib/utils"
+import { FORMER_PARTY_LOOKBACK_MONTHS, loadDealExceptions } from "./deal-exceptions"
 import {
   approveLease, cleanupLeaseRows, confirmChecklist, createAndApprovePayout, createLeaseFixture, leaseBody, payoutAndBook, signLease,
   type LeaseFixture,
@@ -164,4 +168,20 @@ suite.sequential("the people and product a deal was approved on stay fixed (real
     await setSuretyLoan("ACTIVE")
     expect((await bookingRoutes(fx.host).book(dealId)).status).toBe(201)
   }, 180_000)
+
+  it(`a party stepped off within ${FORMER_PARTY_LOOKBACK_MONTHS} months is still cross-checked, as a former party`, async () => {
+    // The deal is BOOKED: the surety may now be removed. A new deal for the company still sees their default.
+    const surety = await database().entityRelationship.findFirstOrThrow({ where: { entityId: fx.evidenced, clientId: fx.lessee, role: "SURETY" } })
+    await database().entityRelationship.update({ where: { id: surety.id }, data: { active: false } })
+    await setSuretyLoan("DEFAULTED")
+    const exceptions = () => runWithTenant(fx.tenantId, () => loadDealExceptions(prisma, fx.tenantId, { applicationId: "none", entityId: fx.evidenced, clientId: null }))
+    const found = await exceptions()
+    expect(found.internalArrears).toEqual([expect.objectContaining({ loanId: suretyLoanId, roles: [`former surety, removed ${formatDate(new Date())}`] })])
+    expect(found.lines[0]).toMatch(/^TEST Soleprop \(former surety, removed .+\) has loan .* Defaulted, 120 days in arrears/)
+
+    // Removed longer ago than the lookback: no longer the entity's exception.
+    await database().$executeRawUnsafe(
+      `UPDATE "EntityRelationship" SET "updatedAt" = now() - interval '${FORMER_PARTY_LOOKBACK_MONTHS + 1} months' WHERE "id" = $1`, surety.id)
+    expect((await exceptions()).lines).toEqual([])
+  })
 })

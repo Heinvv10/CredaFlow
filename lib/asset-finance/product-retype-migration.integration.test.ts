@@ -20,7 +20,6 @@
  */
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import fs from "node:fs"
 import path from "node:path"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -32,16 +31,12 @@ const MIGRATION_SQL = path.join(process.cwd(), "prisma", "migrations", "20261016
 const run = (cmd: string, args: string[], url: string) =>
   execFileSync(cmd, args, { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 
-/** The migration file's statements, comments dropped, one per call. */
-function migrationStatements(): string[] {
-  const sql = fs.readFileSync(MIGRATION_SQL, "utf8").split("\n").filter((line) => !line.trimStart().startsWith("--")).join("\n")
-  return sql.split(";").map((s) => s.trim()).filter(Boolean)
-}
 
 suite("re-typing existing asset-finance products (migration SQL on seeded data)", () => {
   const admin = RUN ? new PrismaClient() : null
   const name = `af_retype_it_${randomBytes(6).toString("hex")}`
   let db: PrismaClient | null = null
+  let dbUrl = ""
   const database = () => {
     if (!db) throw new Error("RUN_ASSET_FINANCE_MIGRATION_IT=1 is required")
     return db
@@ -52,9 +47,10 @@ suite("re-typing existing asset-finance products (migration SQL on seeded data)"
     await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`)
     const url = new URL(process.env.DATABASE_URL ?? "")
     url.pathname = `/${name}`
-    run("npx", ["prisma", "migrate", "deploy"], url.toString())
-    run("npm", ["run", "seed:base", "--silent"], url.toString())
-    db = new PrismaClient({ datasources: { db: { url: url.toString() } } })
+    dbUrl = url.toString()
+    run("npx", ["prisma", "migrate", "deploy"], dbUrl)
+    run("npm", ["run", "seed:base", "--silent"], dbUrl)
+    db = new PrismaClient({ datasources: { db: { url: dbUrl } } })
     await db.$transaction([
       db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
       // Main's state: no product kind, so the seed's asset-finance products were PERSONAL.
@@ -90,8 +86,8 @@ suite("re-typing existing asset-finance products (migration SQL on seeded data)"
       `SELECT count(DISTINCT a."productId") AS n FROM "LoanApplication" a JOIN "AssetFinanceDeal" d ON d."applicationId" = a."id"`)
     expect(Number(dealProducts[0].n)).toBeGreaterThanOrEqual(2)
 
-    // The migration runs in one transaction, as prisma migrate deploy runs it.
-    await database().$transaction(migrationStatements().map((statement) => database().$executeRawUnsafe(statement)))
+    // The migration file itself, as written (its DO block names the products it leaves).
+    run("npx", ["prisma", "db", "execute", "--file", MIGRATION_SQL, "--url", dbUrl], dbUrl)
 
     const after = await types()
     expect(after["AF-IS"]).toBe("ASSET_FINANCE")

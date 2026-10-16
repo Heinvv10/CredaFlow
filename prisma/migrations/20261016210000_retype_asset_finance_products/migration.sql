@@ -31,4 +31,25 @@ WHERE p."productType" <> 'ASSET_FINANCE'
     SELECT 1 FROM "Loan" l WHERE l."productId" = p."id" AND l."contractType" = 'LOAN'
   );
 
+-- Name the products left as they are (used by both), so the operator can split them.
+DO $$
+DECLARE
+  skipped text;
+BEGIN
+  SELECT string_agg(p."tenantId" || '/' || p."code", ', ' ORDER BY p."tenantId", p."code") INTO skipped
+  FROM "LoanProduct" p
+  WHERE p."productType" <> 'ASSET_FINANCE'
+    AND (
+      p."code" IN ('AF-IS', 'AF-LEASE')
+      OR EXISTS (
+        SELECT 1 FROM "LoanApplication" a
+        JOIN "AssetFinanceDeal" d ON d."applicationId" = a."id"
+        WHERE a."productId" = p."id"
+      )
+    );
+  IF skipped IS NOT NULL THEN
+    RAISE NOTICE 'Not re-typed as ASSET_FINANCE (consumer history as well; split by hand): %', skipped;
+  END IF;
+END $$;
+
 SELECT set_config('app.rls_bypass', '', false);
