@@ -768,17 +768,20 @@ describe("PASQ / Form 20 — approved-render pin", () => {
 
   // Fair Score audit B6: the same quotation for a stored no-offer record. Its
   // one extra row ("Credit Life" / "Not offered — no credit-life cover is
-  // included") is NOT yet signed off: this pin records the render submitted
-  // for sign-off, so any later change to it is visible to that review.
-  const PENDING_SIGN_OFF_NOT_OFFERED_SHA256 = "b1b8afaef729760baca4414622e23cbddcdab9165d554442f753c3697b1e58f7"
+  // included") was signed off by Hein on 2026-10-16 (PR #142).
+  const SIGNED_OFF_NOT_OFFERED_SHA256 = "b1b8afaef729760baca4414622e23cbddcdab9165d554442f753c3697b1e58f7"
 
-  it("matches the not-offered render submitted for legal sign-off", async () => {
+  it("matches the not-offered render signed off on 2026-10-16", async () => {
     const pdf = await generateCreditAgreementPdf({
       ...baseInput,
       ceremonyMarker: PINNED_CEREMONY_MARKER,
       creditLifeNotOffered: true,
     } as never)
-    expect(renderHash(pdf)).toBe(PENDING_SIGN_OFF_NOT_OFFERED_SHA256)
+    expect(
+      renderHash(pdf),
+      "The not-offered PASQ render changed. The 2026-10-16 sign-off covers the previous " +
+        "content only. Re-obtain approval before shipping; do not re-pin to go green.",
+    ).toBe(SIGNED_OFF_NOT_OFFERED_SHA256)
   })
 
   it("matches the render legal signed off", async () => {
