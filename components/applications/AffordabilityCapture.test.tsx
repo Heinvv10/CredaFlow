@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server"
+import { act, create } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 import { AffordabilityCapture } from "./AffordabilityCapture"
 
@@ -144,5 +145,25 @@ describe("AffordabilityCapture account-type rendering", () => {
 
     expect(html).toContain("Unrecognised (BOAT_FINANCE)")
     expect(html).not.toContain('value="HOME_LOAN" selected=""')
+  })
+})
+
+// #140 review: an edited, unsaved debt list could read AFFORDABLE beside a
+// rail that (from the saved figures) says "Not affordable".
+describe("AffordabilityCapture unsaved preview", () => {
+  it("says the approval checks use the saved figures once a debt is edited", async () => {
+    const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    env.IS_REACT_ACT_ENVIRONMENT = true
+    let r!: ReturnType<typeof create>
+    await act(async () => {
+      r = create(<AffordabilityCapture applicationId="application-1" monthlyIncome={1_500_000} monthlyExpenses={800_000}
+        existingDebts={[]} clientDebtTotal={0} proposedInstalment={200_000} done={true} />)
+    })
+    const text = () => JSON.stringify(r.toJSON())
+    expect(text()).not.toContain("Unsaved changes")
+    const add = r.root.findAll((n) => n.type === "button" && [n.props.children].flat(3).includes("Add creditor"))[0]
+    await act(async () => add.props.onClick())
+    expect(text()).toContain("Unsaved changes: save to update the approval checks.")
+    delete env.IS_REACT_ACT_ENVIRONMENT
   })
 })

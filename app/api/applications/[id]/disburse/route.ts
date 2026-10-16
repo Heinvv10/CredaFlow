@@ -318,8 +318,9 @@ export async function POST(
       // Maker-checker: the approver does not also pay out. The DISBURSED write
       // records disbursedById and the database refuses the same pair
       // (LoanApplication_z_guard_segregation_of_duties).
+      const segregationOfDuties = await isSegregationOfDutiesRequired(tenant.id)
       const conflict = segregationOfDutiesConflict("disburse", user.id, application)
-      if (conflict && await isSegregationOfDutiesRequired(tenant.id)) {
+      if (conflict && segregationOfDuties) {
         return NextResponse.json({
           error: SEGREGATION_OF_DUTIES_REFUSALS[conflict],
           disbursementPrecondition: "segregation_of_duties",
@@ -1689,6 +1690,10 @@ export async function POST(
               loanId: newLoan.id,
               loanRef: newLoan.reference,
               principal: newLoan.principal,
+              // The lender's setting this payout was made under (the trigger
+              // re-reads it at the write).
+              segregationOfDuties,
+              approvedById: txApplication.approvedById,
               agreementDocumentId: txSignedAgreementDocument.id,
               agreementDocumentSha256: txApplication.agreementDocumentSha256,
               agreementCountersignedAt: lockedProviderCountersign.evidence.countersignedAt.toISOString(),
@@ -2039,6 +2044,18 @@ export async function POST(
     // failure as a refusal.
     const sodRefusal = databaseGuardRefusal(error)
     if (sodRefusal?.startsWith("Segregation of duties")) {
+      // The race path (the setting or the approver changed after the
+      // pre-check): audited like every other refusal.
+      await auditRefusal({
+        action: AuditAction.LOAN_DISBURSEMENT_REFUSED,
+        entity: "LoanApplication",
+        entityId: auditApplicationId ?? "unknown",
+        tenantId: auditTenantId,
+        userId: auditUser?.id,
+        userEmail: auditUser?.email,
+        reason: "segregation_of_duties",
+        status: 403,
+      })
       return NextResponse.json(
         { error: `${sodRefusal}.`, disbursementGuard: "segregation_of_duties" },
         { status: 403 },

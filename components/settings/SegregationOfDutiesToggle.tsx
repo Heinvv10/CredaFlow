@@ -64,7 +64,7 @@ export function SegregationOfDutiesToggle({ required: initial, canChange, lastCh
             <Label htmlFor="requireSegregationOfDuties">Require segregation of duties</Label>
             <p className="text-sm text-muted-foreground">
               {canChange
-                ? "Recommended on. Every change is recorded in the audit log."
+                ? "Recommended on. Turning it off needs a session signed in with two-factor authentication; every change is recorded in the audit log."
                 : "Only an Admin or Super Admin can change this."}
             </p>
           </div>

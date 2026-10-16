@@ -1063,6 +1063,37 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     expect(body.error).not.toContain("Failed to disburse loan")
   })
 
+  // #140 review: the trigger's segregation-of-duties refusal (the race path,
+  // after the pre-check passed) is a readable 403, and audited.
+  it("answers the database's segregation-of-duties refusal with a 403, audited", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      agreementSignedAt: new Date("2026-05-10T01:00:00.000Z"),
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      clientId: "client-1",
+      productId: "prod-1",
+      client: { monthlyIncome: 1_500_000, monthlyExpenses: 800_000, debtObligations: [] },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+    })
+    const { Prisma } = await import("@prisma/client")
+    prismaTransaction.mockRejectedValueOnce(new Prisma.PrismaClientUnknownRequestError(
+      'ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "23514", message: "Segregation of duties: the staff member who approved an application cannot disburse it", severity: "ERROR", detail: None, column: None, hint: None }), transient: false })',
+      { clientVersion: "test" },
+    ))
+
+    const response = await POST(makeRequest(), ctx)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ disbursementGuard: "segregation_of_duties" })
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "LOAN_DISBURSEMENT_REFUSED",
+      newValue: expect.objectContaining({ reason: "segregation_of_duties" }),
+    }))
+  })
+
   it("still returns 500 for a genuine failure that is not a guard refusal", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",
@@ -2307,6 +2338,8 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         data: expect.objectContaining({
           action: "LOAN_DISBURSED",
           entityId: "app-1",
+          // The setting the payout was made under (#140 review).
+          newValue: expect.objectContaining({ segregationOfDuties: true }),
         }),
       }),
     )
@@ -3303,7 +3336,8 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
         monthlyServiceFee: 0,
       },
     })
-    tenantConfigFindUnique.mockResolvedValueOnce({ collectionsEngineEnabled: true })
+    // The segregation-of-duties read comes first (pre-check), then this one.
+    tenantConfigFindUnique.mockResolvedValueOnce({ requireSegregationOfDuties: true }).mockResolvedValueOnce({ collectionsEngineEnabled: true })
     const { loanCreate } = buildTxMock({})
 
     const response = await POST(makeRequest({
@@ -3593,7 +3627,8 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
     productType: "MICRO",
     })
     buildTxMock({})
-    tenantConfigFindUnique.mockResolvedValueOnce({ collectionsEngineEnabled: true })
+    // The segregation-of-duties read comes first (pre-check), then this one.
+    tenantConfigFindUnique.mockResolvedValueOnce({ requireSegregationOfDuties: true }).mockResolvedValueOnce({ collectionsEngineEnabled: true })
     avsCheckFindFirst.mockResolvedValueOnce(null)
 
     const res = await POST(makeRequest(), ctx)
@@ -3681,7 +3716,8 @@ describe("POST /api/applications/[id]/disburse — AVS gate behind collectionsEn
         bureauBlockAdverse: false,
       },
     })
-    tenantConfigFindUnique.mockResolvedValueOnce({ collectionsEngineEnabled: true })
+    // The segregation-of-duties read comes first (pre-check), then this one.
+    tenantConfigFindUnique.mockResolvedValueOnce({ requireSegregationOfDuties: true }).mockResolvedValueOnce({ collectionsEngineEnabled: true })
     avsCheckFindFirst
       .mockResolvedValueOnce({
         clientId: "client-1",

@@ -73,6 +73,10 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   const invalidDebtEvidence = debtEvidenceInvalid || clientDebtEvidenceInvalid
   const debtInputsReadOnly = readOnly || clientDebtEvidenceInvalid
   const [saved, setSaved] = useState(done && !invalidDebtEvidence)
+  // The rail's approval checks read the saved figures; edits here are a preview
+  // until saved, and the panel says so rather than contradict the rail.
+  const [savedDebts, setSavedDebts] = useState(() => JSON.stringify(debts))
+  const unsaved = !lockedAssessment && JSON.stringify(debts) !== savedDebts
 
   function addDebt() {
     setDebts(d => [...d, { sourceId: null, creditor: "", type: "PERSONAL_LOAN", monthlyInstalment: 0, balance: 0, notes: null }])
@@ -146,6 +150,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
         return
       }
       setSaved(true)
+      setSavedDebts(JSON.stringify(debts))
       router.refresh()
     } catch {
       setError("Request failed")
@@ -221,6 +226,11 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
               {isAffordable ? "AFFORDABLE" : "NOT AFFORDABLE"}
             </div>
           </div>
+          {unsaved && (
+            <p role="status" className="mt-3 text-xs font-medium text-[var(--cf-warning)]">
+              Unsaved changes: save to update the approval checks.
+            </p>
+          )}
         </div>
         )}
 

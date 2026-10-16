@@ -122,9 +122,14 @@ vi.mock("@/lib/compliance/statutory-provider-identity.server", async () => {
       tenant ? { tenantName: ACME_LENDER.legalName, statutoryNcrNumber: ACME_LENDER.ncrNumber } : null,
   }
 })
+const auditRefusalMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/audit", () => ({
-  AuditAction: { AGREEMENT_PROVIDER_COUNTERSIGNED: "AGREEMENT_PROVIDER_COUNTERSIGNED" },
+  AuditAction: {
+    AGREEMENT_PROVIDER_COUNTERSIGNED: "AGREEMENT_PROVIDER_COUNTERSIGNED",
+    AGREEMENT_COUNTERSIGN_REFUSED: "AGREEMENT_COUNTERSIGN_REFUSED",
+  },
 }))
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: (...args: unknown[]) => auditRefusalMock(...args) }))
 
 vi.mock("@/lib/security/segregation-of-duties", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/security/segregation-of-duties")>(),
@@ -858,6 +863,9 @@ describe("provider agreement countersign — refusals the UI must be able to sho
       segregationOfDuties: "branch_sign_countersign",
     })
     expect(sodRequiredMock).toHaveBeenCalledWith("tenant-1")
+    expect(auditRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "AGREEMENT_COUNTERSIGN_REFUSED", reason: "segregation_of_duties", status: 403, userId: "staff-1", entityId: "app-1",
+    }))
     expect(saveFileMock).not.toHaveBeenCalled()
     expect(transactionMock).not.toHaveBeenCalled()
   })
@@ -878,9 +886,19 @@ describe("provider agreement countersign — refusals the UI must be able to sho
 
   it("lets another staff member countersign a branch signature", async () => {
     applicationFindUniqueMock.mockResolvedValue({ ...branchSignedByCaller, agreementSignedByUserId: "staff-2" })
+    verifyLockedApprovalMock.mockResolvedValue({
+      ok: true,
+      application: { ...current, agreementSignedMethod: "branch", agreementSignedByUserId: "staff-2" },
+      approval: { calculator: { pricingFingerprint: "pricing-fp" } },
+    })
 
     const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
 
-    expect(response.status).not.toBe(403)
+    expect(response.status).toBe(200)
+    expect(updateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ agreementCountersignedById: "staff-1" }),
+    }))
+    // The countersignature's audit row records the setting it was made under.
+    expect(auditCreateMock.mock.calls.at(-1)?.[0].data.newValue).toMatchObject({ segregationOfDuties: true })
   })
 })

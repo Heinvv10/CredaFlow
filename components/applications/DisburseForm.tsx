@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -87,11 +87,17 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
   const [confirm, setConfirm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set once the payout committed: no second POST, whatever the refresh does.
+  const [disbursed, setDisbursed] = useState(false)
+  // A double click lands before the disabled state renders: the ref holds.
+  const inFlight = useRef(false)
   const clientBankMissing = !clientBankDetails.bankName || !clientBankDetails.bankAccountNumber
 
   async function submit() {
     if (!bank || !accountNo) { setError("Bank and account number required"); return }
     if (!confirm) { setError("Please confirm the disbursement details are correct"); return }
+    if (inFlight.current || disbursed) return
+    inFlight.current = true
     setLoading(true)
     setError(null)
     try {
@@ -103,7 +109,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
         }),
       })
       if (!res.ok) {
-        const d = await res.json() as {
+        const d = await res.json().catch(() => ({})) as {
           error?: string
           bankingEvidence?: string
           bankingEvidenceField?: string
@@ -117,13 +123,16 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
           d.bankingEvidence ?? d.debitMandateEvidence,
           d.bankingEvidenceField,
         )
-        setError([d.error ?? "Disbursement failed", detail].filter(Boolean).join(" "))
+        setError([d.error ?? `Disbursement failed (HTTP ${res.status}).`, detail].filter(Boolean).join(" "))
         return
       }
+      setDisbursed(true)
+      setOpen(false)
       router.refresh()
     } catch {
       setError("Request failed")
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }
@@ -131,9 +140,9 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
   // A rail button; the payout form opens over the page, where it has room.
   return (
     <>
-      <Button className="w-full" onClick={() => setOpen(true)}>
+      <Button className="w-full" onClick={() => setOpen(true)} disabled={disbursed}>
         <Banknote className="h-4 w-4" />
-        Disburse Loan
+        {disbursed ? "Disbursed — opening the loan…" : "Disburse Loan"}
       </Button>
       <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setError(null) }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto p-0 sm:max-w-xl">
@@ -169,20 +178,20 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Bank *">
-                  <input value={bank} className={fieldClass} readOnly />
+                <Field label="Bank *" id="disburse-bank">
+                  <input id="disburse-bank" value={bank} className={fieldClass} readOnly />
                 </Field>
-                <Field label="Account Type">
-                  <input value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
+                <Field label="Account Type" id="disburse-account-type">
+                  <input id="disburse-account-type" value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
                 </Field>
-                <Field label="Account Number *">
-                  <input value={accountNo} className={`${fieldClass} font-mono`} readOnly />
+                <Field label="Account Number *" id="disburse-account-number">
+                  <input id="disburse-account-number" value={accountNo} className={`${fieldClass} font-mono`} readOnly />
                 </Field>
-                <Field label="Branch Code">
-                  <input value={branchCode} className={`${fieldClass} font-mono`} readOnly />
+                <Field label="Branch Code" id="disburse-branch-code">
+                  <input id="disburse-branch-code" value={branchCode} className={`${fieldClass} font-mono`} readOnly />
                 </Field>
-                <Field label="Payment Reference (optional)" className="col-span-2">
-                  <input value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} />
+                <Field label="Payment Reference (optional)" id="disburse-payment-reference" className="col-span-2">
+                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} />
                 </Field>
               </div>
 
@@ -202,11 +211,11 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
                 {confirm && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
               </label>
 
-              {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
+              {error && <p role="alert" className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
-                <Button onClick={submit} disabled={loading || !confirm || !bank || !accountNo || clientBankMissing}>
+                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing}>
                   <Banknote className="h-4 w-4" />
                   {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
                 </Button>
@@ -221,10 +230,10 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
 
 const fieldClass = "w-full rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-2.5 py-2 text-sm text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)]"
 
-function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({ label, id, children, className }: { label: string; id: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
-      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">{label}</label>
       {children}
     </div>
   )

@@ -39,6 +39,7 @@ import { ceremonyMarkerFor } from "@/lib/pdf/agreement-render-input"
 import { statutoryProviderIdentityFromTenant } from "@/lib/compliance/statutory-provider-identity.server"
 import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
 import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
+import { auditRefusal } from "@/lib/audit-refusals"
 import {
   isSegregationOfDutiesRequired,
   segregationOfDutiesConflict,
@@ -408,8 +409,19 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     }
     // Before any rendering: the database refuses the same pair
     // (LoanApplication_z_guard_segregation_of_duties).
+    const segregationOfDuties = await isSegregationOfDutiesRequired(tenant.id)
     const conflict = segregationOfDutiesConflict("countersign", guard.user.id, application)
-    if (conflict && await isSegregationOfDutiesRequired(tenant.id)) {
+    if (conflict && segregationOfDuties) {
+      await auditRefusal({
+        action: AuditAction.AGREEMENT_COUNTERSIGN_REFUSED,
+        entity: "LoanApplication",
+        entityId: id,
+        tenantId: tenant.id,
+        userId: guard.user.id,
+        userEmail: guard.user.email,
+        reason: "segregation_of_duties",
+        status: 403,
+      })
       return NextResponse.json(
         { error: SEGREGATION_OF_DUTIES_REFUSALS[conflict], segregationOfDuties: conflict },
         { status: 403 },
@@ -779,6 +791,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               documentSha256: current.agreementDocumentSha256,
               executedDocumentId: executed.documentId,
               executedDocumentSha256: executed.sha256,
+              // The lender's setting this countersignature was made under.
+              segregationOfDuties,
               // "stamped" onto the original signature rules, or "execution_page"
               // appended because this agreement predates recorded anchors.
               // Recorded rather than inferred: the two produce visibly

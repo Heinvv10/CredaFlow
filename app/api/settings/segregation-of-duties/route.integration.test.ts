@@ -120,6 +120,35 @@ suite("PUT /api/settings/segregation-of-duties (real database)", () => {
     await db.tenantConfig.update({ where: { tenantId }, data: { requireStaffTotp: false } })
   })
 
+  // Breaker review of #140: switching the control off needs TOTP whatever the
+  // lender's 2FA policy (here off).
+  it("refuses to turn it off from a session without TOTP even when the lender does not require 2FA", async () => {
+    signIn(ids.admin, "ADMIN", { totpVerified: false })
+    const res = await put({ requireSegregationOfDuties: false })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatch(/two-factor/)
+    expect(await stored()).toBe(true)
+  })
+
+  it("lets a TOTP-free demo session turn it off (DEMO_MODE + DEMO_CLEAR_STAFF_TOTP)", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    vi.stubEnv("DEMO_CLEAR_STAFF_TOTP", "true")
+    signIn(ids.admin, "ADMIN", { totpVerified: false })
+    const res = await put({ requireSegregationOfDuties: false })
+    expect(await res.json()).toMatchObject({ ok: true })
+    vi.unstubAllEnvs()
+    expect(await stored()).toBe(false)
+    signIn(ids.admin, "ADMIN")
+    expect((await put({ requireSegregationOfDuties: true })).status).toBe(200)
+  })
+
+  it("re-checks the role on the locked row: a session still claiming ADMIN after a demotion is refused", async () => {
+    await db.user.update({ where: { id: ids.manager }, data: { role: "BRANCH_MANAGER" } })
+    signIn(ids.manager, "ADMIN")
+    expect((await put({ requireSegregationOfDuties: false })).status).toBe(403)
+    expect(await stored()).toBe(true)
+  })
+
   it.each([undefined, null, "false", 0])("refuses requireSegregationOfDuties = %j with 400", async (value) => {
     signIn(ids.admin, "ADMIN")
     expect((await put({ requireSegregationOfDuties: value })).status).toBe(400)
