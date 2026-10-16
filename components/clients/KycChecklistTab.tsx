@@ -170,6 +170,13 @@ const STATUS_ICON: Record<DocStatus, React.ReactNode> = {
   rejected: <XCircle     className="h-4 w-4 text-red-500" />,
 }
 
+/** The client's documents, or null when the route refuses (the list stays as it was). */
+async function loadDocuments(clientId: string): Promise<DocumentRecord[] | null> {
+  const res = await fetch(`/api/clients/${clientId}/documents`)
+  if (!res.ok) return null
+  return (await res.json()) as DocumentRecord[]
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function KycChecklistTab({
@@ -202,20 +209,34 @@ export function KycChecklistTab({
   // (verify/reject) without a full page reload. Seeded from the server prop.
   const [kyc, setKyc]                         = useState(kycStatus)
 
+  // A different client is a different list: show the spinner for it.
+  const [prevClientId, setPrevClientId]       = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
+  // Refresh after a mutation. Handlers await this so a dialog or button state
+  // only settles once the new list is on screen.
   const fetchDocs = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (res.ok) {
-        const data = await res.json()
-        setDocs(data as DocumentRecord[])
-      }
+      const loaded = await loadDocuments(clientId)
+      if (loaded) setDocs(loaded)
     } finally {
       setLoading(false)
     }
   }, [clientId])
 
-  useEffect(() => { fetchDocs() }, [fetchDocs])
+  // First load, and a change of client. `ignore` drops a response that lands
+  // after the client changed or the tab unmounted.
+  useEffect(() => {
+    let ignore = false
+    loadDocuments(clientId)
+      .then((loaded) => { if (!ignore && loaded) setDocs(loaded) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [clientId])
 
   // Latest non-deleted doc per docType
   const docsByType = new Map<string, DocumentRecord>()
