@@ -88,6 +88,9 @@ interface ReminderTrigger {
   /** WABA_BODY_TEMPLATES event the WhatsApp leg sends. Required when
    *  `channels` includes "whatsapp". */
   waTemplateEvent?: string
+  /** A newer body for the same leg, sent instead only once Meta has APPROVED
+   *  it for the tenant — never a silent switch off an approved template. */
+  waTemplateSuccessor?: string
 }
 
 interface MessageContext {
@@ -122,8 +125,9 @@ export const TRIGGERS: ReminderTrigger[] = [
     noteType: "reminder_0d",
     channels: ["sms", "whatsapp"],
     waTemplateEvent: "payment_reminder_0d",
+    waTemplateSuccessor: "payment_reminder_0d_v3",
     getMessage: (ctx) =>
-      `Your loan payment of ${ctx.amount} is due TODAY. Please pay to avoid further default interest and charges. Ref: ${ctx.loanRef}. ${ctx.lenderName} ${ctx.phone}`,
+      `Your loan payment of ${ctx.amount} is due today. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
   },
   {
     daysUntilDue: -1,
@@ -366,10 +370,19 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
     }
     for (const trigger of TRIGGERS) {
       if (!trigger.waTemplateEvent) continue
-      const key = `${trigger.waTemplateEvent}_whatsapp`
-      const tpl = await prisma.messageTemplate.findFirst({
-        where: { tenantId: tenant.id, key, channel: "WHATSAPP", active: true },
-      })
+      const successor = trigger.waTemplateSuccessor
+        ? await prisma.messageTemplate.findFirst({
+            where: { tenantId: tenant.id, key: `${trigger.waTemplateSuccessor}_whatsapp`, channel: "WHATSAPP", active: true },
+          })
+        : null
+      const key = successor?.providerStatus === "APPROVED"
+        ? `${trigger.waTemplateSuccessor}_whatsapp`
+        : `${trigger.waTemplateEvent}_whatsapp`
+      const tpl = successor?.providerStatus === "APPROVED"
+        ? successor
+        : await prisma.messageTemplate.findFirst({
+            where: { tenantId: tenant.id, key, channel: "WHATSAPP", active: true },
+          })
       if (!tpl) {
         waTemplateProblems[trigger.noteType] =
           `template ${key} missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)`
@@ -413,15 +426,17 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
     const dueDate = loan.nextPaymentDate!
     const daysUntil = daysBetween(today, dueDate)
 
-    // Find next upcoming schedule entry for amount. `totalDue > 0` skips an
+    // Find next unpaid schedule entry for amount. `totalDue > 0` skips an
     // asset-finance skip period's R0.00 row, which stays PENDING for good
     // (lib/asset-finance/schedule-records.ts); a consumer row is never zero.
+    // PARTIAL is unpaid too: leaving it out quoted "R 0.00" to borrowers whose
+    // unpaid rows a writer had stored PARTIAL.
     const nextSchedule = await prisma.repaymentSchedule.findFirst({
-      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "OVERDUE"] }, totalDue: { gt: 0 } },
+      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] }, totalDue: { gt: 0 } },
       orderBy: { dueDate: "asc" },
-      select: { totalDue: true },
+      select: { totalDue: true, totalPaid: true },
     })
-    const paymentAmount = nextSchedule?.totalDue ?? 0
+    const paymentAmount = nextSchedule ? Math.max(0, nextSchedule.totalDue - nextSchedule.totalPaid) : 0
 
     for (const trigger of TRIGGERS) {
       if (daysUntil !== trigger.daysUntilDue) continue
@@ -436,6 +451,13 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
       // (0 while the tenant's flag is off, so the copy is unchanged).
       const charges = await chargesOutstandingAt(prisma, { tenantId: tenant.id, loanId: loan.id }, today)
       const arrearsDue = loan.arrearsAmount + charges
+
+      // Never tell a borrower they owe R 0.00: nothing unpaid on the schedule,
+      // or an overdue trigger on a loan with no arrears, is no reminder at all.
+      if (paymentAmount + charges <= 0 || (trigger.daysUntilDue < 0 && arrearsDue <= 0)) {
+        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, nothing owed`)
+        continue
+      }
 
       // An entity borrower (asset finance) has no Client to message: the
       // trigger's WhatsApp leg goes to the people who act for it instead, in

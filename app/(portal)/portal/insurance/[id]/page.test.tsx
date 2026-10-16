@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: mocks.getPortalTenantId }))
-vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending" }) }))
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
+vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending", fspNumber: fsp.number }) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: mocks.clientFindFirst },
@@ -94,6 +95,29 @@ describe("portal policy detail page", () => {
     await expect(PortalPolicyDetailPage(params("someone-elses-policy"))).rejects.toThrow("NEXT_NOT_FOUND")
 
     expect(mocks.notFound).toHaveBeenCalled()
+  })
+
+  // §2a.2: the intermediary claim needs an FSP number.
+  it("claims FAIS authorisation only when the lender holds an FSP number", async () => {
+    expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).toContain("FAIS-authorised intermediary")
+    fsp.number = null
+    try {
+      expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).not.toContain("FAIS-authorised")
+    } finally {
+      fsp.number = "12345"
+    }
+  })
+
+  it("labels the FAIS claim as a fictional demo lender's on a demo stack", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    try {
+      expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).toContain(
+        "FAIS-authorised intermediary. Demo lender: registration numbers are fictional.",
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).not.toContain("Demo lender")
   })
 
   it("renders cover and premium in rands", async () => {

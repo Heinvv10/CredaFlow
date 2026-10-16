@@ -51,7 +51,7 @@ async function ensureClaim(
   let status: string = existing?.status ?? ""
   if (!existing) {
     const deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { tenantId, loanId: claim.loanId }, select: { id: true } })
-    const upload = await syntheticUpload("OTHER", `Provider invoice: ${claim.description} (TEST)`, STAFF_UPLOAD_DOC_TYPES, deal.id)
+    const upload = await syntheticUpload("OTHER", `Provider invoice: ${claim.description}`, STAFF_UPLOAD_DOC_TYPES, deal.id)
     const doc = await storeEntityDocument({
       tenantId, entityId: claim.entityId, upload, uploader: { type: "staff", id: staff.officer.id, email: staff.officer.email },
     })
@@ -72,7 +72,7 @@ async function ensureClaim(
     status = approved.status
   }
   if (status === "APPROVED") {
-    const paid = await prisma.$transaction((tx) => markMaintenanceClaimPaid(tx, actorOf(tenantId, staff.adminOne), claimId, "TEST-PAY-CLAIM-0001", today()))
+    const paid = await prisma.$transaction((tx) => markMaintenanceClaimPaid(tx, actorOf(tenantId, staff.adminOne), claimId, "PAY-CLAIM-0001", today()))
     if (paid.kind !== "ok") throw new Error(`Seed: claim payment refused (${JSON.stringify(paid)})`)
   }
 }
@@ -83,8 +83,8 @@ export async function seedCompanyFmlServicing(
 ): Promise<void> {
   const readingId = await ensureReadings(tenantId, staff.officer, lease.loanId, lease.directorId)
   const base = { loanId: lease.loanId, entityId: lease.entityId, supplierId: lease.supplierId, meterReadingId: readingId }
-  await ensureClaim(tenantId, staff, { ...base, description: "Hydraulic hose and seal replacement (TEST)", amountExclVatCents: 320_000, pay: true })
-  await ensureClaim(tenantId, staff, { ...base, description: "Bucket pin and bush service (TEST)", amountExclVatCents: 185_000, pay: false })
+  await ensureClaim(tenantId, staff, { ...base, description: "Hydraulic hose and seal replacement", amountExclVatCents: 320_000, pay: true })
+  await ensureClaim(tenantId, staff, { ...base, description: "Bucket pin and bush service", amountExclVatCents: 185_000, pay: false })
 }
 
 /** Lease 2: an early-termination quote (a CPA lessee: 20 business days' notice), left QUOTED. */

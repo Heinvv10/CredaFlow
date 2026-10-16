@@ -565,6 +565,41 @@ describe("versioned PASQ artifact route", () => {
     expect(generatePdfMock.mock.calls[0][0].creditLife).toBeUndefined()
   })
 
+  // Fair Score audit B6: at or below the R1,000 threshold a configured product is
+  // no offer, so a no-offer record stays true while that product exists.
+  describe("no-offer record", () => {
+    function noOffer(principalCents: number) {
+      return application({
+        affordabilityResult: approvalSnapshotFor(principalCents, creditLifeDisclosure.termDays),
+        appliedAmount: principalCents,
+        approvedAmount: principalCents,
+        creditLifeElection: "DECLINED",
+        creditLifeProductId: null,
+        creditLifeProductName: null,
+        creditLifeInsurerId: null,
+        creditLifeInsurerName: null,
+        creditLifeMonthlyPremiumCents: 0,
+        creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+        creditLifeDisclosureSha256: createCreditLifeNoOfferDisclosureSha256({
+          version: "credit-life-no-offer-v1", election: "DECLINED", principalCents, termDays: creditLifeDisclosure.termDays,
+        }),
+      })
+    }
+
+    it("stays valid at the threshold while a credit-life product is configured", async () => {
+      applicationFindUniqueMock.mockResolvedValue(noOffer(100_000))
+      const response = await POST(request("POST"), context)
+      expect((await response.json()).creditLifeEvidence).not.toBe("availability_changed")
+    })
+
+    it("goes stale above the threshold once a product is configured", async () => {
+      applicationFindUniqueMock.mockResolvedValue(noOffer(100_100))
+      const response = await POST(request("POST"), context)
+      expect(response.status).toBe(409)
+      expect((await response.json()).creditLifeEvidence).toBe("availability_changed")
+    })
+  })
+
   it("requires the persisted offer to remain a CREDIT_LIFE product", async () => {
     const response = await POST(request("POST"), context)
 

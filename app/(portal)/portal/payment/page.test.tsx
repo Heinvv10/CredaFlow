@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, it, expect, vi } from "vitest"
 
-const { loanFindMany, formProps } = vi.hoisted(() => ({ loanFindMany: vi.fn(), formProps: vi.fn() }))
+const { loanFindMany, formProps, stitchConfigured } = vi.hoisted(() => ({
+  loanFindMany: vi.fn(), formProps: vi.fn(), stitchConfigured: vi.fn(async () => true),
+}))
+vi.mock("@/lib/stitch", () => ({ stitchConfigured }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "t@example.test" } })) }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/config/identity", () => ({
@@ -85,6 +88,24 @@ describe("portal Make Payment", () => {
       const out = await html()
       expect(out).toContain("hello@acme-lending.example")
       expect(out).toContain("+27 11 000 0000")
+    })
+  })
+
+  describe("Pay with Stitch", () => {
+    afterEach(() => { stitchConfigured.mockResolvedValue(true); formProps.mockReset() })
+
+    it("is offered when the lender's Stitch account is configured", async () => {
+      loanFindMany.mockResolvedValue([])
+      renderToStaticMarkup(await PaymentPage())
+      expect(stitchConfigured).toHaveBeenCalledWith("t1")
+      expect(formProps).toHaveBeenCalled()
+    })
+
+    it("is hidden when Stitch is not configured, instead of failing on click", async () => {
+      stitchConfigured.mockResolvedValue(false)
+      loanFindMany.mockResolvedValue([])
+      renderToStaticMarkup(await PaymentPage())
+      expect(formProps).not.toHaveBeenCalled()
     })
   })
 })

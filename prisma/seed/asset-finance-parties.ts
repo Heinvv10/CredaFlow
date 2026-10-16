@@ -43,7 +43,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       data: {
         tenantId, reference: p.reference, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName,
         dateOfBirth: new Date(p.dob), gender: p.gender, email: personEmail(p), phone: p.phone, whatsapp: p.phone,
-        addressLine1: "1 Test Street", city: "Testville", province: "Gauteng", postalCode: "0001",
+        addressLine1: "14 Demo Street", city: "Pretoria", province: "Gauteng", postalCode: "0001",
         employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING",
         monthlyIncome: p.key === "director" ? 12_000_000 : 0,
         monthlyExpenses: p.key === "director" ? 3_000_000 : 0,

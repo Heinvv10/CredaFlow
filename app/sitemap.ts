@@ -1,15 +1,18 @@
 import type { MetadataRoute } from "next"
 import { siteUrl } from "@/lib/seo/metadata"
 import { PUBLIC_SITE_ROUTES } from "@/lib/website/routes"
+import { getWebsiteIdentity } from "@/lib/website/identity"
 
 // The kept public pages on this deployment's own site URL
 // (NEXT_PUBLIC_WEBSITE_URL). Unset, there is no site to map: an empty sitemap
 // rather than one naming another host.
-export default function sitemap(): MetadataRoute.Sitemap {
+// The insurance page 404s for a lender with no FSP number, so it is not mapped.
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = siteUrl()
   if (!base) return []
+  const holdsFsp = !!(await getWebsiteIdentity())?.fspNumber
   const now = new Date()
-  return PUBLIC_SITE_ROUTES.map((route) => ({
+  return PUBLIC_SITE_ROUTES.filter((route) => holdsFsp || route !== "/site/products/insurance").map((route) => ({
     url: `${base}${route === "/" ? "" : route}`,
     lastModified: now,
     changeFrequency: route === "/" ? "weekly" : "monthly",

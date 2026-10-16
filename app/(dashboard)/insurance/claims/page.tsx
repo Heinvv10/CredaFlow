@@ -19,6 +19,7 @@ export default async function ClaimsPage() {
           select: {
             type: true,
             policyNumber: true,
+            sumAssured: true,
             client: { select: { firstName: true, lastName: true, phone: true } },
           },
         },
@@ -38,6 +39,7 @@ export default async function ClaimsPage() {
 
   const claims = raw.map(c => ({
     ...c,
+    policy: { ...c.policy, sumAssured: Number(c.policy.sumAssured) },
     claimAmount: Number(c.claimAmount),
     approvedAmount: c.approvedAmount ? Number(c.approvedAmount) : null,
   }))

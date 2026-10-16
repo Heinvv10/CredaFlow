@@ -38,7 +38,11 @@ const PINNED: Record<string, string> = {
   submittedNoPortal: "17f88ed8e0f544a16f7a219e7b5b7176774f85a9a1ec1738ba127c3c72f2bddb",
   approved: "4843b335422a39a4454c54b52b4ef0f7d79e0061933cdc9a79268a0badf9e167",
   declined: "465c857a1f2d14f20286cdbfad9793482ac03aafbfd047ab5b0d6d59eaf7b926",
-  dueReminder: "99936544c9f7c964b881534ca965081372c1b9716e4b9d37bf4a7a9e9f9c4889",
+  // Re-pinned 2026-10-16 (Fair Score audit B5): the only change is the sentence
+  // "To avoid further default interest and charges, please ensure payment is
+  // made by the due date." → "Please make your payment by the due date." —
+  // swapping it back reproduces the previous digest 999365…4889.
+  dueReminder: "f4ae0f0441f0210dadcca4d91637f9462a477633cc6e77d5670db03101182f68",
   received: "cc554275f8d30e42d54cf6d593a52774da61ce13629dfae902014c15fac01b90",
   disbursed: "be33b6ad920453419067e2a0dc7b592b09b4cf320ea373029ed9438d1b454ab2",
   overdue: "e317b90ca9af94cea58e4ca0377dbdc06d9ed394d09122fb7119807b258e4179",

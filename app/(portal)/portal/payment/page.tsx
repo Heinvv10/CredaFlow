@@ -9,6 +9,7 @@ import { StitchPaymentForm } from "@/components/portal/StitchPaymentForm"
 import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
 import { currentSettlementAmount } from "@/lib/loan/settlement"
+import { stitchConfigured } from "@/lib/stitch"
 import { portalLoanCharges } from "@/lib/portal/loan-charges"
 import { getT } from "@/lib/i18n/server"
 import type { Translator } from "@/lib/i18n/translate"
@@ -99,7 +100,11 @@ export default async function PaymentPage() {
   const loans = await getLoansForClient(session.user.email)
   // Same tenant source as the page's own data above, so the contact
   // details and account name always belong to the lender whose loans are shown.
-  const identity = await getLenderIdentity(await getPortalTenantId())
+  const tenantId = await getPortalTenantId()
+  const identity = await getLenderIdentity(tenantId)
+  // A lender without a Stitch account gets no "Pay with Stitch" form: offering
+  // it only to fail with "temporarily unavailable" on click misleads the borrower.
+  const onlinePayment = await stitchConfigured(tenantId)
   const t = await getT("portalPayment")
   const bankRows = eftBankRows(t)
 
@@ -111,7 +116,7 @@ export default async function PaymentPage() {
       </div>
 
       {/* Stitch online payment */}
-      <StitchPaymentForm loans={loans} />
+      {onlinePayment && <StitchPaymentForm loans={loans} />}
 
       {/* Manual EFT payment notification */}
       {loans.length > 0 && (
