@@ -54,6 +54,12 @@ model LoanApplication {
   // the client sees is decisionReason (lib/applications/decline-category.ts).
   declineInternalNote                     String?
   loanPurposeCategory                     LoanPurposeCategory?
+  // PO funding facts (Fair Score audit): the purchase order the advance funds.
+  // Required by the portal for a PO_FUNDING product; null for every other product.
+  poNumber                                String?
+  poBuyerName                             String?
+  poDocumentId                            String?
+  poDocument                              ClientDocument?      @relation("ApplicationPoDocument", fields: [tenantId, poDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   productRecommendationNote               String?
   existingDebtObligations                 Json?
   totalExistingDebt                       Int?

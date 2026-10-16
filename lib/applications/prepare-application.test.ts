@@ -6,6 +6,7 @@ const clientFindUniqueMock = vi.fn()
 const loanFindFirstMock = vi.fn()
 const insuranceProductFindFirstMock = vi.fn()
 const queryRawMock = vi.fn()
+const clientDocumentFindFirstMock = vi.fn()
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: (a: unknown) => queryRawMock(a),
@@ -13,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
     insuranceProduct: { findFirst: (a: unknown) => insuranceProductFindFirstMock(a) },
     client: { findUnique: (a: unknown) => clientFindUniqueMock(a) },
     loan: { findFirst: (a: unknown) => loanFindFirstMock(a) },
+    clientDocument: { findFirst: (a: unknown) => clientDocumentFindFirstMock(a) },
   },
 }))
 
@@ -88,6 +90,9 @@ function validInput(overrides: Partial<PrepareApplicationInput> = {}): PrepareAp
     purpose: "Debt consolidation",
     purposeDetails: "",
     loanPurposeCategory: "DEBT_CONSOLIDATION",
+    poNumber: "",
+    poBuyerName: "",
+    poDocumentId: "",
     monthlyInstalment: "",
     firstInstalment: "",
     totalInterest: "",
@@ -458,6 +463,29 @@ describe("prepareApplicationFields — credit-life election evidence", () => {
     expect(queryRawMock).not.toHaveBeenCalled()
   })
 
+  // Fair Score audit B6: cover cannot be added at or below the threshold, so a
+  // configured product is not an offer — record the no-offer state, not a
+  // decline of a product the client could not take.
+  it("records the no-offer state at the threshold although a product is configured", async () => {
+    const result = await prepareApplicationFields(
+      validInput({ ...submissionFields, appliedAmount: 100_000, creditLifeElection: "DECLINED", creditLifeMonthlyPremiumCents: 450 }),
+      "t1",
+      "u1",
+      { action: "create" },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.fields).toEqual(expect.objectContaining({
+      creditLifeElection: "DECLINED",
+      creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+      creditLifeProductId: null,
+      creditLifeInsurerId: null,
+      creditLifeMonthlyPremiumCents: 0,
+    }))
+    expect(queryRawMock).not.toHaveBeenCalled()
+  })
+
   it("persists the locked product, insurer, exact premium, acknowledgement, and evidence hash", async () => {
     process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED = "true"
     const result = await prepareApplicationFields(
@@ -515,5 +543,71 @@ describe("prepareApplicationFields — credit-life election evidence", () => {
     expect(offerLockSql).toContain(`insurer."tenantId" =`)
     expect(offerLockSql).toContain(`insurer."active" = TRUE`)
     expect(offerLockSql).toContain(`FOR SHARE OF product, insurer`)
+  })
+})
+
+// PO funding is business credit tied to a confirmed order: the staff wizard and
+// the lender API share this path, so it enforces the order facts for both.
+describe("prepareApplicationFields — PO funding", () => {
+  const PO_ROW = { ...PRODUCT_ROW, id: "p-po", name: "Purchase Order Funding", code: "POFUND", productType: "PO_FUNDING" }
+  const poInput = (over: Partial<PrepareApplicationInput> = {}) => validInput({
+    productId: "p-po",
+    loanPurposeCategory: "BUSINESS",
+    poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+    ...over,
+  })
+
+  beforeEach(() => {
+    loanProductFindManyMock.mockResolvedValue([PRODUCT_ROW, PO_ROW])
+    clientDocumentFindFirstMock.mockResolvedValue({ id: "doc-po" })
+  })
+
+  it("refuses a PO-funding application without the purchase order facts", async () => {
+    const result = await prepareApplicationFields(poInput({ poNumber: "" }), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected refusal")
+    // The wizard's own Step 2 rule, run server-side, names the field.
+    expect(result.status).toBe(400)
+    expect(result.body.errors?.poNumber).toMatch(/purchase order number/i)
+  })
+
+  it("refuses an API body that omits the PO fields altogether", async () => {
+    const { poNumber: _n, poBuyerName: _b, poDocumentId: _d, ...bare } = poInput() as unknown as Record<string, unknown>
+    const result = await prepareApplicationFields(bare as unknown as PrepareApplicationInput, "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected refusal")
+    expect(result.body.errors).toEqual(expect.objectContaining({ poNumber: expect.any(String), poDocumentId: expect.any(String) }))
+  })
+
+  it("refuses a consumer purpose for PO funding", async () => {
+    const result = await prepareApplicationFields(poInput({ loanPurposeCategory: "MEDICAL" }), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+  })
+
+  it("refuses a PO document that is not the client's undeleted PO_DOCUMENT", async () => {
+    clientDocumentFindFirstMock.mockResolvedValue(null)
+    const result = await prepareApplicationFields(poInput(), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+    expect(clientDocumentFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT", deletedAt: null },
+    }))
+  })
+
+  it("stores the order facts with the application", async () => {
+    const result = await prepareApplicationFields(poInput(), "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.fields).toEqual(expect.objectContaining({
+      poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+    }))
+  })
+
+  it("stores no order facts on a consumer product", async () => {
+    const result = await prepareApplicationFields(
+      validInput({ poNumber: "PO-1" }), "t1", "u1", { action: "create" },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.fields).toEqual(expect.objectContaining({ poNumber: null, poBuyerName: null, poDocumentId: null }))
   })
 })

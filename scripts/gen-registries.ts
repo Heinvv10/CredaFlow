@@ -162,13 +162,22 @@ function userRoles(root: string): Set<string> {
   return new Set(body.split("\n").map((l) => l.replace(/\/\/.*$/, "").trim()).filter(Boolean))
 }
 
-function permissions(root: string, entries: Entry<unknown>[]): Record<string, string> {
+/**
+ * A permission is a minimum role on the ladder, or an explicit list of the
+ * roles granted it (lib/registry/define.ts).
+ */
+function permissions(root: string, entries: Entry<unknown>[]): Record<string, string | string[]> {
   const roles = userRoles(root)
   const items = objectItems<unknown>("permissions", entries)
   for (const { file, key, value } of items) {
-    if (typeof value !== "string" || !roles.has(value)) fail(`${file}: ${key} must name a UserRole, got ${JSON.stringify(value)}`)
+    if (Array.isArray(value)) {
+      const ok = value.length > 0 && new Set(value).size === value.length && value.every((r) => typeof r === "string" && roles.has(r))
+      if (!ok) fail(`${file}: ${key} must name a UserRole or a non-empty list of distinct UserRoles, got ${JSON.stringify(value)}`)
+    } else if (typeof value !== "string" || !roles.has(value)) {
+      fail(`${file}: ${key} must name a UserRole, got ${JSON.stringify(value)}`)
+    }
   }
-  return Object.fromEntries(items.map((i) => [i.key, i.value as string]))
+  return Object.fromEntries(items.map((i) => [i.key, i.value as string | string[]]))
 }
 
 function moduleRules(root: string): string {

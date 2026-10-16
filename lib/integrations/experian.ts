@@ -27,6 +27,7 @@ import {
   type ExperianErrorClass,
 } from "./experian-spec"
 import { assertSimulationAllowed } from "@/lib/integrations/simulation-guard"
+import { dryRunScore } from "@/lib/integrations/experian-dry-run"
 import { loadCredentialPair } from "@/lib/integrations/tenant-credentials"
 import { bureauAccounts, bureauObligationRows, type BureauAccount, type BureauObligationRow } from "@/lib/integrations/bureau-accounts"
 
@@ -237,15 +238,14 @@ export async function getCreditReport(input: ExperianEnquiryInput, tenantId: str
     // lending decision. Fails closed on a deployed build unless EXPERIAN_ENV
     // names a sandbox estate.
     assertSimulationAllowed("experian", true)
-    // MOCK: representative in-band SigmaScore. Real shape comes from the layout doc.
+    // MOCK: an in-band SigmaScore per ID number (experian-dry-run.ts). Real shape comes from the layout doc.
     // `simulated` marks it as synthetic for every downstream reader — without it
     // this is indistinguishable from a real bureau result.
     return {
       ok: true,
       simulated: true,
-      score: 645,
+      ...dryRunScore(input.identityNumber),
       unscoreable: false,
-      riskGrade: "AVERAGE RISK",
       adverseInfo: [],
       underDebtReview: false,
       hasJudgement: false,

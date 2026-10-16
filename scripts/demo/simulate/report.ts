@@ -10,6 +10,7 @@ import { breadthReport } from "../breadth/report"
 import { getPersona } from "../personas"
 import { checkDates, describeViolations } from "../sim/check-dates"
 import { closeReadDb, readDb } from "../sim/readonly-db"
+import { bookHealthChecks, readBookFacts } from "./book-health"
 import { buildPlans, type Window } from "./plan"
 import { loadState, type SimState } from "./state"
 
@@ -51,6 +52,13 @@ function expectation(storyline: string): (loan: Row | undefined, app: Row | unde
     case "origination-approved": case "origination-signed": return appIs("APPROVED")
     default: return () => `no expectation for ${storyline}`
   }
+}
+
+async function bookHealth(window: Window): Promise<boolean> {
+  const checks = bookHealthChecks(await readBookFacts(window.until))
+  out("\n## Book health")
+  for (const c of checks) out(`  ${c.pass ? "ok  " : "MISS"} ${c.name}: ${c.value}`)
+  return checks.every((c) => c.pass)
 }
 
 export async function report(state: SimState, window: Window): Promise<boolean> {
@@ -99,6 +107,7 @@ export async function report(state: SimState, window: Window): Promise<boolean> 
   if (!rcOk) ok = false
   out(`\n## Returning client: ${rcOk ? "ok" : "MISS"} — ${JSON.stringify(rc[0], (_k, v: unknown) => (typeof v === "bigint" ? Number(v) : v))}`)
 
+  if (!(await bookHealth(window))) ok = false
   if (!(await breadthReport())) ok = false
 
   out("\n## Ledger invariant: SELECT assert_payment_allocation_reconciles()")

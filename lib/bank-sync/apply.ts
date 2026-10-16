@@ -24,6 +24,7 @@ import {
   valueDateEvidence,
   VALUE_DATE_MESSAGES,
 } from "@/lib/loan/value-date"
+import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 export class InvalidLoanStateError extends Error {}
 export class TransactionNotFoundError extends Error {}
@@ -203,14 +204,15 @@ export async function applyBankTransaction(args: {
         && after.interestDue === before.interestDue
         && after.totalDue === before.totalDue
       ) continue
-      const isPaid = after.totalPaid >= after.totalDue
+      const status = scheduleRowStatus(after.totalPaid, after.totalDue)
+      const isPaid = status === "PAID"
       await tx.repaymentSchedule.update({
         where: { id: after.id },
         data: {
           totalPaid: after.totalPaid,
           interestDue: after.interestDue,
           totalDue: after.totalDue,
-          status: isPaid ? "PAID" : "PARTIAL",
+          status,
           paidAt: isPaid ? receivedAt : null,
         },
       })

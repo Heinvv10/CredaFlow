@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { sastParts } from "@/lib/date/sast"
+import { demoLenderNote } from "@/lib/config/demo-mode"
 import type { LenderIdentity } from "@/lib/config/identity-schema"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { createTranslator, type MessageKey } from "@/lib/i18n/translate"
@@ -58,6 +59,7 @@ function FooterColumn({ id, title, links, locale }: { id: string; title: string;
 
 export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity: LenderIdentity; locale?: Locale }) {
   const t = createTranslator(locale, "websiteShell")
+  const demoNote = demoLenderNote()
   return (
     /* relative z-10: a page may render a position:fixed background layer (the
        insurance quotes page does), and a positioned layer paints ABOVE
@@ -97,7 +99,7 @@ export default function Footer({ identity, locale = DEFAULT_LOCALE }: { identity
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/64 sm:flex-row">
           <p>&copy; {sastParts(new Date()).year} {identity.legalName} · Co. Reg: {identity.companyRegNumber}. All rights reserved.</p>
-          <p>Registered Credit Provider — NCR Reg: {identity.ncrNumber}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}</p>
+          <p>Registered Credit Provider — NCR Reg: {identity.ncrNumber}{identity.fspNumber && <> · FSP: {identity.fspNumber}</>}{demoNote && <> · {demoNote}</>}</p>
         </div>
       </div>
     </footer>
