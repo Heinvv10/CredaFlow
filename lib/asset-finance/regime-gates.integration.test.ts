@@ -20,8 +20,9 @@ import { VALID_LENDER_COLUMNS } from "@/lib/config/__fixtures__/lender-identity"
 import { runWithTenant } from "@/lib/tenant-scope"
 
 const { ctx } = vi.hoisted(() => ({ ctx: { tenantId: "", userId: "" } }))
-vi.mock("@/lib/auth-guards", () => ({
+vi.mock("@/lib/auth-guards", async () => ({
   requireApiRole: vi.fn(async () => ({ error: null, user: { id: ctx.userId, email: "regime-it@test.invalid", role: "SUPER_ADMIN" } })),
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),
