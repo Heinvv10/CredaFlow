@@ -127,7 +127,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-lg border border-[var(--cf-border-subtle)] bg-[rgba(20,17,14,0.98)] shadow-xl backdrop-blur">
+        <div className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] shadow-xl">
           <div className="flex items-center justify-between border-b border-[var(--cf-border-subtle)] px-4 py-2.5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--cf-text-muted)]">
               Notifications
