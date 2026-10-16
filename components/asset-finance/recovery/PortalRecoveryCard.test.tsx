@@ -8,7 +8,7 @@ const view = (over: Partial<PortalRecoveryView> = {}): PortalRecoveryView => ({
   status: "VALUATION_NOTICE_ISSUED", recoveredOn: "2026-10-01", asset: "2022 TEST Excavator", valuationAmountCents: 80_000_000,
   notices: { valuation: true, final: false }, finalAccount: null, ...over,
 })
-const text = (v: PortalRecoveryView) => renderToStaticMarkup(<PortalRecoveryCard view={v} />)
+const text = (v: PortalRecoveryView) => renderToStaticMarkup(<PortalRecoveryCard view={v} locale="en" />)
 
 describe("PortalRecoveryCard", () => {
   it("shows the status, the valuation and the notices issued, and no account before the final one", () => {
