@@ -40,6 +40,18 @@ beforeEach(() => {
 })
 
 describe("PATCH /api/payment-notifications/[id]", () => {
+  // Fair Score C4 (#139): allocating IS capturing a payment, so it takes the
+  // capture_payment permission, which leaves INSURANCE_OFFICER out.
+  it("refuses an INSURANCE_OFFICER: allocate and reject need capture_payment", async () => {
+    h.requireApiRole.mockResolvedValue({ user: { id: "u9", email: "io@lender.example", role: "INSURANCE_OFFICER" } })
+    for (const body of [{ action: "allocate" }, { action: "reject", reason: "No such deposit" }]) {
+      const res = await call(body)
+      expect(res.status).toBe(403)
+    }
+    expect(h.allocate).not.toHaveBeenCalled()
+    expect(h.reject).not.toHaveBeenCalled()
+  })
+
   it("is gated with the same role as capturing a payment", async () => {
     h.requireApiRole.mockResolvedValue({ error: new Response(null, { status: 403 }) })
     expect((await call({ action: "allocate" })).status).toBe(403)
