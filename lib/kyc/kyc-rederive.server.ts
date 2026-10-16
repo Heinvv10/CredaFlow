@@ -7,6 +7,7 @@ import {
   readCompositeKycState,
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
+import { manualPendingStands } from "@/lib/kyc/manual-pending.server"
 import { newestVerifiedIdCopyId, verificationRestorable } from "@/lib/kyc/verification-restorable"
 
 const clientKycSelect = {
@@ -38,6 +39,8 @@ export type KycRederiveResult =
   | { kind: "id_document_not_current" }
   /** The evidence no longer derives VERIFIED, or the stored status is not PENDING. */
   | { kind: "evidence_does_not_hold" }
+  /** A staff member's deliberate manual PENDING is the latest status change. */
+  | { kind: "manual_pending_stands" }
   | { kind: "rederived"; kycStatus: string }
 
 /**
@@ -50,8 +53,10 @@ export type KycRederiveResult =
  * Under the client evidence lock it refuses unless the ID copy staff were
  * shown is still the newest verified, non-deleted, unrefused copy (a refusal or
  * newer verification in another tab makes the click stale), and unless the
- * evidence derives VERIFIED while the stored status is PENDING
- * (verificationRestorable). Client_enforce_composite_kyc re-checks the write.
+ * evidence derives VERIFIED while the stored status is PENDING and no
+ * deliberate manual PENDING stands (verificationRestorable), so the API cannot
+ * undo a decision the hidden button would not offer.
+ * Client_enforce_composite_kyc re-checks the write.
  * One KYC_STATUS_REDERIVED audit row, in the same transaction.
  */
 export async function rederiveKycStatus(
@@ -87,7 +92,10 @@ export async function rederiveKycStatus(
     existing: client,
     preserveVerifiedProvenance: true,
   })
-  if (!verificationRestorable(client.kycStatus, composite)) return { kind: "evidence_does_not_hold" }
+  const manualPending = await manualPendingStands(tx, { tenantId, clientId })
+  if (!verificationRestorable(client.kycStatus, composite, { manualPendingStands: manualPending })) {
+    return { kind: manualPending ? "manual_pending_stands" : "evidence_does_not_hold" }
+  }
 
   const after = await tx.client.update({
     where: { id: clientId, tenantId },

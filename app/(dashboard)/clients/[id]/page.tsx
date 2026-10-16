@@ -48,6 +48,7 @@ import {
 } from "@/lib/kyc/override-policy"
 import { isStaffTotpRequired } from "@/lib/security/staff-totp-policy"
 import { expireAndListPendingKycOverrideRequests } from "@/lib/kyc/override-requests"
+import { manualPendingStands } from "@/lib/kyc/manual-pending.server"
 import { verificationRestorable } from "@/lib/kyc/verification-restorable"
 
 async function getClient(id: string, tenantId: string) {
@@ -101,7 +102,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   if (!client) notFound()
   const session = await auth()
   const staffRole = session?.user?.role && session.user.role !== "CLIENT" ? session.user.role : null
-  const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests] = await Promise.all([
+  const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests, kycManualPendingStands] = await Promise.all([
     readCompositeKycState(
       prisma as unknown as CompositeKycReader,
       {
@@ -121,6 +122,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
           actor: { id: session.user.id, email: session.user.email },
         })
       : Promise.resolve([]),
+    manualPendingStands(prisma, { tenantId, clientId: client.id }),
   ])
   const manualException = compositeKyc.manualException
     ? {
@@ -453,7 +455,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 kycStatus={client.kycStatus}
                 manualExceptionActive={compositeKyc.manualExceptionActive}
                 substituteKind={compositeKyc.substituteKind}
-                verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc)}
+                verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc, {
+                  manualPendingStands: kycManualPendingStands,
+                })}
                 selfieAlternatives={selfieAlternatives}
                 signedAgreementReturn={signedAgreementReturn}
               />

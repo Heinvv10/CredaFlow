@@ -19,6 +19,8 @@ const pendingProjection = {
   kycStatus: "PENDING" as const, kycVerifiedAt: null, kycVerifiedById: null, kycVerificationMethod: null,
 }
 
+const noManualPending = { manualPendingStands: false }
+
 function composite(documents: typeof coreDocuments, existing: Record<string, unknown> = {}) {
   return deriveCompositeKycState({
     documents,
@@ -33,30 +35,35 @@ function composite(documents: typeof coreDocuments, existing: Record<string, unk
 describe("verificationRestorable", () => {
   it("is true when the stored status is PENDING but the evidence derives VERIFIED", () => {
     // e.g. the client withdrew the replacement ID; the delete never promotes.
-    expect(verificationRestorable("PENDING", composite(coreDocuments))).toBe(true)
+    expect(verificationRestorable("PENDING", composite(coreDocuments), noManualPending)).toBe(true)
   })
 
   it("is false while a replacement ID still awaits review", () => {
-    expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement]))).toBe(false)
+    expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement]), noManualPending)).toBe(false)
   })
 
   it("is false while a different copy awaits review behind a newer identical re-upload", () => {
     const identicalNewest = {
       ...pendingReplacement, id: "doc-id_copy-same", createdAt: new Date(Date.UTC(2026, 6, 22)), contentSha256: "a".repeat(64),
     }
-    expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement, identicalNewest]))).toBe(false)
+    expect(verificationRestorable("PENDING", composite([...coreDocuments, pendingReplacement, identicalNewest]), noManualPending)).toBe(false)
   })
 
   it("is false when the evidence is incomplete", () => {
-    expect(verificationRestorable("PENDING", composite(coreDocuments.slice(1)))).toBe(false)
+    expect(verificationRestorable("PENDING", composite(coreDocuments.slice(1)), noManualPending)).toBe(false)
   })
 
   it("is false under an active manual rejection", () => {
-    expect(verificationRestorable("PENDING", composite(coreDocuments, { kycManualRejectionActive: true }))).toBe(false)
+    expect(verificationRestorable("PENDING", composite(coreDocuments, { kycManualRejectionActive: true }), noManualPending)).toBe(false)
+  })
+
+  it("is false while a staff member's deliberate manual PENDING is the latest status change", () => {
+    // The evidence would verify, but staff chose PENDING; the hint must not undo that.
+    expect(verificationRestorable("PENDING", composite(coreDocuments), { manualPendingStands: true })).toBe(false)
   })
 
   it.each(["VERIFIED", "FAILED", "EXPIRED"])("is false when the stored status is %s", (stored) => {
-    expect(verificationRestorable(stored, composite(coreDocuments))).toBe(false)
+    expect(verificationRestorable(stored, composite(coreDocuments), noManualPending)).toBe(false)
   })
 })
 
