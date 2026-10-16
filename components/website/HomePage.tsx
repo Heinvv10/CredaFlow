@@ -127,16 +127,18 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
                 <p className="mt-2 text-xs leading-5 text-white/48">{productRange(product, t)}</p>
               </Link>
             ))}
-            <Link
-              href="/site/products/insurance"
-              className="group flex h-full min-h-[132px] flex-col border border-white/12 bg-white/[0.04] p-5 transition hover:border-[#a5b4fc] hover:bg-white/[0.08]"
-            >
-              <div className="flex min-h-12 items-start justify-between gap-4">
-                <h3 className="text-base font-semibold text-white">{t("insurance")}</h3>
-                <ShieldCheck className="h-4 w-4 shrink-0 text-[#a5b4fc]" />
-              </div>
-              <p className="mt-3 text-sm leading-6 text-white/56">{t("insuranceCard")}</p>
-            </Link>
+            {identity.fspNumber && (
+              <Link
+                href="/site/products/insurance"
+                className="group flex h-full min-h-[132px] flex-col border border-white/12 bg-white/[0.04] p-5 transition hover:border-[#a5b4fc] hover:bg-white/[0.08]"
+              >
+                <div className="flex min-h-12 items-start justify-between gap-4">
+                  <h3 className="text-base font-semibold text-white">{t("insurance")}</h3>
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-[#a5b4fc]" />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-white/56">{t("insuranceCard")}</p>
+              </Link>
+            )}
             <Link
               href="/site/qualify"
               className="group flex h-full min-h-[132px] flex-col border border-[#a5b4fc]/45 bg-[#a5b4fc]/[0.08] p-5 transition hover:border-[#a5b4fc] hover:bg-[#a5b4fc]/[0.12]"
@@ -190,7 +192,7 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
           </div>
 
           <div className="grid grid-cols-2 gap-3 border-t border-white/10 pt-6 sm:grid-cols-4">
-            {trustItems.map((item) => (
+            {trustItems.filter((item) => item !== "trustFais" || identity.fspNumber).map((item) => (
               <div key={item} className="flex items-center gap-2 text-sm font-medium text-white/72">
                 <CheckCircle2 className="h-4 w-4 text-[#a5b4fc]" />
                 {t(item)}
@@ -246,9 +248,12 @@ export function HomePage({ identity, products: catalogue, locale = DEFAULT_LOCAL
             <h2 className="mt-4 text-balance text-4xl font-semibold tracking-normal text-white">
               {t("protectedHeading")}
             </h2>
-            <p className="mt-5 text-lg leading-8 text-white/66">
-              {t("protectedBody", { legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber })}
-            </p>
+            {/* The sentence claims FSP authorisation; it is not translated without it. */}
+            {identity.fspNumber && (
+              <p className="mt-5 text-lg leading-8 text-white/66">
+                {t("protectedBody", { legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber })}
+              </p>
+            )}
           </div>
           <div className="grid gap-3">
             {protections.map((p) => (

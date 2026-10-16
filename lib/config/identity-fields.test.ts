@@ -36,6 +36,13 @@ describe("requireLenderIdentityFields", () => {
     }
   })
 
+  // An optional column may be null in the identity, but a document that asks
+  // for the FSP number prints it: null there must refuse, never print "null".
+  it("refuses a null FSP number when one is asked for", () => {
+    expect(fieldsOf(() => requireLenderIdentityFields({ ...ACME_LENDER, fspNumber: null }, ["legalName", "fspNumber"])))
+      .toEqual(["fscaNumber"])
+  })
+
   it.each([
     ["ncrNumber", "NCRCP"],
     ["ncrNumber", "ncrcp99999"], // valid once normalised, but would print as given
