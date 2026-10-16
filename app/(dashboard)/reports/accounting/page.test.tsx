@@ -8,6 +8,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     accountingExportBatch: { findFirst: vi.fn(async () => null) },
     xeroConnection: { findUnique: vi.fn(async () => null) },
+    isaFlowConnection: { findUnique: vi.fn(async () => null) },
     accountingSettings: { findUnique: vi.fn(async () => null) },
   },
 }))

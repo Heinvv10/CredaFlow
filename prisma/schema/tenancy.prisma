@@ -120,6 +120,7 @@ model Tenant {
   insurers                   Insurer[]
   integrationConfig          IntegrationConfig?
   integrationLogs            IntegrationLog[]
+  isaFlowConnection          IsaFlowConnection?
   kycOverrideRequests        KycOverrideRequest[]
   leads                      Lead[]
   leaseDamageItems           LeaseDamageItem[]

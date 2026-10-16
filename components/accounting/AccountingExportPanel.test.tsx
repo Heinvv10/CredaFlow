@@ -43,7 +43,7 @@ async function render(canClose = true) {
   actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   let renderer!: ReactTestRenderer
   await act(async () => {
-    renderer = create(<AccountingExportPanel initialPeriod="2026-08" canClose={canClose} xeroConnected={false} />)
+    renderer = create(<AccountingExportPanel initialPeriod="2026-08" canClose={canClose} xeroConnected={false} isaflowConnected={false} />)
   })
   return renderer
 }

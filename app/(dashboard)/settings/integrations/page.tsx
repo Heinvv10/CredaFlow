@@ -2,6 +2,7 @@ import { IntegrationsTab } from "@/components/settings/IntegrationsTab"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { PayoutSettingsCard } from "@/components/settings/PayoutSettingsCard"
 import { XeroConnectionCard } from "@/components/settings/XeroConnectionCard"
+import { IsaFlowConnectionCard } from "@/components/settings/IsaFlowConnectionCard"
 
 export const metadata = {
   title: "Integrations — Settings",
@@ -26,6 +27,7 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
       <IntegrationsTab />
       <PayoutSettingsCard />
       <XeroConnectionCard returned={xero ?? null} />
+      <IsaFlowConnectionCard />
     </div>
   )
 }

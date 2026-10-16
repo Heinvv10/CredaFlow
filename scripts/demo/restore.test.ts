@@ -9,8 +9,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // docker call to a log; nothing reaches a real container. seq is stubbed to one
 // iteration so a failing health check costs one curl per wait, not 120 (the
 // rollback path waits twice, which spawned ~500 processes and took 7 s under load).
+//
+// Every test forks dozens of processes (bash, the stubs, node for env_get), so
+// CPU contention multiplies its time. Measured on 32 cores, 10-20 runs each:
+// ~0.08 s idle (the env-tail test ~1.0 s), 0.4-1.8 s with 64-256 busy loops, and
+// 1.5-4.7 s with 512 loops (load average ~500), every test within 5 s only by a
+// whisker. The env-tail test (STUB_ENV_TAIL) was the slowest because its stub held
+// the tail back 3 x 0.3 s of fixed sleep; the hold only has to outlast a reader
+// that stopped early, and 0.1 s kills the grep -q mutant as reliably as 0.3 s did
+// (10/10 red idle and under 64 loops, both). The describes get 30 s, a 6x margin
+// over the worst measured test.
 
 const SCRIPT = join(__dirname, 'restore.sh')
+const TEST_TIMEOUT_MS = 30_000
 const IMAGE = 'credaflow:restore-test'
 const TENANT = 'cm0000000000000000000000'
 const COUNTS = { loans: 1, applications: 2, clients: 3, users: 4, payments: 5, clientDocuments: 6, insurancePolicies: 7 }
@@ -26,7 +37,7 @@ case "$*" in
   *"com.docker.compose.project"*) echo credaflow-demo ;;
   *"range .Config.Env"*) echo "DEMO_MODE=$STUB_DEMO_MODE"; [ -z "$STUB_CLEAR_TOTP" ] || echo "DEMO_CLEAR_STAFF_TOTP=true"
     # More env after the match, once a reader that stops early has gone: it then meets a closed pipe.
-    [ -z "$STUB_ENV_TAIL" ] || { /bin/sleep 0.3; echo "PATH=/usr/bin"; echo "NODE_ENV=production"; } ;;
+    [ -z "$STUB_ENV_TAIL" ] || { /bin/sleep 0.1; echo "PATH=/usr/bin"; echo "NODE_ENV=production"; } ;;
   "inspect -f {{.Config.Image}} "*) echo "$STUB_IMAGE" ;;
   *"range .Mounts"*) echo uploads-vol ;;
   *"HostPort"*) echo 3300 ;;
@@ -48,6 +59,7 @@ exit 0
 
 function run(env: Record<string, string> = {}) {
   const r = spawnSync('bash', [SCRIPT], {
+    timeout: 25_000,
     env: {
       PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root,
       DEMO_DATA_DIR: join(root, 'data'), LIVE_DIR: join(root, 'live'),
@@ -91,7 +103,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-describe('restore.sh demo staff TOTP', () => {
+describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
   it('clears TOTP once, on the restored live db, after the health checks, and logs the count', () => {
     const r = run()
     expect(r.status).toBe(0)
@@ -174,7 +186,7 @@ describe('restore.sh demo staff TOTP', () => {
   })
 })
 
-describe('restore.sh lender guard', () => {
+describe('restore.sh lender guard', { timeout: TEST_TIMEOUT_MS }, () => {
   const meta = join('data', 'snapshots', 'latest', 'meta.json')
   const setSlug = (slug: string | undefined) => {
     const m = JSON.parse(readFileSync(join(root, meta), 'utf8'))
