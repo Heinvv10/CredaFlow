@@ -22,17 +22,10 @@ describe("a credit note on an instalment sale's inception invoice", () => {
     expect(august.origin).toMatchObject({ type: "CREDIT_NOTE", date: new Date("2026-08-03T09:00:00+02:00") })
   })
 
+  // A credit note after a write-off, and one on a finance lease: JRN-IS-CN-WO and JRN-FL-CN in sources-asset-finance.test.ts.
   it("posts nothing when no payout was released (the loader refuses that contract)", () => {
     const loan = { ...IS_CN.loan, assetFinance: { ...IS_CN.loan.assetFinance!, payout: null } }
     expect(nonEmpty(sourceOf(loan, "2026-12-01", "af-credit:cn-is-1").vector)).toEqual({})
-  })
-
-  it("is written off with the rest when it comes after the write-off: the book holds nothing for the loan", () => {
-    const written = { ...IS_CN.loan, status: "WRITTEN_OFF", writeOffAt: day("2026-08-18") }
-    const sources = loanSources(written, day("2026-10-01"))
-    // before the write-off: F 1 000 000 + row 1 10 000 - receipt 340 000 = 670 000; the credit 23 000 after it lowers what is written off
-    expect(sources.find((s) => s.baseKey === "loan:jrn-is-cn:write-off")!.vector).toEqual({ BAD_DEBT_EXPENSE: 647_000, AF_INSTALMENT_DEBTORS: -647_000 })
-    expect(sources.reduce((t, s) => t + (s.vector.AF_INSTALMENT_DEBTORS ?? 0), 0)).toBe(0)
   })
 })
 

@@ -69,7 +69,9 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
     cred AS (
       SELECT i."loanId", SUM(n."inclVatCents") AS amt
       FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN l ON l."id" = i."loanId"
-      WHERE n."tenantId" = ${tenantId} AND ${credited} < ${asOf} GROUP BY i."loanId"
+        LEFT JOIN inc ON inc."loanId" = l."id"
+      -- An inception invoice's credit counts from the later of its issue and the payout's release, as the journal posts it.
+      WHERE n."tenantId" = ${tenantId} AND ${credited} < ${asOf} AND (l.lease OR inc."at" < ${asOf}) GROUP BY i."loanId"
     ),
     chg AS (
       SELECT c."loanId", SUM(c."amount") AS amt

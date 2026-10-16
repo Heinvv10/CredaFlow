@@ -1,7 +1,8 @@
 /**
  * Real-Postgres proof of the credit-note sources (slice 4b, F3): a credit note
  * on an instalment sale's inception invoice (one dated before its payout was
- * released) and one on a repossession sale's buyer invoice post, and every
+ * released, one after a write-off, one on a finance lease) and one on a
+ * repossession sale's buyer invoice post, and every
  * month from July to November closes balanced, tied to the independent SQL and
  * with every asset-finance control at nil. The deals are
  * lib/asset-finance/__fixtures__/acceptance-journal-credit-note-deals.ts, worked
@@ -34,7 +35,7 @@ const db = new PrismaClient()
 const AFTER = new Date("2026-12-05T10:00:00+02:00")
 let tenant: ChargesTenant
 
-const [IS_CN, IS_CN_EARLY, REC_SALE_CN] = CREDIT_NOTE_JOURNAL_DEALS
+const [IS_CN, IS_CN_EARLY, REC_SALE_CN, FL_CN, IS_CN_WO] = CREDIT_NOTE_JOURNAL_DEALS
 const loanIds = CREDIT_NOTE_JOURNAL_DEALS.map((d) => d.loan.id)
 
 const close = (periodKey: string) => runWithTenant(tenant.tenantId, () =>
@@ -111,11 +112,14 @@ suite.sequential("asset-finance credit notes (real Postgres)", () => {
     expect(august.entries.find((e) => e.baseKey === "af-credit:cn-is-early")).toMatchObject({ eventType: "CREDIT_NOTE", eventDate: new Date("2026-08-03T09:00:00+02:00") })
     await closeTied("2026-08")
     await expectWorked(IS_CN_EARLY)
+    // Written off two days before its credit note: the credit lowers the write-off, and the written-off contract owes nil.
+    await expectWorked(IS_CN_WO)
   })
 
   it("closes September and October; the ledger holds every hand-worked vector, the sale's credit note cleared to the result", async () => {
     await closeTied("2026-09")
     await expectWorked(IS_CN)
+    await expectWorked(FL_CN)
     await closeTied("2026-10")
     await expectWorked(REC_SALE_CN)
   })
