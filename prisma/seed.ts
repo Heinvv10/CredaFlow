@@ -121,6 +121,7 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     featureAssetFinance: true,
+    requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
     // The demo shows every borrower language. A real lender starts on English
     // only (the column default) until its translations are reviewed.
     enabledLanguages: ["en", "af", "zu", "xh"],

@@ -38,7 +38,7 @@ export const SMTP_SINK_HOST = "credaflow-demo-sim-smtp"
 export const ATTORNEY_FIRM = "Kroonstad Vale & Mokgosi Attorneys"
 
 export interface Actors extends OriginationContext {
-  /** LOAN_ADMIN collections manager: debit-order results, reversals, write-off requests. */
+  /** LOAN_ADMIN collections manager: payouts, debit-order results, reversals, write-off requests. */
   loanAdmin: SimClient
   loanAdminCreds: StaffCredentials
 }
@@ -143,7 +143,10 @@ export async function ensureServicingSetup(ctx: OriginationContext): Promise<Act
   await ensureAttorneyFirm(ctx)
   await ensureBankSync(ctx)
   const loanAdminCreds = await ensureLoanAdmin(ctx)
-  return { ...ctx, loanAdmin: new SimClient(), loanAdminCreds }
+  const loanAdmin = new SimClient()
+  // The collections manager also pays out: the ADMIN approved, and under
+  // segregation of duties the approver may not disburse.
+  return { ...ctx, loanAdmin, loanAdminCreds, disburser: { client: loanAdmin, creds: loanAdminCreds } }
 }
 
 /** Staff sessions for every actor, re-signed only when expired. */

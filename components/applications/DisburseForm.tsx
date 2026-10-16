@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
 
 interface Props {
@@ -22,6 +23,9 @@ interface Props {
     accountType: string | null
   }
 }
+
+/** No example reference: a dated one goes stale (the audit saw an April date in October). */
+export const PAYMENT_REFERENCE_PLACEHOLDER = "Your bank's transfer reference"
 
 function formatZAR(cents: number) {
   return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -124,92 +128,94 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
     }
   }
 
-  if (!open) {
-    return (
-      <Button onClick={() => setOpen(true)}>
+  // A rail button; the payout form opens over the page, where it has room.
+  return (
+    <>
+      <Button className="w-full" onClick={() => setOpen(true)}>
         <Banknote className="h-4 w-4" />
         Disburse Loan
       </Button>
-    )
-  }
+      <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setError(null) }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto p-0 sm:max-w-xl">
+          <div className="overflow-hidden rounded-lg border border-[rgba(63,191,127,0.32)] bg-[var(--cf-bg-panel)]">
+            <div className="flex items-center gap-2 border-b border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.08)] px-5 py-3 pr-12">
+              <Banknote className="h-4 w-4 text-[var(--cf-success)]" />
+              <DialogTitle className="text-sm font-semibold leading-normal">Disburse Loan - {formatZAR(disbursementCents)} to {clientName}</DialogTitle>
+            </div>
 
-  return (
-    <div className="overflow-hidden rounded-lg border border-[rgba(63,191,127,0.32)] bg-[var(--cf-bg-panel)]">
-      <div className="flex items-center gap-2 border-b border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.08)] px-5 py-3">
-        <Banknote className="h-4 w-4 text-[var(--cf-success)]" />
-        <span className="text-sm font-semibold text-[var(--cf-text)]">Disburse Loan - {formatZAR(disbursementCents)} to {clientName}</span>
-      </div>
+            <div className="space-y-4 p-5">
+              <div className="flex items-start gap-2 rounded-lg border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-4 py-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-warning)]" />
+                <p className="text-xs font-medium text-[var(--cf-warning)]">
+                  This action is irreversible. The loan will be created and repayment schedule generated immediately.
+                </p>
+              </div>
 
-      <div className="space-y-4 p-5">
-        <div className="flex items-start gap-2 rounded-lg border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-warning)]" />
-          <p className="text-xs font-medium text-[var(--cf-warning)]">
-            This action is irreversible. The loan will be created and repayment schedule generated immediately.
-          </p>
-        </div>
+              <div className="rounded-lg border border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.07)] px-4 py-3">
+                <p className="text-sm font-semibold text-[var(--cf-success)]">Client bank details are locked for disbursement</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--cf-text-secondary)]">
+                  {repaymentMethod === "EFT"
+                    ? "These are the recorded payout details. Before funds move, the disbursement gate will match them to an intact verified bank statement. Repayment is set to EFT, so no debit mandate is required."
+                    : "These details match the customer’s verified bank statement and signed debit mandate. Change them only through a new customer-authorised mandate."}
+                </p>
+              </div>
 
-        <div className="rounded-lg border border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.07)] px-4 py-3">
-          <p className="text-sm font-semibold text-[var(--cf-success)]">Client bank details are locked for disbursement</p>
-          <p className="mt-1 text-xs leading-5 text-[var(--cf-text-secondary)]">
-            {repaymentMethod === "EFT"
-              ? "These are the recorded payout details. Before funds move, the disbursement gate will match them to an intact verified bank statement. Repayment is set to EFT, so no debit mandate is required."
-              : "These details match the customer’s verified bank statement and signed debit mandate. Change them only through a new customer-authorised mandate."}
-          </p>
-        </div>
+              {clientBankMissing && (
+                <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
+                  {repaymentMethod === "EFT"
+                    ? "Client bank details are incomplete. Verify the payout banking before disbursement."
+                    : "Client bank details are incomplete. The customer must complete and sign a new debit mandate before disbursement."}
+                </p>
+              )}
 
-        {clientBankMissing && (
-          <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
-            {repaymentMethod === "EFT"
-              ? "Client bank details are incomplete. Verify the payout banking before disbursement."
-              : "Client bank details are incomplete. The customer must complete and sign a new debit mandate before disbursement."}
-          </p>
-        )}
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Bank *">
+                  <input value={bank} className={fieldClass} readOnly />
+                </Field>
+                <Field label="Account Type">
+                  <input value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
+                </Field>
+                <Field label="Account Number *">
+                  <input value={accountNo} className={`${fieldClass} font-mono`} readOnly />
+                </Field>
+                <Field label="Branch Code">
+                  <input value={branchCode} className={`${fieldClass} font-mono`} readOnly />
+                </Field>
+                <Field label="Payment Reference (optional)" className="col-span-2">
+                  <input value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} />
+                </Field>
+              </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Bank *">
-            <input value={bank} className={fieldClass} readOnly />
-          </Field>
-          <Field label="Account Type">
-            <input value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
-          </Field>
-          <Field label="Account Number *">
-            <input value={accountNo} className={`${fieldClass} font-mono`} readOnly />
-          </Field>
-          <Field label="Branch Code">
-            <input value={branchCode} className={`${fieldClass} font-mono`} readOnly />
-          </Field>
-          <Field label="Payment Reference (optional)" className="col-span-2">
-            <input value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder="e.g. DISB-20260404-001" />
-          </Field>
-        </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[rgba(63,191,127,0.28)] bg-[rgba(63,191,127,0.08)] px-4 py-3">
+                <input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--cf-success)]" />
+                <div>
+                  <p className="text-sm font-semibold text-[var(--cf-success)]">I confirm the disbursement details are correct</p>
+                  <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
+                    Disbursing {formatZAR(disbursementCents)} to <strong>{clientName}</strong> at {bank || "..."} - Account {accountNo || "..."}
+                  </p>
+                  {feeDeducted && (
+                    <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
+                      (Principal {formatZAR(principalCents)} less the initiation fee {formatZAR(principalCents - disbursementCents)}, deducted from the advance per the consumer&apos;s election.)
+                    </p>
+                  )}
+                </div>
+                {confirm && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
+              </label>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[rgba(63,191,127,0.28)] bg-[rgba(63,191,127,0.08)] px-4 py-3">
-          <input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--cf-success)]" />
-          <div>
-            <p className="text-sm font-semibold text-[var(--cf-success)]">I confirm the disbursement details are correct</p>
-            <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
-              Disbursing {formatZAR(disbursementCents)} to <strong>{clientName}</strong> at {bank || "..."} - Account {accountNo || "..."}
-            </p>
-            {feeDeducted && (
-              <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
-                (Principal {formatZAR(principalCents)} less the initiation fee {formatZAR(principalCents - disbursementCents)}, deducted from the advance per the consumer&apos;s election.)
-              </p>
-            )}
+              {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
+                <Button onClick={submit} disabled={loading || !confirm || !bank || !accountNo || clientBankMissing}>
+                  <Banknote className="h-4 w-4" />
+                  {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
+                </Button>
+              </div>
+            </div>
           </div>
-          {confirm && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
-        </label>
-
-        {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
-          <Button onClick={submit} disabled={loading || !confirm || !bank || !accountNo || clientBankMissing}>
-            <Banknote className="h-4 w-4" />
-            {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
-          </Button>
-        </div>
-      </div>
-    </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

@@ -17,7 +17,8 @@
  *              (the demo stack's .invalid mailboxes are revealed, DEMO_MODE),
  *              verifies it (POST …/verify) and signs with it — the lender's
  *              requireSigningOtp is left on, so the demo shows the feature.
- *   payout     an admin disburses (POST …/disburse), which books the Loan.
+ *   payout     a second staff member disburses (POST …/disburse), which books
+ *              the Loan: the context's disburser, else the admin.
  *
  * Each digest the borrower echoes is computed here from the bytes the portal
  * served, so a signature is bound to what was actually opened.
@@ -27,7 +28,7 @@ import { createHash } from "node:crypto"
 import type { Persona } from "../personas"
 import { ApiError, type SimClient } from "../sim/api"
 import { log } from "../sim/env"
-import type { OriginationContext } from "./context"
+import { ensureStaffSessions, type OriginationContext } from "./context"
 
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex")
 
@@ -145,8 +146,11 @@ export async function signDebitMandate(portal: SimClient, p: Persona, applicatio
   log(`${p.id}: debit mandate signed`)
 }
 
+/** Pays out as the context's disburser, a second staff member, when it has one. */
 export async function disburse(ctx: OriginationContext, applicationId: string): Promise<{ loanId: string; loanRef: string }> {
-  const res = await ctx.admin.post<{ loanId: string; loanRef: string }>(`/api/applications/${applicationId}/disburse`, {
+  await ensureStaffSessions(ctx)
+  const payer = ctx.disburser?.client ?? ctx.admin
+  const res = await payer.post<{ loanId: string; loanRef: string }>(`/api/applications/${applicationId}/disburse`, {
     bankRef: "",
   })
   if (!res.json?.loanRef || !res.json.loanId) throw new Error(`disburse returned no loan: ${res.text.slice(0, 300)}`)

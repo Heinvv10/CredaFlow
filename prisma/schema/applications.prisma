@@ -149,6 +149,10 @@ model LoanApplication {
   approvedRate                            Float?
   approvedAt                              DateTime?
   disbursedAt                             DateTime?
+  // Staff user who disbursed it, written with the DISBURSED transition. With
+  // TenantConfig.requireSegregationOfDuties on, it must not be the approver
+  // (trigger LoanApplication_z_guard_segregation_of_duties).
+  disbursedById                           String?
   disbursementBank                        String?
   disbursementAccountNo                   String?
   disbursementBranchCode                  String?

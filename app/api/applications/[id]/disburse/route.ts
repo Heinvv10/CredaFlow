@@ -26,6 +26,7 @@ import {
 import { verifyCurrentDisbursementEvidence } from "@/lib/affordability/current-disbursement"
 import { Prisma } from "@prisma/client"
 import { disbursementGuardViolation } from "@/lib/disbursement/guard-violation"
+import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
 import {
   documentBytesMatchSha256,
   isSha256Digest,
@@ -55,6 +56,11 @@ import {
 } from "@/lib/disbursement/preconditions"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 import { readBorrowerScreening } from "@/lib/screening/gate"
+import {
+  isSegregationOfDutiesRequired,
+  segregationOfDutiesConflict,
+  SEGREGATION_OF_DUTIES_REFUSALS,
+} from "@/lib/security/segregation-of-duties"
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
@@ -307,6 +313,17 @@ export async function POST(
           { error: "Only approved applications can be disbursed" },
           { status: 400 }
         )
+      }
+
+      // Maker-checker: the approver does not also pay out. The DISBURSED write
+      // records disbursedById and the database refuses the same pair
+      // (LoanApplication_z_guard_segregation_of_duties).
+      const conflict = segregationOfDutiesConflict("disburse", user.id, application)
+      if (conflict && await isSegregationOfDutiesRequired(tenant.id)) {
+        return NextResponse.json({
+          error: SEGREGATION_OF_DUTIES_REFUSALS[conflict],
+          disbursementPrecondition: "segregation_of_duties",
+        }, { status: 403 })
       }
 
       // A sanctions hit, or a match a periodic re-screen raised after approval,
@@ -1401,6 +1418,7 @@ export async function POST(
           data: {
             status: "DISBURSED",
             disbursedAt,
+            disbursedById: user.id,
             disbursementBank: lockedBankDetails.bank,
             disbursementAccountNo: lockedBankDetails.accountNo,
             disbursementBranchCode: lockedBankDetails.branchCode,
@@ -2019,6 +2037,13 @@ export async function POST(
     // the statement was issued. The prefix is emitted by ten disbursement
     // guards and nowhere else in the schema, so it cannot mislabel an unrelated
     // failure as a refusal.
+    const sodRefusal = databaseGuardRefusal(error)
+    if (sodRefusal?.startsWith("Segregation of duties")) {
+      return NextResponse.json(
+        { error: `${sodRefusal}.`, disbursementGuard: "segregation_of_duties" },
+        { status: 403 },
+      )
+    }
     const guardRefusal = disbursementGuardViolation(error)
     if (guardRefusal) {
       console.warn("Disbursement refused by a database guard:", guardRefusal)

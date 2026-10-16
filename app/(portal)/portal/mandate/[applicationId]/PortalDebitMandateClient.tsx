@@ -29,6 +29,8 @@ type Props = {
   initiallySigned: boolean
   /** The lender requires a verified one-time code before signing (lib/signing-otp). */
   signingOtp?: { required: boolean; channels: SigningOtpChannel[] }
+  /** The SAST date staff last reopened the application for review, if ever (lib/portal/return-to-review.ts). */
+  returnedToReviewOn?: string | null
 }
 
 const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
@@ -56,6 +58,7 @@ export function PortalDebitMandateClient({
   initialDraftSha256,
   initiallySigned,
   signingOtp = NO_SIGNING_OTP,
+  returnedToReviewOn = null,
 }: Props) {
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
   // Remounts the OTP step after a signing refusal that spent or voided the code.
@@ -242,6 +245,17 @@ export function PortalDebitMandateClient({
           Application {reference} — details must match your verified bank statement.
         </p>
       </div>
+
+      {returnedToReviewOn && (
+        <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-gray-800">
+          <h2 className="font-semibold text-gray-900">Why you are signing again</h2>
+          <p className="mt-1">
+            On {returnedToReviewOn} we reopened your application for review. That cancelled what you had
+            signed for it, the credit agreement and any debit order mandate, so we need your signature
+            again on the terms now approved. Nothing will be collected under anything you signed before.
+          </p>
+        </section>
+      )}
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="font-semibold text-gray-900">Account for debit orders</h2>

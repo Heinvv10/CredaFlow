@@ -27,6 +27,7 @@ const {
   tenantFindUniqueMock,
   clientFindFirstMock,
   canBeDisbursedMock,
+  sodRequiredMock,
 } = vi.hoisted(() => ({
   requireApiRoleMock: vi.fn(),
   applicationFindUniqueMock: vi.fn(),
@@ -51,6 +52,7 @@ const {
   tenantFindUniqueMock: vi.fn(),
   clientFindFirstMock: vi.fn(),
   canBeDisbursedMock: vi.fn(),
+  sodRequiredMock: vi.fn(),
 }))
 
 vi.mock("@/lib/auth-guards", () => ({
@@ -122,6 +124,11 @@ vi.mock("@/lib/compliance/statutory-provider-identity.server", async () => {
 })
 vi.mock("@/lib/audit", () => ({
   AuditAction: { AGREEMENT_PROVIDER_COUNTERSIGNED: "AGREEMENT_PROVIDER_COUNTERSIGNED" },
+}))
+
+vi.mock("@/lib/security/segregation-of-duties", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/security/segregation-of-duties")>(),
+  isSegregationOfDutiesRequired: (...args: unknown[]) => sodRequiredMock(...args),
 }))
 
 import { POST } from "./route"
@@ -202,6 +209,7 @@ beforeEach(() => {
   })
   applicationFindUniqueMock.mockResolvedValue(preflight)
   canBeDisbursedMock.mockReturnValue(true)
+  sodRequiredMock.mockResolvedValue(true)
   verifyLockedApprovalMock.mockResolvedValue({
     ok: true,
     application: current,
@@ -805,5 +813,74 @@ describe("provider agreement countersign — executed artifact", () => {
       countersignEvidence: "commit_outcome_unknown",
     }))
     expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("provider agreement countersign — refusals the UI must be able to show", () => {
+  // The Fair Score audit (2026-10-16): the immutability trigger refused the
+  // countersignature with 23514, the route answered a bare 500 and the button
+  // showed nothing.
+  it("answers a database guard refusal with a readable 409, not a 500", async () => {
+    const { Prisma } = await import("@prisma/client")
+    transactionMock.mockRejectedValue(new Prisma.PrismaClientUnknownRequestError(
+      'ConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "23514", message: "Signed debit-mandate authority is immutable outside an explicit return to review", severity: "ERROR", detail: None, column: None, hint: None }), transient: false })',
+      { clientVersion: "test" },
+    ))
+
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      error: expect.stringContaining("Signed debit-mandate authority is immutable outside an explicit return to review"),
+      countersignEvidence: "database_guard_refused",
+    }))
+    // Nothing committed, so the staged executed agreement is removed.
+    const writtenKey = saveFileMock.mock.calls[0][2] as string
+    expect(deleteFileMock).toHaveBeenCalledWith(`/managed/${writtenKey}.pdf`)
+  })
+
+  it("still answers an unrelated failure with a 500", async () => {
+    transactionMock.mockRejectedValue(new Error("connection reset"))
+
+    await expect(POST(request({ signature: "Jane Provider", attestation: true }), context)).rejects.toThrow("connection reset")
+  })
+
+  const branchSignedByCaller = { ...preflight, agreementSignedMethod: "branch", agreementSignedByUserId: "staff-1" }
+
+  it("refuses the witness of the in-branch signature while segregation of duties is on", async () => {
+    applicationFindUniqueMock.mockResolvedValue(branchSignedByCaller)
+
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      error: "Segregation of duties: you witnessed the client's in-branch signature, so another staff member must countersign for the lender.",
+      segregationOfDuties: "branch_sign_countersign",
+    })
+    expect(sodRequiredMock).toHaveBeenCalledWith("tenant-1")
+    expect(saveFileMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("lets the witness countersign while segregation of duties is off", async () => {
+    applicationFindUniqueMock.mockResolvedValue(branchSignedByCaller)
+    verifyLockedApprovalMock.mockResolvedValue({
+      ok: true,
+      application: { ...current, agreementSignedMethod: "branch", agreementSignedByUserId: "staff-1" },
+      approval: { calculator: { pricingFingerprint: "pricing-fp" } },
+    })
+    sodRequiredMock.mockResolvedValue(false)
+
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+
+    expect(response.status).toBe(200)
+  })
+
+  it("lets another staff member countersign a branch signature", async () => {
+    applicationFindUniqueMock.mockResolvedValue({ ...branchSignedByCaller, agreementSignedByUserId: "staff-2" })
+
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+
+    expect(response.status).not.toBe(403)
   })
 })

@@ -116,6 +116,10 @@ export async function createApprovedPasqV3Application(
   // Defaults to the PASQ election. A completed artifact is immutable, so a
   // scenario that needs a missing or malformed one is created with it.
   agreementArtifactElection: AgreementArtifactElection = election === "ACCEPTED",
+  // The consumer signs the agreement and the debit mandate first and the
+  // provider countersignature is left for the caller to write (`countersign`
+  // in the result): the order the portal allows.
+  countersignAfterMandate = false,
 ) {
   const token = randomUUID().replaceAll("-", "")
   const tenantId = `tenant_pasq_v3_${label}_${token}`
@@ -156,6 +160,16 @@ export async function createApprovedPasqV3Application(
     providerSignerEmail,
     providerSignatureSha256,
   })
+  const countersign = {
+    agreementCountersignedAt: countersignedAt,
+    agreementCountersignedById: officerId,
+    agreementCountersignedByName: providerSignerName,
+    agreementCountersignedByEmail: providerSignerEmail,
+    agreementCountersignatureData: providerSignatureData,
+    agreementCountersignatureSha256: providerSignatureSha256,
+    agreementCountersignatureEnvelopeSha256: providerEnvelopeSha256,
+    agreementCountersignedDocumentSha256: agreementDocumentSha256,
+  }
   const pricing = {
     principal: 500_000,
     termDays: 30,
@@ -179,6 +193,8 @@ export async function createApprovedPasqV3Application(
       acceptedPasqDocumentSha256: pasqDocumentSha256,
     })
   const priorOfficerId = `prior_officer_pasq_v3_${label}_${token}`
+  // Pays out: segregation of duties (on by default) refuses the approver.
+  const payerId = `payer_pasq_v3_${label}_${token}`
   const { affordabilityResult: priorAffordabilityResult } =
     createApplicationContractFixture({
       applicationId,
@@ -252,6 +268,16 @@ export async function createApprovedPasqV3Application(
       email: providerSignerEmail,
       password: "not-a-real-login",
       name: providerSignerName,
+      role: "LOAN_ADMIN",
+    },
+  })
+  await prisma.user.create({
+    data: {
+      id: payerId,
+      tenantId,
+      email: `pasq-v3-payer-${label}-${token}@example.invalid`,
+      password: "not-a-real-login",
+      name: "Synthetic Payer",
       role: "LOAN_ADMIN",
     },
   })
@@ -564,14 +590,7 @@ export async function createApprovedPasqV3Application(
         agreementSignedAt: signedAt,
         agreementSignedMethod: "portal",
         agreementSignatureData: consumerSignatureData,
-        agreementCountersignedAt: countersignedAt,
-        agreementCountersignedById: officerId,
-        agreementCountersignedByName: providerSignerName,
-        agreementCountersignedByEmail: providerSignerEmail,
-        agreementCountersignatureData: providerSignatureData,
-        agreementCountersignatureSha256: providerSignatureSha256,
-        agreementCountersignatureEnvelopeSha256: providerEnvelopeSha256,
-        agreementCountersignedDocumentSha256: agreementDocumentSha256,
+        ...(countersignAfterMandate ? {} : countersign),
         ...debitMandate,
       },
     })
@@ -614,6 +633,8 @@ export async function createApprovedPasqV3Application(
     insuranceProductId,
     generatedAt,
     signedAt,
+    countersign,
+    payerId,
   }
 }
 
@@ -766,6 +787,7 @@ export async function writePasqV3Disbursement(
     data: {
       status: "DISBURSED",
       disbursedAt: scenario.signedAt,
+      disbursedById: scenario.payerId,
     },
   })
   await tx.repaymentSchedule.createMany({

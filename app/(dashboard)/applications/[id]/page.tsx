@@ -74,6 +74,13 @@ import {
 import { hasClientBorrower } from "@/lib/borrower"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 import { signingOtpView } from "@/lib/signing-otp/view"
+import { previewAffordability } from "@/lib/affordability/preview"
+import { approvalGateBlockers, headerBlockerLabel } from "@/lib/applications/rail-blockers"
+import {
+  isSegregationOfDutiesRequired,
+  segregationOfDutiesConflict,
+  SEGREGATION_OF_DUTIES_REFUSALS,
+} from "@/lib/security/segregation-of-duties"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -205,10 +212,11 @@ interface PageProps { params: Promise<{ id: string }> }
 export default async function ApplicationDetailPage({ params }: PageProps) {
   const { id } = await params
   const tenantId = await getStaffTenantId()
-  const [application, session, collectionsEngineEnabled] = await Promise.all([
+  const [application, session, collectionsEngineEnabled, segregationOfDuties] = await Promise.all([
     getApplication(id, tenantId),
     auth(),
     getCollectionsEngineEnabled(tenantId),
+    isSegregationOfDutiesRequired(tenantId),
   ])
   if (!application) notFound()
   if (!hasClientBorrower(application)) {
@@ -223,6 +231,11 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const userRole = session?.user?.role ?? "READONLY"
   const canDisburse = canDo(userRole, "disburse_loan")
   const canApprove = canDo(userRole, "approve_loan")
+  // The routes refuse these to this viewer while segregation of duties is on;
+  // say so where the button would be.
+  const viewerId = session?.user?.id ?? ""
+  const disburseConflict = segregationOfDuties ? segregationOfDutiesConflict("disburse", viewerId, application) : null
+  const countersignConflict = segregationOfDuties ? segregationOfDutiesConflict("countersign", viewerId, application) : null
   // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
   const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
   const checksUndecided = application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW"
@@ -452,6 +465,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   const mandateReady = !!application.debitMandateSignedAt
   const mandateRequired = application.repaymentMethod !== "EFT"
   const repaymentSetupReady = !mandateRequired || mandateReady
+  const disbursementReady = application.status === "APPROVED" && !application.loan && agreementReady
+    && repaymentSetupReady && !decisionPricingUnavailable
   // /decide refuses approval without this, but its 422 carries no field the
   // approve panel branches on, so staff previously met a red message with no
   // action attached to it. Say it on the rail instead, before they click.
@@ -460,6 +475,13 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     kycVerified: application.client.kycStatus === "VERIFIED",
     affordabilityDone: !!application.affordabilityNDI,
     agreementSigned: agreementReady,
+  })
+  const affordabilityPreview = previewAffordability({
+    monthlyIncomeCents: displayedMonthlyIncome,
+    monthlyExpensesCents: displayedMonthlyExpenses,
+    applicationDebtInstalmentsCents: displayedDebtRows.map((debt) => debt.monthlyInstalment),
+    clientDebtTotalCents: clientDebtTotal,
+    proposedInstalmentCents: displayedProposedInstalment,
   })
   const blockers = [
     ...(docMismatches.length > 0
@@ -478,6 +500,14 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     ...(application.status === "APPROVED" && agreementReady && mandateRequired && !mandateReady
       ? [{ label: "Debit mandate pending", detail: "The customer must confirm verified banking and sign the exact debit authority before payout.", tone: "danger" as const }]
       : []),
+    ...approvalGateBlockers({
+      status: application.status,
+      affordabilityCaptured: !!application.affordabilityNDI,
+      affordable: affordabilityPreview.isAffordable,
+      recklessLendingAssessed: application.recklessLendingAssessed,
+      clientAffordabilityDeclared: !!application.clientAffordabilityDeclaredAt,
+      openCreditChecks: openChecks,
+    }),
   ]
   const decisionItem = decisionAuditItem(application)
   const auditItems = [
@@ -538,6 +568,27 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         <StatusPill tone="warning" className="w-full justify-center rounded-md py-2">
           Awaiting customer debit mandate
         </StatusPill>
+      )}
+      {/* EFT needs verified payout banking; debit order additionally needs the customer's exact mandate. */}
+      {disbursementReady && canDisburse && !disburseConflict && (
+        <DisburseForm
+          applicationId={application.id}
+          repaymentMethod={application.repaymentMethod}
+          principalCents={displayedPrincipal}
+          disbursementCents={loanCalc.disbursementAmount}
+          clientName={`${application.client.firstName} ${application.client.lastName}`}
+          clientBankDetails={{
+            bankName: application.client.bankName,
+            bankAccountNumber: application.client.bankAccountNumber,
+            bankBranchCode: application.client.bankBranchCode,
+            accountType: application.client.accountType,
+          }}
+        />
+      )}
+      {disbursementReady && canDisburse && disburseConflict && (
+        <p className="rounded-md border border-[rgba(217,154,58,0.36)] bg-[rgba(217,154,58,0.08)] px-3 py-2 text-xs text-[var(--cf-warning)]">
+          {SEGREGATION_OF_DUTIES_REFUSALS[disburseConflict]}
+        </p>
       )}
       {application.status === "APPROVED" && !application.loan && canApprove && (
         <ApplicationReturnToReviewButton applicationId={application.id} />
@@ -638,7 +689,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--cf-text-secondary)]">{currentStage.description}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {blockers.length > 0 ? <StatusPill tone="warning">{blockers.length} blocker{blockers.length === 1 ? "" : "s"}</StatusPill> : <StatusPill tone="success">No blockers</StatusPill>}
+                    <StatusPill tone={blockers.length > 0 ? "warning" : "success"}>{headerBlockerLabel(blockers)}</StatusPill>
                     {application.status === "APPROVED" && <StatusPill tone="success"><CheckCircle className="h-3.5 w-3.5" />Approved</StatusPill>}
                     {application.status === "DECLINED" && <StatusPill tone="danger"><XCircle className="h-3.5 w-3.5" />Declined</StatusPill>}
                     {application.status === "DISBURSED" && <StatusPill tone="success"><CheckCircle className="h-3.5 w-3.5" />Disbursed</StatusPill>}
@@ -872,23 +923,6 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           />
         )}
 
-        {/* EFT needs verified payout banking; debit order additionally needs the customer's exact mandate. */}
-        {application.status === "APPROVED" && !application.loan && application.agreementSignedAt && application.agreementCountersignedAt && repaymentSetupReady && canDisburse && !decisionPricingUnavailable && (
-          <DisburseForm
-            applicationId={application.id}
-            repaymentMethod={application.repaymentMethod}
-            principalCents={displayedPrincipal}
-            disbursementCents={loanCalc.disbursementAmount}
-            clientName={`${application.client.firstName} ${application.client.lastName}`}
-            clientBankDetails={{
-              bankName: application.client.bankName,
-              bankAccountNumber: application.client.bankAccountNumber,
-              bankBranchCode: application.client.bankBranchCode,
-              accountType: application.client.accountType,
-            }}
-          />
-        )}
-
         {/* Credit Agreement */}
         {/* Anchored: the document upload dialog links here when staff pick
             "Other" while this application still awaits its signed agreement.
@@ -914,6 +948,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             agreementExecutedDocumentId={application.agreementExecutedDocumentId ?? null}
             agreementCountersignedByName={application.agreementCountersignedByName ?? null}
             canCountersign={canApprove}
+            countersignBlockedReason={countersignConflict ? SEGREGATION_OF_DUTIES_REFUSALS[countersignConflict] : null}
             providerSignerName={session?.user?.name?.trim() || session?.user?.email || ""}
             initiationFeePayment={application.initiationFeePayment}
             initiationFee={loanCalc.initiationFee}

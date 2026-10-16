@@ -4,7 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle, PlusCircle, Trash2, TrendingDown, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { assessAffordability, affordabilityRiskGrade } from "@/lib/affordability/ndi"
+import { affordabilityRiskGrade } from "@/lib/affordability/ndi"
+import { previewAffordability } from "@/lib/affordability/preview"
 import {
   DEBT_ACCOUNT_TYPES,
   debtAccountTypeLabel,
@@ -89,14 +90,11 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   // props, and the proposed instalment. This preview mirrors the server recompute
   // (lib/affordability/ndi) exactly, so the staff view and the persisted, audited
   // NDI agree (the old code treated cents debts as rands → 100x off).
-  const applicationDebtTotal = debts.reduce(
-    (sum, debt) => sum + Math.max(0, Math.round(debt.monthlyInstalment || 0)),
-    0,
-  )
-  const calculatedAssessment = assessAffordability({
+  const calculatedAssessment = previewAffordability({
     monthlyIncomeCents: monthlyIncome,
     monthlyExpensesCents: monthlyExpenses,
-    debts: [{ monthlyInstalment: Math.max(applicationDebtTotal, clientDebtTotal) }],
+    applicationDebtInstalmentsCents: debts.map((debt) => debt.monthlyInstalment),
+    clientDebtTotalCents: clientDebtTotal,
     proposedInstalmentCents: proposedInstalment,
   })
   const assessment = lockedAssessment

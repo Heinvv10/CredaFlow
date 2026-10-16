@@ -42,6 +42,9 @@ vi.mock("./PortalDebitMandateClient", () => ({ PortalDebitMandateClient: () => n
 const signingOtpView = vi.hoisted(() => vi.fn(async () => ({ required: true, channels: ["EMAIL", "WHATSAPP"] })))
 vi.mock("@/lib/signing-otp/view", () => ({ signingOtpView }))
 
+const lastReturnedToReview = vi.hoisted(() => vi.fn(async (): Promise<Date | null> => null))
+vi.mock("@/lib/portal/return-to-review", () => ({ lastReturnedToReview }))
+
 import PortalDebitMandatePage from "./page"
 
 const ALICE = "client-alice"
@@ -134,3 +137,22 @@ describe("portal debit mandate page — whose mandate it renders", () => {
     await expect(render("app-alice")).rejects.toThrow("REDIRECT /portal/login")
   })
 })
+
+// Fair Score audit 2026-10-16: after Return to review the borrower was asked
+// to sign the mandate again with no word of why.
+describe("portal debit mandate page — after a return to review", () => {
+  it("tells the borrower when their application was reopened", async () => {
+    authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
+    lastReturnedToReview.mockResolvedValueOnce(new Date("2026-10-16T21:30:00.000Z"))
+    const props = await render("app-alice")
+    expect(lastReturnedToReview).toHaveBeenCalledWith("tenant-1", "app-alice")
+    // SAST: 23:30 on the 16th.
+    expect(props.returnedToReviewOn).toBe("16 October 2026")
+  })
+
+  it("says nothing when it was never reopened", async () => {
+    authMock.mockResolvedValue(session(ALICE, "alice@portal.invalid"))
+    expect((await render("app-alice")).returnedToReviewOn).toBeNull()
+  })
+})
+

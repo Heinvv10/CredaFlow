@@ -21,6 +21,12 @@ export interface DemoLender {
   /** Borrower emails. Always a `.invalid` domain (see CLIENTS in prisma/seed.ts). */
   clientDomain: string
   bureau: { supplierNumber: string; tradingName: string }
+  /**
+   * TenantConfig.requireSegregationOfDuties. Off on every demo stack: a
+   * presenter approves and pays out as one admin. A real lender keeps the
+   * default (on).
+   */
+  requireSegregationOfDuties: boolean
 }
 
 export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
@@ -31,6 +37,7 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     staffDomain: "acme-lending.example",
     clientDomain: "acme-lending.invalid",
     bureau: { supplierNumber: "ACME01", tradingName: "ACME LENDING" },
+    requireSegregationOfDuties: false,
   },
   fairscore: {
     slug: "fairscore",
@@ -46,6 +53,7 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     staffDomain: "fairscore.example",
     clientDomain: "fairscore.invalid",
     bureau: { supplierNumber: "FAIR01", tradingName: "FAIRSCORE" },
+    requireSegregationOfDuties: false,
   },
   tsela: {
     slug: "tsela",
@@ -60,6 +68,7 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
     staffDomain: "tsela-lending.example",
     clientDomain: "tsela-lending.invalid",
     bureau: { supplierNumber: "TSELA1", tradingName: "TSELA LENDING" },
+    requireSegregationOfDuties: false,
   },
 }
 

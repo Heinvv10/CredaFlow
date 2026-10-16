@@ -71,8 +71,8 @@ export async function createReviewGatesFixture(db: PrismaClient, t: string, setS
   const superseded = await routes.book(fx.dealId)
   expect(superseded.status).toBe(409)
   expect((await superseded.json()).error).toMatch(/no longer the supplier's APPROVED account/)
-  // Deal B: one approver, booked.
-  await db.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
+  // Deal B: one approver (segregation of duties off), booked.
+  await db.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000, requireSegregationOfDuties: false } })
   expect((await routes.createPayout(fx.dealB)).status).toBe(201)
   expect((await routes.book(fx.dealB)).status).toBe(201)
   const booked = await db.assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealB } })

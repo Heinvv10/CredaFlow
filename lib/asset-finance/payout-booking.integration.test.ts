@@ -152,12 +152,31 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     expect(await database().auditLog.count({ where: { entityId: payout.id, action: "ASSET_PAYOUT_APPROVED", userId: fx.adminB } })).toBe(1)
   })
 
-  it("below the threshold the creation is the approval; the DB refuses it PENDING or approved by someone else", async () => {
+  it("below the threshold with segregation of duties on (the default): still PENDING_APPROVAL, never approved by its creator", async () => {
     const serial = await serialOf(fx.dealB)
     for (const row of await database().payoutChecklistItem.findMany({ where: { dealId: fx.dealB, required: true } })) {
       expect((await confirmItem(fx.dealB, row.item, serial)).status).toBe(200)
     }
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
+    expect((await database().tenantConfig.findUniqueOrThrow({ where: { tenantId: fx.tenantId } })).requireSegregationOfDuties).toBe(true)
+    expect(await sqlError(() => database().payout.create({
+      data: {
+        tenantId: fx.tenantId, dealId: fx.dealB, supplierBankAccountId: fx.accountId, amountCents: 155_250_000,
+        createdById: fx.adminA, status: "APPROVED", approvedById: fx.adminA, approvedAt: new Date(),
+      },
+    }))).toContain("is created PENDING_APPROVAL (dual approval from 500000000 cents, and always under segregation of duties)")
+    const rolledBack = new Error("rollback")
+    await expect(database().$transaction(async (tx) => {
+      expect(await tx.payout.create({
+        data: { tenantId: fx.tenantId, dealId: fx.dealB, supplierBankAccountId: fx.accountId, amountCents: 155_250_000, createdById: fx.adminA },
+        select: { status: true, dualApprovalRequired: true },
+      })).toEqual({ status: "PENDING_APPROVAL", dualApprovalRequired: true })
+      throw rolledBack
+    })).rejects.toBe(rolledBack)
+  })
+
+  it("below the threshold with segregation of duties off the creation is the approval; the DB refuses it PENDING or approved by someone else", async () => {
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { requireSegregationOfDuties: false } })
     expect(await sqlError(() => rawPayout(fx.dealB, fx.accountId))).toContain("is created APPROVED by its creator")
     expect(await sqlError(() => database().payout.create({
       data: {
@@ -169,7 +188,7 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     expect((await routes().createPayout(fx.dealB)).status).toBe(201)
     expect(await database().payout.findUniqueOrThrow({ where: { dealId: fx.dealB } }))
       .toMatchObject({ status: "APPROVED", dualApprovalRequired: false, approvedById: fx.adminA })
-    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 100_000_000 } })
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 100_000_000, requireSegregationOfDuties: true } })
   })
 
   it("booking is atomic: an invoice failure after the Loan insert leaves nothing behind", async () => {

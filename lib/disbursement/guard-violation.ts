@@ -19,7 +19,7 @@ const GUARD_MESSAGE_PREFIX = "Loan disbursement requires"
 /** SQLSTATE check_violation — carried in `meta.code` on raw-query failures. */
 const CHECK_VIOLATION = "23514"
 
-function messageChain(error: unknown): string {
+export function messageChain(error: unknown): string {
   const parts: string[] = []
   let current: unknown = error
   // Prisma nests the driver error under `cause` on some wrapper classes.

@@ -92,14 +92,16 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
             <span className="text-xs text-[var(--cf-text-muted)]">
               {`Created by ${payout.createdBy}`}
               {payout.approvedBy && ` · approved by ${payout.approvedBy}`}
-              {payout.dualApprovalRequired && " · two approvers (at or above the threshold)"}
+              {payout.dualApprovalRequired && (panel.segregationOfDuties ? " · two approvers (segregation of duties)" : " · two approvers (at or above the threshold)")}
               {payout.releasedAt && ` · released ${formatDate(payout.releasedAt)}`}
             </span>
           </div>
         ) : (
           <p className="text-[var(--cf-text-muted)]">
             {open.length > 0 ? `${open.length} required item(s) open before the payout can be created.` : "No payout yet."}
-            {panel.dualApprovalThresholdCents !== null && ` Payouts from ${formatMoney(panel.dualApprovalThresholdCents)} need a second approver.`}
+            {panel.segregationOfDuties
+              ? " Every payout needs a second approver (segregation of duties)."
+              : panel.dualApprovalThresholdCents !== null && ` Payouts from ${formatMoney(panel.dualApprovalThresholdCents)} need a second approver.`}
           </p>
         )}
         {canDecide && contracted && (

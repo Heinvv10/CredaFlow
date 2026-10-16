@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { getResolvedTenantId } from "@/lib/tenant"
 import { PortalDebitMandateClient } from "./PortalDebitMandateClient"
 import { signingOtpView } from "@/lib/signing-otp/view"
+import { lastReturnedToReview } from "@/lib/portal/return-to-review"
 
 export default async function PortalDebitMandatePage({
   params,
@@ -53,7 +54,10 @@ export default async function PortalDebitMandatePage({
   ) {
     redirect(`/portal/applications/${application.id}`)
   }
-  const signingOtp = await signingOtpView(tenantId, application.client, "portal")
+  const [signingOtp, returnedAt] = await Promise.all([
+    signingOtpView(tenantId, application.client, "portal"),
+    application.debitMandateSignedAt ? null : lastReturnedToReview(tenantId, application.id),
+  ])
 
   return (
     <PortalDebitMandateClient
@@ -105,6 +109,9 @@ export default async function PortalDebitMandatePage({
           : null
       }
       initiallySigned={application.debitMandateSignedAt !== null}
+      returnedToReviewOn={returnedAt
+        ? returnedAt.toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Johannesburg" })
+        : null}
     />
   )
 }

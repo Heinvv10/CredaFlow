@@ -38,6 +38,12 @@ import {
 import { ceremonyMarkerFor } from "@/lib/pdf/agreement-render-input"
 import { statutoryProviderIdentityFromTenant } from "@/lib/compliance/statutory-provider-identity.server"
 import { EntityBorrowerError, hasClientBorrowerId } from "@/lib/borrower"
+import { databaseGuardRefusal } from "@/lib/db-guard-refusal"
+import {
+  isSegregationOfDutiesRequired,
+  segregationOfDutiesConflict,
+  SEGREGATION_OF_DUTIES_REFUSALS,
+} from "@/lib/security/segregation-of-duties"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -399,6 +405,15 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     const expectedAgreementSignedAt = application.agreementSignedAt
     if (application.agreementCountersignedAt || application.agreementExecutedDocumentId) {
       return NextResponse.json({ error: "The agreement is already countersigned." }, { status: 409 })
+    }
+    // Before any rendering: the database refuses the same pair
+    // (LoanApplication_z_guard_segregation_of_duties).
+    const conflict = segregationOfDutiesConflict("countersign", guard.user.id, application)
+    if (conflict && await isSegregationOfDutiesRequired(tenant.id)) {
+      return NextResponse.json(
+        { error: SEGREGATION_OF_DUTIES_REFUSALS[conflict], segregationOfDuties: conflict },
+        { status: 403 },
+      )
     }
 
     const countersignedAt = new Date()
@@ -852,6 +867,19 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             ...(discarded ? {} : { executedArtifact: "reconciliation_required" }),
           },
           { status: artifactFailure ? 422 : 409 },
+        )
+      }
+      // A database guard refused the write (a trigger or CHECK). Its sentence
+      // names the rule; a bare 500 left the button with nothing to show.
+      const guardRefusal = databaseGuardRefusal(error)
+      if (guardRefusal) {
+        return NextResponse.json(
+          {
+            error: `The countersignature was refused: ${guardRefusal}.`,
+            countersignEvidence: "database_guard_refused",
+            ...(discarded ? {} : { executedArtifact: "reconciliation_required" }),
+          },
+          { status: 409 },
         )
       }
       throw error

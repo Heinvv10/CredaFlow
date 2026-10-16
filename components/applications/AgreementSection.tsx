@@ -28,6 +28,8 @@ interface Props {
   agreementExecutedDocumentId: string | null
   agreementCountersignedByName: string | null
   canCountersign: boolean
+  /** Why this viewer may not countersign (segregation of duties); shown instead of the form. */
+  countersignBlockedReason?: string | null
   providerSignerName: string
   /** Persisted NCA s.101 initiation-fee election. */
   initiationFeePayment: "DEFERRED" | "UPFRONT"
@@ -69,6 +71,7 @@ export function AgreementSection({
   agreementExecutedDocumentId,
   agreementCountersignedByName,
   canCountersign,
+  countersignBlockedReason = null,
   providerSignerName,
   initiationFeePayment,
   initiationFee,
@@ -96,6 +99,8 @@ export function AgreementSection({
   const [agreementSha, setAgreementSha] = useState(agreementDocumentSha256)
   const [countersignedByName, setCountersignedByName] = useState(agreementCountersignedByName)
   const [countersigning, setCountersigning] = useState(false)
+  // Survives the toast: a refused countersignature must stay explained.
+  const [countersignError, setCountersignError] = useState<string | null>(null)
   const [emailing, setEmailing] = useState(false)
   const [providerSignature, setProviderSignature] = useState(providerSignerName)
   const [providerAttestation, setProviderAttestation] = useState(false)
@@ -400,19 +405,22 @@ export function AgreementSection({
 
   const handleCountersign = async () => {
     setCountersigning(true)
+    setCountersignError(null)
     try {
       const res = await fetch(`/api/applications/${applicationId}/agreement/countersign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signature: providerSignature, attestation: providerAttestation }),
       })
-      const data = await res.json() as {
+      const data = await res.json().catch(() => ({})) as {
         error?: string
         countersignedAt?: string
         countersignedByName?: string
       }
       if (!res.ok) {
-        toast.error("Countersign failed", data.error)
+        const reason = data.error ?? `Countersign failed (HTTP ${res.status}). Refresh the page and try again.`
+        setCountersignError(reason)
+        toast.error("Countersign failed", reason)
         return
       }
       setCountersignedAt(data.countersignedAt ?? new Date().toISOString())
@@ -465,7 +473,12 @@ export function AgreementSection({
             ? `Consumer signed by ${signedMethod} on ${date}; provider countersigned by ${countersignedByName ?? "authorised representative"} on ${countersignDate}.`
             : `Consumer signed by ${signedMethod} on ${date}. Provider countersignature is still required before disbursement.`}
         </StatusNotice>
-        {!countersignedAt && canCountersign && (
+        {!countersignedAt && canCountersign && countersignBlockedReason && (
+          <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-[var(--cf-text)]">
+            {countersignBlockedReason}
+          </p>
+        )}
+        {!countersignedAt && canCountersign && !countersignBlockedReason && (
           <div className="mt-4 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
             <div>
               <label htmlFor="provider-signature" className="text-sm font-semibold text-[var(--cf-text)]">
@@ -495,6 +508,9 @@ export function AgreementSection({
               {countersigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
               {countersigning ? "Countersigning..." : "Countersign Agreement"}
             </Button>
+            {countersignError && (
+              <p role="alert" className="text-sm text-[var(--cf-danger)]">{countersignError}</p>
+            )}
           </div>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
