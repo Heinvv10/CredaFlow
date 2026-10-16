@@ -122,6 +122,8 @@ export default async function InsuranceQuotesPage({
 }) {
   const identity = await getWebsiteIdentity()
   if (!identity) return null
+  // Quotes come through an authorised intermediary: no FSP number, no page.
+  if (!identity.fspNumber) notFound()
 
   const requestHeaders = await headers()
   const hostname = (requestHeaders.get("host") ?? "")

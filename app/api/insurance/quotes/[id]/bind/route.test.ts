@@ -83,7 +83,7 @@ vi.mock("@/lib/audit", () => ({ logAudit, AuditAction: new Proxy({}, { get: (_t,
 beforeEach(() => {
   process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
   requireApiRole.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })
-  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
+  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true, fscaNumber: "12345" })
   quoteFindFirst.mockResolvedValue(QUOTE)
   policyCreate.mockResolvedValue({ id: "policy-1", policyNumber: "FUN-0001" })
   premiumCreateMany.mockResolvedValue({ count: 12 })
@@ -249,6 +249,14 @@ describe("POST bind — the guards, exercised in both directions", () => {
     expect(quoteFindFirst).not.toHaveBeenCalled()
     expect(policyCreate).not.toHaveBeenCalled()
     expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it("refuses with 409 and the Settings hint when the lender holds no FSP number, binding nothing", async () => {
+    tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true, fscaNumber: null })
+    const res = await POST(request({ draftToken: validToken() }), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+    expect(policyCreate).not.toHaveBeenCalled()
   })
 
   it("is 404 with the IMS feature flag off, and binds nothing", async () => {

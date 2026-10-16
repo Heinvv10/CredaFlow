@@ -24,8 +24,7 @@ export async function GET() {
 ## Public pages
 
 - Home: ${base}/
-- Insurance: ${base}/site/products/insurance
-- Loan calculators: ${base}/site/calculators
+${identity.fspNumber ? `- Insurance: ${base}/site/products/insurance\n` : ""}- Loan calculators: ${base}/site/calculators
 - Eligibility check: ${base}/site/qualify
 - Apply online: ${base}/site/apply
 - Contact and complaints: ${base}/site/contact
@@ -38,8 +37,7 @@ export async function GET() {
 - Brand: ${identity.tradingName}
 - Legal name: ${identity.legalName}
 - NCR registration: ${identity.ncrNumber}
-- FSP number: ${identity.fspNumber}
-- Country: South Africa
+${identity.fspNumber ? `- FSP number: ${identity.fspNumber}\n` : ""}- Country: South Africa
 ${identity.headOfficeCity ? `- Head office: ${identity.headOfficeCity}\n` : ""}${products.length > 0 ? `- Credit products: ${products.map((p) => p.label).join(", ")}\n` : ""}- Contact: ${identity.publicEmail}
 `
 
