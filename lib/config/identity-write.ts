@@ -97,6 +97,15 @@ export async function updateLenderIdentity(
         errors[`${field}Confirm`] = `Re-type the ${LABEL[field]} exactly to confirm the change.`
       }
     }
+    // A lender with no FSP number offers no insurance. The database treats an
+    // active credit-life product as an offer when it approves an application,
+    // so the number cannot be cleared while one is active.
+    if (prev.fscaNumber && !next.fscaNumber) {
+      const offered = await tx.insuranceProduct.count({ where: { tenantId, type: "CREDIT_LIFE", active: true } })
+      if (offered > 0) {
+        errors.fscaNumber = "Deactivate the credit-life products first (Settings → Products → Insurance): a lender without an FSP licence number offers no cover."
+      }
+    }
     if (Object.keys(errors).length > 0) return { ok: false as const, errors }
 
     const changedFields = LENDER_IDENTITY_FIELDS.filter((field) => next[field] !== prev[field])

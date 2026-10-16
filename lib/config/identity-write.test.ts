@@ -19,7 +19,7 @@ type AuditRow = { action: string; entityId: string | null; oldValue: unknown; ne
  * `$transaction` are staged and only become visible if the callback returns.
  * That is what lets "not persisted" be asserted rather than assumed.
  */
-function memoryDb(initial: Partial<LenderIdentityColumns> | null, opts: { failAudit?: boolean } = {}) {
+function memoryDb(initial: Partial<LenderIdentityColumns> | null, opts: { failAudit?: boolean; activeCreditLifeProducts?: number } = {}) {
   const state = { config: initial ? { ...initial } : null as Record<string, unknown> | null, audit: [] as AuditRow[] }
   const locks: string[] = []
   const db = {
@@ -37,6 +37,7 @@ function memoryDb(initial: Partial<LenderIdentityColumns> | null, opts: { failAu
             return staged.config
           },
         },
+        insuranceProduct: { count: async () => opts.activeCreditLifeProducts ?? 0 },
         auditLog: {
           create: async ({ data }: { data: AuditRow }) => {
             if (opts.failAudit) throw new Error("audit insert failed")
@@ -127,6 +128,19 @@ describe("updateLenderIdentity", () => {
     expect(result).toMatchObject({ ok: true, changed: true })
     expect(state.config).toMatchObject({ fscaNumber: null })
     expect(state.audit[0].newValue).toEqual({ fscaNumber: null })
+  })
+
+  // #143 blind review: a lender with no FSP number issues no insurance, and the
+  // database still treats an active credit-life product as an offer at
+  // approval. Clearing the number while one is active is refused, naming why.
+  it("refuses to clear the FSP number while a credit-life product is active", async () => {
+    const { db, state } = memoryDb(VALID_LENDER_COLUMNS, { activeCreditLifeProducts: 1 })
+    const result = await updateLenderIdentity(db, {
+      tenantId: "t1", actor: ACTOR, input: { ...CONFIRMED, fscaNumber: "", fscaNumberConfirm: "" },
+    })
+    expect(result).toMatchObject({ ok: false, errors: { fscaNumber: expect.stringMatching(/credit-life product/) } })
+    expect(state.config).toEqual(VALID_LENDER_COLUMNS)
+    expect(state.audit).toHaveLength(0)
   })
 
   it("refuses to clear the FSP number without the blank confirmation", async () => {

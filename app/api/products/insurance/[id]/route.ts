@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
+import { fspRequiredResponse, lenderHoldsFsp } from "@/lib/insurance/require-fsp"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
 import {
@@ -35,6 +36,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const termsIssues = creditLifeProductTermsIssues({ type: body.type ?? before.type, premiumAmount, sumAssured })
     if (termsIssues.length > 0) {
       return NextResponse.json({ error: CREDIT_LIFE_PRODUCT_TERMS_ERROR, invalidFields: termsIssues }, { status: 422 })
+    }
+
+    // A lender with no FSP number offers no cover: an active credit-life
+    // product would be an offer (the approval guard counts it as one).
+    if ((body.type ?? before.type) === "CREDIT_LIFE" && (body.active ?? before.active) && !(await lenderHoldsFsp(prisma as unknown as Parameters<typeof lenderHoldsFsp>[0], tenant.id))) {
+      return fspRequiredResponse()
     }
 
     // Validate the underwriter belongs to this tenant before writing the FK —
