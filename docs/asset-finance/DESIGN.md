@@ -344,7 +344,8 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
 - **Charged-cost VAT.** A recovery cost charged to the account claims its input VAT, and the
   recharge to the borrower is the gross amount with no output VAT, so the VAT portion lands in
   profit and loss (via the recharge contra account).
-- Input VAT claimed at inception on the dealer's invoice; interest recognised as it falls due (no
+- Input VAT claimed at inception on the dealer's invoice (an inception credit note leaves it claimed
+  until the dealer credits the lender; reversing it then is the accountant's entry); interest recognised as it falls due (no
   deferred finance income); the recovery-result account (output VAT less the input VAT claimed on
   repossession and on deducted costs); the split of a credit note between rental, maintenance and
   asset-sale income, and that a credited maintenance contribution stays in the lessee's fund; the
@@ -365,6 +366,12 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
   income is untouched (financed fees are not on the invoice); input VAT is untouched (no dealer credit
   is recorded). The independent SQL subtracts the credit from what the schedule says is owed, as for a
   lease, so the receivable ties while the schedule still carries the full price.
+  A credit is at the invoice's incl. VAT value, but the debtors were booked at F, which excludes the
+  deposit and trade-in the debtor paid outside the contract. So a large enough credit on such a deal
+  (the whole invoice, say) leaves instalment debtors in credit: on a R11 500.00 cash price with a
+  R1 500.00 deposit (F R10 000.00), a full credit takes R11 500.00 off a R10 000.00 debt. That is the
+  lender's policy, not a fault: refunding or offsetting the credit balance is the accountant's step,
+  and the code leaves it as is (repro R1 in `lib/accounting/af-break-credit-notes.integration.test.ts`).
 - **Credit note on a repossession sale's buyer invoice:** Dr output VAT, Dr `RECOVERY_CLEARING` excl.
   VAT; Cr bank incl. VAT, on its issue date. The sale source takes the buyer's cash in on the invoice
   date with no buyer debtor account (Q2 of the 4b spec), so the refund goes out the same way: a
