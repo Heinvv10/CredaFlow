@@ -198,6 +198,22 @@ describe("Section 129 notice, optional identity", () => {
   // §2a.2: the compliance strip loses only its FSP segment for a lender with
   // no FSP number. With one, the notice is byte-identical
   // (lib/pdf/charges-off-identity.test.ts pins its hash).
+  // #144 review (LOW): section129FspNumber treats only null/undefined as
+  // absent. A blank or whitespace FSP number is normalised to null by the
+  // identity schema, so it omits the line; handed in raw, it is refused.
+  it("omits the FSP line for a blank or whitespace FSP number, which the identity reads as null", async () => {
+    const { parseLenderIdentity } = await import("@/lib/config/identity-schema")
+    const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
+    for (const fscaNumber of ["", "   "]) {
+      const lender = parseLenderIdentity({ ...VALID_LENDER_COLUMNS, fscaNumber })
+      expect(lender.fspNumber).toBeNull()
+      const pdf = text(await generateSection129Pdf({ lender, client, loan: s129Loan, noticeDate: asAt }))
+      expect(pdf).not.toMatch(/FSP|Financial Services Provider/)
+      await expect(generateSection129Pdf({ lender: { ...ACME_LENDER, fspNumber: fscaNumber }, client, loan: s129Loan, noticeDate: asAt }))
+        .rejects.toThrow(LenderIdentityError)
+    }
+  })
+
   it("prints the FSP segment of the compliance strip only when the lender holds an FSP number", async () => {
     const withFsp = text(await generateSection129Pdf({ lender: ACME_LENDER, client, loan: s129Loan, noticeDate: asAt }))
     // The extracted text loses the em dash (WinAnsi), hence the wildcard.

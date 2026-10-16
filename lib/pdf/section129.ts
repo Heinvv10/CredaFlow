@@ -33,6 +33,10 @@ export const SECTION_129_IDENTITY_FIELDS = [
 /**
  * The lender's FSP number when it holds one, validated like the rest of the
  * identity; null for a lender with none, whose notice omits the FSP line.
+ * Only null and undefined count as absent: a blank or whitespace number never
+ * reaches here, because the identity schema stores and reads it as null
+ * (parseLenderIdentity; lib/pdf/lender-identity.test.ts), and a blank one
+ * handed in directly is refused as invalid, never printed.
  */
 export function section129FspNumber(lender: Pick<LenderIdentity, "fspNumber">): string | null {
   return lender.fspNumber == null ? null : requireLenderIdentityFields(lender, ["fspNumber"]).fspNumber
