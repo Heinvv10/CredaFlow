@@ -33,6 +33,7 @@ const stub = (name: string, body: string, dir = join(root, 'bin')) => {
 function bake(env: Record<string, string> = {}) {
   const started = Date.now()
   const r = spawnSync('bash', [join(root, 'repo', 'scripts', 'demo', 'bake.sh'), '--image', 'credaflow:test'], {
+    timeout: 25_000,
     env: {
       PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: join(root, 'home'),
       DEMO_DATA_DIR: join(root, 'data'), STUB_LOG: calls, STUB_SIM_ENV: FULL_ENV, ...env,
@@ -79,7 +80,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-describe('bake.sh sim env preflight', () => {
+// Fork-heavy like restore.test.ts: the same 30 s budget, with spawnSync killed
+// first so a hung script fails here rather than holding the worker.
+describe('bake.sh sim env preflight', { timeout: 30_000 }, () => {
   it('runs simulate.ts when the sim app has DEMO_MODE=true and UNSUB_TOKEN_SECRET and secrets.env has it', () => {
     const r = bake()
     expect(simulated(r.calls)).toBe(true)
@@ -97,7 +100,7 @@ describe('bake.sh sim env preflight', () => {
     expect(r.out).toContain('sim env incomplete')
     expect(r.out).toContain(`credaflow-demo-sim-app: ${key}`)
     expect(simulated(r.calls)).toBe(false)
-    expect(r.ms).toBeLessThan(5000)
+    expect(r.ms).toBeLessThan(20_000) // a hang, not load; simulate.ts runs for minutes
   })
 
   it('names both keys when both are missing', () => {

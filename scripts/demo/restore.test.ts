@@ -59,6 +59,7 @@ exit 0
 
 function run(env: Record<string, string> = {}) {
   const r = spawnSync('bash', [SCRIPT], {
+    timeout: 25_000,
     env: {
       PATH: `${join(root, 'bin')}:${process.env.PATH ?? ''}`, NODE_ENV: 'test', HOME: root,
       DEMO_DATA_DIR: join(root, 'data'), LIVE_DIR: join(root, 'live'),

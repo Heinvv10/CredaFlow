@@ -178,6 +178,8 @@ worktree_tag() {
 # app container started without DEMO_MODE=true or UNSUB_TOKEN_SECRET (the signing
 # OTP then 502s for every persona, which simulate.ts found 70 minutes in).
 # Prints key names only; the container env is held in a variable and only tested.
+# The container's UNSUB_TOKEN_SECRET is checked non-empty, not equal to
+# secrets.env's: the compose env_file makes them the same file.
 sim_env_preflight() {
   local missing="" env
   [ -n "$(env_get "$SHARED_SECRETS" UNSUB_TOKEN_SECRET)" ] || missing+=" secrets.env: UNSUB_TOKEN_SECRET;"
