@@ -3,9 +3,9 @@
  *
  * A demo stack (DEMO_MODE=true) whose lender has no email configured cannot
  * send a notice, and its borrowers' `.invalid` mailboxes could never receive
- * one. There, and only for such a mailbox of a demo lender (its tenant slug is
- * one of prisma/demo-lender.ts), the notice is SIMULATED: nothing
- * leaves the process, the result says `simulated: true`, and the route records
+ * one. There, and only for such a mailbox of a demo lender (TenantConfig.
+ * isDemoLender, set only by the demo seed and the demo stack scripts), the
+ * notice is SIMULATED: nothing leaves the process, the result says `simulated: true`, and the route records
  * the issuance as "simulated (not sent)" — the reminder simulator's wording.
  * A real lender, a configured mailbox, or any deliverable address always goes
  * to the real provider, and fails when email is not configured.
@@ -14,30 +14,32 @@ import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { sendEmail, type EmailResult, type SendEmailOptions } from "@/lib/email/service"
 import { isDemoMode, isUndeliverableMailbox } from "@/lib/config/demo-mode"
-import { DEMO_LENDERS } from "@/prisma/demo-lender"
 
 export type Section129EmailResult = EmailResult & { simulated?: true }
 
 export const SECTION129_SIMULATED_NOTE = "simulated (not sent)"
 
-const DEMO_LENDER_SLUGS: ReadonlySet<string> = new Set(Object.values(DEMO_LENDERS).map((lender) => lender.slug))
-
 /**
- * Three independent conditions: the deployment says DEMO_MODE, the tenant is
- * one of the demo lenders the seed creates, and the mailbox can never receive
- * mail. A real lender on a misconfigured deployment fails the second.
+ * Three independent conditions: the deployment says DEMO_MODE, the tenant
+ * carries the demo-lender marker, and the mailbox can never receive mail. A
+ * real lender on a misconfigured deployment fails the second whatever its
+ * slug: provisioning refuses the marker (scripts/lender/bootstrap-tenant.ts).
  */
-async function simulatesSection129(tenantId: string, to: string): Promise<boolean> {
+export async function simulatesSection129(tenantId: string, to: string): Promise<boolean> {
   if (!isDemoMode() || !isUndeliverableMailbox(to)) return false
-  const [tenant, config] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+  const [lender, config] = await Promise.all([
+    prisma.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } }),
     prisma.emailConfig.findUnique({ where: { tenantId }, select: { active: true } }),
   ])
-  return Boolean(tenant && DEMO_LENDER_SLUGS.has(tenant.slug)) && !config?.active
+  return lender?.isDemoLender === true && !config?.active
 }
 
-export async function sendSection129Email(opts: SendEmailOptions): Promise<Section129EmailResult> {
-  if (await simulatesSection129(opts.tenantId, opts.to)) {
+/**
+ * `simulate` is the reservation's recorded decision (simulatesSection129 at
+ * reserve time), so the send and the stored record can never disagree.
+ */
+export async function sendSection129Email(opts: SendEmailOptions, simulate: boolean): Promise<Section129EmailResult> {
+  if (simulate) {
     return {
       ok: true,
       simulated: true,

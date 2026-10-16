@@ -116,6 +116,9 @@ export interface Section129RecordData extends Record<string, unknown> {
   providerPersistenceWarning?: string
   emergencyEvidenceAuditPersisted?: boolean
   bulk?: boolean
+  /** A demo stack's simulated notice (lib/collections/section129-email.ts),
+   *  decided at reservation so a stale or reconciled record keeps it. */
+  simulated?: boolean
   reconciledById?: string
   reconciliationReason?: string
   reconciledAt?: string
@@ -502,6 +505,8 @@ export async function reserveSection129Issuance(args: {
   createdById: string
   createdByEmail?: string | null
   bulk?: boolean
+  /** The send will be simulated (simulatesSection129): recorded from the start. */
+  simulated?: boolean
 }): Promise<ReservedSection129Issuance> {
   if (!Buffer.isBuffer(args.pdf) || args.pdf.length === 0) {
     throw new Error("Section 129 attachment is missing or empty")
@@ -535,6 +540,7 @@ export async function reserveSection129Issuance(args: {
     reservedById: args.createdById,
     reservedAt: now.toISOString(),
     ...(args.bulk ? { bulk: true } : {}),
+    ...(args.simulated ? { simulated: true } : {}),
   }
 
   const recovered = await recoverStaleSection129Issuance({
@@ -1393,7 +1399,8 @@ export async function finaliseSection129Issuance(args: {
           issuedAt: issuedAt.toISOString(),
           // The default administration charge this notice carries, frozen at
           // issue so a later change to the tenant setting never reprices it.
-          ...(loanBefore.tenant?.config
+          // A simulated notice was never sent, so it carries none.
+          ...(loanBefore.tenant?.config && !simulated
             ? {
                 adminChargeCents: loanBefore.tenant.config.defaultAdminChargeCents
                   + loanBefore.tenant.config.defaultAdminPostageCents,

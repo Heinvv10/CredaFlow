@@ -38,8 +38,8 @@ vi.mock("@/lib/prisma", () => ({
     loan: { findMany: (args: unknown) => loanFindManyMock(args) },
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
     emailConfig: { findUnique: async () => null },
-    // A demo lender's tenant (prisma/demo-lender.ts): the demo transport's second gate.
-    tenant: { findUnique: async () => ({ slug: "fairscore" }) },
+    // A seeded demo lender (TenantConfig.isDemoLender): the demo transport's second gate.
+    tenantConfig: { findUnique: async () => ({ isDemoLender: true }) },
   },
 }))
 vi.mock("@/lib/email/service", () => ({
@@ -133,7 +133,11 @@ beforeEach(() => {
   sendEmailMock.mockResolvedValue({ ok: true, messageId: "mail-1", providerOutcome: "ACCEPTED", acceptedAt: providerAcceptedAt })
   sendMessageMock.mockResolvedValue({ id: "msg-1", providerMessageId: "provider-1", sentAt: providerAcceptedAt })
   lookupContactMock.mockResolvedValue({ id: "contact-1" })
-  reserveIssuanceMock.mockImplementation((args: { loanId: string }) => Promise.resolve(reservation(args.loanId)))
+  // As the real one: a simulated send is recorded on the reservation.
+  reserveIssuanceMock.mockImplementation((args: { loanId: string; simulated?: boolean }) => {
+    const reserved = reservation(args.loanId)
+    return Promise.resolve(args.simulated ? { ...reserved, recordData: { ...reserved.recordData, simulated: true } } : reserved)
+  })
   dispatchUnderLockMock.mockImplementation(async (args: { dispatch: (mark: () => void) => Promise<unknown> }) => {
     let providerInvoked = false
     const mark = () => { providerInvoked = true }
@@ -189,6 +193,7 @@ describe("POST /api/loans/section129/bulk", () => {
     const body = await (await POST(request())).json()
     expect(body).toMatchObject({ ok: true, sent: 1, results: [expect.objectContaining({ outcome: "SENT", simulated: true })] })
     expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
     expect(finaliseIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
   })
 

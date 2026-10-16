@@ -15,6 +15,8 @@ import { createChargesLoan, createChargesTenant, NOW, SCHEDULE_TOTAL } from "@/l
 import {
   finaliseSection129Issuance,
   markSection129ReconciliationRequired,
+  recoverStaleSection129Issuance,
+  SECTION129_STALE_RESERVATION_MS,
   type Section129RecordData,
 } from "@/lib/collections/section129-artifact"
 import { SECTION129_ON_RECORD_WHERE, section129SentInPeriodWhere } from "@/lib/collections/section129-reporting"
@@ -23,7 +25,7 @@ import { latestSection129Failures } from "@/lib/collections/section129-failures"
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 
-async function reservedNotice(lifecycle: "DISPATCHING") {
+async function reservedNotice(lifecycle: "DISPATCHING" | "READY", extra: Partial<Section129RecordData> = {}) {
   const ids = await createChargesLoan(db, await createChargesTenant(db, true))
   const at = new Date("2026-09-26T09:00:00+02:00")
   const recordData = {
@@ -31,6 +33,7 @@ async function reservedNotice(lifecycle: "DISPATCHING") {
     clientFirstName: "C", clientLastName: "T", clientIdNumber: "9001015800080", clientAddressLine1: null, clientCity: null,
     arrearsAmount: SCHEDULE_TOTAL, outstandingPrincipal: 200_000, daysInArrears: 95, noticeDate: "2026-09-26",
     fileName: "s129.pdf", pdfSha256: "a".repeat(64), reservedById: ids.userId, reservedAt: at.toISOString(), dispatchStartedAt: at.toISOString(),
+    ...extra,
   } satisfies Section129RecordData
   const idempotencyKey = `s129-sim-${ids.loanId}`
   const record = await db.complianceRecord.create({
@@ -56,6 +59,8 @@ suite.sequential("simulated Section 129 notices (real Postgres)", () => {
     }))
     const stored = await db.complianceRecord.findUniqueOrThrow({ where: { id: record.id } })
     expect(stored).toMatchObject({ status: "COMPLETED", data: expect.objectContaining({ lifecycle: "SIMULATED", simulated: true }) })
+    expect(stored.data).not.toHaveProperty("adminChargeCents")
+    expect(stored.data).not.toHaveProperty("adminChargeAt")
     expect((await audits(ids.tenantId)).map((row) => row.action)).toContain("SECTION_129_SIMULATED")
     expect((await audits(ids.tenantId)).map((row) => row.action)).not.toContain("SECTION_129_ISSUED")
     // A letter that was not sent carries no default administration charge.
@@ -69,6 +74,7 @@ suite.sequential("simulated Section 129 notices (real Postgres)", () => {
       emailMessageId: "m-issued", issuedAt: new Date("2026-09-26T09:30:00+02:00"),
     }))
     expect(await db.loanCharge.count({ where: { loanId: ids.loanId, sourceId: record.id } })).toBeGreaterThan(0)
+    expect((await db.complianceRecord.findUniqueOrThrow({ where: { id: record.id } })).data).toHaveProperty("adminChargeCents")
   })
 
   it("keeps it simulated through reconciliation", async () => {
@@ -88,6 +94,28 @@ suite.sequential("simulated Section 129 notices (real Postgres)", () => {
     }))
     expect((await db.complianceRecord.findUniqueOrThrow({ where: { id: record.id } })).data).toMatchObject({ lifecycle: "SIMULATED" })
     expect((await audits(ids.tenantId)).map((row) => row.action)).toContain("SECTION_129_SIMULATION_RECONCILED")
+  })
+
+  // A crash during a simulated dispatch rolls the row back to READY; the flag
+  // recorded at reservation must survive stale recovery and reconciliation.
+  it("keeps a reservation's simulated flag through stale recovery and the reconciliation after it", async () => {
+    const { ids, record, reservation } = await reservedNotice("READY", { simulated: true })
+    const recovered = await runWithTenant(ids.tenantId, () => recoverStaleSection129Issuance({
+      tenantId: ids.tenantId, loanId: ids.loanId, issuanceId: record.id, actorId: ids.userId,
+      now: new Date(Date.parse(reservation.recordData.reservedAt) + SECTION129_STALE_RESERVATION_MS + 1),
+    }))
+    expect(recovered).toMatchObject({ kind: "RECONCILIATION_REQUIRED", previousLifecycle: "READY" })
+    const held = await db.complianceRecord.findUniqueOrThrow({ where: { id: record.id } })
+    expect(held.data).toMatchObject({ lifecycle: "RECONCILIATION_REQUIRED", simulated: true })
+
+    await runWithTenant(ids.tenantId, () => finaliseSection129Issuance({
+      reservation: { ...reservation, recordData: held.data as Section129RecordData },
+      tenantId: ids.tenantId, loanId: ids.loanId, issuedById: ids.userId, emailMessageId: "simulated-s129-stale",
+      reconciliationReason: "Reconciled by staff after the crash", issuedAt: new Date("2026-09-26T09:30:00+02:00"),
+    }))
+    const stored = await db.complianceRecord.findUniqueOrThrow({ where: { id: record.id } })
+    expect(stored.data).toMatchObject({ lifecycle: "SIMULATED", simulated: true })
+    expect(stored.data).not.toHaveProperty("adminChargeCents")
   })
 
   it("is not counted as sent for the NCR return, but stays on record for the collections flow", async () => {

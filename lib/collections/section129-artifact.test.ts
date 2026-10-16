@@ -215,6 +215,18 @@ describe("Section 129 private artifact lifecycle", () => {
     expect(createMock.mock.invocationCallOrder[0]).toBeLessThan(saveFileToManagedPathMock.mock.invocationCallOrder[0])
   })
 
+  // #147 review: a crash rolls a dispatch back to READY, so a simulated send
+  // must be on the reservation itself for stale recovery and reconciliation.
+  it("records a simulated send on the reservation from STAGING on, and only when asked", async () => {
+    await reserveSection129Issuance({ ...reservationArgs, simulated: true })
+    expect(createMock.mock.calls[0][0].data.data).toMatchObject({ lifecycle: "STAGING", simulated: true })
+    expect(updateManyMock.mock.calls[0][0].data.data).toMatchObject({ lifecycle: "READY", simulated: true })
+
+    vi.clearAllMocks()
+    await reserveSection129Issuance(reservationArgs)
+    expect(createMock.mock.calls[0][0].data.data).not.toHaveProperty("simulated")
+  })
+
   it("keeps a durable STAGING manifest when the private-byte write fails", async () => {
     saveFileToManagedPathMock.mockRejectedValue(new Error("disk unavailable"))
 

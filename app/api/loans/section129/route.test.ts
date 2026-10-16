@@ -37,8 +37,8 @@ vi.mock("@/lib/prisma", () => ({
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
     // The demo transport's question: is email configured? Not here.
     emailConfig: { findUnique: async () => null },
-    // A demo lender's tenant (prisma/demo-lender.ts): the demo transport's second gate.
-    tenant: { findUnique: async () => ({ slug: "fairscore" }) },
+    // A seeded demo lender (TenantConfig.isDemoLender): the demo transport's second gate.
+    tenantConfig: { findUnique: async () => ({ isDemoLender: true }) },
   },
 }))
 vi.mock("@/lib/email/service", () => ({
@@ -148,7 +148,10 @@ beforeEach(() => {
     totalToSettle: l.outstandingPrincipal, arrearsIncludingCharges: l.arrearsAmount,
   }))
   buildAttachmentsMock.mockResolvedValue([{ contentType: "application/pdf", content: Buffer.from("%PDF") }])
-  reserveIssuanceMock.mockResolvedValue(reservation)
+  // As the real one: a simulated send is recorded on the reservation.
+  reserveIssuanceMock.mockImplementation(async (args: { simulated?: boolean }) => (
+    args.simulated ? { ...reservation, recordData: { ...reservation.recordData, simulated: true } } : reservation
+  ))
   dispatchUnderLockMock.mockImplementation(async (args: { dispatch: (mark: () => void) => Promise<unknown> }) => {
     let providerInvoked = false
     const mark = () => { providerInvoked = true }
@@ -250,6 +253,7 @@ describe("POST /api/loans/section129", () => {
       message: "Section 129 notice simulated (not sent): kabelo@fairscore.invalid is a demo mailbox that cannot receive mail.",
     })
     expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
     expect(finaliseIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
     // Nothing was sent, so nothing tells the borrower it was (#147 review).
     expect(triggerNotificationMock).not.toHaveBeenCalled()
@@ -262,6 +266,15 @@ describe("POST /api/loans/section129", () => {
     const response = await POST(request())
     expect(response.status).toBe(202)
     expect(markReconciliationRequiredMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
+  })
+
+  // The messaging pipeline never simulates, so its reservation never says so.
+  it("records no simulated send for the new-pipeline path, even for a demo .invalid mailbox", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    process.env.MESSAGING_NEW_SEND_S129 = "true"
+    loanFindUniqueMock.mockResolvedValue({ ...loan, client: { ...loan.client, email: "kabelo@fairscore.invalid" } })
+    await POST(request())
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: false }))
   })
 
   it("still refuses on a demo stack for a deliverable address", async () => {

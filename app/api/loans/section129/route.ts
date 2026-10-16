@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { sendSection129Email, section129SentMessage } from "@/lib/collections/section129-email"
+import { sendSection129Email, section129SentMessage, simulatesSection129 } from "@/lib/collections/section129-email"
 import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
@@ -140,6 +140,8 @@ export async function POST(req: NextRequest) {
         pdf: pdfAttachment?.content as Buffer,
         createdById: guard.user.id,
         createdByEmail: guard.user.email,
+        // Only the email transport below simulates; the messaging pipeline never does.
+        simulated: !(newSend && template) && await simulatesSection129(tenant.id, addressee.email),
       })
     } catch (error) {
       if (error instanceof Section129IssuanceConflictError) {
@@ -289,6 +291,8 @@ export async function POST(req: NextRequest) {
       }
 
       try {
+        // The decision recorded at reservation, never re-taken at send time.
+        const simulate = reservation.recordData.simulated === true
         const dispatch = await dispatchSection129UnderEligibilityLock({
           reservation,
           tenantId: tenant.id,
@@ -306,7 +310,7 @@ export async function POST(req: NextRequest) {
               referenceId: loan.id,
               attachments,
               onProviderDispatchStart: markProviderInvocation,
-            }),
+            }, simulate),
         })
         if (dispatch.kind === "INELIGIBLE") {
           return NextResponse.json({ ok: false, error: dispatch.error.message }, { status: 422 })
