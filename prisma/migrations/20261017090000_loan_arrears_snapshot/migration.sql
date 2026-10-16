@@ -1,6 +1,6 @@
 -- Fair Score audit 2026-10-16, workstream G: daily per-loan arrears history for
 -- the NCR return (lib/reports/arrears-snapshot.ts, /api/cron/arrears-snapshot).
--- Additive: one new table; nothing existing changes. No history is backfilled:
+-- Additive: two new tables; nothing existing changes. No history is backfilled:
 -- the loan columns hold only today's position, so the past cannot be rebuilt.
 
 -- CreateTable
@@ -35,6 +35,24 @@ ALTER TABLE "LoanArrearsSnapshot" ADD CONSTRAINT "LoanArrearsSnapshot_tenantId_f
 ALTER TABLE "LoanArrearsSnapshot" ADD CONSTRAINT "LoanArrearsSnapshot_tenantId_loanId_fkey" FOREIGN KEY ("tenantId", "loanId") REFERENCES "Loan"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 
+-- CreateTable
+CREATE TABLE "ArrearsSnapshotRun" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "snapshotDate" DATE NOT NULL,
+    "loanCount" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ArrearsSnapshotRun_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ArrearsSnapshotRun_tenantId_snapshotDate_key" ON "ArrearsSnapshotRun"("tenantId", "snapshotDate");
+
+-- AddForeignKey
+ALTER TABLE "ArrearsSnapshotRun" ADD CONSTRAINT "ArrearsSnapshotRun_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+
 -- ── Hand-written ────────────────────────────────────────────────────────────
 
 -- A history row is a record of what the book said that day: no negative
@@ -43,6 +61,11 @@ ALTER TABLE "LoanArrearsSnapshot" ADD CONSTRAINT "LoanArrearsSnapshot_tenantId_l
 ALTER TABLE "LoanArrearsSnapshot" ADD CONSTRAINT "LoanArrearsSnapshot_figures_non_negative"
   CHECK ("daysInArrears" >= 0 AND "arrearsCents" >= 0 AND "outstandingPrincipalCents" >= 0 AND "chargesOutstandingCents" >= 0);
 
+ALTER TABLE "ArrearsSnapshotRun" ADD CONSTRAINT "ArrearsSnapshotRun_loanCount_non_negative"
+  CHECK ("loanCount" >= 0);
+
+-- Both tables are append-only: no UPDATE, DELETE or TRUNCATE (the TRUNCATE
+-- statement trigger follows 20261014150000_w4_screening_fic).
 CREATE OR REPLACE FUNCTION public."guardLoanArrearsSnapshot"()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -57,8 +80,21 @@ $function$;
 CREATE TRIGGER "LoanArrearsSnapshot_append_only"
   BEFORE UPDATE OR DELETE ON "LoanArrearsSnapshot"
   FOR EACH ROW EXECUTE FUNCTION public."guardLoanArrearsSnapshot"();
+CREATE TRIGGER "LoanArrearsSnapshot_guard_truncate"
+  BEFORE TRUNCATE ON "LoanArrearsSnapshot"
+  FOR EACH STATEMENT EXECUTE FUNCTION public."guardLoanArrearsSnapshot"();
+CREATE TRIGGER "ArrearsSnapshotRun_append_only"
+  BEFORE UPDATE OR DELETE ON "ArrearsSnapshotRun"
+  FOR EACH ROW EXECUTE FUNCTION public."guardLoanArrearsSnapshot"();
+CREATE TRIGGER "ArrearsSnapshotRun_guard_truncate"
+  BEFORE TRUNCATE ON "ArrearsSnapshotRun"
+  FOR EACH STATEMENT EXECUTE FUNCTION public."guardLoanArrearsSnapshot"();
 
 -- Tenant row-level security, as for every tenant table (20261014130000_tenant_rls).
+ALTER TABLE "ArrearsSnapshotRun" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ArrearsSnapshotRun" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "ArrearsSnapshotRun" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
 ALTER TABLE "LoanArrearsSnapshot" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "LoanArrearsSnapshot" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "LoanArrearsSnapshot" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());

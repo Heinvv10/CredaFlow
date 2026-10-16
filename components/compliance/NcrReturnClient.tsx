@@ -254,7 +254,7 @@ export function NcrReturnClient({
               ? `As filed. These are the values frozen at submission — not the book today.`
               : data.positionSource === "SNAPSHOT"
                 ? `${ncrPositionBasis(data, false, formatDate)}.`
-                : `Read from the loans' current state, as at ${formatDate(new Date())}. ${ncrHistoryNote(data.historyStartsOn, formatDate)}`}
+                : `Read from the loans' current state, as at ${formatDate(new Date())}.${data.quarterOpen ? "" : ` ${ncrHistoryNote(data.historyStartsOn, data.periodEnd, formatDate)}`}`}
           </p>
         </div>
         {data.filedSnapshotUnreadable && (
@@ -274,7 +274,7 @@ export function NcrReturnClient({
             <span>
               {label} has closed and no return was filed for it. The figures below are
               today&apos;s book, not the book as it stood on {formatDate(data.periodEnd)}.{" "}
-              {ncrHistoryNote(data.historyStartsOn, formatDate)} Filing now records what you see here.
+              {ncrHistoryNote(data.historyStartsOn, data.periodEnd, formatDate)} Filing now records what you see here.
             </span>
           </p>
         )}

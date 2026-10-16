@@ -30,3 +30,20 @@ model LoanArrearsSnapshot {
   @@unique([tenantId, loanId, snapshotDate])
   @@index([tenantId, snapshotDate])
 }
+
+// One row per tenant per SAST day the snapshot ran, written with that day's
+// LoanArrearsSnapshot rows. It is what says "history exists for this day":
+// a day whose collectible book was empty has a run and no loan rows, and the
+// NCR return reads it as an (empty) position rather than as missing history.
+model ArrearsSnapshotRun {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  /// The SAST calendar day.
+  snapshotDate DateTime @db.Date
+  /// Collectible loans recorded that day.
+  loanCount    Int
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, snapshotDate])
+}

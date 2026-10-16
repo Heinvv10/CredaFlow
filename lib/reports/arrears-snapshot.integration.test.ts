@@ -73,11 +73,23 @@ suite("daily arrears history", () => {
     expect(q2).toMatchObject({ positionSource: "LIVE", positionAsOf: null, positionIsStale: true })
   })
 
-  it("refuses to change or remove a history row", async () => {
+  it("refuses to change, remove or truncate history", async () => {
     await expect(db.$executeRawUnsafe(
       `UPDATE "LoanArrearsSnapshot" SET "daysInArrears" = 0 WHERE "tenantId" = $1`, tenantId,
     )).rejects.toThrow(/append-only/)
     await expect(db.$executeRawUnsafe(`DELETE FROM "LoanArrearsSnapshot" WHERE "tenantId" = $1`, tenantId)).rejects.toThrow(/append-only/)
+    await expect(db.$executeRawUnsafe(`UPDATE "ArrearsSnapshotRun" SET "loanCount" = 0 WHERE "tenantId" = $1`, tenantId)).rejects.toThrow(/append-only/)
+    await expect(db.$executeRawUnsafe(`TRUNCATE "LoanArrearsSnapshot"`)).rejects.toThrow(/append-only/)
+    await expect(db.$executeRawUnsafe(`TRUNCATE "ArrearsSnapshotRun"`)).rejects.toThrow(/append-only/)
+  })
+
+  // Review of #153: a quarter-end day the snapshot ran on with an empty book
+  // reads as that (empty) position, not as missing history.
+  it("reads a quarter-end day with an empty collectible book as an empty position", async () => {
+    const empty = await createChargesTenant(db, false)
+    await snapshotTenantArrears(empty.tenantId, Q3_LAST_EVENING, appDb)
+    const q3 = await getNcrReturnData(empty.tenantId, "2026-Q3", AFTER_Q4)
+    expect(q3).toMatchObject({ positionSource: "SNAPSHOT", positionIsStale: false, collectibleBook: { count: 0, value: 0 } })
   })
 
   it("reproduces the live book-arrears figures when the loan columns are current", async () => {
@@ -88,7 +100,7 @@ suite("daily arrears history", () => {
     await db.loan.update({ where: { id: loanId }, data: { daysInArrears: live.daysInArrears, arrearsAmount: live.arrearsAmount } })
     await snapshotTenantArrears(tenantId, now, appDb)
 
-    const fromHistory = bookArrearsFromSnapshot(await readSnapshotDay(tenantId, snapshotDay(now), appDb), "NCA")
+    const fromHistory = bookArrearsFromSnapshot((await readSnapshotDay(tenantId, snapshotDay(now), appDb))!, "NCA")
     const fromLoans = await getBookArrears(tenantId, "NCA", appDb)
     const { defaulted: _d, attorneyReferred: _a, ...comparable } = fromHistory
     expect(comparable).toEqual(fromLoans)

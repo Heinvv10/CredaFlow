@@ -234,11 +234,12 @@ export async function getNcrReturnData(
     }),
     // A closed quarter's position, as recorded on its last day, when the
     // daily history reaches back that far.
-    quarterOpen ? Promise.resolve([]) : readSnapshotDay(tenantId, quarterEndDay),
+    quarterOpen ? Promise.resolve(null) : readSnapshotDay(tenantId, quarterEndDay),
     firstSnapshotDay(tenantId),
   ])
 
-  const snapshot = quarterEndRows.length > 0 ? bookArrearsFromSnapshot(quarterEndRows, "NCA") : null
+  // A day the snapshot ran with an empty book is an (empty) position, not missing history.
+  const snapshot = quarterEndRows ? bookArrearsFromSnapshot(quarterEndRows, "NCA") : null
   const position = snapshot ?? bookArrears
   const { book, arrears, par30, par60, par90 } = position
   const bookValue = book.value
@@ -471,6 +472,10 @@ export function submissionSnapshot(data: NcrReturnData) {
     periodStart: data.periodStart.toISOString(),
     periodEnd: data.periodEnd.toISOString(),
     ncrNumber: data.ncrNumber,
+    // Where the position lines came from when filed: the quarter's last day
+    // of arrears history, or the live book on the day of filing.
+    positionSource: data.positionSource,
+    positionAsOf: data.positionAsOf?.toISOString().slice(0, 10) ?? null,
     collectibleBook: data.collectibleBook,
     lines: data.lines.map((l) => ({
       key: l.key,

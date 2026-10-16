@@ -193,7 +193,7 @@ describe("NCR CSV position basis from the arrears history", () => {
       data: data({ positionSource: "SNAPSHOT", positionAsOf: new Date("2026-06-30T00:00:00Z") }),
       quarterLabel: "Q2 2026", generatedAt: GENERATED, formatDate: fmtDate, formatDateTime: fmtDateTime,
     })
-    expect(csv).toContain("Position lines are the book as at 2026-06-30, from the daily arrears history")
+    expect(csv).toContain("Position at quarter end: the book as at 2026-06-30, from the daily arrears history")
   })
 })
 

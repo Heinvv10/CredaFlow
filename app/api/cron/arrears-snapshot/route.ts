@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { runWithTenant } from "@/lib/tenant-scope"
-import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { snapshotTenantArrears } from "@/lib/reports/arrears-snapshot"
 
 /**
  * Nightly arrears history: one LoanArrearsSnapshot row per collectible loan of
- * every tenant for today's SAST date (lib/reports/arrears-snapshot.ts), which
+ * every tenant for today's SAST date, plus that day's run marker (lib/reports/arrears-snapshot.ts), which
  * the NCR return reads at quarter end. Idempotent per day: a second run the
  * same day writes nothing new. Scheduled late in the SAST day so the row
  * describes the day it is dated.
@@ -20,15 +19,14 @@ export async function GET(req: NextRequest) {
   if (denied) return denied
 
   const asOf = new Date()
-  const tenants = await prisma.loan.findMany({
-    where: { status: { in: [...COLLECTIBLE_STATUSES] } },
-    distinct: ["tenantId"],
-    select: { tenantId: true },
-    orderBy: { tenantId: "asc" },
-  })
+  // Tenant is not a tenant-scoped model, so listing tenants needs no frame
+  // (Loan is: a cross-tenant loan query here threw missing-context). Every
+  // tenant, suspended ones too: a lender's quarterly return is still due, and
+  // a day the run marker records with an empty book is a position too.
+  const tenants = await prisma.tenant.findMany({ select: { id: true }, orderBy: { id: "asc" } })
 
   const perTenant: Array<{ tenantId: string; snapshotDate?: string; loans?: number; written?: number; error?: string }> = []
-  for (const { tenantId } of tenants) {
+  for (const { id: tenantId } of tenants) {
     try {
       perTenant.push({ tenantId, ...await runWithTenant(tenantId, () => snapshotTenantArrears(tenantId, asOf)) })
     } catch (error) {

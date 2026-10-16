@@ -49,6 +49,7 @@ describe("bookArrearsFromSnapshot (book-arrears definitions)", () => {
 describe("snapshotTenantArrears", () => {
   it("derives DPD and arrears from the schedule as of the run and inserts idempotently", async () => {
     const createMany = vi.fn(async () => ({ count: 1 }))
+    const runCreateMany = vi.fn(async () => ({ count: 1 }))
     const db = {
       tenantConfig: { findUnique: vi.fn(async () => null) },
       loan: { findMany: vi.fn(async () => [{
@@ -60,6 +61,7 @@ describe("snapshotTenantArrears", () => {
         ],
       }]) },
       loanArrearsSnapshot: { createMany },
+      arrearsSnapshotRun: { createMany: runCreateMany },
     } as unknown as Parameters<typeof snapshotTenantArrears>[2]
     const result = await snapshotTenantArrears("t1", new Date("2026-10-16T21:45:00Z"), db)
     expect(result).toEqual({ snapshotDate: "2026-10-16", loans: 1, written: 1 })
@@ -70,5 +72,11 @@ describe("snapshotTenantArrears", () => {
       })],
       skipDuplicates: true,
     })
+    // The day's run marker, after the rows: an empty book still records a run.
+    expect(runCreateMany).toHaveBeenCalledWith({
+      data: [{ tenantId: "t1", snapshotDate: new Date("2026-10-16T00:00:00.000Z"), loanCount: 1 }],
+      skipDuplicates: true,
+    })
+    expect(runCreateMany.mock.invocationCallOrder[0]).toBeGreaterThan(createMany.mock.invocationCallOrder[0])
   })
 })

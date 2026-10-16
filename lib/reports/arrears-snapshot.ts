@@ -39,11 +39,13 @@ export function snapshotDay(instant: Date): Date {
   return new Date(`${sastCalendarDate(instant)}T00:00:00.000Z`)
 }
 
-type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig" | "loanArrearsSnapshot">
+type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig" | "loanArrearsSnapshot" | "arrearsSnapshotRun">
 
 /**
- * Record today's position for every collectible loan of one tenant. Idempotent
- * per day: a row that exists for (tenant, loan, day) is left as written.
+ * Record today's position for every collectible loan of one tenant, then the
+ * day's run marker. Idempotent per day: a row that exists for (tenant, loan,
+ * day) or (tenant, day) is left as written. The marker goes in last, so a run
+ * interrupted between the two is completed by the next one the same day.
  */
 export async function snapshotTenantArrears(
   tenantId: string,
@@ -76,32 +78,64 @@ export async function snapshotTenantArrears(
     }
   })
   const written = data.length === 0 ? 0 : (await db.loanArrearsSnapshot.createMany({ data, skipDuplicates: true })).count
+  await db.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: loans.length }], skipDuplicates: true })
   return { snapshotDate: sastCalendarDate(asOf), loans: loans.length, written }
 }
 
-type ReaderDb = Pick<typeof prisma, "loanArrearsSnapshot">
+type ReaderDb = Pick<typeof prisma, "loanArrearsSnapshot" | "arrearsSnapshotRun">
 
-/** The rows for one SAST day, or none. */
-export async function readSnapshotDay(tenantId: string, day: Date, db: ReaderDb = prisma): Promise<SnapshotRow[]> {
-  return db.loanArrearsSnapshot.findMany({
-    where: { tenantId, snapshotDate: day },
-    select: {
-      status: true, ncaRegime: true, collectionsStage: true, daysInArrears: true, arrearsCents: true,
-      outstandingPrincipalCents: true, chargesOutstandingCents: true, chargesLive: true,
-    },
-  })
+const ROW_SELECT = {
+  status: true, ncaRegime: true, collectionsStage: true, daysInArrears: true, arrearsCents: true,
+  outstandingPrincipalCents: true, chargesOutstandingCents: true, chargesLive: true,
+} as const
+
+/**
+ * One SAST day's history: null when the snapshot did not run that day, else its
+ * rows (none when the collectible book was empty).
+ */
+export async function readSnapshotDay(tenantId: string, day: Date, db: ReaderDb = prisma): Promise<SnapshotRow[] | null> {
+  // findFirst with tenantId in the where: callers read outside a tenant frame
+  // (the NCR page and export pass the tenant explicitly), which the
+  // tenant-scope extension allows for a filtered read but not a unique lookup.
+  const run = await db.arrearsSnapshotRun.findFirst({ where: { tenantId, snapshotDate: day }, select: { id: true } })
+  if (!run) return null
+  return db.loanArrearsSnapshot.findMany({ where: { tenantId, snapshotDate: day }, select: ROW_SELECT })
 }
 
 /** The first day history exists for, or null before the first run. */
 export async function firstSnapshotDay(tenantId: string, db: ReaderDb = prisma): Promise<Date | null> {
-  const first = await db.loanArrearsSnapshot.aggregate({ where: { tenantId }, _min: { snapshotDate: true } })
+  const first = await db.arrearsSnapshotRun.aggregate({ where: { tenantId }, _min: { snapshotDate: true } })
   return first._min.snapshotDate ?? null
+}
+
+/**
+ * The accounts in arrears on one day of history, NCA scope, with what the
+ * NCR workbook's Arrears Register prints: the same population as that day's
+ * arrears line.
+ */
+export async function readSnapshotArrearsRegister(tenantId: string, day: Date, db: Pick<typeof prisma, "loanArrearsSnapshot"> = prisma) {
+  const rows = await db.loanArrearsSnapshot.findMany({
+    where: { tenantId, snapshotDate: day, ncaRegime: "NCA", status: { in: [...COLLECTIBLE_STATUSES] } },
+    select: {
+      ...ROW_SELECT,
+      loan: {
+        select: {
+          reference: true, principal: true,
+          client: { select: { idNumber: true, firstName: true, lastName: true } },
+          entity: { select: { legalName: true } },
+        },
+      },
+    },
+  })
+  return rows.filter(overdue)
 }
 
 const COLLECTIBLE: ReadonlySet<string> = new Set(COLLECTIBLE_STATUSES)
 
 // lib/reports/book-arrears.ts OVERDUE: past due AND an unpaid amount AND principal still owed.
-const overdue = (r: SnapshotRow) => r.daysInArrears > 0 && r.arrearsCents > 0 && r.outstandingPrincipalCents > 0
+function overdue(r: SnapshotRow): boolean {
+  return r.daysInArrears > 0 && r.arrearsCents > 0 && r.outstandingPrincipalCents > 0
+}
 const inBand = (r: SnapshotRow, min: number, max: number | null) =>
   overdue(r) && r.daysInArrears >= min && (max === null || r.daysInArrears <= max)
 

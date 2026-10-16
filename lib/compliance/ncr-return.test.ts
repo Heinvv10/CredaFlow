@@ -11,6 +11,7 @@ const tenantConfigFindUnique = vi.fn()
 const userFindUnique = vi.fn()
 const snapshotFindMany = vi.fn()
 const snapshotAggregate = vi.fn()
+const runFindFirst = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -26,8 +27,9 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenantConfig: { findUnique: (a: unknown) => tenantConfigFindUnique(a) },
     user: { findUnique: (a: unknown) => userFindUnique(a) },
-    loanArrearsSnapshot: {
-      findMany: (a: unknown) => snapshotFindMany(a),
+    loanArrearsSnapshot: { findMany: (a: unknown) => snapshotFindMany(a) },
+    arrearsSnapshotRun: {
+      findFirst: (a: unknown) => runFindFirst(a),
       aggregate: (a: unknown) => snapshotAggregate(a),
     },
   },
@@ -85,6 +87,7 @@ function stubQueries() {
   userFindUnique.mockResolvedValue(null)
   // No arrears history yet unless a test says so.
   snapshotFindMany.mockResolvedValue([])
+  runFindFirst.mockResolvedValue(null)
   snapshotAggregate.mockResolvedValue({ _min: { snapshotDate: null } })
 }
 
@@ -620,6 +623,7 @@ describe("closed quarter read from the arrears history", () => {
   })
 
   it("uses the quarter's last day of history for every position line, and says so", async () => {
+    runFindFirst.mockResolvedValue({ id: "run-q2" })
     snapshotFindMany.mockResolvedValue([
       row(),
       row({ daysInArrears: 45, arrearsCents: 30_00, outstandingPrincipalCents: 200_00 }),
@@ -654,8 +658,24 @@ describe("closed quarter read from the arrears history", () => {
     expect(Object.fromEntries(data.lines.map((l) => [l.key, l])).book).toMatchObject({ count: 20, value: 1000_00 })
   })
 
+  // Review of #153: a day the snapshot ran with an empty book is a position.
+  it("reads a quarter-end day that ran with an empty book as an empty position, not missing history", async () => {
+    runFindFirst.mockResolvedValue({ id: "run-q2" })
+    snapshotFindMany.mockResolvedValue([])
+    const data = await getNcrReturnData(TENANT, QUARTER, NOW)
+    expect(data).toMatchObject({ positionSource: "SNAPSHOT", positionIsStale: false })
+    expect(Object.fromEntries(data.lines.map((l) => [l.key, l])).book).toMatchObject({ count: 0, value: 0 })
+  })
+
+  it("records where the position came from in the submission snapshot", async () => {
+    runFindFirst.mockResolvedValue({ id: "run-q2" })
+    const data = await getNcrReturnData(TENANT, QUARTER, NOW)
+    expect(submissionSnapshot(data)).toMatchObject({ positionSource: "SNAPSHOT", positionAsOf: "2026-06-30" })
+  })
+
   it("never reads history for the open quarter", async () => {
     await getNcrReturnData(TENANT, "2026-Q3", NOW)
     expect(snapshotFindMany).not.toHaveBeenCalled()
+    expect(runFindFirst).not.toHaveBeenCalled()
   })
 })
