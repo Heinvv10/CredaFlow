@@ -17,6 +17,7 @@ export interface Batch {
   totalCreditCents: number
   closedAt: string
   xeroPush: { status: string; xeroManualJournalId: string | null; error: string | null } | null
+  isaflowPush?: { status: string; isaflowJournalId: string | null; foundOnReadBack: boolean; error: string | null } | null
 }
 
 type Post = (url: string, body: unknown, done: (json: Record<string, unknown>) => string) => Promise<void>

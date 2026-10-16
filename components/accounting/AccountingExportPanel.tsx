@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatZAR } from "@/lib/utils"
 import { ControlsList, RefusalNotice, type ControlRow } from "./AccountingChecks"
 import { AccountingHistory, type Batch } from "./AccountingHistory"
+import { IsaFlowPushControl } from "./IsaFlowPushControl"
 
 interface Preview {
   period: string
@@ -27,7 +28,7 @@ interface Preview {
   reconciliation: { journalTotalCents: number; bookTotalCents: number; mismatches: Array<{ loanId: string; reference: string; journalCents: number; bookCents: number }> } | null
 }
 
-export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean }) {
+export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean }) {
   const [period, setPeriod] = useState(initialPeriod)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [batches, setBatches] = useState<Batch[]>([])
@@ -64,6 +65,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
 
   const balanced = preview ? preview.debitCents === preview.creditCents : false
   const rec = preview?.reconciliation ?? null
+  const closedBatch = preview?.closed && preview.batchId ? batches.find((b) => b.id === preview.batchId) : undefined
 
   return (
     <div className="space-y-6">
@@ -145,6 +147,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected }
                 </>
               )}
             </div>
+            {closedBatch && <IsaFlowPushControl batch={closedBatch} canAdmin={canClose} connected={isaflowConnected} busy={busy} post={post} />}
           </div>
         )}
         {message && <p className="mt-3 text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}

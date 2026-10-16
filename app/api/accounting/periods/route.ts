@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, periodKey: true, entryCount: true, lineCount: true, totalDebitCents: true, totalCreditCents: true, closedAt: true,
         xeroPush: { select: { status: true, xeroManualJournalId: true, error: true, updatedAt: true } },
+        isaflowPush: { select: { status: true, isaflowJournalId: true, foundOnReadBack: true, error: true, updatedAt: true } },
       },
     })
     return NextResponse.json({
