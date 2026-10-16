@@ -165,7 +165,7 @@ describe("vote", () => {
   it("keeps any other category on a majority", () => {
     expect(vote(runs("BANK_FEES", "BANK_FEES", "UNCATEGORISED"), ["K"])).toEqual({ K: "BANK_FEES" })
     expect(vote(runs("BANK_FEES", "CASH_WITHDRAWAL", "UNCATEGORISED"), ["K"])).toEqual({ K: "UNCATEGORISED" })
-    expect(vote(runs("BANK_FEES", "BANK_FEES", "CASH_WITHDRAWAL", "CASH_WITHDRAWAL"), ["K"])).toEqual({ K: "UNCATEGORISED" })
+    expect(vote(runs("BANK_FEES", "BANK_FEES", "CASH_WITHDRAWAL", "SAVINGS_INVESTMENT", "UNCATEGORISED"), ["K"])).toEqual({ K: "UNCATEGORISED" })
   })
 
   it.each(NEVER_APPLIED)("never keeps %s, even unanimous", (c) => {

@@ -23,13 +23,15 @@ import { isLiving, LIVING_CATEGORIES, type Category } from "./categories"
 import { VlmUnavailableError } from "./vlm-reader"
 
 /**
- * Off: reads are not labelled. Measured 2026-10-15 (goal 2026-10-15 §3 A3) on
- * the held-out corpus merchant keys, rules + model scored 90.3%, 67.1%, 67.1%
- * over three runs against the 95% gate (rules alone 90.2%): the local model is
- * not deterministic at temperature 0 and in two runs put a high-volume
- * non-credit key in CREDIT_INSTALMENT. Labels would make the figures worse,
- * so the background step stays off until a run passes the gate. (An object
- * only so tests can turn it on.)
+ * Off: reads are not labelled. On the held-out corpus merchant keys against
+ * the 95% gate: 2026-10-15, prompt labels-p2, one run per key: 90.3%, 67.1%,
+ * 67.1% (the local model is not deterministic at temperature 0 and in two
+ * runs put a high-volume non-credit key in CREDIT_INSTALMENT). 2026-10-16,
+ * labels-p3x3 (the vote, NEVER_APPLIED) with categoriser-v3: 91.5%, 91.5%,
+ * 91.4%; rules alone 90.2%. Stable now, but the model leaves most of the
+ * misses (living spend the rules do not see) where they are, so the
+ * background step stays off until a run passes the gate. (An object only so
+ * tests can turn it on.)
  */
 export const MODEL_LABELS = { enabled: false }
 
@@ -180,18 +182,18 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 }
 
 /**
- * One label per key from VOTE_RUNS runs: the most common answer, if no other
- * ties it, when every run gave it (a living category) or most runs did (any
- * other); otherwise, and for NEVER_APPLIED, UNCATEGORISED.
+ * One label per key from VOTE_RUNS runs: the most common answer, when every
+ * run gave it (a living category) or more than half did (any other);
+ * otherwise, and for NEVER_APPLIED, UNCATEGORISED.
  */
 export function vote(runs: ModelLabels[], keys: string[]): ModelLabels {
   const out: ModelLabels = {}
   for (const key of keys) {
     const counts = new Map<Category, number>()
     for (const run of runs) counts.set(run[key] ?? "UNCATEGORISED", (counts.get(run[key] ?? "UNCATEGORISED") ?? 0) + 1)
-    const [[top, n], next] = [...counts].sort((a, b) => b[1] - a[1])
+    const [[top, n]] = [...counts].sort((a, b) => b[1] - a[1])
     const needed = isLiving(top) ? runs.length : Math.floor(runs.length / 2) + 1
-    out[key] = n >= needed && next?.[1] !== n && !NEVER_APPLIED.includes(top) ? top : "UNCATEGORISED"
+    out[key] = n >= needed && !NEVER_APPLIED.includes(top) ? top : "UNCATEGORISED"
   }
   return out
 }

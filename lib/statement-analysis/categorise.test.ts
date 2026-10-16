@@ -31,6 +31,12 @@ describe("categorise", () => {
     ["Prepaid Airtime: VODACOM", "UTILITIES_TELECOM"],
     ["Payment To: SYNTH RENTALS RENT", "HOUSING"],
     ["DEBIT ORDER SYNTH PRIMARY SCHOOL FEES", "EDUCATION"],
+    // categoriser-v3: a POS key keeps one word of the merchant; names known from that word.
+    ["POS PURCHASE PICK", "FOOD"],
+    ["POS PURCHASE DIS", "MEDICAL"],
+    ["POS PURCHASE CELL", "UTILITIES_TELECOM"],
+    ["Card Purchase: PICKNPAY SOWETO", "FOOD"],
+    ["Prepaid: CELLC TOPUP", "UTILITIES_TELECOM"],
   ])("puts %s in a living category: %s", (description, expected) => {
     expect(cat(description)).toBe(expected)
     expect(isLiving(expected)).toBe(true)
@@ -41,6 +47,8 @@ describe("categorise", () => {
     ["OTT BETTING LOTTERY VOUCHER", "GAMBLING"],
     ["DebiCheck Debit: SYNTHLEND FINANCE", "CREDIT_INSTALMENT"],
     ["PAYFLEX SANDTON CARD", "CREDIT_INSTALMENT"],
+    ["DebiCheck: SA TAXI", "CREDIT_INSTALMENT"],
+    ["TOYOTA FINANCIAL SERVICES", "CREDIT_INSTALMENT"],
     ["DebiCheck Insufficient Funds Fee", "RETURNED_DEBIT"],
     ["Monthly Account Admin Fee", "BANK_FEES"],
     ["SMS Payment Notification", "BANK_FEES"],
