@@ -55,7 +55,7 @@ afterEach(() => {
 
 describe("POST /api/insurance/claims — audit trail", () => {
   it("audits the submitted claim", async () => {
-    findFirstPolicy.mockResolvedValue({ id: "policy-1" })
+    findFirstPolicy.mockResolvedValue({ id: "policy-1", status: "ACTIVE" })
     createClaim.mockResolvedValue({
       id: "claim-1",
       tenantId: "tenant-1",
@@ -104,17 +104,35 @@ describe("POST /api/insurance/claims — audit trail", () => {
 // a 500 the officer could do nothing with.
 describe("POST /api/insurance/claims — the claimed amount", () => {
   it.each([[undefined], ["abc"], [-5], [0], [10.001]])("refuses %s with a 400 and creates nothing", async (claimAmount) => {
-    findFirstPolicy.mockResolvedValue({ id: "policy-1" })
+    findFirstPolicy.mockResolvedValue({ id: "policy-1", status: "ACTIVE" })
     const res = await POST(postReq({ policyId: "policy-1", claimAmount }))
     expect(res.status).toBe(400)
     expect(createClaim).not.toHaveBeenCalled()
   })
 
   it("stores a valid amount given as a number", async () => {
-    findFirstPolicy.mockResolvedValue({ id: "policy-1" })
+    findFirstPolicy.mockResolvedValue({ id: "policy-1", status: "ACTIVE" })
     createClaim.mockResolvedValue({ id: "claim-1" })
     const res = await POST(postReq({ policyId: "policy-1", claimAmount: 2500.5, claimType: "DEATH" }))
     expect(res.status).toBe(201)
     expect(createClaim).toHaveBeenCalledWith({ data: expect.objectContaining({ claimAmount: 2500.5, claimType: "DEATH" }) })
+  })
+})
+
+// Blind review of #139 (LOW): a claim was accepted on a lapsed or cancelled
+// policy, and a nonsense date reached the database as Invalid Date (a 500).
+describe("POST /api/insurance/claims — policy status and dates", () => {
+  it.each(["LAPSED", "CANCELLED", "CLAIMED"])("refuses a claim on a %s policy with 409", async (status) => {
+    findFirstPolicy.mockResolvedValue({ id: "policy-1", status })
+    const res = await POST(postReq({ policyId: "policy-1", claimAmount: 1000 }))
+    expect(res.status).toBe(409)
+    expect(createClaim).not.toHaveBeenCalled()
+  })
+
+  it.each([["incidentDate"], ["fnolDate"]])("refuses an invalid %s with 400", async (field) => {
+    findFirstPolicy.mockResolvedValue({ id: "policy-1", status: "ACTIVE" })
+    const res = await POST(postReq({ policyId: "policy-1", claimAmount: 1000, [field]: "31/02/2026" }))
+    expect(res.status).toBe(400)
+    expect(createClaim).not.toHaveBeenCalled()
   })
 })

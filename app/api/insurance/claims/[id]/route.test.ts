@@ -38,7 +38,7 @@ vi.mock("@/lib/audit", async (orig) => {
   return { ...real, logAudit: (...a: unknown[]) => logAuditMock(...a) }
 })
 
-import { PATCH } from "./route"
+import { GET, PATCH } from "./route"
 
 function buildReq(body: object): NextRequest {
   return new NextRequest("https://app.acme-lending.example/api/insurance/claims/claim_1", {
@@ -283,5 +283,12 @@ describe("PATCH /api/insurance/claims/[id] — a claim's outcome only through it
     expect((await PATCH(buildReq({ action: "approve", approvedAmount: 5000, assessorId: "someone-else" }), ctx)).status).toBe(400)
     expect(userFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "someone-else", tenantId: "tenant_acme", active: true } }))
     nothingWritten()
+  })
+})
+
+describe("GET /api/insurance/claims/[id]", () => {
+  it("needs INSURANCE_OFFICER, as the claims page does", async () => {
+    await GET(new NextRequest("https://app.acme-lending.example/api/insurance/claims/claim_1"), ctx)
+    expect(requireApiRoleMock).toHaveBeenCalledWith("INSURANCE_OFFICER")
   })
 })

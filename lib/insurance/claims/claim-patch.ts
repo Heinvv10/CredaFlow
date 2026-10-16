@@ -28,7 +28,8 @@ export type GenericClaimUpdate = { ok: true; data: Record<string, unknown> } | {
 
 const optionalText = (value: unknown) => value === undefined || value === null || typeof value === "string"
 
-function dateField(field: string, value: unknown): { ok: true; value: Date | null | undefined } | { ok: false; error: string } {
+/** A claim date field: absent (undefined), cleared (null or ""), or a real date. */
+export function dateField(field: string, value: unknown): { ok: true; value: Date | null | undefined } | { ok: false; error: string } {
   if (value === undefined) return { ok: true, value: undefined }
   if (value === null || value === "") return { ok: true, value: null }
   const date = typeof value === "string" ? new Date(value) : null

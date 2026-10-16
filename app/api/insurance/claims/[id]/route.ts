@@ -14,7 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireApiRole("READONLY")
+    // Claims carry client PII: the claims page's own gate (INSURANCE_OFFICER), not READONLY.
+    const guard = await requireApiRole("INSURANCE_OFFICER")
     if (guard.error) return guard.error
 
     const { id } = await params
