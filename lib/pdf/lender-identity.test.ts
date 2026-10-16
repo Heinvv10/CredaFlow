@@ -168,6 +168,12 @@ describe("documents that print more than name and NCR refuse each missing field"
     },
   )
 
+  it("Section 129 notice and FAIS disclosure for a lender with no FSP number (null)", async () => {
+    const lender = { ...ACME_LENDER, fspNumber: null }
+    await expect(generateSection129Pdf({ lender, client, loan: s129Loan, noticeDate: asAt })).rejects.toThrow(LenderIdentityError)
+    await expect(generateFaisDisclosurePdf({ lender, ...faisRest })).rejects.toThrow(LenderIdentityError)
+  })
+
   it("debit mandate without a registered office", async () => {
     await expect(generateDebitMandatePdf({ lender: { ...ACME_LENDER, registeredOfficeLines: [] }, ...mandateRest }))
       .rejects.toThrow(LenderIdentityError)
@@ -311,6 +317,13 @@ describe("Section 129 covering email", () => {
     expect(() => render({ ...data, lender: undefined as never })).toThrow(LenderIdentityError)
     expect(() => render({ ...data, lender: { ...ACME_LENDER, ncrNumber: "NCRCP99999x" } })).toThrow(LenderIdentityError)
     expect(() => render({ ...data, lender: { ...ACME_LENDER, collectionsEmail: "x" } })).toThrow(LenderIdentityError)
+  })
+
+  // An FSP number is optional in the identity (§2a.2), but the notice prints
+  // one: until its wording is approved without the FSP line, a lender without
+  // one is refused, never shown "FSP null".
+  it.each([["html", section129Html], ["text", section129Text]] as const)("%s refuses a lender with no FSP number", (_, render) => {
+    expect(() => render({ ...data, lender: { ...ACME_LENDER, fspNumber: null } })).toThrow(LenderIdentityError)
   })
 
   it("escapes identity values in the HTML body", () => {

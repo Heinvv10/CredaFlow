@@ -41,7 +41,7 @@ vi.mock("@/lib/audit", () => ({ logAudit, AuditAction: new Proxy({}, { get: (_t,
 beforeEach(() => {
   process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
   requireApiRole.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })
-  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true })
+  tenantConfigFindUnique.mockResolvedValue({ featureCrm: false, featureIms: true, fscaNumber: "12345" })
   bindQuote.mockResolvedValue({
     ok: true,
     policyId: "policy-1",

@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: mocks.getPortalTenantId }))
-vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending" }) }))
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
+vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending", fspNumber: fsp.number }) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     client: { findFirst: mocks.clientFindFirst },
@@ -68,6 +69,18 @@ describe("portal insurance list page", () => {
     // The exact strings a missing * 100 would produce.
     expect(html).not.toContain("R 0.86")
     expect(html).not.toContain("R 250.00")
+  })
+
+  // Fair Score audit: "Fairscore is a FAIS-authorised intermediary" printed for a
+  // lender with no FSP licence. §2a.2: the claim needs an FSP number.
+  it("claims FAIS authorisation only when the lender holds an FSP number", async () => {
+    expect(renderToStaticMarkup(await PortalInsurancePage())).toContain("FAIS-authorised intermediary")
+    fsp.number = null
+    try {
+      expect(renderToStaticMarkup(await PortalInsurancePage())).not.toMatch(/FAIS-authorised|FSP/)
+    } finally {
+      fsp.number = "12345"
+    }
   })
 
   it("scopes the policy query to the signed-in client AND the tenant", async () => {
