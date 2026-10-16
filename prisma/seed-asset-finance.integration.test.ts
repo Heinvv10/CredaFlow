@@ -112,8 +112,8 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
 
     const signers = deal.signers.map((s) => [s.client.lastName, s.document, s.method]).sort()
     expect(signers).toEqual([
-      ["Director One", "AGREEMENT", "E_SIGN"], ["Director One", "RESOLUTION", "E_SIGN"],
-      ["Director One", "SURETYSHIP", "E_SIGN"], ["Surety One", "SURETYSHIP", "WET_INK"],
+      ["Molefe", "SURETYSHIP", "WET_INK"], ["Mthethwa", "AGREEMENT", "E_SIGN"],
+      ["Mthethwa", "RESOLUTION", "E_SIGN"], ["Mthethwa", "SURETYSHIP", "E_SIGN"],
     ])
     const wetInk = deal.signers.find((s) => s.method === "WET_INK")
     expect(wetInk?.scanUploadedById).toBe(await userId("credit.officer"))

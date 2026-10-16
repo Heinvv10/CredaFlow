@@ -64,6 +64,14 @@ describe('buildKits', () => {
     expect(md).not.toContain('Disburse Loan')
   })
 
+  it.each(['live-clean-approve', 'live-returning-client'])('%s walks the signing OTPs, either countersign order and one-admin approval', (id) => {
+    const md = readFileSync(join(root, 'kit', id, 'CHEAT-SHEET.md'), 'utf8')
+    // Agreement and mandate each ask for an emailed one-time code first.
+    expect(md.match(/Verify code/g)).toHaveLength(2)
+    expect(md).toContain('Either order works')
+    expect(md).toContain('segregation of duties is off')
+  })
+
   const UPLOAD_SELFIE_KYC = /\bUpload\b|Take selfie|Selfie verification|KYC tab/i
   it('returning client story has no upload, selfie or KYC-verify step, only the presenter note', () => {
     const steps = stepsFor(getPersona('live-returning-client'), 'payslip-2026-09.pdf')

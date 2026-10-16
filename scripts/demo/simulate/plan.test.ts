@@ -36,3 +36,26 @@ describe("payment-arrangement storylines", () => {
     expect(arrangementDays(asBaked)).toEqual(["2026-07-16", "2026-08-17", "2026-09-16", "2026-10-16"])
   })
 })
+
+describe("the scripted book a prospect sees", () => {
+  const plans = buildPlans(windowEnding("2026-10-16"))
+  const loans = plans.filter((p) => p.servicing)
+  const storyline = (s: string) => loans.filter((p) => p.persona.storyline === s)
+  const OPEN = ["active", "arrears-30", "arrears-60", "arrears-90", "s129", "payment-plan"]
+  // More than 30 days past due on the end date (report.ts expectations).
+  const PAR30 = ["arrears-60", "arrears-90", "s129"]
+  const open = loans.filter((p) => OPEN.includes(p.persona.storyline))
+  const par = loans.filter((p) => PAR30.includes(p.persona.storyline))
+  const cents = (ps: typeof loans) => ps.reduce((sum, p) => sum + p.persona.loanRequest.amountCents, 0)
+
+  it("keeps PAR30 at or under 15% of open loans, by count and by amount lent", () => {
+    expect(par.length / open.length).toBeLessThanOrEqual(0.15)
+    expect(cents(par) / cents(open)).toBeLessThanOrEqual(0.15)
+  })
+
+  it("keeps defaults and write-offs a small minority of the loans", () => {
+    const bad = ["arrears-90", "s129", "written-off"].flatMap(storyline)
+    expect(bad.length / loans.length).toBeLessThanOrEqual(0.15)
+    expect(storyline("active").length).toBeGreaterThan(loans.length / 2 - storyline("settled").length)
+  })
+})

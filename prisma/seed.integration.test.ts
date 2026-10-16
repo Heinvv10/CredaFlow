@@ -392,16 +392,19 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
     await dropThrowawayDbs(admin, created, [db])
   })
 
-  it("brands the tenant, its identity, colours and templates as Fairscore", async () => {
+  it("brands the tenant, its identity, colours and templates as the fictional Fair Score demo lender", async () => {
     const tenant = await prisma().tenant.findUniqueOrThrow({
       where: { slug: "fairscore" },
       select: { id: true, name: true, config: { select: { ...LENDER_IDENTITY_SELECT, primaryColor: true, secondaryColor: true, darkColor: true } } },
     })
     expect(await prisma().tenant.count()).toBe(1)
-    expect(tenant.name).toBe("Fairscore")
+    expect(tenant.name).toBe("Fair Score")
     expect(parseLenderIdentity(tenant.config)).toMatchObject({
-      legalName: "Fairscore (Pty) Ltd",
-      tradingName: "Fairscore",
+      legalName: "Fair Score Demo Lender (Pty) Ltd",
+      tradingName: "Fair Score",
+      ncrNumber: "NCRCP98765",
+      fspNumber: null,
+      brandTagline: "Demo lender: fair credit, clearly scored",
       publicEmail: "hello@fairscore.example",
       collectionsEmail: "collections@fairscore.example",
     })

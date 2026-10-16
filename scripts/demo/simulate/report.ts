@@ -53,6 +53,36 @@ function expectation(storyline: string): (loan: Row | undefined, app: Row | unde
   }
 }
 
+/**
+ * What a prospect reads off the dashboard and the applications board (Fair
+ * Score audit): PAR30 by balance at most 15%, defaults and write-offs a small
+ * minority, no open application older than 30 days, and the presenter's two
+ * new-client personas not yet in the book.
+ */
+async function bookHealth(window: Window): Promise<boolean> {
+  const [b] = await readDb().$queryRawUnsafe<Row[]>(`
+    SELECT
+      coalesce(sum("outstandingPrincipal") FILTER (WHERE "daysInArrears" > 30), 0)::float
+        / nullif(sum("outstandingPrincipal"), 0)::float AS par30,
+      (SELECT count(*) FROM "Loan" WHERE status IN ('DEFAULTED','PENDING_WRITE_OFF','WRITTEN_OFF'))::float
+        / nullif((SELECT count(*) FROM "Loan"), 0)::float AS bad_share,
+      (SELECT coalesce(max(DATE '${window.until}' - "createdAt"::date), 0) FROM "LoanApplication"
+        WHERE status IN ('DRAFT','SUBMITTED','UNDER_REVIEW','APPROVED')) AS oldest_open_days
+    FROM "Loan" WHERE status IN ('ACTIVE','DEFAULTED','PENDING_WRITE_OFF')`)
+  const unused = ["live-clean-approve", "live-affordability-decline"].map((id) => getPersona(id).idNumber)
+  const [used] = await readDb().$queryRawUnsafe<Row[]>(
+    `SELECT count(*) AS n FROM "Client" WHERE "idNumber" IN (${unused.map((id) => `'${id}'`).join(", ")})`)
+  const checks: Array<[string, boolean, string]> = [
+    ["PAR30 by balance <= 15%", Number(b.par30 ?? 0) <= 0.15, `${(Number(b.par30 ?? 0) * 100).toFixed(1)}%`],
+    ["defaulted + written off <= 20% of loans", Number(b.bad_share ?? 0) <= 0.2, `${(Number(b.bad_share ?? 0) * 100).toFixed(1)}%`],
+    ["oldest open application <= 30 days", Number(b.oldest_open_days) <= 30, `${Number(b.oldest_open_days)} days`],
+    ["Lerato and Mxolisi not yet clients (kit personas unused)", Number(used.n) === 0, `${Number(used.n)} found`],
+  ]
+  out("\n## Book health")
+  for (const [name, pass, value] of checks) out(`  ${pass ? "ok  " : "MISS"} ${name}: ${value}`)
+  return checks.every(([, pass]) => pass)
+}
+
 export async function report(state: SimState, window: Window): Promise<boolean> {
   let ok = true
   out(`# Demo bake report — ${window.start} … ${window.until}`)
@@ -99,6 +129,7 @@ export async function report(state: SimState, window: Window): Promise<boolean> 
   if (!rcOk) ok = false
   out(`\n## Returning client: ${rcOk ? "ok" : "MISS"} — ${JSON.stringify(rc[0], (_k, v: unknown) => (typeof v === "bigint" ? Number(v) : v))}`)
 
+  if (!(await bookHealth(window))) ok = false
   if (!(await breadthReport())) ok = false
 
   out("\n## Ledger invariant: SELECT assert_payment_allocation_reconciles()")
