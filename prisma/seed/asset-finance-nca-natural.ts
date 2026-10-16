@@ -78,7 +78,7 @@ async function originateNaturalDeal(tenantId: string, staff: SeedStaff, parties:
     }
     const refreshed = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true, affordabilityAssessment: true } })
     if (!refreshed.affordabilityAssessment) {
-      const assessed = await prisma.$transaction((tx) => recordAssetFinanceAffordability(tx, dealActor(tenantId, staff.adminOne), dealId, "Synthetic business income and personal NDI support this TLB instalment sale."))
+      const assessed = await prisma.$transaction((tx) => recordAssetFinanceAffordability(tx, dealActor(tenantId, staff.adminOne), dealId, "Business income and personal NDI support this TLB instalment sale."))
       if (assessed.kind !== "recorded" || !assessed.affordable) throw new Error(`Seed: sole-proprietor s81 refused (${JSON.stringify(assessed)})`)
     }
     if (!refreshed.application.creditLifeElection) {
@@ -88,7 +88,7 @@ async function originateNaturalDeal(tenantId: string, staff: SeedStaff, parties:
       if (elected.kind !== "recorded") throw new Error(`Seed: sole-proprietor credit life refused (${elected.kind})`)
     }
     const decided = await prisma.$transaction((tx) => decideDeal(tx, dealActor(tenantId, staff.adminOne), dealId, {
-      decision: "APPROVE", reasons: ["Synthetic business cash flow and personal NDI are positive", "Consumer bureau enquiry completed"],
+      decision: "APPROVE", reasons: ["Business cash flow and personal NDI are positive", "Consumer bureau enquiry completed"],
     }))
     if (decided.kind !== "decided" || decided.status !== "APPROVED") throw new Error(`Seed: sole-proprietor approval refused (${JSON.stringify(decided)})`)
   }
@@ -105,7 +105,7 @@ async function originateNaturalDeal(tenantId: string, staff: SeedStaff, parties:
     })
     const acknowledged = await recordPasqAcknowledgement({
       tenantId, applicationId: approvedDeal.applicationId, documentSha256: approvedDeal.application.pasqDocumentSha256,
-      clientId: parties.clientId, clientEmail: staff.officer.email, method: "portal", ipAddress: null, userAgent: "CredaFlow synthetic seed",
+      clientId: parties.clientId, clientEmail: staff.officer.email, method: "portal", ipAddress: null, userAgent: "CredaFlow demo seed",
     })
     if (!acknowledged.ok) throw new Error(`Seed: sole-proprietor PASQ acknowledgement refused (${acknowledged.error})`)
   }
@@ -123,14 +123,14 @@ async function executeNaturalDeal(tenantId: string, staff: SeedStaff, dealId: st
     const agreementSigner = await prisma.dealSigner.findFirstOrThrow({ where: { tenantId, dealId, clientId, document: "AGREEMENT" }, select: { id: true } })
     const signed = await signAssetNcaAgreement({
       tenantId, clientId, clientEmail: staff.officer.email, dealId,
-      signature: "TEST Sole Proprietor", documentSha256: execution.application.agreementDocumentSha256,
+      signature: "Zanele Baker", documentSha256: execution.application.agreementDocumentSha256,
       signingOtpChallengeId: await seedSigningCode(tenantId, clientId, agreementSigner.id, execution.application.agreementDocumentSha256),
     })
     if (signed.kind !== "done") throw new Error(`Seed: sole-proprietor signature refused (${JSON.stringify(signed)})`)
   }
   execution = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true } })
   if (execution.status === "APPROVED" && !execution.application.agreementCountersignedAt) {
-    const signed = await countersignAssetNcaAgreement(dealActor(tenantId, staff.adminOne), dealId, "TEST Provider")
+    const signed = await countersignAssetNcaAgreement(dealActor(tenantId, staff.adminOne), dealId, "Authorised Signatory")
     if (signed.kind !== "done") throw new Error(`Seed: provider countersign refused (${JSON.stringify(signed)})`)
   }
   const current = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId } })

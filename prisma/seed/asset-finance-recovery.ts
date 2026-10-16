@@ -44,7 +44,7 @@ function expectDone(step: string, result: { kind: string }): void {
 }
 
 /** The valuation both recoveries rest on: an independent assessor's, dated today. */
-const valuation = (amountCents: number) => ({ valuedOn: sastCalendarDate(new Date()), source: "ASSESSOR" as const, valuerName: "TEST Valuers (Pty) Ltd", amountCents })
+const valuation = (amountCents: number) => ({ valuedOn: sastCalendarDate(new Date()), source: "ASSESSOR" as const, valuerName: "Mabaso Valuers (Pty) Ltd", amountCents })
 
 async function statusOf(tenantId: string, id: string) {
   return (await prisma.recovery.findFirstOrThrow({ where: { id, tenantId }, select: { status: true, valuationId: true } })).status
@@ -59,7 +59,7 @@ async function ensureStorageCost(ctx: RecoverySeedContext, recoveryId: string, s
   const existing = await prisma.recoveryCost.findFirst({ where: { tenantId, recoveryId, supplierInvoiceRef }, select: { id: true } })
   if (existing) return
   const recorded = await recordRecoveryCost(actorOf(tenantId, staff.officer), recoveryId, {
-    type: "STORAGE", netCents, vatCents: 0, supplierInvoiceRef, incurredOn: today, treatment: "DEDUCT_FROM_PROCEEDS", note: "Synthetic yard storage",
+    type: "STORAGE", netCents, vatCents: 0, supplierInvoiceRef, incurredOn: today, treatment: "DEDUCT_FROM_PROCEEDS", note: "Yard storage",
   })
   expectDone("storage cost", recorded)
   expectDone("storage cost decision", await decideRecoveryCost(actorOf(tenantId, staff.adminOne), recoveryId, (recorded as { id: string }).id, "APPROVED"))
@@ -79,13 +79,13 @@ async function seedTlbRecovery(ctx: RecoverySeedContext, today: string): Promise
   if (await statusOf(tenantId, recoveryId) === "LISTED") {
     const valuationId = (await prisma.recovery.findFirstOrThrow({ where: { id: recoveryId, tenantId }, select: { valuationId: true } })).valuationId
     if (!valuationId) throw new Error("Seed: the listed recovery has no valuation")
-    await ensureStorageCost(ctx, recoveryId, "TEST-STORAGE-TLB-001", 650_000, today)
+    await ensureStorageCost(ctx, recoveryId, "STR-TLB-001", 650_000, today)
     let sale = await prisma.remarketingSale.findFirst({ where: { tenantId, recoveryId, status: "PENDING_APPROVAL" } })
     if (!sale) {
       // R400 000 against a R450 000 valuation: under it, so the reason is recorded and a second admin approves.
       const proposed = await proposeSale(officer, recoveryId, {
-        channel: "AUCTION", buyerType: "ENTITY", buyerName: "TEST Plant Traders (Pty) Ltd", buyerIdentifier: "2098/700001/07", buyerAddress: "9 Synthetic Industrial Road, Johannesburg, 2000",
-        buyerVatNumber: null, priceInclVatCents: 40_000_000, valuationId, belowValuationReason: "Highest bid at the synthetic auction; hydraulic wear found at inspection",
+        channel: "AUCTION", buyerType: "ENTITY", buyerName: "Lowveld Plant Traders (Pty) Ltd", buyerIdentifier: "2098/700001/07", buyerAddress: "9 Industrial Road, Germiston, 1401",
+        buyerVatNumber: null, priceInclVatCents: 40_000_000, valuationId, belowValuationReason: "Highest bid at the auction; hydraulic wear found at inspection",
       })
       expectDone("sale proposal", proposed)
       sale = await prisma.remarketingSale.findFirstOrThrow({ where: { id: (proposed as { id: string }).id, tenantId } })
@@ -105,14 +105,14 @@ async function seedFmlRecovery(ctx: RecoverySeedContext, today: string): Promise
   let recovery = await prisma.recovery.findFirst({ where: { tenantId, loanId: loan.id }, select: { id: true } })
   if (!recovery) {
     const created = await createRecovery(officer, loan.id, {
-      route: "NON_NCA_VOLUNTARY", recoveredOn: today, location: "TEST Lessor Yard, Johannesburg", condition: "Handed back voluntarily; used, good condition.",
+      route: "NON_NCA_VOLUNTARY", recoveredOn: today, location: "Lessor yard, Johannesburg", condition: "Handed back voluntarily; used, good condition.",
     })
     expectDone("voluntary recovery", created)
     recovery = { id: (created as { id: string }).id }
   }
   if (await statusOf(tenantId, recovery.id) === "RECOVERED") expectDone("valuation", await recordRecoveryValuation(officer, recovery.id, valuation(32_000_000)))
   if (await statusOf(tenantId, recovery.id) === "VALUED") expectDone("listing", await listForSale(officer, recovery.id))
-  if (await statusOf(tenantId, recovery.id) === "LISTED") await ensureStorageCost(ctx, recovery.id, "TEST-STORAGE-FML-001", 420_000, today)
+  if (await statusOf(tenantId, recovery.id) === "LISTED") await ensureStorageCost(ctx, recovery.id, "STR-FML-001", 420_000, today)
 }
 
 export async function seedRecoveries(ctx: RecoverySeedContext): Promise<void> {

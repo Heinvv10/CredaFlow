@@ -38,16 +38,19 @@ describe("demoLender", () => {
     expect(demoLender({ DEMO_LENDER: "acme" })).toEqual(acme)
   })
 
-  it("selects the Fairscore profile", () => {
+  it("selects the Fair Score profile: a fictional demo lender with no FSP number", () => {
     const fairscore = demoLender({ DEMO_LENDER: "fairscore" })
     expect(fairscore).toMatchObject({
       slug: "fairscore",
       identity: {
-        legalName: "Fairscore (Pty) Ltd",
-        brandName: "Fairscore",
+        legalName: "Fair Score Demo Lender (Pty) Ltd",
+        brandName: "Fair Score",
+        ncrNumber: "NCRCP98765",
+        fscaNumber: null,
+        companyRegNumber: "2021/905731/07",
         publicEmail: "hello@fairscore.example",
         collectionsEmail: "collections@fairscore.example",
-        brandTagline: "Fair credit, clearly scored",
+        brandTagline: "Demo lender: fair credit, clearly scored",
       },
       colours: { primaryColor: "#033483", secondaryColor: "#0A63B8", darkColor: "#0F1A2E" },
       staffDomain: "fairscore.example",
@@ -55,6 +58,10 @@ describe("demoLender", () => {
       bureau: { supplierNumber: "FAIR01", tradingName: "FAIRSCORE" },
     })
     expect(JSON.stringify(fairscore).toLowerCase()).not.toContain("acme")
+    // None of the Acme placeholders the audit found printed on its documents.
+    for (const placeholder of ["NCRCP99999", "2020/123456/07", "1 Main Road", "+27 11 000 0000", "Fairscore"]) {
+      expect(JSON.stringify(fairscore.identity)).not.toContain(placeholder)
+    }
   })
 
   it("selects the Tsela profile, the marketing-site demo brand", () => {

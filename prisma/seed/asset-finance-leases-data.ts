@@ -27,34 +27,34 @@ export interface LeaseAsset extends AfAsset {
 
 // R450 000 ex VAT + 15% VAT. Unregistered: no eNaTIS item. Usage in HOURS from `hours`.
 export const LEASE_TLB: LeaseAsset = {
-  assetClass: "TLB", make: "TEST", model: "TLB-4x4 Lease Synthetic", year: 2025,
-  serialNumber: "TESTTLB000000002", vin: "TEST0000000000004", engineNumber: "TESTENG0000004", hours: 40,
+  assetClass: "TLB", make: "Mabula", model: "TLB-4x4 L", year: 2025,
+  serialNumber: "MBTLB000000002", vin: "MBX00000000000004", engineNumber: "MBENG0000004", hours: 40,
   cashPriceExclVatCents: 45_000_000, vatCents: 6_750_000,
-  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0004", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0004",
+  insurer: "Umoya Insurance Ltd", policyNumber: "UMY-POL-0004", trackerProvider: "Kudu Tracking", trackerId: "KDT-0004",
   lenderNotedConfirmed: true, registrationNumber: null, odometerKm: null, natisTitleholder: null, natisOwner: null,
 }
 
 // R400 000 ex VAT + 15% VAT; registered, so the eNaTIS owner and titleholder are the lender.
 export const LEASE_BAKKIE: LeaseAsset = {
-  assetClass: "LIGHT_COMMERCIAL", make: "TEST", model: "Bakkie 2.4 Synthetic", year: 2025,
-  serialNumber: "TESTBAK000000001", vin: "TEST0000000000005", engineNumber: "TESTENG0000005", hours: null,
+  assetClass: "LIGHT_COMMERCIAL", make: "Kudu Motors", model: "Bakkie 2.4", year: 2025,
+  serialNumber: "KMBAK000000001", vin: "MBX00000000000005", engineNumber: "MBENG0000005", hours: null,
   cashPriceExclVatCents: 40_000_000, vatCents: 6_000_000,
-  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0005", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0005",
-  lenderNotedConfirmed: true, registrationNumber: "TEST001GP", odometerKm: 1_500, natisTitleholder: null, natisOwner: null,
+  insurer: "Umoya Insurance Ltd", policyNumber: "UMY-POL-0005", trackerProvider: "Kudu Tracking", trackerId: "KDT-0005",
+  lenderNotedConfirmed: true, registrationNumber: "KDW001GP", odometerKm: 1_500, natisTitleholder: null, natisOwner: null,
 }
 
 // R200 000 ex VAT + 15% VAT; unregistered.
 export const LEASE_FORKLIFT: LeaseAsset = {
-  assetClass: "FORKLIFT", make: "TEST", model: "FL-35 Synthetic", year: 2025,
-  serialNumber: "TESTFLK000000001", vin: null, engineNumber: null, hours: 400,
+  assetClass: "FORKLIFT", make: "Mabula", model: "FL-35", year: 2025,
+  serialNumber: "MBFLK000000001", vin: null, engineNumber: null, hours: 400,
   cashPriceExclVatCents: 20_000_000, vatCents: 3_000_000,
-  insurer: "TEST Insurance Ltd", policyNumber: "TEST-POL-0006", trackerProvider: "TEST Tracking", trackerId: "TEST-TRK-0006",
+  insurer: "Umoya Insurance Ltd", policyNumber: "UMY-POL-0006", trackerProvider: "Kudu Tracking", trackerId: "KDT-0006",
   lenderNotedConfirmed: true, registrationNumber: null, odometerKm: null, natisTitleholder: null, natisOwner: null,
 }
 
 // ID 7405055000081: a synthetic number with a valid check digit; reference sorts after the other AF people.
 export const LEASE_SOLE_PROP = {
-  reference: "CLI-SEED-AF-0005", idNumber: "7405055000081", firstName: "TEST", lastName: "Baker Sole Proprietor",
+  reference: "CLI-SEED-AF-0005", idNumber: "7405055000081", firstName: "Zanele", lastName: "Baker",
   dob: "1974-05-05", gender: "FEMALE", phone: "+27700000105",
 } as const
 

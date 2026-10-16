@@ -104,7 +104,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       include: { application: true, payout: true, signers: { include: { client: true } }, asset: true },
     })
     expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 34_500_000, decision: "APPROVE" })
-    expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, vin: "TEST0000000000001" })
+    expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000, vin: "MBX00000000000001" })
     expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NON_NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD" })
     const override = await fresh().ncaRegimeOverride.findFirstOrThrow({ where: { applicationId: deal.applicationId } })
     expect(override).toMatchObject({ status: "APPROVED", requestedById: await userId("credit.officer"), decidedById: await userId("loan.admin.two") })
@@ -170,9 +170,9 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const company = await fresh().businessEntity.findFirstOrThrow({ where: { type: "COMPANY" } })
     const trust = await fresh().businessEntity.findFirstOrThrow({ where: { type: "TRUST" } })
     for (const [email, password, entities] of [
-      ["test.trustee.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_TRUSTEE_PASSWORD, [trust.id]],
-      ["test.director.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_DIRECTOR_PASSWORD, [company.id]],
-      ["test.surety.one@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_SURETY_PASSWORD, []],
+      ["johan.botha@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_TRUSTEE_PASSWORD, [trust.id]],
+      ["nandi.mthethwa@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_DIRECTOR_PASSWORD, [company.id]],
+      ["kagiso.molefe@acme-lending.invalid", PORTAL_PASSWORDS.SEED_AF_SURETY_PASSWORD, []],
     ] as const) {
       const client = await fresh().client.findFirstOrThrow({ where: { email } })
       expect(await bcrypt.compare(password, client.portalPassword ?? "")).toBe(true)
@@ -223,7 +223,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const [paid, open] = claims
     expect(paid.submittedById).toBe(await userId("credit.officer"))
     expect(paid.approvedById).not.toBe(paid.submittedById)
-    expect(paid.paymentReference).toBe("TEST-PAY-CLAIM-0001")
+    expect(paid.paymentReference).toBe("PAY-CLAIM-0001")
     expect([open.approvedById, open.firstApprovedById]).toEqual([null, null])
 
     expect(loan.meterReadings.map((r) => [r.value, r.source])).toEqual([[40, "STAFF"], [52, "STAFF"], [58, "STAFF"], [61, "PORTAL"]])
@@ -234,7 +234,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const loan = await leaseLoan("OPERATING_LEASE", { soleProprietor: true })
     expect(loan).toMatchObject({ status: "ACTIVE", cpaApplies: true, entityId: null })
     expect(loan.assetFinanceDeal).toMatchObject({ status: "BOOKED", cpaRule: "CPA_NATURAL_PERSON" })
-    expect(loan.assetFinanceDeal?.asset).toMatchObject({ assetClass: "LIGHT_COMMERCIAL", registrationNumber: "TEST001GP" })
+    expect(loan.assetFinanceDeal?.asset).toMatchObject({ assetClass: "LIGHT_COMMERCIAL", registrationNumber: "KDW001GP" })
     expect(loan.leaseRentals).toHaveLength(36)
     expect(loan.leaseRentals.filter((r) => r.taxInvoiceId !== null).map((r) => r.periodNo)).toEqual([1])
     expect(loan.leaseRentals.some((r) => r.cancelledAt !== null)).toBe(false)
@@ -287,6 +287,23 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(lease.loan.contractType).toBe("FULL_MAINTENANCE_LEASE")
     expect(lease.valuationId).not.toBeNull()
     expect(await fresh().recoveryCost.findMany({ where: { recoveryId: lease.id } })).toMatchObject([{ type: "STORAGE", status: "APPROVED", grossCents: 420_000 }])
+  })
+
+  // A prospect is shown these records: fictional names, never "TEST" or "Synthetic".
+  it("labels no asset-finance record a prospect sees TEST or Synthetic", async () => {
+    const tables = [
+      "BusinessEntity", "EntityRelationship", "EntityDocument", "FinancedAsset", "AssetValuation", "Supplier", "SupplierBankAccount",
+      "AssetFinanceDeal", "EntityFinancials", "AssetFinanceAffordabilityAssessment", "DealSigner", "PayoutChecklistItem", "Payout",
+      "MaintenanceClaim", "LegalMatter", "LegalMatterStep", "Recovery", "RecoveryCost", "RemarketingSale", "Client", "Payment",
+    ]
+    const hits: string[] = []
+    for (const table of tables) {
+      const rows = await fresh().$queryRawUnsafe<{ row: string }[]>(
+        `SELECT row_to_json(t)::text AS row FROM "${table}" t WHERE row_to_json(t)::text ~ '\\mTEST\\M' OR row_to_json(t)::text ~* 'synthetic'`,
+      )
+      for (const r of rows) hits.push(`${table}: ${r.row.slice(0, 160)}`)
+    }
+    expect(hits).toEqual([])
   })
 
   it("a second seed run leaves every lease and recovery count unchanged", async () => {
