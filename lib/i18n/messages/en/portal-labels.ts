@@ -21,6 +21,8 @@ export const portalLabels = {
   status_DISBURSED: "DISBURSED",
   status_PENDING: "PENDING",
   status_PARTIAL: "PARTIAL",
+  status_UPCOMING: "UPCOMING",
+  status_DUE: "DUE",
   status_PAID: "PAID",
   status_OVERDUE: "OVERDUE",
   status_LAPSED: "LAPSED",

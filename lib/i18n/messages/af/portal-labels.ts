@@ -17,6 +17,8 @@ export const portalLabels: Catalog["portalLabels"] = {
   status_DISBURSED: "UITBETAAL",
   status_PENDING: "HANGENDE",
   status_PARTIAL: "GEDEELTELIK",
+  status_UPCOMING: "KOMEND",
+  status_DUE: "BETAALBAAR",
   status_PAID: "BETAAL",
   status_OVERDUE: "AGTERSTALLIG",
   status_LAPSED: "VERVAL",

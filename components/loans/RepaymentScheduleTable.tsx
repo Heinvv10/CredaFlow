@@ -6,6 +6,7 @@ import { formatZAR, formatDate } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
+import { scheduleDisplayStatus } from "@/lib/loan/schedule-status"
 import { AlertTriangle, RotateCcw, Loader2 } from "lucide-react"
 import {
   Table,
@@ -36,14 +37,15 @@ interface RepaymentScheduleTableProps {
   schedule: ScheduleItem[]
   /** If false, admin action buttons are hidden (e.g. on completed/written-off loans) */
   allowAdminActions?: boolean
-  /** Badge text per instalment status (serialisable: a server page passes it); the raw status when absent. */
+  /** Badge text per displayed status (scheduleDisplayStatus; serialisable: a server page passes it); the raw status when absent. */
   statusLabels?: Record<string, string>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<string, string> = {
-  PENDING:    "bg-gray-100 text-gray-800",
+  UPCOMING:   "bg-gray-100 text-gray-800",
+  DUE:        "bg-amber-100 text-amber-800",
   PARTIAL:    "bg-amber-100 text-amber-800",
   PAID:       "bg-green-100 text-green-800",
   OVERDUE:    "bg-red-100 text-red-800",
@@ -61,6 +63,7 @@ export function RepaymentScheduleTable({
 }: RepaymentScheduleTableProps) {
   const router = useRouter()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const now = new Date()
 
   async function runAction(scheduleId: string, action: "flag_missed" | "revert") {
     setBusyId(scheduleId)
@@ -119,6 +122,7 @@ export function RepaymentScheduleTable({
         <TableBody>
           {schedule.map((item) => {
             const isBusy = busyId === item.id
+            const shown = scheduleDisplayStatus(item, now)
             return (
               <TableRow key={item.id}>
                 <TableCell>{item.installmentNo}</TableCell>
@@ -131,8 +135,8 @@ export function RepaymentScheduleTable({
                   {formatZAR(item.totalPaid)}
                 </TableCell>
                 <TableCell>
-                  <Badge className={STATUS_BADGE[item.status] ?? "bg-gray-100 text-gray-800"}>
-                    {statusLabels[item.status] ?? item.status}
+                  <Badge className={STATUS_BADGE[shown] ?? "bg-gray-100 text-gray-800"}>
+                    {statusLabels[shown] ?? shown}
                   </Badge>
                 </TableCell>
                 <TableCell>

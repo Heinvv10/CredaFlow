@@ -13,6 +13,7 @@ import { MetricCard } from "@/components/app-shell/MetricCard"
 import { SectionHeader } from "@/components/app-shell/SectionHeader"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { RepaymentScheduleTable } from "@/components/loans/RepaymentScheduleTable"
+import { SCHEDULE_DISPLAY_STATUSES } from "@/lib/loan/schedule-status"
 import { PaymentForm } from "@/components/loans/PaymentForm"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { LoanNotes } from "@/components/loans/LoanNotes"
@@ -159,7 +160,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
             {/* Money and dates on one line each; the table scrolls sideways in its own container. */}
             <div className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={false}
-                statusLabels={Object.fromEntries(loan.repaymentSchedule.map((s) => [s.status, statusLabel(s.status)]))} />
+                statusLabels={Object.fromEntries(SCHEDULE_DISPLAY_STATUSES.map((s) => [s, statusLabel(s)]))} />
             </div>
           </DataPanel>
         </div>

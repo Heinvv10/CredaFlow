@@ -17,6 +17,8 @@ export const portalLabels: Catalog["portalLabels"] = {
   status_DISBURSED: "IMALI IKHISHIWE",
   status_PENDING: "KULINDILE",
   status_PARTIAL: "INGXENYE",
+  status_UPCOMING: "OKUZAYO",
+  status_DUE: "OSEKUFANELE KUKHOKHWE",
   status_PAID: "KUKHOKHIWE",
   status_OVERDUE: "SEKUDLULE ISIKHATHI",
   status_LAPSED: "KUPHELILE",

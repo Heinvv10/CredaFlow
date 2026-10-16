@@ -623,3 +623,14 @@ describe("payment-reminders — default charges in the amount due", () => {
     expect(h.waDue3d.mock.calls[0][1]).toBe("R\u00a01\u00a0300,00")
   })
 })
+
+describe("payment-reminders — never quotes R 0.00", () => {
+  it("sends nothing for a row stored PARTIAL that is already covered", async () => {
+    h.findMany.mockResolvedValue([{ ...scheduleDueIn(3), totalPaid: 150000 }])
+    const body = await (await run()).json()
+    expect(h.sendEmail).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppBridge).not.toHaveBeenCalled()
+    expect(h.noteCreate).not.toHaveBeenCalled()
+    expect(body.due).toBe(0)
+  })
+})

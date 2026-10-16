@@ -71,6 +71,7 @@ import { SendBlockedError } from "@/lib/messaging/send"
 import { WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { kabeloScheduleAsAudited } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
 
 const sastDayOffset = (days: number) => new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
 
@@ -211,7 +212,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
-  repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00 })
+  repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00, totalPaid: 0 })
   tenantConfigFindUniqueMock.mockResolvedValue({})
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
@@ -985,7 +986,7 @@ describe("default charges in reminder amounts", () => {
     await processPaymentReminders()
 
     // 150_000 instalment + 23_450 charges = 173_450
-    expect(sent("SMS").vars.body).toContain("Your loan payment of R 1,734.50 is due TODAY.")
+    expect(sent("SMS").vars.body).toContain("Your loan payment of R 1,734.50 is due today.")
     expect(sent("WHATSAPP").vars.amount).toBe("R 1,734.50")
   })
 
@@ -1018,7 +1019,7 @@ describe("default charges in reminder amounts", () => {
 })
 
 describe("reminder_0d wording", () => {
-  it("warns of default interest and charges, not late fees", () => {
+  it("states the amount and reference on the due day without threatening charges", () => {
     const msg = TRIGGERS.find((t) => t.noteType === "reminder_0d")!.getMessage({
       firstName: "Thabo",
       amount: "R 1,500.00",
@@ -1029,7 +1030,55 @@ describe("reminder_0d wording", () => {
       phone: "+27 11 000 0000",
     })
     expect(msg).toBe(
-      "Your loan payment of R 1,500.00 is due TODAY. Please pay to avoid further default interest and charges. Ref: LN-0099. Acme +27 11 000 0000",
+      "Your loan payment of R 1,500.00 is due today. Ref: LN-0099. Need help? Contact Acme on +27 11 000 0000.",
     )
+    expect(msg).not.toMatch(/avoid|default interest|charges|late fee/i)
+  })
+})
+
+describe("Kabelo-shaped schedule (every unpaid row stored PARTIAL)", () => {
+  // Answers the cron's next-instalment query the way Postgres would: status
+  // filter, positive total, earliest due date first.
+  function answerFrom(rows: ReturnType<typeof kabeloScheduleAsAudited>) {
+    repaymentScheduleFindFirstMock.mockImplementation(
+      async (a: { where: { status: { in: string[] } } }) =>
+        rows
+          .filter((r) => a.where.status.in.includes(r.status) && r.totalDue > 0)
+          .sort((x, y) => x.dueDate.getTime() - y.dueDate.getTime())[0] ?? null,
+    )
+  }
+
+  afterEach(() => vi.useRealTimers())
+
+  it("quotes the instalment actually due, never R 0.00", async () => {
+    const rows = kabeloScheduleAsAudited()
+    vi.useFakeTimers({ toFake: ["Date"] })
+    // 7 days before #4 (1 Jun 2026).
+    vi.setSystemTime(new Date("2026-05-25T08:00:00.000Z"))
+    answerFrom(rows)
+    loanFindManyMock.mockResolvedValue([{
+      ...loanDueTomorrow(), nextPaymentDate: rows[3].dueDate,
+      client: { ...loanDueTomorrow().client, whatsapp: "0821234567" },
+    }])
+
+    await processPaymentReminders()
+
+    const sms = sendSmsMock.mock.calls[0]?.[0] as { message: string } | undefined
+    expect(sms?.message).toContain("your loan payment of R 2,253.75 is due on")
+    expect(sms?.message).not.toContain("R 0.00")
+  })
+
+  it("sends nothing when nothing is owed on the schedule", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-05-25T08:00:00.000Z"))
+    const paidUp = kabeloScheduleAsAudited().map((r) => ({ ...r, totalPaid: r.totalDue, status: "PAID" as const }))
+    answerFrom(paidUp)
+    loanFindManyMock.mockResolvedValue([{ ...loanDueTomorrow(), nextPaymentDate: paidUp[3].dueDate }])
+
+    const r = await processPaymentReminders()
+
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMock).not.toHaveBeenCalled()
+    expect(r.details).toContainEqual(expect.stringContaining("nothing owed"))
   })
 })

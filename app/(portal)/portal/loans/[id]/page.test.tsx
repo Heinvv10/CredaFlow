@@ -27,6 +27,7 @@ const defaultedLoan = () => ({
 })
 
 import PortalLoanPage from "./page"
+import { elizeScheduleAsAudited } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
 
 const render = async () =>
   renderToStaticMarkup(await PortalLoanPage({ params: Promise.resolve({ id: "l1" }) }))
@@ -69,5 +70,29 @@ describe("portal loan page", () => {
   it("offers a payment on a loan that is owed", async () => {
     portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
     expect(await render()).toContain("/portal/payment")
+  })
+
+  it("shows Elize's future instalments as Upcoming, not Partial, although stored PARTIAL", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-16T10:00:00.000Z"))
+    portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
+    loanFindFirst.mockResolvedValue({
+      ...defaultedLoan(), status: "ACTIVE", daysInArrears: 29,
+      repaymentSchedule: elizeScheduleAsAudited(),
+    })
+    let html: string
+    try {
+      html = await render()
+    } finally {
+      vi.useRealTimers()
+    }
+    const body = html.slice(html.indexOf("<tbody>"))
+    const rows = body.slice(0, body.indexOf("</tbody>")).split("<tr").slice(1)
+    expect(rows).toHaveLength(18)
+    expect(rows[4]).toContain("PARTIAL")
+    for (const row of rows.slice(5)) {
+      expect(row).toContain("UPCOMING")
+      expect(row).not.toContain("PARTIAL")
+    }
   })
 })
