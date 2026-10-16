@@ -14,9 +14,9 @@
  */
 import { AuditAction } from "@/lib/audit"
 import { IsaFlowError, mcpTransport, type IsaFlowHttp } from "./client"
-import { isaflowTarget, markIsaFlowNeedsReconnect, type Actor } from "./connection"
+import { isaflowTarget, type Actor } from "./connection"
 import { findPushedDraft } from "./journal"
-import { audit, markStaleIsaFlowPush, recordOutcome, refused, sendClaimed, type PushDb, type PushOutcome } from "./push-record"
+import { audit, dropIsaFlowToken, markStaleIsaFlowPush, recordOutcome, refused, sendClaimed, type PushDb, type PushOutcome } from "./push-record"
 
 export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; batchId: string; actor: Actor; from: "FAILED" | "NEEDS_REVIEW" }, http: IsaFlowHttp = {}): Promise<PushOutcome> {
   const push = await db.accountingIsaFlowPush.findFirst({ where: { batchId: args.batchId, tenantId: args.tenantId }, select: { status: true, requestJson: true, isaflowCompanyId: true } })
@@ -54,7 +54,7 @@ export async function retryIsaFlowPush(db: PushDb, args: { tenantId: string; bat
     })
   } catch (error) {
     if (!(error instanceof IsaFlowError)) throw error
-    if (error.kind === "auth") await markIsaFlowNeedsReconnect(db, args.tenantId)
+    if (error.kind === "auth") await dropIsaFlowToken(db, args, error.message)
     // Nothing was sent: the push goes back to where it was.
     const result: PushOutcome = { ok: false, httpStatus: 502, status: args.from, error: `Could not read IsaFlow back, so nothing was resent. ${error.message}`.slice(0, 500) }
     await recordOutcome(db, args, result)

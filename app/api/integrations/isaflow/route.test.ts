@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   locked: vi.fn(),
   row: null as null | Record<string, unknown>,
   upsert: vi.fn(),
+  updateMany: vi.fn(),
   audit: vi.fn(),
   probe: vi.fn(),
   verify: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock("@/lib/prisma", () => {
   const isaFlowConnection = {
     findUnique: async () => h.row,
     upsert: async (args: { create: Record<string, unknown> }) => { h.upsert(args); h.row = { ...args.create } },
-    updateMany: async () => ({ count: 1 }),
+    updateMany: (...a: unknown[]) => h.updateMany(...a),
     update: async () => ({}),
   }
   const auditLog = { create: (...a: unknown[]) => h.audit(...a) }
@@ -53,6 +54,7 @@ beforeEach(() => {
   h.row = null
   h.locked.mockReset().mockResolvedValue([{ id: "super-1", role: "SUPER_ADMIN", active: true, tokenVersion: 2 }])
   h.upsert.mockReset()
+  h.updateMany.mockReset().mockResolvedValue({ count: 1 })
   h.audit.mockReset().mockResolvedValue({})
   h.probe.mockReset().mockResolvedValue(probe)
   h.verify.mockReset().mockResolvedValue(probe)
@@ -105,6 +107,33 @@ describe("POST /api/integrations/isaflow", () => {
     expect((await post({ action: "connect", baseUrl: "https://isaflow.example", token: "pat_1234\u00a05678" })).status).toBe(400)
     expect((await post({ action: "nope" })).status).toBe(400)
     expect(h.probe).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/integrations/isaflow verify", () => {
+  const refusedToken = new IsaFlowError("auth", "IsaFlow refused the token (401); connect IsaFlow again with a valid token", 401)
+
+  it("drops a token IsaFlow refuses, audited, inside the guarded write", async () => {
+    h.verify.mockRejectedValue(refusedToken)
+    expect((await post({ action: "verify" })).status).toBe(422)
+    expect(h.updateMany).toHaveBeenCalledWith({ where: { tenantId: "t1", status: "CONNECTED" }, data: { status: "NEEDS_RECONNECT", tokenSealed: null } })
+    const actions = h.audit.mock.calls.map(([a]) => (a as { data: { action: string } }).data.action)
+    expect(actions).toEqual(["ISAFLOW_NEEDS_RECONNECT", "ISAFLOW_CONNECT_REFUSED"])
+  })
+
+  it("writes nothing for a SUPER_ADMIN demoted while IsaFlow was being asked", async () => {
+    h.verify.mockRejectedValue(refusedToken)
+    h.locked.mockResolvedValue([{ id: "super-1", role: "ADMIN", active: true, tokenVersion: 2 }])
+    expect((await post({ action: "verify" })).status).toBe(403)
+    expect(h.updateMany).not.toHaveBeenCalled()
+    expect(h.audit).not.toHaveBeenCalled()
+  })
+
+  it("records a verified token", async () => {
+    h.row = { status: "CONNECTED", baseUrl: "https://isaflow.example", isaflowCompanyId: "c-1", isaflowCompanyName: "Dev Co", connectedAt: new Date(), lastVerifiedAt: new Date() }
+    expect((await post({ action: "verify" })).status).toBe(200)
+    expect(h.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", status: "CONNECTED", isaflowCompanyId: "c-1" } }))
+    expect(h.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "ISAFLOW_VERIFIED" }) })
   })
 })
 

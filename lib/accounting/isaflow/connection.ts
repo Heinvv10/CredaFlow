@@ -99,23 +99,26 @@ export async function isaflowTarget(db: ConnectionDb, tenantId: string): Promise
   return { baseUrl: row.baseUrl, token: open(row.tokenSealed), companyId: row.isaflowCompanyId }
 }
 
-/** IsaFlow refused the token: it is dropped and a SUPER_ADMIN must connect again. */
-export async function markIsaFlowNeedsReconnect(db: ConnectionDb, tenantId: string): Promise<void> {
-  await db.isaFlowConnection.updateMany({ where: { tenantId, status: "CONNECTED" }, data: { status: "NEEDS_RECONNECT", tokenSealed: null } })
+/**
+ * IsaFlow refused the token (or it is bound to another company now): it is
+ * dropped and a SUPER_ADMIN must connect again. Audited, whichever path saw it.
+ */
+export async function markIsaFlowNeedsReconnect(tx: ConnectionTx, args: { tenantId: string; actor: Actor; ip?: string | null; reason: string }): Promise<boolean> {
+  const moved = await tx.isaFlowConnection.updateMany({ where: { tenantId: args.tenantId, status: "CONNECTED" }, data: { status: "NEEDS_RECONNECT", tokenSealed: null } })
+  if (moved.count !== 1) return false
+  await audit(tx, args.tenantId, args.actor, args.ip ?? null, AuditAction.ISAFLOW_NEEDS_RECONNECT, { reason: args.reason.slice(0, 500) })
+  return true
 }
 
-/** Proves the stored token again; it must still be bound to the connected company. */
+/**
+ * Proves the stored token again; it must still be bound to the connected
+ * company. Writes nothing: the caller applies an auth refusal
+ * (markIsaFlowNeedsReconnect) inside its own guarded write.
+ */
 export async function verifyProbe(db: ConnectionDb, tenantId: string, http: IsaFlowHttp = {}): Promise<Probe> {
   const target = await isaflowTarget(db, tenantId)
-  let probe: Probe
-  try {
-    probe = await probeIsaFlow(target, http)
-  } catch (error) {
-    if (error instanceof IsaFlowError && error.kind === "auth") await markIsaFlowNeedsReconnect(db, tenantId)
-    throw error
-  }
+  const probe = await probeIsaFlow(target, http)
   if (probe.company.company_id !== target.companyId) {
-    await markIsaFlowNeedsReconnect(db, tenantId)
     throw new IsaFlowError("auth", "The token is now bound to a different IsaFlow company; connect IsaFlow again")
   }
   return probe

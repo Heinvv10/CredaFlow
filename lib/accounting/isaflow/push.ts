@@ -25,9 +25,9 @@ import type { StoredLine } from "../csv"
 import { parsePeriodKey } from "../period"
 import { loadBatchLines } from "../store"
 import { IsaFlowError, mcpTransport, type IsaFlowHttp } from "./client"
-import { isaflowTarget, markIsaFlowNeedsReconnect, type Actor } from "./connection"
+import { isaflowTarget, type Actor } from "./connection"
 import { buildDraftJournal, isaflowIdempotencyKey, netByAccount, resolveChart } from "./journal"
-import { audit, markStaleIsaFlowPush, refused, sendClaimed, type PushDb, type PushOutcome } from "./push-record"
+import { audit, dropIsaFlowToken, markStaleIsaFlowPush, refused, sendClaimed, type PushDb, type PushOutcome } from "./push-record"
 import { retryIsaFlowPush } from "./retry"
 
 /** Step 2: why this month's lines cannot be pushed as stored, or null. */
@@ -79,7 +79,7 @@ export async function pushBatchToIsaFlow(db: PushDb, args: { tenantId: string; b
     chart = resolveChart(net.map((l) => l.code), await isa.listGlAccounts())
   } catch (error) {
     if (!(error instanceof IsaFlowError)) throw error
-    if (error.kind === "auth") await markIsaFlowNeedsReconnect(db, args.tenantId)
+    if (error.kind === "auth") await dropIsaFlowToken(db, args, error.message)
     return refused(502, `Could not read IsaFlow's chart of accounts; nothing was sent. ${error.message}`)
   }
   if (!chart.ok) {

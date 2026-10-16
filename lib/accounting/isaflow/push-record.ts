@@ -25,6 +25,11 @@ export async function audit(db: Pick<typeof prisma, "auditLog">, tenantId: strin
   await logAuditStrict({ tenantId, userId: actor.id, userEmail: actor.email, action, entity: "AccountingExportBatch", entityId: batchId, newValue }, db)
 }
 
+/** An auth refusal while pushing: the connection needs a new token (audited, as every such path is). */
+export async function dropIsaFlowToken(db: PushDb, args: { tenantId: string; actor: Actor }, reason: string): Promise<void> {
+  await db.$transaction((tx) => markIsaFlowNeedsReconnect(tx, { tenantId: args.tenantId, actor: args.actor, reason }))
+}
+
 /** A SENDING claim older than STALE_SENDING_MS has no recorded answer: it waits for a check. */
 export async function markStaleIsaFlowPush(db: PushDb, args: { tenantId: string; batchId: string; actor: Actor; now?: Date }): Promise<boolean> {
   const cutoff = new Date((args.now ?? new Date()).getTime() - STALE_SENDING_MS)
@@ -60,7 +65,7 @@ export async function sendClaimed(
       : { ok: true, status: "PUSHED", journalId: created.id, foundOnReadBack: false }
   } catch (error) {
     const isaflow = error instanceof IsaFlowError ? error : null
-    if (isaflow?.kind === "auth") await markIsaFlowNeedsReconnect(db, args.tenantId)
+    if (isaflow?.kind === "auth") await dropIsaFlowToken(db, args, isaflow.message)
     const definite = isaflow !== null && isaflow.kind !== "unknown"
     result = { ok: false, httpStatus: 502, status: definite ? "FAILED" : "NEEDS_REVIEW", error: (isaflow?.message ?? "IsaFlow push failed").slice(0, 500) }
   }

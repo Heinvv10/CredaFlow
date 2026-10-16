@@ -5,6 +5,8 @@ export default defineAuditActions({
   ISAFLOW_CONNECTED: "ISAFLOW_CONNECTED",
   ISAFLOW_VERIFIED: "ISAFLOW_VERIFIED",
   ISAFLOW_DISCONNECTED: "ISAFLOW_DISCONNECTED",
+  // IsaFlow refused the stored token (or it is bound to another company): dropped, reconnect needed.
+  ISAFLOW_NEEDS_RECONNECT: "ISAFLOW_NEEDS_RECONNECT",
   // A connect or verify IsaFlow refused, or an address this deployment does not allow.
   ISAFLOW_CONNECT_REFUSED: "ISAFLOW_CONNECT_REFUSED",
   // IsaFlow draft-journal push (lib/accounting/isaflow/push.ts). Keys and ids only.

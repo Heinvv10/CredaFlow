@@ -146,6 +146,7 @@ suite.sequential("IsaFlow push (real Postgres, fake IsaFlow)", () => {
     fake.failNext("401")
     expect(await push(dec)).toMatchObject({ ok: false, status: "FAILED" })
     expect(await db.isaFlowConnection.findUniqueOrThrow({ where: { tenantId: A.tenantId } })).toMatchObject({ status: "NEEDS_RECONNECT", tokenSealed: null })
+    expect(await db.auditLog.findFirst({ where: { tenantId: A.tenantId, action: "ISAFLOW_NEEDS_RECONNECT" } })).toMatchObject({ entity: "IsaFlowConnection", userId: A.userId })
     expect(await push(dec)).toMatchObject({ ok: false, httpStatus: 409, error: expect.stringContaining("Connect IsaFlow") })
     await connectTenant(A, fake)
     // A claim whose process died before recording an answer.
