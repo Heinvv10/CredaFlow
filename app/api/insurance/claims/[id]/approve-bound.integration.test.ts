@@ -32,7 +32,6 @@ const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 
 let claimId = ""
-let policyId = ""
 
 function approve(approvedAmount: unknown) {
   return PATCH(
@@ -74,7 +73,6 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
         faisDisclosurePdfUrl: `/synthetic/${token}.pdf`,
       },
     })
-    policyId = policy.id
     const claim = await db.insuranceClaim.create({
       data: { tenantId: tenant.id, policyId: policy.id, claimNumber: `CLIT-CLM-${token}`, claimAmount: "10000.00" },
     })
@@ -123,8 +121,9 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
     // it was, then the claim amount drops to R4,000 before updateMany runs, so
     // only the write's own WHERE can refuse R5,000.
     const { prisma } = await import("@/lib/prisma")
-    const read = prisma.insuranceClaim.findFirst.bind(prisma.insuranceClaim)
-    const spy = vi.spyOn(prisma.insuranceClaim, "findFirst").mockImplementationOnce(async (args: never) => {
+    const claims = prisma.insuranceClaim as unknown as { findFirst: (args: unknown) => Promise<unknown> }
+    const read = claims.findFirst.bind(claims)
+    const spy = vi.spyOn(claims, "findFirst").mockImplementationOnce(async (args: unknown) => {
       const before = await read(args)
       await db.insuranceClaim.update({ where: { id: claimId }, data: { claimAmount: "4000.00" } })
       return before
