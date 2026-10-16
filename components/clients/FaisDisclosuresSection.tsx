@@ -35,6 +35,13 @@ export function FaisDisclosuresSection({ clientId }: { clientId: string }) {
   // Bumped to refetch after a disclosure is logged.
   const [reloadKey, setReloadKey] = useState(0)
 
+  // A different client shows the spinner until its own records arrive.
+  const [prevClientId, setPrevClientId] = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
   useEffect(() => {
     let ignore = false
     fetchFaisRecords(clientId)

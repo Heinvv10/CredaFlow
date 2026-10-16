@@ -113,6 +113,15 @@ export function ReferralAgentField({
   const [impactFailed, setImpactFailed] = useState(false)
   const editable = canEdit && initialCodeId !== undefined
 
+  // A preview belongs to one client. When the client changes, drop it on this
+  // render; the effect cleanup below tells the parent.
+  const [prevClientId, setPrevClientId] = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setImpact(null)
+    setImpactFailed(false)
+  }
+
   useEffect(() => {
     if (!editable) return
     let cancelled = false
@@ -132,7 +141,8 @@ export function ReferralAgentField({
   // Only a genuine move is previewed. Returning the select to its stored value
   // is not a change, and the server would plan nothing for it anyway. The
   // previous preview is cleared in the select's onChange, which is what changes
-  // pendingCodeId, so this effect only fetches.
+  // pendingCodeId, or above when the client changes. The cleanup unbinds the
+  // parent's save from a preview that no longer applies.
   useEffect(() => {
     if (pendingCodeId === undefined) return
     let cancelled = false
@@ -155,6 +165,7 @@ export function ReferralAgentField({
       })
     return () => {
       cancelled = true
+      onImpactChange?.(null)
     }
     // onImpactChange is the parent's setter and is not part of the query.
     // eslint-disable-next-line react-hooks/exhaustive-deps

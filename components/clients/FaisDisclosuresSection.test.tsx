@@ -111,4 +111,17 @@ describe("FaisDisclosuresSection", () => {
     expect(text).toContain("SecondClient")
     expect(text).not.toContain("FirstClient")
   })
+
+  it("shows Loading, not the previous client's records, while the next client loads", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) =>
+      url.includes("/c1/") ? Promise.resolve(reply([record("r1", "FirstClient")])) : new Promise(() => undefined)))
+
+    const renderer = await render("c1")
+    expect(renderedText(renderer)).toContain("FirstClient")
+    await act(async () => { renderer.update(<FaisDisclosuresSection clientId="c2" />) })
+
+    const text = renderedText(renderer)
+    expect(text).toContain("Loading")
+    expect(text).not.toContain("FirstClient")
+  })
 })

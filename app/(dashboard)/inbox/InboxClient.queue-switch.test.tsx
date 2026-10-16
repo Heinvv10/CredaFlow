@@ -1,5 +1,8 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
+import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { QueuePanel as QueuePanelComponent } from "./QueuePanel"
+import type { ThreadView as ThreadViewComponent } from "./ThreadView"
 
 const listMock = vi.fn()
 const threadMock = vi.fn()
@@ -11,18 +14,14 @@ vi.mock("./api-client", async (importOriginal) => ({
     thread: (id: string) => threadMock(id),
   },
 }))
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let queuePanelProps: Record<string, any> | null = null
+let queuePanelProps: ComponentProps<typeof QueuePanelComponent> | null = null
 vi.mock("./QueuePanel", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  QueuePanel: (p: any) => { queuePanelProps = p; return null },
+  QueuePanel: (p: ComponentProps<typeof QueuePanelComponent>) => { queuePanelProps = p; return null },
 }))
 vi.mock("./ContactPanel", () => ({ ContactPanel: () => null }))
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let threadViewProps: Record<string, any> | null = null
+let threadViewProps: ComponentProps<typeof ThreadViewComponent> | null = null
 vi.mock("./ThreadView", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ThreadView: (p: any) => { threadViewProps = p; return null },
+  ThreadView: (p: ComponentProps<typeof ThreadViewComponent>) => { threadViewProps = p; return null },
 }))
 
 import { InboxClient } from "./InboxClient"

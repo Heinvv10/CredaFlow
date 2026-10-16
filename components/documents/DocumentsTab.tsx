@@ -115,6 +115,14 @@ export function DocumentsTab({
     }
   }, [clientId])
 
+  // A different client shows the spinner until its own documents arrive, as
+  // fetchDocs did when it ran on every client change.
+  const [prevClientId, setPrevClientId] = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
   // `ignore` drops a response that lands after the client changed or the tab
   // unmounted.
   useEffect(() => {
