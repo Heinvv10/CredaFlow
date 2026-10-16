@@ -90,6 +90,9 @@ function validInput(overrides: Partial<PrepareApplicationInput> = {}): PrepareAp
     purpose: "Debt consolidation",
     purposeDetails: "",
     loanPurposeCategory: "DEBT_CONSOLIDATION",
+    poNumber: "",
+    poBuyerName: "",
+    poDocumentId: "",
     monthlyInstalment: "",
     firstInstalment: "",
     totalInterest: "",
@@ -547,12 +550,12 @@ describe("prepareApplicationFields — credit-life election evidence", () => {
 // the lender API share this path, so it enforces the order facts for both.
 describe("prepareApplicationFields — PO funding", () => {
   const PO_ROW = { ...PRODUCT_ROW, id: "p-po", name: "Purchase Order Funding", code: "POFUND", productType: "PO_FUNDING" }
-  const poInput = (over: Record<string, unknown> = {}) => validInput({
+  const poInput = (over: Partial<PrepareApplicationInput> = {}) => validInput({
     productId: "p-po",
     loanPurposeCategory: "BUSINESS",
-    ...({ poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po" } as object),
+    poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
     ...over,
-  } as Partial<PrepareApplicationInput>)
+  })
 
   beforeEach(() => {
     loanProductFindManyMock.mockResolvedValue([PRODUCT_ROW, PO_ROW])
@@ -560,11 +563,20 @@ describe("prepareApplicationFields — PO funding", () => {
   })
 
   it("refuses a PO-funding application without the purchase order facts", async () => {
-    const result = await prepareApplicationFields(poInput({ poNumber: undefined }), "t1", "u1", { action: "create" })
+    const result = await prepareApplicationFields(poInput({ poNumber: "" }), "t1", "u1", { action: "create" })
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error("expected refusal")
-    expect(result.status).toBe(422)
-    expect(result.body.error).toMatch(/purchase order number/i)
+    // The wizard's own Step 2 rule, run server-side, names the field.
+    expect(result.status).toBe(400)
+    expect(result.body.errors?.poNumber).toMatch(/purchase order number/i)
+  })
+
+  it("refuses an API body that omits the PO fields altogether", async () => {
+    const { poNumber: _n, poBuyerName: _b, poDocumentId: _d, ...bare } = poInput() as unknown as Record<string, unknown>
+    const result = await prepareApplicationFields(bare as unknown as PrepareApplicationInput, "t1", "u1", { action: "create" })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error("expected refusal")
+    expect(result.body.errors).toEqual(expect.objectContaining({ poNumber: expect.any(String), poDocumentId: expect.any(String) }))
   })
 
   it("refuses a consumer purpose for PO funding", async () => {
@@ -592,7 +604,7 @@ describe("prepareApplicationFields — PO funding", () => {
 
   it("stores no order facts on a consumer product", async () => {
     const result = await prepareApplicationFields(
-      validInput({ ...({ poNumber: "PO-1" } as object) } as Partial<PrepareApplicationInput>), "t1", "u1", { action: "create" },
+      validInput({ poNumber: "PO-1" }), "t1", "u1", { action: "create" },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error("expected success")

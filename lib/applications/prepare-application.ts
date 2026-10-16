@@ -43,10 +43,6 @@ export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount
   creditLifeInsurerName?: unknown
   creditLifeMonthlyPremiumCents?: unknown
   creditLifeDisclosureVersion?: unknown
-  /** PO funding facts (lib/applications/po-funding.ts); required for a PO_FUNDING product. */
-  poNumber?: unknown
-  poBuyerName?: unknown
-  poDocumentId?: unknown
 }
 
 interface DebtSnapshotEntry {

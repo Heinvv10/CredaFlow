@@ -105,8 +105,8 @@ suite("PO funding (real database)", () => {
     }))
 
     const refused = await post(body)
-    expect(refused.status).toBe(422)
-    expect(JSON.stringify(await refused.json())).toMatch(/purchase order number/i)
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toMatchObject({ errors: { poNumber: expect.stringMatching(/purchase order number/i) } })
 
     const documentId = await poDocument()
     const created = await post({ ...body, poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: documentId })
