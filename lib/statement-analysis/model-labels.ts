@@ -27,8 +27,9 @@ import { VlmUnavailableError } from "./vlm-reader"
  * the 95% gate: 2026-10-15, prompt labels-p2, one run per key: 90.3%, 67.1%,
  * 67.1% (the local model is not deterministic at temperature 0 and in two
  * runs put a high-volume non-credit key in CREDIT_INSTALMENT). 2026-10-16,
- * labels-p3x3 (the vote, NEVER_APPLIED) with categoriser-v3: 91.5%, 91.5%,
- * 91.4%; rules alone 90.2%. Stable now, but the model leaves most of the
+ * labels-p3x3 (the vote, NEVER_APPLIED) with categoriser-v3 as of 5a661d3b,
+ * before abstention and the v3 word removals: 91.5%, 91.5%, 91.4%; rules
+ * alone 90.2%. Stable now, but the model leaves most of the
  * misses (living spend the rules do not see) where they are, so the
  * background step stays off until a run passes the gate. (An object only so
  * tests can turn it on.)
@@ -59,7 +60,8 @@ export const NEVER_APPLIED: readonly Category[] = ["CREDIT_INSTALMENT", "GAMBLIN
  * local model is not deterministic at temperature 0, and its answer for a key
  * can depend on its neighbours. A living category (what EXPENSE_UNDERSTATED
  * counts) stands only when every run that answered agrees; any other only on
- * a majority of them. A batch refused or answered with garbage abstains, and a
+ * a majority of them. A batch refused, or answered with no labels object,
+ * abstains (a key missing from a labels object is a vote for UNCATEGORISED), and a
  * key with fewer than a majority of VOTE_RUNS answers is UNCATEGORISED.
  * Cost: a read holds the one-at-a-time read queue for VOTE_RUNS times the
  * requests of one run (a hung model still trips the backoff on the first).
