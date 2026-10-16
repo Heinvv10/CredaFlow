@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { matchesCentsAmount, matchesRandAmount } from "./list-search"
+import { matchesCentsAmount, matchesEveryWord, matchesRandAmount } from "./list-search"
 
 describe("matchesCentsAmount", () => {
   const R50 = 5_000
@@ -137,5 +137,31 @@ describe("matchesCentsAmount accepts both money formats the app renders", () => 
   // query does not name.
   it("refuses rather than reading a bad group as a larger amount", () => {
     expect(matchesCentsAmount("1,5000", 1_500_000)).toBe(false)
+  })
+})
+
+// Fair Score audit (2026-10-16): the claim client search found nothing for
+// "Lerato Mah" (first name plus the start of the surname) and only worked on
+// the email address. Every word must match some field, in any order.
+describe("matchesEveryWord", () => {
+  const lerato = ["Lerato", "Mahlangu", "lerato.m@client.invalid"]
+
+  it("matches a first name with the start of the surname", () => {
+    expect(matchesEveryWord("Lerato Mah", lerato)).toBe(true)
+    expect(matchesEveryWord("  lerato   MAH ", lerato)).toBe(true)
+  })
+
+  it("matches the words in either order, and a single word as before", () => {
+    expect(matchesEveryWord("Mahlangu Lerato", lerato)).toBe(true)
+    expect(matchesEveryWord("mahl", lerato)).toBe(true)
+    expect(matchesEveryWord("lerato.m@client", lerato)).toBe(true)
+  })
+
+  it("refuses when any word matches nothing", () => {
+    expect(matchesEveryWord("Lerato Dlamini", lerato)).toBe(false)
+  })
+
+  it("matches everything for an empty query", () => {
+    expect(matchesEveryWord("   ", lerato)).toBe(true)
   })
 })
