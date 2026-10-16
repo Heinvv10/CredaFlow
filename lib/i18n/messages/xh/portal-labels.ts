@@ -19,6 +19,7 @@ export const portalLabels: Catalog["portalLabels"] = {
   status_PARTIAL: "INXALENYE",
   status_UPCOMING: "EZAYO",
   status_DUE: "EFANELE IHLAWULWE",
+  status_PARTIAL_OVERDUE: "INXALENYE · IDLULE IXESHA",
   status_PAID: "IHLAWULIWE",
   status_OVERDUE: "IDLULE IXESHA",
   status_LAPSED: "IPHELILE",

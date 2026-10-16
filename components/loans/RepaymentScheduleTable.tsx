@@ -6,7 +6,7 @@ import { formatZAR, formatDate } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
-import { scheduleDisplayStatus } from "@/lib/loan/schedule-status"
+import { SCHEDULE_STATUS_TEXT, scheduleDisplayStatus } from "@/lib/loan/schedule-status"
 import { AlertTriangle, RotateCcw, Loader2 } from "lucide-react"
 import {
   Table,
@@ -47,6 +47,7 @@ const STATUS_BADGE: Record<string, string> = {
   UPCOMING:   "bg-gray-100 text-gray-800",
   DUE:        "bg-amber-100 text-amber-800",
   PARTIAL:    "bg-amber-100 text-amber-800",
+  PARTIAL_OVERDUE: "bg-red-100 text-red-800",
   PAID:       "bg-green-100 text-green-800",
   OVERDUE:    "bg-red-100 text-red-800",
   WRITTEN_OFF:"bg-gray-100 text-gray-500",
@@ -136,7 +137,7 @@ export function RepaymentScheduleTable({
                 </TableCell>
                 <TableCell>
                   <Badge className={STATUS_BADGE[shown] ?? "bg-gray-100 text-gray-800"}>
-                    {statusLabels[shown] ?? shown}
+                    {statusLabels[shown] ?? SCHEDULE_STATUS_TEXT[shown] ?? shown}
                   </Badge>
                 </TableCell>
                 <TableCell>

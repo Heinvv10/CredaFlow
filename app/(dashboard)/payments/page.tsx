@@ -120,7 +120,8 @@ async function getData(period: Period, now: Date) {
       : Promise.resolve(null),
     // Overdue schedule items
     prisma.repaymentSchedule.findMany({
-      where: { tenantId, status: { in: ["OVERDUE", "PARTIAL"] }, dueDate: { lt: now } },
+      // Read from the due date: writers store an unpaid row PENDING.
+      where: { tenantId, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] }, dueDate: { lt: now } },
       orderBy: { dueDate: "asc" },
       take: 50,
       include: {

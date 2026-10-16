@@ -23,6 +23,7 @@ export const portalLabels = {
   status_PARTIAL: "PARTIAL",
   status_UPCOMING: "UPCOMING",
   status_DUE: "DUE",
+  status_PARTIAL_OVERDUE: "PARTIAL · OVERDUE",
   status_PAID: "PAID",
   status_OVERDUE: "OVERDUE",
   status_LAPSED: "LAPSED",

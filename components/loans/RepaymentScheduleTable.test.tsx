@@ -22,7 +22,7 @@ describe("RepaymentScheduleTable", () => {
     )
     const shown = badges(html)
     expect(shown).toHaveLength(18)
-    expect(shown[4]).toContain("PARTIAL")
+    expect(shown[4]).toContain("PARTIAL · OVERDUE")
     for (const cell of shown.slice(5)) {
       expect(cell).toContain("UPCOMING")
       expect(cell).not.toContain("PARTIAL")

@@ -17,7 +17,7 @@ import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
 import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
-import { scheduleDisplayStatus } from "@/lib/loan/schedule-status"
+import { scheduleDisplayStatus, scheduleStatusTone } from "@/lib/loan/schedule-status"
 import type { Locale } from "@/lib/i18n/locales"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
@@ -214,8 +214,9 @@ function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
             <tbody>
               {loan.repaymentSchedule.map((s, i) => {
                 const shown = scheduleDisplayStatus(s, now)
-                const isPaid = s.status === "PAID"
-                const isOverdue = s.status === "OVERDUE"
+                const tone = scheduleStatusTone(shown)
+                const isPaid = shown === "PAID"
+                const isOverdue = tone === "danger"
                 const isNext = !isPaid && !isOverdue && i === loan.repaymentSchedule.findIndex(
                   x => x.status === "PENDING" || x.status === "PARTIAL"
                 )
@@ -234,7 +235,7 @@ function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         isPaid ? "bg-green-100 text-green-700" :
                         isOverdue ? "bg-red-100 text-red-700" :
-                        shown === "PARTIAL" || shown === "DUE" ? "bg-amber-100 text-amber-700" :
+                        tone === "warning" ? "bg-amber-100 text-amber-700" :
                         "bg-gray-100 text-gray-600"
                       }`}>
                         {statusLabel(l, shown)}

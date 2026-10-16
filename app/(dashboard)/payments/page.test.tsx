@@ -23,6 +23,7 @@ const calls = vi.hoisted(() => ({
   clientProps: null as Record<string, unknown> | null,
   notified: [] as Array<Record<string, unknown>>,
   notifiedProps: null as Record<string, unknown> | null,
+  schedule: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -41,7 +42,7 @@ vi.mock("@/lib/prisma", () => ({
         return { _sum: { amount: 123400 }, _count: 2 }
       }),
     },
-    repaymentSchedule: { findMany: vi.fn(async () => []) },
+    repaymentSchedule: { findMany: vi.fn(async (args: Record<string, unknown>) => { calls.schedule.push(args); return [] }) },
     paymentNotification: { findMany: vi.fn(async () => calls.notified) },
   },
 }))
@@ -180,5 +181,17 @@ describe("payments page — client-notified payments (Fair Score audit B7)", () 
     const html = await render({ period: "today" })
     expect(html).not.toContain("client-notified payment")
     expect(calls.notifiedProps).toEqual({ items: [] })
+  })
+})
+
+describe("payments page — overdue strip", () => {
+  // Writers store an unpaid row PENDING, so "overdue" is read from the due
+  // date: every unpaid status past due, not only a stored OVERDUE/PARTIAL.
+  it("lists past-due rows whatever unpaid status they are stored with", async () => {
+    calls.schedule = []
+    await render({ period: "today" })
+    const where = calls.schedule[0].where as { status: { in: string[] }; dueDate: { lt: Date } }
+    expect(where.status.in.sort()).toEqual(["OVERDUE", "PARTIAL", "PENDING"])
+    expect(where.dueDate.lt).toBeInstanceOf(Date)
   })
 })
