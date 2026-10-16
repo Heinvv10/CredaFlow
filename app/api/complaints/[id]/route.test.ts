@@ -232,6 +232,16 @@ describe("PATCH /api/complaints/[id]", () => {
     expect(complaints[0]).toMatchObject({ status: "RESOLVED", acknowledgedAt: expect.any(Date), resolvedAt: expect.any(Date) })
   })
 
+  it("acknowledges a complaint closed straight from Open", async () => {
+    await patch("complaint-a", { status: "CLOSED" })
+    expect(complaints[0]).toMatchObject({ status: "CLOSED", acknowledgedAt: expect.any(Date) })
+  })
+
+  it("does not acknowledge on an escalation alone", async () => {
+    await patch("complaint-a", { status: "ESCALATED" })
+    expect(complaints[0]).toMatchObject({ status: "ESCALATED", acknowledgedAt: null })
+  })
+
   it("answers 400 to a resolvedAt that is null or not a date, writing nothing", async () => {
     // new Date(null) is 1970-01-01: stored, it would falsify the complaint's timing record.
     for (const resolvedAt of [null, "not-a-date", 0]) {

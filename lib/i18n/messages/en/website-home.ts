@@ -16,7 +16,7 @@ export const websiteHome = {
   protection1: "An NCA affordability assessment before any credit offer, so you are not lent more than you can responsibly repay.",
   protection2: "A written pre-agreement statement and quote disclosing the amount, term, interest rate and fees before you sign anything.",
   protection3: "POPIA-aware handling of your documents and personal data, with the right to request access, correction or deletion where the law allows.",
-  protection4: "A structured complaints route: to us first, then, if a matter is unresolved, to the Credit Ombud or the National Credit Regulator (and the FAIS Ombud for insurance advice).",
+  protection4: "A structured complaints route: to us first, then, if a matter is unresolved, to the Credit Ombud or the National Credit Regulator; for insurance, to the National Financial Ombud (policies and claims) or the FAIS Ombud (advice).",
   rangeFixed: "{min}–{max} over {term} {unit}.",
   rangeVariable: "{min}–{max} over {minTerm}–{maxTerm} {unit}.",
   unitDays: "days",

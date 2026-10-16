@@ -69,7 +69,7 @@ const sections = (identity: Pick<LenderIdentity, "tradingName" | "legalName" | "
   {
     heading: "6. Complaints",
     body: [
-      "If something goes wrong, we want to put it right. Lodge a complaint with us first, through our contact page. If we do not resolve it, you can take a credit complaint to the Credit Ombud or the National Credit Regulator, which can refer a matter to the National Consumer Tribunal; complaints about insurance or financial advice go to the FAIS Ombud.",
+      "If something goes wrong, we want to put it right. Lodge a complaint with us first, through our contact page. If we do not resolve it, you can take a credit complaint to the Credit Ombud or the National Credit Regulator, which can refer a matter to the National Consumer Tribunal; complaints about an insurance policy or claim go to the National Financial Ombud, and complaints about the advice or service of a financial intermediary to the FAIS Ombud.",
     ],
     links: [{ label: "Lodge a complaint", href: "/site/contact#complaints" }],
   },

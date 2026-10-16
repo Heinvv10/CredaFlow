@@ -43,7 +43,7 @@ export const websiteContact = {
   faqMethodAWhatsapp: "Use WhatsApp or phone for quick questions, email for documents or detailed queries, and the form on this page for a tracked enquiry. To apply for a loan, use the eligibility check and online application instead.",
   faqMethodAPhone: "Use phone for quick questions, email for documents or detailed queries, and the form on this page for a tracked enquiry. To apply for a loan, use the eligibility check and online application instead.",
   faqComplaintQ: "How do I lodge a complaint?",
-  faqComplaintA: "Use the form above and mark your enquiry as a complaint: we acknowledge it and give you a reference number. If we have not resolved it, you can take a credit complaint to the Credit Ombud or the National Credit Regulator (NCR), which can refer a matter to the National Consumer Tribunal. Complaints about insurance or financial advice go to the FAIS Ombud.",
+  faqComplaintA: "Use the form above and mark your enquiry as a complaint: we acknowledge it and give you a reference number. If we have not resolved it, you can take a credit complaint to the Credit Ombud or the National Credit Regulator (NCR), which can refer a matter to the National Consumer Tribunal. Complaints about an insurance policy or claim go to the National Financial Ombud; complaints about the advice or service of a financial intermediary go to the FAIS Ombud.",
   faqApplyQ: "Can I apply for a loan through this form?",
   faqApplyA: "No. Applications go through the eligibility check and online application path so we can capture POPIA-compliant consent and run the required affordability assessment.",
   faqWhereQ: "Where is {brand} based?",

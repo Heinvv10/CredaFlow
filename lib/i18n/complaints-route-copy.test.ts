@@ -17,4 +17,15 @@ describe("website complaints route", () => {
     const tribunal = text.indexOf("National Consumer Tribunal")
     if (tribunal !== -1) expect(tribunal).toBeGreaterThan(ombud)
   })
+
+  // #147 review: policy and claim complaints go to the National Financial
+  // Ombud; the FAIS Ombud hears advice and intermediary-service complaints.
+  it.each([
+    ["home protection4", websiteHome.protection4],
+    ["contact FAQ", websiteContact.faqComplaintA],
+  ])("sends insurance complaints to the right ombud (%s)", (_label, text) => {
+    const clauses = text.split(/[.;]/)
+    expect(clauses.find((c) => c.includes("National Financial Ombud"))).toMatch(/polic|claim/)
+    expect(clauses.find((c) => c.includes("FAIS Ombud"))).toMatch(/advice/)
+  })
 })
