@@ -4,6 +4,8 @@ import { NextRequest } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
+// The lender's stored FSP licence number (TenantConfig.fscaNumber).
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
 const {
   findFirstClient,
   findFirstUser,
@@ -33,7 +35,7 @@ const {
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true }) },
+    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true, fscaNumber: fsp.number }) },
     client: { findFirst: findFirstClient },
     user: { findFirst: findFirstUser },
     insuranceProduct: { findFirst: findFirstProduct },
@@ -519,5 +521,23 @@ describe("POST /api/insurance/policies — premium schedule falls on the SAST 1s
     // — SAST midnight, i.e. 22:00Z on 31 August. Local arithmetic would produce
     // 2026-09-01T22:30Z, which reads as the 2nd in Johannesburg.
     expect(rows[0].dueDate.toISOString()).toBe("2026-08-31T22:00:00.000Z")
+  })
+})
+
+// §2a.2: no FSP number, no policy.
+describe("POST /api/insurance/policies — FSP number", () => {
+  it("refuses with 409 and the Settings hint when the lender holds no FSP number", async () => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    fsp.number = null
+    try {
+      const { POST } = await import("./route")
+      const res = await POST(makeRequest(buildValidBody()))
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+      expect(prismaTransaction).not.toHaveBeenCalled()
+    } finally {
+      fsp.number = "12345"
+    }
   })
 })

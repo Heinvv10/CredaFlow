@@ -18,7 +18,7 @@ export default async function PortalInsurancePage() {
   if (!session?.user?.email) redirect("/portal/login")
 
   const tenantId = await getPortalTenantId()
-  const { tradingName } = await getLenderIdentity(tenantId)
+  const { tradingName, fspNumber } = await getLenderIdentity(tenantId)
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
@@ -63,8 +63,10 @@ export default async function PortalInsurancePage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">Client Portal</p>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--cf-text)]">My Insurance</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--cf-text-muted)]">
-          Policies held in your name, including insurance attached to a loan. {tradingName} is a FAIS-authorised
-          intermediary — the insurer issues and prices the policy under its own terms.
+          Policies held in your name, including insurance attached to a loan.{" "}
+          {fspNumber
+            ? <>{tradingName} is a FAIS-authorised intermediary — the insurer issues and prices the policy under its own terms.</>
+            : <>The insurer issues and prices each policy under its own terms.</>}
         </p>
       </div>
 

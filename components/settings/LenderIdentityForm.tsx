@@ -36,7 +36,7 @@ const SECTIONS: { title: string; description: string; fields: FieldSpec[] }[] = 
       { key: "legalName", label: "Legal name", hint: "e.g. Example Lending (Pty) Ltd" },
       { key: "brandName", label: "Trading name", hint: "Used in customer emails, SMS and the portal" },
       { key: "ncrNumber", label: "NCR registration number", hint: "NCRCP followed by digits" },
-      { key: "fscaNumber", label: "FSP licence number", hint: "Digits only" },
+      { key: "fscaNumber", label: "FSP licence number (optional)", hint: "Digits only. Leave empty if you hold no FSP licence: insurance and every FAIS claim are then switched off" },
       { key: "companyRegNumber", label: "Company registration number", hint: "e.g. 2020/123456/07" },
       { key: "registeredOffice", label: "Registered office", hint: "One address line per line, up to 6", multiline: true },
     ],

@@ -32,4 +32,12 @@ describe("creditLifeOfferFindFirstArgs", () => {
       { id: "asc" },
     ])
   })
+
+  // #143 blind review (HIGH): a lender with no FSP number issues no insurance,
+  // so every place that presents or records an offer sees none.
+  it("offers nothing for a lender that holds no FSP number", () => {
+    expect(creditLifeOfferFindFirstArgs("tenant-1").where.tenant).toEqual({
+      config: { is: { AND: [{ fscaNumber: { not: null } }, { NOT: { fscaNumber: "" } }] } },
+    })
+  })
 })

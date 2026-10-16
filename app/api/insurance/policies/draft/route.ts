@@ -6,6 +6,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { lenderIdentityOrRefusal } from "@/lib/config/identity-response"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
+import { fspRefusal } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
 import { hashDraftToken, signDraftToken } from "@/lib/insurance/disclosure-token"
@@ -151,6 +152,8 @@ export async function POST(req: NextRequest) {
     // lender identity is not configured.
     const lender = await lenderIdentityOrRefusal(tenant.id)
     if (lender.refusal) return lender.refusal
+    const noFsp = fspRefusal(lender.identity)
+    if (noFsp) return noFsp
 
     const draftToken = signDraftToken({
       tenantId: tenant.id,

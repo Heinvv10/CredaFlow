@@ -6,6 +6,12 @@ import { NextRequest } from "next/server"
 // proxy.ts wraps its handler in the edge auth; with the wrapper as identity
 // the default export IS the handler, called here as an anonymous visitor.
 vi.mock("@/lib/auth-edge", () => ({ auth: (handler: unknown) => handler }))
+// The sitemap reads the identity: the insurance page is mapped only for a lender with an FSP number.
+const website = vi.hoisted(() => ({ fspNumber: "12345" as string | null }))
+vi.mock("@/lib/website/identity", async () => {
+  const { ACME_LENDER } = await import("@/lib/config/__fixtures__/lender-identity")
+  return { getWebsiteIdentity: async () => ({ ...ACME_LENDER, fspNumber: website.fspNumber }) }
+})
 
 import { DELETED_SITE_ROUTES, PUBLIC_SITE_ROUTES } from "./routes"
 import sitemap from "@/app/sitemap"
@@ -63,13 +69,25 @@ describe("public site route set", () => {
     expect(existsSync(path.join(APP, "(website)", "site", "page.tsx"))).toBe(false)
   })
 
-  it("the sitemap lists exactly the kept routes, on the deployment's own site URL", () => {
-    expect(sitemap().map((entry) => entry.url)).toEqual(PUBLIC_SITE_ROUTES.map((r) => `https://www.acme-lending.example${r === "/" ? "" : r}`))
+  it("the sitemap lists exactly the kept routes, on the deployment's own site URL", async () => {
+    expect((await sitemap()).map((entry) => entry.url)).toEqual(PUBLIC_SITE_ROUTES.map((r) => `https://www.acme-lending.example${r === "/" ? "" : r}`))
   })
 
-  it("the sitemap is empty, and robots names no host, when the site URL is not configured", () => {
+  // #143 blind review (LOW): the insurance page 404s without an FSP number.
+  it("leaves the insurance page out of the sitemap for a lender with no FSP number", async () => {
+    website.fspNumber = null
+    try {
+      const urls = (await sitemap()).map((entry) => entry.url)
+      expect(urls).not.toContain("https://www.acme-lending.example/site/products/insurance")
+      expect(urls).toContain("https://www.acme-lending.example/site/apply")
+    } finally {
+      website.fspNumber = "12345"
+    }
+  })
+
+  it("the sitemap is empty, and robots names no host, when the site URL is not configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_WEBSITE_URL", "")
-    expect(sitemap()).toEqual([])
+    expect(await sitemap()).toEqual([])
     const r = robots()
     expect(r.sitemap).toBeUndefined()
     expect(r.host).toBeUndefined()

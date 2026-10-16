@@ -25,7 +25,7 @@ function companyDetails(identity: LenderIdentity): ReadonlyArray<readonly [strin
     ["NCR status", identity.ncrStatus],
     ["NCR final registration date", identity.ncrRegistrationDate && formatIdentityDate(identity.ncrRegistrationDate)],
     ["FSP number", identity.fspNumber],
-    ["FSCA authorisation date", identity.fscaAuthorisationDate && formatIdentityDate(identity.fscaAuthorisationDate)],
+    ["FSCA authorisation date", identity.fspNumber && identity.fscaAuthorisationDate && formatIdentityDate(identity.fscaAuthorisationDate)],
     ["Country", "South Africa"],
   ]
   return rows.filter((row): row is [string, string] => row[1] !== null)
@@ -57,9 +57,10 @@ export default async function RegulatoryInformationPage() {
           <p className="mt-6 max-w-3xl text-lg leading-8 text-white/72">
             {identity.legalName} is a South African private company operating in the
             financial services and credit sector. The company is registered
-            with the National Credit Regulator as a credit provider and is
-            listed by the Financial Sector Conduct Authority as an authorised
-            financial services provider.
+            with the National Credit Regulator as a credit provider
+            {identity.fspNumber
+              ? " and is listed by the Financial Sector Conduct Authority as an authorised financial services provider."
+              : "."}
           </p>
         </div>
       </section>
@@ -74,7 +75,7 @@ export default async function RegulatoryInformationPage() {
           </div>
           <p className="mt-3 max-w-3xl text-base leading-7 text-white/64">
             Authoritative entity facts as recorded by the South African public
-            registers. Identifiers below match the FSCA and NCR records.
+            registers. Identifiers below match the {identity.fspNumber ? "FSCA and NCR records" : "NCR records"}.
           </p>
           <dl className="mt-8 grid gap-x-8 gap-y-4 border border-white/12 bg-white/[0.035] p-6 sm:grid-cols-2">
             {companyDetails(identity).map(([label, value]) => (
@@ -123,37 +124,40 @@ export default async function RegulatoryInformationPage() {
               is the authoritative source for this listing.
             </p>
           </article>
-          <article>
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="h-6 w-6 text-[#a5b4fc]" aria-hidden="true" />
-              <h2 className="text-2xl font-semibold tracking-tight text-white">
-                FSCA authorisation
-              </h2>
-            </div>
-            <p className="mt-4 text-base leading-7 text-white/68">
-              {identity.legalName} is listed by the Financial Sector Conduct Authority
-              as an authorised financial services provider under FSP number{" "}
-              <strong className="text-white">{identity.fspNumber}</strong>.
-              {identity.fscaAuthorisationDate && (
-                <>
-                  {" "}Authorisation was granted on{" "}
-                  <strong className="text-white">{formatIdentityDate(identity.fscaAuthorisationDate)}</strong>.
-                </>
-              )}
-            </p>
-            <p className="mt-3 text-base leading-7 text-white/60">
-              The FSCA FAIS register at{" "}
-              <a
-                href="https://www.fsca.co.za"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-[#a5b4fc] underline-offset-2 hover:underline"
-              >
-                fsca.co.za
-              </a>{" "}
-              is the authoritative source for this listing.
-            </p>
-          </article>
+          {/* No FSP number, no FSCA claim. */}
+          {identity.fspNumber && (
+            <article>
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="h-6 w-6 text-[#a5b4fc]" aria-hidden="true" />
+                <h2 className="text-2xl font-semibold tracking-tight text-white">
+                  FSCA authorisation
+                </h2>
+              </div>
+              <p className="mt-4 text-base leading-7 text-white/68">
+                {identity.legalName} is listed by the Financial Sector Conduct Authority
+                as an authorised financial services provider under FSP number{" "}
+                <strong className="text-white">{identity.fspNumber}</strong>.
+                {identity.fscaAuthorisationDate && (
+                  <>
+                    {" "}Authorisation was granted on{" "}
+                    <strong className="text-white">{formatIdentityDate(identity.fscaAuthorisationDate)}</strong>.
+                  </>
+                )}
+              </p>
+              <p className="mt-3 text-base leading-7 text-white/60">
+                The FSCA FAIS register at{" "}
+                <a
+                  href="https://www.fsca.co.za"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[#a5b4fc] underline-offset-2 hover:underline"
+                >
+                  fsca.co.za
+                </a>{" "}
+                is the authoritative source for this listing.
+              </p>
+            </article>
+          )}
         </div>
         <p className="mx-auto mt-10 max-w-5xl border border-white/8 bg-white/[0.025] p-5 text-sm leading-6 text-white/52">
           Public contact details and regulator-register addresses may differ.
