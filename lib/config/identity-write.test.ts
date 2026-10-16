@@ -82,7 +82,7 @@ describe("updateLenderIdentity", () => {
     expect(state.audit).toHaveLength(0)
   })
 
-  it.each(["legalName", "fscaNumber", "companyRegNumber", "publicEmail"] as const)(
+  it.each(["legalName", "companyRegNumber", "publicEmail"] as const)(
     "rejects a missing %s and persists nothing",
     async (field) => {
       const { db, state } = memoryDb(VALID_LENDER_COLUMNS)
@@ -116,6 +116,25 @@ describe("updateLenderIdentity", () => {
       expect(state.audit).toHaveLength(0)
     },
   )
+
+  // A lender that sells no insurance holds no FSP number (§2a.2). Clearing it
+  // is a statutory change like any other: confirmed (blank twice) and audited.
+  it("clears the FSP number when it is left blank and confirmed blank", async () => {
+    const { db, state } = memoryDb(VALID_LENDER_COLUMNS)
+    const result = await updateLenderIdentity(db, {
+      tenantId: "t1", actor: ACTOR, input: { ...CONFIRMED, fscaNumber: "", fscaNumberConfirm: "" },
+    })
+    expect(result).toMatchObject({ ok: true, changed: true })
+    expect(state.config).toMatchObject({ fscaNumber: null })
+    expect(state.audit[0].newValue).toEqual({ fscaNumber: null })
+  })
+
+  it("refuses to clear the FSP number without the blank confirmation", async () => {
+    const { db, state } = memoryDb(VALID_LENDER_COLUMNS)
+    const result = await updateLenderIdentity(db, { tenantId: "t1", actor: ACTOR, input: { ...CONFIRMED, fscaNumber: "" } })
+    expect(result).toMatchObject({ ok: false, errors: { fscaNumberConfirm: expect.any(String) } })
+    expect(state.config).toEqual(VALID_LENDER_COLUMNS)
+  })
 
   it("does not demand a confirmation when the statutory numbers are unchanged", async () => {
     const { db, state } = memoryDb(VALID_LENDER_COLUMNS)

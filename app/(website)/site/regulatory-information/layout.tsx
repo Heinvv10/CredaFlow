@@ -11,10 +11,11 @@ export async function generateMetadata(): Promise<Metadata> {
   const identity = await getWebsiteIdentity()
   return buildPageMetadata({
     identity,
-    title: "Regulatory Information — NCR & FSCA Details",
+    title: identity?.fspNumber ? "Regulatory Information — NCR & FSCA Details" : "Regulatory Information — NCR Details",
     description: identity
       ? `${identity.legalName} regulatory information. NCR registration ${identity.ncrNumber}, ` +
-        `FSP number ${identity.fspNumber}, company registration ${identity.companyRegNumber} and public contact details.`
+        (identity.fspNumber ? `FSP number ${identity.fspNumber}, ` : "") +
+        `company registration ${identity.companyRegNumber} and public contact details.`
       : "",
     path: "/site/regulatory-information",
   })

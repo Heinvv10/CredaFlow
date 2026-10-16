@@ -56,7 +56,9 @@ const sections = (identity: Pick<LenderIdentity, "tradingName" | "legalName" | "
   {
     heading: "4. Insurance enquiries",
     body: [
-      `Insurance is offered on an enquiry basis. ${identity.tradingName} acts as an authorised intermediary (FSP ${identity.fspNumber}); policies are issued and underwritten by the relevant insurer under that insurer's own terms, subject to an advisor suitability review.`,
+      identity.fspNumber
+        ? `Insurance is offered on an enquiry basis. ${identity.tradingName} acts as an authorised intermediary (FSP ${identity.fspNumber}); policies are issued and underwritten by the relevant insurer under that insurer's own terms, subject to an advisor suitability review.`
+        : `${identity.tradingName} does not offer insurance.`,
     ],
   },
   {
@@ -76,7 +78,7 @@ const sections = (identity: Pick<LenderIdentity, "tradingName" | "legalName" | "
   {
     heading: "7. Regulatory status",
     body: [
-      `${identity.legalName} is a registered credit provider (NCR Reg ${identity.ncrNumber}) and an authorised financial services provider (FSP ${identity.fspNumber}). Full regulatory details are available on our regulatory information page.`,
+      `${identity.legalName} is a registered credit provider (NCR Reg ${identity.ncrNumber})${identity.fspNumber ? ` and an authorised financial services provider (FSP ${identity.fspNumber})` : ""}. Full regulatory details are available on our regulatory information page.`,
     ],
     links: [{ label: "Regulatory information", href: "/site/regulatory-information" }],
   },

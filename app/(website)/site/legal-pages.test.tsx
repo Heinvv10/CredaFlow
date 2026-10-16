@@ -34,6 +34,19 @@ describe.each([
   })
 })
 
+// §2a.2: no FSP number, no FSP or FAIS claim on the legal pages.
+describe.each([
+  ["terms", TermsPage],
+  ["regulatory-information", RegulatoryInformationPage],
+] as const)("%s page for a lender with no FSP number", (_name, Page) => {
+  it("makes no FSP, FAIS or FSCA-authorisation claim", async () => {
+    const html = await render(Page, { ...ACME_LENDER, ...REGULATORY, fspNumber: null })
+    expect(html).toContain("NCRCP99999")
+    // "FAIS Ombud" as a complaints route is not a claim; authorisation is.
+    expect(html).not.toMatch(/\bFSP\b|FAIS[- ]authori|authorised financial services provider|FSCA authorisation/i)
+  })
+})
+
 describe("privacy page", () => {
   it("names the tenant's own privacy contact", async () => {
     const html = await render(PrivacyPage)

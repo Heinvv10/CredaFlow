@@ -137,6 +137,28 @@ describe("POST /api/insurance/policies/draft", () => {
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "INSURANCE_FAIS_DISCLOSURE_RENDERED" }))
   })
 
+  // §2a.2: no FAIS disclosure, and so no policy, without an FSP number.
+  it("refuses with 409 and the Settings hint when the lender holds no FSP number", async () => {
+    process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
+    rateCardConfigured()
+    findUniqueClient.mockResolvedValue(RATEABLE_CLIENT)
+    findUniqueAdvisor.mockResolvedValue({ id: "u1", name: "Bongani Zulu" })
+    findUniqueProduct.mockResolvedValue({ id: "p1", type: "FUNERAL_COVER", name: "Family Funeral Cover" })
+    lenderIdentityMock.mockImplementationOnce(async () => {
+      const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
+      const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
+      return { identity: parseLenderIdentity({ ...VALID_LENDER_COLUMNS, fscaNumber: null }) }
+    })
+    const res = await POST(new NextRequest("http://localhost/api/insurance/policies/draft", {
+      method: "POST",
+      body: JSON.stringify({ clientId: "c1", advisorId: "u1", productId: "p1", type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420 }),
+      headers: { "content-type": "application/json" },
+    }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
   it("returns 404 when client is in a different tenant", async () => {
     findUniqueClient.mockResolvedValue(null)
     const req = new NextRequest("http://localhost/api/insurance/policies/draft", {

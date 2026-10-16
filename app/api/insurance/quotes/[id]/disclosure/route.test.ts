@@ -246,6 +246,18 @@ describe("POST quote disclosure — no document for cover that cannot be sold", 
     assertNoArtefact()
   })
 
+  it("refuses with 409 and the Settings hint, audited, when the lender holds no FSP number", async () => {
+    const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity-schema")>("@/lib/config/identity-schema")
+    const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
+    lenderIdentityMock.mockResolvedValueOnce(parseLenderIdentity({ ...VALID_LENDER_COLUMNS, fscaNumber: null }))
+    const res = await POST(req(), ctx)
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ reason: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+    expect(JSON.stringify(vi.mocked(logAudit).mock.calls)).toContain("LENDER_FSP_NOT_CONFIGURED")
+    expect(updateManyQuote).not.toHaveBeenCalled()
+    assertNoArtefact()
+  })
+
   it("issues for a quote still inside its window", async () => {
     findFirstQuote.mockResolvedValue({ ...QUOTE, expiresAt: new Date("2099-01-01T00:00:00Z") })
     const res = await POST(req(), ctx)
