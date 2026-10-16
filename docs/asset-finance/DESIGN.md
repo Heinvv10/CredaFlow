@@ -377,8 +377,11 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Connection** (`IsaFlowConnection`, one per tenant). Connect, verify and disconnect go through
   `superAdminPolicyWrite` (a TOTP-verified SUPER_ADMIN, re-checked on the locked row).
   - The IsaFlow calls (`list_companies` for the bound company id, `list_gl_accounts` to prove
-    `read:reports`) run in its `prepare` step, before the write's transaction. `company_profile` has
-    no id.
+    `read:reports`) run in its `prepare` step, before the write's transaction. They write nothing:
+    a refusal, and a token IsaFlow no longer takes, are recorded inside the write, after the role
+    re-check. `company_profile` has no id.
+  - A token IsaFlow refuses on any path (verify, chart read, send, read-back) moves the connection
+    to NEEDS_RECONNECT, drops the token and writes an `ISAFLOW_NEEDS_RECONNECT` audit row.
   - The token is sealed with `sealCredential` and opened strictly. It is never returned and never
     audited.
   - The base URL must be an origin listed in `ISAFLOW_ALLOWED_ORIGINS`. An https origin must
@@ -412,6 +415,8 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   - request, hash, key, reference and IsaFlow company are immutable;
   - the journal id is written once, and PUSHED needs one;
   - NEEDS_REVIEW may go back to SENDING. That is safe only because the request and key never change.
+  - a claim starts with no journal id, resolver, note or read-back flag, and is made by a user of the
+    tenant; leaving review other than by a resend names a resolver of the tenant;
   - DELETE and TRUNCATE are refused.
 - **Known limits.**
   - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
