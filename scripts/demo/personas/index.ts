@@ -12,16 +12,27 @@ import type { Persona, Storyline } from './types'
 
 export type { Persona, Storyline } from './types'
 
-/** How many background personas each storyline gets, in roster order. */
+/**
+ * How many background personas each storyline gets, in roster order. A
+ * storyline may appear more than once: the ids (bg-NN) follow roster order and
+ * other modules name personas by id, so a persona moved to another storyline
+ * keeps its place. Fewer, smaller loans are in arrears than the roster first
+ * had (bg-20, bg-22, bg-23, bg-24 and bg-26 are 'active'; bg-30's micro loan
+ * is the 90-day arrears), so the book a prospect sees has PAR30 under 15% and
+ * defaults a small minority (Fair Score audit, scripts/demo/simulate/plan.test.ts).
+ */
 export const BACKGROUND_PLAN: ReadonlyArray<readonly [Storyline, number]> = [
   ['settled', 6],
   ['active', 8],
-  ['arrears-30', 3],
-  ['arrears-60', 2],
-  ['arrears-90', 2],
-  ['s129', 2],
+  ['arrears-30', 2],
+  ['active', 1],
+  ['arrears-60', 1],
+  ['active', 3],
+  ['s129', 1],
+  ['active', 1],
   ['payment-plan', 2],
-  ['written-off', 2],
+  ['written-off', 1],
+  ['arrears-90', 1],
   ['declined', 4],
   ['withdrawn', 2],
   ['origination-draft', 2],
