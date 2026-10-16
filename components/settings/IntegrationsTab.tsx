@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -45,6 +45,18 @@ interface LogEntry {
   createdAt: string
 }
 
+async function fetchConfig(): Promise<IntegrationConfig | null> {
+  const res = await fetch("/api/settings/integrations")
+  return res.ok ? ((await res.json()) as IntegrationConfig) : null
+}
+
+async function fetchLogs(): Promise<LogEntry[] | null> {
+  const res = await fetch("/api/settings/integrations?logs=true")
+  if (!res.ok) return null
+  const data = (await res.json()) as { logs?: LogEntry[] }
+  return data.logs ?? null
+}
+
 export function IntegrationsTab() {
   const [config, setConfig] = useState<IntegrationConfig | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -65,28 +77,27 @@ export function IntegrationsTab() {
   })
   const [savingCollections, setSavingCollections] = useState(false)
 
-  const loadConfig = useCallback(async () => {
-    const res = await fetch("/api/settings/integrations")
-    if (res.ok) {
-      const data = await res.json()
-      setConfig(data)
-      setCollectionsForm((prev) => ({
-        ...prev,
-        collectionProvider: data.collectionProvider ?? "",
-        collectionsEngineEnabled: data.collectionsEngineEnabled ?? false,
-      }))
-    }
-  }, [])
+  function applyConfig(data: IntegrationConfig) {
+    setConfig(data)
+    setCollectionsForm((prev) => ({
+      ...prev,
+      collectionProvider: data.collectionProvider ?? "",
+      collectionsEngineEnabled: data.collectionsEngineEnabled ?? false,
+    }))
+  }
 
-  const loadLogs = useCallback(async () => {
-    const res = await fetch("/api/settings/integrations?logs=true")
-    if (res.ok) {
-      const data = await res.json()
-      if (data.logs) setLogs(data.logs)
-    }
-  }, [])
+  // Used after a save; the mount effect applies the same fetch with an ignore flag.
+  async function loadConfig() {
+    const data = await fetchConfig()
+    if (data) applyConfig(data)
+  }
 
-  useEffect(() => { loadConfig(); loadLogs() }, [loadConfig, loadLogs])
+  useEffect(() => {
+    let ignore = false
+    void fetchConfig().then((data) => { if (!ignore && data) applyConfig(data) })
+    void fetchLogs().then((entries) => { if (!ignore && entries) setLogs(entries) })
+    return () => { ignore = true }
+  }, [])
 
   async function handleSave(field: keyof typeof form) {
     if (!form[field]) return
