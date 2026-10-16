@@ -12,8 +12,10 @@
  * static-image.test.ts: adding a file there fails that test until it is listed.
  */
 export const PUBLIC_IMAGE_FILES: readonly string[] = [
+  "/apple-touch-icon.png",
   "/file.svg",
   "/globe.svg",
+  "/icon.svg",
   "/next.svg",
   "/vercel.svg",
   "/window.svg",

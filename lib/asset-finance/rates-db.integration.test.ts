@@ -143,7 +143,7 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
       sql(insert)
       const id = idOf(insert)
       for (const set of [`"rate" = 0.2`, `"basis" = 'REPO'`, `"effectiveDate" = '2026-01-07'`, `"tenantId" = '${otherTenant}'`, `"requestedById" = '${approverId}'`]) {
-        expectRejected(`UPDATE "ReferenceRate" SET ${set} WHERE "id" = '${id}'`, "value, basis, date, tenant and requester never change")
+        expectRejected(`UPDATE "ReferenceRate" SET ${set} WHERE "id" = '${id}'`, "value, basis, date, tenant, source and requester never change")
       }
       sql(approve(id))
       expectRejected(`UPDATE "ReferenceRate" SET "status" = 'REJECTED' WHERE "id" = '${id}'`, "A APPROVED reference rate is immutable")

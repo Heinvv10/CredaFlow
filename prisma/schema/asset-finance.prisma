@@ -163,6 +163,13 @@ enum ReferenceRateStatus {
   REJECTED
 }
 
+// Who recorded a reference rate: a user (MANUAL) or the SARB public feed
+// (SARB_FEED, lib/asset-finance/rate-feed-sync.ts).
+enum ReferenceRateSource {
+  MANUAL
+  SARB_FEED
+}
+
 // A dated reference rate per tenant (DESIGN D4). A value applies from its
 // effectiveDate until the next APPROVED one for the same basis. Four-eyes:
 // recorded PENDING by one user, APPROVED or REJECTED by another; only APPROVED
@@ -171,7 +178,10 @@ enum ReferenceRateStatus {
 // date) is the hand-written partial unique index ReferenceRate_live_key;
 // the rate band, born-PENDING, decision completeness, four-eyes and
 // immutability rules are hand-written too (migration
-// 20261013100000_asset_finance_rates_vat).
+// 20261013100000_asset_finance_rates_vat). A SARB_FEED value has no requester
+// (requestedById NULL, CHECK ReferenceRate_requester_source: a MANUAL value
+// has one and only a MANUAL value does; migration 20261016130000); a user
+// decides it like any other.
 model ReferenceRate {
   id            String              @id @default(cuid())
   tenantId      String
@@ -181,8 +191,9 @@ model ReferenceRate {
   // Annual nominal rate as a decimal: 0.1175 = 11.75%.
   rate          Decimal             @db.Decimal(9, 6)
   status        ReferenceRateStatus @default(PENDING)
-  requestedById String
-  requestedBy   User                @relation("ReferenceRatesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  source        ReferenceRateSource @default(MANUAL)
+  requestedById String?
+  requestedBy   User?               @relation("ReferenceRatesRequested", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedById   String?
   decidedBy     User?               @relation("ReferenceRatesDecided", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   decidedAt     DateTime?
