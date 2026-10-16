@@ -4,12 +4,12 @@
  * books, ./asset-finance-leases-servicing.ts services) on the entities and
  * people of ./asset-finance.ts, after its instalment deals:
  *
- *   1. TEST Earthmoving (Pty) Ltd: full-maintenance lease of a TLB, maintenance
+ *   1. Ridgeback Earthmoving (Pty) Ltd: full-maintenance lease of a TLB, maintenance
  *      risk with the lender; three rentals paid and invoiced; two maintenance
  *      claims (one paid, one submitted) and three meter readings.
  *   2. TEST sole proprietor (a Client): operating lease of a registered bakkie,
  *      CPA applies; an early-termination quote, QUOTED and not accepted.
- *   3. TEST Family Farming Trust: full-maintenance lease of a forklift, fund
+ *   3. Botha Family Farming Trust: full-maintenance lease of a forklift, fund
  *      settled by the lessee; a 5-rental term, so the end-of-term choice is
  *      open at booking: RETURN elected; the inspection waits for the term's end.
  *
