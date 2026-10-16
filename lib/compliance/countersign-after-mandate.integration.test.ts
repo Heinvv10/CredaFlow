@@ -80,6 +80,6 @@ suite("provider countersignature after the borrower signed the debit mandate", (
     await expect(update(scenario, {
       ...scenario.countersign,
       debitMandateSignatureData: "A different customer signature",
-    })).rejects.toThrow()
+    })).rejects.toThrow(/immutable/)
   })
 })

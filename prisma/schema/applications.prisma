@@ -171,6 +171,7 @@ model LoanApplication {
   approvedBy                              User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementCountersignedBy                User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementSignedBy                       User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  disbursedBy                             User?                @relation("DisbursedBy", fields: [tenantId, disbursedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_debitMandateReference_key, created by the baseline
   // migration.

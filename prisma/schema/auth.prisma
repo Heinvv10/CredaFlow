@@ -54,6 +54,7 @@ model User {
   assignedLoans                LoanApplication[]                     @relation("AssignedTo")
   auditLogs                    AuditLog[]
   branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
+  disbursedApplications        LoanApplication[]                     @relation("DisbursedBy")
   bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
   coiDeclarations              CoiDeclaration[]

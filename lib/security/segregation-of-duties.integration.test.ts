@@ -90,4 +90,84 @@ suite("segregation of duties in the database", () => {
       expect(await countersign(scenario, "officer")).toEqual({ agreementCountersignedById: scenario.officerId })
     })
   })
+
+  describe("on insert", () => {
+    it("refuses a consumer application inserted countersigned by its own branch witness while the setting is on", async () => {
+      await expect(createApprovedApplication({
+        signing: "countersigned", consumerSignedBy: { branchWitness: "officer" }, countersignedBy: "officer", requireSegregationOfDuties: true,
+      })).rejects.toThrow(WITNESS_COUNTERSIGNS)
+    })
+
+    it("admits the same insert while the setting is off", async () => {
+      const scenario = await createApprovedApplication({
+        signing: "countersigned", consumerSignedBy: { branchWitness: "officer" }, countersignedBy: "officer", requireSegregationOfDuties: false,
+      })
+      expect(scenario.applicationId).toBeTruthy()
+    })
+
+    it("refuses a consumer application inserted already DISBURSED while the setting is on", async () => {
+      await expect(createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true, insertDisbursed: {} }))
+        .rejects.toThrow(/Segregation of duties: a disbursement must record the staff member who made it/)
+    })
+
+    it("never takes disbursedById on insert, whatever the setting", async () => {
+      await expect(createApprovedApplication({
+        signing: "countersigned", requireSegregationOfDuties: false, insertDisbursed: { disbursedBy: "colleague" },
+      })).rejects.toThrow(/recorded only with the DISBURSED transition/)
+    })
+  })
+
+  describe("the recorded disburser", () => {
+    it("refuses an id that names no user, or another tenant's user (FK)", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      const other = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: true })
+      await expect(disburse(scenario, "user-that-does-not-exist")).rejects.toThrow(/Foreign key constraint|disbursedById_fkey|active staff member/)
+      await expect(disburse(scenario, other.colleagueId)).rejects.toThrow(/Foreign key constraint|disbursedById_fkey|active staff member/)
+    })
+
+    it("refuses an inactive staff member, or one whose role may not disburse", async () => {
+      const scenario = await createApprovedApplication({ signing: "countersigned", requireSegregationOfDuties: false })
+      await prisma.user.update({ where: { id: scenario.colleagueId }, data: { active: false } })
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toThrow(/active staff member of the application tenant who may disburse/)
+      await prisma.user.update({ where: { id: scenario.colleagueId }, data: { active: true, role: "CREDIT_OFFICER" } })
+      await expect(disburse(scenario, scenario.colleagueId)).rejects.toThrow(/active staff member of the application tenant who may disburse/)
+    })
+  })
+
+  // Breaker review of #140: the witness could be rewritten after the signature
+  // and before the countersignature, so the witness countersigned unchallenged.
+  describe("a recorded consumer signature", () => {
+    const FROZEN = /A recorded consumer signature is immutable/
+    const update = (scenario: { tenantId: string; applicationId: string }, data: Record<string, unknown>) =>
+      prisma.loanApplication.update({ where: { id: scenario.applicationId, tenantId: scenario.tenantId }, data, select: { id: true } })
+
+    it("refuses a rewrite of its witness, method or artefact", async () => {
+      const scenario = await createApprovedApplication({
+        signing: "consumer_only", consumerSignedBy: { branchWitness: "officer" }, requireSegregationOfDuties: true,
+      })
+      await expect(update(scenario, { agreementSignedByUserId: scenario.colleagueId })).rejects.toThrow(FROZEN)
+      await expect(update(scenario, { agreementSignedMethod: "portal", agreementSignedByUserId: null })).rejects.toThrow(FROZEN)
+      await expect(update(scenario, { agreementSignatureData: "data:image/png;base64,b3RoZXI=" })).rejects.toThrow(FROZEN)
+      await expect(update(scenario, { agreementSignedByIp: "198.51.100.9" })).rejects.toThrow(FROZEN)
+      // ...so the witness still cannot countersign.
+      await expect(countersign(scenario, "officer")).rejects.toThrow(WITNESS_COUNTERSIGNS)
+    })
+
+    it("may be cleared as a whole, as a return to review does", async () => {
+      const scenario = await createApprovedApplication({ signing: "consumer_only", consumerSignedBy: { branchWitness: "officer" } })
+      const cleared = prisma.$transaction(async (tx) => {
+        await tx.loanApplication.update({
+          where: { id: scenario.applicationId, tenantId: scenario.tenantId },
+          data: {
+            agreementSignedAt: null, agreementSignedMethod: null, agreementSignedByUserId: null,
+            agreementSignedByIp: null, agreementSignatureData: null,
+          },
+        })
+        throw rollback
+      })
+      // Whatever else refuses the bare clear, it is not the signature freeze.
+      await expect(cleared).rejects.not.toThrow(FROZEN)
+    })
+  })
 })
+

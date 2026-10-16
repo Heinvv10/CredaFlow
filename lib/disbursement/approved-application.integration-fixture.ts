@@ -28,6 +28,8 @@ export interface ApprovedApplicationOptions {
   countersignedBy?: Staff
   /** Writes a TenantConfig row with this setting; omitted = no config row. */
   requireSegregationOfDuties?: boolean
+  /** Insert the row already DISBURSED (and, optionally, naming a disburser): for the insert guards. */
+  insertDisbursed?: { disbursedBy?: Staff }
 }
 
 export interface ApprovedApplication {
@@ -227,7 +229,13 @@ export async function createApprovedApplication(options: ApprovedApplicationOpti
       productId,
       appliedAmount: 500_000,
       appliedTermDays: 30,
-      status: "APPROVED",
+      status: options.insertDisbursed ? "DISBURSED" : "APPROVED",
+      ...(options.insertDisbursed
+        ? {
+            disbursedAt: new Date("2026-07-24T08:15:00.000Z"),
+            ...(options.insertDisbursed.disbursedBy ? { disbursedById: staff[options.insertDisbursed.disbursedBy].id } : {}),
+          }
+        : {}),
       repaymentMethod: "EFT",
       approvedAt: countersignedAt,
       approvedById: staff.officer.id,

@@ -270,7 +270,14 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     expect(await database().documentAccessLog.count({ where: { documentId: invoice.id, accessorId: fx.officer, action: "view" } })).toBe(1)
   })
 
-  it("the single-approved deal books too", async () => {
+  // The setting governs who may APPROVE, at the approval. A payout approved by
+  // its creator while it was off stays approved once it is switched back on,
+  // as a loan approved before the switch stays approved: re-opening approvals
+  // retroactively would strand deals already contracted with the supplier.
+  it("the single-approved deal books too, also after segregation of duties is switched back on", async () => {
+    expect((await database().tenantConfig.findUniqueOrThrow({ where: { tenantId: fx.tenantId } })).requireSegregationOfDuties).toBe(true)
+    expect(await database().payout.findUniqueOrThrow({ where: { dealId: fx.dealB } }))
+      .toMatchObject({ status: "APPROVED", dualApprovalRequired: false, approvedById: fx.adminA, createdById: fx.adminA })
     staff(fx.adminA, "LOAN_ADMIN")
     expect((await routes().book(fx.dealB)).status).toBe(201)
     expect((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealB } })).status).toBe("BOOKED")
