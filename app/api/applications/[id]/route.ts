@@ -33,6 +33,14 @@ import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
 //      application for review without going through the wizard (the detail
 //      page's "Submit for Review" button).
 // Any other body is rejected.
+// An asset-finance deal's application is edited and submitted only through
+// its deal (app/api/asset-finance/deals/**): this route would re-validate it
+// against consumer products and the consumer submission path (Fair Score E4).
+const ASSET_FINANCE_APPLICATION_ERROR = "This application belongs to an asset-finance deal: edit and submit it on the deal."
+async function isAssetFinanceApplication(tx: Pick<typeof prisma, "assetFinanceDeal">, tenantId: string, applicationId: string): Promise<boolean> {
+  return (await tx.assetFinanceDeal.count({ where: { tenantId, applicationId } })) > 0
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -68,6 +76,7 @@ export async function PATCH(
           })
           if (!application) return { kind: "not_found" as const }
           if (application.status !== "DRAFT") return { kind: "not_draft" as const }
+          if (await isAssetFinanceApplication(tx, tenant.id, id)) return { kind: "asset_finance" as const }
 
           const prepared = await prepareApplicationFields(
             body as PrepareApplicationInput,
@@ -193,6 +202,9 @@ export async function PATCH(
           { status: 400 },
         )
       }
+      if (outcome.kind === "asset_finance") {
+        return NextResponse.json({ error: ASSET_FINANCE_APPLICATION_ERROR }, { status: 409 })
+      }
       if (outcome.kind === "prepare_error") {
         return NextResponse.json(outcome.prepared.body, { status: outcome.prepared.status })
       }
@@ -294,6 +306,7 @@ export async function PATCH(
       })
       if (!application) return { kind: "not_found" as const }
       if (application.status !== "DRAFT") return { kind: "not_draft" as const }
+      if (await isAssetFinanceApplication(tx, tenant.id, id)) return { kind: "asset_finance" as const }
       // Submission snapshots consumer affordability; an entity borrower is refused.
       if (!hasClientBorrower(application)) return { kind: "entity_borrower" as const }
       if (!verifyStoredCreditLifeDisclosure(application, {
@@ -396,6 +409,9 @@ export async function PATCH(
         { error: "Only draft applications can be submitted for review." },
         { status: 400 },
       )
+    }
+    if (outcome.kind === "asset_finance") {
+      return NextResponse.json({ error: ASSET_FINANCE_APPLICATION_ERROR }, { status: 409 })
     }
     if (outcome.kind === "credit_life_missing") {
       return NextResponse.json(

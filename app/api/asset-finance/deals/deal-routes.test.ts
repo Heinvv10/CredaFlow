@@ -204,7 +204,7 @@ describe("asset-finance deal routes", () => {
     it("passes the trimmed reasons to the decision", async () => {
       expect((await decide(req({ decision: "DECLINE", reasons: ["  Gearing above policy  "] }), ctx)).status).toBe(200)
       expect(m.decideDeal).toHaveBeenCalledWith({}, expect.objectContaining({ userId: "admin-a" }), "deal-1", {
-        decision: "DECLINE", reasons: ["Gearing above policy"], exceptionReason: null, exceptionsShown: null,
+        decision: "DECLINE", reasons: ["Gearing above policy"], exceptionReason: null, exceptionsFingerprint: null,
       })
     })
   })

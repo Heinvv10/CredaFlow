@@ -89,7 +89,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
         status: 409,
       })
       return NextResponse.json(
-        { error: "The entity has an approved deal: its sureties and signatories are fixed until the deal is booked or cancelled" },
+        { error: "The entity has a deal under review or approved: its parties are fixed until the deal is decided and booked, declined or cancelled" },
         { status: 409 },
       )
     }

@@ -20,7 +20,7 @@ const DECISIONS = [
  * with exceptions (internal arrears, a bureau check not on record) also needs
  * the reason it is approved despite them; the decision records both.
  */
-export function DecidePanel({ dealId, exceptions = [] }: { dealId: string; exceptions?: string[] }) {
+export function DecidePanel({ dealId, exceptions = [], exceptionsFingerprint = null }: { dealId: string; exceptions?: string[]; exceptionsFingerprint?: string | null }) {
   const router = useRouter()
   const [reasons, setReasons] = useState("")
   const [exceptionReason, setExceptionReason] = useState("")
@@ -33,7 +33,7 @@ export function DecidePanel({ dealId, exceptions = [] }: { dealId: string; excep
     const list = reasons.split("\n").map((r) => r.trim()).filter(Boolean)
     const result = await sendJson(`/api/asset-finance/deals/${dealId}/decide`, "POST", {
       decision, reasons: list,
-      ...(exceptions.length > 0 && exceptionReason.trim() !== "" ? { exceptionReason, exceptionsShown: exceptions } : {}),
+      ...(exceptions.length > 0 && exceptionReason.trim() !== "" ? { exceptionReason, exceptionsFingerprint } : {}),
     })
     setSaving(null)
     // Refresh either way: a refused APPROVE on an NCA deal still changes it (REFUSED_NCA).

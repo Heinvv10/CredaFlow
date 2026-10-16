@@ -2,9 +2,15 @@
  * Real-Postgres proof for 20261016210000_retype_asset_finance_products on a
  * database seeded the way main seeded it: the demo seed's asset-finance deals
  * on products typed PERSONAL (as before the product kind existed). After the
- * migration every product used by an asset-finance deal is ASSET_FINANCE, the
- * consumer products keep their types, and a product with consumer history is
- * never re-typed, even under an asset-finance code.
+ * migration's SQL every product used by an asset-finance deal is
+ * ASSET_FINANCE, the consumer products keep their types, and a product with
+ * consumer history is never re-typed, even under an asset-finance code.
+ *
+ * The database is migrated in full and seeded by today's seed (the seed and
+ * the Prisma client follow the latest schema), then put back into main's state
+ * with triggers off (session_replication_role = replica: the product kind is
+ * otherwise held by LoanProduct_asset_finance_kind_fixed), and the migration's
+ * own SQL file is run against it.
  *
  * Self-contained: creates its own throwaway database on the server
  * DATABASE_URL points at, so the role needs CREATEDB.
@@ -15,38 +21,26 @@
 import { execFileSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const RUN = process.env.RUN_ASSET_FINANCE_MIGRATION_IT === "1"
 const suite = RUN ? describe : describe.skip
-const MIGRATION = "20261016210000_retype_asset_finance_products"
-const MIGRATIONS_DIR = path.join(process.cwd(), "prisma", "migrations")
-
-/** A Prisma schema whose migrations directory holds every migration before MIGRATION. */
-function schemaBefore(root: string): string {
-  const dir = fs.mkdtempSync(path.join(root, "before-"))
-  fs.writeFileSync(path.join(dir, "schema.prisma"), 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n')
-  fs.mkdirSync(path.join(dir, "migrations"))
-  fs.copyFileSync(path.join(MIGRATIONS_DIR, "migration_lock.toml"), path.join(dir, "migrations", "migration_lock.toml"))
-  for (const name of fs.readdirSync(MIGRATIONS_DIR)) {
-    if (fs.statSync(path.join(MIGRATIONS_DIR, name)).isDirectory() && name < MIGRATION) {
-      fs.cpSync(path.join(MIGRATIONS_DIR, name), path.join(dir, "migrations", name), { recursive: true })
-    }
-  }
-  return path.join(dir, "schema.prisma")
-}
+const MIGRATION_SQL = path.join(process.cwd(), "prisma", "migrations", "20261016210000_retype_asset_finance_products", "migration.sql")
 
 const run = (cmd: string, args: string[], url: string) =>
   execFileSync(cmd, args, { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 
-suite("re-typing existing asset-finance products (migration on seeded data)", () => {
+/** The migration file's statements, comments dropped, one per call. */
+function migrationStatements(): string[] {
+  const sql = fs.readFileSync(MIGRATION_SQL, "utf8").split("\n").filter((line) => !line.trimStart().startsWith("--")).join("\n")
+  return sql.split(";").map((s) => s.trim()).filter(Boolean)
+}
+
+suite("re-typing existing asset-finance products (migration SQL on seeded data)", () => {
   const admin = RUN ? new PrismaClient() : null
   const name = `af_retype_it_${randomBytes(6).toString("hex")}`
-  let root = ""
-  let dbUrl = ""
   let db: PrismaClient | null = null
   const database = () => {
     if (!db) throw new Error("RUN_ASSET_FINANCE_MIGRATION_IT=1 is required")
@@ -55,16 +49,17 @@ suite("re-typing existing asset-finance products (migration on seeded data)", ()
 
   beforeAll(async () => {
     if (!admin) throw new Error("RUN_ASSET_FINANCE_MIGRATION_IT=1 is required")
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "af-retype-migration-"))
     await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`)
     const url = new URL(process.env.DATABASE_URL ?? "")
     url.pathname = `/${name}`
-    dbUrl = url.toString()
-    run("npx", ["prisma", "migrate", "deploy", "--schema", schemaBefore(root)], dbUrl)
-    run("npm", ["run", "seed:base", "--silent"], dbUrl)
-    db = new PrismaClient({ datasources: { db: { url: dbUrl } } })
-    // The state main left: no product kind, so the seed's asset-finance products were PERSONAL.
-    await db.$executeRawUnsafe(`UPDATE "LoanProduct" SET "productType" = 'PERSONAL' WHERE "productType" = 'ASSET_FINANCE'`)
+    run("npx", ["prisma", "migrate", "deploy"], url.toString())
+    run("npm", ["run", "seed:base", "--silent"], url.toString())
+    db = new PrismaClient({ datasources: { db: { url: url.toString() } } })
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      // Main's state: no product kind, so the seed's asset-finance products were PERSONAL.
+      db.$executeRawUnsafe(`UPDATE "LoanProduct" SET "productType" = 'PERSONAL' WHERE "productType" = 'ASSET_FINANCE'`),
+    ])
     // A second lender whose "AF-IS" product carries a consumer application: consumer history is never re-typed.
     await db.$executeRawUnsafe(`INSERT INTO "Tenant" ("id", "slug", "name", "updatedAt") VALUES ('tenant_retype', 'tenant-retype', 'Synthetic lender', CURRENT_TIMESTAMP)`)
     await db.$executeRawUnsafe(`
@@ -82,7 +77,6 @@ suite("re-typing existing asset-finance products (migration on seeded data)", ()
     await db?.$disconnect()
     await admin?.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
     await admin?.$disconnect()
-    if (root) fs.rmSync(root, { recursive: true, force: true })
   })
 
   it("re-types the products of asset-finance deals, and only those", async () => {
@@ -92,11 +86,12 @@ suite("re-typing existing asset-finance products (migration on seeded data)", ()
     const before = await types()
     expect(before["AF-IS"]).toBe("PERSONAL")
     expect(before["AF-LEASE"]).toBe("PERSONAL")
-    const dealProductsBefore = await database().$queryRawUnsafe<Array<{ n: bigint }>>(
+    const dealProducts = await database().$queryRawUnsafe<Array<{ n: bigint }>>(
       `SELECT count(DISTINCT a."productId") AS n FROM "LoanApplication" a JOIN "AssetFinanceDeal" d ON d."applicationId" = a."id"`)
-    expect(Number(dealProductsBefore[0].n)).toBeGreaterThanOrEqual(2)
+    expect(Number(dealProducts[0].n)).toBeGreaterThanOrEqual(2)
 
-    run("npx", ["prisma", "migrate", "deploy"], dbUrl)
+    // The migration runs in one transaction, as prisma migrate deploy runs it.
+    await database().$transaction(migrationStatements().map((statement) => database().$executeRawUnsafe(statement)))
 
     const after = await types()
     expect(after["AF-IS"]).toBe("ASSET_FINANCE")

@@ -16,9 +16,11 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { runWithTenant } from "@/lib/tenant-scope"
+import { prisma } from "@/lib/prisma"
 import { cleanupDealFixture, dealFixtureTenantId, dealRoutes } from "./deal.integration-fixture"
 import { addMonthsClamped } from "./dates"
 import { loadDealDetail } from "./deal-detail"
+import { loadDealExceptions } from "./deal-exceptions"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 
@@ -32,6 +34,8 @@ const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 let dealId = ""
 let suretyLoanReference = ""
+let suretyLoanId = ""
+let entityLoanId = ""
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_FINANCE_LEASE_IT=1 is required")
@@ -54,12 +58,19 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     }))
     await signLease(fx, database(), setSession, own, firstDue)
     const loanId = await payoutAndBook(fx, database(), staff, own)
+    // The company's own lease, booked and current (its arrears are set in the last test).
+    const entityLease = await approveLease(fx, staff, leaseBody(fx, {
+      assetId: fx.assets[2], contractType: "OPERATING_LEASE", rentalTiming: "ADVANCE", entityId: fx.evidenced, firstDueDate: firstDue,
+    }))
+    await signLease(fx, database(), setSession, entityLease, firstDue)
+    entityLoanId = await payoutAndBook(fx, database(), staff, entityLease)
     const loan = await database().loan.update({
       where: { id: loanId }, data: { status: "DEFAULTED", daysInArrears: 166, arrearsAmount: 9_812_345 }, select: { reference: true },
     })
     suretyLoanReference = loan.reference
+    suretyLoanId = loanId
     await database().entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: fx.lessee, role: "SURETY" } })
-  }, 240_000)
+  }, 360_000)
 
   afterAll(async () => {
     await cleanupLeaseRows(database(), dealFixtureTenantId(t)).catch(() => undefined)
@@ -102,10 +113,10 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     const exceptionReason = "The surety's lease is under a signed settlement and this asset secures the deal"
     staff(fx.adminA, "LOAN_ADMIN")
     const page = await runWithTenant(fx.tenantId, () => loadDealDetail(fx.tenantId, dealId))
-    const stale = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: ["an older exception"] })
+    const stale = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsFingerprint: "0".repeat(64) })
     expect(stale.status).toBe(409)
     expect(((await stale.json()) as { error: string }).error).toMatch(/exceptions changed since the page was loaded/)
-    const approved = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: page?.exceptions.lines })
+    const approved = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsFingerprint: page?.exceptions.fingerprint })
     expect(approved.status, await approved.clone().text()).toBe(200)
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId } })
     expect(deal.status).toBe("APPROVED")
@@ -116,5 +127,33 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     ])
     const audit = await database().auditLog.findFirstOrThrow({ where: { entityId: dealId, action: "ASSET_DEAL_DECIDED" } })
     expect(audit.newValue).toMatchObject({ exceptionReason, exceptions: [expect.stringContaining(suretyLoanReference)] })
+    // What the approval answered is fixed: payout and booking compare against it.
+    expect(deal.approvalExceptionKeys).toEqual([`ARREARS:${suretyLoanId}`])
+    await expect(database().assetFinanceDeal.update({ where: { id: dealId }, data: { approvalExceptionKeys: [] } }))
+      .rejects.toThrow(/exception keys are the record of what its approval answered/)
+  })
+
+  it("cross-checks the borrower's own loans and a party's arrears, not only defaults", async () => {
+    const exceptions = (deal: { entityId: string | null; clientId: string | null }) =>
+      runWithTenant(fx.tenantId, () => loadDealExceptions(prisma, fx.tenantId, { applicationId: "none", ...deal }))
+    const setLoan = (id: string, data: { status: "ACTIVE" | "RESTRUCTURED" | "DEFAULTED"; daysInArrears: number; arrearsAmount: number }) =>
+      database().loan.update({ where: { id }, data })
+
+    // A sole proprietor's own loan: ACTIVE in arrears, RESTRUCTURED with an amount overdue, ACTIVE and current.
+    await setLoan(suretyLoanId, { status: "ACTIVE", daysInArrears: 12, arrearsAmount: 0 })
+    expect((await exceptions({ entityId: null, clientId: fx.lessee })).internalArrears).toEqual([
+      expect.objectContaining({ loanId: suretyLoanId, roles: ["Borrower"], status: "ACTIVE", daysInArrears: 12 }),
+    ])
+    await setLoan(suretyLoanId, { status: "RESTRUCTURED", daysInArrears: 0, arrearsAmount: 50_000 })
+    expect((await exceptions({ entityId: null, clientId: fx.lessee })).keys).toEqual([`ARREARS:${suretyLoanId}`])
+    await setLoan(suretyLoanId, { status: "ACTIVE", daysInArrears: 0, arrearsAmount: 0 })
+    expect((await exceptions({ entityId: null, clientId: fx.lessee })).lines).toEqual([])
+
+    // The entity's own loan in arrears.
+    await setLoan(entityLoanId, { status: "ACTIVE", daysInArrears: 31, arrearsAmount: 1_000_000 })
+    const company = await exceptions({ entityId: fx.evidenced, clientId: null })
+    expect(company.internalArrears).toEqual([expect.objectContaining({ loanId: entityLoanId, clientId: null, roles: ["Borrower"], daysInArrears: 31 })])
+    expect(company.lines[0]).toMatch(/\(Borrower\) has loan .* Active, 31 days in arrears, R\u00a010,000.00 overdue/)
+    await setLoan(entityLoanId, { status: "ACTIVE", daysInArrears: 0, arrearsAmount: 0 })
   })
 })

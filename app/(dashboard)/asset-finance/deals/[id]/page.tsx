@@ -118,7 +118,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             </div>
           )}
           {canDecide && DECIDABLE.includes(deal.status) ? (
-            <DecidePanel dealId={id} exceptions={deal.exceptions.lines} />
+            <DecidePanel dealId={id} exceptions={deal.exceptions.lines} exceptionsFingerprint={deal.exceptions.fingerprint} />
           ) : (
             (!deal.decision.decision || CLOSED_AFTER_DECISION.includes(deal.status)) && (
               <p className="text-sm text-[var(--cf-text-muted)]">{dealDecisionNote(deal.status)}</p>

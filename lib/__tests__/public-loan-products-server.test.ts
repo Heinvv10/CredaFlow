@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // This module is SERVER-ONLY (it imports prisma), so the client is mocked.
 const findMany = vi.fn()
-vi.mock("@/lib/prisma", () => ({ prisma: { loanProduct: { findMany: () => findMany() } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { loanProduct: { findMany: (args: unknown) => findMany(args) } } }))
 vi.mock("@/lib/tenant", () => ({ getResolvedTenantId: async () => "tenant-1" }))
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof import("react")>("react")
@@ -75,5 +75,15 @@ describe("the server pricing read carries EVERY selected column", () => {
   it("fails OPEN to the static catalogue when the read throws", async () => {
     findMany.mockRejectedValue(new Error("db down"))
     await expect(getLivePricingServer("tenant-1")).resolves.toEqual({})
+  })
+})
+
+describe("consumer products only (Fair Score E4)", () => {
+  it("never reads an asset-finance product into the public pricing", async () => {
+    findMany.mockResolvedValue([MICRO30_ROW])
+    await getLivePricingServer("tenant-1")
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", active: true, productType: { not: "ASSET_FINANCE" } },
+    }))
   })
 })

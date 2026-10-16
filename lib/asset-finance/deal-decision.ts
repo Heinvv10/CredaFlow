@@ -15,11 +15,13 @@
  *            exceptions (./deal-exceptions.ts: internal arrears of the
  *            borrower or its people, a director's or trustee's bureau check
  *            that was skipped, failed or went stale) needs an exception
- *            reason, bound to the exceptions the approver was shown
- *            (exceptionsShown): if they changed since, exceptions_changed
- *            and nothing is written; the stored reasons
- *            then carry each exception and that reason, audited with the
- *            decision. The application goes
+ *            reason, bound to the fingerprint of the exceptions the approver
+ *            was shown (exceptionsFingerprint): if they changed since,
+ *            exceptions_changed and nothing is written. A reason sent with
+ *            no exceptions is refused too. The stored reasons then carry
+ *            each exception and that reason, approvalExceptionKeys the keys
+ *            (payout and booking re-check against them), audited with the
+ *            decision. The product must be an ASSET_FINANCE product. The application goes
  *            SUBMITTED → UNDER_REVIEW → APPROVED with repaymentMethod EFT,
  *            approvedAt/approvedById and the applied amount and term as
  *            approved (a NON_NCA approval needs no PASQ: CHECK
@@ -46,15 +48,15 @@ export interface DecideInput {
   reasons: string[]
   /** Why approve despite the deal's exceptions; required on APPROVE when there are any. */
   exceptionReason?: string | null
-  /** The exception sentences the approver was shown; the reason answers exactly these. */
-  exceptionsShown?: string[] | null
+  /** The fingerprint of the exceptions the approver was shown (./deal-exceptions.ts); the reason answers exactly these. */
+  exceptionsFingerprint?: string | null
 }
-
-const MAX_EXCEPTIONS_SHOWN = 50
 
 export function parseDecideInput(body: unknown): DecideInput | string {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return "Body must be a JSON object"
-  const { decision, reasons, exceptionReason, exceptionsShown } = body as { decision?: unknown; reasons?: unknown; exceptionReason?: unknown; exceptionsShown?: unknown }
+  const { decision, reasons, exceptionReason, exceptionsFingerprint } = body as {
+    decision?: unknown; reasons?: unknown; exceptionReason?: unknown; exceptionsFingerprint?: unknown
+  }
   const match = CREDIT_DECISIONS.find((d) => d === decision)
   if (!match) return `decision must be one of ${CREDIT_DECISIONS.join(", ")}`
   if (!Array.isArray(reasons) || reasons.length === 0 || reasons.length > MAX_REASONS) {
@@ -69,22 +71,14 @@ export function parseDecideInput(body: unknown): DecideInput | string {
   if (exception !== "" && (exception.length < MIN_EXCEPTION_REASON_LENGTH || exception.length > MAX_REASON_LENGTH)) {
     return `the exception reason must be ${MIN_EXCEPTION_REASON_LENGTH} to ${MAX_REASON_LENGTH} characters`
   }
-  if (exceptionsShown !== undefined && exceptionsShown !== null && (!Array.isArray(exceptionsShown) || exceptionsShown.length > MAX_EXCEPTIONS_SHOWN
-    || exceptionsShown.some((e) => typeof e !== "string" || e.length > MAX_REASON_LENGTH))) {
-    return `exceptionsShown must list at most ${MAX_EXCEPTIONS_SHOWN} exception texts`
+  if (exceptionsFingerprint !== undefined && exceptionsFingerprint !== null
+    && (typeof exceptionsFingerprint !== "string" || !/^[0-9a-f]{64}$/.test(exceptionsFingerprint))) {
+    return "exceptionsFingerprint must be the sha256 shown with the exceptions"
   }
   return {
     decision: match, reasons: trimmed, exceptionReason: exception === "" ? null : exception,
-    exceptionsShown: Array.isArray(exceptionsShown) ? (exceptionsShown as string[]) : null,
+    exceptionsFingerprint: typeof exceptionsFingerprint === "string" ? exceptionsFingerprint : null,
   }
-}
-
-/** The approver answered exactly the current exceptions (order aside). */
-export function sameExceptions(current: string[], shown: string[] | null | undefined): boolean {
-  if (!shown || shown.length !== current.length) return false
-  const a = [...current].sort()
-  const b = [...shown].sort()
-  return a.every((line, i) => line === b[i])
 }
 
 /** The reasons stored on an approval with exceptions: the approver's, each exception, then why it was approved anyway. */
@@ -105,6 +99,8 @@ export type DecideDealResult =
   | { kind: "screening_blocked" }
   | { kind: "exceptions_unanswered"; exceptions: string[] }
   | { kind: "exceptions_changed"; exceptions: string[] }
+  | { kind: "exception_reason_without_exceptions" }
+  | { kind: "product_not_asset_finance" }
   | { kind: "decided"; status: "APPROVED" | "DECLINED" | "REFERRED" }
 
 const DECIDABLE_DEAL = ["SUBMITTED", "REFERRED"]
@@ -122,7 +118,10 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       applicationId: true,
       financials: { select: { dscr: true, gearing: true } },
       affordabilityAssessment: { select: { affordable: true } },
-      application: { select: { clientId: true, entityId: true, status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true, creditLifeElection: true } },
+      application: { select: {
+        clientId: true, entityId: true, status: true, ncaRegime: true, ncaClassificationRule: true, appliedAmount: true, appliedTermDays: true,
+        creditLifeElection: true, product: { select: { productType: true } },
+      } },
     },
   })
   if (!deal) return { kind: "not_found" }
@@ -132,7 +131,9 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
   }
 
   let exceptions: string[] = []
+  let exceptionKeys: string[] = []
   if (input.decision === "APPROVE") {
+    if (app.product.productType !== "ASSET_FINANCE") return { kind: "product_not_asset_finance" }
     if (app.ncaRegime !== "NON_NCA") {
       if (await hasPendingNonNcaOverride(tx, tenantId, applicationId)) return { kind: "awaiting_override" }
       if (!deal.affordabilityAssessment) return { kind: "assessment_required" }
@@ -140,9 +141,12 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
       if (!app.creditLifeElection) return { kind: "credit_life_required" }
     }
     if (!deal.financials) return { kind: "memo_required" }
-    exceptions = (await loadDealExceptions(tx, tenantId, { applicationId, entityId: app.entityId, clientId: app.clientId })).lines
+    const found = await loadDealExceptions(tx, tenantId, { applicationId, entityId: app.entityId, clientId: app.clientId })
+    exceptions = found.lines
+    exceptionKeys = found.keys
+    if (exceptions.length === 0 && input.exceptionReason) return { kind: "exception_reason_without_exceptions" }
     if (exceptions.length > 0 && !input.exceptionReason) return { kind: "exceptions_unanswered", exceptions }
-    if (exceptions.length > 0 && !sameExceptions(exceptions, input.exceptionsShown)) return { kind: "exceptions_changed", exceptions }
+    if (exceptions.length > 0 && input.exceptionsFingerprint !== found.fingerprint) return { kind: "exceptions_changed", exceptions }
     // PEP / sanctions screening of the borrower (the entity and its related
     // parties, or the natural person), re-read under their screening locks.
     // The route ran the gate first; the trigger LoanApplication_a1_guard_screening
@@ -185,7 +189,10 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
   }
   await tx.assetFinanceDeal.update({
     where: { id: deal.id, tenantId },
-    data: { status, decision: input.decision, decisionReasons: reasons, decidedById: actor.userId, decidedAt: now },
+    data: {
+      status, decision: input.decision, decisionReasons: reasons, decidedById: actor.userId, decidedAt: now,
+      ...(status === "APPROVED" ? { approvalExceptionKeys: exceptionKeys } : {}),
+    },
   })
   await logAuditStrict(
     {
@@ -200,7 +207,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
         status,
         decision: input.decision,
         reasons,
-        ...(exceptions.length > 0 ? { exceptions, exceptionReason: input.exceptionReason } : {}),
+        ...(exceptions.length > 0 ? { exceptions, exceptionKeys, exceptionReason: input.exceptionReason } : {}),
         applicationId,
         applicationStatus: status === "REFERRED" ? "UNDER_REVIEW" : status,
         ncaRegime: app.ncaRegime,

@@ -672,6 +672,9 @@ model AssetFinanceDeal {
   cancelReason                   String?
   decision                       CreditDecision?
   decisionReasons                String[]              @default([])
+  // The approval's exception keys (lib/asset-finance/deal-exceptions.ts):
+  // payout and booking refuse an exception not among them. Fixed once approved.
+  approvalExceptionKeys          String[]              @default([])
   decidedById                    String?
   decidedAt                      DateTime?
   createdById                    String

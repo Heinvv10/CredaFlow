@@ -104,6 +104,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
       case "exceptions_changed":
         return refuse("exceptions_changed", 409, `The exceptions changed since the page was loaded; review them and decide again: ${result.exceptions.join("; ")}`)
+      case "exception_reason_without_exceptions":
+        return refuse("exception_reason_without_exceptions", 422, "The deal has no exceptions to answer: decide without an exception reason")
+      case "product_not_asset_finance":
+        return refuse("product_not_asset_finance", 409, "The deal's product is not an asset-finance product")
       case "exceptions_unanswered":
         return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
       case "refused_nca":

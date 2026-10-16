@@ -44,7 +44,7 @@ function deal(over: Partial<DealDetail> = {}): DealDetail {
     },
     schedule: { ok: false, error: "not solved in this test" },
     leaseSchedule: null,
-    financials: null, sureties: [], directorsAndTrustees: [], bureau: [], exceptions: { internalArrears: [], lines: [] },
+    financials: null, sureties: [], directorsAndTrustees: [], bureau: [], exceptions: { internalArrears: [], lines: [], keys: [], fingerprint: "0".repeat(64) },
     decision: { decision: null, reasons: [], decidedById: null, decidedAt: null },
     ...over,
   }
@@ -110,14 +110,14 @@ describe("asset-finance deal pages (Fair Score audit E1–E3)", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)
     let renderer!: ReactTestRenderer
-    await act(async () => { renderer = create(<DecidePanel dealId="deal-1" exceptions={lines} />) })
+    await act(async () => { renderer = create(<DecidePanel dealId="deal-1" exceptions={lines} exceptionsFingerprint={"a".repeat(64)} />) })
     const field = (id: string) => renderer.root.find((n) => n.type === "textarea" && n.props.id === id)
     await act(async () => { field("decision-reasons").props.onChange({ target: { value: "Strong DSCR on audited AFS" } }) })
     await act(async () => { field("exception-reason").props.onChange({ target: { value: "Arrears under a signed settlement plan" } }) })
     await act(async () => { renderer.root.findAll((n) => n.type === "button").find((b) => b.children.join("").includes("Approve"))!.props.onClick() })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
     expect(JSON.parse(init.body)).toEqual({
-      decision: "APPROVE", reasons: ["Strong DSCR on audited AFS"], exceptionReason: "Arrears under a signed settlement plan", exceptionsShown: lines,
+      decision: "APPROVE", reasons: ["Strong DSCR on audited AFS"], exceptionReason: "Arrears under a signed settlement plan", exceptionsFingerprint: "a".repeat(64),
     })
     vi.unstubAllGlobals()
 
