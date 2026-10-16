@@ -6,7 +6,7 @@ import { isLiving, LIVING_CATEGORIES, MONTH_DAYS, type Category } from "@/lib/st
 import type { Insights } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
 
-type Payload = Insights & { unreadStatements: number }
+type Payload = Insights & { unreadStatements: number; modelLabelsEnabled?: boolean }
 
 const LABEL: Record<Category, string> = {
   HOUSING: "Housing", TRANSPORT: "Transport", FOOD: "Food", EDUCATION: "Education", INSURANCE: "Insurance", CLOTHING: "Clothing",
@@ -65,6 +65,58 @@ function Living({ data }: { data: Payload }) {
         <Amounts title="Living spend by category, a month" rows={byCategory} />
         <Amounts title="Not counted as living spend, a month" rows={excluded} />
       </div>
+    </div>
+  )
+}
+
+/** Rows the local model categorised (no rule did): totals, and the rows for the officer to check. */
+function ModelAssigned({ data, used }: { data: Payload; used: Payload["statements"] }) {
+  const m = data.modelAssigned
+  const enabled = data.modelLabelsEnabled !== false
+  const unlabelled = enabled ? used.filter((s) => !s.modelLabelled).length : 0
+  const noModel = !enabled && (data.uncategorisedShare ?? 0) > 0
+  if (m.rowCount === 0 && unlabelled === 0 && !noModel) return null
+  return (
+    <div data-testid="statement-model-assigned" className="mt-4 rounded-md border border-[var(--cf-border-subtle)] p-3 text-xs text-[var(--cf-text-secondary)]">
+      {m.rowCount > 0 && (
+        <details>
+          <summary className="cursor-pointer">
+            <span className="font-semibold text-[var(--cf-text)]">Model-assigned: </span>
+            {m.rowCount} row{m.rowCount === 1 ? "" : "s"} ({formatCents(m.debitCents)} out, about {formatCents(m.livingMonthlyCents)} a month of the living spend)
+            were categorised by the local model, not a rule. Check them.
+          </summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full" aria-label="Model-assigned rows">
+              <thead>
+                <tr className="text-left text-[var(--cf-text-muted)]">
+                  <th scope="col" className="py-1 pr-3 font-medium">Date</th>
+                  <th scope="col" className="py-1 pr-3 font-medium">Description</th>
+                  <th scope="col" className="py-1 pr-3 text-right font-medium">Out</th>
+                  <th scope="col" className="py-1 font-medium">Category</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.rows.map((r, i) => (
+                  <tr key={`${r.documentId}-${r.date}-${i}`} className="border-t border-[var(--cf-border-subtle)]">
+                    <td className="py-1 pr-3 whitespace-nowrap">{r.date}</td>
+                    <td className="py-1 pr-3">{r.description}</td>
+                    <td className="py-1 pr-3 text-right whitespace-nowrap">{formatCents(-r.amountCents)}</td>
+                    <td className="py-1 whitespace-nowrap">{LABEL[r.category]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {m.rowCount > m.rows.length && <p className="mt-1">First {m.rows.length} of {m.rowCount} rows; the export lists them all.</p>}
+          </div>
+        </details>
+      )}
+      {unlabelled > 0 && (
+        <p className={m.rowCount > 0 ? "mt-2" : ""}>
+          The model has not labelled {unlabelled} statement{unlabelled === 1 ? "" : "s"} (it was unavailable or has not run yet):
+          rows no rule categorises stay uncategorised and are not counted as living spend.
+        </p>
+      )}
+      {noModel && <p>Model labelling is off: rows no rule categorises stay uncategorised and are not counted as living spend.</p>}
     </div>
   )
 }
@@ -161,6 +213,7 @@ export function StatementInsightsPanel({ applicationId }: { applicationId: strin
             <Figure label="Uncategorised spend" value={data.uncategorisedShare === null ? "—" : `${Math.round(data.uncategorisedShare * 100)}%`} />
           </div>
           <Living data={data} />
+          <ModelAssigned data={data} used={used} />
           <Months data={data} />
           {data.statements.length > used.length && (
             <p className="mt-3 text-xs text-[var(--cf-text-muted)]">

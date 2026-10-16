@@ -28,38 +28,11 @@
  */
 import { allocateReceipts } from "@/lib/loan/balances"
 import { addTo, before, type DesiredSource, type SourceLoan, type Vector } from "./source-types"
+import { assetFinanceSources } from "./sources-asset-finance"
 import { receiptSources } from "./sources-receipts"
-import type { AccountRole } from "./accounts"
+import { adjustment, chargeSources, raisedOn, receivableOf, writtenOffAt } from "./sources-shared"
 
 export type { DesiredSource, EventType, SourceLoan, Vector } from "./source-types"
-
-function writtenOffAt(loan: SourceLoan, asOf: Date): Date | null {
-  return loan.status === "WRITTEN_OFF" && before(loan.writeOffAt, asOf) ? loan.writeOffAt : null
-}
-
-/** The day a schedule item or charge is raised, or null when it never is (after a write-off or cancellation). */
-function raisedOn(loan: SourceLoan, due: Date, asOf: Date): Date | null {
-  const writeOff = writtenOffAt(loan, asOf)
-  if (writeOff && writeOff.getTime() <= due.getTime()) return null
-  if (loan.status === "CANCELLED" && loan.closedAt && loan.closedAt.getTime() <= due.getTime()) return null
-  // An early settlement re-states the remaining instalments' interest to what
-  // accrued; that income is earned on the day the loan closed, not later.
-  const on = loan.status === "COMPLETED" && loan.closedAt && loan.closedAt.getTime() < due.getTime() ? loan.closedAt : due
-  return before(on, asOf) ? on : null
-}
-
-const CHARGE_INCOME: Record<string, AccountRole> = {
-  DEFAULT_INTEREST: "DEFAULT_INTEREST_INCOME",
-  SERVICE_FEE: "DEFAULT_FEE_INCOME",
-  DEFAULT_ADMIN: "DEFAULT_FEE_INCOME",
-  COLLECTION_FEE: "DEFAULT_FEE_INCOME",
-}
-
-function adjustment(loan: SourceLoan, what: string, reversedAt: Date | null): DesiredSource["change"] {
-  return reversedAt
-    ? { type: "DISBURSEMENT_REVERSED", date: reversedAt, description: `Disbursement of ${loan.reference} reversed: the money never reached the borrower` }
-    : { type: "ADJUSTMENT", date: null, description: `${what} re-stated on ${loan.reference}` }
-}
 
 /**
  * Premium raised but not collected as at `asOf`. The receipts on the schedule
@@ -89,6 +62,7 @@ function uncollectedPremium(loan: SourceLoan, asOf: Date): number {
 
 /** Every source of one loan, desired as at `asOf` (exclusive), write-off excluded. */
 function ordinarySources(loan: SourceLoan, asOf: Date): DesiredSource[] {
+  if (loan.assetFinance) return assetFinanceSources(loan, asOf)
   const out: DesiredSource[] = []
   const reversedAt = before(loan.reversedAt, asOf) ? loan.reversedAt : null
   const live = !reversedAt
@@ -154,20 +128,7 @@ function ordinarySources(loan: SourceLoan, asOf: Date): DesiredSource[] {
       change: adjustment(loan, `Instalment ${row.installmentNo}`, reversedAt),
     })
   }
-  for (const charge of loan.charges) {
-    const on = live ? raisedOn(loan, charge.day, asOf) : null
-    const vector: Vector = {}
-    if (on) {
-      addTo(vector, "LOAN_BOOK", charge.amount)
-      addTo(vector, CHARGE_INCOME[charge.type] ?? "DEFAULT_FEE_INCOME", -charge.amount)
-    }
-    out.push({
-      baseKey: `loan:${loan.id}:charge:${charge.type}:${charge.day.toISOString()}:${charge.sourceId ?? ""}`,
-      loanId: loan.id, reference: loan.reference, vector,
-      origin: { type: "DEFAULT_CHARGE", date: charge.day, description: `${charge.type.replaceAll("_", " ").toLowerCase()} charged on ${loan.reference}` },
-      change: adjustment(loan, "Default charge", reversedAt),
-    })
-  }
+  out.push(...chargeSources(loan, asOf, live, reversedAt))
   out.push(...receiptSources(loan, asOf, writtenOffAt(loan, asOf)))
   return out
 }
@@ -184,12 +145,13 @@ export function loanSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
   const writeOff = writtenOffAt(loan, asOf)
   const vector: Vector = {}
   if (writeOff) {
-    const book = sources.reduce((sum, s) => sum + (s.vector.LOAN_BOOK ?? 0), 0)
+    const receivable = receivableOf(loan)
+    const book = sources.reduce((sum, s) => sum + (s.vector[receivable] ?? 0), 0)
     if (book > 0) {
-      const premium = Math.min(book, uncollectedPremium(loan, asOf))
+      const premium = Math.min(book, loan.assetFinance ? 0 : uncollectedPremium(loan, asOf))
       addTo(vector, "CREDIT_LIFE_PAYABLE", premium)
       addTo(vector, "BAD_DEBT_EXPENSE", book - premium)
-      addTo(vector, "LOAN_BOOK", -book)
+      addTo(vector, receivable, -book)
     }
   }
   sources.push({

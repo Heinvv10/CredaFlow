@@ -29,7 +29,7 @@ export function statementWorkbook(a: ApplicationInsights, reference: string, exp
     ["Application", reference],
     ["Exported", exportedOn],
     ["Categoriser", CATEGORISER_VERSION],
-    ["Note", "From statement — estimate. Categories are computed by rules and are not verified."],
+    ["Note", "From statement — estimate. Categories are computed by rules, or by the local model for a row no rule categorises (\"model\" under Categorised by), and are not verified."],
     [],
   ])
   summary.addRow(["Statement", "Bank", "Period start", "Period end", "Opening (R)", "Closing (R)", "Balance check", "Read by", "Authenticity signals", "In the figures"]).font = { bold: true }
@@ -44,10 +44,11 @@ export function statementWorkbook(a: ApplicationInsights, reference: string, exp
   summary.getColumn(6).numFmt = MONEY
 
   const txs = wb.addWorksheet("Transactions")
-  txs.addRow(["Statement", "Date", "Description", "Amount (R)", "Balance (R)", "Category", "Page", "Moved money"]).font = { bold: true }
+  txs.addRow(["Statement", "Date", "Description", "Amount (R)", "Balance (R)", "Category", "Page", "Moved money", "Categorised by"]).font = { bold: true }
   a.read.forEach((s, i) => {
     for (const t of s.read!.transactions) {
-      txs.addRow([i + 1, t.date, t.description, rand(t.amountCents), rand(t.balanceCents), categorise(t, { clientName: a.facts.clientName }).category, t.page, t.nonPosting ? "no" : "yes"])
+      const c = categorise(t, { clientName: a.facts.clientName, modelLabels: s.modelLabels })
+      txs.addRow([i + 1, t.date, t.description, rand(t.amountCents), rand(t.balanceCents), c.category, t.page, t.nonPosting ? "no" : "yes", c.modelAssigned ? "model" : "rules"])
     }
   })
   txs.getColumn(4).numFmt = MONEY

@@ -1,0 +1,72 @@
+Date,Reference,Account Code,Description,Tax Code,Debit,Credit
+17/09/2026,"LN-MV9V27YG-D9UC","1300","Input tax on the repossession of the asset of LN-MV9V27YG-D9UC","",67500.00,
+17/09/2026,"LN-MV9V27YG-D9UC","2500","Input tax on the repossession of the asset of LN-MV9V27YG-D9UC","",,67500.00
+20/09/2026,"LN-MV9V27FI-HFHN","1110","Finance lease LN-MV9V27FI-HFHN booked and the supplier paid","",310500.00,
+20/09/2026,"LN-MV9V27FI-HFHN","1300","Finance lease LN-MV9V27FI-HFHN booked and the supplier paid","",45000.00,
+20/09/2026,"LN-MV9V27FI-HFHN","1000","Finance lease LN-MV9V27FI-HFHN booked and the supplier paid","",,310500.00
+20/09/2026,"LN-MV9V27FI-HFHN","2300","Finance lease LN-MV9V27FI-HFHN booked and the supplier paid","",,45000.00
+20/09/2026,"LN-MV9V27YG-D9UC","1110","Instalment sale LN-MV9V27YG-D9UC booked and the supplier paid","",517500.00,
+20/09/2026,"LN-MV9V27YG-D9UC","1300","Instalment sale LN-MV9V27YG-D9UC booked and the supplier paid","",75000.00,
+20/09/2026,"LN-MV9V27YG-D9UC","1000","Instalment sale LN-MV9V27YG-D9UC booked and the supplier paid","",,517500.00
+20/09/2026,"LN-MV9V27YG-D9UC","2300","Instalment sale LN-MV9V27YG-D9UC booked and the supplier paid","",,75000.00
+20/09/2026,"LN-MV9V28JG-JRE7","1110","Instalment sale LN-MV9V28JG-JRE7 booked and the supplier paid","",1552500.00,
+20/09/2026,"LN-MV9V28JG-JRE7","1300","Instalment sale LN-MV9V28JG-JRE7 booked and the supplier paid","",225000.00,
+20/09/2026,"LN-MV9V28JG-JRE7","1000","Instalment sale LN-MV9V28JG-JRE7 booked and the supplier paid","",,1552500.00
+20/09/2026,"LN-MV9V28JG-JRE7","2300","Instalment sale LN-MV9V28JG-JRE7 booked and the supplier paid","",,225000.00
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Rental invoiced on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","2300","Rental invoiced on LN-MV9V28YU-0FY3","",,2264.74
+20/09/2026,"LN-MV9V28YU-0FY3","4100","Rental invoiced on LN-MV9V28YU-0FY3","",,10598.25
+20/09/2026,"LN-MV9V28YU-0FY3","4110","Rental invoiced on LN-MV9V28YU-0FY3","",,4500.00
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Rental invoiced on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","2300","Rental invoiced on LN-MV9V28YU-0FY3","",,2264.74
+20/09/2026,"LN-MV9V28YU-0FY3","4100","Rental invoiced on LN-MV9V28YU-0FY3","",,10598.25
+20/09/2026,"LN-MV9V28YU-0FY3","4110","Rental invoiced on LN-MV9V28YU-0FY3","",,4500.00
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Rental invoiced on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","2300","Rental invoiced on LN-MV9V28YU-0FY3","",,2264.74
+20/09/2026,"LN-MV9V28YU-0FY3","4100","Rental invoiced on LN-MV9V28YU-0FY3","",,10598.25
+20/09/2026,"LN-MV9V28YU-0FY3","4110","Rental invoiced on LN-MV9V28YU-0FY3","",,4500.00
+20/09/2026,"LN-MV9V29G0-LF8M","1120","Rental invoiced on LN-MV9V29G0-LF8M","",11165.90,
+20/09/2026,"LN-MV9V29G0-LF8M","2300","Rental invoiced on LN-MV9V29G0-LF8M","",,1456.42
+20/09/2026,"LN-MV9V29G0-LF8M","4100","Rental invoiced on LN-MV9V29G0-LF8M","",,9709.48
+20/09/2026,"LN-MV9V29TY-T8A4","1120","Rental invoiced on LN-MV9V29TY-T8A4","",27676.05,
+20/09/2026,"LN-MV9V29TY-T8A4","2300","Rental invoiced on LN-MV9V29TY-T8A4","",,3609.92
+20/09/2026,"LN-MV9V29TY-T8A4","4100","Rental invoiced on LN-MV9V29TY-T8A4","",,21566.13
+20/09/2026,"LN-MV9V29TY-T8A4","4110","Rental invoiced on LN-MV9V29TY-T8A4","",,2500.00
+20/09/2026,"LN-MV9V28YU-0FY3","1300","Lease LN-MV9V28YU-0FY3 booked and the supplier paid for the asset","",67500.00,
+20/09/2026,"LN-MV9V28YU-0FY3","1500","Lease LN-MV9V28YU-0FY3 booked and the supplier paid for the asset","",450000.00,
+20/09/2026,"LN-MV9V28YU-0FY3","1000","Lease LN-MV9V28YU-0FY3 booked and the supplier paid for the asset","",,517500.00
+20/09/2026,"LN-MV9V29G0-LF8M","1300","Lease LN-MV9V29G0-LF8M booked and the supplier paid for the asset","",60000.00,
+20/09/2026,"LN-MV9V29G0-LF8M","1500","Lease LN-MV9V29G0-LF8M booked and the supplier paid for the asset","",400000.00,
+20/09/2026,"LN-MV9V29G0-LF8M","1000","Lease LN-MV9V29G0-LF8M booked and the supplier paid for the asset","",,460000.00
+20/09/2026,"LN-MV9V29TY-T8A4","1300","Lease LN-MV9V29TY-T8A4 booked and the supplier paid for the asset","",30000.00,
+20/09/2026,"LN-MV9V29TY-T8A4","1500","Lease LN-MV9V29TY-T8A4 booked and the supplier paid for the asset","",200000.00,
+20/09/2026,"LN-MV9V29TY-T8A4","1000","Lease LN-MV9V29TY-T8A4 booked and the supplier paid for the asset","",,230000.00
+20/09/2026,"LN-MV9V28YU-0FY3","6100","Maintenance fund claim on LN-MV9V28YU-0FY3","",3200.00,
+20/09/2026,"LN-MV9V28YU-0FY3","1000","Maintenance fund claim on LN-MV9V28YU-0FY3","",,3200.00
+20/09/2026,"LN-MV9V29TY-T8A4","4110","Maintenance fund contribution on LN-MV9V29TY-T8A4","",2500.00,
+20/09/2026,"LN-MV9V29TY-T8A4","2400","Maintenance fund contribution on LN-MV9V29TY-T8A4","",,2500.00
+20/09/2026,"LN-MV9V27FI-HFHN","1000","Receipt on LN-MV9V27FI-HFHN","",8946.62,
+20/09/2026,"LN-MV9V27FI-HFHN","1110","Receipt on LN-MV9V27FI-HFHN","",,8946.62
+20/09/2026,"LN-MV9V28JG-JRE7","1000","Receipt on LN-MV9V28JG-JRE7","",13413.93,
+20/09/2026,"LN-MV9V28JG-JRE7","1110","Receipt on LN-MV9V28JG-JRE7","",,13413.93
+20/09/2026,"LN-MV9V28YU-0FY3","1000","Receipt on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Receipt on LN-MV9V28YU-0FY3","",,17362.99
+20/09/2026,"LN-MV9V28YU-0FY3","1000","Receipt on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Receipt on LN-MV9V28YU-0FY3","",,17362.99
+20/09/2026,"LN-MV9V28YU-0FY3","1000","Receipt on LN-MV9V28YU-0FY3","",17362.99,
+20/09/2026,"LN-MV9V28YU-0FY3","1120","Receipt on LN-MV9V28YU-0FY3","",,17362.99
+20/09/2026,"LN-MV9V29G0-LF8M","1000","Receipt on LN-MV9V29G0-LF8M","",11165.90,
+20/09/2026,"LN-MV9V29G0-LF8M","1120","Receipt on LN-MV9V29G0-LF8M","",,11165.90
+20/09/2026,"LN-MV9V29TY-T8A4","1000","Receipt on LN-MV9V29TY-T8A4","",27676.05,
+20/09/2026,"LN-MV9V29TY-T8A4","1120","Receipt on LN-MV9V29TY-T8A4","",,27676.05
+20/09/2026,"LN-MV9V27YG-D9UC","2500","Receipt on LN-MV9V27YG-D9UC","",393500.00,
+20/09/2026,"LN-MV9V27YG-D9UC","1110","Receipt on LN-MV9V27YG-D9UC","",,393500.00
+20/09/2026,"LN-MV9V27YG-D9UC","2500","Recovery cost on LN-MV9V27YG-D9UC (supplier invoice, payable)","",6500.00,
+20/09/2026,"LN-MV9V27YG-D9UC","2510","Recovery cost on LN-MV9V27YG-D9UC (supplier invoice, payable)","",,6500.00
+20/09/2026,"LN-MV9V27YG-D9UC","2500","Recovery of the asset of LN-MV9V27YG-D9UC settled: clearing moved to the result","",15326.09,
+20/09/2026,"LN-MV9V27YG-D9UC","6300","Recovery of the asset of LN-MV9V27YG-D9UC settled: clearing moved to the result","",,15326.09
+20/09/2026,"LN-MV9V27YG-D9UC","1000","Repossessed asset of LN-MV9V27YG-D9UC sold","",400000.00,
+20/09/2026,"LN-MV9V27YG-D9UC","2300","Repossessed asset of LN-MV9V27YG-D9UC sold","",,52173.91
+20/09/2026,"LN-MV9V27YG-D9UC","2500","Repossessed asset of LN-MV9V27YG-D9UC sold","",,347826.09
+20/09/2026,"LN-MV9V28YU-0FY3","2500","Recovery cost on LN-MV9V28YU-0FY3 (supplier invoice, payable)","",4200.00,
+20/09/2026,"LN-MV9V28YU-0FY3","2510","Recovery cost on LN-MV9V28YU-0FY3 (supplier invoice, payable)","",,4200.00

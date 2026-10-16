@@ -106,6 +106,30 @@ describe("words that used to misfile common descriptions (review of #73)", () =>
   })
 })
 
+describe("model labels", () => {
+  const labels = { "SYNTH SHOPRITE": "TRANSPORT", "SYNTH CORNER": "FOOD", "T TESTER": "UNCATEGORISED", "SYNTH MYSTERY": "SALARY_INCOME" }
+  const withLabels = (description: string, amountCents = -10_000) => categorise(tx(description, amountCents), { clientName: "Thabo Tester", modelLabels: labels })
+
+  it("never override a rule: rules first", () => {
+    // The model says TRANSPORT; the SHOPRITE rule says FOOD and wins.
+    expect(withLabels("Card Purchase: SYNTH SHOPRITE")).toEqual({ category: "FOOD", rule: "merchant:FOOD" })
+  })
+
+  it("categorise a debit no rule could, marked model-assigned", () => {
+    expect(withLabels("Card Purchase: SYNTH CORNER 4411")).toEqual({ category: "FOOD", rule: "model", modelAssigned: true })
+    expect(cat("Card Purchase: SYNTH CORNER 4411")).toBe("UNCATEGORISED")
+  })
+
+  it("never apply to money in", () => {
+    expect(withLabels("SYNTH CORNER", 10_000).category).toBe("OTHER_INCOME")
+  })
+
+  it("leave a row uncategorised when the label is UNCATEGORISED or not one the model may give", () => {
+    expect(withLabels("Payment To: T TESTER").category).toBe("UNCATEGORISED")
+    expect(withLabels("SYNTH MYSTERY").category).toBe("UNCATEGORISED")
+  })
+})
+
 describe("CATEGORISER_VERSION names the rules", () => {
   // A changed word list, rule or policy list changes figures and flag keys: bump
   // the version, then re-pin. Categories are never stored, so a bump re-reads nothing.
@@ -115,6 +139,6 @@ describe("CATEGORISER_VERSION names the rules", () => {
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v1", hash: "a803ad84b7e6d30b" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v2", hash: "4c50afdbea7fc174" })
   })
 })

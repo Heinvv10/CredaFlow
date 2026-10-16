@@ -4,7 +4,11 @@
  * its output can go on a PR; `--show` also prints the disagreeing keys, for
  * the dev set only — rules are written from the dev set, never from held-out keys.
  *
- *   npx tsx scripts/statement-categoriser-accuracy.ts <keys.tsv> <labels.tsv> [--show]
+ *   npx tsx scripts/statement-categoriser-accuracy.ts <keys.tsv> <labels.tsv> [--model-labels <model.tsv>] [--show]
+ *
+ * --model-labels: the local model's labels for the keys
+ * (scripts/statement-categoriser-model-labels.ts), applied after the rules as
+ * in production. The file is read here, never printed.
  *
  * Gate: weighted by each key's row count, over every key that either the
  * labels or the categoriser put in CREDIT_INSTALMENT, GAMBLING, SALARY_INCOME
@@ -42,6 +46,12 @@ export function score(rows: Scored[]) {
   }
 }
 
+/** A `key \t category` file → the stored-labels shape categorise() takes. */
+export function readModelLabels(path: string | undefined): Record<string, string> {
+  if (!path) throw new Error("--model-labels needs a file")
+  return Object.fromEntries(readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((l) => l.split("\t")).map(([k, c]) => [k, c]))
+}
+
 function main() {
   const [keysPath, labelsPath] = process.argv.slice(2)
   if (!keysPath || !labelsPath) throw new Error("usage: statement-categoriser-accuracy.ts <keys.tsv> <labels.tsv> [--show]")
@@ -52,14 +62,17 @@ function main() {
   if (unknown > 0) throw new Error(`${unknown} label(s) are not categories`)
   // Rules are written from the dev set only: never print a held-out key.
   if (process.argv.includes("--show") && !labelled.every(([key]) => isDevKey(key))) throw new Error("--show is for the dev set only")
+  const modelAt = process.argv.indexOf("--model-labels")
+  const modelLabels = modelAt > 0 ? readModelLabels(process.argv[modelAt + 1]) : null
   const rows: Scored[] = labelled.map(([key, label]) => ({
     key,
     rows: counts.get(key) ?? 0,
     label: label as Category,
     // The keys are debits: categorise them as money out, as on a statement.
-    predicted: categorise({ date: "2026-01-01", description: key, amountCents: -1, balanceCents: null, page: 1 }, { clientName: null }).category,
+    predicted: categorise({ date: "2026-01-01", description: key, amountCents: -1, balanceCents: null, page: 1 }, { clientName: null, modelLabels }).category,
   }))
   const s = score(rows)
+  if (modelLabels) process.stdout.write(`model labels: ${Object.keys(modelLabels).length} keys\n`)
   const pct = (n: number) => `${(100 * n).toFixed(1)}%`
   process.stdout.write(`keys labelled: ${rows.length} (${s.allRows} rows)\n`)
   process.stdout.write(`gate (credit, gambling, salary, living combined; row-weighted): ${s.agreeingRows}/${s.inScopeRows} = ${pct(s.gate)} — ${s.gate >= GATE ? "PASS" : "FAIL"} (≥ ${pct(GATE)})\n`)

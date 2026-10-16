@@ -22,29 +22,36 @@ enum BalanceCheck {
 
 /// One read of one ClientDocument's exact bytes by one parser version.
 model StatementAnalysis {
-  id                  String              @id @default(cuid())
-  tenantId            String
-  tenant              Tenant              @relation(fields: [tenantId], references: [id])
-  clientDocumentId    String
-  clientDocument      ClientDocument      @relation(fields: [clientDocumentId], references: [id])
-  contentSha256       String
-  parserVersion       String
-  method              StatementReadMethod
-  status              StatementReadStatus
-  bank                String?
-  accountHolderName   String?
-  accountNumberLast4  String?
-  periodStart         DateTime?
-  periodEnd           DateTime?
-  openingBalanceCents BigInt?
-  closingBalanceCents BigInt?
+  id                     String              @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant              @relation(fields: [tenantId], references: [id])
+  clientDocumentId       String
+  clientDocument         ClientDocument      @relation(fields: [clientDocumentId], references: [id])
+  contentSha256          String
+  parserVersion          String
+  method                 StatementReadMethod
+  status                 StatementReadStatus
+  bank                   String?
+  accountHolderName      String?
+  accountNumberLast4     String?
+  periodStart            DateTime?
+  periodEnd              DateTime?
+  openingBalanceCents    BigInt?
+  closingBalanceCents    BigInt?
   /// [{date, description, amountCents, balanceCents, page}]: cents as JSON numbers
-  transactions        Json
-  balanceCheck        BalanceCheck
-  balanceDiffCents    BigInt?
+  transactions           Json
+  balanceCheck           BalanceCheck
+  balanceDiffCents       BigInt?
   /// {producer, creator, createdAt, modifiedAt, incrementalUpdates, signals[]}
-  authenticity        Json
-  createdAt           DateTime            @default(now())
+  authenticity           Json
+  /// {labelKey: Category}: the local model's category for each masked debit key
+  /// the rules left UNCATEGORISED (lib/statement-analysis/model-labels.ts).
+  /// Applied on read after the rules; null until the model has labelled this read.
+  modelCategories        Json?
+  /// "<model>|<prompt version>" the labels came from
+  modelCategoriesVersion String?
+  modelCategoriesAt      DateTime?
+  createdAt              DateTime            @default(now())
 
   @@unique([clientDocumentId, contentSha256, parserVersion])
   @@index([tenantId])

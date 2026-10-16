@@ -17,7 +17,9 @@
  */
 import { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
+import { RECEIVABLE_ROLES } from "./accounts"
 import type { DerivedEntry, PostedLedger } from "./derive"
+import { independentAssetFinanceBook } from "./reconcile-asset-finance"
 
 export interface LoanTie {
   loanId: string
@@ -32,7 +34,7 @@ export interface Reconciliation {
   mismatches: LoanTie[]
 }
 
-/** Contract-to-date receivable per consumer loan booked before `asOf`. */
+/** Contract-to-date receivable per consumer loan booked before `asOf`, and per asset-finance contract (reconcile-asset-finance.ts). */
 export async function independentBook(db: Pick<typeof prisma, "$queryRaw">, tenantId: string, asOf: Date): Promise<Map<string, { reference: string; cents: number }>> {
   const rows = await db.$queryRaw<Array<{ id: string; reference: string; cents: bigint }>>(Prisma.sql`
     WITH l AS (
@@ -73,10 +75,12 @@ export async function independentBook(db: Pick<typeof prisma, "$queryRaw">, tena
       END)::bigint AS cents
     FROM l LEFT JOIN due ON due."loanId" = l."id" LEFT JOIN chg ON chg."loanId" = l."id" LEFT JOIN rcp ON rcp."loanId" = l."id"
   `)
-  return new Map(rows.map((r) => [r.id, { reference: r.reference, cents: Number(r.cents) }]))
+  const consumer = new Map(rows.map((r) => [r.id, { reference: r.reference, cents: Number(r.cents) }]))
+  for (const [id, row] of await independentAssetFinanceBook(db, tenantId, asOf)) consumer.set(id, row)
+  return consumer
 }
 
-/** The journal's loan book per loan once `entries` are added to what is posted. */
+/** The journal's receivables per loan once `entries` are added to what is posted. */
 export function journalBook(
   posted: PostedLedger,
   postedLoans: Map<string, { loanId: string | null; reference: string }>,
@@ -86,10 +90,10 @@ export function journalBook(
   const add = (loanId: string | null | undefined, cents: number) => {
     if (loanId && cents) out.set(loanId, (out.get(loanId) ?? 0) + cents)
   }
-  for (const [baseKey, vector] of posted) add(postedLoans.get(baseKey)?.loanId, vector.LOAN_BOOK ?? 0)
+  for (const [baseKey, vector] of posted) add(postedLoans.get(baseKey)?.loanId, RECEIVABLE_ROLES.reduce((sum, role) => sum + (vector[role] ?? 0), 0))
   for (const e of entries) {
     if (e.eventType === "OPENING") continue
-    for (const l of e.lines) if ((l.sourceRole ?? l.role) === "LOAN_BOOK") add(e.loanId, l.debitCents - l.creditCents)
+    for (const l of e.lines) if (RECEIVABLE_ROLES.includes(l.sourceRole ?? l.role)) add(e.loanId, l.debitCents - l.creditCents)
   }
   return out
 }

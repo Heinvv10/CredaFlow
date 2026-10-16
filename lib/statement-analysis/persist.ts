@@ -12,6 +12,7 @@ import { readFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { analyseStatement, PARSER_VERSION, type StatementAnalysisResult } from "./analyse"
+import { labelRead } from "./label-read"
 import { VlmUnavailableError } from "./vlm-reader"
 
 export interface EnsureOptions {
@@ -197,6 +198,8 @@ interface ReadRequest {
   retryFailed?: boolean
   actorUserId?: string
   onRead?: () => Promise<unknown>
+  /** Runs only when model labels were stored by this run (a read already labelled, or a model down, runs nothing). */
+  onLabelled?: () => Promise<unknown>
 }
 
 /**
@@ -205,7 +208,7 @@ interface ReadRequest {
  * being read runs once that read is done. Callbacks run only after a read is
  * stored; a read left pending is re-queued when its application is next loaded.
  */
-const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>> }>()
+const waiting = new Map<string, { tenantId: string; retry?: string | null; onReads: Array<() => Promise<unknown>>; onLabelled: Array<() => Promise<unknown>> }>()
 const running = new Set<string>()
 
 /**
@@ -217,9 +220,10 @@ const running = new Set<string>()
 export const MAX_WAITING_PER_TENANT = 20
 
 function merge(tenantId: string, documentId: string, opts: ReadRequest): void {
-  const w = waiting.get(documentId) ?? { tenantId, onReads: [] }
+  const w = waiting.get(documentId) ?? { tenantId, onReads: [], onLabelled: [] }
   if (opts.retryFailed) w.retry = opts.actorUserId ?? null
   if (opts.onRead) w.onReads.push(opts.onRead)
+  if (opts.onLabelled) w.onLabelled.push(opts.onLabelled)
   waiting.set(documentId, w)
 }
 
@@ -233,7 +237,11 @@ export function readStatementInBackground(tenantId: string, documentId: string, 
   // A staff retry gets headroom past the cap, since a stored failed read is
   // not re-queued on load; the headroom is bounded too, so retries cannot
   // become a way round it.
-  const queued = [...waiting.values()].filter((w) => w.tenantId === tenantId).length
+  // Labelling a read that exists (onLabelled alone) has its own allowance, so
+  // staff views of read statements never crowd out a read.
+  const labelOnly = (w: { onReads: unknown[]; onLabelled: unknown[]; retry?: string | null }) => w.onReads.length === 0 && w.retry === undefined && w.onLabelled.length > 0
+  const asking = { onReads: opts.onRead ? [opts.onRead] : [], onLabelled: opts.onLabelled ? [opts.onLabelled] : [], retry: opts.retryFailed ? null : undefined }
+  const queued = [...waiting.values()].filter((w) => w.tenantId === tenantId && labelOnly(w) === labelOnly(asking)).length
   const cap = opts.retryFailed ? 2 * MAX_WAITING_PER_TENANT : MAX_WAITING_PER_TENANT
   if (!alreadyWaiting && queued >= cap) {
     console.warn("[statement-analysis] read not queued: tenant queue full", { documentId })
@@ -256,9 +264,11 @@ function schedule(documentId: string): void {
         retryFailed: w.retry !== undefined, actorUserId: w.retry ?? undefined,
       })
       if (r.state !== "read") return
+      // Labelled before the callbacks run, so the checks they recompute see the labels.
+      const labelled = await labelRead(w.tenantId, r.analysis)
       // Each callback on its own: one failing must not skip the others, nor be
       // reported as a failed read.
-      for (const onRead of w.onReads) {
+      for (const onRead of [...w.onReads, ...(labelled ? w.onLabelled : [])]) {
         try {
           await onRead()
         } catch (err) {

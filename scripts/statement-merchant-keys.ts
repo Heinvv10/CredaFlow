@@ -23,16 +23,17 @@
 import { createHash, randomBytes } from "node:crypto"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { counterpartyKey } from "@/lib/credit-checks/undisclosed-debt"
 import { loadCorpus } from "@/lib/statement-analysis/accuracy/run"
 import { analyseStatement } from "@/lib/statement-analysis/analyse"
+import { labelKey } from "@/lib/statement-analysis/model-labels"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 
 const MIN_HOLDERS = 3
 /** Share of keys in the dev set; the rest is held out for the blind labels. */
 const DEV_SHARE = 60
 
-export const maskKey = (description: string) => counterpartyKey(description).replace(/\d/g, "9")
+/** The key the model labels in production too (model-labels.ts): the gate scores what production asks. */
+export const maskKey = labelKey
 
 /** Dev or held-out, from the key alone: the split never changes between runs. */
 export function isDevKey(key: string): boolean {

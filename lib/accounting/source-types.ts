@@ -25,6 +25,17 @@ export type EventType =
   | "RECLASS"
   | "WRITE_OFF"
   | "ADJUSTMENT"
+  | "ASSET_INCEPTION"
+  | "LEASE_RENTAL"
+  | "LEASE_INVOICE"
+  | "MAINTENANCE_FUND"
+  | "RECOVERY_COST"
+  | "RECOVERY_VAT"
+  | "RECOVERY_SALE"
+  | "RECOVERY_SURPLUS"
+  | "RECOVERY_REFUND"
+  | "RECOVERY_RESULT"
+  | "CREDIT_NOTE"
 
 export interface SourcePayment {
   id: string
@@ -40,6 +51,8 @@ export interface SourcePayment {
   /** The parts of `amount` that paid default charges (not the schedule). */
   defaultInterestAllocated: number
   chargeFeesAllocated: number
+  /** The receipt of a recovery's sale proceeds: the cash came in with the sale, so it debits RECOVERY_CLEARING, not BANK. */
+  recoveryProceeds?: boolean
 }
 
 export interface SourceLoan {
@@ -64,6 +77,8 @@ export interface SourceLoan {
     creditLifePremiumDue: number
     totalDue: number
     totalPaid: number
+    /** Asset finance (instalment sale, finance lease): the capital balance the row's interest accrued on. */
+    openingBalanceCents?: number | null
   }>
   /** `day` is the SAST calendar day as SAST midnight. */
   charges: Array<{ type: string; day: Date; amount: number; sourceId: string | null }>
@@ -72,6 +87,72 @@ export interface SourceLoan {
   payouts: Array<{ id: string; attempt: number; amountCents: number; paidAt: Date | null; returnedAt: Date | null }>
   /** Money paid out after the disbursement was reversed (lib/payouts/recovery.ts), by attempt. */
   recoveries: Array<{ id: string; attempt: number; amountCents: number; paidAt: Date; recoveredAt: Date | null; unrecoverableAt: Date | null }>
+  /** Where the borrower's debt is booked; LOAN_BOOK when absent (consumer loans). */
+  receivableRole?: AccountRole
+  /** Set for asset-finance contracts (lib/accounting/sources-asset-finance.ts). */
+  assetFinance?: SourceAssetFinance
+}
+
+export interface SourceInvoice {
+  id: string
+  /** SAST midnight of the supply date. */
+  supplyDate: Date
+  /** SAST midnight of the issue date. */
+  issueDate: Date
+  exclVatCents: number
+  vatCents: number
+  inclVatCents: number
+  /** Part of exclVatCents that is the sale of the leased asset to the lessee (end of term, purchase). */
+  assetSaleExclVatCents: number
+  /** Part of exclVatCents that bills a maintenance fund's deficit to the lessee: it settles the fund, it is not income. */
+  fundBilledExclVatCents?: number
+}
+
+/** A credit note against a lease tax invoice, with the income the invoice credited (the credit is spread over it). */
+export interface SourceCreditNote {
+  id: string
+  invoiceId: string
+  /** SAST midnight of the issue date. */
+  issueDate: Date
+  exclVatCents: number
+  vatCents: number
+  inclVatCents: number
+  /** What the original invoice credited to each income role, excluding VAT. */
+  invoiceIncome: Array<{ role: "RENTAL_INCOME" | "MAINTENANCE_INCOME" | "ASSET_DISPOSAL_PROCEEDS" | "MAINTENANCE_FUND_LIABILITY"; exclVatCents: number }>
+}
+
+export interface SourceRecovery {
+  id: string
+  /** Proceeds applied (the Recovery's figures are set) on this day, or null. */
+  proceedsDate: Date | null
+  proceedsPaymentId: string | null
+  surplusCents: number
+  /** A withdrawn recovery's closure, or null. */
+  withdrawnAt: Date | null
+  costs: Array<{ id: string; netCents: number; vatCents: number; grossCents: number; treatment: "DEDUCT_FROM_PROCEEDS" | "CHARGE_TO_ACCOUNT"; incurredOn: Date }>
+  /** Repossession VAT events that carry an input-tax claim. */
+  vatEvents: Array<{ id: string; eventDate: Date; inputTaxClaimCents: number }>
+  /** The completed sale and its buyer invoice. */
+  sale: { id: string; priceInclVatCents: number; invoice: SourceInvoice } | null
+  refund: { id: string; amountCents: number; releasedAt: Date } | null
+}
+
+export interface SourceAssetFinance {
+  contractType: "INSTALMENT_SALE" | "FINANCE_LEASE" | "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE"
+  financedFeesCents: number
+  /** What the supplier is paid (cash price incl. VAT, less deposit and trade-in), once released. */
+  payout: { amountCents: number; releasedAt: Date } | null
+  /** Instalment sale and finance lease: the earliest tax invoice of the loan. */
+  inceptionInvoice: SourceInvoice | null
+  /** Lease: the asset's cost. */
+  asset: { exclVatCents: number; vatCents: number }
+  rentals: Array<{ id: string; invoice: SourceInvoice; rentalExclVatCents: number; maintenanceExclVatCents: number; vatCents: number; totalCents: number }>
+  /** Lease tax invoices that are not a rental's: end of term, purchase, early termination. */
+  sundryInvoices: SourceInvoice[]
+  /** Credit notes against the rental and other lease invoices. */
+  creditNotes: SourceCreditNote[]
+  fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
+  recoveries: SourceRecovery[]
 }
 
 export interface DesiredSource {

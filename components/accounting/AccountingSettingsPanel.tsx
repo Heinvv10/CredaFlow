@@ -6,9 +6,11 @@ import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ConfirmedRoles } from "./ConfirmedRoles"
 
 interface Settings {
   mappingConfirmedAt: string | null
+  mappingConfirmedRoles?: string[]
   goLiveMonth: string | null
   vatRegistered: boolean
   vatRateBps: number
@@ -74,10 +76,11 @@ export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean;
             )}
           </div>
           <p className="text-xs text-[var(--cf-text-muted)]">
-            VAT is split only from fee accounts marked VAT-inclusive in the mapping. VAT credit notes (asset finance) are not exported yet.
+            VAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices are exported; credit notes on an instalment sale&apos;s invoice or a repossession sale are not yet, and hold the month open.
           </p>
           {!s.mappingConfirmedAt && <InfoStrip variant="warning">No month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.</InfoStrip>}
           {s.mappingConfirmedAt && <p className="text-[var(--cf-text)]">Mapping confirmed {new Date(s.mappingConfirmedAt).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })}.</p>}
+          <ConfirmedRoles confirmed={s.mappingConfirmedRoles ?? []} mappingConfirmed={s.mappingConfirmedAt !== null} />
           {canEdit && (
             <Button size="sm" disabled={busy} onClick={() => send("POST", { action: "confirm_mapping" }, "Mapping confirmed.")}>
               I have reviewed the mapping: confirm it

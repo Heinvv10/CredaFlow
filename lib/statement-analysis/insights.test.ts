@@ -104,3 +104,34 @@ describe("computeInsights", () => {
     expect(computeInsights([statement(rows)], ctx).salary.payDays).toEqual([25])
   })
 })
+
+describe("computeInsights with model labels", () => {
+  const rows = [
+    row("2026-07-02", "Card Purchase: SYNTH CORNER 4411", -100_000),
+    row("2026-07-03", "Card Purchase: SHOPRITE", -50_000),
+    row("2026-07-04", "Payment To: J SOAP", -30_000),
+  ]
+
+  it("counts a model-labelled debit in its category and lists it as model-assigned", () => {
+    const ins = computeInsights([statement(rows, {}, { modelLabels: { "SYNTH CORNER": "FOOD", "J SOAP": "UNCATEGORISED" } })], ctx)
+    expect(ins.months[0].byCategory).toMatchObject({ FOOD: 150_000, UNCATEGORISED: 30_000 })
+    expect(ins.modelAssigned).toMatchObject({ debitCents: 100_000, rowCount: 1, rows: [{ documentId: "doc-1", date: "2026-07-02", description: "Card Purchase: SYNTH CORNER 4411", amountCents: -100_000, category: "FOOD" }] })
+    expect(ins.modelAssigned.livingMonthlyCents).toBe(Math.round(100_000 / (30 / 30.44)))
+    expect(ins.modelAssigned.digest).toMatch(/^[0-9a-f]{16}$/)
+    expect(ins.statements[0].modelLabelled).toBe(true)
+  })
+
+  it("applies a statement's labels to its own rows only", () => {
+    const a = statement(rows.slice(0, 1), {}, { documentId: "doc-a", modelLabels: { "SYNTH CORNER": "FOOD" } })
+    const b = statement([row("2026-07-02", "Card Purchase: SYNTH CORNER 4411", -100_000)], { accountNumberLast4: "0002" }, { documentId: "doc-b" })
+    const ins = computeInsights([a, b], ctx)
+    expect(ins.months[0].byCategory).toMatchObject({ FOOD: 100_000, UNCATEGORISED: 100_000 })
+    expect(ins.statements.map((s) => s.modelLabelled)).toEqual([true, false])
+  })
+
+  it("without labels: rules alone, nothing model-assigned", () => {
+    const ins = computeInsights([statement(rows)], ctx)
+    expect(ins.modelAssigned).toEqual({ debitCents: 0, livingMonthlyCents: 0, rowCount: 0, rows: [], digest: null })
+    expect(ins.statements[0].modelLabelled).toBe(false)
+  })
+})
