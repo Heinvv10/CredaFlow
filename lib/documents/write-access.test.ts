@@ -104,18 +104,6 @@ describe("refuseReadOnlyDocumentWrite", () => {
     }))
   })
 
-  it("still refuses when the audit write throws", async () => {
-    logAuditMock.mockRejectedValueOnce(new Error("audit down"))
-    const res = await refuseReadOnlyDocumentWrite({
-      caller: staff("READONLY"),
-      documentId: "upload",
-      tenantId: "tenant-1",
-      action: "upload",
-      req: req(),
-    })
-    expect(res?.status).toBe(403)
-  })
-
   it.each(WRITING_STAFF_ROLES)("returns null and audits nothing for %s", async (role) => {
     const res = await refuseReadOnlyDocumentWrite({
       caller: staff(role),

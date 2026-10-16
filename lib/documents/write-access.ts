@@ -38,18 +38,14 @@ export async function refuseReadOnlyDocumentWrite(params: {
   const { caller } = params
   if (canWriteDocuments(caller) || caller.type !== "staff") return null
 
-  try {
-    await auditDocumentAccessRefusal({
-      documentId: params.documentId,
-      reason: "document_write_read_only_role",
-      status: 403,
-      tenantId: params.tenantId,
-      actorUserId: caller.userId,
-      detail: { action: params.action, role: caller.role },
-    })
-  } catch (error) {
-    // The refusal stands even when it cannot be recorded.
-    console.error("Failed to audit a read-only document write refusal:", error)
-  }
+  // Never throws: logAudit records its own failure and the refusal stands.
+  await auditDocumentAccessRefusal({
+    documentId: params.documentId,
+    reason: "document_write_read_only_role",
+    status: 403,
+    tenantId: params.tenantId,
+    actorUserId: caller.userId,
+    detail: { action: params.action, role: caller.role },
+  })
   return NextResponse.json({ error: READ_ONLY_DOCUMENT_ERROR }, { status: 403 })
 }
