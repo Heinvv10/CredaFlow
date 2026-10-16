@@ -7,6 +7,8 @@ import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
 import { operatorAppHost, staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
+import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
+import { isLoanBookPath, lacksLoanBook, NO_LOAN_BOOK_HOME } from "@/lib/security/loan-book-scope"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { operatorHostGate, operatorOffHostRefusal } from "@/lib/proxy/operator-host"
@@ -326,6 +328,16 @@ function route(req: NextAuthRequest): Response {
   // defense-in-depth.
   if (isApiPath && isClient && !isPortalApiRoute && !isSharedClientApi) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  // The loan book (lib/security/loan-book-scope.ts): a staff role without
+  // view_loan_book (INSURANCE_OFFICER) reads none of it, through any page,
+  // API or server action. The executive dashboard is its usual landing page,
+  // so that one sends it to its own home instead of the no-access page.
+  if (lacksLoanBook(role) && isLoanBookPath(path)) {
+    if (isApiPath) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    const target = path === "/dashboard" ? NO_LOAN_BOOK_HOME : NO_ACCESS_PAGE
+    return NextResponse.redirect(new URL(target, req.url))
   }
 
   // Page-level role routing — staff and clients live in separate UI trees.

@@ -7,6 +7,7 @@ import { PERMISSIONS as REGISTRY_PERMISSIONS } from "@/lib/registry/generated/pe
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import type { prisma } from "@/lib/prisma"
 import { ENROLMENT_PAGE, enrolmentRequiredResponse } from "@/lib/proxy/totp-enrolment"
+import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { resolveOperatorTenantAccess } from "@/lib/operator/tenant-access"
 import { REQUEST_ID_HEADER, REQUEST_METHOD_HEADER } from "@/lib/proxy/operator-read-only"
@@ -43,12 +44,7 @@ export function redirectStaleSession(callbackUrl?: string): never {
   redirect(callbackUrl ? `/api/auth/expired?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/api/auth/expired")
 }
 
-/**
- * Where a staff page sends a role that may not open it: a page inside the
- * staff app that says so (app/(dashboard)/no-access). Never "/", which on a
- * shared host renders the lender's public website.
- */
-export const NO_ACCESS_PAGE = "/no-access"
+export { NO_ACCESS_PAGE }
 
 export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {
   const session = await auth()

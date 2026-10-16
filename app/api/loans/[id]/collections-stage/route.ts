@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { logAudit } from "@/lib/audit"
 import { WA_TEMPLATES } from "@/lib/whatsapp"
 import { findLenderIdentity } from "@/lib/config/identity"
@@ -45,6 +45,10 @@ export async function PATCH(
   try {
     const guard = await requireApiRole("COLLECTIONS_OFFICER")
     if (guard.error) return guard.error
+    // act_on_collections: the COLLECTIONS_OFFICER ladder minus INSURANCE_OFFICER.
+    if (!canDo(guard.user.role, "act_on_collections")) {
+      return NextResponse.json({ error: "Your role cannot act on collections." }, { status: 403 })
+    }
 
     return await withTenantContext(req, async (tenant) => {
       const { id } = await params
