@@ -39,14 +39,16 @@ export function LeadForm({ staff }: { staff: Staff[] }) {
   // member saves as before — a duplicate lead is a lesser harm than a capture
   // path that stalls on a lookup.
   const { firstName: dupFirstName, lastName: dupLastName, phone: dupPhone } = form
+  // A field emptied: the earlier result no longer describes what is typed, so
+  // drop it. Adjusted during render; guarded so it settles after one pass.
+  const complete = Boolean(dupFirstName && dupLastName && dupPhone)
+  if (!complete && duplicates.length > 0) setDuplicates([])
+
   useEffect(() => {
     const firstName = dupFirstName
     const lastName = dupLastName
     const phone = dupPhone
-    if (!firstName || !lastName || !phone) {
-      setDuplicates([])
-      return
-    }
+    if (!complete) return
     const abort = new AbortController()
     const timer = setTimeout(() => {
       fetch("/api/crm/leads/check-duplicates", {
@@ -63,7 +65,7 @@ export function LeadForm({ staff }: { staff: Staff[] }) {
       clearTimeout(timer)
       abort.abort()
     }
-  }, [dupFirstName, dupLastName, dupPhone])
+  }, [complete, dupFirstName, dupLastName, dupPhone])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

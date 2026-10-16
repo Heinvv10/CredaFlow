@@ -10,6 +10,7 @@ import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContext } from "@/lib/tenant"
+import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { isLockedStatutoryEvidence } from "@/lib/documents/generic-action-policy"
 
@@ -78,6 +79,9 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   return withTenantContext(req, async (tenant) => {
+    const readOnly = await refuseReadOnlyDocumentWrite({ caller, documentId: id, tenantId: tenant.id, action: "extract", req })
+    if (readOnly) return readOnly
+
     let attempt: ExtractionAttempt | null = null
 
     try {

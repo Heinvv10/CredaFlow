@@ -9,7 +9,9 @@ const {
   getSigner,
   requestSignature,
   logAudit,
+  auditDocumentAccessRefusal,
 } = vi.hoisted(() => ({
+  auditDocumentAccessRefusal: vi.fn(),
   requireApiRole: vi.fn(),
   findFirstClientDocument: vi.fn(),
   findFirstDocumentTemplate: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 vi.mock("@/lib/documents/signing", () => ({ getSigner }))
+vi.mock("@/lib/audit-refusals", () => ({ auditDocumentAccessRefusal }))
 vi.mock("@/lib/audit", () => ({
   logAudit,
   AuditAction: { DOCUMENT_SIGNATURE_REQUESTED: "DOCUMENT_SIGNATURE_REQUESTED" },
@@ -62,7 +65,7 @@ const CLIENT = { id: "client-1", firstName: "Thabo", lastName: "M", email: "thab
 
 beforeEach(() => {
   vi.clearAllMocks()
-  requireApiRole.mockResolvedValue({ user: { id: "u1", email: "a@b.c", role: "READONLY" } })
+  requireApiRole.mockResolvedValue({ user: { id: "u1", email: "a@b.c", role: "LOAN_ADMIN" } })
   findFirstClientDocument.mockResolvedValue(DOC)
   findFirstClient.mockResolvedValue(CLIENT)
   getSigner.mockReturnValue({ requestSignature })
@@ -182,5 +185,26 @@ describe("POST /api/documents/[id]/request-signature", () => {
 
     expect(res.status).toBe(404)
     expect(getSigner).not.toHaveBeenCalled()
+  })
+
+  it("refuses READONLY with 403 and an audited refusal, sending nothing", async () => {
+    requireApiRole.mockResolvedValue({ user: { id: "viewer-1", email: "v@b.c", role: "READONLY" } })
+
+    const res = await POST(req(), ctx())
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Your role can view documents but not change them." })
+    expect(findFirstClientDocument).not.toHaveBeenCalled()
+    expect(getSigner).not.toHaveBeenCalled()
+    expect(requestSignature).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+    expect(auditDocumentAccessRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: "doc1",
+      reason: "document_write_read_only_role",
+      status: 403,
+      tenantId: "t1",
+      actorUserId: "viewer-1",
+      detail: { action: "request_signature", role: "READONLY" },
+    }))
   })
 })

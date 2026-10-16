@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -43,6 +43,17 @@ function validate(form: PolicyForm): { scoreError?: string; ndiError?: string } 
   return errors
 }
 
+async function fetchCreditPolicy(): Promise<PolicyForm> {
+  const res = await fetch("/api/settings/credit-policy")
+  if (!res.ok) throw new Error(String(res.status))
+  const data = await res.json()
+  return {
+    bureauMinScore: String(data.bureauMinScore),
+    bureauBlockAdverse: Boolean(data.bureauBlockAdverse),
+    ndiBufferPct: String(data.ndiBufferPct),
+  }
+}
+
 export function CreditPolicyForm() {
   const [form, setForm] = useState<PolicyForm>({
     bureauMinScore: "",
@@ -53,30 +64,14 @@ export function CreditPolicyForm() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/settings/credit-policy")
-      if (res.ok) {
-        const data = await res.json()
-        setForm({
-          bureauMinScore: String(data.bureauMinScore),
-          bureauBlockAdverse: Boolean(data.bureauBlockAdverse),
-          ndiBufferPct: String(data.ndiBufferPct),
-        })
-      } else {
-        setMessage({ kind: "error", text: "Failed to load the current policy." })
-      }
-    } catch {
-      setMessage({ kind: "error", text: "Failed to load the current policy." })
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    load()
-  }, [load])
+    let ignore = false
+    fetchCreditPolicy()
+      .then((loaded) => { if (!ignore) setForm(loaded) })
+      .catch(() => { if (!ignore) setMessage({ kind: "error", text: "Failed to load the current policy." }) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [])
 
   const errors = validate(form)
   const hasErrors = !!(errors.scoreError || errors.ndiError)
