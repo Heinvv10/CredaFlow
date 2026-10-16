@@ -16,9 +16,10 @@
  * rule-UNCATEGORISED debit and nothing else, so it can raise living spend (an
  * officer referral) but never hide spend the rules counted.
  */
+import { createHash } from "node:crypto"
 import { counterpartyKey } from "@/lib/credit-checks/undisclosed-debt"
 import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
-import { LIVING_CATEGORIES, type Category } from "./categories"
+import { isLiving, LIVING_CATEGORIES, type Category } from "./categories"
 import { VlmUnavailableError } from "./vlm-reader"
 
 /**
@@ -32,8 +33,8 @@ import { VlmUnavailableError } from "./vlm-reader"
  */
 export const MODEL_LABELS = { enabled: false }
 
-/** Bump when the prompt or the parsing changes what a key is labelled. */
-export const MODEL_LABEL_PROMPT_VERSION = "labels-p2"
+/** Bump when the prompt, the parsing or the vote changes what a key is labelled. */
+export const MODEL_LABEL_PROMPT_VERSION = "labels-p3x3"
 
 /**
  * What the model may answer. Not the income or own-transfer categories: it
@@ -42,6 +43,22 @@ export const MODEL_LABEL_PROMPT_VERSION = "labels-p2"
 export const MODEL_CATEGORIES: readonly Category[] = [
   ...LIVING_CATEGORIES, "CREDIT_INSTALMENT", "GAMBLING", "BANK_FEES", "CASH_WITHDRAWAL", "SAVINGS_INVESTMENT", "UNCATEGORISED",
 ]
+
+/**
+ * Answers the model may give that never move value: no figure reads a credit
+ * instalment or gambling the model found, and calling a high-volume payment a
+ * credit instalment was the costliest error measured (goal 2026-10-16 §1).
+ * They stay in the prompt so such a key has somewhere to go but living spend.
+ */
+export const NEVER_APPLIED: readonly Category[] = ["CREDIT_INSTALMENT", "GAMBLING"]
+
+/**
+ * Times every key is asked, each time among other keys in another order: the
+ * local model is not deterministic at temperature 0, and its answer for a key
+ * can depend on its neighbours. A living category (what EXPENSE_UNDERSTATED
+ * counts) stands only when every run agrees; any other only on a majority.
+ */
+export const VOTE_RUNS = 3
 
 /** Keys per request: short enough that one bad answer costs little. */
 export const LABEL_BATCH = 20
@@ -108,7 +125,7 @@ export function modelLabelFor(labels: unknown, description: string): Category | 
   const key = labelKey(description)
   if (!key || !Object.prototype.hasOwnProperty.call(labels, key)) return null
   const v = (labels as Record<string, unknown>)[key]
-  return typeof v === "string" && MODEL_CATEGORIES.includes(v as Category) && v !== "UNCATEGORISED" ? (v as Category) : null
+  return typeof v === "string" && MODEL_CATEGORIES.includes(v as Category) && v !== "UNCATEGORISED" && !NEVER_APPLIED.includes(v as Category) ? (v as Category) : null
 }
 
 export function labelPrompt(keys: string[]): string {
@@ -131,7 +148,9 @@ BANK_FEES: bank charges, fees, interest charged
 CASH_WITHDRAWAL: ATM withdrawals, cash send, e-wallets, money vouchers
 SAVINGS_INVESTMENT: savings, investments, stokvels, unit trusts
 UNCATEGORISED: a person's name, a generic transfer or payment, a reference, or anything you are not sure of
-Use UNCATEGORISED unless the words clearly name a business or a service of that category.
+If the words name a business or brand you know, use its category, even with a town, a branch, CARD or ZA after the name:
+most South African chain stores, fuel brands, pharmacies, fast-food chains and subscription services are known
+(for example PICK N PAY, OK FOODS, CLICKS, SASOL, MR PRICE, STEERS, SHOWMAX). Otherwise use UNCATEGORISED.
 Words that only say how the money moved are not a business: POS PURCHASE, CARD PURCHASE, INTERNET PAYMENT,
 PAYSHAP, EFT, DEBIT ORDER, TRANSFER, and card-machine or payment-app names such as YOCO, SNAPSCAN, ZAPPER or IKHOKHA.
 If nothing else in the item names a business, use UNCATEGORISED. A name, initials, a place or a single
@@ -161,7 +180,30 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 }
 
 /**
- * Labels the keys. Throws VlmUnavailableError when the model could not be
+ * One label per key from VOTE_RUNS runs: the most common answer, if no other
+ * ties it, when every run gave it (a living category) or most runs did (any
+ * other); otherwise, and for NEVER_APPLIED, UNCATEGORISED.
+ */
+export function vote(runs: ModelLabels[], keys: string[]): ModelLabels {
+  const out: ModelLabels = {}
+  for (const key of keys) {
+    const counts = new Map<Category, number>()
+    for (const run of runs) counts.set(run[key] ?? "UNCATEGORISED", (counts.get(run[key] ?? "UNCATEGORISED") ?? 0) + 1)
+    const [[top, n], next] = [...counts].sort((a, b) => b[1] - a[1])
+    const needed = isLiving(top) ? runs.length : Math.floor(runs.length / 2) + 1
+    out[key] = n >= needed && next?.[1] !== n && !NEVER_APPLIED.includes(top) ? top : "UNCATEGORISED"
+  }
+  return out
+}
+
+/** The keys in a different, repeatable order for each run, so each run asks a key among other neighbours. */
+export function runOrder(keys: string[], run: number): string[] {
+  const rank = (k: string) => createHash("sha256").update(`${run}\0${k}`).digest("hex")
+  return run === 0 ? keys : [...keys].sort((a, b) => (rank(a) < rank(b) ? -1 : 1))
+}
+
+/**
+ * Labels the keys, VOTE_RUNS times (vote()). Throws VlmUnavailableError when the model could not be
  * asked (not configured, down, timed out, any HTTP error but a refused batch)
  * for any batch: then nothing is stored and the read is labelled on a later
  * run. A batch refused as bad (400, 413, 422) is UNCATEGORISED.
@@ -170,8 +212,14 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
   const config = getVlmConfig()
   if (!config) throw new VlmUnavailableError("VLM is not configured")
   if (Date.now() < unavailableUntil) throw new VlmUnavailableError("VLM unavailable recently: backing off")
-  const labels: ModelLabels = {}
   const distinct = [...new Set(keys.filter((k) => k))]
+  const runs: ModelLabels[] = []
+  for (let run = 0; run < VOTE_RUNS; run++) runs.push(await labelOnce(config, runOrder(distinct, run)))
+  return { labels: vote(runs, distinct), version: modelLabelsVersion(config.model) }
+}
+
+async function labelOnce(config: { url: string; model: string }, distinct: string[]): Promise<ModelLabels> {
+  const labels: ModelLabels = {}
   for (let i = 0; i < distinct.length; i += LABEL_BATCH) {
     const batch = distinct.slice(i, i + LABEL_BATCH)
     let res: Response
@@ -215,5 +263,5 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
     }
     Object.assign(labels, parseLabels(content, batch))
   }
-  return { labels, version: modelLabelsVersion(config.model) }
+  return labels
 }

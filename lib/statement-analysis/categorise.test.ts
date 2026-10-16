@@ -139,6 +139,6 @@ describe("CATEGORISER_VERSION names the rules", () => {
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v2", hash: "4c50afdbea7fc174" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v3", hash: "d1a8393f0d208d09" })
   })
 })
