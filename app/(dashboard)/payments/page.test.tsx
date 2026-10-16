@@ -202,5 +202,8 @@ describe("payments page — overdue strip", () => {
     const where = calls.schedule[0].where as { status: { in: string[] }; dueDate: { lt: Date } }
     expect(where.status.in.sort()).toEqual(["OVERDUE", "PARTIAL", "PENDING"])
     expect(where.dueDate.lt).toBeInstanceOf(Date)
+    // An asset-finance skip period's R0.00 row and a closed, cancelled or
+    // written-off loan's leftovers are not arrears.
+    expect(where).toMatchObject({ totalDue: { gt: 0 }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } })
   })
 })

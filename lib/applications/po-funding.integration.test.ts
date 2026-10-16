@@ -88,7 +88,8 @@ suite("PO funding (real database)", () => {
       { clientId, productId, appliedAmountCents: 1_000_000, appliedTermDays: 30, purpose: "Supply school uniforms", loanPurposeCategory: "BUSINESS" },
     )
     expect(outcome.status).toBe(422)
-    expect(JSON.stringify(outcome.body)).toMatch(/purchase order/i)
+    expect(outcome.body).toMatchObject({ error: { code: "po_funding_not_supported" } })
+    expect(JSON.stringify(outcome.body)).toMatch(/not supported via the API/i)
     expect(await db.loanApplication.count({ where: { tenantId, poDocumentId: null, productId } })).toBe(0)
   })
 
