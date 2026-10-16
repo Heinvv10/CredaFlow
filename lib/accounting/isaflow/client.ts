@@ -14,14 +14,16 @@
  * AUTH (the connection needs a new token); a base URL this deployment does
  * not allow is CONFIG, refused before anything is sent.
  */
-import type { Resolver } from "@/lib/lender-api/webhooks/ssrf"
+import { SsrfError, type Resolver } from "@/lib/lender-api/webhooks/ssrf"
 import { assertIsaFlowOrigin, IsaFlowUrlError } from "./base-url"
+import { guardedPost } from "./dial"
 import {
   IsaFlowContractError, MCP_PATH, parseCompanies, parseCreatedJournal, parseGlAccountsPage, parseJournalsPage, RPC_CODES, TOOLS,
   type CreatedJournal, type GlAccountRow, type IsaFlowCompany, type JournalListEntry, type RpcResponse,
 } from "./contract"
 
 export interface IsaFlowHttp {
+  /** Tests only: replaces the guarded dial (./dial.ts) entirely. */
   fetch?: typeof fetch
   resolve?: Resolver
   env?: NodeJS.ProcessEnv
@@ -54,16 +56,16 @@ export async function callTool(target: IsaFlowTarget, tool: string, argsJson: st
     throw error
   }
   const body = `{"jsonrpc":"2.0","id":${++rpcId},"method":"tools/call","params":{"name":${JSON.stringify(tool)},"arguments":${argsJson}}}`
+  const headers = { authorization: `Bearer ${target.token}`, "content-type": "application/json", accept: "application/json" }
+  const timeoutMs = http.timeoutMs ?? 30_000
   let res: Response
   try {
-    res = await (http.fetch ?? fetch)(`${origin}${MCP_PATH}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${target.token}`, "content-type": "application/json", accept: "application/json" },
-      body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(http.timeoutMs ?? 30_000),
-    })
+    res = http.fetch
+      ? await http.fetch(`${origin}${MCP_PATH}`, { method: "POST", headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) })
+      : await guardedPost(`${origin}${MCP_PATH}`, { headers, body }, { resolve: http.resolve, timeoutMs })
   } catch (error) {
+    // Refused inside the connection's own DNS lookup: nothing was sent.
+    if (error instanceof SsrfError) throw new IsaFlowError("config", `IsaFlow address refused: ${error.message}`)
     throw new IsaFlowError("unknown", `IsaFlow request failed: ${error instanceof Error ? error.message : "network error"}`)
   }
   if (res.status === 401 || res.status === 403) throw new IsaFlowError("auth", `IsaFlow refused the token (${res.status}); connect IsaFlow again with a valid token`, res.status)

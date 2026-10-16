@@ -382,8 +382,10 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   - The token is sealed with `sealCredential` and opened strictly. It is never returned and never
     audited.
   - The base URL must be an origin listed in `ISAFLOW_ALLOWED_ORIGINS`. An https origin must
-    resolve to public addresses only (`lib/lender-api/webhooks/ssrf.ts`), checked before every
-    request. Redirects are not followed.
+    resolve to public addresses only (`lib/lender-api/webhooks/ssrf.ts`). Every request dials
+    through `guardedLookup` (`dial.ts`), so the address connected to is the one checked at that
+    moment: a listed name that re-points to a private address is refused (DNS rebinding).
+    Redirects are not followed.
   - http is accepted only for a listed loopback origin, under NODE_ENV `development` or `test`. That
     covers the fake, `scripts/fake-isaflow.ts`.
   - The database refuses CONNECTED unless `connectedWithTotp` is set and the connector is an active

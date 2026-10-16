@@ -29,6 +29,8 @@ The ITs ran with `RUN_ACCOUNTING_IT=1`.
 | C1 | client: a 5xx is called `definite` instead of `unknown` | client | RED: "says whether a failed request could have taken effect" |
 | C2 | client: a tool refusal (`isError`) is read as success | client | RED: "says whether…", "carries IsaFlow's refusal text, never the token" |
 | C3 | base URL: the `ISAFLOW_ALLOWED_ORIGINS` allow-list is not checked | client | RED: "refuses a base URL this deployment does not allow before any request" |
+| D1 | dial: the connection resolves the host itself (no `guardedLookup`), as plain fetch did | client | RED: "dials only the address it checked: a name that re-points to a private address at dial time is refused (DNS rebinding)" |
+| D2 | client: production requests go through plain fetch (the guarded dial bypassed) | client | RED: the same test |
 | J1 | rands truncated to whole rands | journal | RED: "writes rands to two decimals", "builds one stable request…", "finds the draft on read-back…" |
 | J2 | read-back matches on the memo tag alone, ignoring the lines | journal | RED: "finds the draft on read-back by its memo tag and identical lines…" |
 | J3 | an inactive IsaFlow account is accepted | it | RED: "refuses a code IsaFlow lacks or has inactive with a 422…" |

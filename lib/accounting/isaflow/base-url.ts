@@ -4,7 +4,7 @@
  * operator listed in ISAFLOW_ALLOWED_ORIGINS (comma-separated, e.g.
  * "https://app.isaflow.co.za"), and an https one must resolve only to public
  * addresses (lib/lender-api/webhooks/ssrf.ts), checked again before every
- * request. Plain http is accepted for a loopback origin only, only when it is
+ * request and inside the connection's own lookup (./dial.ts). Plain http is accepted for a loopback origin only, only when it is
  * listed, and only under NODE_ENV test or development (the fake IsaFlow).
  */
 import { resolvePublic, systemResolver, type Resolver } from "@/lib/lender-api/webhooks/ssrf"

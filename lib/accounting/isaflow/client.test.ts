@@ -68,6 +68,18 @@ describe("IsaFlow JSON-RPC client", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("dials only the address it checked: a name that re-points to a private address at dial time is refused (DNS rebinding)", async () => {
+    const origin = "https://isaflow.invalid"
+    const answers = [[{ address: "93.184.216.34", family: 4 }], [{ address: "10.0.0.5", family: 4 }]]
+    const rebinding = vi.fn(async () => answers[Math.min(rebinding.mock.calls.length - 1, 1)])
+    const allowed = { NODE_ENV: "test", ISAFLOW_ALLOWED_ORIGINS: origin } as unknown as NodeJS.ProcessEnv
+    const error = (await callTool({ baseUrl: origin, token: "pat_x" }, "list_companies", "{}", { env: allowed, resolve: rebinding }).catch((e: unknown) => e)) as IsaFlowError
+    expect(error).toBeInstanceOf(IsaFlowError)
+    expect(error).toMatchObject({ kind: "config", message: expect.stringContaining("10.0.0.5") })
+    // Once when the origin is checked, once inside the connection's own lookup.
+    expect(rebinding).toHaveBeenCalledTimes(2)
+  })
+
   it("follows list_gl_accounts' cursor, all accounts including inactive, every other argument unchanged", async () => {
     const account = (code: string, active = true) => ({ id: `id-${code}`, account_code: code, account_name: code, account_type: "asset", account_subtype: null, is_active: active, parent_account_id: null })
     const fetch = vi.fn()
