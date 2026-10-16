@@ -14,7 +14,7 @@
 #   DEMO_LENDER_LOGO  optional PNG uploaded as the lender's logo during setup.
 #
 # Steps: rebuild the sim image on --image → fresh-stack.sh (DESTROYS the sim
-# volumes) → simulate.ts to today → check-dates → ledger invariant →
+# volumes) → sim env preflight → simulate.ts to today → check-dates → ledger invariant →
 # verify-pages → pg_dump -Fc + uploads tarball + meta.json → `latest` symlink
 # → keep the newest 4 snapshots. A snapshot is written only when every check
 # passed; any failure exits non-zero and leaves `latest` where it was.
@@ -84,6 +84,9 @@ sim_compose build app >&2
 
 note "fresh sim stack from $start"
 scripts/demo/sim/fresh-stack.sh "${start}T07:30:00+02:00"
+
+note "sim env preflight"
+sim_env_preflight
 
 note "simulate $start → today (report: $work/simulate-report.txt)"
 npx tsx scripts/demo/simulate.ts --start "$start" > "$work/simulate-report.txt" \
