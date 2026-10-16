@@ -48,6 +48,8 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: async () => "tenant-1" }))
+const { sessionRole } = vi.hoisted(() => ({ sessionRole: { value: "LOAN_ADMIN" as string } }))
+vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { role: sessionRole.value } }) }))
 vi.mock("@/components/layout/Header", () => ({ Header: () => null }))
 vi.mock("@/components/payments/PaymentsClient", () => ({
   PaymentsClient: (props: Record<string, unknown>) => {
@@ -173,14 +175,21 @@ describe("payments page — client-notified payments (Fair Score audit B7)", () 
     calls.notified = [report]
     const html = await render({ period: "today" })
     calls.notified = []
-    expect(calls.notifiedProps).toEqual({ items: [expect.objectContaining({ id: "pn1", amount: 84_330 })] })
+    expect(calls.notifiedProps).toEqual({ items: [expect.objectContaining({ id: "pn1", amount: 84_330 })], canAct: true })
     expect(html).toContain("+ 1 client-notified payment to confirm")
   })
 
   it("says nothing extra when no report is waiting", async () => {
     const html = await render({ period: "today" })
     expect(html).not.toContain("client-notified payment")
-    expect(calls.notifiedProps).toEqual({ items: [] })
+    expect(calls.notifiedProps).toEqual({ items: [], canAct: true })
+  })
+
+  it("lets only the roles the allocate/reject route admits act on a report", async () => {
+    sessionRole.value = "READONLY"
+    await render({ period: "today" })
+    sessionRole.value = "LOAN_ADMIN"
+    expect(calls.notifiedProps).toEqual(expect.objectContaining({ canAct: false }))
   })
 })
 

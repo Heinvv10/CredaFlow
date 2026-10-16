@@ -5,7 +5,8 @@ import { Header } from "@/components/layout/Header"
 import Link from "next/link"
 import { PaymentsClient } from "@/components/payments/PaymentsClient"
 import { ClientNotifiedPayments } from "@/components/payments/ClientNotifiedPayments"
-import { listPendingPaymentNotifications } from "@/lib/payments/payment-notifications"
+import { canActOnPaymentNotifications, listPendingPaymentNotifications } from "@/lib/payments/payment-notifications"
+import { auth } from "@/lib/auth"
 import { PeriodPills } from "@/components/payments/PeriodPills"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import {
@@ -136,8 +137,7 @@ async function getData(period: Period, now: Date) {
         },
       },
     }),
-    // Not period-scoped, like unapplied receipts: an unanswered client report
-    // must not drop off the screen because the pills moved.
+    // Not period-scoped: an unanswered client report must not drop off the screen.
     listPendingPaymentNotifications(tenantId),
   ])
 
@@ -179,6 +179,8 @@ export default async function PaymentsPage({
   const period = resolvePeriod(params, now)
   const { allocated, allocatedCount, unapplied, resolved, resolvedCount, stats, overdue, clientNotified } =
     await getData(period, now)
+  // The allocate/reject route's role rule: nobody is offered an action that 403s.
+  const canAct = canActOnPaymentNotifications((await auth())?.user?.role)
 
   const delta =
     stats.preceding && stats.preceding.amount > 0
@@ -279,7 +281,7 @@ export default async function PaymentsPage({
           </div>
         )}
 
-        <ClientNotifiedPayments items={clientNotified} />
+        <ClientNotifiedPayments items={clientNotified} canAct={canAct} />
 
         {/* Main tabbed payments panel */}
         <PaymentsClient

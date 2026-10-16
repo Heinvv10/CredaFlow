@@ -25,7 +25,7 @@ beforeEach(async () => {
   container = document.createElement("div")
   document.body.appendChild(container)
   root = createRoot(container)
-  await act(async () => root.render(<ClientNotifiedPayments items={[item]} />))
+  await act(async () => root.render(<ClientNotifiedPayments items={[item]} canAct />))
 })
 
 afterEach(async () => {
@@ -66,5 +66,13 @@ describe("ClientNotifiedPayments", () => {
     await click("Confirm rejection")
     expect(container.textContent).toContain("Give the reason for rejecting it")
     expect(refreshMock).not.toHaveBeenCalled()
+  })
+
+  it("offers no Allocate or Reject to a role that cannot act on it", async () => {
+    await act(async () => root.render(<ClientNotifiedPayments items={[item]} canAct={false} />))
+    const labels = [...container.querySelectorAll("button")].map((b) => b.textContent)
+    expect(labels).not.toContain("Allocate")
+    expect(labels).not.toContain("Reject")
+    expect(container.textContent).toContain("Elize Synthetic")
   })
 })

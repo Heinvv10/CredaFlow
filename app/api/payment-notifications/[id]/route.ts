@@ -8,6 +8,7 @@ import { PaymentApplicationError } from "@/lib/loan/apply-payment"
 import { ChargesSyncRefused } from "@/lib/loan/charges-verdict"
 import {
   allocatePaymentNotification,
+  PAYMENT_NOTIFICATION_MIN_ROLE,
   PaymentNotificationError,
   REJECT_REASON_MAX,
   rejectPaymentNotification,
@@ -30,7 +31,7 @@ type Body = {
  * capture. Rejecting decides about money too, so it takes the same role.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireApiRole("COLLECTIONS_AGENT")
+  const guard = await requireApiRole(PAYMENT_NOTIFICATION_MIN_ROLE)
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {

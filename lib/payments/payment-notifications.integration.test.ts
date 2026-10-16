@@ -82,6 +82,7 @@ suite("client-notified payments", () => {
 
   beforeEach(async () => {
     await prisma.paymentNotification.deleteMany({ where: { tenantId: T } })
+    await prisma.auditLog.deleteMany({ where: { tenantId: T, entityId: LOAN } })
     await prisma.notification.deleteMany({ where: { tenantId: T } })
     await prisma.payment.deleteMany({ where: { loanId: LOAN } })
     await prisma.repaymentSchedule.updateMany({ where: { loanId: LOAN }, data: { totalPaid: 0, status: "PENDING", paidAt: null } })
@@ -100,12 +101,13 @@ suite("client-notified payments", () => {
       documentId: "d_pn", actorEmail: "pn@test.invalid", ipAddress: null,
     }))
 
-  it("queues the claim as PENDING, audits it and rings the bell for loan admins only", async () => {
+  it("queues the claim as PENDING, audits it and rings the bell for the roles that can act on it", async () => {
     const { id } = await claim()
     const row = await prisma.paymentNotification.findUniqueOrThrow({ where: { id } })
     expect(row).toMatchObject({ status: "PENDING", amount: 84_330, paymentId: null })
     const bells = await prisma.notification.findMany({ where: { tenantId: T, entityId: id } })
-    expect(bells.map((b) => b.userId)).toEqual(["u_pn_admin"])
+    // The same roles the allocate/reject route admits (COLLECTIONS_AGENT upward).
+    expect(bells.map((b) => b.userId).sort()).toEqual(["u_pn_admin", "u_pn_agent"])
     expect(bells[0]).toMatchObject({ type: "PAYMENT_NOTIFIED", entityType: "PaymentNotification" })
     expect(await prisma.auditLog.count({ where: { tenantId: T, entityId: id, action: "PAYMENT_NOTIFICATION_RECEIVED" } })).toBe(1)
     // A claim is not money received.
@@ -128,6 +130,16 @@ suite("client-notified payments", () => {
     const loan = await prisma.loan.findUniqueOrThrow({ where: { id: LOAN } })
     expect(loan.totalPaid).toBe(84_330)
     expect(await prisma.auditLog.count({ where: { tenantId: T, entityId: id, action: "PAYMENT_NOTIFICATION_ALLOCATED" } })).toBe(1)
+    // The value date came from the client's report, and the receipt says so.
+    const recorded = await prisma.auditLog.findFirstOrThrow({ where: { tenantId: T, entityId: LOAN, action: "PAYMENT_RECORDED" } })
+    expect(recorded.newValue).toMatchObject({ source: "CLIENT_ASSERTED" })
+  })
+
+  it("records a date staff entered as staff-asserted", async () => {
+    const { id } = await claim()
+    await allocatePaymentNotification(db, { tenantId: T, id, actor: agent, receivedAt: new Date("2026-10-15T08:00:00Z") })
+    const recorded = await prisma.auditLog.findFirstOrThrow({ where: { tenantId: T, entityId: LOAN, action: "PAYMENT_RECORDED" }, orderBy: { createdAt: "desc" } })
+    expect(recorded.newValue).toMatchObject({ source: "STAFF_ASSERTED" })
   })
 
   it("rejects with the reason and refuses to allocate it afterwards", async () => {

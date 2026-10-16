@@ -29,7 +29,7 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZ
  * confirmed yet (Fair Score audit B7). A claim is not money held: allocating
  * it captures the receipt; rejecting it records why.
  */
-export function ClientNotifiedPayments({ items }: { items: ClientNotifiedPayment[] }) {
+export function ClientNotifiedPayments({ items, canAct }: { items: ClientNotifiedPayment[]; canAct: boolean }) {
   const router = useRouter()
   const [mode, setMode] = useState<Mode>(null)
   const [amount, setAmount] = useState("")
@@ -121,7 +121,9 @@ export function ClientNotifiedPayments({ items }: { items: ClientNotifiedPayment
                   </a>
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {mode?.id === item.id ? (
+                  {!canAct ? (
+                    <span className="text-xs text-gray-400">A collections agent or above allocates it</span>
+                  ) : mode?.id === item.id ? (
                     <div className="space-y-2 text-left">
                       {mode.kind === "allocate" ? (
                         <>

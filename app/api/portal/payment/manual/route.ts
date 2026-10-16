@@ -5,7 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { saveFile, deleteFile } from "@/lib/storage"
 import { MAX_FILE_SIZE } from "@/lib/document-auth"
 import { logAudit, AuditAction } from "@/lib/audit"
-import { callerIp } from "@/lib/rate-limit"
+import { callerIp, checkRateLimit } from "@/lib/rate-limit"
 import { owesNothing } from "@/lib/loan/charges-summary"
 import { recordPaymentNotification } from "@/lib/payments/payment-notifications"
 
@@ -24,10 +24,28 @@ function matchesMagic(head: Uint8Array, mime: string): boolean {
   return sigs.some((sig) => sig.every((b, i) => head[i] === b))
 }
 
+// Each report stores a file and rings every reconciling staff member's bell,
+// so a client is held to a handful an hour (a few payments plus retries).
+const NOTIFY_RATE_LIMIT = { limit: 10, windowMs: 60 * 60 * 1000 } as const
+
+/** A real calendar day as YYYY-MM-DD (2026-02-31 is not one). */
+function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const gate = checkRateLimit(`portal:payment-notify:${session.user.email}`, NOTIFY_RATE_LIMIT)
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many payment notifications. Please try again later or contact us." },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    )
   }
 
   let form: FormData
@@ -64,7 +82,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File content does not match its type" }, { status: 400 })
   }
 
-  if (typeof paymentDate === "string" && paymentDate && !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) {
+  if (typeof paymentDate === "string" && paymentDate && !isCalendarDay(paymentDate)) {
     return NextResponse.json({ error: "Invalid payment date" }, { status: 400 })
   }
 

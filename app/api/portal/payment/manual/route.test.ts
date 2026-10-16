@@ -13,6 +13,7 @@ const {
   deleteFile,
   logAudit,
   recordPaymentNotification,
+  checkRateLimit,
 } = vi.hoisted(() => ({
   auth: vi.fn(),
   findFirstClient: vi.fn(),
@@ -23,6 +24,7 @@ const {
   deleteFile: vi.fn(),
   logAudit: vi.fn(),
   recordPaymentNotification: vi.fn(),
+  checkRateLimit: vi.fn(() => ({ allowed: true, remaining: 9, retryAfterSeconds: 0 })),
 }))
 
 const tx = {
@@ -48,7 +50,7 @@ vi.mock("@/lib/audit", () => ({
   logAudit,
   AuditAction: { DOCUMENT_UPLOADED: "DOCUMENT_UPLOADED" },
 }))
-vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1" }))
+vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1", checkRateLimit }))
 vi.mock("@/lib/payments/payment-notifications", () => ({ recordPaymentNotification }))
 
 function makeReq(fields: Record<string, string>, file?: File) {
@@ -176,5 +178,25 @@ describe("POST /api/portal/payment/manual", () => {
 
     await expect(POST(makeReq({ loanId: "l1", amount: "84330" }, pdf()))).rejects.toThrow("db down")
     expect(deleteFile).toHaveBeenCalledWith("/uploads/x.pdf")
+  })
+
+  it("is rate-limited per client and stores nothing once the limit is reached", async () => {
+    auth.mockResolvedValue({ user: { id: "c1", email: "client@example.com" } })
+    checkRateLimit.mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 600 })
+
+    const res = await POST(makeReq({ loanId: "l1", amount: "84330" }, pdf()))
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("600")
+    expect(checkRateLimit).toHaveBeenCalledWith("portal:payment-notify:client@example.com", expect.any(Object))
+    expect(saveFile).not.toHaveBeenCalled()
+  })
+
+  it("refuses an impossible payment date with 400, not a server error", async () => {
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    const res = await POST(makeReq({ loanId: "l1", amount: "84330", paymentDate: "2026-02-31" }, pdf()))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/payment date/i)
+    expect(saveFile).not.toHaveBeenCalled()
   })
 })
