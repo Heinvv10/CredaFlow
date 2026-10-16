@@ -59,6 +59,15 @@ describe("IsaFlow JSON-RPC client", () => {
     expect(error.message).not.toContain("pat_secret_token")
   })
 
+  it("sends arguments only when they are exactly one JSON object (nothing can be spliced into the envelope)", async () => {
+    const fetch = vi.fn(async () => ok({}))
+    for (const bad of ["[1]", "null", '"text"', "7", "{bad", '{"a":1},"name":"post_journal"', '{"a":1}}', ""]) {
+      const error = (await callTool(target, "create_draft_journal", bad, http(fetch)).catch((e: unknown) => e)) as IsaFlowError
+      expect(error, bad).toMatchObject({ kind: "definite", message: expect.stringContaining("not one JSON object") })
+    }
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("refuses a base URL this deployment does not allow before any request (config)", async () => {
     const fetch = vi.fn()
     const error = (await callTool({ ...target, baseUrl: "https://elsewhere.example" }, "list_companies", "{}", http(fetch)).catch((e: unknown) => e)) as IsaFlowError

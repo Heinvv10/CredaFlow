@@ -48,6 +48,17 @@ let rpcId = 0
 
 /** One tools/call. `argsJson` is embedded as given, so a stored request is resent byte for byte. Returns the parsed result text. */
 export async function callTool(target: IsaFlowTarget, tool: string, argsJson: string, http: IsaFlowHttp = {}): Promise<unknown> {
+  // The text is spliced into the envelope as is: it must be exactly one JSON object, so it cannot close
+  // `arguments` early and add members (another tool name) to the request.
+  let args: unknown
+  try {
+    args = JSON.parse(argsJson)
+  } catch {
+    args = undefined
+  }
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    throw new IsaFlowError("definite", `Refusing to send ${tool}: its arguments are not one JSON object`)
+  }
   let origin: string
   try {
     origin = await assertIsaFlowOrigin(target.baseUrl, http.env ?? process.env, http.resolve)
