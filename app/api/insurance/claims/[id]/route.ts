@@ -5,6 +5,8 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { formatCents, toCents } from "@/lib/insurance/rand-cents"
+import { DECIMAL_12_2_MAX_CENTS, parseDecimalAmount } from "../../decimal-input"
 
 export async function GET(
   req: NextRequest,
@@ -75,17 +77,52 @@ export async function PATCH(
         if (body.approvedAmount == null) {
           return NextResponse.json({ error: "approvedAmount is required for approval" }, { status: 400 })
         }
+        const parsed = parseDecimalAmount("approvedAmount", body.approvedAmount, { maxCents: DECIMAL_12_2_MAX_CENTS })
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+        const approvedAmount = parsed.value
 
-        const claim = await prisma.insuranceClaim.update({
+        // The insurer pays at most what was claimed, and never more than the
+        // cover. Compared in exact cents (Decimal columns, never a float).
+        const current = await prisma.insuranceClaim.findFirst({
           where: { id, tenantId: tenant.id },
+          select: { claimAmount: true, policy: { select: { sumAssured: true } } },
+        })
+        if (!current) return NextResponse.json({ error: "Claim not found" }, { status: 404 })
+        const approvedCents = toCents(approvedAmount)
+        if (approvedCents > toCents(current.claimAmount)) {
+          return NextResponse.json(
+            { error: `The approved amount cannot exceed the amount claimed (${formatCents(toCents(current.claimAmount))}).` },
+            { status: 422 },
+          )
+        }
+        if (approvedCents > toCents(current.policy.sumAssured)) {
+          return NextResponse.json(
+            { error: `The approved amount cannot exceed the policy's sum assured (${formatCents(toCents(current.policy.sumAssured))}).` },
+            { status: 422 },
+          )
+        }
+
+        // Both bounds again in the write itself, so a claim or policy changed
+        // since the read cannot slip an amount past them.
+        const written = await prisma.insuranceClaim.updateMany({
+          where: {
+            id,
+            tenantId: tenant.id,
+            claimAmount: { gte: approvedAmount },
+            policy: { sumAssured: { gte: approvedAmount } },
+          },
           data: {
             status: "APPROVED",
-            approvedAmount: body.approvedAmount,
+            approvedAmount,
             resolvedAt: new Date(),
             ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
             ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
           },
         })
+        if (written.count === 0) {
+          return NextResponse.json({ error: "The claim changed while it was being approved. Refresh and try again." }, { status: 409 })
+        }
+        const claim = await prisma.insuranceClaim.findFirst({ where: { id, tenantId: tenant.id } })
 
         await logAudit({
           tenantId: tenant.id,
@@ -96,7 +133,7 @@ export async function PATCH(
           entityId: id,
           newValue: {
             status: "APPROVED",
-            approvedAmount: body.approvedAmount,
+            approvedAmount,
             ...(body.assessorId !== undefined ? { assessorId: body.assessorId } : {}),
             ...(body.insurerRef !== undefined ? { insurerRef: body.insurerRef } : {}),
           },

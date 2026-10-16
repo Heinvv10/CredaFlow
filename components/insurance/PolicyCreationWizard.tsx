@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 
-import { INSURERS } from "./wizard/constants"
 import type { Advisor, Client, PolicyDraftData, Product, Step } from "./wizard/types"
 import { Step1PolicyDetails } from "./wizard/Step1PolicyDetails"
 import { Step2Disclosure } from "./wizard/Step2Disclosure"
@@ -42,7 +41,9 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
     premiumAmount: "",
     commissionRate: "15",
     startDate: new Date().toISOString().slice(0, 10),
-    insurer: "Guardrisk Life",
+    // Never a default: an insurer named here implies an arrangement the lender
+    // may not have. A catalogue product brings its own (applyProduct).
+    insurer: "",
     linkedLoanRef: "",
     vehicleRegNumber: "",
     vehicleValue: "",
@@ -53,11 +54,7 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
   })
 
   function set(k: keyof PolicyDraftData, v: string) {
-    setData((prev) => {
-      const update = { ...prev, [k]: v }
-      if (k === "type") update.insurer = INSURERS[v] || ""
-      return update
-    })
+    setData((prev) => ({ ...prev, [k]: v }))
   }
 
   function applyProduct(product: Product) {
@@ -65,7 +62,7 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
     setData((prev) => ({
       ...prev,
       type: product.type,
-      insurer: INSURERS[product.type] || "",
+      insurer: product.insurerName ?? "",
       sumAssured: product.sumAssured.toString(),
       premiumAmount: product.premiumAmount.toString(),
       commissionRate: (product.commissionRate * 100).toFixed(2),

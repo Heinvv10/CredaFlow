@@ -39,8 +39,14 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/tenant", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/tenant")>()), getTenantFromRequest, withTenantContext: (_req: unknown, fn: (t: { id: string; name: string }) => unknown) => fn({ id: "t1", name: "Test Tenant" }) }))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: vi.fn().mockResolvedValue({ user: { id: "u1", email: "advisor@example.com" } }) }))
 vi.mock("@/lib/audit", () => ({ logAudit, AuditAction: new Proxy({}, { get: (_t, k) => String(k) }) }))
-// The route writes through lib/storage (encrypted at rest); the mock records what it was asked to write.
-vi.mock("@/lib/storage", () => ({ saveFileAt: (rel: string, buf: Buffer) => writeFile(rel, buf) }))
+// The route writes through lib/storage (encrypted at rest); the mock records what it was asked to write,
+// after the REAL path check: a name lib/storage would refuse must fail here too, not only in production.
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const { storagePathAt } = await importOriginal<typeof import("@/lib/storage")>()
+  return { saveFileAt: async (rel: string, buf: Buffer) => { storagePathAt(rel); return writeFile(rel, buf) } }
+})
+const lenderLogo = vi.hoisted(() => vi.fn(async (): Promise<Uint8Array | undefined> => undefined))
+vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: lenderLogo }))
 
 // ── Rating-gate fixture ──────────────────────────────────────────────────────
 //
@@ -135,6 +141,41 @@ describe("POST /api/insurance/policies/draft", () => {
     expect(body.draftToken).toEqual(body.pdfUrl.split("/").pop())
     expect(writeFile).toHaveBeenCalledOnce()
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "INSURANCE_FAIS_DISCLOSURE_RENDERED" }))
+  })
+
+  // Fair Score audit (2026-10-16): "Failed to render disclosure", server
+  // "Error: Invalid storage path". Real ids are 25-character cuids, and the
+  // signed token they produce is longer than a file name may be (255), so
+  // naming the PDF after the whole token failed for every real client. The
+  // fixtures above use two-character ids, which is why nothing caught it.
+  it("issues the disclosure for real-length ids and a tenant with an uploaded logo", async () => {
+    process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
+    rateCardConfigured()
+    const { makePng } = await import("@/lib/config/__fixtures__/png")
+    lenderLogo.mockResolvedValueOnce(new Uint8Array(makePng(120, 40)))
+    const clientId = "cmgs8x2k10000qz8h3m1n4b7c"
+    const advisorId = "cmgs8x2k10001qz8h9w2e5r8t"
+    const productId = "cmgs8x2k10002qz8hk7j6h5g4"
+    findUniqueClient.mockResolvedValue({ ...RATEABLE_CLIENT, id: clientId })
+    findUniqueAdvisor.mockResolvedValue({ id: advisorId, name: "Bongani Zulu" })
+    findUniqueProduct.mockResolvedValue({ id: productId, type: "FUNERAL_COVER", name: "Family Funeral Cover" })
+
+    const res = await POST(new NextRequest("http://localhost/api/insurance/policies/draft", {
+      method: "POST",
+      body: JSON.stringify({ clientId, advisorId, productId, type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420 }),
+      headers: { "content-type": "application/json" },
+    }))
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.draftToken.length + ".pdf".length).toBeGreaterThan(255)
+    expect(writeFile).toHaveBeenCalledOnce()
+    const [relative, pdf] = writeFile.mock.calls[0] as [string, Buffer]
+    // The name the serving route looks up first: sha256 of the token.
+    const { hashDraftToken } = await import("@/lib/insurance/disclosure-token")
+    expect(relative).toBe(`disclosures/t1/${hashDraftToken(body.draftToken)}.pdf`)
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-")
+    expect(lenderLogo).toHaveBeenCalledWith("t1")
   })
 
   it("returns 404 when client is in a different tenant", async () => {

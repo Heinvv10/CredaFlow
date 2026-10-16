@@ -67,13 +67,15 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canAuthoriseBackdate, canManageCharges }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges }: {
   loan: StaffAssetLoan
   tenantId: string
   userId: string
   canManageLease: boolean
   canDecideLease: boolean
   canRecordPayment: boolean
+  /** capture_payment: the Record payment panel (POST /api/payments). */
+  canCapturePayment: boolean
   canAuthoriseBackdate: boolean
   canManageCharges: boolean
 }) {
@@ -195,7 +197,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
           )}
 
           {/* Capture eligibility tracks lib/loan/apply-payment.ts (ACTIVE / DEFAULTED). */}
-          {["ACTIVE", "DEFAULTED"].includes(loan.status) && (
+          {["ACTIVE", "DEFAULTED"].includes(loan.status) && canCapturePayment && (
             <DataPanel variant="accent" density="loose">
               <SectionHeader eyebrow="Servicing" title="Record payment" description="Capture a receipt against this agreement."
                 actions={<CreditCard className="h-5 w-5 text-[var(--cf-brand)]" />} className="mb-5" />

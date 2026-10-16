@@ -164,4 +164,18 @@ describe("gen-registries", () => {
       buildRegistries(repo({ "lib/registry/permissions/a.ts": `export default { x: { server: "ADMIN" } }` })),
     ).rejects.toThrow(/x must name a UserRole/)
   })
+
+  // A role list grants exactly the roles named, off the ladder: how a
+  // specialist role (INSURANCE_OFFICER) is kept out of a write that roles
+  // below it on the ladder may make.
+  it("accepts an explicit role list, and refuses an empty, duplicated or unknown one", async () => {
+    const out = await buildRegistries(repo({ "lib/registry/permissions/b.ts": `export default { y: ["ADMIN", "READONLY"] }` }))
+    expect(out["lib/registry/generated/permissions.ts"]).toMatch(/"y": \[\s*"ADMIN",\s*"READONLY"\s*\]/)
+    for (const bad of [`[]`, `["ADMIN", "ADMIN"]`, `["ADMIN", "SUPERDUPER"]`]) {
+      rmSync(root!, { recursive: true, force: true })
+      await expect(
+        buildRegistries(repo({ "lib/registry/permissions/b.ts": `export default { y: ${bad} }` })),
+      ).rejects.toThrow(/y must name a UserRole or a non-empty list of distinct UserRoles/)
+    }
+  })
 })

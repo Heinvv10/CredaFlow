@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { StaffUser } from "@/lib/auth-guards"
-import { redirectStaleSession } from "@/lib/auth-guards"
+import { NO_ACCESS_PAGE, redirectStaleSession } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { isCommsAgentAllowed } from "./comms-agent"
 
@@ -38,6 +38,6 @@ export async function requireCommsAgentPage(): Promise<StaffUser> {
     where: { id: session.user.id },
     select: { isCommsAgent: true },
   })
-  if (!isCommsAgentAllowed(session.user.role, dbUser?.isCommsAgent ?? false)) redirect("/")
+  if (!isCommsAgentAllowed(session.user.role, dbUser?.isCommsAgent ?? false)) redirect(NO_ACCESS_PAGE)
   return session.user as StaffUser
 }

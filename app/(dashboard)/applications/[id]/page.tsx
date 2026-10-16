@@ -503,7 +503,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       : null
   const primaryActions = (
     <>
-      {application.status === "DRAFT" && (
+      {application.status === "DRAFT" && canDo(userRole, "edit_application") && (
         <>
           <Button asChild variant="outline" className="w-full">
             <Link href={`/applications/new?id=${application.id}`}>Edit draft</Link>
@@ -521,7 +521,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
-          <ApplicationReturnToDraftButton applicationId={application.id} />
+          {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
         </>
       )}
       {application.status === "APPROVED" && !application.loan && !application.agreementSignedAt && (
@@ -551,7 +551,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
-      {canCancelApplication(application) && (
+      {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
       <MessageClientButton
@@ -778,6 +778,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           affordabilityNDI={application.affordabilityNDI}
           done={!!application.affordabilityNDI}
           readOnly={affordabilityLocked}
+          canEdit={canDo(userRole, "edit_affordability")}
           snapshotUnavailable={affordabilityLocked && !affordabilitySnapshot}
           debtEvidenceInvalid={applicationDebtEvidenceInvalid}
           clientDebtEvidenceInvalid={clientDebtEvidenceInvalid}
@@ -832,6 +833,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           recklessDone={application.recklessLendingAssessed}
           recklessNote={application.recklessLendingNote}
           affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
+          canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
         />
 
         {canReadChecks && (

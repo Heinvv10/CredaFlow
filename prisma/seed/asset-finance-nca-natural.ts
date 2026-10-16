@@ -83,7 +83,7 @@ async function originateNaturalDeal(tenantId: string, staff: SeedStaff, parties:
     }
     if (!refreshed.application.creditLifeElection) {
       const elected = await prisma.$transaction((tx) => recordAssetCreditLifeElection(tx, {
-        tenantId, clientId: parties.clientId, clientEmail: staff.officer.email, dealId, election: "ACCEPTED",
+        tenantId, clientId: parties.clientId, clientEmail: staff.officer.email, dealId, election: "DECLINED",
       }))
       if (elected.kind !== "recorded") throw new Error(`Seed: sole-proprietor credit life refused (${elected.kind})`)
     }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
@@ -75,6 +75,9 @@ export async function POST(
         )
       }
       const action = formData.get("action") as string
+      if (action === "return_to_draft" && !canDo(guard.user.role, "amend_application")) {
+        return NextResponse.json({ error: "Your role cannot amend an application." }, { status: 403 })
+      }
       const reason = formData.get("reason") as string
       const bureauOverrideReason = ((formData.get("bureauOverrideReason") as string | null) ?? "").trim() || null
       const repaymentMethodValue = formData.get("repaymentMethod")

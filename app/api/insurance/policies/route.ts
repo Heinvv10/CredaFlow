@@ -6,6 +6,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { premiumCommission } from "@/lib/insurance/commission"
 import { hashDraftToken, verifyDraftToken } from "@/lib/insurance/disclosure-token"
 import { sastMonthStart, sastParts } from "@/lib/date/sast"
 import { policyNumberPrefix } from "@/lib/insurance/policy/bind"
@@ -300,7 +301,7 @@ export async function POST(req: NextRequest) {
       renewalDate.setFullYear(renewalDate.getFullYear() + 1)
 
       const commissionRate = (body.commissionRate as number) || 0.15
-      const commissionAmount = sumAssured * commissionRate
+      const commissionAmount = premiumCommission(premiumAmount, commissionRate)
 
       // Fetch product to get commission rate if productId provided
       let productCommissionRate = commissionRate

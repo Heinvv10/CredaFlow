@@ -325,6 +325,33 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     expect(ackPayload.faisDisclosureAt).not.toBe(yesterday)
   })
 
+  // Fair Score audit (2026-10-16): the policy showed "Commission: R 4 000,00",
+  // 20% of the R20 000 SUM ASSURED on a R118/month policy. An intermediary's
+  // commission is a share of the premium (lib/insurance/policy/bind.ts).
+  it("stores the commission as a share of the premium, not of the sum assured", async () => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    const dataCapture: { value?: Record<string, unknown> } = {}
+    prismaTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      insurancePolicy: {
+        create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+          dataCapture.value = args.data
+          return Promise.resolve({ id: "policy-1", policyNumber: "FUN-0001" })
+        }),
+      },
+      premiumPayment: { createMany: vi.fn().mockResolvedValue({ count: 12 }) },
+      advisorCommission: { create: vi.fn().mockResolvedValue({}) },
+    }))
+
+    const { POST } = await import("./route")
+    const res = await POST(makeRequest(buildValidBody({ commissionRate: 0.2 })))
+
+    expect(res.status).toBe(200)
+    expect(dataCapture.value?.commissionRate).toBe(0.2)
+    // R420.00 premium x 20% = R84.00 (not R50 000 x 20% = R10 000).
+    expect(dataCapture.value?.commissionAmount).toBe(84)
+  })
+
   it("7. returns 422 token_replay when the same draftToken has already bound a policy", async () => {
     process.env.NEXTAUTH_SECRET = SECRET
 

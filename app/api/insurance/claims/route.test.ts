@@ -98,3 +98,23 @@ describe("POST /api/insurance/claims — audit trail", () => {
     expect(logAudit).not.toHaveBeenCalled()
   })
 })
+
+// The "New Claim" form (app/(dashboard)/insurance/claims/new) posts here. A
+// missing or nonsense amount reached `parseFloat` and then the database as NaN,
+// a 500 the officer could do nothing with.
+describe("POST /api/insurance/claims — the claimed amount", () => {
+  it.each([[undefined], ["abc"], [-5], [0], [10.001]])("refuses %s with a 400 and creates nothing", async (claimAmount) => {
+    findFirstPolicy.mockResolvedValue({ id: "policy-1" })
+    const res = await POST(postReq({ policyId: "policy-1", claimAmount }))
+    expect(res.status).toBe(400)
+    expect(createClaim).not.toHaveBeenCalled()
+  })
+
+  it("stores a valid amount given as a number", async () => {
+    findFirstPolicy.mockResolvedValue({ id: "policy-1" })
+    createClaim.mockResolvedValue({ id: "claim-1" })
+    const res = await POST(postReq({ policyId: "policy-1", claimAmount: 2500.5, claimType: "DEATH" }))
+    expect(res.status).toBe(201)
+    expect(createClaim).toHaveBeenCalledWith({ data: expect.objectContaining({ claimAmount: 2500.5, claimType: "DEATH" }) })
+  })
+})

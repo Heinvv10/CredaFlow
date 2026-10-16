@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { assessAffordability } from "@/lib/affordability/ndi"
@@ -34,6 +34,9 @@ export async function PATCH(
   try {
     const guard = await requireApiRole("CREDIT_OFFICER")
     if (guard.error) return guard.error
+    if (!canDo(guard.user.role, "edit_affordability")) {
+      return NextResponse.json({ error: "Your role cannot edit an affordability assessment." }, { status: 403 })
+    }
 
     return await withTenantContext(req, async (tenant) => {
       const { id } = await params
