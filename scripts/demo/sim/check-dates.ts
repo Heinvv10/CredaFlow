@@ -38,6 +38,7 @@ const BUSINESS_DATE_COLUMNS: Readonly<Record<string, string>> = {
   "ContractRate.effectiveDate": "a contract rate is the date its pricing terms take effect",
   "VatRate.effectiveDate": "the national VAT rate history predates the simulated book",
   "LeaseTerminationQuote.terminationDate": "the quoted lease termination date is forward-looking",
+  "LeaseTerminationQuote.validUntil": "a settlement quote's expiry, days after it is quoted",
   "MaintenanceFund.leaseEndDate": "the maintenance reserve runs to the contractual lease end",
   "PaymentArrangement.startDate": "an arrangement's first agreed payment, often next month",
   "PaymentPlan.startDate": "a payment plan's first instalment, often next month",
