@@ -187,4 +187,17 @@ suite.sequential("REPRO F2 round 2", () => {
     await runRecoveryDeadlineSweep("2027-04-09")
     expect(await bells(f3.tenantId, r.id)).toHaveLength(0)
   }, 60_000)
+
+  it("R3-a: six concurrent sweeps over twelve due recoveries remind each exactly once (one bell per recipient, one marker)", async () => {
+    const recs = []
+    for (let i = 0; i < 12; i++) recs.push(await nca(f3, "2027-05-03"))
+    const runs = await Promise.all(Array.from({ length: 6 }, () => runRecoveryDeadlineSweep("2027-05-10")))
+    expect(runs.every((x) => x.failed === 0)).toBe(true)
+    for (const r of recs) {
+      const items = await bells(f3.tenantId, r.id)
+      expect(items.length, r.id).toBeGreaterThan(0)
+      expect(new Set(items.map((i) => i.userId)).size).toBe(items.length)
+      expect(await d().auditLog.count({ where: { tenantId: f3.tenantId, action: "ASSET_RECOVERY_FINAL_NOTICE_REMINDED", entityId: r.id } })).toBe(1)
+    }
+  }, 120_000)
 })
