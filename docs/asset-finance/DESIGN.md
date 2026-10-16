@@ -40,7 +40,12 @@ accounting system; CredaFlow exports journals — decision D3).
   dated table per tenant; each contract keeps its rate history. Interest
   accrues daily (actual/365) on the reducing balance. When the reference
   moves, recompute the instalment and keep the term and balloon unchanged;
-  NCA contracts re-check the cap on every repricing.
+  NCA contracts re-check the cap on every repricing. PRIME, REPO and ZARONIA
+  are fetched on weekday mornings from the Reserve Bank's public feed
+  (`lib/asset-finance/rate-feed-sync.ts`) and recorded PENDING with source
+  `SARB_FEED` and no requester; a user approves them like a manual value, so
+  the two-person rule stands. ZARONIA is recorded only when it moves 25 bp or
+  more from the latest live value. JIBAR and the lender's base rate stay manual.
 - **D5 NCA classifier.** A pure function
   `classifyNcaRegime(input) → { regime: NCA | NON_NCA, rule, evidence }`.
   Decided once, at application, on documents (AFS or management accounts;
