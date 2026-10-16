@@ -38,8 +38,11 @@ export function buildKnowledge(a: { identity: LenderIdentity; products: PublicLo
   const contact = `Phone ${id.publicPhone}.${id.publicWhatsapp ? ` WhatsApp ${id.publicWhatsapp}.` : ""} Email ${id.publicEmail}.`
   const productLines = products.map((p) =>
     `- ${p.label}: ${p.description} Amounts ${formatProductRange(p)}; terms ${formatProductTermRange(p)}; ${formatInterestLabel(p)}.`)
-  const insuranceLines = insurance.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
-  const pages = insurance.length ? [...PAGES, ["Insurance", "/site/products/insurance"] as const] : PAGES
+  // A lender with no FSP number offers no insurance: none is named, and its
+  // insurance page (which 404s) is not linked.
+  const offered = id.fspNumber ? insurance : []
+  const insuranceLines = offered.map((i) => `- ${i.name} (${INSURANCE_TYPE_LABEL[i.type] ?? "insurance"})`)
+  const pages = offered.length ? [...PAGES, ["Insurance", "/site/products/insurance"] as const] : PAGES
 
   return [
     "## Company",

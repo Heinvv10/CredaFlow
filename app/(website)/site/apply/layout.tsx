@@ -13,11 +13,13 @@ import { applyFaqs } from "./faqs"
 // (see ./faqs.ts), in the same locale, so the structured data always matches
 // what crawlers see — Google penalises FAQPage markup that doesn't match the page.
 export async function generateMetadata(): Promise<Metadata> {
+  const identity = await getWebsiteIdentity()
   return buildPageMetadata({
-    identity: await getWebsiteIdentity(),
+    identity,
     title: "Apply Online",
+    // No FSP number, no FAIS claim (Fair Score audit goal §2a.2).
     description:
-      "Apply online for our loan products. NCR-registered, FAIS-authorised, POPIA-aware. Requires SA ID, payslip and proof of bank account.",
+      `Apply online for our loan products. NCR-registered, ${identity?.fspNumber ? "FAIS-authorised, " : ""}POPIA-aware. Requires SA ID, payslip and proof of bank account.`,
     path: "/site/apply",
   })
 }

@@ -51,3 +51,28 @@ describe("links to the insurance pages", () => {
     expect(renderToStaticMarkup(<Footer identity={WITH_FSP} />)).toContain('href="/site/products/insurance"')
   })
 })
+
+// #143 blind review (MEDIUM): the chat named insurance products and linked the
+// insurance page for a lender with no FSP number.
+describe("website chat knowledge with insurance configured", () => {
+  const insurance = [{ name: "Synthetic Funeral Plan", type: "FUNERAL_COVER" }]
+  it("names no insurance and links no insurance page without an FSP number", () => {
+    const text = buildKnowledge({ identity: NO_FSP, products: PRODUCTS, insurance })
+    expect(text).not.toMatch(/Synthetic Funeral Plan|Insurance products|\/site\/products\/insurance/)
+  })
+
+  it("still lists them for a lender that holds one", () => {
+    const text = buildKnowledge({ identity: WITH_FSP, products: PRODUCTS, insurance })
+    expect(text).toContain("Synthetic Funeral Plan")
+    expect(text).toContain("/site/products/insurance")
+  })
+})
+
+// #143 blind review: no public statement about insurance at all for a lender
+// with no FSP number; the home FAQ items that mention it are left out.
+describe("home FAQs without an FSP number", () => {
+  it("say nothing about insurance", () => {
+    expect(JSON.stringify(homeFaqs(NO_FSP, PRODUCTS))).not.toMatch(/insurance/i)
+    expect(JSON.stringify(homeFaqs(NO_FSP, []))).not.toMatch(/insurance/i)
+  })
+})
