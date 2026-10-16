@@ -13,12 +13,12 @@ const band = (count: number, value: number, pct: number) => ({ count, value, pct
 const figures = {
   ALL: {
     book: { count: 32, value: 262_000_000 },
-    arrears: { count: 15, amount: 32_800_000, outstandingPrincipal: 150_000_000 },
+    arrears: { count: 15, amount: 32_800_000, outstandingPrincipal: 150_000_000 }, chargesOnly: { count: 0, amount: 0 }, ageing: [],
     par30: band(13, 140_000_000, 53.4), par60: band(11, 120_000_000, 45.8), par90: band(9, 110_000_000, 42.0),
   },
   NCA: {
     book: { count: 25, value: 115_271_450 },
-    arrears: { count: 12, amount: 14_959_766, outstandingPrincipal: 97_000_000 },
+    arrears: { count: 12, amount: 14_959_766, outstandingPrincipal: 97_000_000 }, chargesOnly: { count: 0, amount: 0 }, ageing: [],
     par30: band(11, 97_000_000, 84.2), par60: band(10, 90_000_000, 78.1), par90: band(8, 80_000_000, 69.4),
   },
 }

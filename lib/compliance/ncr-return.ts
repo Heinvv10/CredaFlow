@@ -278,8 +278,19 @@ export async function getNcrReturnData(
       value: arrears.amount,
       basis: "POSITION",
       percentOfBook: pct(arrears.outstandingPrincipal, bookValue),
-      note: "Value is the arrears balance (default charges included while they are live); the percentage is exposure at risk.",
+      note: "1+ days past due. Value is the arrears balance (default charges owed on these accounts included while charges are live); the percentage is exposure at risk.",
     },
+    // Not days past due, so never in the line above; stated beside it.
+    ...(bookArrears.chargesLive
+      ? [{
+          key: "chargesOnly",
+          label: "— accounts owing default charges only (0 days past due)",
+          count: bookArrears.chargesOnly.count,
+          value: bookArrears.chargesOnly.amount,
+          basis: "POSITION" as const,
+          note: "Instalments paid; default charges still owed.",
+        }]
+      : []),
     {
       key: "par30",
       label: "PAR30 — 30+ days past due",

@@ -129,7 +129,7 @@ export default async function CollectionsPage() {
   // panel) and entity borrowers (worked from Asset finance), so it can be
   // shorter, and the page says by how much.
   const par30Pct = book.par30.pct.toFixed(1)
-  const notInQueue = book.arrears.count - loans.length
+  const notInQueue = book.arrears.count + book.chargesOnly.count - loans.length
 
   const soft = loans.filter((l) => l.daysInArrears >= 1 && l.daysInArrears <= 29).length
   const hard = loans.filter((l) => l.daysInArrears >= 30 && l.daysInArrears <= 59).length
@@ -152,7 +152,7 @@ export default async function CollectionsPage() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "Accounts in Arrears", value: String(book.arrears.count), color: "text-red-600" },
+          { label: "Accounts in Arrears", value: `${book.arrears.count}${book.chargesOnly.count > 0 ? ` + ${book.chargesOnly.count} charges only` : ""}`, color: "text-red-600" },
           { label: "Total Arrears", value: formatZAR(book.arrears.amount), color: "text-red-600" },
           { label: "PAR30", value: `${par30Pct}%`, color: Number(par30Pct) > 10 ? "text-red-600" : "text-green-600" },
           { label: "S129 Due", value: String(s129DueCount), color: s129DueCount > 0 ? "text-orange-500" : "text-green-600" },
@@ -165,7 +165,7 @@ export default async function CollectionsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm px-5 pb-4 mb-6 -mt-2">
-        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} />
+        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} chargesLive={book.chargesLive} />
       </div>
 
       {/* Stage breakdown */}

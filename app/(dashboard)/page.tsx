@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { arrearsWithCharges } from "@/lib/loan/charge-labels"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { CASH_RECEIPTS } from "@/lib/payments/waiver"
-import { BOOK_DEFINITIONS, getBookArrears, inArrearsWhere } from "@/lib/reports/book-arrears"
+import { BOOK_DEFINITIONS, getBookArrears, overdueWhere } from "@/lib/reports/book-arrears"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { auth } from "@/lib/auth"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -94,7 +94,7 @@ async function getDashboardData(tenantId: string) {
       _sum: { amount: true }, _count: true,
     }),
     prisma.loan.findMany({
-      where: inArrearsWhere(tenantId, chargesLive),
+      where: overdueWhere(tenantId),
       orderBy: { daysInArrears: "desc" },
       take: 6,
       include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
@@ -194,7 +194,7 @@ export default async function DashboardPage() {
         <MetricCard
           label="Total arrears"
           value={fmt(d.book.arrears.amount)}
-          detail={`${d.book.arrears.count} accounts`}
+          detail={`${d.book.arrears.count} accounts${d.book.chargesOnly.count > 0 ? `, + ${d.book.chargesOnly.count} owing default charges only` : ""}`}
           tone={d.book.arrears.count > 0 ? "danger" : "neutral"}
           className={d.book.arrears.count > 0 ? "bg-[rgba(208,92,75,0.08)]" : undefined}
         />
@@ -226,7 +226,7 @@ export default async function DashboardPage() {
             </div>
           ))}
         </div>
-        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} />
+        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} chargesLive={d.book.chargesLive} />
         {d.writeOffsQtr > 0 && (
           <InfoStrip variant="danger" className="mt-4">
             {d.writeOffsQtr} write-off{d.writeOffsQtr !== 1 ? "s" : ""} recorded this quarter.
@@ -430,7 +430,7 @@ export default async function DashboardPage() {
                 <span className="text-[var(--cf-text-muted)]">Write-offs (QTR)</span>
                 <StatusPill tone={d.writeOffsQtr > 0 ? "danger" : "neutral"}>{d.writeOffsQtr}</StatusPill>
               </div>
-              <BookDefinitions scope={BOOK_DEFINITIONS.scopeNca} />
+              <BookDefinitions scope={BOOK_DEFINITIONS.scopeNca} chargesLive={d.ncaBook.chargesLive} />
               <Button asChild variant="outline" size="sm" className="mt-2 w-full">
                 <Link href="/compliance/ncr-return">NCR return</Link>
               </Button>

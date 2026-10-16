@@ -7,6 +7,7 @@ import { BoardPackClient } from "@/components/reports/BoardPackClient"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLenderIdentity, getLenderBrandName } from "@/lib/config/identity"
 import { getPortfolioPar } from "@/lib/reports/par"
+import { overdueBandWhere, overdueWhere } from "@/lib/reports/book-arrears"
 import { computeCollectionsRate, computeArrearsRate } from "@/lib/reports/collections-rate"
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 import { boardPackChargesSummary, loadDefaultChargesReport } from "@/lib/reports/default-charges-loader"
@@ -38,7 +39,7 @@ export default async function BoardPackPage() {
     // Accounts" also shows up in the aging buckets and the Arrears Rate
     // numerator, not just one or the other.
     prisma.loan.findMany({
-      where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 } },
+      where: overdueWhere(tenantId), // "in arrears" as every screen counts it (lib/reports/book-arrears.ts)
       select: { daysInArrears: true, arrearsAmount: true, outstandingPrincipal: true, ncaRegime: true },
     }),
     prisma.insurancePolicy.aggregate({ where: { tenantId, status: "ACTIVE" }, _count: true, _sum: { premiumAmount: true } }),
@@ -70,7 +71,7 @@ export default async function BoardPackPage() {
       _sum: { amount: true },
     }),
     prisma.loan.findMany({
-      where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gte: 30 } },
+      where: overdueBandWhere(tenantId, 30),
       orderBy: { daysInArrears: "desc" },
       take: 5,
       include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },

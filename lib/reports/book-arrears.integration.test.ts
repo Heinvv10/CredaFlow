@@ -11,7 +11,8 @@ import { PrismaClient, type LoanStatus } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createRepriceLoan, createRepriceTenant } from "@/lib/asset-finance/reprice.integration-fixture"
-import { countLoansInArrears, getBookArrears } from "./book-arrears"
+import { countLoansInArrears, getBookArrears, overdueBandWhere, overdueWhere } from "./book-arrears"
+import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { getPortfolioPar } from "./par"
 import { getNcrReturnData } from "@/lib/compliance/ncr-return"
 import { currentQuarter } from "@/lib/compliance/quarters"
@@ -111,11 +112,29 @@ suite.sequential("book, arrears and PAR — one helper for every screen (real Po
     }
   })
 
-  it("counts default charges owed as arrears while they are live", async () => {
+  it("ages the same accounts it counts in arrears, and lists them for the board pack and exports", async () => {
+    const all = await getBookArrears(tenantId)
+    expect(all.ageing.reduce((sum, band) => sum + band.count, 0)).toBe(all.arrears.count)
+    expect(all.ageing.reduce((sum, band) => sum + band.arrearsAmount, 0)).toBe(all.arrears.amount)
+    expect(all.ageing.map((band) => band.count)).toEqual([0, 1, 1, 2])
+    // The board pack's arrears list and the PAR / collections exports read these wheres.
+    expect(await db.loan.count({ where: overdueWhere(tenantId) })).toBe(all.arrears.count)
+    expect(await db.loan.count({ where: overdueBandWhere(tenantId, 30) })).toBe(all.par30.count)
+  })
+
+  it("keeps an account owing only default charges out of the days-past-due figures, and states it beside them", async () => {
     const live = await getBookArrears(liveTenantId)
     expect(live.chargesLive).toBe(true)
-    expect(live.arrears).toMatchObject({ count: 2, amount: 20_000 + 1_000 + 8_000 })
+    expect(live.arrears).toMatchObject({ count: 1, amount: 20_000 + 1_000 })
+    expect(live.chargesOnly).toEqual({ count: 1, amount: 8_000 })
     expect(live.par30.count).toBe(1)
+    // The collections queue and the sidebar badge work both.
     expect(await countLoansInArrears(liveTenantId)).toBe(2)
+    expect(await db.loan.count({ where: collectionsQueueWhere(liveTenantId, true) })).toBe(2)
+    // The regulator's "1+ days" line is days past due only.
+    const now = new Date()
+    const ncr = await getNcrReturnData(liveTenantId, currentQuarter(now), now)
+    expect(ncr.lines.find((l) => l.key === "arrears")).toMatchObject({ count: 1, value: 21_000 })
+    expect(ncr.lines.find((l) => l.key === "chargesOnly")).toMatchObject({ count: 1, value: 8_000 })
   })
 })

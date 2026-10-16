@@ -18,7 +18,7 @@ vi.mock("@/lib/reports/book-arrears", async (importOriginal) => ({
     scope: "ALL",
     chargesLive: false,
     book: { count: 32, value: 262_000_000 },
-    arrears: { count: 14, amount: 32_812_345, outstandingPrincipal: 150_000_000 },
+    arrears: { count: 14, amount: 32_812_345, outstandingPrincipal: 150_000_000 }, chargesOnly: { count: 0, amount: 0 }, ageing: [],
     par30: band(12, 140_000_000, 53.4),
     par60: band(10, 120_000_000, 45.8),
     par90: band(9, 110_000_000, 42.0),
