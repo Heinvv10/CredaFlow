@@ -42,7 +42,7 @@ export const portalProfile = {
   postalCode: "Postal Code",
   saving: "Saving...",
   saveChanges: "Save Changes",
-  pwTooShort: "New password must be at least 8 characters.",
+  pwTooShort: "New password must be at least 10 characters.",
   pwMismatch: "New passwords do not match.",
   pwFailed: "Could not update password. Please try again.",
   unexpected: "An unexpected error occurred. Please try again.",

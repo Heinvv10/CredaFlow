@@ -139,6 +139,13 @@ describe("POST /api/portal/reset-password", () => {
     expect(res.status).toBe(400)
   })
 
+  it.each(["password1", "password123", "1234567890"])("refuses the weak password %s: 400, nothing written", async (password) => {
+    const res = await POST(buildReq({ ...validBody, password, confirmPassword: password }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/at least 10 characters|too common/)
+    expect(clientUpdateMock).not.toHaveBeenCalled()
+  })
+
   it("passwords do not match: 400", async () => {
     const res = await POST(buildReq({ ...validBody, confirmPassword: "different1" }))
     expect(res.status).toBe(400)

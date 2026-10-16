@@ -15,6 +15,7 @@ import { isPortalActivationNewSendEnabled } from "@/lib/messaging/flags"
 import { resolveMessagingTarget } from "@/lib/messaging/route-delivery"
 import { portalRegistrationRefusal } from "@/lib/portal/portal-policy"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
+import { passwordPolicyError } from "@/lib/security/password-policy"
 import {
   clientReachableOnWhatsApp,
   portalOtpChannelFrom,
@@ -118,9 +119,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "All fields are required." }, { status: 400 })
   }
 
-  // Min 8 + a max so bcrypt's silent 72-byte truncation can't surprise anyone.
-  if (password.length < 8 || password.length > 200) {
-    return NextResponse.json({ error: "Password must be between 8 and 200 characters." }, { status: 400 })
+  // Length floor, a max so bcrypt's silent 72-byte truncation can't surprise
+  // anyone, and no common password (lib/security/password-policy.ts).
+  const weak = passwordPolicyError(password)
+  if (weak) {
+    return NextResponse.json({ error: weak }, { status: 400 })
   }
 
   if (password !== confirmPassword) {

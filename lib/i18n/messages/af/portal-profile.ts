@@ -40,7 +40,7 @@ export const portalProfile: Catalog["portalProfile"] = {
   postalCode: "Poskode",
   saving: "Word gestoor...",
   saveChanges: "Stoor veranderinge",
-  pwTooShort: "Die nuwe wagwoord moet minstens 8 karakters lank wees.",
+  pwTooShort: "Die nuwe wagwoord moet minstens 10 karakters lank wees.",
   pwMismatch: "Die nuwe wagwoorde stem nie ooreen nie.",
   pwFailed: "Kon nie die wagwoord opdateer nie. Probeer asseblief weer.",
   unexpected: "’n Onverwagte fout het voorgekom. Probeer asseblief weer.",

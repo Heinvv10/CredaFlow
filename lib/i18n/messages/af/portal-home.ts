@@ -63,4 +63,5 @@ export const portalHome: Catalog["portalHome"] = {
   noPolicies: "Geen aktiewe versekeringspolisse nie.",
   coverage: "Dekking:",
   perMonth: "/md",
+  overdueToPay: "Betaal {amount} om jou rekening op datum te bring.",
 }

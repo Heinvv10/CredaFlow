@@ -79,8 +79,14 @@ export function SelfieLinkSection({
     }
   }
 
+  // A PORTAL link was opened by the signed-in client to continue on their
+  // phone (POST /api/portal/selfie-link): nothing was sent anywhere.
   const status = !latestToken
     ? "No selfie link sent for this application yet."
+    : latestToken.channel === "PORTAL"
+      ? latestToken.usedAt
+        ? `Photo received ${new Date(latestToken.usedAt).toLocaleString("en-ZA")} — from a link the client opened in the Client portal.`
+        : `Waiting for the consumer — the client opened a link in the Client portal to continue on their phone, expires ${new Date(latestToken.expiresAt).toLocaleString("en-ZA")}.`
     : latestToken.usedAt
       ? `Photo received ${new Date(latestToken.usedAt).toLocaleString("en-ZA")} — sent by ${
           CHANNEL_LABEL[latestToken.channel as Channel] ?? latestToken.channel

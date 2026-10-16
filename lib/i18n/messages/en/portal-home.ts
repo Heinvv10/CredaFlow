@@ -61,4 +61,5 @@ export const portalHome = {
   noPolicies: "No active insurance policies.",
   coverage: "Coverage:",
   perMonth: "/mo",
+  overdueToPay: "Pay {amount} to bring your account up to date.",
 } as const

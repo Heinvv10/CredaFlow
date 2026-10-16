@@ -64,4 +64,6 @@ export const portalApplications: Catalog["portalApplications"] = {
   notFoundBack: "Terug na my portaal",
   execAgreement: "Kredietooreenkoms",
   execDownload: "Laai getekende ooreenkoms af",
+  appStatus_SETTLED: "Afbetaal",
+  loanSettled: "Lening afbetaal",
 }

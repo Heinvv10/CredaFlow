@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { DeclineCategorySelect } from "./DeclineCategorySelect"
+import { DeclineFields, EMPTY_DECLINE, declineDraftComplete, type DeclineDraft } from "./DeclineFields"
 
 interface BureauGate {
   reason: string | null
@@ -73,8 +73,7 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
   const [bureauGate, setBureauGate] = useState<BureauGate | null>(null)
   const [kycError, setKycError] = useState<KycError | null>(null)
   const [overrideReason, setOverrideReason] = useState("")
-  const [declineReason, setDeclineReason] = useState("")
-  const [declineCategory, setDeclineCategory] = useState("")
+  const [decline, setDecline] = useState<DeclineDraft>(EMPTY_DECLINE)
   const [repaymentMethod, setRepaymentMethod] = useState<RepaymentMethod | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [submissionEvidenceError, setSubmissionEvidenceError] = useState<string | null>(null)
@@ -211,10 +210,18 @@ export function ApplicationApprovePanel({ applicationId, canApprove, openChecks 
             {errorMsg}
           </p>
         )}
-        <DeclineCategorySelect value={declineCategory} onChange={setDeclineCategory} disabled={submitting} />
-        <Textarea placeholder="Decline reason (optional)..." value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} rows={2} className="w-full" />
+        <DeclineFields draft={decline} onChange={setDecline} disabled={submitting} />
         <div className="flex gap-2">
-          <Button variant="destructive" onClick={() => post({ action: "decline", declineCategory, ...(declineReason ? { reason: declineReason } : {}) })} disabled={submitting || !declineCategory}>
+          <Button
+            variant="destructive"
+            onClick={() => post({
+              action: "decline",
+              declineCategory: decline.category,
+              reason: decline.clientReason,
+              ...(decline.internalNote.trim() ? { internalNote: decline.internalNote } : {}),
+            })}
+            disabled={submitting || !declineDraftComplete(decline)}
+          >
             <XCircle className="h-4 w-4" />Confirm Decline
           </Button>
           <Button variant="outline" onClick={() => setPhase("idle")} disabled={submitting}>Cancel</Button>
