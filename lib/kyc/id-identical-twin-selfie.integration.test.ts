@@ -19,7 +19,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import sharp from "sharp"
 
-const ctx = vi.hoisted(() => ({ tenantId: "", readPaths: [] as string[] }))
+const ctx = vi.hoisted(() => ({ tenantId: "", userId: "", readPaths: [] as string[] }))
 vi.mock("@/lib/kyc/face-model/compare.server", async () => {
   const { PASSING_FACE_MODEL_EVIDENCE } = await import("@/lib/kyc/face-model/evidence.test-helpers")
   return { compareFaces: vi.fn(async () => ({ ok: true, evidence: PASSING_FACE_MODEL_EVIDENCE, rejection: null })) }
@@ -38,6 +38,12 @@ vi.mock("@/lib/storage", async () => {
 })
 // lib/document-auth (the selfie magic-byte check) imports the NextAuth config.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
+vi.mock("@/lib/auth-guards", () => ({
+  requireApiRole: vi.fn(async () => ({
+    error: null,
+    user: { id: ctx.userId, email: `${ctx.userId}@test.invalid`, role: "ADMIN", totpVerified: true },
+  })),
+}))
 vi.mock("@/lib/tenant", async () => {
   const { runWithTenant } = await import("@/lib/tenant-scope")
   return {
@@ -51,6 +57,13 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { captureSelfie } from "@/lib/kyc/selfie-capture.server"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
 import { readCompositeKycState, type CompositeKycReader } from "@/lib/kyc/document-state"
+import { biometricSubjectFingerprint } from "@/lib/kyc/biometric-evidence"
+import {
+  IN_PERSON_KYC_VERIFICATION_KIND,
+  IN_PERSON_KYC_VERIFICATION_VERSION,
+} from "@/lib/kyc/in-person-verification"
+import { PATCH as verifyPATCH } from "@/app/api/clients/[id]/documents/[docId]/verify/route"
+import { NextRequest } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 
 const RUN = process.env.RUN_KYC_ID_TWIN_SELFIE_IT === "1"
@@ -96,13 +109,13 @@ async function reupload(fixture: Fixture, label: string, contentSha256: string) 
   return id
 }
 
-function stubPassingVlm() {
+function stubVlm(change: Record<string, unknown> = {}) {
   vi.stubEnv("VLM_API_URL", "http://vlm.stub.invalid")
   vi.stubEnv("VLM_MODEL", "stub-model")
   const reply = {
     faceDetected: true, facesCount: 1, quality: "good", isLive: true, livenessConfidence: 0.95,
     selfieIsRealPhotograph: true, idPhotoKind: "photograph", idPhotoIsRealPhotograph: true,
-    idPhotoFaceDetected: true, samePerson: "same", faceMatch: true, matchConfidence: 0.93,
+    idPhotoFaceDetected: true, samePerson: "same", faceMatch: true, matchConfidence: 0.93, ...change,
   }
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
     choices: [{ message: { content: JSON.stringify(reply) } }],
@@ -146,6 +159,33 @@ async function verdict(clientId: string) {
   return { stored: client.kycStatus, method: client.kycVerificationMethod, app: app.ok, sql: ok }
 }
 
+/**
+ * Stored VERIFIED in person: an attestation over the verified ID copy, with an
+ * approver whose TOTP is enrolled, as id-identical-reupload.integration.test.ts
+ * writes it.
+ */
+async function verifyInPerson(fixture: Fixture) {
+  const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId } })
+  const approver = await db.user.create({ data: {
+    tenantId: fixture.tenantId, email: `idtwin-approver-${sequence}-${token}@test.invalid`, password: "synthetic",
+    role: "ADMIN", active: true, totpEnabled: true, lastTotpCounter: 1,
+  } })
+  ctx.userId = approver.id
+  const completedAt = new Date(Date.now() - 30_000)
+  await db.complianceRecord.create({ data: {
+    tenantId: fixture.tenantId, type: "KYC_EXCEPTION", referenceId: fixture.clientId, status: "COMPLETED", completedAt,
+    data: {
+      kind: IN_PERSON_KYC_VERIFICATION_KIND, version: IN_PERSON_KYC_VERIFICATION_VERSION, clientId: fixture.clientId,
+      idDocumentId: fixture.verifiedId, idDocumentSha256: ID_SHA, subjectFingerprint: biometricSubjectFingerprint(client),
+      method: "IN_PERSON_BRANCH", note: "Synthetic client attended a branch; face matched the ID photo.",
+      approvedAt: completedAt.toISOString(), approvedById: approver.id, approvedByEmail: approver.email, approvedWithTotp: true,
+    },
+  } })
+  await db.client.update({ where: { id: fixture.clientId }, data: {
+    kycStatus: "VERIFIED", kycVerifiedAt: completedAt, kycVerifiedById: approver.id, kycVerificationMethod: "PHYSICAL",
+  } })
+}
+
 suite("an identical ID re-upload is the verified copy for the selfie", () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -159,7 +199,7 @@ suite("an identical ID re-upload is the verified copy for the selfie", () => {
   it("binds a selfie taken after an identical re-upload to the verified copy, and it passes", async () => {
     const fixture = await seedClient()
     await reupload(fixture, "twin", ID_SHA)
-    stubPassingVlm()
+    stubVlm()
 
     expect(await capture(fixture)).toEqual({ status: "done", verified: true, boundTo: fixture.verifiedId, reason: null })
     expect(ctx.readPaths).toContain(`stub/ID_COPY-${sequence}`)
@@ -180,7 +220,7 @@ suite("an identical ID re-upload is the verified copy for the selfie", () => {
       extractionGeneration: generation, extractionStartedAt: new Date(),
     } })
     await reupload(fixture, "twin-in-flight", ID_SHA)
-    stubPassingVlm()
+    stubVlm()
     const verifiedCopy = await db.clientDocument.findUniqueOrThrow({
       where: { id: fixture.verifiedId }, select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
     })
@@ -195,7 +235,7 @@ suite("an identical ID re-upload is the verified copy for the selfie", () => {
   it("binds a selfie taken after a different re-upload to that new copy, unchanged", async () => {
     const fixture = await seedClient()
     const different = await reupload(fixture, "different", OTHER_SHA)
-    stubPassingVlm()
+    stubVlm()
 
     // The match is stored against the new copy and proves nothing about the
     // verified identity: a failed attempt while a verified copy is on file.
@@ -209,9 +249,37 @@ suite("an identical ID re-upload is the verified copy for the selfie", () => {
     await db.clientDocument.update({ where: { id: current }, data: { verified: true, verifiedAt: new Date() } })
     // Same bytes as the superseded verified copy (ID_SHA), not as the current one.
     const stale = await reupload(fixture, "stale-twin", ID_SHA)
-    stubPassingVlm()
+    stubVlm()
 
     expect(await capture(fixture)).toEqual({ status: "done", verified: true, boundTo: stale, reason: null })
     expect(await verdict(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
+  })
+
+  it("lapses an in-person attestation on the verified copy after an adverse selfie taken over its twin", async () => {
+    const fixture = await seedClient()
+    await verifyInPerson(fixture)
+    await reupload(fixture, "twin-adverse", ID_SHA)
+    // The identical copy alone leaves the attestation standing.
+    expect(await verdict(fixture.clientId)).toEqual({ stored: "VERIFIED", method: "PHYSICAL", app: true, sql: true })
+    stubVlm({ samePerson: "different", faceMatch: false })
+
+    // Bound to the attested copy, the adverse verdict lapses the attestation
+    // in both layers. Bound to the twin, it was "about another ID" and did not.
+    expect(await capture(fixture)).toEqual(expect.objectContaining({ status: "failed", boundTo: fixture.verifiedId }))
+    expect(await verdict(fixture.clientId)).toEqual(expect.objectContaining({ app: false, sql: false }))
+    expect((await verdict(fixture.clientId)).stored).not.toBe("VERIFIED")
+  })
+
+  it("refuses (409) to verify the identical copy, so the evidence stays on the verified one", async () => {
+    const fixture = await seedClient()
+    await verifyInPerson(fixture)
+    const twin = await reupload(fixture, "twin-verify", ID_SHA)
+    const res = await runWithTenant(fixture.tenantId, () => verifyPATCH(new NextRequest("http://localhost/", {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ verified: true }),
+    }), { params: Promise.resolve({ id: fixture.clientId, docId: twin }) }))
+
+    expect(res.status).toBe(409)
+    expect((await db.clientDocument.findUniqueOrThrow({ where: { id: twin } })).verified).toBe(false)
+    expect(await verdict(fixture.clientId)).toEqual({ stored: "VERIFIED", method: "PHYSICAL", app: true, sql: true })
   })
 })

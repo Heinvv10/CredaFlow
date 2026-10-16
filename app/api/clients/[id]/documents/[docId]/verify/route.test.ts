@@ -64,6 +64,7 @@ const clientFindUniqueMock = vi.fn()
 const documentFindFirstMock = vi.fn()
 const documentUpdateManyMock = vi.fn()
 const documentFindManyMock = vi.fn()
+const idCopiesFindManyMock = vi.fn()
 const clientUpdateMock = vi.fn()
 const auditCreateMock = vi.fn()
 const transactionMock = vi.fn()
@@ -79,8 +80,13 @@ const tx = {
     updateMany: (args: unknown) => documentUpdateManyMock(args),
     // The composite read's ID-portrait refusal query (docType SELFIE) finds
     // none; the sequenced mock serves only the core-document reads.
-    findMany: (args: { where?: { docType?: unknown } }) =>
-      args?.where?.docType === "SELFIE" ? Promise.resolve([]) : documentFindManyMock(args),
+    // The identical-copy check reads the client's live ID copies on its own.
+    findMany: (args: { where?: { docType?: unknown }; select?: { contentSha256?: boolean; docType?: boolean } }) =>
+      args?.where?.docType === "SELFIE"
+        ? Promise.resolve([])
+        : args?.where?.docType === "ID_COPY" && args.select?.contentSha256 && !args.select.docType
+          ? idCopiesFindManyMock(args)
+          : documentFindManyMock(args),
   },
   auditLog: {
     create: (args: unknown) => auditCreateMock(args),
@@ -162,6 +168,7 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
         verified: false,
       })
     documentUpdateManyMock.mockResolvedValue({ count: 1 })
+    idCopiesFindManyMock.mockResolvedValue([])
     documentFindManyMock.mockResolvedValue([
       {
         id: "doc-1",
@@ -871,5 +878,41 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
         kycVerificationMethod: null,
       },
     }))
+  })
+
+  describe("an identical ID re-upload", () => {
+    const sha = "c".repeat(64)
+    const verifiedCopy = { id: "id-verified", verified: true, createdAt: new Date("2026-07-01T09:00:00.000Z"), contentSha256: sha }
+    const twin = {
+      id: "doc-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null, verified: false,
+      verifiedAt: null, verifiedById: null, verificationNote: null,
+      createdAt: new Date("2026-07-02T09:00:00.000Z"), contentSha256: sha,
+    }
+
+    it("refuses (409) to verify a copy that holds the verified copy's bytes, and writes nothing", async () => {
+      documentFindFirstMock.mockReset().mockResolvedValue(null).mockResolvedValueOnce(twin)
+      idCopiesFindManyMock.mockResolvedValue([verifiedCopy, twin])
+
+      const res = await PATCH(verificationRequest({ verified: true }), { params: Promise.resolve({ id: "client-1", docId: "doc-1" }) })
+
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: expect.stringContaining("same bytes as the verified copy") })
+      expect(idCopiesFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+        where: { tenantId: "tenant-1", clientId: "client-1", docType: "ID_COPY", deletedAt: null },
+      }))
+      expect(documentUpdateManyMock).not.toHaveBeenCalled()
+      expect(clientUpdateMock).not.toHaveBeenCalled()
+    })
+
+    it("still verifies a re-upload of other bytes", async () => {
+      const other = { ...twin, contentSha256: "d".repeat(64) }
+      documentFindFirstMock.mockReset().mockResolvedValue(null).mockResolvedValueOnce(other).mockResolvedValueOnce({ ...other, verified: true })
+      idCopiesFindManyMock.mockResolvedValue([verifiedCopy, other])
+
+      const res = await PATCH(verificationRequest({ verified: true }), { params: Promise.resolve({ id: "client-1", docId: "doc-1" }) })
+
+      expect(res.status).not.toBe(409)
+      expect(documentUpdateManyMock).toHaveBeenCalledOnce()
+    })
   })
 })

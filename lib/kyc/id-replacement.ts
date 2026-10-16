@@ -95,6 +95,21 @@ export function pendingIdReplacement<T extends IdReplacementCandidate>(
  * replacement, and a selfie binds to the verified copy, not to it
  * (resolveCurrentIdDocument in lib/kyc/usable-id-document.ts).
  */
+/**
+ * `document` is an unverified ID copy created after the newest verified one
+ * among `copies` (the client's live ID copies), holding its bytes
+ * (isIdenticalCopy): it IS that verified copy. Verifying it would only move
+ * the evidence a selfie or an in-person attestation is bound to, so the verify
+ * route refuses it and the staff checklist offers nothing to do on it.
+ */
+export function identicalToVerifiedIdCopy(
+  document: OrderedCopy & { verified: boolean; contentSha256?: string | null },
+  copies: readonly (OrderedCopy & { verified: boolean; contentSha256?: string | null })[],
+): boolean {
+  const current = newestCopy(copies.filter((copy) => copy.verified))
+  return current !== null && !document.verified && createdAfter(document, current) && isIdenticalCopy(document, current)
+}
+
 export function isIdenticalCopy(
   copy: { contentSha256?: string | null },
   current: { contentSha256?: string | null },
