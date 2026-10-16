@@ -17,6 +17,20 @@ export interface PoFundingFacts {
 
 export const PO_FUNDING_PURPOSE: LoanPurposeCategory = "BUSINESS"
 
+/**
+ * Every create path asks this. One that collects the facts enforces them
+ * (portal: POST /api/portal/applications; staff and lender API:
+ * prepareApplicationFields); one that cannot (website enquiry, lead
+ * conversion) refuses to create a PO_FUNDING application.
+ */
+export function requiresPoFundingFacts(productType: string | null | undefined): boolean {
+  return productType === "PO_FUNDING"
+}
+
+/** What a create path that cannot collect the order says instead. */
+export const PO_FUNDING_NEEDS_ORDER =
+  "Purchase order funding needs the purchase order (number, buyer and document). Apply through the client portal or capture it on the application."
+
 type Parsed = { ok: true; facts: PoFundingFacts } | { ok: false; error: string }
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "")

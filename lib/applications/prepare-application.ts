@@ -1,6 +1,12 @@
 import { Prisma, type AgreementType, type AppStatus, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { ApplicationSubmissionTransaction } from "@/lib/applications/submission-lock"
+import {
+  isClientPoDocument,
+  parsePoFundingFacts,
+  requiresPoFundingFacts,
+  type PoFundingFacts,
+} from "@/lib/applications/po-funding"
 import { validateAllApplication, type ValidationErrors } from "@/lib/validation/application-wizard"
 import { toApplicationProduct } from "@/lib/applications/product-mapper"
 import { creditBlock } from "@/lib/clients/status"
@@ -37,6 +43,10 @@ export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount
   creditLifeInsurerName?: unknown
   creditLifeMonthlyPremiumCents?: unknown
   creditLifeDisclosureVersion?: unknown
+  /** PO funding facts (lib/applications/po-funding.ts); required for a PO_FUNDING product. */
+  poNumber?: unknown
+  poBuyerName?: unknown
+  poDocumentId?: unknown
 }
 
 interface DebtSnapshotEntry {
@@ -77,6 +87,9 @@ export interface PreparedApplicationFields {
   creditLifeDisclosureSha256?: string
   creditLifeDisclosureAcknowledgedAt?: Date
   creditLifeDisclosureAcknowledgedBy?: string
+  poNumber: string | null
+  poBuyerName: string | null
+  poDocumentId: string | null
 }
 
 export type PrepareApplicationResult =
@@ -233,6 +246,22 @@ export async function prepareApplicationFields(
       status: 400,
       body: { error: "Validation failed", errors: { productId: "Select a valid active product" } },
     }
+  }
+
+  // PO funding is business credit tied to a confirmed order: the staff wizard
+  // and the lender API create through here, so it is enforced for both. The
+  // callers hold the client-evidence lock DELETE /api/documents/[id] takes.
+  let poFacts: PoFundingFacts | null = null
+  if (requiresPoFundingFacts(selectedProduct.productType)) {
+    const parsed = parsePoFundingFacts(
+      data as unknown as Record<string, unknown>,
+      (data.loanPurposeCategory || null) as LoanPurposeCategory | null,
+    )
+    if (!parsed.ok) return { ok: false, status: 422, body: { error: parsed.error } }
+    if (!(await isClientPoDocument(db, { tenantId, clientId: data.clientId, documentId: parsed.facts.poDocumentId }))) {
+      return { ok: false, status: 422, body: { error: "The purchase order document was not found for this client." } }
+    }
+    poFacts = parsed.facts
   }
 
   // Snapshot debt obligations as JSON
@@ -507,6 +536,9 @@ export async function prepareApplicationFields(
       // alignment rather than introducing a new freedom.
       loanPurposeCategory: (data.loanPurposeCategory || null) as LoanPurposeCategory | null,
       agreementType: classifyAgreementType(data.appliedAmount),
+      poNumber: poFacts?.poNumber ?? null,
+      poBuyerName: poFacts?.poBuyerName ?? null,
+      poDocumentId: poFacts?.poDocumentId ?? null,
       existingDebtObligations: debtSnapshot,
       totalExistingDebt,
       netDisposableIncome,

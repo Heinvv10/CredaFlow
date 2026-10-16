@@ -58,6 +58,7 @@ const queryRawMock = vi.fn()
 const getDocumentCallerMock = vi.fn()
 const deleteFileMock = vi.fn()
 const loanApplicationFindFirstMock = vi.fn()
+const paymentNotificationFindFirstMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -72,6 +73,7 @@ const tx = {
   },
   auditLog: { create: (args: unknown) => auditCreateMock(args) },
   loanApplication: { findFirst: (args: unknown) => loanApplicationFindFirstMock(args) },
+  paymentNotification: { findFirst: (args: unknown) => paymentNotificationFindFirstMock(args) },
 }
 
 vi.mock("@/lib/prisma", () => ({
@@ -514,7 +516,8 @@ describe("document evidence mutations", () => {
       error: "This purchase order is part of a PO funding application and cannot be deleted",
     })
     expect(loanApplicationFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", poDocumentId: "doc-1" },
+      // A DECLINED or CANCELLED application no longer holds its order (erasure).
+      where: { tenantId: "tenant-1", poDocumentId: "doc-1", status: { notIn: ["DECLINED", "CANCELLED"] } },
     }))
     // Asked after the evidence lock, like every other immutability check.
     expect(queryRawMock.mock.invocationCallOrder[0])
@@ -533,7 +536,41 @@ describe("document evidence mutations", () => {
       ctx,
     )
 
-    expect(response.status).not.toBe(409)
+    expect(response.status).toBe(200)
+    expect(clientDocumentUpdateManyMock).toHaveBeenCalled()
+  })
+
+  it("refuses to delete a proof of payment a pending payment notification relies on", async () => {
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue({ ...document, docType: "PROOF_OF_PAYMENT" })
+    paymentNotificationFindFirstMock.mockResolvedValue({ id: "pn-1" })
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+      ctx,
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "This proof of payment belongs to a payment notification awaiting reconciliation and cannot be deleted",
+    })
+    expect(paymentNotificationFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "tenant-1", documentId: "doc-1", status: "PENDING" },
+    }))
+    expect(queryRawMock.mock.invocationCallOrder[0])
+      .toBeLessThan(paymentNotificationFindFirstMock.mock.invocationCallOrder[0])
+    expect(clientDocumentUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("deletes a proof of payment once its notification is resolved", async () => {
+    clientDocumentFindFirstMock.mockReset().mockResolvedValue({ ...document, docType: "PROOF_OF_PAYMENT", verified: false })
+    paymentNotificationFindFirstMock.mockResolvedValue(null)
+
+    const response = await DELETE(
+      new Request("https://staging.acme-lending.example/api/documents/doc-1", { method: "DELETE" }),
+      ctx,
+    )
+
+    expect(response.status).toBe(200)
     expect(clientDocumentUpdateManyMock).toHaveBeenCalled()
   })
 
