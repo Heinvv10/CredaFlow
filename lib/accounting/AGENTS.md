@@ -4,7 +4,7 @@
      below may refer to ".claude.md" when describing the canonical side;
      that is accurate — only PATH references are rewritten to AGENTS.md. -->
 # Module: accounting
-<!-- summary: GL journals; closed months are final; Xero unproven -->
+<!-- summary: GL journals; closed months are final; Xero unproven; IsaFlow vs a fake only -->
 <!-- Keep under 50 lines - reference, don't duplicate -->
 
 ## Purpose
@@ -46,6 +46,13 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
   must be mapped (Xero refuses manual journals to bank accounts). Tokens move
   to W0's tenant-credentials store once W0 lands; until then they are sealed
   in `XeroConnection` under `WABA_ENC_KEY`.
+- **IsaFlow** (`lib/accounting/isaflow/`): one DRAFT journal per closed month over IsaFlow's MCP
+  endpoint (PAT bound to one company; contract and file:line refs in `contract.ts`). The request is
+  built once, stored with the SENDING claim and always resent byte for byte under
+  `credaflow:batch:<batchId>` (IsaFlow replays it); IsaFlow is read back (memo tag + identical lines)
+  before any retry. Refused before claim: a role without a stored mapping to the line's code, a tax
+  code, a code missing/inactive in IsaFlow. Connect is TOTP SUPER_ADMIN only (DB-enforced); push is
+  ADMIN with TOTP always. Base URL must be in `ISAFLOW_ALLOWED_ORIGINS`. Proven only against the fake.
 - **Asset finance** (`sources-asset-finance.ts`, `sources-recovery.ts`) never goes through the
   consumer sources: F at inception, then each row's accrued interest `B(next)-B(this)+totalDue`
   (the balloon posts nothing); leases per tax invoice (end-of-term and termination invoices are
@@ -61,3 +68,4 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
 | `lib/accounting/generate.ts` | `closePeriod`: lock, plan, store, seal |
 | `lib/accounting/opening.ts` | Go-live opening entry and positions |
 | `lib/accounting/xero/push.ts` | One DRAFT manual journal per closed month |
+| `lib/accounting/isaflow/push.ts` | One DRAFT IsaFlow journal per closed month; `retry.ts` reads back first |

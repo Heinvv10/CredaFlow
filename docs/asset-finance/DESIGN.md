@@ -363,6 +363,66 @@ client's accountant supplies signed journals). Browser evidence: `evidence/slice
   is for the tax adviser.
 - A billed maintenance deficit credits the lessee's fund liability (it settles the fund) and not income.
 
+## Slice 4b part 2: IsaFlow draft push (built against a fake IsaFlow; live push not yet done)
+
+A tenant connects one IsaFlow company. After that, an ADMIN whose session verified a TOTP code
+(always, whatever the lender's 2FA policy) pushes each closed month as ONE draft journal. Nothing is
+posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accounting/isaflow/`.
+
+- **Transport: IsaFlow's MCP endpoint.** `/api/mcp` JSON-RPC `tools/call`, with a personal access
+  token (`pat_…`) that IsaFlow binds to one company. The REST journal endpoint takes only a session
+  cookie and has no external reference. Everything above `client.ts` talks to `IsaFlowTransport`, so
+  a REST adapter can replace `mcpTransport` once IsaFlow ships Bearer auth plus `external_ref`.
+  Contract with IsaFlow file:line references: `contract.ts`. `contract.test.ts` pins the fake to it.
+- **Connection** (`IsaFlowConnection`, one per tenant). Connect, verify and disconnect go through
+  `superAdminPolicyWrite` (a TOTP-verified SUPER_ADMIN, re-checked on the locked row).
+  - The IsaFlow calls (`list_companies` for the bound company id, `list_gl_accounts` to prove
+    `read:reports`) run in its `prepare` step, before the write's transaction. `company_profile` has
+    no id.
+  - The token is sealed with `sealCredential` and opened strictly. It is never returned and never
+    audited.
+  - The base URL must be an origin listed in `ISAFLOW_ALLOWED_ORIGINS`. An https origin must
+    resolve to public addresses only (`lib/lender-api/webhooks/ssrf.ts`), checked before every
+    request. Redirects are not followed.
+  - http is accepted only for a listed loopback origin, under NODE_ENV `development` or `test`. That
+    covers the fake, `scripts/fake-isaflow.ts`.
+  - The database refuses CONNECTED unless `connectedWithTotp` is set and the connector is an active
+    SUPER_ADMIN of the tenant. It also refuses an unsealed token, and a token on a connection that
+    is not CONNECTED (`guardIsaFlowConnection`).
+- **Push** (`AccountingIsaFlowPush`, one per CLOSED batch). Nothing is claimed or sent before each
+  check passes:
+  - the batch's digest;
+  - every line's role has a stored mapping to the line's code, and no line carries a tax code;
+  - every code exists once and is active in IsaFlow's chart. Otherwise a 422 lists the codes.
+
+  Then the request is built once: net per account, rands to 2 dp, dated the last day of the month,
+  memo `CredaFlow journals <month> [credaflow:<batchId>]`, `company_id` asserted. It is stored with
+  the SENDING claim and sent under `credaflow:batch:<batchId>`. IsaFlow replays the same key with the
+  same arguments, so a resend never makes a second draft.
+- **Before any retry**, IsaFlow is read back: `list_journals`, drafts of that day, with lines. This
+  covers a FAILED push pushed again, and a NEEDS_REVIEW push checked. A draft with the memo tag and
+  identical lines is the push (PUSHED, `foundOnReadBack`). A tagged draft with other lines waits
+  for a person. Otherwise the stored request is resent byte for byte with the same key.
+  - SENDING for 10 minutes becomes NEEDS_REVIEW.
+  - An auth refusal drops the token (NEEDS_RECONNECT).
+- **Guards** (`20261016100000_isaflow_connection_push`): a copy of the Xero push guard, plus:
+  - request, hash, key, reference and IsaFlow company are immutable;
+  - the journal id is written once, and PUSHED needs one;
+  - NEEDS_REVIEW may go back to SENDING. That is safe only because the request and key never change.
+  - DELETE and TRUNCATE are refused.
+- **Known limits.**
+  - A draft a person deletes in IsaFlow is not recreated by a resend: IsaFlow replays the stored
+    result, and the push records the deleted draft's id.
+  - `write:journals` is proven only by the first push.
+  - A tax code on a mapping (meant for Xero) refuses the IsaFlow push; post that month from the CSV.
+  - A remap after close refuses the push for that month.
+  - Account ids are resolved at push time. A code renamed in IsaFlow afterwards gives a definite
+    refusal on resend, never a misposting.
+- **Evidence.** Integration tests against the fake: `isaflow.integration.test.ts` and
+  `isaflow-guards.integration.test.ts` (`RUN_ACCOUNTING_IT=1`). Mutation record:
+  `evidence/slice4b-isaflow/MUTATIONS.md`. The live push to Hein's IsaFlow dev company is still to
+  do; it waits for his credentials (goal §9).
+
 ## Acceptance (every slice)
 
 - 10–20 past client deals, anonymised to synthetic data, reproduce the
