@@ -26,6 +26,7 @@ import {
   WEBSITE_SUBMISSION_ATTEMPT_STORAGE_KEY,
   type WebsiteSubmissionAttempt,
 } from "@/lib/applications/website-submission-attempt"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useT } from "@/lib/i18n/client"
 import { richText } from "@/lib/i18n/rich"
 import { applyFaqs } from "./faqs"
@@ -305,17 +306,21 @@ export default function ApplyPage() {
   const [step2, setStep2] = useState<Step2>(blankStep2)
   const [step3, setStep3] = useState<Step3>(blankStep3)
   const [draftRestored, setDraftRestored] = useState(false)
-  // Restore any saved draft / URL-param prefill AFTER mount rather than in a
-  // useState initializer. readInitialApplyState() reads localStorage and
+  // Restore any saved draft / URL-param prefill AFTER hydration rather than in
+  // a useState initializer. readInitialApplyState() reads localStorage and
   // window.location.search, both unavailable during SSR — running it as the
   // initializer meant the server always rendered step 1 with blank fields
   // while the very first client render (hydration) could restore step 2+
-  // with populated values, a guaranteed React #418 mismatch. `hydrated`
-  // gates the persistence effect below so it can't clobber a real draft with
-  // the blank defaults before this restore runs — same idiom already used in
-  // ./qualify/page.tsx.
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => {
+  // with populated values, a guaranteed React #418 mismatch. `useHydrated()`
+  // is false on the server and during hydration, so the first client render
+  // matches the server's blank step 1; the restore then runs once, while
+  // rendering, before that render commits. `restored` gates the persistence
+  // effect below so it can't clobber a real draft with the blank defaults
+  // before this restore runs — same idiom already used in ./qualify/page.tsx.
+  const hydrated = useHydrated()
+  const [restored, setRestored] = useState(false)
+  if (hydrated && !restored) {
+    setRestored(true)
     const initial = readInitialApplyState()
     if (initial.draftRestored) {
       setStep(initial.step)
@@ -324,8 +329,7 @@ export default function ApplyPage() {
       setStep3(initial.step3)
       setDraftRestored(true)
     }
-    setHydrated(true)
-  }, [])
+  }
 
   // Funnel instrumentation (R0-2): fires once when the apply page mounts,
   // independent of the draft-restore path above.
@@ -353,7 +357,7 @@ export default function ApplyPage() {
   const termPlan = (productType: string, termDays: string) => planApplyTerm(termDays, termRange(productType))
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!restored) return
     try {
       const hasDraft =
         Object.values(step1).some(Boolean) ||
@@ -368,7 +372,7 @@ export default function ApplyPage() {
     } catch {
       // Draft persistence is a convenience; submission still works without it.
     }
-  }, [step, step1, step2, step3, hydrated])
+  }, [step, step1, step2, step3, restored])
 
   function validateStep1(): boolean {
     const e: Record<string, string> = {}

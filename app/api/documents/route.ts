@@ -17,6 +17,7 @@ import {
   MAGIC_BYTE_PREFIX,
 } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
+import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import type { DocType } from "@prisma/client"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
@@ -98,6 +99,9 @@ export async function POST(req: NextRequest) {
   }
 
   return withTenantContextLoggingRefusal(req, { documentId: "upload", caller }, async (tenant) => {
+    const readOnly = await refuseReadOnlyDocumentWrite({ caller, documentId: "upload", tenantId: tenant.id, action: "upload", req })
+    if (readOnly) return readOnly
+
     try {
       const formData = await req.formData()
       const file = formData.get("file") as File | null

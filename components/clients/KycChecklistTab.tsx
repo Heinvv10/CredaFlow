@@ -134,6 +134,8 @@ interface Props {
   verificationRestorable?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no upload, verify, reject or apply-extraction controls. */
+  readOnly?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -168,6 +170,13 @@ const STATUS_ICON: Record<DocStatus, React.ReactNode> = {
   rejected: <XCircle     className="h-4 w-4 text-red-500" />,
 }
 
+/** The client's documents, or null when the route refuses (the list stays as it was). */
+async function loadDocuments(clientId: string): Promise<DocumentRecord[] | null> {
+  const res = await fetch(`/api/clients/${clientId}/documents`)
+  if (!res.ok) return null
+  return (await res.json()) as DocumentRecord[]
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function KycChecklistTab({
@@ -178,6 +187,7 @@ export function KycChecklistTab({
   verificationRestorable = false,
   selfieAlternatives,
   signedAgreementReturn,
+  readOnly = false,
 }: Props) {
   const [docs, setDocs]                       = useState<DocumentRecord[]>([])
   const [loading, setLoading]                 = useState(true)
@@ -199,20 +209,34 @@ export function KycChecklistTab({
   // (verify/reject) without a full page reload. Seeded from the server prop.
   const [kyc, setKyc]                         = useState(kycStatus)
 
+  // A different client is a different list: show the spinner for it.
+  const [prevClientId, setPrevClientId]       = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
+  // Refresh after a mutation. Handlers await this so a dialog or button state
+  // only settles once the new list is on screen.
   const fetchDocs = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (res.ok) {
-        const data = await res.json()
-        setDocs(data as DocumentRecord[])
-      }
+      const loaded = await loadDocuments(clientId)
+      if (loaded) setDocs(loaded)
     } finally {
       setLoading(false)
     }
   }, [clientId])
 
-  useEffect(() => { fetchDocs() }, [fetchDocs])
+  // First load, and a change of client. `ignore` drops a response that lands
+  // after the client changed or the tab unmounted.
+  useEffect(() => {
+    let ignore = false
+    loadDocuments(clientId)
+      .then((loaded) => { if (!ignore && loaded) setDocs(loaded) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [clientId])
 
   // Latest non-deleted doc per docType
   const docsByType = new Map<string, DocumentRecord>()
@@ -460,14 +484,16 @@ export function KycChecklistTab({
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     {!doc ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setUploadDocType(docType)}
-                      >
-                        <Upload className="h-3 w-3 mr-1" />
-                        Upload
-                      </Button>
+                      !readOnly && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setUploadDocType(docType)}
+                        >
+                          <Upload className="h-3 w-3 mr-1" />
+                          Upload
+                        </Button>
+                      )
                     ) : (
                       <>
                         <Button
@@ -479,7 +505,7 @@ export function KycChecklistTab({
                           View
                         </Button>
 
-                        {status !== "verified" && (
+                        {!readOnly && status !== "verified" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -496,7 +522,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {status !== "rejected" && status !== "flagged" && (
+                        {!readOnly && status !== "rejected" && status !== "flagged" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -513,7 +539,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {(status === "rejected" || status === "flagged" || status === "verified") && (
+                        {!readOnly && (status === "rejected" || status === "flagged" || status === "verified") && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -529,7 +555,7 @@ export function KycChecklistTab({
                 </div>
 
                 {/* OCR suggestions — shown when extraction is done and not yet applied */}
-                {extractedItems.length > 0 && !alreadyApplied && (
+                {!readOnly && extractedItems.length > 0 && !alreadyApplied && (
                   <div className="flex items-start gap-3 px-4 py-2.5 bg-blue-50 border-t border-blue-100">
                     <Sparkles className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
                     <div className="flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -690,7 +716,7 @@ export function KycChecklistTab({
       )}
 
       {/* ── Dialogs ───────────────────────────────────────────────── */}
-      {uploadDocType && (
+      {!readOnly && uploadDocType && (
         <UploadDialog
           open={!!uploadDocType}
           onOpenChange={(open) => { if (!open) setUploadDocType(null) }}

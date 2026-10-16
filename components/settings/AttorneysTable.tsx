@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { loadAttorneyFirms, type AttorneyFirm } from "@/lib/settings-attorneys"
@@ -95,15 +95,22 @@ export function AttorneysTable() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    loadAttorneyFirms(showInactive)
-      .then(d => { setFirms(d); setError(null) })
-      .catch(() => setError("Failed to load attorney firms."))
-      .finally(() => setLoading(false))
-  }, [showInactive])
+  // Bumped to refetch after a write; handlers also set `loading` so the skeleton shows.
+  const [reloadKey, setReloadKey] = useState(0)
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let ignore = false
+    loadAttorneyFirms(showInactive)
+      .then(d => { if (!ignore) { setFirms(d); setError(null) } })
+      .catch(() => { if (!ignore) setError("Failed to load attorney firms.") })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [showInactive, reloadKey])
+
+  function reload() {
+    setLoading(true)
+    setReloadKey(k => k + 1)
+  }
 
   const filtered = firms.filter(f =>
     f.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -123,7 +130,7 @@ export function AttorneysTable() {
       if (!res.ok) throw new Error((await res.json()).error)
       toast.success("Attorney firm added")
       setModal(null)
-      load()
+      reload()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to add firm")
     } finally {
@@ -144,7 +151,7 @@ export function AttorneysTable() {
       if (!res.ok) throw new Error((await res.json()).error)
       toast.success("Attorney firm updated")
       setModal(null)
-      load()
+      reload()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to update firm")
     } finally {
@@ -165,7 +172,7 @@ export function AttorneysTable() {
         return
       }
       toast.success(data.deactivated ? "Firm deactivated (has existing referrals)" : "Firm removed")
-      load()
+      reload()
     } catch {
       toast.error("Failed to remove firm")
     }
@@ -182,7 +189,7 @@ export function AttorneysTable() {
           </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded" />
+              <input type="checkbox" checked={showInactive} onChange={e => { setShowInactive(e.target.checked); setLoading(true) }} className="rounded" />
               Show inactive
             </label>
             <Button size="sm" onClick={() => setModal("add")}>

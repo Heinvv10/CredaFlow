@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyDemoHeaders, demoBannerText, demoCodeReveal, isDemoMode } from "./demo-mode"
+import { applyDemoHeaders, demoBannerText, demoCodeReveal, demoStaffWithoutTotp, isDemoMode } from "./demo-mode"
 
 describe("isDemoMode", () => {
   it("is on only for the exact string true", () => {
@@ -7,6 +7,24 @@ describe("isDemoMode", () => {
   })
   it.each([undefined, "", "false", "1", "yes", "TRUE", "True", " true", "true ", " TRUE "])("is off for %j", (v) => {
     expect(isDemoMode({ DEMO_MODE: v })).toBe(false)
+  })
+})
+
+describe("demoStaffWithoutTotp", () => {
+  it("is on only when DEMO_MODE and DEMO_CLEAR_STAFF_TOTP are both exactly true", () => {
+    expect(demoStaffWithoutTotp({ DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "true" })).toBe(true)
+  })
+  it.each([
+    [{}],
+    [{ DEMO_MODE: "true" }],
+    [{ DEMO_CLEAR_STAFF_TOTP: "true" }],
+    [{ DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "TRUE" }],
+    [{ DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "true " }],
+    [{ DEMO_MODE: "true", DEMO_CLEAR_STAFF_TOTP: "1" }],
+    [{ DEMO_MODE: "TRUE", DEMO_CLEAR_STAFF_TOTP: "true" }],
+    [{ DEMO_MODE: "false", DEMO_CLEAR_STAFF_TOTP: "true" }],
+  ])("is off for %j", (env) => {
+    expect(demoStaffWithoutTotp(env)).toBe(false)
   })
 })
 
