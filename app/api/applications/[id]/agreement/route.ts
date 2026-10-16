@@ -1120,6 +1120,7 @@ export async function POST(_req: NextRequest, { params }: RouteCtx) {
       quotePresentedAt: new Date(pasqBinding.evidence.calculator.startDate),
       quoteValidUntilDate,
       creditLifeAutoBundleEligible,
+      creditLifeNotOffered: !creditLifeDisclosure.evidence.offered,
       creditLife: creditLifeOfferBinding
         ? {
             elected: creditLifeAutoBundleEligible,

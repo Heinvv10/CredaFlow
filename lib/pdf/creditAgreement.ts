@@ -63,6 +63,10 @@ interface AgreementOpts {
     /** Exact premium-inclusive schedule accepted in the versioned PASQ. */
     billing?: PasqBillingEvidence
   }
+  /** True only when the stored credit-life record is the no-offer disclosure
+   *  (creditLifeDisclosureVersion = credit-life-no-offer-v1). Prints "Credit
+   *  Life: Not offered". Never derive it from an absent `creditLife`. */
+  creditLifeNotOffered?: boolean
   /** The consumer's NCA s.101 initiation-fee payment option. Drives the
    *  "Amount Advanced" / "Initiation Fee Payment" disclosure rows. */
   initiationFeePayment?: "DEFERRED" | "UPFRONT"
@@ -192,6 +196,9 @@ export async function generateCreditAgreementPdfWithAnchors(
     totalInterest: calc.totalInterest,
   }).toFixed(2)
   const creditLifeElected = opts.creditLife?.elected ?? opts.willAutoBundleCl === true
+  if (opts.creditLifeNotOffered === true && (opts.creditLife || opts.willAutoBundleCl === true)) {
+    throw new Error("A credit-life record cannot be both offered and not offered")
+  }
   if (opts.creditLife?.elected && !opts.creditLife.billing) {
     throw new Error("Accepted credit-life cover requires PASQ-bound billing evidence")
   }
@@ -436,7 +443,13 @@ export async function generateCreditAgreementPdfWithAnchors(
               ] as [string, string]]
             : []),
         ]
-      : []),
+      // The stored record says no cover was offered (no-offer disclosure): say
+      // so, with no product, insurer or premium rows (Fair Score audit B6).
+      // Explicit, never inferred from a missing `creditLife`: a caller that
+      // omits the evidence must not turn a declined offer into "not offered".
+      : opts.creditLifeNotOffered === true
+        ? [["Credit Life", "Not offered — no credit-life cover is included"] as [string, string]]
+        : []),
     // NCA s.1 "total cost of credit" includes every fee + charge — the
     // initiation fee always counts, even in UPFRONT mode where it is settled by
     // deduction from the advance rather than collected through the schedule. So
