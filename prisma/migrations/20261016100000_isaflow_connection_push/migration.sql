@@ -142,7 +142,9 @@ ALTER TABLE "AccountingIsaFlowPush" ADD CONSTRAINT "AccountingIsaFlowPush_pushed
 -- same stored request under the same idempotency key and IsaFlow replays it
 -- rather than creating a second draft. That holds only while the request, its
 -- hash, the key and the company never change, so they are immutable here, and
--- the IsaFlow journal id, once recorded, is never replaced.
+-- the IsaFlow journal id, once recorded, is never replaced. A claim starts
+-- empty and is made by a user of the tenant; leaving review other than by a
+-- resend names the user of the tenant who resolved it.
 CREATE OR REPLACE FUNCTION public."guardAccountingIsaFlowPush"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -162,11 +164,29 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514',
         MESSAGE = 'Accounting push guard: only a closed batch is pushed';
     END IF;
-    RETURN NEW;
-  END IF;
-  IF NEW."batchId" IS DISTINCT FROM OLD."batchId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" THEN
+    IF NEW."isaflowJournalId" IS NOT NULL OR NEW."resolvedById" IS NOT NULL OR NEW."resolutionNote" IS NOT NULL
+      OR NEW."foundOnReadBack" IS NOT FALSE THEN
+      RAISE EXCEPTION USING ERRCODE = '23514',
+        MESSAGE = 'Accounting push guard: a claim starts with no journal, resolution or read-back';
+    END IF;
+  ELSIF NEW."batchId" IS DISTINCT FROM OLD."batchId" OR NEW."tenantId" IS DISTINCT FROM OLD."tenantId" THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = 'Accounting push guard: a push stays with its batch';
+  END IF;
+  -- Whoever claims a push, or resolves one, is a user of the batch's tenant.
+  IF (TG_OP = 'INSERT' OR NEW."pushedById" IS DISTINCT FROM OLD."pushedById")
+    AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."pushedById" AND u."tenantId" = NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'Accounting push guard: a push is claimed by a user of its tenant';
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    RETURN NEW;
+  END IF;
+  -- Out of review, other than by resending, only by a person's resolution.
+  IF OLD."status" = 'NEEDS_REVIEW' AND NEW."status" IN ('PUSHED', 'FAILED')
+    AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."resolvedById" AND u."tenantId" = NEW."tenantId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514',
+      MESSAGE = 'Accounting push guard: a push in review is resolved by a user of its tenant';
   END IF;
   IF NEW."requestJson" IS DISTINCT FROM OLD."requestJson"
     OR NEW."requestSha256" IS DISTINCT FROM OLD."requestSha256"

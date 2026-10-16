@@ -55,6 +55,16 @@ suite.sequential("IsaFlow guards (real Postgres)", () => {
       await claim(aug)
     })
 
+    it("starts empty and is claimed by a user of its own tenant", async () => {
+      await expect(claim(sep, { isaflowJournalId: "j-0" })).rejects.toThrow(/starts with no journal, resolution or read-back/)
+      await expect(claim(sep, { resolvedById: A.userId })).rejects.toThrow(/starts with no journal, resolution or read-back/)
+      await expect(claim(sep, { resolutionNote: "pre-resolved" })).rejects.toThrow(/starts with no journal, resolution or read-back/)
+      await expect(claim(sep, { foundOnReadBack: true })).rejects.toThrow(/starts with no journal, resolution or read-back/)
+      await expect(claim(sep, { pushedById: B.userId })).rejects.toThrow(/claimed by a user of its tenant/)
+      await expect(claim(sep, { pushedById: "nobody" })).rejects.toThrow(/claimed by a user of its tenant/)
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: aug }, data: { pushedById: B.userId } })).rejects.toThrow(/claimed by a user of its tenant/)
+    })
+
     it("never changes its request, hash, key or IsaFlow company", async () => {
       const other = request(aug, "changed")
       await expect(db.accountingIsaFlowPush.update({ where: { batchId: aug }, data: { requestJson: other, requestSha256: sha256Hex(other) } })).rejects.toThrow(/never change/)
@@ -75,6 +85,13 @@ suite.sequential("IsaFlow guards (real Postgres)", () => {
       await claim(sep)
       await expect(claim(sep)).rejects.toThrow(/Unique constraint|batchId/)
       await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "NEEDS_REVIEW" } })
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING" } })
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "NEEDS_REVIEW" } })
+      // Out of review only by a resend (above) or a resolution that names a user of the tenant.
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "PUSHED", isaflowJournalId: "j-r" } })).rejects.toThrow(/resolved by a user of its tenant/)
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED" } })).rejects.toThrow(/resolved by a user of its tenant/)
+      await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED", resolvedById: B.userId } })).rejects.toThrow(/resolved by a user of its tenant/)
+      await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "FAILED", resolvedById: A.userId, resolutionNote: "checked" } })
       await db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { status: "SENDING" } })
       await expect(db.accountingIsaFlowPush.update({ where: { batchId: sep }, data: { tenantId: B.tenantId } })).rejects.toThrow()
     })
