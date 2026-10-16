@@ -436,7 +436,12 @@ export async function generateCreditAgreementPdfWithAnchors(
               ] as [string, string]]
             : []),
         ]
-      : []),
+      // No cover was offered (no-offer disclosure): say so, rather than staying
+      // silent on credit life. No product, insurer or premium rows: nothing was
+      // offered, so naming one would contradict the record (Fair Score audit B6).
+      : opts.willAutoBundleCl === true
+        ? []
+        : [["Credit Life", "Not offered — no credit-life cover is included"] as [string, string]]),
     // NCA s.1 "total cost of credit" includes every fee + charge — the
     // initiation fee always counts, even in UPFRONT mode where it is settled by
     // deduction from the advance rather than collected through the schedule. So

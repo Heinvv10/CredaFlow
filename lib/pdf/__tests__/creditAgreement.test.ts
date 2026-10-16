@@ -444,6 +444,28 @@ describe("generateCreditAgreementPdf — Credit Life disclosure", () => {
     expect(content).not.toContain(pdfHex("Credit Life Insurance Disclosure"))
   })
 
+  // Fair Score audit B6: with no cover offered the PASQ said nothing about
+  // credit life; it now says it was not offered, and names no product.
+  it("states 'not offered' with no product rows when no cover was offered", async () => {
+    for (const variant of ["pasq", "agreement"] as const) {
+      const content = extractPdfContent(await generateCreditAgreementPdf({ ...baseInput, variant, willAutoBundleCl: false }))
+      expect(content).toContain(pdfHex("Not offered"))
+      expect(content).toContain(pdfHex("no credit-life cover is included"))
+      expect(content).not.toContain(pdfHex("Offered Credit Life Product"))
+      expect(content).not.toContain(pdfHex("Offered Credit Life Insurer"))
+      expect(content).not.toContain(pdfHex("Credit Life Election"))
+    }
+  })
+
+  it("does not say 'not offered' when an offer was declined", async () => {
+    const content = extractPdfContent(await generateCreditAgreementPdf({
+      ...baseInput,
+      willAutoBundleCl: false,
+      creditLife: { elected: false, productName: "Acme Credit Life", insurerName: "Test Life", monthlyPremiumCents: 2_250 },
+    }))
+    expect(content).not.toContain(pdfHex("Not offered"))
+  })
+
   it("omits the CL disclosure block when willAutoBundleCl is omitted (safe default)", async () => {
     // willAutoBundleCl is optional; omitting should behave like false
     const buf = await generateCreditAgreementPdf(baseInput)
