@@ -20,7 +20,8 @@ import { borrowerScreeningGate, isScreeningRefusal } from "@/lib/screening/gate"
  * affordable s81 assessment and reckless-lending note; the database repeats
  * that gate. A pending NON_NCA override is decided before approval. A deal
  * with exceptions (internal arrears, a bureau check not on record) needs
- * `exceptionReason`: 409 listing them otherwise (audited refusal).
+ * `exceptionReason` and `exceptionsShown` (the sentences it answers): 409
+ * listing them when missing or when they changed (audited refusal).
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -101,6 +102,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return refuse("credit_life_required", 409, "The borrower must accept or decline the credit-life offer before approval")
       case "screening_blocked":
         return refuse("screening_changed", 422, "Approval blocked: the borrower's screening changed while approving. Review it and try again.")
+      case "exceptions_changed":
+        return refuse("exceptions_changed", 409, `The exceptions changed since the page was loaded; review them and decide again: ${result.exceptions.join("; ")}`)
       case "exceptions_unanswered":
         return refuse("exceptions_unanswered", 409, `Approving needs a reason for these exceptions: ${result.exceptions.join("; ")}`)
       case "refused_nca":

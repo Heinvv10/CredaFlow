@@ -82,6 +82,7 @@ describe("parseDecideInput: reasons are mandatory for every decision", () => {
       decision: "DECLINE",
       reasons: ["Gearing too high"],
       exceptionReason: null,
+      exceptionsShown: null,
     })
   })
 
@@ -90,6 +91,8 @@ describe("parseDecideInput: reasons are mandatory for every decision", () => {
       .toMatchObject({ exceptionReason: "Arrears under a signed payment plan" })
     expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionReason: "too short" })).toMatch(/exception reason must be 20/)
     expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionReason: 7 })).toMatch(/exceptionReason must be text/)
+    expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionsShown: "one" })).toMatch(/exceptionsShown must list/)
+    expect(parseDecideInput({ decision: "APPROVE", reasons: REASONS, exceptionsShown: ["a", "b"] })).toMatchObject({ exceptionsShown: ["a", "b"] })
   })
 })
 
@@ -180,7 +183,9 @@ describe("decideDeal", () => {
   it("E5: with the reason, the approval stores and audits each exception and the reason", async () => {
     fake = fakeTx(deal(), false, { people: [director], loans: [defaulted], checks: [storedCheck("c-dir", "Synthetic Director")] })
     const exceptionReason = "The director's arrears are under a signed settlement"
-    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason })).toEqual({ kind: "decided", status: "APPROVED" })
+    const refused = await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS })
+    const shown = (refused as { exceptions: string[] }).exceptions
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: shown })).toEqual({ kind: "decided", status: "APPROVED" })
     const stored = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[] } }])[0].data.decisionReasons
     expect(stored[0]).toBe(REASONS[0])
     expect(stored[1]).toMatch(/^Exception: Synthetic Director \(Director\) has loan LN-TEST-0009/)
@@ -188,6 +193,18 @@ describe("decideDeal", () => {
     expect(fake.tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ newValue: expect.objectContaining({ exceptions: [expect.stringContaining("LN-TEST-0009")], exceptionReason }) }),
     })
+  })
+
+  it("E5: the reason binds to the exceptions shown: a changed set is refused and nothing is written", async () => {
+    fake = fakeTx(deal(), false, { people: [director], loans: [defaulted], checks: [storedCheck("c-dir", "Synthetic Director")] })
+    const stale = ["Synthetic Director (Director) has loan LN-TEST-0009 with this lender: Defaulted, 30 days in arrears, R 1.00 overdue"]
+    const exceptionReason = "The director's arrears are under a signed settlement"
+    const changed = await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: stale })
+    expect(changed).toMatchObject({ kind: "exceptions_changed", exceptions: [expect.stringContaining("166 days in arrears")] })
+    expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason }))
+      .toMatchObject({ kind: "exceptions_changed" })
+    expect(fake.tx.assetFinanceDeal.update).not.toHaveBeenCalled()
+    expect(fake.tx.loanApplication.update).not.toHaveBeenCalled()
   })
 
   it("E5: a loan that is current is no exception", async () => {
@@ -204,7 +221,10 @@ describe("decideDeal", () => {
     expect(fake.tx.assetFinanceDeal.update).not.toHaveBeenCalled()
 
     fake = fakeTx(deal(), false, { people: [trustee], attempts })
-    await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: ["Trust cash flow supports the rental"], exceptionReason: "Trustee consent is being obtained; the deal is secured" })
+    await decideDeal(fake.asTx, actor, "deal-1", {
+      decision: "APPROVE", reasons: ["Trust cash flow supports the rental"], exceptionReason: "Trustee consent is being obtained; the deal is secured",
+      exceptionsShown: ["Synthetic Trustee (Trustee): the bureau check was skipped (no bureau consent on record)"],
+    })
     const stored = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[] } }])[0].data.decisionReasons
     expect(stored).toContain("Exception: Synthetic Trustee (Trustee): the bureau check was skipped (no bureau consent on record)")
   })

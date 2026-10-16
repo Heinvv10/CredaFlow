@@ -4,7 +4,8 @@
  * lease for the company shows it on the deal page's credit memo, and approval
  * is refused (409, audited) until the approver gives a reason, which is then
  * stored with the exception on the decision and audited. The surety's loan is
- * a real booked operating lease, put in default directly. Only the session is
+ * a real booked operating lease, put in default directly. The reason answers
+ * the exceptions the approver was shown: a stale set is refused. Only the session is
  * stubbed; routes, queries, triggers and CHECKs are real.
  *
  *   RUN_ASSET_FINANCE_LEASE_IT=1 DATABASE_URL=postgresql://... \
@@ -100,7 +101,11 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
   it("approves with the reason, storing and auditing the exception beside it", async () => {
     const exceptionReason = "The surety's lease is under a signed settlement and this asset secures the deal"
     staff(fx.adminA, "LOAN_ADMIN")
-    const approved = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason })
+    const page = await runWithTenant(fx.tenantId, () => loadDealDetail(fx.tenantId, dealId))
+    const stale = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: ["an older exception"] })
+    expect(stale.status).toBe(409)
+    expect(((await stale.json()) as { error: string }).error).toMatch(/exceptions changed since the page was loaded/)
+    const approved = await dealRoutes(fx.host).decide(dealId, { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsShown: page?.exceptions.lines })
     expect(approved.status, await approved.clone().text()).toBe(200)
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId } })
     expect(deal.status).toBe("APPROVED")

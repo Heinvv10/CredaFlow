@@ -116,7 +116,9 @@ describe("asset-finance deal pages (Fair Score audit E1–E3)", () => {
     await act(async () => { field("exception-reason").props.onChange({ target: { value: "Arrears under a signed settlement plan" } }) })
     await act(async () => { renderer.root.findAll((n) => n.type === "button").find((b) => b.children.join("").includes("Approve"))!.props.onClick() })
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
-    expect(JSON.parse(init.body)).toEqual({ decision: "APPROVE", reasons: ["Strong DSCR on audited AFS"], exceptionReason: "Arrears under a signed settlement plan" })
+    expect(JSON.parse(init.body)).toEqual({
+      decision: "APPROVE", reasons: ["Strong DSCR on audited AFS"], exceptionReason: "Arrears under a signed settlement plan", exceptionsShown: lines,
+    })
     vi.unstubAllGlobals()
 
     await act(async () => { renderer = create(<DecidePanel dealId="deal-1" />) })

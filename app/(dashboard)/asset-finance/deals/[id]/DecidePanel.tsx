@@ -32,7 +32,8 @@ export function DecidePanel({ dealId, exceptions = [] }: { dealId: string; excep
     setError(null)
     const list = reasons.split("\n").map((r) => r.trim()).filter(Boolean)
     const result = await sendJson(`/api/asset-finance/deals/${dealId}/decide`, "POST", {
-      decision, reasons: list, ...(exceptions.length > 0 && exceptionReason.trim() !== "" ? { exceptionReason } : {}),
+      decision, reasons: list,
+      ...(exceptions.length > 0 && exceptionReason.trim() !== "" ? { exceptionReason, exceptionsShown: exceptions } : {}),
     })
     setSaving(null)
     // Refresh either way: a refused APPROVE on an NCA deal still changes it (REFUSED_NCA).
