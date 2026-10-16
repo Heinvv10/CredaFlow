@@ -1,25 +1,30 @@
 import type { prisma } from "@/lib/prisma"
+import type { ClientKycState } from "@/lib/kyc/document-state"
+
+type RawQueryDb = Pick<typeof prisma, "$queryRaw">
 
 /**
  * True while a staff member's deliberate manual PENDING is the client's latest
  * KYC status change. The manual override (PATCH /api/clients/[id]) records it
  * as a KYC_STATUS_CHANGED row on the Client with manualOverride and kycStatus
- * PENDING; no column stamps it, so the audit trail is the record.
+ * PENDING; no column stamps it, so the audit trail is the record. Resolving a
+ * manual rejection to PENDING writes the same row and holds the same way.
  *
  * It stands until a later audit row, on the client or on any of its documents
  * (the verify, selfie and delete paths audit the document), records the client
- * in a status other than PENDING: that is the status leaving PENDING, after
- * which a fresh fall back to PENDING is no longer the staff member's choice.
- * Writers record the post-write status as newValue.clientKyc.kycStatus, the
- * manual override and the bank-detail revocation as newValue.kycStatus. A row
- * that records no status (an upload, a refused access) changes nothing.
+ * in a status other than PENDING. While it stands no automatic path promotes
+ * (holdManualPending), so in practice only staff's explicit Approve KYC, Reject
+ * KYC or another manual status ends it. Writers record the post-write status
+ * as newValue.clientKyc.kycStatus, the manual override and the bank-detail
+ * revocation as newValue.kycStatus. A row that records no status (an upload, a
+ * refused access) changes nothing.
  *
- * Both lookups go through the AuditLog (entity, entityId) index. Ties on
- * createdAt break on id; a tie read the wrong way keeps the manual PENDING
- * standing, which hides a hint rather than offering one.
+ * Both lookups go through the AuditLog (entity, entityId) index. "Later" is a
+ * strictly later createdAt: a row in the same millisecond as the manual one
+ * keeps the hold standing, which withholds a promotion rather than allowing one.
  */
 export async function manualPendingStands(
-  db: Pick<typeof prisma, "$queryRaw">,
+  db: RawQueryDb,
   args: { tenantId: string; clientId: string },
 ): Promise<boolean> {
   const { tenantId, clientId } = args
@@ -42,7 +47,7 @@ export async function manualPendingStands(
                 WHERE document."tenantId" = ${tenantId} AND document."clientId" = ${clientId}
               ))
             )
-            AND (later."createdAt", later."id") > (manual."createdAt", manual."id")
+            AND later."createdAt" > manual."createdAt"
             AND COALESCE(
               later."newValue"->'clientKyc'->>'kycStatus',
               later."newValue"->>'kycStatus'
@@ -50,4 +55,27 @@ export async function manualPendingStands(
         )
     ) AS "stands"`
   return rows[0]?.stands === true
+}
+
+const HELD_PENDING: ClientKycState = {
+  kycStatus: "PENDING",
+  kycVerifiedAt: null,
+  kycVerifiedById: null,
+  kycVerificationMethod: null,
+}
+
+/**
+ * The KYC state an automatic writer (document verify/refuse, document delete,
+ * selfie outcome, sweeper, evidence invalidation) may store. While a manual
+ * PENDING stands, a derived VERIFIED for a stored-PENDING client stays
+ * PENDING; demotions and every other state pass through unchanged. Call it
+ * under the client evidence lock, with the stored status read under that lock.
+ * Only a promotion pays for the audit-trail read.
+ */
+export async function holdManualPending(
+  db: RawQueryDb,
+  args: { tenantId: string; clientId: string; storedKycStatus: string; state: ClientKycState },
+): Promise<ClientKycState> {
+  if (args.state.kycStatus !== "VERIFIED" || args.storedKycStatus !== "PENDING") return args.state
+  return (await manualPendingStands(db, args)) ? HELD_PENDING : args.state
 }

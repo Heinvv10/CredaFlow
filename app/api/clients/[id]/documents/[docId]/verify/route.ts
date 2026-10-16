@@ -12,6 +12,7 @@ import {
   type CompositeKycReader,
 } from "@/lib/kyc/document-state"
 import { assessBiometricEvidence } from "@/lib/kyc/biometric-evidence"
+import { holdManualPending } from "@/lib/kyc/manual-pending.server"
 import { biometricFailureCopy } from "@/lib/kyc/biometric-failure-copy"
 import { isLockedStatutoryEvidence } from "@/lib/documents/generic-action-policy"
 
@@ -268,7 +269,9 @@ export async function PATCH(
         )
         const updatedClient = await tx.client.update({
           where: { id: clientId, tenantId: tenant.id },
-          data: compositeKyc.state,
+          data: await holdManualPending(tx, {
+            tenantId: tenant.id, clientId, storedKycStatus: clientCheck.kycStatus, state: compositeKyc.state,
+          }),
           select: {
             kycStatus: true,
             kycVerifiedAt: true,

@@ -40,7 +40,7 @@ export type KycRederiveResult =
   /** The evidence no longer derives VERIFIED, or the stored status is not PENDING. */
   | { kind: "evidence_does_not_hold" }
   /** A staff member's deliberate manual PENDING is the latest status change. */
-  | { kind: "manual_pending_stands" }
+  | { kind: "manual_pending_stands"; evidenceVerifies: boolean }
   | { kind: "rederived"; kycStatus: string }
 
 /**
@@ -94,7 +94,9 @@ export async function rederiveKycStatus(
   })
   const manualPending = await manualPendingStands(tx, { tenantId, clientId })
   if (!verificationRestorable(client.kycStatus, composite, { manualPendingStands: manualPending })) {
-    return { kind: manualPending ? "manual_pending_stands" : "evidence_does_not_hold" }
+    return manualPending
+      ? { kind: "manual_pending_stands", evidenceVerifies: composite.state.kycStatus === "VERIFIED" }
+      : { kind: "evidence_does_not_hold" }
   }
 
   const after = await tx.client.update({
