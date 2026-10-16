@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { describe, expect, it, vi } from "vitest"
-import { capRepoRate, checkNcaInterestRateFor } from "./nca-interest-cap.server"
+import { capRepoRate, checkNcaInterestRateFor, earlierShortTermCreditThisYear } from "./nca-interest-cap.server"
 
 const dec = (rate: string) => new Prisma.Decimal(rate)
 function db(approved: string | null, fed: string[] = []) {
@@ -31,11 +31,11 @@ describe("the repo rate the NCA cap uses", () => {
     expect(await capRepoRate(db("0.07", ["0.0775"]), "t1", "2026-11-25")).toEqual({ rate: 0.07, approved: 0.07 })
   })
 
-  it("asks only for SARB-fed PENDING repo values dated after the approved one", async () => {
+  it("asks only for SARB-fed PENDING or REJECTED repo values dated after the approved one", async () => {
     const d = db("0.07")
     await capRepoRate(d, "t1", "2026-11-25")
     expect((d as unknown as { referenceRate: { findMany: ReturnType<typeof vi.fn> } }).referenceRate.findMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({ tenantId: "t1", basis: "REPO", source: "SARB_FEED", status: "PENDING", effectiveDate: expect.objectContaining({ gt: new Date("2026-05-29T00:00:00Z") }) }),
+      where: expect.objectContaining({ tenantId: "t1", basis: "REPO", source: "SARB_FEED", status: { in: ["PENDING", "REJECTED"] }, effectiveDate: expect.objectContaining({ gt: new Date("2026-05-29T00:00:00Z") }) }),
       select: { rate: true },
     })
   })
@@ -51,3 +51,48 @@ describe("the repo rate the NCA cap uses", () => {
     expect(!result.ok && result.message).toContain("Settings → Repo rate")
   })
 })
+
+describe("the client's earlier short-term credit this calendar year", () => {
+  const yearStart = new Date("2026-01-01T00:00:00+02:00")
+  function credit(loans: Array<[string, string]>, approved: Array<[number, number]>) {
+    return {
+      loan: { findMany: vi.fn(async () => loans.map(([start, end]) => ({ startDate: new Date(start), maturityDate: new Date(end) }))) },
+      loanApplication: {
+        findMany: vi.fn(async () => approved.map(([amount, days]) => ({ appliedAmount: amount, appliedTermDays: days, approvedAmount: amount, approvedTermDays: days }))),
+      },
+    }
+  }
+
+  it("counts short-term loans paid out and short-term applications approved, not yet paid out", async () => {
+    const db = credit(
+      [["2026-03-01T10:00:00Z", "2026-03-31T10:00:00Z"], ["2026-02-01T10:00:00Z", "2026-12-01T10:00:00Z"]],
+      [[200_000, 30], [900_000, 30]],
+    )
+    expect(await earlierShortTermCreditThisYear(db as never, "t1", "c1", on, { id: "app-1" })).toBe(2)
+  })
+
+  it("asks for this year's credit, CANCELLED loans and the subject itself left out, ordered by approval", async () => {
+    const db = credit([], [])
+    await earlierShortTermCreditThisYear(db as never, "t1", "c1", on, { id: "app-1" })
+    expect(db.loan.findMany.mock.calls[0]).toEqual([expect.objectContaining({
+      where: {
+        tenantId: "t1", clientId: "c1", status: { not: "CANCELLED" }, applicationId: { not: "app-1" },
+        startDate: { gte: yearStart, lte: on }, principal: { lte: 800_000 },
+        OR: [{ application: { approvedAt: { lt: on } } }, { application: { approvedAt: null } }],
+      },
+    })])
+    expect(db.loanApplication.findMany.mock.calls[0]).toEqual([expect.objectContaining({
+      where: { tenantId: "t1", clientId: "c1", status: "APPROVED", loan: null, id: { not: "app-1" }, approvedAt: { gte: yearStart, lt: on } },
+    })])
+  })
+
+  it("at payout, counts only credit approved before the subject was", async () => {
+    const db = credit([], [])
+    const approvedAt = new Date("2026-11-20T09:00:00+02:00")
+    await earlierShortTermCreditThisYear(db as never, "t1", "c1", on, { id: "app-1", approvedAt })
+    expect(db.loanApplication.findMany.mock.calls[0]).toEqual([expect.objectContaining({
+      where: expect.objectContaining({ approvedAt: { gte: yearStart, lt: approvedAt } }),
+    })])
+  })
+})
+

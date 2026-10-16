@@ -29,6 +29,12 @@ describe("loading the client's obligations to this lender", () => {
     expect(ownAwareDebtTotal([{ monthlyInstalment: 50_000 }], own)).toBe(50_000 + 120_000 + 30_000)
   })
 
+  it("fails closed on an approved application whose approval recorded no instalment, rather than leave it out", async () => {
+    const d = db()
+    d.loanApplication.findMany.mockResolvedValueOnce([{ id: "app-3", reference: "APP-3", approvedAmount: 200_000, affordabilityResult: { schemaVersion: 3 } }] as never)
+    await expect(loadOwnLenderDebts(d as never, "t1", "client-1", "app-1")).rejects.toThrow(/Approved application APP-3 has no recorded instalment/)
+  })
+
   it("submits an application on an NDI that counts them", async () => {
     const snapshot = await ownAwareSubmissionSnapshot(db() as never, "t1", "client-1", {
       capturedAt: new Date("2026-07-20T09:00:00.000Z"), capturedById: "officer-1", client,

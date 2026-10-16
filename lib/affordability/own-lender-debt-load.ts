@@ -2,6 +2,7 @@ import type { prisma } from "@/lib/prisma"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
 import {
   createSubmissionAffordabilitySnapshot,
+  InvalidAffordabilityDebtError,
   readAffordabilityDebtInputs,
   readAffordabilitySnapshotStore,
   type AffordabilityDebtInput,
@@ -55,10 +56,19 @@ function toOwnLoan(loan: {
   }
 }
 
-/** An APPROVED, not yet disbursed application: its approved instalment, credit life included. */
-function toApprovedApplication(app: { id: string; reference: string; approvedAmount: number | null; affordabilityResult: unknown }): OwnLenderLoan | null {
+/**
+ * An APPROVED, not yet disbursed application: its approved instalment, credit
+ * life included. One whose approval recorded no instalment cannot be counted,
+ * so the assessment fails closed rather than leave it out.
+ */
+function toApprovedApplication(app: { id: string; reference: string; approvedAmount: number | null; affordabilityResult: unknown }): OwnLenderLoan {
   const instalment = readAffordabilitySnapshotStore(app.affordabilityResult).approval?.inputs.proposedInstalmentCents
-  if (!Number.isSafeInteger(instalment)) return null
+  if (!Number.isSafeInteger(instalment)) {
+    throw new InvalidAffordabilityDebtError(
+      `Approved application ${app.reference}`,
+      "has no recorded instalment, so this client's obligations to the lender cannot be counted; re-assess and re-approve it first",
+    )
+  }
   return {
     id: `application:${app.id}`, reference: app.reference, status: "APPROVED",
     instalmentCents: instalment as number, outstandingPrincipal: app.approvedAmount ?? 0, daysInArrears: 0, arrearsAmount: 0,
@@ -92,7 +102,7 @@ export async function loadOwnLenderDebts(
   ])
   return {
     lenderNames,
-    loans: [...loans.map(toOwnLoan), ...approved.map(toApprovedApplication).filter((loan): loan is OwnLenderLoan => loan !== null)],
+    loans: [...loans.map(toOwnLoan), ...approved.map(toApprovedApplication)],
   }
 }
 
@@ -130,6 +140,11 @@ export function recordedOwnAwareDebtInputs(source: DebtSource & { affordabilityR
 const ownTotal = (debts: readonly AffordabilityDebtInput[]) => ownLenderDebtEntries(debts.map((debt) => ({ ...debt, sourceId: debt.sourceId ?? null })))
   .reduce((sum, debt) => sum + Number(debt.monthlyInstalmentCents ?? debt.monthlyInstalment ?? 0), 0)
 
+// A sibling approved at its proposed instalment is booked at the calculator's
+// recurring instalment, which can differ by rounding: within this, the same
+// obligation, not a new one.
+const OWN_DEBT_ROUNDING_CENTS = 100
+
 /**
  * At payout: true when the client's live obligations to this lender count more
  * than the approval recorded (another loan paid out, or approved, since) —
@@ -143,7 +158,8 @@ export async function ownLenderDebtIncreasedSinceApproval(
 ): Promise<boolean> {
   const live = await liveOwnAwareDebtInputs(db, tenantId, applicationId, source)
   const recorded = recordedOwnAwareDebtInputs(source)
-  return Math.max(ownTotal(live.application), ownTotal(live.client)) > Math.max(ownTotal(recorded.application), ownTotal(recorded.client))
+  return Math.max(ownTotal(live.application), ownTotal(live.client))
+    > Math.max(ownTotal(recorded.application), ownTotal(recorded.client)) + OWN_DEBT_ROUNDING_CENTS
 }
 
 /**

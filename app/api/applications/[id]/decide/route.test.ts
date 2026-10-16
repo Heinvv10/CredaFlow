@@ -35,6 +35,8 @@ const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
 const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: Date; maturityDate: Date }>)
+type ApprovedSibling = { appliedAmount: number; appliedTermDays: number; approvedAmount: number | null; approvedTermDays: number | null }
+const applicationFindManyMock = vi.fn(async (_a: unknown) => [] as ApprovedSibling[])
 
 // The client's own loans with this lender: none here (the real-DB behaviour is
 // lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
@@ -76,6 +78,7 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: {
       findUnique: (a: unknown) => findUniqueMock(a),
       updateMany: (a: unknown) => updateManyMock(a),
+      findMany: (a: unknown) => applicationFindManyMock(a),
     },
     client: { findUnique: (a: unknown) => clientFindUniqueMock(a) },
     clientDocument: { findMany: (a: unknown) => clientDocumentFindManyMock(a) },
@@ -1039,6 +1042,17 @@ describe("Regulation 42: 3% a month on a repeat short-term loan in the calendar 
     expect(transactionMock).not.toHaveBeenCalled()
     expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", principal: { lte: 800_000 } }),
+    }))
+  })
+
+  it("counts an earlier short-term application approved but not yet paid out", async () => {
+    applicationFindManyMock.mockResolvedValueOnce([{ appliedAmount: 200_000, appliedTermDays: 30, approvedAmount: 200_000, approvedTermDays: 30 }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect((await res.json() as { interestRateCap: string }).interestRateCap).toBe("REPEAT_SHORT_TERM")
+    expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", status: "APPROVED", loan: null }),
     }))
   })
 
