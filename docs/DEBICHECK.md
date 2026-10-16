@@ -86,11 +86,11 @@ header (:6-8) says each must be verified before a lender goes live. All are
 
 | Value | Line | Note |
 |---|---|---|
-| 2 presentments per instalment | :22 | Also a DB CHECK + unique index |
+| 2 presentments per instalment | :22 | Also enforced on `CollectionInstruction`: CHECK `CollectionInstruction_presentment_cap` + unique index `CollectionInstruction_presentment_once` (`20261014150000_collections_engine/migration.sql:291-300`) |
 | Suspend after 2 consecutive NPF unpaids | :25 | |
-| Tracking 1–10 days | :28-29 | Netcash and Stitch docs agree on max 10; also a DB CHECK |
-| Max collection amount 1.5 x instalment | :32 | Stitch and Netcash docs agree |
-| Batch lead time 2 business days | :35 | Netcash's two-day service; Stitch's cut-offs are not public |
+| Tracking 1–10 days | :28-29 | Max 10 per [Netcash help](https://help.netcash.co.za/?p=11875); Stitch documents only a boolean `trackingIndicator`. Also DB CHECKs (`DebitMandate_terms_valid`, `CollectionInstruction_tracking_days`) |
+| Max collection amount 1.5 x instalment | :32 | Stated by [Stitch](https://docs.stitch.money/payment-products/payins/debicheck/integration-process) (`maximumCollectionAmount`) and [Netcash help](https://help.netcash.co.za/?p=11875). TypeScript only (`validateMandateTerms`, `scheme-rules.ts:161-179`); the DB checks only max >= amount |
+| Batch lead time 2 business days | :35 | **Unverified.** [Netcash help](https://help.netcash.co.za/?p=11875) gives a cut-off of 23:59 one working day before the action date; Stitch's [collections page](https://docs.stitch.money/payment-products/payins/debicheck/collections) gives no cut-off |
 | Load-report / registration timeout 48 h | :57-64 | Marked as an assumption in the file |
 | Several debits per mandate per action date | :70-77 | `MULTIPLE_DEBITS_PER_DATE_VERIFIED = false` |
 | Hard-stop unpaid reasons | :91-98 | Depends on the provider's return-code mapping |
@@ -109,7 +109,7 @@ also requires its own merchant onboarding (FICA, collection risk limits).
 |---|---|---|
 | **Stitch** | GraphQL API for mandates (`paymentConsentRequestCreate`, hosted debtor flow or `…Confirm`), signed webhooks for mandate status; **collections and results by SFTP files** (REPLY + OUTPUT files, announced by webhook). TT1, TT1-delayed, TT2, RM. Sandbox: test clients, outcome by instalment amount. [Docs](https://docs.stitch.money/payment-products/payins/debicheck/introduction) | **Already a CredaFlow integration** (`lib/stitch.ts`: OAuth client credentials + GraphQL pay-by-bank, per-tenant credentials). The token request hardcodes scope `client_paymentrequest` (`lib/stitch.ts:90`); DebiCheck needs `client_recurringpaymentconsentrequest` ([integration process](https://docs.stitch.money/payment-products/payins/debicheck/integration-process)), so `getStitchAccessToken` must take a scope. Best documented option found. |
 | **Netcash** | NIWS SOAP web services: TT1 synchronous, trace, amend, cancel, batch file upload, mandate template, participating banks. [Docs](https://api.netcash.co.za/inbound-payments/dc/) | Adapter exists for AVS only; mandate/collect methods throw NOT_IMPLEMENTED. **Dropped for this product (Hein, 2026-10-16): Netcash no longer serves micro lenders.** Netcash's own [DebiCheck help page](https://help.netcash.co.za/?p=11875) does not state this. |
-| **EasyDebit** | Lists DebiCheck and collections among its services ([Bizcommunity listing](https://www.bizcommunity.com/Company/EasyDebitPaymentSolutions)). No public developer documentation found. | Named as a collections partner in CredaFlow sales material. **No adapter in this repo** (2026-10-16). Interface **unverified**; `types.ts` assumes a file-based rail. |
+| **EasyDebit** | Lists DebiCheck and collections among its services ([Bizcommunity listing](https://www.bizcommunity.com/Company/EasyDebitPaymentSolutions)). No public developer documentation found. | Named as an example collection partner in the CredaFlow spec sheet (`CredaFlow-marketing/brand/spec-sheet/template.html`, outside this repo), tagged "On request". **No adapter in this repo** (2026-10-16). Interface **unverified**; `types.ts` assumes a file-based rail. |
 | **BankTech** | Advertises a DebiCheck API: authentication, amendments, cancellations, status, collection results. [Solutions](https://bank.tech/solutions/), [docs](https://docs.bank.tech/) | Endpoint docs not confirmed **(unverified)**. |
 | **Hyphen** | File-based, standard FACS format; no API mentioned. [Page](https://www.hyphen.co.za/debicheck/) | File rail only **(unverified beyond the marketing page)**. |
 | **Altron FinTech (Realpay / NuPay)** | Portal and terminal product; markets microfinance and TT3. No developer docs found. [Page](https://fintech.altron.com/debicheck) | Integration method **unverified**. |
@@ -206,8 +206,12 @@ amendment needs no rollback: the mandate's original terms were never touched.
 The engine reads a mandate's effective terms as the original row overlaid with
 its accepted amendments, newest last.
 
-This still changes enforcement: the presentment and max-amount checks that
-read `DebitMandate` columns must read the effective terms, and a new trigger
+This still changes enforcement: the TypeScript term checks
+(`validateMandateTerms`, `scheme-rules.ts:161-179`: max amount, 1.5 x) and the
+DB CHECK `DebitMandate_terms_valid` (`migration.sql:230-235`) cover only the
+mandate row, so amendment rows need the same checks, and the per-date amount
+cap (`capPerActionDate`, which reads `maxAmountCents`) must read the effective
+terms. A new trigger
 must keep amendment rows append-only and their status moves legal. That is a
 hand-written migration (Prisma does not diff triggers) and, like every
 enforcement migration here, it ships in the same PR as its code. The
