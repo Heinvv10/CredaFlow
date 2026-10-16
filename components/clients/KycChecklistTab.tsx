@@ -362,14 +362,17 @@ export function KycChecklistTab({
         <div className="flex items-center gap-3">
           <div>
             <p className="text-sm font-medium text-gray-700">KYC Status</p>
-            <Badge className={manualExceptionActive
+            {/* The STORED status; the derived provenance only names a stored VERIFIED. */}
+            <Badge className={manualExceptionActive && kyc === "VERIFIED"
               ? "bg-amber-100 text-amber-900"
               : kycBadgeClass[kyc] ?? "bg-gray-100 text-gray-800"}>
-              {substituteKind === "in_person"
-                ? "VERIFIED IN PERSON"
-                : manualExceptionActive
-                  ? "MANUAL EXCEPTION"
-                  : kyc}
+              {kyc !== "VERIFIED"
+                ? kyc
+                : substituteKind === "in_person"
+                  ? "VERIFIED IN PERSON"
+                  : manualExceptionActive
+                    ? "MANUAL EXCEPTION"
+                    : kyc}
             </Badge>
           </div>
           <div className="ml-6">

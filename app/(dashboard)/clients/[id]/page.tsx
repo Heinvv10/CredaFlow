@@ -180,7 +180,8 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   // Derived, not stored: the loans are already loaded above, so this costs no
   // extra query and cannot fall out of step with them.
   const status = clientStatus(client)
-  const kycBadge = compositeKyc.manualExceptionActive
+  // The STORED status; the derived exception only names a stored VERIFIED.
+  const kycBadge = compositeKyc.manualExceptionActive && client.kycStatus === "VERIFIED"
     ? {
         label: "MANUAL EXCEPTION",
         className: "bg-amber-100 text-amber-900",
