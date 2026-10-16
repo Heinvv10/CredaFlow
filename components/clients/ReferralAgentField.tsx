@@ -130,13 +130,12 @@ export function ReferralAgentField({
   }, [editable])
 
   // Only a genuine move is previewed. Returning the select to its stored value
-  // is not a change, and the server would plan nothing for it anyway.
+  // is not a change, and the server would plan nothing for it anyway. The
+  // previous preview is cleared in the select's onChange, which is what changes
+  // pendingCodeId, so this effect only fetches.
   useEffect(() => {
     if (pendingCodeId === undefined) return
     let cancelled = false
-    setImpact(null)
-    setImpactFailed(false)
-    onImpactChange?.(null)
     const query = pendingCodeId ? `?codeId=${encodeURIComponent(pendingCodeId)}` : ""
     fetch(`/api/clients/${clientId}/referral-impact${query}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
@@ -204,11 +203,10 @@ export function ReferralAgentField({
           onChange={(e) => {
             const next = e.target.value || null
             setPendingCodeId(next === (initialCodeId ?? null) ? undefined : next)
-            if (next === (initialCodeId ?? null)) {
-              setImpact(null)
-              setImpactFailed(false)
-              onImpactChange?.(null)
-            }
+            // Whatever was previewed was for the previous selection.
+            setImpact(null)
+            setImpactFailed(false)
+            onImpactChange?.(null)
           }}
           className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cf-brand)] md:max-w-md"
         >

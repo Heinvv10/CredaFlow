@@ -55,6 +55,36 @@ function formatExtractedValue(key: string, value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value) : String(value)
 }
 
+/** The client's documents, or null when the route refuses (the list stays as it was). */
+async function loadDocuments(clientId: string): Promise<DocumentRecord[] | null> {
+  const res = await fetch(`/api/clients/${clientId}/documents`)
+  if (!res.ok) return null
+  return (await res.json()) as DocumentRecord[]
+}
+
+/** The client's signing packets, or null to leave the previous state. */
+async function loadPackets(clientId: string): Promise<SigningPacketLifecycle[] | null> {
+  try {
+    const res = await fetch(`/api/clients/${clientId}/signing-packets`)
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!Array.isArray(data)) return null
+    // Array.isArray alone is not enough. Any JSON array reaches this — a
+    // different endpoint's payload, a proxy error body — and every field the
+    // card reads would be undefined, so it rendered an empty "Signing packet"
+    // shell for a client with no packet, with a duplicate React key. On a
+    // lender, a card asserting a packet exists when none does is worse than
+    // no card. Only entries carrying the two fields the card cannot render
+    // without are accepted.
+    return data.filter((p): p is SigningPacketLifecycle =>
+      typeof p?.applicationId === "string" && typeof p?.state === "string")
+  } catch {
+    // Leave the previous state: the halves and any executed agreement are
+    // still listed below, so staff are not stranded without a download.
+    return null
+  }
+}
+
 export function DocumentsTab({
   clientId,
   popiaConsentGiven,
@@ -73,44 +103,35 @@ export function DocumentsTab({
   const [packets, setPackets] = useState<SigningPacketLifecycle[]>([])
   const router = useRouter()
 
+  // Refresh after a mutation and on the polling tick (handlers and timers, so
+  // setting state here is fine). The mount load below is a separate effect.
   const fetchDocs = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (res.ok) {
-        const data = await res.json()
-        setDocs(data)
-      }
+      const loaded = await loadDocuments(clientId)
+      if (loaded) setDocs(loaded)
     } finally {
       setLoading(false)
     }
   }, [clientId])
 
-  // Kept separate from fetchDocs: the packet card is application-scoped and a
-  // failure here must not blank the document list, nor the reverse.
-  const fetchPackets = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/clients/${clientId}/signing-packets`)
-      if (!res.ok) return
-      const data = await res.json()
-      if (!Array.isArray(data)) return
-      // Array.isArray alone is not enough. Any JSON array reaches this — a
-      // different endpoint's payload, a proxy error body — and every field the
-      // card reads would be undefined, so it rendered an empty "Signing packet"
-      // shell for a client with no packet, with a duplicate React key. On a
-      // lender, a card asserting a packet exists when none does is worse than
-      // no card. Only entries carrying the two fields the card cannot render
-      // without are accepted.
-      setPackets(data.filter((p): p is SigningPacketLifecycle =>
-        typeof p?.applicationId === "string" && typeof p?.state === "string"))
-    } catch {
-      // Leave the previous state: the halves and any executed agreement are
-      // still listed below, so staff are not stranded without a download.
-    }
+  // `ignore` drops a response that lands after the client changed or the tab
+  // unmounted.
+  useEffect(() => {
+    let ignore = false
+    loadDocuments(clientId)
+      .then((loaded) => { if (!ignore && loaded) setDocs(loaded) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [clientId])
 
-  useEffect(() => { fetchDocs() }, [fetchDocs])
-  useEffect(() => { fetchPackets() }, [fetchPackets])
+  // Separate from the document load: the packet card is application-scoped and
+  // a failure here must not blank the document list, nor the reverse.
+  useEffect(() => {
+    let ignore = false
+    loadPackets(clientId).then((loaded) => { if (!ignore && loaded) setPackets(loaded) })
+    return () => { ignore = true }
+  }, [clientId])
 
   // Auto-poll every 5s while any doc is pending/processing
   useEffect(() => {
