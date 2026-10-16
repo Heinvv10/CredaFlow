@@ -58,7 +58,11 @@ export const NEVER_APPLIED: readonly Category[] = ["CREDIT_INSTALMENT", "GAMBLIN
  * Times every key is asked, each time among other keys in another order: the
  * local model is not deterministic at temperature 0, and its answer for a key
  * can depend on its neighbours. A living category (what EXPENSE_UNDERSTATED
- * counts) stands only when every run agrees; any other only on a majority.
+ * counts) stands only when every run that answered agrees; any other only on
+ * a majority of them. A batch refused or answered with garbage abstains, and a
+ * key with fewer than a majority of VOTE_RUNS answers is UNCATEGORISED.
+ * Cost: a read holds the one-at-a-time read queue for VOTE_RUNS times the
+ * requests of one run (a hung model still trips the backoff on the first).
  */
 export const VOTE_RUNS = 3
 
@@ -111,11 +115,13 @@ export function needsModelLabels(a: { status: string; modelCategoriesVersion: st
 
 /**
  * A read's stored labels, to apply on read: only while labelling is on and
- * only from the current prompt, so labels written before a switch-off or by an
- * older prompt never feed a figure, a flag or the export.
+ * only from the configured model and current prompt, so labels written before
+ * a switch-off, by an older prompt or by another model never feed a figure, a
+ * flag or the export.
  */
 export function storedModelLabels(a: { modelCategories: unknown; modelCategoriesVersion: string | null }): unknown {
-  return MODEL_LABELS.enabled && a.modelCategoriesVersion?.endsWith(`|${MODEL_LABEL_PROMPT_VERSION}`) ? a.modelCategories : null
+  const config = getVlmConfig()
+  return MODEL_LABELS.enabled && !!config && a.modelCategoriesVersion === modelLabelsVersion(config.model) ? a.modelCategories : null
 }
 
 /** The stored labels: label key → category. */
@@ -182,18 +188,21 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 }
 
 /**
- * One label per key from VOTE_RUNS runs: the most common answer, when every
- * run gave it (a living category) or more than half did (any other);
+ * One label per key from the runs: a run without the key abstained. The most
+ * common answer, when every answer was it (a living category) or more than
+ * half were (any other), and at least a majority of VOTE_RUNS answered;
  * otherwise, and for NEVER_APPLIED, UNCATEGORISED.
  */
 export function vote(runs: ModelLabels[], keys: string[]): ModelLabels {
   const out: ModelLabels = {}
   for (const key of keys) {
+    const answers = runs.filter((run) => Object.prototype.hasOwnProperty.call(run, key)).map((run) => run[key])
     const counts = new Map<Category, number>()
-    for (const run of runs) counts.set(run[key] ?? "UNCATEGORISED", (counts.get(run[key] ?? "UNCATEGORISED") ?? 0) + 1)
-    const [[top, n]] = [...counts].sort((a, b) => b[1] - a[1])
-    const needed = isLiving(top) ? runs.length : Math.floor(runs.length / 2) + 1
-    out[key] = n >= needed && !NEVER_APPLIED.includes(top) ? top : "UNCATEGORISED"
+    for (const c of answers) counts.set(c, (counts.get(c) ?? 0) + 1)
+    const [top, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? ["UNCATEGORISED", 0]
+    const needed = isLiving(top) ? answers.length : Math.floor(answers.length / 2) + 1
+    const enough = answers.length > VOTE_RUNS / 2
+    out[key] = enough && n >= needed && !NEVER_APPLIED.includes(top) ? top : "UNCATEGORISED"
   }
   return out
 }
@@ -208,7 +217,7 @@ export function runOrder(keys: string[], run: number): string[] {
  * Labels the keys, VOTE_RUNS times (vote()). Throws VlmUnavailableError when the model could not be
  * asked (not configured, down, timed out, any HTTP error but a refused batch)
  * for any batch: then nothing is stored and the read is labelled on a later
- * run. A batch refused as bad (400, 413, 422) is UNCATEGORISED.
+ * run. A batch refused as bad (400, 413, 422) or answered with garbage abstains.
  */
 export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; version: string }> {
   const config = getVlmConfig()
@@ -241,12 +250,11 @@ async function labelOnce(config: { url: string; model: string }, distinct: strin
       throw unavailable(`VLM request failed: ${err instanceof Error ? err.name : "unknown"}`)
     }
     // A request the model refuses as malformed or too large is this batch's
-    // problem: its keys stay UNCATEGORISED and no other read is held back. Any
+    // problem: its keys abstain in this run and no other read is held back. Any
     // other failure (auth, an unknown model, rate limit, 5xx) is the model's.
     if (BATCH_REFUSED.has(res.status)) {
       console.warn("[statement-analysis] model refused a label batch:", { status: res.status, keys: batch.length })
       await res.body?.cancel()
-      Object.assign(labels, parseLabels("", batch))
       continue
     }
     if (!res.ok) throw unavailable(`VLM responded ${res.status}`)
@@ -261,8 +269,11 @@ async function labelOnce(config: { url: string; model: string }, distinct: strin
       const c = (JSON.parse(body) as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]?.message?.content
       content = typeof c === "string" ? c : ""
     } catch {
-      // A body that is not JSON is a garbage answer: every key UNCATEGORISED.
+      // A body that is not JSON is a garbage answer: the batch abstains.
     }
+    // No labels object is a garbage answer: the batch abstains in this run.
+    const answered = parseVlmResponse(content).labels
+    if (!answered || typeof answered !== "object" || Array.isArray(answered)) continue
     Object.assign(labels, parseLabels(content, batch))
   }
   return labels

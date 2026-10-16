@@ -57,6 +57,12 @@ describe("categorise", () => {
     ["Payment To Investment Account", "SAVINGS_INVESTMENT"],
     ["Inter account transfer to savings", "TRANSFER_OWN"],
     ["Payment To: J SOAP", "UNCATEGORISED"],
+    // Generic words and names categoriser-v3 must not file as living spend.
+    ["IMMEDIATE PAYMENT TOP UP T TESTER", "UNCATEGORISED"],
+    ["EFT BUNDLE OF JOY DONATION", "UNCATEGORISED"],
+    ["PAYSHAP TO LEVIS TESTER", "UNCATEGORISED"],
+    ["PAYMENT HBO TESTER", "UNCATEGORISED"],
+    ["POS PURCHASE STUDIO HAIR SALON", "UNCATEGORISED"],
   ])("keeps %s out of living spend: %s", (description, expected) => {
     expect(cat(description)).toBe(expected)
     expect(isLiving(expected)).toBe(false)
@@ -147,6 +153,6 @@ describe("CATEGORISER_VERSION names the rules", () => {
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v3", hash: "d1a8393f0d208d09" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v3", hash: "cc7e08f3c830464d" })
   })
 })

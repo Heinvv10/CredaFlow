@@ -172,8 +172,15 @@ describe("vote", () => {
     expect(vote(runs(c, c, c), ["K"])).toEqual({ K: "UNCATEGORISED" })
   })
 
-  it("counts a run that has no answer for a key as UNCATEGORISED", () => {
-    expect(vote([{ K: "BANK_FEES" }, {}, {}] as Parameters<typeof vote>[0], ["K"])).toEqual({ K: "UNCATEGORISED" })
+  it("leaves out a run that abstained, but needs answers from a majority of VOTE_RUNS", () => {
+    expect(vote([{ K: "FOOD" }, {}, { K: "FOOD" }], ["K"])).toEqual({ K: "FOOD" })
+    expect(vote([{ K: "FOOD" }, {}, {}], ["K"])).toEqual({ K: "UNCATEGORISED" })
+    expect(vote([{ K: "BANK_FEES" }, {}, {}], ["K"])).toEqual({ K: "UNCATEGORISED" })
+    expect(vote([], ["K"])).toEqual({ K: "UNCATEGORISED" })
+  })
+
+  it("never returns an inherited property for a key", () => {
+    expect(vote([{}, {}, {}], ["constructor"])).toEqual({ constructor: "UNCATEGORISED" })
   })
 })
 
@@ -213,6 +220,36 @@ describe("labelKeys votes", () => {
   it("never stores a credit instalment or gambling, however sure the model is", async () => {
     always(fetchMock, '{"labels": {"SYNTH PAY": "CREDIT_INSTALMENT", "SYNTH BET": "GAMBLING"}}')
     expect((await labelKeys(["SYNTH PAY", "SYNTH BET"])).labels).toEqual({ "SYNTH PAY": "UNCATEGORISED", "SYNTH BET": "UNCATEGORISED" })
+  })
+
+  it.each([
+    ["refused (413)", () => new Response("", { status: 413 })],
+    ["answered with garbage", () => answer("sorry")],
+  ])("a run whose batch is %s abstains: the other runs' unanimous living label stands", async (_, bad) => {
+    let n = 0
+    fetchMock.mockImplementation(async () => (++n === 2 ? bad() : answer('{"labels": {"SYNTH GROCER": "FOOD"}}')))
+    expect((await labelKeys(["SYNTH GROCER"])).labels).toEqual({ "SYNTH GROCER": "FOOD" })
+  })
+
+  it("asks each run in its own order (runOrder), so batches differ between runs", async () => {
+    const keys = Array.from({ length: LABEL_BATCH + 1 }, (_, i) => `SHOP ${i}`)
+    always(fetchMock, '{"labels": {}}')
+    await labelKeys(keys)
+    const sent = fetchMock.mock.calls.map(([, init]) => JSON.parse(JSON.parse(init.body).messages[0].content.split("Items (JSON array):\n")[1]) as string[])
+    for (let run = 0; run < VOTE_RUNS; run++) {
+      const order = runOrder(keys, run)
+      expect(sent.slice(2 * run, 2 * run + 2)).toEqual([order.slice(0, LABEL_BATCH), order.slice(LABEL_BATCH)])
+    }
+  })
+
+  it("one key that makes its batch fail costs its neighbours little: a batch abstains, it does not vote UNCATEGORISED", async () => {
+    const keys = ["SYNTH POISON", ...Array.from({ length: 2 * LABEL_BATCH }, (_, i) => `SHOP ${i}`)]
+    fetchMock.mockImplementation(async (_u: string, init: { body: string }) => {
+      const ks = JSON.parse(JSON.parse(init.body).messages[0].content.split("Items (JSON array):\n")[1]) as string[]
+      return ks.includes("SYNTH POISON") ? answer("garbage") : answer(JSON.stringify({ labels: Object.fromEntries(ks.map((k) => [k, "FOOD"])) }))
+    })
+    const r = await labelKeys(keys)
+    expect(keys.filter((k) => k !== "SYNTH POISON" && r.labels[k] !== "FOOD").length).toBeLessThan(LABEL_BATCH)
   })
 
   it("throws when a later run fails, so a partial vote is never stored", async () => {
