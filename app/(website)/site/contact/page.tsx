@@ -1,9 +1,10 @@
 "use client"
 import { CheckCircle, Clock, Loader2, Mail, MapPin, MessageCircle, Phone, type LucideIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { FaqAccordion } from "@/components/website/FaqAccordion"
 import { useWebsiteIdentity } from "@/components/website/WebsiteIdentity"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useT } from "@/lib/i18n/client"
 import type { MessageKey } from "@/lib/i18n/translate"
 import { contactFaqs } from "./faqs"
@@ -25,11 +26,17 @@ export default function ContactPage() {
   const [sent, setSent] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
-  useEffect(() => {
+  // ?enquiry= lives in window.location, so read it only once hydrated (the
+  // server and the first client render keep the empty message). Runs once, while
+  // rendering, and never overwrites a message that is already there.
+  const hydrated = useHydrated()
+  const [prefilled, setPrefilled] = useState(false)
+  if (hydrated && !prefilled) {
+    setPrefilled(true)
     const key = new URLSearchParams(window.location.search).get("enquiry") ?? ""
     const prefill = ENQUIRY_PREFILL[key]
     if (prefill) setForm((f) => (f.message ? f : { ...f, message: t(prefill) }))
-  }, [t])
+  }
 
   function validate() {
     const e: Record<string, string> = {}

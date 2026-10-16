@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "@/lib/toast"
 import {
   loadEligibilityRules,
@@ -18,6 +18,25 @@ const STATUS_STYLES: Record<string, string> = {
   DRAFT: "bg-gray-100 text-gray-600",
   ACTIVE: "bg-green-100 text-green-700",
   RETIRED: "bg-amber-100 text-amber-800",
+}
+
+interface RateTablesSnapshot {
+  tables: RateTableSummary[]
+  selectedId: string | null
+  detail: RateTableDetail | null
+  /** Set when the list loaded but the chosen table's detail did not. */
+  detailError: string | null
+}
+
+async function fetchRateTables(productId: string, selectId: string | null): Promise<RateTablesSnapshot> {
+  const tables = await loadRateTables(productId)
+  const chosen = tables.find((t) => t.id === selectId) ?? tables[0]
+  if (!chosen) return { tables, selectedId: null, detail: null, detailError: null }
+  try {
+    return { tables, selectedId: chosen.id, detail: await loadRateTable(chosen.id), detailError: null }
+  } catch (err) {
+    return { tables, selectedId: chosen.id, detail: null, detailError: (err as Error).message }
+  }
 }
 
 export function RateTablesManager({
@@ -49,35 +68,34 @@ export function RateTablesManager({
       .catch(() => setRules([]))
   }, [productId])
 
-  const refresh = useCallback(
-    async (selectId?: string) => {
-      try {
-        const list = await loadRateTables(productId)
-        setTables(list)
-        setLoadError(null)
-        const next = selectId ?? selectedId
-        const chosen = list.find((t) => t.id === next) ?? list[0]
-        if (!chosen) {
-          setSelectedId(null)
-          setDetail(null)
-          return
-        }
-        setSelectedId(chosen.id)
-        setDetail(await loadRateTable(chosen.id))
-      } catch (err) {
-        setLoadError((err as Error).message)
-      } finally {
-        setLoading(false)
-      }
-    },
-    [productId, selectedId]
-  )
+  function applySnapshot(snap: RateTablesSnapshot) {
+    setTables(snap.tables)
+    setSelectedId(snap.selectedId)
+    // A failed detail read leaves the previous detail on screen, as it always did.
+    if (snap.detailError === null) setDetail(snap.detail)
+    setLoadError(snap.detailError)
+  }
 
+  async function refresh(selectId?: string) {
+    try {
+      applySnapshot(await fetchRateTables(productId, selectId ?? selectedId))
+    } catch (err) {
+      setLoadError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // First load per product. A response that arrives after `productId` moved is
+  // ignored. `selectedId` is null here: a selection from another product could
+  // never be found in this one's list, so the first table is chosen either way.
   useEffect(() => {
-    void refresh()
-    // Deliberately once per product: `refresh` closes over `selectedId`, so
-    // depending on it would refetch the whole list on every selection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let ignore = false
+    fetchRateTables(productId, null)
+      .then((snap) => { if (!ignore) applySnapshot(snap) })
+      .catch((err: Error) => { if (!ignore) setLoadError(err.message) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [productId])
 
   async function select(id: string) {

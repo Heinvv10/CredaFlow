@@ -37,6 +37,24 @@ const TABS: { key: TabKey; label: string; icon: typeof User }[] = [
   { key: "tasks", label: "Tasks", icon: ClipboardList },
 ]
 
+type DetailResult = { data: Bundle } | { error: string }
+
+/** Fetches one lead's bundle. Returns data or a user-facing error; never sets state. */
+async function fetchLeadDetail(id: string): Promise<DetailResult> {
+  try {
+    // encodeURIComponent: defense in depth — the deep-link path validates
+    // the id shape, but this fetch must never be path-confusable even if a
+    // caller slips through with hostile text.
+    const res = await fetch(`/api/crm/leads/${encodeURIComponent(id)}/detail`)
+    if (!res.ok) {
+      return { error: res.status === 404 ? "This lead no longer exists." : "Could not load this lead." }
+    }
+    return { data: (await res.json()) as Bundle }
+  } catch {
+    return { error: "Could not load this lead." }
+  }
+}
+
 /**
  * GHL-style centred edit modal for a lead, opened from the pipeline. `leadId`
  * null = closed. Fetches the record bundle on open so the board payload stays
@@ -68,60 +86,78 @@ export function LeadSlideOver({ leadId, onClose, initialTab = "details", onTabCh
   // navigation leaves earlier fetches in flight) and must not overwrite state.
   const requestedIdRef = useRef<string | null>(null)
 
-  // `silent` refreshes the bundle without the full-panel spinner.
+  // Puts a fetched bundle (or its error) on screen.
   // `preserveDirtyForm` keeps an in-progress Details edit — set ONLY by
   // tab-mutation refreshes (a note/task/pin change on another tab); a
   // post-save reload must re-seed so the form shows the normalised (trimmed /
   // rounded) stored values, never a raw draft that would read as still-dirty.
+  const applyDetail = useCallback((result: DetailResult, preserveDirtyForm: boolean) => {
+    if ("error" in result) {
+      setError(result.error)
+      setBundle(null)
+      return
+    }
+    const { data } = result
+    setBundle(data)
+    setForm((prev) =>
+      preserveDirtyForm && prev && isLeadFormDirty(leadToFormState(data.lead), prev)
+        ? prev
+        : leadToFormState(data.lead)
+    )
+  }, [])
+
+  // Reload from a handler (a refresh after a tab mutation, or after a save).
+  // `silent` refreshes the bundle without the full-panel spinner.
   const load = useCallback(async (id: string, opts?: { silent?: boolean; preserveDirtyForm?: boolean }) => {
     requestedIdRef.current = id
     if (!opts?.silent) setLoading(true)
     setError(null)
     try {
-      // encodeURIComponent: defense in depth — the deep-link path validates
-      // the id shape, but this fetch must never be path-confusable even if a
-      // caller slips through with hostile text.
-      const res = await fetch(`/api/crm/leads/${encodeURIComponent(id)}/detail`)
+      const result = await fetchLeadDetail(id)
       if (requestedIdRef.current !== id) return // a newer lead was requested
-      if (!res.ok) {
-        setError(res.status === 404 ? "This lead no longer exists." : "Could not load this lead.")
-        setBundle(null)
-        return
-      }
-      const data = (await res.json()) as Bundle
-      if (requestedIdRef.current !== id) return
-      setBundle(data)
-      setForm((prev) =>
-        opts?.preserveDirtyForm && prev && isLeadFormDirty(leadToFormState(data.lead), prev)
-          ? prev
-          : leadToFormState(data.lead)
-      )
-    } catch {
-      if (requestedIdRef.current !== id) return
-      setError("Could not load this lead.")
-      setBundle(null)
+      applyDetail(result, opts?.preserveDirtyForm ?? false)
     } finally {
       if (!opts?.silent && requestedIdRef.current === id) setLoading(false)
     }
-  }, [])
+  }, [applyDetail])
 
-  // Two effects on purpose: the parent echoes tab switches back through
-  // initialTab (URL mirroring), and a tab switch must NOT re-run load() —
-  // that would reset the form and discard unsaved edits.
-  useEffect(() => {
+  // Two tracked values on purpose: the parent echoes tab switches back through
+  // initialTab (URL mirroring), and a tab switch must NOT reload — that would
+  // reset the form and discard unsaved edits. Both are adjusted during render,
+  // from a stored previous value, rather than in effects.
+  //
+  // A different lead (or none): start from a clean panel. `null` makes the
+  // first render count as a change.
+  const [prevLeadId, setPrevLeadId] = useState<string | null>(null)
+  if (leadId !== prevLeadId) {
+    setPrevLeadId(leadId)
+    setError(null)
     if (leadId) {
       setSaveError(null)
-      void load(leadId)
+      setLoading(true)
     } else {
       setBundle(null)
       setForm(null)
-      setError(null)
     }
-  }, [leadId, load])
+  }
 
-  useEffect(() => {
+  const [prevTabKey, setPrevTabKey] = useState<{ leadId: string | null; initialTab: TabKey } | null>(null)
+  if (prevTabKey === null || prevTabKey.leadId !== leadId || prevTabKey.initialTab !== initialTab) {
+    setPrevTabKey({ leadId, initialTab })
     if (leadId) setTab(initialTab)
-  }, [leadId, initialTab])
+  }
+
+  // The load itself. `ignore` drops a response for a lead that is no longer
+  // the one shown, in step with requestedIdRef for handler-started reloads.
+  useEffect(() => {
+    if (!leadId) return
+    requestedIdRef.current = leadId
+    let ignore = false
+    fetchLeadDetail(leadId)
+      .then((result) => { if (!ignore) applyDetail(result, false) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [leadId, applyDetail])
 
   useEffect(() => {
     if (!leadId) return
