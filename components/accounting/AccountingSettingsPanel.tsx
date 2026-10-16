@@ -76,7 +76,7 @@ export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean;
             )}
           </div>
           <p className="text-xs text-[var(--cf-text-muted)]">
-            VAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices are exported; credit notes on an instalment sale&apos;s invoice or a repossession sale are not yet, and hold the month open.
+            VAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale&apos;s inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale invoice is not yet, and holds the month open.
           </p>
           {!s.mappingConfirmedAt && <InfoStrip variant="warning">No month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.</InfoStrip>}
           {s.mappingConfirmedAt && <p className="text-[var(--cf-text)]">Mapping confirmed {new Date(s.mappingConfirmedAt).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })}.</p>}
