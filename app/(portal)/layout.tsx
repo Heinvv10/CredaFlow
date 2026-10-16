@@ -1,4 +1,6 @@
+import type { Metadata } from "next"
 import { auth } from "@/lib/auth"
+import { portalMetadata } from "@/lib/portal/portal-metadata"
 import { redirect } from "next/navigation"
 import { PortalShell } from "@/components/app-shell/PortalShell"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
@@ -11,6 +13,11 @@ import { clientMessages, getLocale, getTenantEnabledLocales } from "@/lib/i18n/s
 import { PORTAL_CLIENT_NAMESPACES } from "@/lib/i18n/surfaces"
 import { isPortalEnabled } from "@/lib/portal/portal-policy"
 import { PortalUnavailable } from "@/components/portal/PortalUnavailable"
+
+export async function generateMetadata(): Promise<Metadata> {
+  const session = await auth()
+  return portalMetadata(session?.user?.role === "CLIENT" ? session.user.tenantId : null)
+}
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await auth()

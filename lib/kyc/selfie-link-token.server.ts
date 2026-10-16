@@ -14,7 +14,8 @@ import { prisma } from "@/lib/prisma"
  * window narrows the exposure of a credential sitting in a chat thread.
  */
 export const SELFIE_LINK_TTL_MS = 24 * 60 * 60 * 1000
-export type SelfieLinkChannel = "SMS" | "WHATSAPP" | "EMAIL"
+/** PORTAL: the signed-in client opened it to continue on their phone (QR); no staff issuer. */
+export type SelfieLinkChannel = "SMS" | "WHATSAPP" | "EMAIL" | "PORTAL"
 
 const TOKEN_BYTES = 32
 /** 32 random bytes rendered base64url — no padding, URL-safe. */
@@ -55,7 +56,8 @@ export async function mintSelfieLinkToken(
     clientId: string
     channel: SelfieLinkChannel
     sentTo: string
-    createdById: string
+    /** Null exactly for a PORTAL link (CHECK SelfieCaptureToken_issuer_matches_channel). */
+    createdById: string | null
     now?: Date
   },
 ): Promise<MintedSelfieLink> {

@@ -111,3 +111,16 @@ describe("a lender with no FSP number", () => {
     expect(String((await applyMetadata()).description)).toContain("FAIS-authorised")
   })
 })
+
+// A demo lender's NCR and FSP numbers are fictional: say so beside them.
+describe("regulatory page on a demo stack", () => {
+  it("labels the registration numbers as a demo lender's, only when DEMO_MODE is on", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    try {
+      expect(await render(RegulatoryInformationPage)).toContain("Demo lender: registration numbers are fictional.")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(await render(RegulatoryInformationPage)).not.toContain("Demo lender")
+  })
+})

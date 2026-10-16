@@ -8,6 +8,7 @@ import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { prisma } from "@/lib/prisma"
 import { getTenantConfig, resolveFeatureFlags } from "@/lib/tenant"
 import { countUnansweredConversations } from "@/lib/inbox/unanswered"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 
 async function getSidebarData(tenantId: string) {
   const [pendingApplications, collectionsCount, opportunitiesCount, newLeadsCount, unansweredInbox] = await Promise.all([
@@ -84,10 +85,23 @@ export default async function DashboardLayout({
     role: session.user.role,
   }
 
-  const [badges, tenantConfig] = await Promise.all([
-    getSidebarData(tenantId),
+  // A role without the loan book (INSURANCE_OFFICER) is neither shown nor
+  // sent the loan-book counts; its inbox count stays.
+  const loanBook = !lacksLoanBook(session.user.role)
+  const [sidebar, inboxOnly, tenantConfig] = await Promise.all([
+    loanBook ? getSidebarData(tenantId) : null,
+    loanBook ? null : countUnansweredConversations(tenantId),
     getTenantConfig(tenantId),
   ])
+  const badges = sidebar
+    ? {
+        applications: sidebar.pendingApplications,
+        collections: sidebar.collectionsCount,
+        opportunities: sidebar.opportunitiesCount,
+        leads: sidebar.newLeadsCount,
+        inbox: sidebar.unansweredInbox,
+      }
+    : { inbox: inboxOnly ?? 0 }
   const features = resolveFeatureFlags(tenantConfig)
   const { featureCrm, featureIms, featureBureauSubmission, featureAssetFinance } = features
 
@@ -95,13 +109,7 @@ export default async function DashboardLayout({
     <TenantThemeProvider config={tenantConfig}>
       <AppShell
         user={user}
-        badges={{
-          applications: badges.pendingApplications,
-          collections: badges.collectionsCount,
-          opportunities: badges.opportunitiesCount,
-          leads: badges.newLeadsCount,
-          inbox: badges.unansweredInbox,
-        }}
+        badges={badges}
         featureCrm={featureCrm}
         featureIms={featureIms}
         featureBureauSubmission={featureBureauSubmission}

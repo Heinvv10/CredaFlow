@@ -2,12 +2,16 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { documentForCaller } from "@/lib/security/client-redaction"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired, signingOtpChallengeIdFrom, signingOtpRefusal } from "@/lib/signing-otp/policy"
+
+/** Document types signed through this route: generated documents (OTHER). */
+const GENERICALLY_SIGNABLE_DOC_TYPES: ReadonlySet<string> = new Set(["OTHER"])
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -74,6 +78,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           error: "Debit mandates must be signed through the application repayment-setup workflow.",
           debitMandate: "dedicated_signing_required",
         },
+        { status: 409 },
+      )
+    }
+
+    // The generic route signs what was generated to be signed (lib/documents/
+    // render.ts files those as OTHER). A payslip, statement, ID or the
+    // statutory evidence is never "signed" here, and signing one returned it.
+    if (!GENERICALLY_SIGNABLE_DOC_TYPES.has(doc.docType)) {
+      return NextResponse.json(
+        { error: "This kind of document is not signed.", signing: "not_signable" },
         { status: 409 },
       )
     }
@@ -174,7 +188,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       },
     })
 
-    return NextResponse.json(updated)
+    return NextResponse.json(documentForCaller(updated as unknown as Record<string, unknown>, caller))
   })
 }
 

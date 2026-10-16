@@ -31,6 +31,17 @@ export function applyDemoHeaders<T extends Response>(
 export const DEMO_BANNER_FALLBACK =
   "Demo environment — all data shown is sample data. Do not enter real personal information."
 
+/**
+ * Printed beside a demo lender's NCR and FSP numbers (site footer, regulatory
+ * page, portal): a demo lender holds fictional registrations. Not on NCA
+ * documents, whose text is fixed (lib/pdf).
+ */
+export const DEMO_LENDER_NOTE = "Demo lender: registration numbers are fictional."
+
+export function demoLenderNote(env: Record<string, string | undefined> = process.env): string | null {
+  return isDemoMode(env) ? DEMO_LENDER_NOTE : null
+}
+
 export function demoBannerText(brandName: string | null): string {
   return brandName
     ? `${brandName} demo — all data shown is sample data. Do not enter real personal information.`

@@ -16,6 +16,8 @@ import {
   applyRetroAttribution,
 } from "@/lib/referral-agents/retro-attribution-apply"
 import { requireApiRole } from "@/lib/auth-guards"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
+import { clientWithoutLoanBook } from "@/lib/security/client-redaction"
 import { ACCOUNT_TYPE_VALUES } from "@/lib/validation/client-wizard"
 import { withTenantContext } from "@/lib/tenant"
 import { minimumLivingExpense } from "@/lib/affordability/mle"
@@ -278,7 +280,10 @@ export async function GET(
         return NextResponse.json({ error: "Client not found" }, { status: 404 })
       }
 
-      return NextResponse.json(withoutPortalPassword(client))
+      const body = withoutPortalPassword(client)
+      // A role without the loan book reads the client, not its lending
+      // (lib/security/client-redaction.ts).
+      return NextResponse.json(lacksLoanBook(guard.user.role) ? clientWithoutLoanBook(body) : body)
     })
   } catch (error) {
     console.error("Failed to get client:", error)

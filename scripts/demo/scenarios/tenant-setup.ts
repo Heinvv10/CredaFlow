@@ -11,7 +11,7 @@ import { SIGMA_SCORE_MIN } from "../../../lib/integrations/experian-spec"
 import { log } from "../sim/env"
 import type { OriginationContext } from "./context"
 
-/** The demo lender's cut-off: inside the Sigma band, below the simulated bureau score (645). */
+/** The demo lender's cut-off: inside the Sigma band, below every dry-run bureau score (600–700, lib/integrations/experian-dry-run.ts). */
 export const DEMO_BUREAU_MIN_SCORE = 560
 
 interface CreditPolicy {

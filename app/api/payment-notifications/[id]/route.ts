@@ -8,7 +8,7 @@ import { PaymentApplicationError } from "@/lib/loan/apply-payment"
 import { ChargesSyncRefused } from "@/lib/loan/charges-verdict"
 import {
   allocatePaymentNotification,
-  PAYMENT_NOTIFICATION_MIN_ROLE,
+  canActOnPaymentNotifications,
   PaymentNotificationError,
   REJECT_REASON_MAX,
   rejectPaymentNotification,
@@ -27,12 +27,16 @@ type Body = {
 
 /**
  * Allocate a client-notified payment (capture it as a receipt) or reject it.
- * Same role as capturing a payment (POST /api/payments): allocating IS a
- * capture. Rejecting decides about money too, so it takes the same role.
+ * Same gate as capturing a payment (POST /api/payments): the COLLECTIONS_AGENT
+ * session minimum, then the capture_payment permission. Rejecting decides about
+ * money too, so it takes the same gate.
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireApiRole(PAYMENT_NOTIFICATION_MIN_ROLE)
+  const guard = await requireApiRole("COLLECTIONS_AGENT")
   if (guard.error) return guard.error
+  if (!canActOnPaymentNotifications(guard.user.role)) {
+    return NextResponse.json({ error: "Your role cannot record loan payments." }, { status: 403 })
+  }
 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params

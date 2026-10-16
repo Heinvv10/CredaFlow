@@ -14,6 +14,7 @@ import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finance/relationship-input"
 import type { SeedActor } from "./asset-finance-documents"
 import { PEOPLE, personEmail, type AfPersonKey } from "./asset-finance-data"
+import { seedEnvPassword } from "./env-password"
 
 /** The four synthetic clients, by key. KYC stays PENDING: no verification is claimed. */
 export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey, string>> {
@@ -24,7 +25,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       where: { tenantId_idNumber: { tenantId, idNumber: p.idNumber }, tenantId },
       select: { id: true },
     })
-    const envPassword = p.portalPasswordEnv ? process.env[p.portalPasswordEnv] || undefined : undefined
+    const envPassword = p.portalPasswordEnv ? seedEnvPassword(p.portalPasswordEnv) : undefined
     if (existing) {
       if (envPassword) {
         await prisma.client.update({ where: { id: existing.id }, data: { portalPassword: await bcrypt.hash(envPassword, 12) } })
@@ -43,7 +44,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       data: {
         tenantId, reference: p.reference, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName,
         dateOfBirth: new Date(p.dob), gender: p.gender, email: personEmail(p), phone: p.phone, whatsapp: p.phone,
-        addressLine1: "1 Test Street", city: "Testville", province: "Gauteng", postalCode: "0001",
+        addressLine1: "14 Demo Street", city: "Pretoria", province: "Gauteng", postalCode: "0001",
         employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING",
         monthlyIncome: p.key === "director" ? 12_000_000 : 0,
         monthlyExpenses: p.key === "director" ? 3_000_000 : 0,

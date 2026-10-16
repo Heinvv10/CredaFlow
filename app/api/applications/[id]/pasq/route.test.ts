@@ -538,6 +538,33 @@ describe("versioned PASQ artifact route", () => {
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
+  // Fair Score audit B6: the stored no-offer record, and only it, prints
+  // "Credit Life: Not offered" on the quotation.
+  it("tells the renderer the record is not-offered for a no-offer application", async () => {
+    insuranceProductFindFirstMock.mockResolvedValue(null)
+    const noOffer = application({
+      creditLifeElection: "DECLINED",
+      creditLifeProductId: null,
+      creditLifeProductName: null,
+      creditLifeInsurerId: null,
+      creditLifeInsurerName: null,
+      creditLifeMonthlyPremiumCents: 0,
+      creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+      creditLifeDisclosureSha256: createCreditLifeNoOfferDisclosureSha256({
+        version: "credit-life-no-offer-v1", election: "DECLINED",
+        principalCents: creditLifeDisclosure.principalCents, termDays: creditLifeDisclosure.termDays,
+      }),
+    })
+    applicationFindUniqueMock.mockResolvedValue(noOffer)
+    queryRawMock.mockResolvedValue([lockedRow(noOffer)])
+
+    const response = await POST(request("POST"), context)
+
+    expect(response.status).toBe(200)
+    expect(generatePdfMock).toHaveBeenCalledWith(expect.objectContaining({ creditLifeNotOffered: true }))
+    expect(generatePdfMock.mock.calls[0][0].creditLife).toBeUndefined()
+  })
+
   // Fair Score audit B6: at or below the R1,000 threshold a configured product is
   // no offer, so a no-offer record stays true while that product exists.
   describe("no-offer record", () => {
@@ -774,6 +801,7 @@ describe("versioned PASQ artifact route", () => {
         premiumPeriods: 2,
         totalPremiumCents: 1_350,
       }),
+      creditLifeNotOffered: false,
     }))
     expect(documentCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({

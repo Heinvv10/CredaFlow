@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { sendSection129Email, simulatesSection129 } from "@/lib/collections/section129-email"
 import { sendMessage } from "@/lib/messaging/send"
@@ -44,6 +44,10 @@ type BulkSection129Result = {
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("COLLECTIONS_OFFICER")
   if (guard.error) return guard.error
+  // act_on_collections: the COLLECTIONS_OFFICER ladder minus INSURANCE_OFFICER.
+  if (!canDo(guard.user.role, "act_on_collections")) {
+    return NextResponse.json({ error: "Your role cannot act on collections." }, { status: 403 })
+  }
   const actor = guard.user!
 
   return withTenantContext(req, async (tenant) => {

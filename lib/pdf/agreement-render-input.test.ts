@@ -32,6 +32,7 @@ const evidence = {
   quotePresentedAt: new Date("2026-05-15T08:00:00.000Z"),
   quoteValidUntilDate: "2026-05-22",
   creditLifeAutoBundleEligible: false,
+  creditLifeNotOffered: true,
 }
 
 describe("buildAgreementRenderInput", () => {
@@ -85,9 +86,16 @@ describe("buildAgreementRenderInput", () => {
     expect(buildAgreementRenderInput(evidence).creditLife).toBeUndefined()
   })
 
+  // Fair Score audit B6: "Not offered" prints only from the stored record.
+  it("carries the stored no-offer record through as an explicit flag", () => {
+    expect(buildAgreementRenderInput(evidence).creditLifeNotOffered).toBe(true)
+    expect(buildAgreementRenderInput({ ...evidence, creditLifeNotOffered: false }).creditLifeNotOffered).toBe(false)
+  })
+
   it("passes credit-life cover through untouched when it was offered", () => {
     const input = buildAgreementRenderInput({
       ...evidence,
+      creditLifeNotOffered: false,
       creditLifeAutoBundleEligible: true,
       creditLife: {
         elected: true,

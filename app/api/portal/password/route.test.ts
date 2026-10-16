@@ -117,6 +117,13 @@ describe("POST /api/portal/password keeps the changing session signed in", () =>
     expect(await reissuedToken(res)).toBeNull()
   })
 
+  it.each(["password12", "short-9ch"])("refuses a weak new password (%s) before checking the current one", async (password) => {
+    const res = await change(sessionToken(), { newPassword: password, confirmPassword: password })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/at least 10 characters|too common/)
+    expect(updateManyClient).not.toHaveBeenCalled()
+  })
+
   it("finds the client by the session's own id and tenant, not by email", async () => {
     await change(sessionToken())
     expect(findFirstClient).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "c1", tenantId: "t1" } }))

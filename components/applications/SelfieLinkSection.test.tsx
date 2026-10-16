@@ -23,6 +23,20 @@ describe("SelfieLinkSection", () => {
     expect(html).not.toMatch(/[A-Za-z0-9_-]{43}/)
   })
 
+  // Review of #152: a link the client opened in the portal was sent nowhere.
+  it("names a portal hand-off as the Client portal, not a send to a masked destination", () => {
+    const html = renderToStaticMarkup(
+      <SelfieLinkSection
+        applicationId="app1"
+        latestToken={{ channel: "PORTAL", sentTo: "p****l", expiresAt: "2026-08-07T10:00:00.000Z", usedAt: null }}
+        smsEnabled
+      />,
+    ).replace(/<!-- -->/g, "")
+    expect(html).toContain("the client opened a link in the Client portal")
+    expect(html).not.toContain("p****l")
+    expect(html).not.toContain("sent by PORTAL")
+  })
+
   it("states plainly when no link has been sent", () => {
     const html = renderToStaticMarkup(
       <SelfieLinkSection applicationId="app1" latestToken={null} smsEnabled />,

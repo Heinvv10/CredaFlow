@@ -26,7 +26,11 @@ vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: (tenantId: string) =
 vi.mock("@/lib/config/identity-response", () => ({
   lenderIdentityOrRefusal: (tenantId: string) => lenderIdentityMock(tenantId),
 }))
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // act_on_collections itself is proved with the real guards in app/api/collections-scope-rbac.test.ts.
+  canDo: () => true,
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),

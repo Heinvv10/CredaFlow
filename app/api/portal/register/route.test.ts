@@ -369,8 +369,17 @@ describe("POST /api/portal/register — verify-activate mode", () => {
     const data = await res.json()
 
     expect(res.status).toBe(400)
-    expect(data.error).toMatch(/between 8 and 200 characters/i)
+    expect(data.error).toMatch(/at least 10 characters/i)
     expect(findFirstClientOtp).not.toHaveBeenCalled()
+  })
+
+  // Fair Score audit 2026-10-16: activation accepted "password".
+  it.each(["password", "password1234", "Qwerty12345!"])("refuses the common password %s before touching the OTP/client tables", async (password) => {
+    const res = await POST(makeRequest({ ...verifyBody, password, confirmPassword: password }))
+
+    expect(res.status).toBe(400)
+    expect(findFirstClientOtp).not.toHaveBeenCalled()
+    expect(updateClient).not.toHaveBeenCalled()
   })
 
   it("rejects mismatched password/confirmPassword", async () => {

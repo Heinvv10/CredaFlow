@@ -1,3 +1,4 @@
+import { demoLenderNote } from "@/lib/config/demo-mode"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect, notFound } from "next/navigation"
@@ -69,6 +70,7 @@ export default async function PortalApplyProductPage({
       productKey={productKey}
       lenderName={identity.tradingName}
       ncrNumber={identity.ncrNumber}
+      demoLenderNote={demoLenderNote()}
       product={{
         id: product.id,
         name: product.name,
@@ -78,6 +80,7 @@ export default async function PortalApplyProductPage({
         maxAmount: product.maxAmount,
         minTermDays: product.minTermDays,
         maxTermDays: product.maxTermDays,
+        interestModel: product.interestModel,
       }}
       client={{
         firstName: client.firstName,

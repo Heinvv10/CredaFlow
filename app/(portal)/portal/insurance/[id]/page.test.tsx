@@ -108,6 +108,18 @@ describe("portal policy detail page", () => {
     }
   })
 
+  it("labels the FAIS claim as a fictional demo lender's on a demo stack", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    try {
+      expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).toContain(
+        "FAIS-authorised intermediary. Demo lender: registration numbers are fictional.",
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).not.toContain("Demo lender")
+  })
+
   it("renders cover and premium in rands", async () => {
     const html = renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))
 

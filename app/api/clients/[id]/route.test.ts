@@ -247,6 +247,35 @@ describe("GET /api/clients/[id] response security", () => {
   })
 })
 
+// Security review of #145: "clients" stays open to INSURANCE_OFFICER, but the
+// client record carried its loans, applications and lending figures.
+describe("GET /api/clients/[id] for a role without the loan book", () => {
+  const withLoanBook = () => ({
+    ...baseClient(), applications: [{ id: "app-1" }], loans: [{ id: "loan-1" }],
+    expenseBreakdown: { housing: 1 }, debtObligations: [{ id: "debt-1" }],
+    monthlyIncome: 1_500_000, grossMonthlyIncome: 1_800_000, monthlyExpenses: 600_000, creditScore: 640,
+  })
+
+  it("leaves out the loans, applications and lending figures for INSURANCE_OFFICER", async () => {
+    requireApiRoleMock.mockResolvedValue({ user: { id: "io-1", email: "io@x.co", role: "INSURANCE_OFFICER", tenantId: "tenant-1" } })
+    clientFindUniqueMock.mockResolvedValue(withLoanBook())
+    const body = await (await GET(getRequest(), context)).json()
+    expect(body.id).toBe("client-1")
+    expect(body.firstName).toBeDefined()
+    for (const key of ["applications", "loans", "expenseBreakdown", "debtObligations", "monthlyIncome", "grossMonthlyIncome", "monthlyExpenses", "creditScore"]) {
+      expect(body).not.toHaveProperty(key)
+    }
+  })
+
+  it("returns them unchanged to a role that reads the loan book", async () => {
+    requireApiRoleMock.mockResolvedValue({ user: { id: "co-1", email: "co@x.co", role: "CREDIT_OFFICER", tenantId: "tenant-1" } })
+    clientFindUniqueMock.mockResolvedValue(withLoanBook())
+    const body = await (await GET(getRequest(), context)).json()
+    expect(body.loans).toEqual([{ id: "loan-1" }])
+    expect(body.creditScore).toBe(640)
+  })
+})
+
 // The client edit form writes the same income fields the extraction route does,
 // so guarding only that route leaves the wider door open: an income
 // overwrite on an APPROVED application breaks the immutable affordability
