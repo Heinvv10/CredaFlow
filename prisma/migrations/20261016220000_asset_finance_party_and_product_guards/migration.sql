@@ -1,26 +1,27 @@
 -- Fair Score audit E4/E5, review of #151.
 --
--- 1. The approval's exception keys (lib/asset-finance/deal-exceptions.ts):
---    payout and booking refuse an exception the approval did not answer.
---    Written by the credit decision; fixed once the deal is approved.
-ALTER TABLE "AssetFinanceDeal" ADD COLUMN "approvalExceptionKeys" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+-- 1. The approval's exceptions, each key with its severity when answered
+--    (lib/asset-finance/deal-exception-severity.ts): payout and booking refuse
+--    an exception that is new or worse. Written by the credit decision; fixed
+--    once the deal is approved.
+ALTER TABLE "AssetFinanceDeal" ADD COLUMN "approvalExceptions" JSONB NOT NULL DEFAULT '[]';
 
-CREATE OR REPLACE FUNCTION public."freezeAssetDealApprovalExceptionKeys"()
+CREATE OR REPLACE FUNCTION public."freezeAssetDealApprovalExceptions"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 BEGIN
   IF OLD."status" IN ('APPROVED', 'CONTRACTED', 'BOOKED')
-    AND NEW."approvalExceptionKeys" IS DISTINCT FROM OLD."approvalExceptionKeys" THEN
+    AND NEW."approvalExceptions" IS DISTINCT FROM OLD."approvalExceptions" THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'An approved deal''s exception keys are the record of what its approval answered: they are fixed';
+      MESSAGE = 'An approved deal''s recorded exceptions are the record of what its approval answered: they are fixed';
   END IF;
   RETURN NEW;
 END;
 $function$;
 
-CREATE TRIGGER "AssetFinanceDeal_approval_exception_keys_fixed" BEFORE UPDATE ON "AssetFinanceDeal"
-  FOR EACH ROW EXECUTE FUNCTION public."freezeAssetDealApprovalExceptionKeys"();
+CREATE TRIGGER "AssetFinanceDeal_approval_exceptions_fixed" BEFORE UPDATE ON "AssetFinanceDeal"
+  FOR EACH ROW EXECUTE FUNCTION public."freezeAssetDealApprovalExceptions"();
 
 -- 2. The entity's people are what the credit decision cross-checked
 --    (replaces the function of 20261013114200; same trigger name, now also

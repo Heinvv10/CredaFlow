@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import type { RegimeTx } from "./classification"
 import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { decideDeal, parseDecideInput } from "./deal-decision"
-import { exceptionsFingerprint } from "./deal-exceptions"
+import { exceptionsFingerprint } from "./deal-exception-severity"
 
 // The screening re-check's own rules are proven in lib/screening; here, only
 // that decideDeal obeys it on APPROVE.
@@ -187,11 +187,12 @@ describe("decideDeal", () => {
   it("E5: with the reason, the approval stores and audits each exception and the reason", async () => {
     fake = fakeTx(deal(), false, { people: [director], loans: [defaulted], checks: [storedCheck("c-dir", "Synthetic Director")] })
     const exceptionReason = "The director's arrears are under a signed settlement"
-    const fingerprint = exceptionsFingerprint(["ARREARS:loan-9"])
+    const recordedDefault = { key: "ARREARS:loan-9", kind: "ARREARS" as const, status: "DEFAULTED" as const, daysInArrears: 166, arrearsCents: 9_812_345 }
+    const fingerprint = exceptionsFingerprint([recordedDefault])
     expect(await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsFingerprint: fingerprint }))
       .toEqual({ kind: "decided", status: "APPROVED" })
-    const written = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[]; approvalExceptionKeys: string[] } }])[0].data
-    expect(written.approvalExceptionKeys).toEqual(["ARREARS:loan-9"])
+    const written = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[]; approvalExceptions: unknown } }])[0].data
+    expect(written.approvalExceptions).toEqual([recordedDefault])
     const stored = written.decisionReasons
     expect(stored[0]).toBe(REASONS[0])
     expect(stored[1]).toMatch(/^Exception: Synthetic Director \(Director\) has loan LN-TEST-0009/)
@@ -203,7 +204,8 @@ describe("decideDeal", () => {
 
   it("E5: the reason binds to the fingerprint of the exceptions shown: a changed set is refused and nothing is written", async () => {
     fake = fakeTx(deal(), false, { people: [director], loans: [defaulted], checks: [storedCheck("c-dir", "Synthetic Director")] })
-    const stale = exceptionsFingerprint(["ARREARS:loan-1"])
+    // The same loan shown at an earlier, milder severity: the reason answered a different exception.
+    const stale = exceptionsFingerprint([{ key: "ARREARS:loan-9", kind: "ARREARS", status: "ACTIVE", daysInArrears: 10, arrearsCents: 50_000 }])
     const exceptionReason = "The director's arrears are under a signed settlement"
     const changed = await decideDeal(fake.asTx, actor, "deal-1", { decision: "APPROVE", reasons: REASONS, exceptionReason, exceptionsFingerprint: stale })
     expect(changed).toMatchObject({ kind: "exceptions_changed", exceptions: [expect.stringContaining("166 days in arrears")] })
@@ -244,7 +246,7 @@ describe("decideDeal", () => {
     fake = fakeTx(deal(), false, { people: [trustee], attempts })
     await decideDeal(fake.asTx, actor, "deal-1", {
       decision: "APPROVE", reasons: ["Trust cash flow supports the rental"], exceptionReason: "Trustee consent is being obtained; the deal is secured",
-      exceptionsFingerprint: exceptionsFingerprint(["BUREAU:c-tr2"]),
+      exceptionsFingerprint: exceptionsFingerprint([{ key: "BUREAU:c-tr2", kind: "BUREAU", outcome: "skipped:CONSENT_MISSING" }]),
     })
     const stored = (fake.tx.assetFinanceDeal.update.mock.calls[0] as unknown as [{ data: { decisionReasons: string[] } }])[0].data.decisionReasons
     expect(stored).toContain("Exception: Synthetic Trustee (Trustee): the bureau check was skipped (no bureau consent on record)")

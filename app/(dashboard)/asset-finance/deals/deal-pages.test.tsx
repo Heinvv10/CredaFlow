@@ -44,7 +44,7 @@ function deal(over: Partial<DealDetail> = {}): DealDetail {
     },
     schedule: { ok: false, error: "not solved in this test" },
     leaseSchedule: null,
-    financials: null, sureties: [], directorsAndTrustees: [], bureau: [], exceptions: { internalArrears: [], lines: [], keys: [], fingerprint: "0".repeat(64) },
+    financials: null, sureties: [], directorsAndTrustees: [], bureau: [], exceptions: { internalArrears: [], lines: [], keys: [], recorded: [], fingerprint: "0".repeat(64) },
     decision: { decision: null, reasons: [], decidedById: null, decidedAt: null },
     ...over,
   }

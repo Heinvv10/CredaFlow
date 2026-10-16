@@ -19,8 +19,8 @@
  *            was shown (exceptionsFingerprint): if they changed since,
  *            exceptions_changed and nothing is written. A reason sent with
  *            no exceptions is refused too. The stored reasons then carry
- *            each exception and that reason, approvalExceptionKeys the keys
- *            (payout and booking re-check against them), audited with the
+ *            each exception and that reason, approvalExceptions each one's
+ *            key and severity (payout and booking re-check against them), audited with the
  *            decision. The product must be an ASSET_FINANCE product. The application goes
  *            SUBMITTED → UNDER_REVIEW → APPROVED with repaymentMethod EFT,
  *            approvedAt/approvedById and the applied amount and term as
@@ -29,11 +29,13 @@
  *   DECLINE  application DECLINED (decisionReason = the reasons), deal DECLINED.
  *   REFER    application UNDER_REVIEW, deal REFERRED (decidable again).
  */
+import type { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockedBorrowerScreeningAllows } from "@/lib/screening/gate"
 import type { RegimeTx } from "./classification"
 import { hasPendingNonNcaOverride, lockDeal, type DealActor } from "./deal-submit"
 import { loadDealExceptions } from "./deal-exceptions"
+import type { RecordedException } from "./deal-exception-severity"
 
 export const CREDIT_DECISIONS = ["APPROVE", "DECLINE", "REFER"] as const
 export type CreditDecisionValue = (typeof CREDIT_DECISIONS)[number]
@@ -131,7 +133,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
   }
 
   let exceptions: string[] = []
-  let exceptionKeys: string[] = []
+  let recorded: RecordedException[] = []
   if (input.decision === "APPROVE") {
     if (app.product.productType !== "ASSET_FINANCE") return { kind: "product_not_asset_finance" }
     if (app.ncaRegime !== "NON_NCA") {
@@ -143,7 +145,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
     if (!deal.financials) return { kind: "memo_required" }
     const found = await loadDealExceptions(tx, tenantId, { applicationId, entityId: app.entityId, clientId: app.clientId })
     exceptions = found.lines
-    exceptionKeys = found.keys
+    recorded = found.recorded
     if (exceptions.length === 0 && input.exceptionReason) return { kind: "exception_reason_without_exceptions" }
     if (exceptions.length > 0 && !input.exceptionReason) return { kind: "exceptions_unanswered", exceptions }
     if (exceptions.length > 0 && input.exceptionsFingerprint !== found.fingerprint) return { kind: "exceptions_changed", exceptions }
@@ -191,7 +193,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
     where: { id: deal.id, tenantId },
     data: {
       status, decision: input.decision, decisionReasons: reasons, decidedById: actor.userId, decidedAt: now,
-      ...(status === "APPROVED" ? { approvalExceptionKeys: exceptionKeys } : {}),
+      ...(status === "APPROVED" ? { approvalExceptions: recorded as unknown as Prisma.InputJsonArray } : {}),
     },
   })
   await logAuditStrict(
@@ -207,7 +209,7 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
         status,
         decision: input.decision,
         reasons,
-        ...(exceptions.length > 0 ? { exceptions, exceptionKeys, exceptionReason: input.exceptionReason } : {}),
+        ...(exceptions.length > 0 ? { exceptions, exceptionKeys: recorded.map((r) => r.key), exceptionReason: input.exceptionReason } : {}),
         applicationId,
         applicationStatus: status === "REFERRED" ? "UNDER_REVIEW" : status,
         ncaRegime: app.ncaRegime,

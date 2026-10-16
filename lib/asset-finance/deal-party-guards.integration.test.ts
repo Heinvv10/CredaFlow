@@ -140,8 +140,8 @@ suite.sequential("the people and product a deal was approved on stay fixed (real
   })
 
   it("an exception that arises after approval stops the payout and the booking until it is resolved", async () => {
-    const firstDueDeal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { approvalExceptionKeys: true } })
-    expect(firstDueDeal.approvalExceptionKeys).toEqual([])
+    const firstDueDeal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { approvalExceptions: true } })
+    expect(firstDueDeal.approvalExceptions).toEqual([])
     await signLease(fx, database(), setSession, dealId)
     await confirmChecklist(fx, database(), staff, dealId)
 
@@ -149,7 +149,7 @@ suite.sequential("the people and product a deal was approved on stay fixed (real
     staff(fx.adminA, "LOAN_ADMIN")
     const payoutRefused = await bookingRoutes(fx.host).createPayout(dealId)
     expect(payoutRefused.status).toBe(409)
-    expect(((await payoutRefused.json()) as { error: string }).error).toMatch(/New since the deal was approved.*TEST Soleprop \(Surety\)/)
+    expect(((await payoutRefused.json()) as { error: string }).error).toMatch(/Not answered by the deal's approval:.*TEST Soleprop \(Surety\).*\(new since approval\)/)
     expect(await database().payout.count({ where: { dealId } })).toBe(0)
 
     await setSuretyLoan("ACTIVE")
@@ -158,7 +158,7 @@ suite.sequential("the people and product a deal was approved on stay fixed (real
     staff(fx.adminA, "LOAN_ADMIN")
     const bookRefused = await bookingRoutes(fx.host).book(dealId)
     expect(bookRefused.status).toBe(409)
-    expect(((await bookRefused.json()) as { error: string }).error).toMatch(/New since the deal was approved/)
+    expect(((await bookRefused.json()) as { error: string }).error).toMatch(/Not answered by the deal's approval/)
     expect((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId } })).status).toBe("CONTRACTED")
 
     await setSuretyLoan("ACTIVE")

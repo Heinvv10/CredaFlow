@@ -19,19 +19,20 @@
  *   design (./deal-bureau.ts) and is not listed.
  *
  * Each exception is one plain sentence with a stable key (ARREARS:<loanId>,
- * BUREAU:<clientId>). Approving with any of them needs an exception reason
- * bound to the fingerprint of the keys shown; the stored decision carries the
- * sentences, so a reason can never claim a check that was not made without
- * the record saying so, and the keys, which payout and booking compare against
- * (./deal-credit-gate.ts) so an exception arising after approval stops the
- * money (./deal-decision.ts).
+ * BUREAU:<clientId>) and its severity (./deal-exception-severity.ts).
+ * Approving with any of them needs an exception reason bound to the
+ * fingerprint of what was shown; the stored decision carries the sentences,
+ * so a reason can never claim a check that was not made without the record
+ * saying so, and the recorded severities, which payout and booking compare
+ * against (./deal-credit-gate.ts) so an exception that is new or worse
+ * since approval stops the money (./deal-decision.ts).
  */
-import { createHash } from "node:crypto"
 import type { EntityRole, LoanStatus } from "@prisma/client"
 import type { RegimeTx } from "./classification"
 import { loadDealBureauResults, type BureauResultsDb, type DealBureauResult } from "./deal-bureau-results"
 import { formatMoney } from "./format"
 import { ENTITY_ROLE_LABELS, statusLabel } from "./labels"
+import { exceptionsFingerprint, type RecordedException } from "./deal-exception-severity"
 
 export type DealExceptionsDb = BureauResultsDb & Pick<RegimeTx, "entityRelationship" | "loan">
 
@@ -52,15 +53,14 @@ export interface DealExceptions {
   lines: string[]
   /** The exceptions' stable keys, in the order of `lines`. */
   keys: string[]
-  /** sha256 of the sorted keys: what an exception reason answers. */
+  /** Each exception's key and severity, in the order of `lines`: what an approval records. */
+  recorded: RecordedException[]
+  /** What an exception reason answers (exceptionsFingerprint of `recorded`). */
   fingerprint: string
 }
 
 const PARTY_ROLES: EntityRole[] = ["DIRECTOR", "MEMBER", "TRUSTEE", "SURETY", "AUTHORISED_SIGNATORY", "BENEFICIAL_OWNER"]
 
-export function exceptionsFingerprint(keys: string[]): string {
-  return createHash("sha256").update(JSON.stringify([...keys].sort())).digest("hex")
-}
 const DEFAULTED: LoanStatus[] = ["DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF"]
 const OPEN_OR_DEFAULTED: LoanStatus[] = ["ACTIVE", "RESTRUCTURED", ...DEFAULTED]
 
@@ -133,7 +133,9 @@ export async function loadDealExceptions(
       }
     })
 
-  const keys = internalArrears.map((a) => `ARREARS:${a.loanId}`)
+  const recorded: RecordedException[] = internalArrears.map((a) => ({
+    key: `ARREARS:${a.loanId}`, kind: "ARREARS", status: a.status, daysInArrears: a.daysInArrears, arrearsCents: a.arrearsCents,
+  }))
   const lines = internalArrears.map((a) =>
     `${a.party} (${a.roles.join(", ")}) has loan ${a.reference} with this lender: ${statusLabel(a.status)}, ` +
     `${a.daysInArrears} days in arrears, ${formatMoney(a.arrearsCents)} overdue`)
@@ -146,13 +148,14 @@ export async function loadDealExceptions(
       if (seen.has(s.clientId)) continue
       seen.add(s.clientId)
       // Results are newest first: the person's latest attempt decides.
-      const gap = bureauGap(results.find((r) => r.clientId === s.clientId))
+      const latest = results.find((r) => r.clientId === s.clientId)
+      const gap = bureauGap(latest)
       const party = parties.get(s.clientId)
-      if (gap && party) {
+      if (gap && party && latest) {
         lines.push(`${party.name} (${party.roles.join(", ")}): ${gap}`)
-        keys.push(`BUREAU:${s.clientId}`)
+        recorded.push({ key: `BUREAU:${s.clientId}`, kind: "BUREAU", outcome: `${latest.outcome}:${latest.detail ?? ""}` })
       }
     }
   }
-  return { internalArrears, lines, keys, fingerprint: exceptionsFingerprint(keys) }
+  return { internalArrears, lines, keys: recorded.map((r) => r.key), recorded, fingerprint: exceptionsFingerprint(recorded) }
 }

@@ -21,6 +21,7 @@ import { cleanupDealFixture, dealFixtureTenantId, dealRoutes } from "./deal.inte
 import { addMonthsClamped } from "./dates"
 import { loadDealDetail } from "./deal-detail"
 import { loadDealExceptions } from "./deal-exceptions"
+import { dealCreditGateProblem } from "./deal-credit-gate"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 
@@ -128,9 +129,24 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     const audit = await database().auditLog.findFirstOrThrow({ where: { entityId: dealId, action: "ASSET_DEAL_DECIDED" } })
     expect(audit.newValue).toMatchObject({ exceptionReason, exceptions: [expect.stringContaining(suretyLoanReference)] })
     // What the approval answered is fixed: payout and booking compare against it.
-    expect(deal.approvalExceptionKeys).toEqual([`ARREARS:${suretyLoanId}`])
-    await expect(database().assetFinanceDeal.update({ where: { id: dealId }, data: { approvalExceptionKeys: [] } }))
-      .rejects.toThrow(/exception keys are the record of what its approval answered/)
+    expect(deal.approvalExceptions).toEqual([{ key: `ARREARS:${suretyLoanId}`, kind: "ARREARS", status: "DEFAULTED", daysInArrears: 166, arrearsCents: 9_812_345 }])
+    await expect(database().assetFinanceDeal.update({ where: { id: dealId }, data: { approvalExceptions: [] } }))
+      .rejects.toThrow(/recorded exceptions are the record of what its approval answered/)
+  })
+
+  it("payout and booking refuse the answered exception once it is worse than the approval recorded", async () => {
+    const gate = () => runWithTenant(fx.tenantId, () => prisma.$transaction((tx) => dealCreditGateProblem(tx, fx.tenantId, dealId)))
+    const setLoan = (data: { status?: "DEFAULTED" | "WRITTEN_OFF"; daysInArrears?: number; arrearsAmount?: number }) =>
+      database().loan.update({ where: { id: suretyLoanId }, data })
+    expect(await gate()).toBeNull() // as approved: DEFAULTED, 166 days, R98,123.45
+    await setLoan({ daysInArrears: 200 })
+    expect(await gate()).toBeNull() // still in the 90+ band, same amount
+    await setLoan({ arrearsAmount: 9_900_000 })
+    expect(await gate()).toMatchObject({ kind: "exceptions_since_approval", message: expect.stringMatching(/worse since approval: its arrears amount grew/) })
+    await setLoan({ arrearsAmount: 9_812_345, status: "WRITTEN_OFF" })
+    expect((await gate())?.message).toMatch(/worse since approval: it moved from DEFAULTED to WRITTEN_OFF/)
+    await setLoan({ status: "DEFAULTED", daysInArrears: 166 })
+    expect(await gate()).toBeNull()
   })
 
   it("cross-checks the borrower's own loans and a party's arrears, not only defaults", async () => {
