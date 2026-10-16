@@ -191,7 +191,7 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
 // TenantConfig.isDemoLender, which arrives false on rows older than the column.
 describe('restore.sh demo lender marker', { timeout: TEST_TIMEOUT_MS }, () => {
   it('marks the tenants in the staged db, before the swap, with or without DEMO_CLEAR_STAFF_TOTP', () => {
-    for (const env of [{}, { STUB_CLEAR_TOTP: '1' }]) {
+    for (const env of [{}, { STUB_CLEAR_TOTP: '1' }] as Record<string, string>[]) {
       writeFileSync(log, '')
       const r = run(env)
       expect(r.status).toBe(0)
