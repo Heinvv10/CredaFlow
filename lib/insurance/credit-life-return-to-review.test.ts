@@ -82,6 +82,19 @@ describe("creditLifeEvidenceSurvivesReturnToReview", () => {
   // The row asserts no cover was offered. Once an insurer is onboarded that
   // assertion is false, and the DB approval guard rejects it anyway — so clear
   // it here and make staff recapture against the offer that now exists.
+  // Fair Score audit B6: at or below the threshold a configured product is no
+  // offer, so a no-offer row stays true and is retained.
+  it("retains a no-offer election at the threshold although a product is configured", () => {
+    const small = { principalCents: 100_000, termDays: TERMS.termDays }
+    const row = {
+      ...noOfferRow(),
+      creditLifeDisclosureSha256: createCreditLifeNoOfferDisclosureSha256({
+        version: "credit-life-no-offer-v1", election: "DECLINED", ...small,
+      }),
+    }
+    expect(creditLifeEvidenceSurvivesReturnToReview(row, small, OFFER)).toEqual({ retain: true })
+  })
+
   it("clears a no-offer election once an offer becomes available", () => {
     expect(creditLifeEvidenceSurvivesReturnToReview(noOfferRow(), TERMS, OFFER))
       .toEqual({ retain: false, reason: "offer_now_available" })

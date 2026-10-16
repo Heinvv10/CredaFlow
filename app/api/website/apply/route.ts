@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
@@ -782,7 +783,13 @@ export async function POST(req: NextRequest) {
             orderBy: { createdAt: "asc" },
           })
 
-          if (product && requestedAmountCents >= product.minAmount && requestedAmountCents <= product.maxAmount) {
+          // PO funding needs the purchase order itself (lib/applications/po-funding.ts),
+          // which this form cannot collect: it stays an enquiry (the lead), never an application.
+          if (
+            product
+            && !requiresPoFundingFacts(product.productType)
+            && requestedAmountCents >= product.minAmount && requestedAmountCents <= product.maxAmount
+          ) {
             // The pre-check above already refused a missing or out-of-range term.
             const term = productTerm(product, appliedTermDays)
             // A same-key retry must reach the Lead row lock below. The original

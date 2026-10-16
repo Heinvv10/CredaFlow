@@ -82,6 +82,9 @@ export async function GET(req: Request, { params }: RouteParams) {
   })
 }
 
+/** Application statuses that no longer rely on their purchase order. */
+const PO_DOCUMENT_RELEASED_STATUSES = ["DECLINED", "CANCELLED"] as const
+
 export async function DELETE(req: Request, { params }: RouteParams) {
   const { id } = await params
   const caller = await getDocumentCaller()
@@ -166,6 +169,29 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         // exactly the hole that left returned packets erasable as OTHER.
         if (current.docType === "SIGNED_AGREEMENT_PACKET") {
           return { status: 409 as const, doc: null, immutable: "signed_packet" as const }
+        }
+        // A live PO funding application names its purchase order; deleting it
+        // would leave the application asserting an order nobody can see. Once
+        // the application is DECLINED or CANCELLED the order may go (erasure).
+        if (
+          current.docType === "PO_DOCUMENT"
+          && await tx.loanApplication.findFirst({
+            where: { tenantId: tenant.id, poDocumentId: id, status: { notIn: [...PO_DOCUMENT_RELEASED_STATUSES] } },
+            select: { id: true },
+          })
+        ) {
+          return { status: 409 as const, doc: null, immutable: "po_document" as const }
+        }
+        // A payment notification awaiting reconciliation is judged on this
+        // proof; once allocated or rejected it may go.
+        if (
+          current.docType === "PROOF_OF_PAYMENT"
+          && await tx.paymentNotification.findFirst({
+            where: { tenantId: tenant.id, documentId: id, status: "PENDING" },
+            select: { id: true },
+          })
+        ) {
+          return { status: 409 as const, doc: null, immutable: "proof_of_payment" as const }
         }
         if (caller.type === "client" && current.clientId !== caller.clientId) {
           return { status: 403 as const, doc: null }
@@ -320,6 +346,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           {
             error: deletion.immutable === "debit_mandate"
               ? "Signed debit-mandate records are immutable and cannot be deleted"
+              : deletion.immutable === "po_document"
+                ? "This purchase order is part of a PO funding application and cannot be deleted"
+              : deletion.immutable === "proof_of_payment"
+                ? "This proof of payment belongs to a payment notification awaiting reconciliation and cannot be deleted"
               : deletion.immutable === "signed_packet"
                 ? "A returned signed packet is the only artifact carrying the consumer's signature and cannot be deleted"
                 : "Credit-agreement and statutory PASQ records are immutable and cannot be deleted",

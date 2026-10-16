@@ -37,7 +37,7 @@ export const portalPayment = {
   loanOptionLease: "{reference} — {amount} rentals outstanding",
   currentSettlement: "Current settlement:",
   rentalsOutstanding: "Rentals outstanding:",
-  nextInstallment: "Next installment:",
+  nextInstallment: "Next instalment:",
   amountZar: "Amount (ZAR)",
   initiating: "Initiating payment…",
   payWithStitch: "Pay with Stitch",

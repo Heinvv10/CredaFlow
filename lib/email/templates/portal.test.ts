@@ -46,12 +46,10 @@ describe("identityConflictNoticeEmail — output encoding", () => {
 })
 
 describe("paymentDueReminderEmail wording", () => {
-  it("warns of default interest and charges, not late payment fees", () => {
+  it("asks for payment by the due date without threatening charges", () => {
     const html = paymentDueReminderEmail(identity, "Thabo Nkosi", 150_000, "2026-10-01", "LN-0099")
-    expect(html).toContain(
-      "To avoid further default interest and charges, please ensure payment is made by the due date. You can make an EFT payment to:",
-    )
-    expect(html.toLowerCase()).not.toContain("late payment fee")
+    expect(html).toContain("Please make your payment by the due date. You can make an EFT payment to:")
+    expect(html).not.toMatch(/avoid further|default interest|late payment fee/i)
   })
 })
 
