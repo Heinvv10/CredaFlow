@@ -12,6 +12,8 @@ const {
   saveFile,
   deleteFile,
   logAudit,
+  recordPaymentNotification,
+  checkRateLimit,
 } = vi.hoisted(() => ({
   auth: vi.fn(),
   findFirstClient: vi.fn(),
@@ -21,6 +23,8 @@ const {
   saveFile: vi.fn(),
   deleteFile: vi.fn(),
   logAudit: vi.fn(),
+  recordPaymentNotification: vi.fn(),
+  checkRateLimit: vi.fn(() => ({ allowed: true, remaining: 9, retryAfterSeconds: 0 })),
 }))
 
 const tx = {
@@ -46,7 +50,8 @@ vi.mock("@/lib/audit", () => ({
   logAudit,
   AuditAction: { DOCUMENT_UPLOADED: "DOCUMENT_UPLOADED" },
 }))
-vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1" }))
+vi.mock("@/lib/rate-limit", () => ({ callerIp: () => "127.0.0.1", checkRateLimit }))
+vi.mock("@/lib/payments/payment-notifications", () => ({ recordPaymentNotification }))
 
 function makeReq(fields: Record<string, string>, file?: File) {
   const form = new FormData()
@@ -140,5 +145,58 @@ describe("POST /api/portal/payment/manual", () => {
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
       newValue: expect.objectContaining({ amountCents: 315400 }),
     }))
+  })
+
+  it("puts the claim in Payments → Awaiting reconciliation, in the same transaction as the proof", async () => {
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    findFirstClient.mockResolvedValue({ id: "c1", firstName: "Elize", lastName: "Synthetic" })
+    findFirstLoan.mockResolvedValue({ id: "l1", reference: "LN-0005" })
+    saveFile.mockResolvedValue({ storagePath: "/uploads/x.pdf", fileSize: 13 })
+    createDoc.mockResolvedValue({ id: "doc1" })
+    createNote.mockResolvedValue({ id: "note1" })
+    recordPaymentNotification.mockResolvedValue({ id: "pn1" })
+
+    const res = await POST(makeReq({ loanId: "l1", amount: "84330", reference: "EFT SEP", paymentDate: "2026-10-15" }, pdf()))
+
+    expect(res.status).toBe(200)
+    expect(recordPaymentNotification).toHaveBeenCalledWith(tx, expect.objectContaining({
+      tenantId: "t1", loanId: "l1", loanReference: "LN-0005", clientId: "c1", clientName: "Elize Synthetic",
+      amount: 84_330, reference: "EFT SEP", documentId: "doc1",
+      paymentDate: new Date("2026-10-14T22:00:00.000Z"),
+    }))
+  })
+
+  it("keeps no proof on disk when the claim cannot be recorded", async () => {
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    findFirstClient.mockResolvedValue({ id: "c1", firstName: "Elize", lastName: "Synthetic" })
+    findFirstLoan.mockResolvedValue({ id: "l1", reference: "LN-0005" })
+    saveFile.mockResolvedValue({ storagePath: "/uploads/x.pdf", fileSize: 13 })
+    createDoc.mockResolvedValue({ id: "doc1" })
+    createNote.mockResolvedValue({ id: "note1" })
+    recordPaymentNotification.mockRejectedValue(new Error("db down"))
+    deleteFile.mockResolvedValue(undefined)
+
+    await expect(POST(makeReq({ loanId: "l1", amount: "84330" }, pdf()))).rejects.toThrow("db down")
+    expect(deleteFile).toHaveBeenCalledWith("/uploads/x.pdf")
+  })
+
+  it("is rate-limited per client and stores nothing once the limit is reached", async () => {
+    auth.mockResolvedValue({ user: { id: "c1", email: "client@example.com" } })
+    checkRateLimit.mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 600 })
+
+    const res = await POST(makeReq({ loanId: "l1", amount: "84330" }, pdf()))
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("600")
+    expect(checkRateLimit).toHaveBeenCalledWith("portal:payment-notify:client@example.com", expect.any(Object))
+    expect(saveFile).not.toHaveBeenCalled()
+  })
+
+  it("refuses an impossible payment date with 400, not a server error", async () => {
+    auth.mockResolvedValue({ user: { email: "client@example.com" } })
+    const res = await POST(makeReq({ loanId: "l1", amount: "84330", paymentDate: "2026-02-31" }, pdf()))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/payment date/i)
+    expect(saveFile).not.toHaveBeenCalled()
   })
 })

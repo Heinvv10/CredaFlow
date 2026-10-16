@@ -819,6 +819,21 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(auditActions).toContain("APPLICATION_SUBMISSION_BLOCKED")
   })
 
+  // PO funding is business credit tied to a confirmed order the website form
+  // cannot collect (lib/applications/po-funding.ts): an enquiry, never an application.
+  it("captures a PO-funding request as a lead only, never a LoanApplication", async () => {
+    findUniqueClientMock.mockResolvedValue(snapshotReadyClient)
+    updateClientMock.mockResolvedValue(snapshotReadyClient)
+    findFirstLoanProductMock.mockResolvedValue({ ...personalProduct, productType: "PO_FUNDING", minAmount: 1_000_000, maxAmount: 50_000_000 })
+    findFirstLoanApplicationMock.mockResolvedValue(null)
+
+    const res = await POST(buildReq({ ...withIdentity, productType: "PO_FUNDING", amount: 50_000 }))
+
+    expect(res.status).toBe(200)
+    expect(createLeadMock).toHaveBeenCalledTimes(1)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+  })
+
   it("a matched, non-blacklisted client within product range creates a LoanApplication WITHOUT fabricating affordability declaration", async () => {
     const realClient = snapshotReadyClient
     findUniqueClientMock.mockResolvedValue(realClient)

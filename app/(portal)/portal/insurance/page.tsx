@@ -1,3 +1,4 @@
+import { demoLenderNote } from "@/lib/config/demo-mode"
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { ArrowRight, Shield } from "lucide-react"
@@ -65,7 +66,7 @@ export default async function PortalInsurancePage() {
         <p className="mt-1 max-w-2xl text-sm text-[var(--cf-text-muted)]">
           Policies held in your name, including insurance attached to a loan.{" "}
           {fspNumber
-            ? <>{tradingName} is a FAIS-authorised intermediary — the insurer issues and prices the policy under its own terms.</>
+            ? <>{tradingName} is a FAIS-authorised intermediary — the insurer issues and prices the policy under its own terms.{demoLenderNote() && <> {demoLenderNote()}</>}</>
             : <>The insurer issues and prices each policy under its own terms.</>}
         </p>
       </div>

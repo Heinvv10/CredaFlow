@@ -26,13 +26,16 @@ export interface Step {
 }
 
 /**
- * What the decide route returned when the scenario tried to approve this
- * persona on the sim stack (T3 run, 2026-10-10). Amounts are in cents; they
- * move if the PERSONAL product's pricing, the bureau simulation or the
- * tenant's NDI buffer (110%) change.
+ * What the decide route returns when the scenario tries to approve this
+ * persona. Amounts are in cents; they move if the PERSONAL product's pricing,
+ * the bureau simulation or the tenant's NDI buffer (110%) change. Recorded on
+ * the sim stack at 3% pm (T3 run, 2026-10-10: required 283861 = R2,580.55 ×
+ * 110%); re-priced for 2.25% pm (#138, inside the NCA cap) with the app's
+ * calculator: regular instalment R2,469.44 × 110%. Check it against the
+ * scenario's decline line in the next bake's log.
  */
 export const RECORDED_DECLINE_REASON =
-  'Affordability gate: Net disposable income 180913 below required 283861 (instalment × 110%).'
+  'Affordability gate: Net disposable income 180913 below required 271638 (instalment × 110%).'
 
 /** The decline reason the scenario records (scenarios/decision.ts). */
 const DECLINE_TEXT = 'Your existing monthly credit obligations leave too little disposable income for this instalment.'
@@ -101,11 +104,11 @@ function clearCreditChecks(): Step {
 function approveToPayout(p: Persona): Step[] {
   return [
     clearCreditChecks(),
-    { who: 'ADMIN', where: 'Same page > Decision rail', action: 'Repayment method Debit order, then Approve. Leave the Initiation Fee Election panel at its default.', expect: 'Status APPROVED; a "Credit Agreement" panel appears.' },
+    { who: 'ADMIN', where: 'Same page > Decision rail', action: 'Repayment method Debit order, then Approve. Leave the Initiation Fee Election panel at its default. One admin approves, countersigns and pays out because segregation of duties is off for the demo lender; a real lender keeps it on.', expect: 'Status APPROVED; a "Credit Agreement" panel appears.' },
     { who: 'CREDIT OFFICER', where: 'Refresh the application > Credit Agreement panel', action: 'Prepare PASQ + Credit Agreement: one button issues the quotation (PASQ) and generates the agreement. View PASQ + Agreement opens the packet. From here to payout, finish on the SAME day: a debit-order agreement is only current on the day it was generated.', expect: 'Toast "Agreement generated"; "Agreement generated and awaiting signature".' },
-    { who: 'CLIENT', where: 'Portal > Applications > Sign Now', action: 'Tick the five declarations (the first acknowledges the PASQ), draw the signature with the mouse (or Type it), then I Accept and Sign Digitally. The PASQ + agreement packet shows in the frame on this page; Open PDF in a new tab and Download agreement open the same packet.', expect: '"Agreement signed", with a Set up repayment button.' },
-    { who: 'ADMIN', where: 'Refresh the application > Credit Agreement panel', action: 'Tick "I have reviewed the exact consumer-signed agreement..." (the signature box is pre-filled), then Countersign Agreement.', expect: 'Toast "Provider countersignature recorded"; the rail now waits for the debit mandate.' },
-    { who: 'CLIENT', where: 'Portal > Set up repayment (on the "Agreement signed" page, or Overview > Set Up Repayment)', action: `Choose the bank "${MANDATE_BANK_LABEL[p.bank.bankCode]}" (it is not pre-selected); account ${p.bank.accountNumber} and branch ${p.bank.branchCode} are filled in. Prepare mandate, tick the three boxes, draw the signature, Authorise and sign mandate.`, expect: '"Debit mandate signed".' },
+    { who: 'CLIENT', where: 'Portal > Applications > Sign Now', action: 'Tick the five declarations (the first acknowledges the PASQ), draw the signature with the mouse (or Type it). Under "Confirm it\'s you" press Send code by email; the demo shows the 6-digit code on screen: type it and Verify code. Then I Accept and Sign Digitally. The PASQ + agreement packet shows in the frame on this page; Open PDF in a new tab and Download agreement open the same packet.', expect: '"Agreement signed", with a Set up repayment button.' },
+    { who: 'ADMIN', where: 'Refresh the application > Credit Agreement panel', action: 'Tick "I have reviewed the exact consumer-signed agreement..." (the signature box is pre-filled), then Countersign Agreement. Either order works: the client may sign the mandate (next step) before you countersign.', expect: 'Toast "Provider countersignature recorded"; the rail waits for the debit mandate if it is not signed yet.' },
+    { who: 'CLIENT', where: 'Portal > Set up repayment (on the "Agreement signed" page, or Overview > Set Up Repayment)', action: `Choose the bank "${MANDATE_BANK_LABEL[p.bank.bankCode]}" (it is not pre-selected); account ${p.bank.accountNumber} and branch ${p.bank.branchCode} are filled in. Prepare mandate, tick the three boxes, draw the signature; Send code by email, type the code shown on screen, Verify code; then Authorise and sign mandate.`, expect: '"Debit mandate signed".' },
     { who: 'ADMIN', where: 'Refresh the application > Disburse Loan', action: 'The button opens the payout form: tick "I confirm the disbursement details are correct", then press the Confirm - Disburse button.', expect: `Status DISBURSED, "Active loan created": ${loanTerms(p)}. The borrower sees it under Portal > Loans.` },
   ]
 }
@@ -142,7 +145,7 @@ export function stepsFor(p: Persona, latestPayslip: string): Step[] {
         ...documentsAndSelfie(p, latestPayslip),
         ...reviewAndAffordability(p, false),
         clearCreditChecks(),
-        { who: 'ADMIN', where: 'Applications > the application > Decision rail', action: 'NCA Compliance Checks already shows "Complete" (recorded with the reckless-lending acknowledgement in the wizard): nothing to tick. Repayment method Debit order, then Approve.', expect: `Refused by the product, not by the presenter. Red toast and a line in the rail: "${RECORDED_DECLINE_REASON}" (figures in cents: NDI ${R(180913)} against ${R(283861)} required). The status stays UNDER REVIEW.` },
+        { who: 'ADMIN', where: 'Applications > the application > Decision rail', action: 'NCA Compliance Checks already shows "Complete" (recorded with the reckless-lending acknowledgement in the wizard): nothing to tick. Repayment method Debit order, then Approve.', expect: `Refused by the product, not by the presenter. Red toast and a line in the rail: "${RECORDED_DECLINE_REASON}" (figures in cents: NDI ${R(180913)} against ${R(271638)} required). The status stays UNDER REVIEW.` },
         { who: 'ADMIN', where: 'Same page > Decision rail', action: `Decline, Decline category "Affordability", reason "${DECLINE_TEXT}", Confirm Decline.`, expect: 'Status DECLINED, "Application Declined". The borrower sees Declined and the reason under Portal > Applications. Story ends here.' },
       ]
     case 'live-returning-client':

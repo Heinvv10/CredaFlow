@@ -1,5 +1,6 @@
 import {
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
+  creditLifeOfferedFor,
   type CreditLifeOffer,
 } from "./credit-life-election"
 import {
@@ -74,7 +75,9 @@ export function creditLifeEvidenceSurvivesReturnToReview(
     // The row asserts no cover was offered. An insurer onboarded since makes
     // that assertion false, so the consumer has to be asked against the offer
     // that now exists.
-    return currentOffer === null
+    // At or below the threshold a configured product is no offer (B6), so the
+    // assertion stays true.
+    return !creditLifeOfferedFor(currentOffer !== null, terms.principalCents)
       ? { retain: true }
       : { retain: false, reason: "offer_now_available" }
   }

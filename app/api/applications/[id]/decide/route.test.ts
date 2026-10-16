@@ -54,7 +54,11 @@ vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => {
     }),
   }
 })
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", async () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // The real permission check (the client-safe twin of auth-guards' canDo).
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
+}))
 // The gate's own behaviour is tested in lib/screening; here, only that the
 // route obeys it before and inside the approve transaction.
 const screeningApprovalGateMock = vi.fn()
@@ -384,7 +388,7 @@ beforeEach(() => {
   lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
   verifyStoredPasqBindingMock.mockReset()
   verifyPasqDocumentArtifactMock.mockReset()
-  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co" } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co", role: "LOAN_ADMIN" } })
   updateManyMock.mockResolvedValue({ count: 1 })
   clientFindUniqueMock.mockResolvedValue({ kycStatus: "VERIFIED" })
   clientDocumentFindManyMock.mockResolvedValue([])

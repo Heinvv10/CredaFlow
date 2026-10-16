@@ -39,9 +39,11 @@ export async function GET(
     // Read through lib/storage: the PDFs are encrypted at rest like every other
     // upload. Only a missing file moves on to the next scheme; a file that fails
     // its integrity check is an error (fail closed), never skipped past.
+    // A token too long for a file name (real cuid ids) never had a legacy file.
+    const legacyName = `${token}.pdf`
     const candidates = [
       `disclosures/${tenant.id}/${hashDraftToken(token)}.pdf`,
-      `disclosures/${tenant.id}/${token}.pdf`,
+      ...(legacyName.length <= 255 ? [`disclosures/${tenant.id}/${legacyName}`] : []),
     ]
     for (const relative of candidates) {
       try {

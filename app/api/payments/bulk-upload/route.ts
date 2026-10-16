@@ -15,6 +15,7 @@ import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
 import type { PaymentMethod } from "@prisma/client"
 import { receiptContractualTotalsUpdate, settlementAuditEvidence } from "@/lib/loan/settlement"
 import { OVERPAYMENT_REASON } from "@/lib/loan/receipt-rules"
+import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 interface CsvRow {
   reference: string    // loan reference e.g. LN-20260224-0010
@@ -223,14 +224,15 @@ export async function POST(req: NextRequest) {
               for (let i = 0; i < projection.rows.length; i++) {
                 const sched = loan.repaymentSchedule[i]
                 const projected = projection.rows[i]
-                const isPaid = projected.totalPaid >= projected.totalDue
+                const status = scheduleRowStatus(projected.totalPaid, projected.totalDue)
+                const isPaid = status === "PAID"
                 await tx.repaymentSchedule.update({
                   where: { id: sched.id },
                   data: {
                     totalPaid: projected.totalPaid,
                     interestDue: projected.interestDue,
                     totalDue: projected.totalDue,
-                    status: isPaid ? "PAID" : "PARTIAL",
+                    status,
                     paidAt: isPaid ? asOf : null,
                   },
                 })

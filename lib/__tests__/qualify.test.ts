@@ -99,3 +99,31 @@ describe("computeQualification", () => {
     expect(indebted.personalLoan.maxAmount).toBeLessThan(clean.personalLoan.maxAmount)
   })
 })
+
+describe("computeQualification — live product bounds", () => {
+  // Lerato-shaped profile from the audit: the micro card said "up to R7,700"
+  // while the 30-Day Micro Loan product caps at R2,000.
+  const lerato = [1_800_000, 800_000, 87_000] as const
+  const bounds = {
+    micro: { minAmount: 50_000, maxAmount: 200_000 },
+    personal: { minAmount: 200_000, maxAmount: 10_000_000 },
+    po: { minAmount: 1_000_000, maxAmount: 50_000_000 },
+  }
+
+  it("never offers more than the product's maximum", () => {
+    expect(computeQualification(...lerato).microLoan.maxAmount).toBeGreaterThan(200_000)
+    const q = computeQualification(...lerato, bounds)
+    expect(q.microLoan.maxAmount).toBe(200_000)
+    expect(q.microLoan.totalRepayable).toBeGreaterThan(200_000)
+  })
+
+  it("offers nothing when the product's minimum is unaffordable", () => {
+    const q = computeQualification(1_000_000, 990_000, 0, { ...bounds, micro: { minAmount: 900_000, maxAmount: 1_000_000 } })
+    expect(q.microLoan.maxAmount).toBe(0)
+  })
+
+  it("caps the personal loan at a lower live maximum", () => {
+    const q = computeQualification(5_000_000, 1_000_000, 0, { ...bounds, personal: { minAmount: 200_000, maxAmount: 3_000_000 } })
+    expect(q.personalLoan.maxAmount).toBe(3_000_000)
+  })
+})

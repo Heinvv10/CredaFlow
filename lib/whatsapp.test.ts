@@ -63,10 +63,10 @@ describe("payment-due WA templates quote the loan reference", () => {
     expect(msg).toContain("LN-0007")
   })
 
-  it("payment_due_today warns of default interest and charges, not late fees", () => {
+  it("payment_due_today states the payment without threatening charges", () => {
     const msg = WA_TEMPLATES.payment_due_today("Thabo", "R1 500.00", "LN-0007")
-    expect(msg).toContain("\n\nPlease pay to avoid further default interest and charges. Contact us if you need assistance.")
-    expect(msg).not.toContain("late fees")
+    expect(msg).toContain("\n\nContact us if you need assistance.")
+    expect(msg).not.toMatch(/avoid|default interest|charges|late fee|⚠️/i)
   })
 })
 

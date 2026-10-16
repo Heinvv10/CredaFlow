@@ -106,6 +106,19 @@ function scheduleSale(b: Breadth, s: Sale): void {
   })
 }
 
+/**
+ * The first claim's life after lodging, [business-day offset, PATCH body], in
+ * order. PAID only through its own action (PATCH /api/insurance/claims/[id]);
+ * the note is a plain edit. scripts/demo/breadth/insurance-claim.test.ts runs
+ * these bodies through the route.
+ */
+export const CLAIM_1_UPDATES: ReadonlyArray<readonly [number, Record<string, unknown>]> = [
+  [2, { status: "UNDER_REVIEW", notes: "Documents sent to Umoya Life claims." }],
+  [7, { action: "approve", approvedAmount: 10_000, insurerRef: "UML-CLM-26-0412" }],
+  [9, { action: "mark_paid" }],
+  [9, { notes: "Insurer paid R10 000 to the beneficiary." }],
+]
+
 function scheduleClaims(b: Breadth): void {
   // The insured mother on bg-11's extended-family policy, after the 90-day waiting period.
   const bound = shiftBusinessDays(afterOrigination(b, "bg-11", 10), 2)
@@ -118,12 +131,7 @@ function scheduleClaims(b: Breadth): void {
     })
     remember(b, chain, id)
   })
-  const updates: ReadonlyArray<readonly [number, Record<string, unknown>]> = [
-    [2, { status: "UNDER_REVIEW", notes: "Documents sent to Umoya Life claims." }],
-    [7, { action: "approve", approvedAmount: 10_000, insurerRef: "UML-CLM-26-0412" }],
-    [9, { status: "PAID", notes: "Insurer paid R10 000 to the beneficiary." }],
-  ]
-  updates.forEach(([offset, body], k) => {
+  CLAIM_1_UPDATES.forEach(([offset, body], k) => {
     step(b, chain, `update-${k}`, shiftBusinessDays(claimDay, offset), "11:30", async () => {
       await updateClaim(await as(b, "insurance"), recall(b, chain), body)
     })

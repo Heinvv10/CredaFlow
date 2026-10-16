@@ -509,7 +509,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       : null
   const primaryActions = (
     <>
-      {application.status === "DRAFT" && (
+      {application.status === "DRAFT" && canDo(userRole, "edit_application") && (
         <>
           <Button asChild variant="outline" className="w-full">
             <Link href={`/applications/new?id=${application.id}`}>Edit draft</Link>
@@ -527,7 +527,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
           <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
-          <ApplicationReturnToDraftButton applicationId={application.id} />
+          {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
         </>
       )}
       {application.status === "APPROVED" && !application.loan && !application.agreementSignedAt && (
@@ -557,7 +557,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
-      {canCancelApplication(application) && (
+      {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
       <MessageClientButton
@@ -769,6 +769,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
               <p><span className="text-[var(--cf-text-muted)]">Phone:</span> {application.client.phone}</p>
               <p><span className="text-[var(--cf-text-muted)]">Employment:</span> {application.client.employmentStatus || "N/A"}</p>
               {application.loanPurposeCategory && <p><span className="text-[var(--cf-text-muted)]">Loan Purpose:</span> {application.loanPurposeCategory.replace(/_/g, " ")}</p>}
+              {application.poNumber && <p><span className="text-[var(--cf-text-muted)]">Purchase order:</span> {application.poNumber} · buyer {application.poBuyerName}{application.poDocumentId && <> · <a href={`/api/documents/${application.poDocumentId}/view`} target="_blank" rel="noopener noreferrer" className="text-[var(--cf-brand-soft)] hover:underline">view order</a></>}</p>}
             </div>
           </DataPanel>
 
@@ -786,6 +787,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           affordabilityNDI={application.affordabilityNDI}
           done={!!application.affordabilityNDI}
           readOnly={affordabilityLocked}
+          canEdit={canDo(userRole, "edit_affordability")}
           snapshotUnavailable={affordabilityLocked && !affordabilitySnapshot}
           debtEvidenceInvalid={applicationDebtEvidenceInvalid}
           clientDebtEvidenceInvalid={clientDebtEvidenceInvalid}
@@ -840,6 +842,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           recklessDone={application.recklessLendingAssessed}
           recklessNote={application.recklessLendingNote}
           affordabilityDeclared={!!application.clientAffordabilityDeclaredAt}
+          canConfirm={hasMinRole(userRole, "LOAN_ADMIN")}
         />
 
         {canReadChecks && (
