@@ -6,9 +6,10 @@ import { runRecoveryDeadlineSweep } from "@/lib/asset-finance/recovery-freeze-de
 /**
  * Daily: for each shortfall recovery whose charge freeze has ended, move the
  * loan on toward collections (never backwards, never a write-off), bell the
- * recovery's creator and audit it, once (lib/asset-finance/recovery-freeze-deadline.ts).
- * Safe to run any number of times a day. Answers 503 with the counts when any
- * recovery failed.
+ * recovery's creator and audit it, once; and bell the creator, once, of each NCA
+ * recovery still without its final notice 5 business days after the proceeds
+ * (lib/asset-finance/recovery-freeze-deadline.ts). Safe to run any number of
+ * times a day. Answers 503 with the counts when any recovery failed.
  */
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
