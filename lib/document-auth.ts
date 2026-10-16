@@ -43,6 +43,8 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
         tenantId: user.tenantId,
       }
     }
+    // A staff session whose user row is gone is not a portal client either.
+    return null
   }
 
   // Check if this is a portal client. Document routes call this before the

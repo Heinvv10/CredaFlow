@@ -145,6 +145,15 @@ describe("getDocumentCaller — staff roles and active users", () => {
     expect(clientFindFirstMock).not.toHaveBeenCalled()
   })
 
+  it("refuses a staff session whose user row is gone, without a portal lookup", async () => {
+    authMock.mockResolvedValue({ user: { id: "u6", email: "del@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue(null)
+    clientFindFirstMock.mockResolvedValue({ id: "c9", email: "del@acme-lending.example" })
+
+    expect(await getDocumentCaller()).toBeNull()
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+
   it("refuses a staff session whose stored role is no longer a staff role", async () => {
     authMock.mockResolvedValue({ user: { id: "u5", email: "op@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
     userFindUniqueMock.mockResolvedValue({ id: "u5", role: "OPERATOR_SUPPORT", tenantId: null, active: true })
