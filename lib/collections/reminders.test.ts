@@ -567,10 +567,11 @@ describe("processPaymentReminders", () => {
 
       await processPaymentReminders()
 
-      // One SMS + one per WhatsApp trigger, regardless of loan count. Counted
-      // from TRIGGERS so adding a WhatsApp leg does not silently turn this
-      // into a per-loan-lookup regression test that passes by arithmetic.
-      expect(messageTemplateFindFirstMock).toHaveBeenCalledTimes(1 + WA_TEMPLATE_EVENTS.length)
+      // One SMS + one per WhatsApp trigger (+ one per successor body), regardless
+      // of loan count. Counted from TRIGGERS so adding a WhatsApp leg does not
+      // silently turn this into a per-loan-lookup regression test that passes by arithmetic.
+      const successors = TRIGGERS.filter((t) => t.waTemplateSuccessor).length
+      expect(messageTemplateFindFirstMock).toHaveBeenCalledTimes(1 + WA_TEMPLATE_EVENTS.length + successors)
       expect(sendMessageMock).toHaveBeenCalledTimes(6) // 3 loans × 2 channels
     })
 
@@ -1033,6 +1034,34 @@ describe("reminder_0d wording", () => {
       "Your loan payment of R 1,500.00 is due today. Ref: LN-0099. Need help? Contact Acme on +27 11 000 0000.",
     )
     expect(msg).not.toMatch(/avoid|default interest|charges|late fee/i)
+  })
+})
+
+// #141 review: the due-day WhatsApp body still threatened ("avoid late fees").
+// v3 is neutral; a tenant moves to it only once Meta has APPROVED it, so no
+// tenant is silently switched off the template Meta approved for it.
+describe("due-day WhatsApp template v3", () => {
+  beforeEach(() => {
+    process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanDueIn(0)])
+  })
+  const waKey = () => sendMessageMock.mock.calls.find((c) => c[0].channel === "WHATSAPP")?.[0].template.key
+
+  it("sends v3 once Meta has approved it", async () => {
+    stubTemplates({ payment_reminder_0d_v3_whatsapp: { ...waTpl("payment_reminder_0d_v3"), providerStatus: "APPROVED" } })
+    await processPaymentReminders()
+    expect(waKey()).toBe("payment_reminder_0d_v3_whatsapp")
+  })
+
+  it("keeps the approved v1 while v3 is pending or absent", async () => {
+    stubTemplates({ payment_reminder_0d_v3_whatsapp: { ...waTpl("payment_reminder_0d_v3"), providerStatus: "PENDING" } })
+    await processPaymentReminders()
+    expect(waKey()).toBe("payment_reminder_0d_whatsapp")
+    sendMessageMock.mockClear()
+    stubTemplates()
+    await processPaymentReminders()
+    expect(waKey()).toBe("payment_reminder_0d_whatsapp")
   })
 })
 
