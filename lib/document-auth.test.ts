@@ -108,7 +108,7 @@ describe("getDocumentCaller — tenant", () => {
 
   it("returns staff with their own persisted tenant and never consults the default", async () => {
     authMock.mockResolvedValue({ user: { id: "u1", email: "s@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
-    userFindUniqueMock.mockResolvedValue({ id: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
+    userFindUniqueMock.mockResolvedValue({ id: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b", active: true })
 
     expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u1", role: "LOAN_ADMIN", tenantId: "tenant-b" })
     expect(getDefaultTenantIdMock).not.toHaveBeenCalled()
@@ -116,10 +116,49 @@ describe("getDocumentCaller — tenant", () => {
 
   it("resolves an ADMIN session as staff, not as a missing portal client", async () => {
     authMock.mockResolvedValue({ user: { id: "u2", email: "a@acme-lending.example", role: "ADMIN", tenantId: "tenant-b" } })
-    userFindUniqueMock.mockResolvedValue({ id: "u2", role: "ADMIN", tenantId: "tenant-b" })
+    userFindUniqueMock.mockResolvedValue({ id: "u2", role: "ADMIN", tenantId: "tenant-b", active: true })
 
     expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u2", role: "ADMIN", tenantId: "tenant-b" })
     expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("getDocumentCaller — staff roles and active users", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it.each(["READONLY", "COLLECTIONS_OFFICER", "INSURANCE_OFFICER"])("resolves a %s session as staff", async (role) => {
+    authMock.mockResolvedValue({ user: { id: "u3", email: "r@acme-lending.example", role, tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue({ id: "u3", role, tenantId: "tenant-b", active: true })
+
+    expect(await getDocumentCaller()).toEqual({ type: "staff", userId: "u3", role, tenantId: "tenant-b" })
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a deactivated staff user, without falling back to a same-email client", async () => {
+    authMock.mockResolvedValue({ user: { id: "u4", email: "gone@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue({ id: "u4", role: "LOAN_ADMIN", tenantId: "tenant-b", active: false })
+    clientFindFirstMock.mockResolvedValue({ id: "c9", email: "gone@acme-lending.example" })
+
+    expect(await getDocumentCaller()).toBeNull()
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a staff session whose user row is gone, without a portal lookup", async () => {
+    authMock.mockResolvedValue({ user: { id: "u6", email: "del@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue(null)
+    clientFindFirstMock.mockResolvedValue({ id: "c9", email: "del@acme-lending.example" })
+
+    expect(await getDocumentCaller()).toBeNull()
+    expect(clientFindFirstMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a staff session whose stored role is no longer a staff role", async () => {
+    authMock.mockResolvedValue({ user: { id: "u5", email: "op@acme-lending.example", role: "LOAN_ADMIN", tenantId: "tenant-b" } })
+    userFindUniqueMock.mockResolvedValue({ id: "u5", role: "OPERATOR_SUPPORT", tenantId: null, active: true })
+
+    expect(await getDocumentCaller()).toBeNull()
   })
 })
 

@@ -226,6 +226,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   // The checks API (GET /api/applications/[id]/checks) needs CREDIT_OFFICER.
   const canReadChecks = hasMinRole(userRole, "CREDIT_OFFICER")
   const checksUndecided = application.status === "DRAFT" || application.status === "SUBMITTED" || application.status === "UNDER_REVIEW"
+  const demoNoTotp = demoStaffWithoutTotp()
   const openChecks = await prisma.applicationCheckFlag.count({
     where: { tenantId, applicationId: application.id, status: "OPEN" },
   })
@@ -836,8 +837,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         {canReadChecks && (
           <CreditChecksPanel
             applicationId={application.id}
-            canClear={canApprove && (session?.user?.totpVerified === true || demoStaffWithoutTotp()) && checksUndecided}
-            needsTotp={canApprove && session?.user?.totpVerified !== true && !demoStaffWithoutTotp() && checksUndecided}
+            canClear={canApprove && (session?.user?.totpVerified === true || demoNoTotp) && checksUndecided}
+            needsTotp={canApprove && session?.user?.totpVerified !== true && !demoNoTotp && checksUndecided}
             initialOpenCount={openChecks}
           />
         )}

@@ -309,6 +309,28 @@ describe("ReferralAgentField impact preview", () => {
     expect(onImpactChange).toHaveBeenLastCalledWith(null)
   })
 
+  it("withdraws the previous preview as soon as the select moves to another agent", async () => {
+    impact = {
+      ...EMPTY_IMPACT,
+      accrue: [{ loanReference: "LN-0001", principalCents: 100_000, commissionCents: 1_000 }],
+      totalAccrueCents: 1_000,
+    }
+    const onImpactChange = vi.fn()
+    const renderer = await renderField({ onImpactChange })
+    await selectCode(renderer, "code-b")
+    expect(text(renderer)).toContain("LN-0001")
+
+    // The second preview never lands: until it does, nothing from the first may
+    // stay on screen or stay bound to the save.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)))
+    onImpactChange.mockClear()
+    await selectCode(renderer, "")
+
+    expect(text(renderer)).not.toContain("LN-0001")
+    expect(onImpactChange).toHaveBeenCalledWith(null)
+    expect(onImpactChange).not.toHaveBeenCalledWith(expect.objectContaining({ totalAccrueCents: 1_000 }))
+  })
+
   it("reports a blocker upward so the form can refuse the save", async () => {
     impact = {
       ...EMPTY_IMPACT,

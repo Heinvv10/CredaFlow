@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
+import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import { captureSelfie, type SelfieUploader } from "@/lib/kyc/selfie-capture.server"
 
 /**
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest) {
   }
 
   return withTenantContextLoggingRefusal(req, { documentId: "selfie", caller }, async (tenant) => {
+    const readOnly = await refuseReadOnlyDocumentWrite({ caller, documentId: "selfie", tenantId: tenant.id, action: "selfie", req })
+    if (readOnly) return readOnly
+
     // The original handler wrapped everything from formData parsing onward in
     // this try/catch. A malformed multipart body throws inside req.formData(),
     // and without the catch it escapes as an unstructured 500 instead of the

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useRef } from "react"
+import { useMemo, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -110,36 +110,52 @@ export function UploadDialog({
     [allowedTypes],
   )
 
-  useEffect(() => {
-    if (!open) return
-    setDocType(initialDocType && types.includes(initialDocType) ? initialDocType : "")
-    setFile(null)
-    setCapturedSelfie(null)
-    setError("")
-    setProgress(0)
-    // Radix closes this dialog on its own X button, Escape and overlay click,
-    // all of which call onOpenChange directly and bypass "I understand". Without
-    // clearing here, a stale warning naming a DIFFERENT application reappears
-    // on the next open, before a file has even been chosen.
-    setPostUploadWarning("")
-  }, [initialDocType, open, types])
+  // Reset the form when the dialog opens, or when what it was opened with
+  // changes. Adjusted during render (a stored previous value) rather than in an
+  // effect, so the stale form is never painted. `null` makes the first render
+  // count as a change, so a dialog mounted already open still starts reset.
+  const [prevReset, setPrevReset] = useState<{
+    open: boolean
+    initialDocType: string | undefined
+    types: string[]
+  } | null>(null)
+  if (
+    prevReset === null
+    || prevReset.open !== open
+    || prevReset.initialDocType !== initialDocType
+    || prevReset.types !== types
+  ) {
+    setPrevReset({ open, initialDocType, types })
+    if (open) {
+      setDocType(initialDocType && types.includes(initialDocType) ? initialDocType : "")
+      setFile(null)
+      setCapturedSelfie(null)
+      setError("")
+      setProgress(0)
+      // Not the post-upload warning: this reset also fires on a new `types`
+      // identity while the dialog is open, which must not wipe a warning the
+      // user has not read yet. The warning is cleared on open, below.
+    }
+  }
 
-  // Deliberately its OWN effect, keyed on `open` alone.
+  // Deliberately its OWN tracked value, keyed on `open` alone.
   //
   // Clearing: Radix closes this dialog via its X button, Escape and overlay
   // click, all of which call onOpenChange directly and bypass "I understand" —
   // so without an on-open clear, a stale warning naming a DIFFERENT
   // application reappears before a file has even been chosen.
   //
-  // Why not in the reset effect above: that one also depends on `types`, which
+  // Why not in the reset above: that one also depends on `types`, which
   // derives from the `allowedTypes` prop. A caller passing an inline array
   // (`allowedTypes={["ID_COPY","OTHER"]}`) gives it a new identity on every
-  // parent render, re-firing the effect WHILE the dialog is open and wiping a
+  // parent render, re-firing the reset WHILE the dialog is open and wiping a
   // warning the user has not read yet — silently undoing this fix from the
   // other direction. No current call site does that, but nothing stops one.
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     setPostUploadWarning("")
-  }, [open])
+  }
 
   const handleDocTypeChange = (value: string) => {
     setDocType(value)

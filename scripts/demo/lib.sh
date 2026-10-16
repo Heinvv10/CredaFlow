@@ -11,9 +11,10 @@
 #   LIVE_DIR       the live demo's compose project dir; default ~/Workspace/CredaFlow-demo
 #   DEMO_RUNNER_DIR  the clean checkout cron runs from; default ~/Workspace/CredaFlow-demo-runner
 #   DEMO_LENDER    the lender a bake is branded as (prisma/demo-lender.ts); default acme
-#   DEMO_SIM_LOCK  the host-wide sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock.
+#   DEMO_SIM_LOCK  the sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock (per user:
+#                  every demo job on this host runs as one user, so it covers the host).
 #                  One file for every DEMO_DATA_DIR: the sim stack is one per host.
-#                  DEMO_SIM_LOCK_WAIT seconds to wait for it (default 0; cron-run.sh: 3 h).
+#                  DEMO_SIM_LOCK_WAIT whole seconds to wait for it (default 0; cron-run.sh: 3 h).
 #
 # Every Docker name the demo scripts touch is defined once, below. The live
 # project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
@@ -27,6 +28,9 @@ DEMO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEMO_DATA_DIR="${DEMO_DATA_DIR:-$HOME/credaflow-demo-data}"
 LIVE_DIR="${LIVE_DIR:-$HOME/Workspace/CredaFlow-demo}"
 SHARED_SECRETS="$DEMO_DATA_DIR/secrets.env"
+# Optional SEED_*_PASSWORD=… lines (chmod 600): the seed sets these passwords on
+# every bake, so presenters' logins survive a rebake. Absent, they are random.
+SEED_PASSWORDS="$DEMO_DATA_DIR/seed-passwords.env"
 SNAP_DIR="$DEMO_DATA_DIR/snapshots"
 LOG_DIR="$DEMO_DATA_DIR/logs"
 BAKE_LOCK="$DEMO_DATA_DIR/bake.lock"
@@ -147,6 +151,13 @@ host_addr() {
   case "$ip" in "" | 0.0.0.0 | "::" | "[::]") ip=127.0.0.1 ;; esac
   case "$ip" in \[*) ;; *:*) ip="[$ip]" ;; esac
   echo "$ip:$2"
+}
+
+# seed_passwords_ok FILE — true when FILE holds only SEED_*_PASSWORD=… lines
+# (blank lines allowed; no comments, no `export`), so it can never override
+# DATABASE_URL, LD_PRELOAD or the sim clock in the seed container.
+seed_passwords_ok() {
+  ! grep -vqE '^(SEED_[A-Z_]+_PASSWORD=.+)?$' "$1"
 }
 
 # record_result NAME LINE — the one-line outcome of the last bake/restore,
