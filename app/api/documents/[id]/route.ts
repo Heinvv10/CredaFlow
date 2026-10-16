@@ -3,6 +3,8 @@ import { auditDocumentAccessRefusal } from "@/lib/audit-refusals"
 import { prisma } from "@/lib/prisma"
 import { deleteFile } from "@/lib/storage"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
+import { documentWithoutLoanBook } from "@/lib/security/client-redaction"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
@@ -66,7 +68,10 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
       })
 
-      return NextResponse.json(sanitiseDoc(doc as unknown as Record<string, unknown>))
+      const safe = sanitiseDoc(doc as unknown as Record<string, unknown>)
+      // The lending read (extraction, validation) is withheld from a role
+      // without the loan book; the document itself is not.
+      return NextResponse.json(caller.type === "staff" && lacksLoanBook(caller.role) ? documentWithoutLoanBook(safe) : safe)
     } catch (error) {
       console.error("Document fetch failed:", error)
       return NextResponse.json(
