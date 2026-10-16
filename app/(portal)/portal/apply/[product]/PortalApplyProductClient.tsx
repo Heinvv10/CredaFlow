@@ -21,6 +21,7 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
+import { CreditLifeElectionBox } from "./CreditLifeElectionBox"
 import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
 
@@ -99,9 +100,12 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
     // there is no election to make and nothing to acknowledge.
     && (
       creditLifeOffer === null
+      // Cover not available for this application: there is no choice to make,
+      // only the acknowledgement that it proceeds without cover.
+      || (!creditLifeAvailable && creditLifeDisclosureAcknowledged)
       || (
         (creditLifeElection === "ACCEPTED" || creditLifeElection === "DECLINED")
-        && (creditLifeElection === "DECLINED" || creditLifeAvailable)
+        && creditLifeAvailable
         && creditLifeDisclosureAcknowledged
       )
     )
@@ -141,7 +145,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
           // the payload should be truthful in the first place.
           creditLifeElection: creditLifeOffer === null && creditLifeElection === ""
             ? undefined
-            : creditLifeElection,
+            : creditLifeAvailable ? creditLifeElection : "DECLINED",
           creditLifeDisclosureAcknowledged,
           creditLifeProductId: creditLifeOffer?.productId,
           creditLifeProductName: creditLifeOffer?.productName,
@@ -275,72 +279,18 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
 
         <div className="space-y-3 pt-2 border-t border-gray-100">
           {creditLifeOffer && amountCents !== null && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Credit life election</p>
-              {creditLifeAvailable ? (
-                <p className="mt-1 text-xs text-gray-600">
-                  {creditLifeOffer.productName} · {creditLifeOffer.insurerName} · exact monthly
-                  premium <span className="font-semibold">{formatZAR(creditLifeMonthlyPremiumCents)}</span>
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-gray-600">
-                  Credit-life cover is not available for this application. You may
-                  proceed without cover.
-                </p>
-              )}
-            </div>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="radio"
-                name="creditLifeElection"
-                checked={creditLifeElection === "ACCEPTED"}
-                disabled={!creditLifeAvailable}
-                onChange={() => {
-                  setCreditLifeElection("ACCEPTED")
-                  setCreditLifeDisclosureAcknowledged(false)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>Add the offered credit-life cover.</span>
-            </label>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="radio"
-                name="creditLifeElection"
-                checked={creditLifeElection === "DECLINED"}
-                onChange={() => {
-                  setCreditLifeElection("DECLINED")
-                  setCreditLifeDisclosureAcknowledged(false)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>
-                {creditLifeAvailable
-                  ? "Decline the offered bundled cover."
-                  : "Proceed without credit-life cover."}
-              </span>
-            </label>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={creditLifeDisclosureAcknowledged}
-                disabled={
-                  !creditLifeElection
-                  || (!creditLifeAvailable && creditLifeElection !== "DECLINED")
-                }
-                onChange={(e) => {
-                  setCreditLifeDisclosureAcknowledged(e.target.checked)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>
-                {creditLifeAvailable
-                  ? "I confirm I was shown the product, insurer, exact monthly premium and selected option before PASQ generation."
-                  : "I understand that this application will proceed without credit-life cover before PASQ generation."}
-              </span>
-            </label>
-          </div>
+            <CreditLifeElectionBox
+              offer={creditLifeOffer}
+              available={creditLifeAvailable}
+              monthlyPremiumCents={creditLifeMonthlyPremiumCents}
+              election={creditLifeElection}
+              onElect={(election) => {
+                setCreditLifeElection(election)
+                setCreditLifeDisclosureAcknowledged(false)
+              }}
+              acknowledged={creditLifeDisclosureAcknowledged}
+              onAcknowledge={setCreditLifeDisclosureAcknowledged}
+            />
           )}
 
           <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
