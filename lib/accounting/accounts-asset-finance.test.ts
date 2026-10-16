@@ -9,7 +9,7 @@ describe("asset-finance account roles", () => {
   it("are appended after the consumer roles, so earlier roles keep their place in every journal", () => {
     expect(ACCOUNT_ROLES.slice(0, 14).at(-1)).toBe("WAIVER_EXPENSE")
     expect(ASSET_FINANCE_ROLES).toEqual(ACCOUNT_ROLES.slice(14))
-    expect(ASSET_FINANCE_ROLES).toHaveLength(15)
+    expect(ASSET_FINANCE_ROLES).toHaveLength(16)
   })
 
   it("have the default codes of the design, each distinct from every other default", () => {
@@ -19,14 +19,14 @@ describe("asset-finance account roles", () => {
       AF_INSTALMENT_DEBTORS: { code: "1110" }, LEASE_DEBTORS: { code: "1120" }, INPUT_VAT: { code: "1300" }, LEASED_ASSETS: { code: "1500" },
       ASSET_DISPOSAL_PROCEEDS: { code: "4600" }, RENTAL_INCOME: { code: "4100" }, MAINTENANCE_INCOME: { code: "4110" }, MAINTENANCE_FUND_LIABILITY: { code: "2400" },
       MAINTENANCE_EXPENSE: { code: "6100" }, RECOVERY_CLEARING: { code: "2500" }, RECOVERY_COSTS_PAYABLE: { code: "2510" }, RECOVERY_COST_EXPENSE: { code: "6200" },
-      RECOVERY_COSTS_RECHARGED: { code: "6210" }, RECOVERY_REFUND_PAYABLE: { code: "2520" }, RECOVERY_RESULT: { code: "6300" },
+      RECOVERY_COSTS_RECHARGED: { code: "6210" }, RECOVERY_REFUND_PAYABLE: { code: "2520" }, RECOVERY_RESULT: { code: "6300" }, AF_PRICE_CREDITS: { code: "6400" },
     })
     expect(resolveAccountMap([]).RENTAL_INCOME).toMatchObject({ code: "4100", isDefault: true })
   })
 
   it("keep the receivables that carry over at go-live and let the income and expense history net into opening equity", () => {
     expect(RECEIVABLE_ROLES).toEqual(["LOAN_BOOK", "AF_INSTALMENT_DEBTORS", "LEASE_DEBTORS"])
-    for (const role of ["RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE", "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS"] as const) {
+    for (const role of ["RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE", "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS", "AF_PRICE_CREDITS"] as const) {
       expect(NOT_CARRIED_AT_OPENING).toContain(role)
     }
     for (const role of ["AF_INSTALMENT_DEBTORS", "LEASE_DEBTORS", "INPUT_VAT", "LEASED_ASSETS", "RECOVERY_CLEARING", "MAINTENANCE_FUND_LIABILITY"] as const) {

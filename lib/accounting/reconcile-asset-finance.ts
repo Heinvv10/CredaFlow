@@ -7,14 +7,16 @@
  * Instalment sale and finance lease (once the supplier payout is released: that is
  * the day the inception posts):
  *   owed = opening balance B of the first row not yet raised (0 when every row
- *          is) + the totalDue of the rows raised + default charges - applied receipts
+ *          is) + the totalDue of the rows raised - credit notes issued on its
+ *          tax invoice + default charges - applied receipts
  * This telescopes: the journal holds F + the interest each raised row accrues
  * = F + sum(B(next) - B(this) + totalDue), which is B(first row not raised) -
  * B(first row) + sum(totalDue) + F. It does not use F, so it holds source
  * #1's F to the schedule: F must equal the first row's opening balance.
  * A row is raised under the same rules as the journal (due before the period
  * end; an early-settled loan's remaining rows on the closing day; none on or
- * after a write-off or cancellation).
+ * after a write-off or cancellation). A credit note lowers the price owed but
+ * not the schedule, so it is taken off here, as for a lease.
  *
  * Lease: the rentals invoiced (their total, once the invoice's supply date has
  * come) + the lease's other tax invoices (end of term, termination: they are
@@ -66,7 +68,7 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
     ),
     cred AS (
       SELECT i."loanId", SUM(n."inclVatCents") AS amt
-      FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN l ON l."id" = i."loanId" AND l.lease
+      FROM "CreditNote" n JOIN "TaxInvoice" i ON i."id" = n."invoiceId" AND i."tenantId" = n."tenantId" JOIN l ON l."id" = i."loanId"
       WHERE n."tenantId" = ${tenantId} AND ${credited} < ${asOf} GROUP BY i."loanId"
     ),
     chg AS (
@@ -88,9 +90,9 @@ export async function independentAssetFinanceBook(db: Pick<typeof prisma, "$quer
     ),
     owed AS (
       SELECT l."id", l."reference", l."status", l."writeOffAt",
-        (CASE WHEN l.lease THEN COALESCE(rent.amt, 0) + COALESCE(sundry.amt, 0) - COALESCE(cred.amt, 0)
+        (CASE WHEN l.lease THEN COALESCE(rent.amt, 0) + COALESCE(sundry.amt, 0)
               ELSE COALESCE(nxt."opening", 0) + COALESCE(due.amt, 0) END
-          + COALESCE(chg.amt, 0) - COALESCE(rcp.amt, 0)) AS cents
+          - COALESCE(cred.amt, 0) + COALESCE(chg.amt, 0) - COALESCE(rcp.amt, 0)) AS cents
       FROM l LEFT JOIN due ON due."loanId" = l."id" LEFT JOIN nxt ON nxt."loanId" = l."id"
         LEFT JOIN rent ON rent."loanId" = l."id" LEFT JOIN sundry ON sundry."loanId" = l."id" LEFT JOIN cred ON cred."loanId" = l."id"
         LEFT JOIN chg ON chg."loanId" = l."id" LEFT JOIN rcp ON rcp."loanId" = l."id"
