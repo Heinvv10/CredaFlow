@@ -95,6 +95,14 @@ SQL
 # Tested by staff-totp-off.integration.test.ts.
 TENANT_TOTP_POLICY_OFF_SQL='UPDATE "TenantConfig" SET "requireStaffTotp" = false'
 
+# Segregation of duties (TenantConfig.requireSegregationOfDuties) switched off
+# for every tenant of the demo db, alongside the 2FA policy: a presenter
+# approves and pays out as one admin (scripts/demo/kits/stories.ts), and the
+# column defaults ON, also for rows that existed before it did, which no
+# restore or in-place upgrade re-seeds. A snapshot from before the column
+# exists is left alone. Tested by staff-totp-off.integration.test.ts.
+TENANT_SOD_OFF_SQL='DO $sod$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '"'TenantConfig'"' AND column_name = '"'requireSegregationOfDuties'"') THEN UPDATE "TenantConfig" SET "requireSegregationOfDuties" = false; END IF; END $sod$'
+
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 note() { echo "[${0##*/} $(date -u +%H:%M:%S)] $*" >&2; }
 

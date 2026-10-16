@@ -23,7 +23,7 @@ const superId = `user_demo_totp_super_${token}`
 
 class Rollback extends Error {}
 
-function libSql(name: "STAFF_TOTP_OFF_SQL" | "TENANT_TOTP_POLICY_OFF_SQL"): string {
+function libSql(name: "STAFF_TOTP_OFF_SQL" | "TENANT_TOTP_POLICY_OFF_SQL" | "TENANT_SOD_OFF_SQL"): string {
   const lib = join(__dirname, "lib.sh")
   const r = spawnSync("bash", ["-c", `. "$0"; printf %s "$${name}"`, lib], { encoding: "utf8" })
   if (r.status !== 0) throw new Error(`lib.sh: ${r.stderr}`)
@@ -90,6 +90,24 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
           before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireStaffTotp
           await tx.$executeRawUnsafe(sql)
           after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireStaffTotp
+          throw new Rollback()
+        }),
+      ),
+    ).rejects.toBeInstanceOf(Rollback)
+    expect({ before, after }).toEqual({ before: true, after: false })
+  })
+
+  it("TENANT_SOD_OFF_SQL switches segregation of duties off for the tenant", async () => {
+    const sql = libSql("TENANT_SOD_OFF_SQL")
+    let before: boolean | undefined
+    let after: boolean | undefined
+    await expect(
+      withoutTenantScope(() =>
+        prisma.$transaction(async (tx) => {
+          await tx.tenantConfig.create({ data: { tenantId } })
+          before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireSegregationOfDuties
+          await tx.$executeRawUnsafe(sql)
+          after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).requireSegregationOfDuties
           throw new Rollback()
         }),
       ),

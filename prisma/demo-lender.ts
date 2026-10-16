@@ -22,9 +22,11 @@ export interface DemoLender {
   clientDomain: string
   bureau: { supplierNumber: string; tradingName: string }
   /**
-   * TenantConfig.requireSegregationOfDuties. Off on every demo stack: a
-   * presenter approves and pays out as one admin. A real lender keeps the
-   * default (on).
+   * TenantConfig.requireSegregationOfDuties as the seed writes it: off, because
+   * a presenter approves and pays out as one admin. A restore re-applies it to
+   * an existing stack (TENANT_SOD_OFF_SQL in scripts/demo/lib.sh), where the
+   * column otherwise defaults on. The simulator pays out as a second staff
+   * member, so it runs either way. A real lender keeps the default (on).
    */
   requireSegregationOfDuties: boolean
 }

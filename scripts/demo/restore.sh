@@ -20,7 +20,8 @@
 #     is turned off for every staff user except SUPER_ADMIN in the staged db
 #     (STAFF_TOTP_OFF_SQL in lib.sh), so presenters sign in with a password
 #     only, and TenantConfig.requireStaffTotp is switched off (TENANT_TOTP_
-#     POLICY_OFF_SQL) so they are not held at enrolment. The bake enrols TOTP,
+#     POLICY_OFF_SQL) so they are not held at enrolment, and segregation of
+#     duties is switched off (TENANT_SOD_OFF_SQL). The bake enrols TOTP,
 #     so without this every restore turns it back on. This is the CLAUDE.md TOTP
 #     exception for demo stacks;
 #   - uploads unpacked into <volume>/.restore-<ts>, file count checked.
@@ -232,6 +233,8 @@ if docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$LIVE_APP" | g
   note "staff TOTP off for $cleared users (DEMO_CLEAR_STAFF_TOTP=true)"
   live_sql "$tmp_db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null
   note "staff 2FA policy off in the staged db (DEMO_CLEAR_STAFF_TOTP=true)"
+  live_sql "$tmp_db" "$TENANT_SOD_OFF_SQL" >/dev/null
+  note "segregation of duties off in the staged db (DEMO_CLEAR_STAFF_TOTP=true)"
 fi
 
 step="uploads staging"
@@ -300,6 +303,10 @@ cleared="$(live_sql "$db" 'WITH c AS (UPDATE "User" SET "totpEnabled" = false, "
 live_sql "$db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null \
   && note "demo staff 2FA policy switched off (TenantConfig.requireStaffTotp)" \
   || warn "could not switch off the demo staff 2FA policy; staff without TOTP are held at enrolment"
+# Same reason, same guard: one presenter approves and pays out (prisma/demo-lender.ts).
+live_sql "$db" "$TENANT_SOD_OFF_SQL" >/dev/null \
+  && note "demo segregation of duties switched off (TenantConfig.requireSegregationOfDuties)" \
+  || warn "could not switch off segregation of duties; the approver cannot pay out in the demo"
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi
