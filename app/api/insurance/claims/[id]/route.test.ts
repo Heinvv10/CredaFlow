@@ -182,3 +182,31 @@ describe("PATCH /api/insurance/claims/[id] — the approved amount is bounded", 
     expect(logAuditMock).not.toHaveBeenCalled()
   })
 })
+
+// The generic update took any `status`, so { status: "APPROVED" } approved a
+// claim with no amount and past every bound above.
+describe("PATCH /api/insurance/claims/[id] — status APPROVED is an approval", () => {
+  it("refuses APPROVED without an amount, writing nothing", async () => {
+    const res = await PATCH(buildReq({ status: "APPROVED", notes: "approved by phone" }), ctx)
+    expect(res.status).toBe(400)
+    expect(claimUpdateMock).not.toHaveBeenCalled()
+    expect(claimUpdateManyMock).not.toHaveBeenCalled()
+    expect(logAuditMock).not.toHaveBeenCalled()
+  })
+
+  it("holds APPROVED to the same bounds as the decision", async () => {
+    const res = await PATCH(buildReq({ status: "APPROVED", approvedAmount: 1_000_010_000 }), ctx)
+    expect(res.status).toBe(422)
+    expect(claimUpdateMock).not.toHaveBeenCalled()
+    expect(claimUpdateManyMock).not.toHaveBeenCalled()
+  })
+
+  it("records APPROVED with a bounded amount as an approval", async () => {
+    const res = await PATCH(buildReq({ status: "APPROVED", approvedAmount: 5000 }), ctx)
+    expect(res.status).toBe(200)
+    expect(claimUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "APPROVED", approvedAmount: 5000 }),
+    }))
+    expect(logAuditMock.mock.calls[0][0]).toMatchObject({ action: "INSURANCE_CLAIM_APPROVED" })
+  })
+})

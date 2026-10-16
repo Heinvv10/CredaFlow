@@ -73,7 +73,9 @@ export async function PATCH(
         fnolDate?: string
       }
 
-      if (body.action === "approve") {
+      // A generic { status: "APPROVED" } is an approval: it needs an amount
+      // and the same bounds, never a bare status write.
+      if (body.action === "approve" || (body.action === undefined && body.status === "APPROVED")) {
         if (body.approvedAmount == null) {
           return NextResponse.json({ error: "approvedAmount is required for approval" }, { status: 400 })
         }
