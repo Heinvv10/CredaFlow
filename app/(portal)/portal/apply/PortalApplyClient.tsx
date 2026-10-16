@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useMemo } from "react"
 import Link from "next/link"
 import { Zap, Star, Briefcase, AlertTriangle } from "lucide-react"
 import { formatZAR } from "@/lib/utils"
-import { computeQualification, type QualificationResult } from "@/lib/qualify"
+import type { QualificationBounds, QualificationResult } from "@/lib/qualify"
 import { useT } from "@/lib/i18n/client"
+import { ExploreCalculator, ndiColor } from "./ExploreCalculator"
 
 interface ClientData {
   firstName: string
@@ -16,18 +16,22 @@ interface ClientData {
 
 type ProductKey = "micro" | "personal" | "po"
 
+/** The client's latest application declined within RECENT_DECLINE_DAYS (page.tsx). */
+export interface RecentDecline {
+  id: string
+  reference: string
+  decidedOn: string
+}
+
 interface Props {
   client: ClientData | null
   qualification: QualificationResult | null
   // Live amount-range strings ("R500 – R10,000") per product, resolved server-side
   // from the LoanProduct rows (fail-open to static) so the copy tracks the admin.
   productRanges: Record<ProductKey, string>
-}
-
-function ndiColor(ndi: number): string {
-  if (ndi > 0) return "#22c55e"
-  if (ndi >= -50000) return "#f59e0b"
-  return "#ef4444"
+  /** Live product amount ranges, so no figure here exceeds what a product lends. */
+  bounds: QualificationBounds
+  recentDecline: RecentDecline | null
 }
 
 function AffordabilityCard({ client, qual }: { client: ClientData; qual: QualificationResult | null }) {
@@ -109,6 +113,29 @@ const PRODUCTS = [
   },
 ] as const
 
+function RecentDeclineNotice({ decline }: { decline: RecentDecline }) {
+  const t = useT("portalApply")
+  return (
+    <div
+      className="flex items-start gap-3 rounded-lg p-4 mb-6 text-sm"
+      style={{ backgroundColor: "var(--cf-surface-soft)", borderLeft: "3px solid #f59e0b", color: "var(--cf-text-secondary)" }}
+    >
+      <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-400 shrink-0" />
+      <div>
+        <p className="font-semibold text-[var(--cf-text)]">{t("recentDeclineTitle")}</p>
+        <p className="mt-1">{t("recentDeclineBody", { reference: decline.reference, date: decline.decidedOn })}</p>
+        <Link href={`/portal/applications/${decline.id}`} className="underline" style={{ color: "#4338CA" }}>
+          {t("recentDeclineLink")}
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// `qual` is null when there is nothing to recommend: no profile income, or a
+// recent decline (an affordability estimate is not an offer to someone just
+// declined). PO funding is never sized on salary: it is repaid from the
+// buyer's payment on a confirmed purchase order, so it always shows its range.
 function ProductCards({ qual, productRanges }: { qual: QualificationResult | null; productRanges: Record<ProductKey, string> }) {
   const t = useT("portalApply")
   const amounts = {
@@ -129,7 +156,8 @@ function ProductCards({ qual, productRanges }: { qual: QualificationResult | nul
         {PRODUCTS.map(({ key, icon: Icon, title, subtitle, paymentLabel }) => {
           const amount = amounts[key]
           const payment = payments[key]
-          const featured = key === "personal"
+          const featured = key === "personal" && qual !== null
+          const sized = qual !== null && key !== "po"
 
           return (
             <div
@@ -152,7 +180,7 @@ function ProductCards({ qual, productRanges }: { qual: QualificationResult | nul
                 <h3 className="text-sm font-bold text-gray-900 mb-0.5">{t(title)}</h3>
                 <p className="text-[11px] text-gray-500 mb-3">{t(subtitle)}</p>
 
-                {qual ? (
+                {sized ? (
                   amount > 0 ? (
                     <>
                       <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-0.5">{t("qualifyUpTo")}</p>
@@ -168,10 +196,11 @@ function ProductCards({ qual, productRanges }: { qual: QualificationResult | nul
                   <>
                     <p className="text-[11px] text-gray-400 mb-0.5">{t("range")}</p>
                     <p className="text-sm font-semibold text-gray-700 mb-4">{productRanges[key]}</p>
+                    {key === "po" && <p className="text-[12px] text-gray-500 mb-4">{t("poBusinessOnly")}</p>}
                   </>
                 )}
 
-                {qual && amount === 0 ? null : (
+                {sized && amount === 0 ? null : (
                   <div className="mt-auto">
                     <Link
                       href={`/portal/apply/${key}`}
@@ -193,83 +222,18 @@ function ProductCards({ qual, productRanges }: { qual: QualificationResult | nul
   )
 }
 
-function ExploreCalculator({ client }: { client: ClientData | null }) {
-  const toR = (cents: number) => Math.round(cents / 100)
-  const [income, setIncome] = useState(toR(client?.monthlyIncome ?? 0))
-  const [expenses, setExpenses] = useState(toR(client?.monthlyExpenses ?? 0))
-  const [debt, setDebt] = useState(toR(client?.existingDebt ?? 0))
-
-  const qual = useMemo(
-    () => income > 0 ? computeQualification(income * 100, expenses * 100, debt * 100) : null,
-    [income, expenses, debt]
-  )
-
-  const inputClass = "w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
-  const t = useT("portalApply")
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-      <h2 className="text-base font-bold text-gray-900 mb-1">{t("exploreTitle")}</h2>
-      <p className="text-[12px] text-gray-500 mb-1">{t("exploreNotSaved")}</p>
-      <p className="text-[11px] text-gray-400 mb-5">{t("exploreEstimates")}</p>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        {([
-          { label: t("incomeR"), value: income, setter: setIncome },
-          { label: t("expensesR"), value: expenses, setter: setExpenses },
-          { label: t("debtR"), value: debt, setter: setDebt },
-        ] as const).map(({ label, value, setter }) => (
-          <div key={label}>
-            <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</label>
-            <input
-              type="number"
-              min={0}
-              value={value}
-              onChange={(e) => setter(Math.max(0, Number(e.target.value)))}
-              className={inputClass}
-            />
-          </div>
-        ))}
-      </div>
-
-      {qual && (
-        <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          <div>
-            <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">{t("ndi")}</p>
-            <p className="font-bold" style={{ color: ndiColor(qual.ndi) }}>{formatZAR(qual.ndi)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">{t("microLoan")}</p>
-            <p className="font-semibold text-gray-800">{qual.microLoan.maxAmount > 0 ? formatZAR(qual.microLoan.maxAmount) : "—"}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">{t("personalLoan")}</p>
-            <p className="font-semibold text-gray-800">{qual.personalLoan.maxAmount > 0 ? formatZAR(qual.personalLoan.maxAmount) : "—"}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">{t("poFunding")}</p>
-            <p className="font-semibold text-gray-800">{qual.poFunding.maxAmount > 0 ? formatZAR(qual.poFunding.maxAmount) : "—"}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">{t("maxInstalment")}</p>
-            <p className="font-semibold" style={{ color: "#4F46E5" }}>{formatZAR(qual.maxInstalment)}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-export function PortalApplyClient({ client, qualification, productRanges }: Props) {
+export function PortalApplyClient({ client, qualification, productRanges, bounds, recentDecline }: Props) {
   const t = useT("portalApply")
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">
-          {client ? t("greeting", { name: client.firstName }) : t("qualifyApply")}
+          {client && !recentDecline ? t("greeting", { name: client.firstName }) : t("qualifyApply")}
         </h1>
         <p className="text-sm text-gray-500 mt-1">{t("personalised")}</p>
       </div>
+
+      {recentDecline && <RecentDeclineNotice decline={recentDecline} />}
 
       {client ? (
         <AffordabilityCard client={client} qual={qualification} />
@@ -279,9 +243,9 @@ export function PortalApplyClient({ client, qualification, productRanges }: Prop
         </div>
       )}
 
-      <ProductCards qual={qualification} productRanges={productRanges} />
+      <ProductCards qual={recentDecline ? null : qualification} productRanges={productRanges} />
 
-      <ExploreCalculator client={client} />
+      <ExploreCalculator client={client} bounds={bounds} />
     </div>
   )
 }

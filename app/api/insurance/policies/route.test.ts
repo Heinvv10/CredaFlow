@@ -4,6 +4,8 @@ import { NextRequest } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
+// The lender's stored FSP licence number (TenantConfig.fscaNumber).
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
 const {
   findFirstClient,
   findFirstUser,
@@ -33,7 +35,7 @@ const {
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true }) },
+    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true, fscaNumber: fsp.number }) },
     client: { findFirst: findFirstClient },
     user: { findFirst: findFirstUser },
     insuranceProduct: { findFirst: findFirstProduct },
@@ -325,6 +327,70 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     expect(ackPayload.faisDisclosureAt).not.toBe(yesterday)
   })
 
+  // Fair Score audit (2026-10-16): the policy showed "Commission: R 4 000,00",
+  // 20% of the R20 000 SUM ASSURED on a R118/month policy. An intermediary's
+  // commission is a share of the premium (lib/insurance/policy/bind.ts).
+  it("stores the commission as a share of the premium, not of the sum assured", async () => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    const dataCapture: { value?: Record<string, unknown> } = {}
+    prismaTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      insurancePolicy: {
+        create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+          dataCapture.value = args.data
+          return Promise.resolve({ id: "policy-1", policyNumber: "FUN-0001" })
+        }),
+      },
+      premiumPayment: { createMany: vi.fn().mockResolvedValue({ count: 12 }) },
+      advisorCommission: { create: vi.fn().mockResolvedValue({}) },
+    }))
+
+    // The catalogue product pays 20%.
+    findFirstProduct.mockResolvedValue({ id: "prod-1", commissionRate: 0.2 })
+    const { POST } = await import("./route")
+    const res = await POST(makeRequest(buildValidBody({ commissionRate: 0.2 })))
+
+    expect(res.status).toBe(200)
+    expect(dataCapture.value?.commissionRate).toBe(0.2)
+    // R420.00 premium x 20% = R84.00 (not R50 000 x 20% = R10 000).
+    expect(dataCapture.value?.commissionAmount).toBe(84)
+  })
+
+  // Blind review of #139: the rate was taken from the body unchecked, and the
+  // policy stored the body's rate while the advisor's commission used the
+  // product's, so the two stored figures could disagree.
+  it.each([[1.5], [-0.1], ["0.2"], [{}]])("refuses a commission rate of %j with 400", async (commissionRate) => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    const { POST } = await import("./route")
+    const res = await POST(makeRequest({ ...buildValidBody(), commissionRate }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/commissionRate/)
+    expect(prismaTransaction).not.toHaveBeenCalled()
+  })
+
+  it("uses the catalogue product's rate for the policy and the advisor alike", async () => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    const captured: { policy?: Record<string, unknown>; commission?: Record<string, unknown> } = {}
+    prismaTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      insurancePolicy: {
+        create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+          captured.policy = args.data
+          return Promise.resolve({ id: "policy-1", policyNumber: "FUN-0001" })
+        }),
+      },
+      premiumPayment: { createMany: vi.fn().mockResolvedValue({ count: 12 }) },
+      advisorCommission: { create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => { captured.commission = args.data; return Promise.resolve({}) }) },
+    }))
+    const { POST } = await import("./route")
+    // The product (prod-1) pays 15%; the body asks for 20%.
+    const res = await POST(makeRequest(buildValidBody({ commissionRate: 0.2 })))
+    expect(res.status).toBe(200)
+    expect(captured.policy).toMatchObject({ commissionRate: 0.15, commissionAmount: 63 })
+    expect(captured.commission).toMatchObject({ rate: 0.15, amount: 63 })
+  })
+
   it("7. returns 422 token_replay when the same draftToken has already bound a policy", async () => {
     process.env.NEXTAUTH_SECRET = SECRET
 
@@ -455,5 +521,23 @@ describe("POST /api/insurance/policies — premium schedule falls on the SAST 1s
     // — SAST midnight, i.e. 22:00Z on 31 August. Local arithmetic would produce
     // 2026-09-01T22:30Z, which reads as the 2nd in Johannesburg.
     expect(rows[0].dueDate.toISOString()).toBe("2026-08-31T22:00:00.000Z")
+  })
+})
+
+// §2a.2: no FSP number, no policy.
+describe("POST /api/insurance/policies — FSP number", () => {
+  it("refuses with 409 and the Settings hint when the lender holds no FSP number", async () => {
+    process.env.NEXTAUTH_SECRET = SECRET
+    setupHappyPathMocks()
+    fsp.number = null
+    try {
+      const { POST } = await import("./route")
+      const res = await POST(makeRequest(buildValidBody()))
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })
+      expect(prismaTransaction).not.toHaveBeenCalled()
+    } finally {
+      fsp.number = "12345"
+    }
   })
 })

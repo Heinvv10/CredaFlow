@@ -17,8 +17,9 @@ import { storeStitchWebhookSecret } from "@/lib/integrations/stitch-webhook.inte
 import { createChargesLoan, createChargesTenant, DEFAULT_INTEREST, NOW, SCHEDULE_TOTAL } from "./charges.integration-fixture"
 
 const { ctx } = vi.hoisted(() => ({ ctx: { tenantId: "", userId: "" } }))
-vi.mock("@/lib/auth-guards", () => ({
+vi.mock("@/lib/auth-guards", async () => ({
   requireApiRole: vi.fn(async () => ({ error: null, user: { id: ctx.userId, email: "guard@test.invalid", role: "SUPER_ADMIN" } })),
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
 }))
 vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),

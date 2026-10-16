@@ -25,7 +25,7 @@ export default async function PortalPolicyDetailPage({
   if (!session?.user?.email) redirect("/portal/login")
 
   const tenantId = await getPortalTenantId()
-  const { tradingName } = await getLenderIdentity(tenantId)
+  const { tradingName, fspNumber } = await getLenderIdentity(tenantId)
 
   const client = await prisma.client.findFirst({
     where: { email: session.user.email, tenantId },
@@ -229,7 +229,7 @@ export default async function PortalPolicyDetailPage({
       </DataPanel>
 
       <p className="text-xs leading-6 text-[var(--cf-text-muted)]">
-        {tradingName} is a FAIS-authorised intermediary. The insurer named above issues and prices this policy under
+        {fspNumber && <>{tradingName} is a FAIS-authorised intermediary. </>}The insurer named above issues and prices this policy under
         its own terms; claims are assessed by the insurer. If you are unhappy with how a policy or claim has been
         handled, you may escalate through our complaints process and onward to the FAIS Ombud.
       </p>

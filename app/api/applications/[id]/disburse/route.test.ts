@@ -589,6 +589,8 @@ function buildTxMock(opts: {
   product?: { id: string } | null
   referredClient?: { referralCodeId: string | null } | null
   tenantConfig?: { referralCommissionBps: number } | null
+  /** The lender's FSP number (TenantConfig.fscaNumber); default "12345". */
+  fscaNumber?: string | null
   affordabilityTenantConfig?: {
     collectionsEngineEnabled: boolean
     ndiBufferPct: number
@@ -718,7 +720,9 @@ function buildTxMock(opts: {
         client: { findUnique: vi.fn().mockResolvedValue(opts.referredClient ?? { referralCodeId: null }) },
         tenantConfig: {
           findUnique: vi.fn().mockImplementation((args: { select?: Record<string, boolean> }) =>
-            args.select?.ndiBufferPct
+            args.select?.fscaNumber
+              ? { fscaNumber: opts.fscaNumber === undefined ? "12345" : opts.fscaNumber }
+              : args.select?.ndiBufferPct
               ? (opts.affordabilityTenantConfig ?? {
                   collectionsEngineEnabled: false,
                   ndiBufferPct: 110,
@@ -2754,6 +2758,34 @@ describe("POST /api/applications/[id]/disburse — payout gates, credit-life bun
     }))
     expect(insurancePolicyCreate).not.toHaveBeenCalled()
     expect(triggerNotification).not.toHaveBeenCalled()
+  })
+
+  // #143 blind review (HIGH): a lender with no FSP number issues no insurance.
+  // Cover accepted before the number was cleared is not bound at payout.
+  it("binds no credit-life policy, and refuses the disbursement, when the lender holds no FSP number", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      agreementSignedAt: new Date("2026-05-01"),
+      appliedAmount: 500000,
+      appliedTermDays: 30,
+      clientId: "client-1",
+      productId: "prod-1",
+      client: { bankName: "FNB", bankAccountNumber: "12345", bankBranchCode: "250655", accountType: "SAVINGS" },
+      product: { interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.15, initiationFeeMax: 100000, monthlyServiceFee: 0 },
+      productType: "MICRO",
+    })
+    const { insurancePolicyCreate } = buildTxMock({
+      fscaNumber: null,
+      agreementArtifactData: { ...DEFAULT_CREDIT_LIFE_ARTIFACT, creditLifeAutoBundleEligible: true },
+    })
+
+    const res = await POST(makeRequest(), ctx)
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual(expect.objectContaining({ affordabilitySnapshot: "credit_life_lender_no_fsp" }))
+    expect(insurancePolicyCreate).not.toHaveBeenCalled()
   })
 
   it("locks accepted cover to the same active tenant insurer before payout", async () => {

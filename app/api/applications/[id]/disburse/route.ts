@@ -64,6 +64,7 @@ import {
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
+import { lenderHoldsFsp } from "@/lib/insurance/require-fsp"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -1542,6 +1543,12 @@ export async function POST(
             throw new DisbursementEvidenceChangedError(
               "credit_life_product_unavailable",
             )
+          }
+          // A lender with no FSP number issues no insurance (Fair Score audit
+          // goal §2a.2). Cover accepted before the number was cleared is not
+          // bound; the application goes back for a current election.
+          if (!(await lenderHoldsFsp(tx, tenant.id))) {
+            throw new DisbursementEvidenceChangedError("credit_life_lender_no_fsp")
           }
           const lockedOfferRows = await tx.$queryRaw<Array<{ id: string }>>(
             Prisma.sql`

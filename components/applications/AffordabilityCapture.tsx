@@ -33,6 +33,8 @@ interface Props {
   affordabilityNDI?: number | null
   done: boolean
   readOnly?: boolean
+  /** The viewer's role may change the assessment (edit_affordability); without it the panel is view-only. */
+  canEdit?: boolean
   snapshotUnavailable?: boolean
   debtEvidenceInvalid?: boolean
   clientDebtEvidenceInvalid?: boolean
@@ -53,7 +55,7 @@ function formatZAR(cents: number) {
   return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
+export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
   const [debts, setDebts] = useState<DebtEntry[]>(initialDebts?.length > 0 ? initialDebts : [])
   // The type as STORED, before this panel rendered it canonically. Re-picking
@@ -71,7 +73,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const invalidDebtEvidence = debtEvidenceInvalid || clientDebtEvidenceInvalid
-  const debtInputsReadOnly = readOnly || clientDebtEvidenceInvalid
+  const debtInputsReadOnly = readOnly || clientDebtEvidenceInvalid || !canEdit
   const [saved, setSaved] = useState(done && !invalidDebtEvidence)
   // The rail's approval checks read the saved figures; edits here are a preview
   // until saved, and the panel says so rather than contradict the rail.
@@ -279,11 +281,15 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
 
         {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 
-        <div className="flex justify-end">
-          <Button onClick={save} disabled={loading || debtInputsReadOnly}>
-            {clientDebtEvidenceInvalid ? "Client Debt Repair Required" : readOnly ? "Decision Snapshot Locked" : loading ? "Saving..." : saved ? "Update Affordability" : "Save Affordability Assessment"}
-          </Button>
-        </div>
+        {canEdit ? (
+          <div className="flex justify-end">
+            <Button onClick={save} disabled={loading || debtInputsReadOnly}>
+              {clientDebtEvidenceInvalid ? "Client Debt Repair Required" : readOnly ? "Decision Snapshot Locked" : loading ? "Saving..." : saved ? "Update Affordability" : "Save Affordability Assessment"}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-right text-xs text-[var(--cf-text-muted)]">View only: your role cannot change the affordability assessment.</p>
+        )}
       </div>
     </div>
   )

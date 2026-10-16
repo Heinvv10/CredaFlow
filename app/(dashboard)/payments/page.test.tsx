@@ -21,6 +21,9 @@ const calls = vi.hoisted(() => ({
   aggregate: [] as Array<Record<string, unknown>>,
   count: [] as Array<Record<string, unknown>>,
   clientProps: null as Record<string, unknown> | null,
+  notified: [] as Array<Record<string, unknown>>,
+  notifiedProps: null as Record<string, unknown> | null,
+  schedule: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -39,15 +42,25 @@ vi.mock("@/lib/prisma", () => ({
         return { _sum: { amount: 123400 }, _count: 2 }
       }),
     },
-    repaymentSchedule: { findMany: vi.fn(async () => []) },
+    repaymentSchedule: { findMany: vi.fn(async (args: Record<string, unknown>) => { calls.schedule.push(args); return [] }) },
+    paymentNotification: { findMany: vi.fn(async () => calls.notified) },
   },
 }))
 
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: async () => "tenant-1" }))
+const { sessionRole } = vi.hoisted(() => ({ sessionRole: { value: "LOAN_ADMIN" as string } }))
+vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { role: sessionRole.value } }) }))
 vi.mock("@/components/layout/Header", () => ({ Header: () => null }))
 vi.mock("@/components/payments/PaymentsClient", () => ({
   PaymentsClient: (props: Record<string, unknown>) => {
     calls.clientProps = props
+    return null
+  },
+}))
+
+vi.mock("@/components/payments/ClientNotifiedPayments", () => ({
+  ClientNotifiedPayments: (props: Record<string, unknown>) => {
+    calls.notifiedProps = props
     return null
   },
 }))
@@ -148,5 +161,49 @@ describe("payments page — period scoping", () => {
   it("hands the client a period query the export link can reuse", async () => {
     await render({ period: "custom", from: "2026-07-01", to: "2026-07-31" })
     expect(calls.clientProps?.periodQuery).toBe("period=custom&from=2026-07-01&to=2026-07-31")
+  })
+})
+
+describe("payments page — client-notified payments (Fair Score audit B7)", () => {
+  const report = {
+    id: "pn1", amount: 84_330, reference: "EFT SEP", paymentDate: new Date("2026-10-14T22:00:00Z"), notes: null,
+    documentId: "d1", createdAt: new Date("2026-10-15T08:00:00Z"),
+    loan: { id: "l1", reference: "LN-0005" }, client: { firstName: "Elize", lastName: "Synthetic" },
+  }
+
+  it("lists a portal payment report awaiting reconciliation and points the KPI card at it", async () => {
+    calls.notified = [report]
+    const html = await render({ period: "today" })
+    calls.notified = []
+    expect(calls.notifiedProps).toEqual({ items: [expect.objectContaining({ id: "pn1", amount: 84_330 })], canAct: true })
+    expect(html).toContain("+ 1 client-notified payment to confirm")
+  })
+
+  it("says nothing extra when no report is waiting", async () => {
+    const html = await render({ period: "today" })
+    expect(html).not.toContain("client-notified payment")
+    expect(calls.notifiedProps).toEqual({ items: [], canAct: true })
+  })
+
+  it("lets only the roles the allocate/reject route admits act on a report", async () => {
+    sessionRole.value = "READONLY"
+    await render({ period: "today" })
+    sessionRole.value = "LOAN_ADMIN"
+    expect(calls.notifiedProps).toEqual(expect.objectContaining({ canAct: false }))
+  })
+})
+
+describe("payments page — overdue strip", () => {
+  // Writers store an unpaid row PENDING, so "overdue" is read from the due
+  // date: every unpaid status past due, not only a stored OVERDUE/PARTIAL.
+  it("lists past-due rows whatever unpaid status they are stored with", async () => {
+    calls.schedule = []
+    await render({ period: "today" })
+    const where = calls.schedule[0].where as { status: { in: string[] }; dueDate: { lt: Date } }
+    expect(where.status.in.sort()).toEqual(["OVERDUE", "PARTIAL", "PENDING"])
+    expect(where.dueDate.lt).toBeInstanceOf(Date)
+    // An asset-finance skip period's R0.00 row and a closed, cancelled or
+    // written-off loan's leftovers are not arrears.
+    expect(where).toMatchObject({ totalDue: { gt: 0 }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } })
   })
 })

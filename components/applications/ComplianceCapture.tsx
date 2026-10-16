@@ -10,6 +10,8 @@ interface Props {
   recklessDone: boolean
   recklessNote?: string | null
   affordabilityDeclared: boolean
+  /** The viewer may confirm the checks (PATCH /api/applications/[id]/compliance: LOAN_ADMIN and above). */
+  canConfirm: boolean
 }
 
 /**
@@ -24,6 +26,7 @@ export function ComplianceCapture({
   recklessDone,
   recklessNote,
   affordabilityDeclared,
+  canConfirm,
 }: Props) {
   const router = useRouter()
   const [reckless, setReckless] = useState(recklessDone)
@@ -76,7 +79,7 @@ export function ComplianceCapture({
 
       <div className="space-y-4 p-5">
         <label className="flex cursor-pointer items-start gap-3">
-          <input type="checkbox" checked={reckless} onChange={e => { setReckless(e.target.checked); setSaved(false) }} className="mt-1 h-4 w-4 accent-[var(--cf-brand)]" />
+          <input type="checkbox" checked={reckless} disabled={!canConfirm} onChange={e => { setReckless(e.target.checked); setSaved(false) }} className="mt-1 h-4 w-4 accent-[var(--cf-brand)] disabled:cursor-not-allowed" />
           <div className="flex-1">
             <p className="text-sm font-semibold text-[var(--cf-text)]">Reckless lending assessment completed</p>
             <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">Affordability has been assessed under NCA Sections 80-81. No reckless lending determination applies.</p>
@@ -93,12 +96,13 @@ export function ComplianceCapture({
           {reckless && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
         </label>
         <div className="border-t border-[var(--cf-border-subtle)]" />
-        <CheckRow checked={declared} onChange={(value) => { setDeclared(value); setSaved(false) }} title="Client affordability declaration captured" description="The client declared income, expenses, and obligations truthfully and accepted the affordability assessment." />
+        <CheckRow checked={declared} disabled={!canConfirm} onChange={(value) => { setDeclared(value); setSaved(false) }} title="Client affordability declaration captured" description="The client declared income, expenses, and obligations truthfully and accepted the affordability assessment." />
 
         {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 
-        <div className="flex justify-end">
-          <Button onClick={save} disabled={loading || !allDone}>
+        <div className="flex items-center justify-end gap-3">
+          {!canConfirm && <p className="text-xs text-[var(--cf-text-muted)]">Needs a Loan Admin, Branch Manager or Admin to confirm these checks.</p>}
+          <Button onClick={save} disabled={loading || !allDone || !canConfirm}>
             {loading ? "Saving..." : saved ? "Update Assessment Checks" : "Confirm Assessment Checks"}
           </Button>
         </div>
@@ -107,10 +111,10 @@ export function ComplianceCapture({
   )
 }
 
-function CheckRow({ checked, onChange, title, description }: { checked: boolean; onChange: (value: boolean) => void; title: string; description: string }) {
+function CheckRow({ checked, disabled, onChange, title, description }: { checked: boolean; disabled: boolean; onChange: (value: boolean) => void; title: string; description: string }) {
   return (
     <label className="flex cursor-pointer items-start gap-3">
-      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--cf-brand)]" />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--cf-brand)] disabled:cursor-not-allowed" />
       <div>
         <p className="text-sm font-semibold text-[var(--cf-text)]">{title}</p>
         <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">{description}</p>

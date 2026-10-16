@@ -44,6 +44,8 @@ function subscribeToDrafts(onChange: () => void) {
 
 export default function NavBar({ enabledLocales = [] }: { enabledLocales?: readonly Locale[] }) {
   const identity = useWebsiteIdentity()
+  // Insurance is a FAIS intermediary's offer: no FSP number, no link to it.
+  const links = navLinks.filter((link) => link.label !== "navInsurance" || identity.fspNumber)
   const t = useT("websiteShell")
   const [open, setOpen] = useState(false)
   const [dropdown, setDropdown] = useState<string | null>(null)
@@ -91,7 +93,7 @@ export default function NavBar({ enabledLocales = [] }: { enabledLocales?: reado
           </Link>
 
           <nav aria-label={t("mainNavLabel")} className="hidden xl:flex items-center gap-0.5" ref={dropdownRef}>
-            {navLinks.map((link) =>
+            {links.map((link) =>
               link.children ? (
                 <div key={link.href} className="relative">
                   <button
@@ -157,7 +159,7 @@ export default function NavBar({ enabledLocales = [] }: { enabledLocales?: reado
       {open && (
         <div className="border-t border-white/10 bg-[#11141b] xl:hidden">
           <div className="px-4 py-3 space-y-1">
-            {navLinks.map((link) => (
+            {links.map((link) => (
               <div key={link.href}>
                 <Link href={link.href} onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium text-white/72 hover:text-white">
                   {t(link.label)}

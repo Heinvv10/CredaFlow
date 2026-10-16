@@ -76,7 +76,7 @@ const sections = (identity: Pick<LenderIdentity, "tradingName" | "legalName" | "
   {
     heading: "7. Regulatory status",
     body: [
-      `${identity.legalName} is a registered credit provider (NCR Reg ${identity.ncrNumber}) and an authorised financial services provider (FSP ${identity.fspNumber}). Full regulatory details are available on our regulatory information page.`,
+      `${identity.legalName} is a registered credit provider (NCR Reg ${identity.ncrNumber})${identity.fspNumber ? ` and an authorised financial services provider (FSP ${identity.fspNumber})` : ""}. Full regulatory details are available on our regulatory information page.`,
     ],
     links: [{ label: "Regulatory information", href: "/site/regulatory-information" }],
   },
@@ -99,7 +99,7 @@ export default async function TermsPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#a5b4fc]">Legal</p>
           <h1 className="mt-3 text-balance text-4xl font-semibold tracking-tight text-white md:text-5xl">Terms &amp; Conditions</h1>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/62">
-            These terms apply to your use of the {identity.tradingName} website and to any credit, insurance enquiry or capital
+            These terms apply to your use of the {identity.tradingName} website and to any credit{identity.fspNumber ? ", insurance enquiry" : ""} or capital
             service you request. The full, binding terms of a loan are set out in the credit agreement you sign.
           </p>
         </div>
@@ -118,7 +118,12 @@ export default async function TermsPage() {
 
       <section className="px-4 pb-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl space-y-10">
-          {sections(identity).map((section) => (
+          {/* The insurance section only for a lender that holds an FSP number;
+              the rest keep their order, numbered afresh. */}
+          {sections(identity)
+            .filter((section) => identity.fspNumber || !section.heading.endsWith("Insurance enquiries"))
+            .map((section, index) => ({ ...section, heading: section.heading.replace(/^\d+\. /, `${index + 1}. `) }))
+            .map((section) => (
             <div key={section.heading}>
               <h2 className="text-xl font-semibold text-white">{section.heading}</h2>
               {section.body.map((paragraph, i) => (
