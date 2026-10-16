@@ -11,6 +11,7 @@ describe("isBusinessDateColumn", () => {
     ["ContractRate", "effectiveDate"],
     ["VatRate", "effectiveDate"],
     ["LeaseTerminationQuote", "terminationDate"],
+    ["LeaseTerminationQuote", "validUntil"],
     ["MaintenanceFund", "leaseEndDate"],
   ])("excludes %s.%s from event-clock leak detection", (table, column) => {
     expect(isBusinessDateColumn(table, column)).toBe(true)
@@ -19,5 +20,8 @@ describe("isBusinessDateColumn", () => {
   it("keeps event timestamps and unrelated effective dates under audit", () => {
     expect(isBusinessDateColumn("ReferenceRate", "createdAt")).toBe(false)
     expect(isBusinessDateColumn("InsuranceQuote", "effectiveDate")).toBe(false)
+    // The event stamps beside the lease exemptions still catch a leaked clock.
+    expect(isBusinessDateColumn("LeaseTerminationQuote", "quotedOn")).toBe(false)
+    expect(isBusinessDateColumn("MaintenanceFund", "createdAt")).toBe(false)
   })
 })
