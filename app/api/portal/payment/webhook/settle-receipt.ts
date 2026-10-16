@@ -25,6 +25,11 @@ export type StitchPaymentWithLoan = Prisma.StitchPaymentRequestGetPayload<{
   include: { loan: { select: { tenantId: true } } }
 }>
 
+/** How long after the payment request opened its webhook may still date the receipt by it. */
+export const STITCH_VALUE_DATE_WINDOW_MS = 60 * 60 * 1000
+/** reconciliationReason of a Stitch receipt held because its value date is not known. */
+export const STITCH_VALUE_DATE_UNCONFIRMED = "stitch_value_date_unconfirmed"
+
 class AlreadyCompletedError extends Error {
   constructor() {
     super("StitchPaymentRequest already completed")
@@ -52,14 +57,18 @@ export async function settleReceipt(
       })
       if (result.count === 0) throw new AlreadyCompletedError()
 
-      // The value date is when the client paid: when they opened the payment
-      // request they paid through, not when this webhook is processed (it can
-      // land after midnight, or be retried). A receipt is priced at its value
-      // date, so the s125 figure the client was shown that day settles the
-      // loan; every instalment it pays is dated by it. `asOf` stays now for
-      // arrears and charges, which describe today.
+      // The value date is when the client paid. The event names no paid-at
+      // time we read (GATED: Stitch's own timestamp, once its event schema is
+      // confirmed), so it is when they opened the payment request, provided
+      // the webhook lands within STITCH_VALUE_DATE_WINDOW_MS of it: a payment
+      // just before midnight is still priced on its day, and the s125 figure
+      // the client was shown settles the loan. A later webhook could date the
+      // money long before it moved, so it is held for staff to value-date,
+      // settling or not. `asOf` stays now for arrears and charges.
       const asOf = new Date()
-      const receivedAt = stitchPayment.createdAt < asOf ? stitchPayment.createdAt : asOf
+      const opened = stitchPayment.createdAt
+      const openedRecently = asOf.getTime() - opened.getTime() <= STITCH_VALUE_DATE_WINDOW_MS
+      const receivedAt = openedRecently && opened < asOf ? opened : asOf
       const createReceipt = (
         allocationStatus: "ALLOCATED" | "UNAPPLIED",
         reconciliationReason?: string,
@@ -94,6 +103,15 @@ export async function settleReceipt(
       // loan is in a state that still owes on that schedule (policy:
       // ACTIVE+DEFAULTED allocate; PENDING_WRITE_OFF/WRITTEN_OFF/COMPLETED/etc
       // need manual reconciliation instead).
+      if (loan && ["ACTIVE", "DEFAULTED"].includes(loan.status) && !openedRecently) {
+        return await recordHeldReceipt(tx, {
+          tenantId, loanId: stitchPayment.loanId, amount: stitchPayment.amount, paymentMethod: "EFT",
+          reference: stitchPayment.externalReference,
+          notes: `Stitch instant EFT — id: ${stitchId}; request opened ${opened.toISOString()}`,
+          receivedAt, reason: STITCH_VALUE_DATE_UNCONFIRMED, oldValue: { status: loan.status, totalPaid: loan.totalPaid },
+          source: "stitch_webhook",
+        })
+      }
       if (loan && ["ACTIVE", "DEFAULTED"].includes(loan.status)) {
         // Loaded outside the try: its catch reads every failure as over-settlement.
         const replay = await loadReceiptReplay(tx, loan, asOf)

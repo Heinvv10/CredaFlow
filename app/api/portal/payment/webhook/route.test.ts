@@ -98,6 +98,7 @@ function stitchPayment(overrides?: Partial<Record<string, unknown>>) {
     amount: 50_000,
     status: "PENDING",
     externalReference: "REF-1",
+    createdAt: new Date(),
     loan: { tenantId: "t1" },
     ...overrides,
   }

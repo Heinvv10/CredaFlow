@@ -6,12 +6,13 @@
  *
  * The rule a stale quote follows: a receipt is priced at its value date. A
  * Stitch receipt's value date is when the client opened the payment request
- * they paid through, so the figure they were shown that day settles the loan
- * however late the webhook lands. A value date that waives more than may
- * stand unreviewed (an instalment that fell due in between) is held for staff
- * like any other back-dated receipt. A receipt short of the s125 figure at its
- * value date does not settle: the loan stays open on its contract, and what
- * settles it then is the shortfall.
+ * they paid through, if its webhook lands within the hour, so a payment just
+ * before midnight settles at the figure shown that day; a later webhook is
+ * held for staff to value-date, settling or not. A value date that waives
+ * more than may stand unreviewed (an instalment that fell due in between) is
+ * held for staff like any other back-dated receipt. A receipt short of the
+ * s125 figure at its value date does not settle: the loan stays open on its
+ * contract, and what settles it then is the shortfall.
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/loan/s125-settlement-paths.integration.test.ts
@@ -48,7 +49,7 @@ import { POST as bulkUpload } from "@/app/api/payments/bulk-upload/route"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
-const at = (iso: string) => new Date(`${iso}T10:00:00+02:00`)
+const at = (iso: string, time = "10:00") => new Date(`${iso}T${time}:00+02:00`)
 const PRICING = {
   principal: 1_000_000, termDays: 180, productType: "PERSONAL" as const, interestRatePm: 0.02,
   interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "NCA_REG42" as const, initiationFeePct: 0.15,
@@ -89,24 +90,24 @@ async function settlementOn(b: Booked, day: string) {
   return (await runWithTenant(b.tenantId, () => loanSettlementFigures(prisma, loan, at(day)))).totalToSettle
 }
 
-async function stitchReceipt(b: Booked, amount: number, openedOn: string, landsOn: string) {
+async function stitchReceipt(b: Booked, amount: number, opened: Date, lands: Date) {
   const stitchId = `stitch-${randomUUID()}`
   const request = await db.stitchPaymentRequest.create({
     data: {
       stitchId, loanId: b.loanId, clientId: b.clientId, amount, externalReference: `ref-${randomUUID()}`,
-      redirectUrl: "https://example.invalid/redirect", stitchUrl: "https://example.invalid/pay", createdAt: at(openedOn),
+      redirectUrl: "https://example.invalid/redirect", stitchUrl: "https://example.invalid/pay", createdAt: opened,
     },
     include: { loan: { select: { tenantId: true } } },
   })
-  vi.setSystemTime(at(landsOn))
+  vi.setSystemTime(lands)
   const res = await runWithTenant(b.tenantId, () => settleReceipt(request, stitchId, b.tenantId))
   expect(res.status).toBe(200)
   return db.payment.findFirstOrThrow({ where: { loanId: b.loanId, notes: { contains: stitchId } } })
 }
 
 const loanOf = (b: Booked) => db.loan.findUniqueOrThrow({ where: { id: b.loanId } })
-const completed = async (b: Booked, closedOn: string) =>
-  expect(await loanOf(b)).toMatchObject({ status: "COMPLETED", outstandingPrincipal: 0, closedAt: at(closedOn) })
+const completed = async (b: Booked, closedOn: string | Date) =>
+  expect(await loanOf(b)).toMatchObject({ status: "COMPLETED", outstandingPrincipal: 0, closedAt: typeof closedOn === "string" ? at(closedOn) : closedOn })
 
 suite.sequential("s125 settlement through every receipt writer (real Postgres)", () => {
   beforeAll(() => {
@@ -116,20 +117,34 @@ suite.sequential("s125 settlement through every receipt writer (real Postgres)",
     vi.useRealTimers()
   })
 
-  it("Stitch: the figure quoted when the client paid settles, though the webhook lands the next day", async () => {
+  it("Stitch: the figure quoted when the client paid settles, though the webhook lands after midnight", async () => {
     const b = await book("stitch-late")
     const quoted = await settlementOn(b, "2026-09-10")
-    const payment = await stitchReceipt(b, quoted, "2026-09-10", "2026-09-11")
-    expect(payment).toMatchObject({ allocationStatus: "ALLOCATED", amount: quoted, receivedAt: at("2026-09-10") })
-    await completed(b, "2026-09-10")
+    const opened = at("2026-09-10", "23:40")
+    const payment = await stitchReceipt(b, quoted, opened, at("2026-09-11", "00:20"))
+    expect(payment).toMatchObject({ allocationStatus: "ALLOCATED", amount: quoted, receivedAt: opened })
+    await completed(b, opened)
+  }, 60_000)
+
+  it("Stitch: a webhook over an hour after the request opened is held for staff, settling or not", async () => {
+    const b = await book("stitch-stale")
+    const quoted = await settlementOn(b, "2026-09-10")
+    const before = await loanOf(b)
+    const lands = at("2026-09-11")
+    for (const amount of [quoted, 10_000]) {
+      const payment = await stitchReceipt(b, amount, at("2026-09-10"), lands)
+      expect(payment).toMatchObject({ allocationStatus: "UNAPPLIED", reconciliationReason: "stitch_value_date_unconfirmed", receivedAt: lands })
+    }
+    expect(await loanOf(b)).toMatchObject({ status: "ACTIVE", totalPaid: before.totalPaid })
   }, 60_000)
 
   it("Stitch: a value date before an instalment fell due is held for staff, who allocate it with a reason", async () => {
     const b = await book("stitch-held")
     const quoted = await settlementOn(b, "2026-09-23")
     const before = await loanOf(b)
-    const payment = await stitchReceipt(b, quoted, "2026-09-23", "2026-09-25")
-    expect(payment).toMatchObject({ allocationStatus: "UNAPPLIED", reconciliationReason: "rebate_needs_authorisation" })
+    const opened = at("2026-09-23", "23:40")
+    const payment = await stitchReceipt(b, quoted, opened, at("2026-09-24", "00:20"))
+    expect(payment).toMatchObject({ allocationStatus: "UNAPPLIED", reconciliationReason: "rebate_needs_authorisation", receivedAt: opened })
     expect(await loanOf(b)).toMatchObject({ status: "ACTIVE", totalPaid: before.totalPaid })
 
     ctx.tenantId = b.tenantId
@@ -138,11 +153,11 @@ suite.sequential("s125 settlement through every receipt writer (real Postgres)",
       method: "PATCH",
       body: JSON.stringify({
         action: "allocate", reason: "Client paid the quoted settlement on 23 September", reference: "STITCH",
-        valueDateOverrideReason: "Stitch confirmed the client paid on 23 September; webhook delayed.",
+        valueDateOverrideReason: "Stitch confirmed the client paid at 23:40 on 23 September; webhook after midnight.",
       }),
     }), { params: Promise.resolve({ id: payment.id }) })
     expect(res.status).toBe(200)
-    await completed(b, "2026-09-23")
+    await completed(b, opened)
   }, 60_000)
 
   it("a stale quote paid a day late does not settle: the loan stays open owing the shortfall", async () => {
