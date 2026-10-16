@@ -146,3 +146,34 @@ describe("AffordabilityCapture account-type rendering", () => {
     expect(html).not.toContain('value="HOME_LOAN" selected=""')
   })
 })
+
+// Fair Score audit (2026-10-16): an INSURANCE_OFFICER was offered "Update
+// affordability". The API refuses that role (edit_affordability); the panel
+// must not offer what the API will refuse.
+describe("AffordabilityCapture for a role without edit_affordability", () => {
+  const render = (canEdit: boolean) => renderToStaticMarkup(
+    <AffordabilityCapture
+      applicationId="application-1"
+      monthlyIncome={1_500_000}
+      monthlyExpenses={800_000}
+      existingDebts={[{ creditor: "Synthetic Store", type: "RETAIL", monthlyInstalment: 50_000, balance: 400_000 }]}
+      clientDebtTotal={50_000}
+      proposedInstalment={200_000}
+      done={true}
+      affordabilityNDI={450_000}
+      canEdit={canEdit}
+    />,
+  )
+
+  it("offers no save or update and locks the debt rows", () => {
+    const html = render(false)
+    expect(html).not.toContain("Update Affordability")
+    expect(html).not.toContain("Save Affordability Assessment")
+    expect(html).toContain("View only: your role cannot change the affordability assessment.")
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Add creditor/)
+  })
+
+  it("keeps the update for a role that has it", () => {
+    expect(render(true)).toContain("Update Affordability")
+  })
+})

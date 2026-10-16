@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { isClientPoDocument, parsePoFundingFacts, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { triggerNotification } from "@/lib/notifications"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
@@ -40,6 +40,9 @@ export async function PATCH(
 ) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
+  if (!canDo(guard.user.role, "edit_application")) {
+    return NextResponse.json({ error: "Your role cannot edit an application." }, { status: 403 })
+  }
 
   const body = (await req.json().catch(() => ({}))) as
     { status?: string; action?: string } & Partial<PrepareApplicationInput>
@@ -472,6 +475,9 @@ export async function DELETE(
 ) {
   const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
+  if (!canDo(guard.user.role, "cancel_application")) {
+    return NextResponse.json({ error: "Your role cannot cancel an application." }, { status: 403 })
+  }
 
   return withTenantContext(req, async (tenant) => {
     const { id } = await params

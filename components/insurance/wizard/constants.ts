@@ -8,16 +8,6 @@ export const TYPE_LABELS: Record<string, string> = {
   BUSINESS_INSURANCE: "Business Insurance",
 }
 
-export const INSURERS: Record<string, string> = {
-  FUNERAL_COVER: "Guardrisk Life",
-  CREDIT_LIFE: "Clientele Life",
-  LIFE_INSURANCE: "Old Mutual",
-  SHORT_TERM_MOTOR: "Santam",
-  SHORT_TERM_HOME: "Santam",
-  SHORT_TERM_CONTENTS: "Santam",
-  BUSINESS_INSURANCE: "Hollard",
-}
-
 export function formatR(n: number) {
   return (
     "R " +

@@ -25,7 +25,11 @@ const tx = {
   clientDocument: { findFirst: (a: unknown) => clientDocumentFindFirstMock(a) },
 }
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", async () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // The real permission check (the client-safe twin of auth-guards' canDo).
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (req: unknown, cb: (t: { id: string; name: string }) => Promise<unknown>) =>
     cb({ id: "t1", name: "Acme Lending" }),

@@ -15,6 +15,8 @@ export interface Product {
   commissionRate: number
   active: boolean
   code: string
+  /** The underwriter the lender configured on the product (Settings → Products), if any. */
+  insurerName: string | null
 }
 
 // Step 1 form data — all amounts in RANDS (user-entered)

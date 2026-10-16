@@ -8,7 +8,11 @@ const auditLogCreateMock = vi.fn()
 const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", async () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // The real permission check (the client-safe twin of auth-guards' canDo).
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
+}))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string }) => Promise<unknown>) =>
     cb({ id: "tenant-1" }),
@@ -93,7 +97,7 @@ const application = {
 beforeEach(() => {
   vi.clearAllMocks()
   requireApiRoleMock.mockResolvedValue({
-    user: { id: "officer-1", email: "officer@example.test" },
+    user: { id: "officer-1", email: "officer@example.test", role: "CREDIT_OFFICER" },
   })
   findUniqueMock.mockResolvedValue(application)
   updateManyMock.mockResolvedValue({ count: 1 })

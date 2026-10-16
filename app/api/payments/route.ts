@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 // The client-safe hierarchy check: zero imports, already covered by
 // lib/__tests__/permissions.test.ts. Importing it from auth-guards drags
 // next-auth into this route's test environment for no benefit.
@@ -20,9 +20,13 @@ export async function POST(req: NextRequest) {
   try {
     // Collections agents capture the arrears payments they collect, so payment
     // recording is allowed from COLLECTIONS_AGENT upward. Lower roles
-    // (READONLY, COLLECTIONS_OFFICER) still 403.
+    // (READONLY, COLLECTIONS_OFFICER) still 403, and so does INSURANCE_OFFICER:
+    // capture_payment lists its roles (lib/registry/permissions/040-loan-money.ts).
     const guard = await requireApiRole("COLLECTIONS_AGENT")
     if (guard.error) return guard.error
+    if (!canDo(guard.user.role, "capture_payment")) {
+      return NextResponse.json({ error: "Your role cannot record loan payments." }, { status: 403 })
+    }
 
     // `await` so a re-thrown unexpected error from the callback is caught by the
     // outer try/catch and returned as a controlled 500 (a bare `return <promise>`
