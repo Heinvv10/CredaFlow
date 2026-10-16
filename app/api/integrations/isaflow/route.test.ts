@@ -100,6 +100,9 @@ describe("POST /api/integrations/isaflow", () => {
   it("needs a pat_ token and an address", async () => {
     expect((await post({ action: "connect", baseUrl: "https://isaflow.example", token: "oat_x" })).status).toBe(400)
     expect((await post({ action: "connect", token: TOKEN })).status).toBe(400)
+    // Only printable ASCII: an HTTP header cannot carry anything else.
+    expect((await post({ action: "connect", baseUrl: "https://isaflow.example", token: "pat_12345678€" })).status).toBe(400)
+    expect((await post({ action: "connect", baseUrl: "https://isaflow.example", token: "pat_1234\u00a05678" })).status).toBe(400)
     expect((await post({ action: "nope" })).status).toBe(400)
     expect(h.probe).not.toHaveBeenCalled()
   })

@@ -40,7 +40,7 @@ export interface ConnectInput { baseUrl: string; token: string }
 export function parseConnectInput(body: unknown): ConnectInput | string {
   const b = (body ?? {}) as Record<string, unknown>
   const token = typeof b.token === "string" ? b.token.trim() : ""
-  if (!/^pat_[^\s]{8,500}$/.test(token)) return "Give an IsaFlow personal access token (it starts with pat_)"
+  if (!/^pat_[\x21-\x7e]{8,500}$/.test(token)) return "Give an IsaFlow personal access token (it starts with pat_)"
   if (typeof b.baseUrl !== "string" || !b.baseUrl.trim()) return "Give the IsaFlow address, e.g. https://app.isaflow.co.za"
   return { baseUrl: b.baseUrl.trim(), token }
 }

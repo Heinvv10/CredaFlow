@@ -20,35 +20,43 @@ export function guardedPost(url: string, init: { headers: Record<string, string>
   const secure = target.protocol === "https:"
   return new Promise<Response>((resolve, reject) => {
     let settled = false
+    const deadline: { timer?: NodeJS.Timeout } = {}
     const done = (outcome: Response | Error) => {
       if (settled) return
       settled = true
-      clearTimeout(deadline)
+      clearTimeout(deadline.timer)
       if (outcome instanceof Error) reject(outcome)
       else resolve(outcome)
     }
+    let req: http.ClientRequest
+    try {
+      req = (secure ? https : http).request(target, {
+        method: "POST",
+        headers: { ...init.headers, "content-length": String(Buffer.byteLength(init.body)) },
+        agent: false,
+        ...(secure ? { lookup: guardedLookup(opts.resolve ?? systemResolver) as unknown as typeof import("node:dns").lookup } : {}),
+      }, (res) => {
+        const chunks: Buffer[] = []
+        let size = 0
+        res.on("data", (chunk: Buffer) => {
+          size += chunk.length
+          if (size > MAX_RESPONSE_BYTES) res.destroy(new Error("IsaFlow's answer is too large"))
+          else chunks.push(chunk)
+        })
+        res.on("error", done)
+        res.on("close", () => { if (!res.complete) done(new Error("the connection closed before IsaFlow finished answering")) })
+        res.on("end", () => {
+          const status = res.statusCode && res.statusCode >= 200 && res.statusCode <= 599 ? res.statusCode : 502
+          done(new Response(BODYLESS.has(status) ? null : Buffer.concat(chunks), { status }))
+        })
+      })
+    } catch (error) {
+      // A header Node refuses (a token with a non-ASCII character) throws here, before any connection.
+      done(error instanceof Error ? error : new Error(String(error)))
+      return
+    }
     // One deadline for the whole exchange: a socket timeout resets on every byte.
-    const deadline = setTimeout(() => req.destroy(new Error(`timed out after ${opts.timeoutMs} ms`)), opts.timeoutMs)
-    const req = (secure ? https : http).request(target, {
-      method: "POST",
-      headers: { ...init.headers, "content-length": String(Buffer.byteLength(init.body)) },
-      agent: false,
-      ...(secure ? { lookup: guardedLookup(opts.resolve ?? systemResolver) as unknown as typeof import("node:dns").lookup } : {}),
-    }, (res) => {
-      const chunks: Buffer[] = []
-      let size = 0
-      res.on("data", (chunk: Buffer) => {
-        size += chunk.length
-        if (size > MAX_RESPONSE_BYTES) res.destroy(new Error("IsaFlow's answer is too large"))
-        else chunks.push(chunk)
-      })
-      res.on("error", done)
-      res.on("close", () => { if (!res.complete) done(new Error("the connection closed before IsaFlow finished answering")) })
-      res.on("end", () => {
-        const status = res.statusCode && res.statusCode >= 200 && res.statusCode <= 599 ? res.statusCode : 502
-        done(new Response(BODYLESS.has(status) ? null : Buffer.concat(chunks), { status }))
-      })
-    })
+    deadline.timer = setTimeout(() => req.destroy(new Error(`timed out after ${opts.timeoutMs} ms`)), opts.timeoutMs)
     req.on("error", done)
     req.end(init.body)
   })
