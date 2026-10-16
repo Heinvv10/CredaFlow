@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { formatDate } from "@/lib/utils"
 import { Plus, X } from "lucide-react"
@@ -16,6 +16,12 @@ type FaisRecord = {
   } | null
 }
 
+async function fetchFaisRecords(clientId: string): Promise<FaisRecord[]> {
+  const res = await fetch(`/api/clients/${clientId}/fais-disclosures`)
+  if (!res.ok) throw new Error("Failed to load")
+  return await res.json() as FaisRecord[]
+}
+
 export function FaisDisclosuresSection({ clientId }: { clientId: string }) {
   const router = useRouter()
   const [records, setRecords] = useState<FaisRecord[]>([])
@@ -26,21 +32,17 @@ export function FaisDisclosuresSection({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const fetchRecords = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/clients/${clientId}/fais-disclosures`)
-      if (!res.ok) throw new Error("Failed to load")
-      const data = await res.json() as FaisRecord[]
-      setRecords(data)
-    } catch {
-      setError("Failed to load FAIS disclosures.")
-    } finally {
-      setLoading(false)
-    }
-  }, [clientId])
+  // Bumped to refetch after a disclosure is logged.
+  const [reloadKey, setReloadKey] = useState(0)
 
-  useEffect(() => { void fetchRecords() }, [fetchRecords])
+  useEffect(() => {
+    let ignore = false
+    fetchFaisRecords(clientId)
+      .then((data) => { if (!ignore) setRecords(data) })
+      .catch(() => { if (!ignore) setError("Failed to load FAIS disclosures.") })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [clientId, reloadKey])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,7 +57,8 @@ export function FaisDisclosuresSection({ clientId }: { clientId: string }) {
       if (!res.ok) throw new Error("Failed to log disclosure")
       setShowModal(false)
       setForm({ notes: "", date: new Date().toISOString().slice(0, 10) })
-      void fetchRecords()
+      setLoading(true)
+      setReloadKey((k) => k + 1)
       router.refresh()
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Something went wrong")

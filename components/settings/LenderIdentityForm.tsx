@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -74,6 +74,13 @@ const SECTIONS: { title: string; description: string; fields: FieldSpec[] }[] = 
 
 const STATUTORY: Statutory[] = ["ncrNumber", "fscaNumber", "companyRegNumber"]
 
+async function fetchIdentity(): Promise<Values> {
+  const res = await fetch("/api/settings/identity")
+  if (!res.ok) throw new Error(String(res.status))
+  const { identity } = await res.json() as { identity: Record<Field, string | null> }
+  return Object.fromEntries(Object.keys(EMPTY).map((k) => [k, identity[k as Field] ?? ""])) as Values
+}
+
 export function LenderIdentityForm() {
   const [stored, setStored] = useState<Values>(EMPTY)
   const [form, setForm] = useState<Values>(EMPTY)
@@ -83,26 +90,33 @@ export function LenderIdentityForm() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null)
 
-  const load = useCallback(async () => {
+  function applyIdentity(values: Values) {
+    setStored(values)
+    setForm(values)
+    setConfirm({ ncrNumber: "", fscaNumber: "", companyRegNumber: "" })
+  }
+
+  // Used after a save: shows the loading state again while the form is rebuilt
+  // from what the server stored.
+  async function reload() {
     setLoading(true)
     try {
-      const res = await fetch("/api/settings/identity")
-      if (!res.ok) throw new Error(String(res.status))
-      const { identity } = await res.json() as { identity: Record<Field, string | null> }
-      const values = Object.fromEntries(Object.keys(EMPTY).map((k) => [k, identity[k as Field] ?? ""])) as Values
-      setStored(values)
-      setForm(values)
-      setConfirm({ ncrNumber: "", fscaNumber: "", companyRegNumber: "" })
+      applyIdentity(await fetchIdentity())
     } catch {
       setMessage({ kind: "error", text: "Failed to load the lender identity." })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
 
   useEffect(() => {
-    load()
-  }, [load])
+    let ignore = false
+    fetchIdentity()
+      .then((values) => { if (!ignore) applyIdentity(values) })
+      .catch(() => { if (!ignore) setMessage({ kind: "error", text: "Failed to load the lender identity." }) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [])
 
   const changed = (key: Statutory) => form[key].trim().toUpperCase() !== stored[key].trim().toUpperCase()
 
@@ -124,7 +138,7 @@ export function LenderIdentityForm() {
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         setMessage({ kind: "success", text: data.changed ? "Lender identity saved." : "No changes to save." })
-        await load()
+        await reload()
       } else {
         setErrors(data.errors ?? {})
         setMessage({ kind: "error", text: data.error ?? "Failed to save the lender identity." })

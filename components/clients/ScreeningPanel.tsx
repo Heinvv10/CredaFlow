@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,15 @@ const STATE_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"
 }
 const TYPE_LABEL: Record<string, string> = { PEP: "PEP", SANCTIONS: "Sanctions", ADVERSE_MEDIA: "Adverse media" }
 
+type ScreeningResult = { data: Screening; error: null } | { data: null; error: string }
+
+async function fetchScreening(endpoint: string): Promise<ScreeningResult> {
+  const res = await fetch(endpoint)
+  if (res.status === 403) return { data: null, error: "Your role cannot view screening results." }
+  if (!res.ok) return { data: null, error: "Screening results could not be loaded." }
+  return { data: (await res.json()) as Screening, error: null }
+}
+
 /**
  * PEP / sanctions screening of one party: a client (Compliance tab) or a
  * business entity (entity page). `endpoint` is its screening route. Credit
@@ -24,22 +33,17 @@ export function ScreeningPanel({ endpoint }: { endpoint: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
-    const res = await fetch(endpoint)
-    if (res.status === 403) {
-      setError("Your role cannot view screening results.")
-      return
-    }
-    if (!res.ok) {
-      setError("Screening results could not be loaded.")
-      return
-    }
-    setData((await res.json()) as Screening)
-  }, [endpoint])
+  function applyResult(result: ScreeningResult) {
+    if (result.error !== null) setError(result.error)
+    else setData(result.data)
+  }
 
+  // A stale response (the endpoint changed while it was in flight) is ignored.
   useEffect(() => {
-    void load()
-  }, [load])
+    let ignore = false
+    void fetchScreening(endpoint).then((result) => { if (!ignore) applyResult(result) })
+    return () => { ignore = true }
+  }, [endpoint])
 
   async function screenNow() {
     setBusy(true)
@@ -48,7 +52,7 @@ export function ScreeningPanel({ endpoint }: { endpoint: string }) {
       const res = await fetch(endpoint, { method: "POST" })
       const body = (await res.json().catch(() => ({}))) as { error?: string; providerError?: string }
       if (!res.ok) setError(body.providerError ?? body.error ?? "Screening failed.")
-      await load()
+      applyResult(await fetchScreening(endpoint))
     } finally {
       setBusy(false)
     }

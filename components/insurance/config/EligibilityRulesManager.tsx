@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import type { EligibilityLifeScope, EligibilityRuleType } from "@prisma/client"
 import { toast } from "@/lib/toast"
 import { formatZAR } from "@/lib/utils"
@@ -87,7 +87,9 @@ export function EligibilityRulesManager({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const refresh = useCallback(async () => {
+  // Used by the handlers after a write; the mount effect below does the same
+  // work inline so it can ignore a response that arrives after `productId` moved.
+  async function refresh() {
     try {
       setRules(await loadEligibilityRules(productId))
       setLoadError(null)
@@ -96,11 +98,16 @@ export function EligibilityRulesManager({
     } finally {
       setLoading(false)
     }
-  }, [productId])
+  }
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    let ignore = false
+    loadEligibilityRules(productId)
+      .then((loaded) => { if (!ignore) { setRules(loaded); setLoadError(null) } })
+      .catch((err: Error) => { if (!ignore) setLoadError(err.message) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [productId])
 
   const set = <K extends keyof RuleForm>(key: K, value: RuleForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
