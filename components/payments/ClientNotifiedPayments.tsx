@@ -122,7 +122,7 @@ export function ClientNotifiedPayments({ items, canAct }: { items: ClientNotifie
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   {!canAct ? (
-                    <span className="text-xs text-gray-400">A collections agent or above allocates it</span>
+                    <span className="text-xs text-gray-400">Allocated by staff who record loan payments</span>
                   ) : mode?.id === item.id ? (
                     <div className="space-y-2 text-left">
                       {mode.kind === "allocate" ? (

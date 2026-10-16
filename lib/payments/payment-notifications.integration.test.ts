@@ -28,7 +28,7 @@ suite("client-notified payments", () => {
 
   beforeAll(async () => {
     await prisma.tenant.upsert({ where: { id: T }, update: {}, create: { id: T, slug: "pn-it", name: "PN IT Tenant" } })
-    for (const [uid, role] of [["u_pn_agent", "COLLECTIONS_AGENT"], ["u_pn_admin", "LOAN_ADMIN"]] as const) {
+    for (const [uid, role] of [["u_pn_agent", "COLLECTIONS_AGENT"], ["u_pn_admin", "LOAN_ADMIN"], ["u_pn_insurance", "INSURANCE_OFFICER"]] as const) {
       await prisma.user.upsert({
         where: { id: uid },
         update: {},
@@ -106,7 +106,7 @@ suite("client-notified payments", () => {
     const row = await prisma.paymentNotification.findUniqueOrThrow({ where: { id } })
     expect(row).toMatchObject({ status: "PENDING", amount: 84_330, paymentId: null })
     const bells = await prisma.notification.findMany({ where: { tenantId: T, entityId: id } })
-    // The same roles the allocate/reject route admits (COLLECTIONS_AGENT upward).
+    // The roles holding capture_payment, which the allocate/reject route requires: no INSURANCE_OFFICER.
     expect(bells.map((b) => b.userId).sort()).toEqual(["u_pn_admin", "u_pn_agent"])
     expect(bells[0]).toMatchObject({ type: "PAYMENT_NOTIFIED", entityType: "PaymentNotification" })
     expect(await prisma.auditLog.count({ where: { tenantId: T, entityId: id, action: "PAYMENT_NOTIFICATION_RECEIVED" } })).toBe(1)

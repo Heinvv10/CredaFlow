@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { hasMinRole, ROLE_HIERARCHY, type UserRole } from "@/lib/permissions"
+import { canDo, ROLE_HIERARCHY } from "@/lib/permissions"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import {
   applyManualReceiptInTx,
@@ -21,17 +21,15 @@ import { formatZAR } from "@/lib/utils"
  */
 
 /**
- * Who may allocate or reject a report: the same minimum as capturing a payment
- * (POST /api/payments). The route, the bell and the Payments page all read
- * this, so nobody is alerted to an item they cannot act on. To be replaced by
- * the explicit payment-capture permission (Fair Score workstream C4).
+ * Who may allocate or reject a report: allocating IS capturing a payment, so
+ * the capture_payment permission (lib/registry/permissions/040-loan-money.ts),
+ * which leaves INSURANCE_OFFICER out. The route, the bell and the Payments
+ * page all read it, so nobody is alerted to an item they cannot act on.
  */
-export const PAYMENT_NOTIFICATION_MIN_ROLE: UserRole = "COLLECTIONS_AGENT"
-const ALERTED_ROLES = ROLE_HIERARCHY.filter((role) => hasMinRole(role, PAYMENT_NOTIFICATION_MIN_ROLE))
-
 export function canActOnPaymentNotifications(role: string | null | undefined): boolean {
-  return typeof role === "string" && hasMinRole(role as UserRole, PAYMENT_NOTIFICATION_MIN_ROLE)
+  return typeof role === "string" && canDo(role, "capture_payment")
 }
+const ALERTED_ROLES = ROLE_HIERARCHY.filter((role) => canActOnPaymentNotifications(role))
 
 export const REJECT_REASON_MAX = 500
 
