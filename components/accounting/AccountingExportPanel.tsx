@@ -153,7 +153,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
         {message && <p className="mt-3 text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
       </DataPanel>
 
-      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} busy={busy} post={post} />
+      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} isaflowConnected={isaflowConnected} busy={busy} post={post} />
     </div>
   )
 }
