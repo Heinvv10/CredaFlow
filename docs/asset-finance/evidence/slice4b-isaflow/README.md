@@ -31,6 +31,7 @@ IsaFlow. Driven by headless Chromium (Playwright).
 | 9 | `09-pushed-390px.png` | The same at 390 px |
 | 10 | `10-connection-390px.png` | The connected card at 390 px |
 | 11 | `11-connection-light.png` | The connected card in light mode |
+| 12 | `12-history-isaflow-column.png` | After review fixes: Export history has an IsaFlow column (October PUSHED) |
 
 - `GET /api/integrations/isaflow` after connect returned status, base URL,
   company id and name, and timestamps. No token field.
