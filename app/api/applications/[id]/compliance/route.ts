@@ -57,7 +57,13 @@ export async function PATCH(
             entityId: id,
             userId: guard.user.id,
             userEmail: guard.user.email,
-            newValue: body,
+            // The fields this route acts on, not the raw body: an audit row
+            // records what changed, and never carries keys the body invents.
+            newValue: {
+              recklessLendingAssessed: body.recklessLendingAssessed,
+              recklessLendingNote: body.recklessLendingNote,
+              clientAffordabilityDeclared: body.clientAffordabilityDeclared,
+            },
           },
         })
         return true

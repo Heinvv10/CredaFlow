@@ -1,7 +1,9 @@
 import type { prisma } from "@/lib/prisma"
 import { allocateReceipts, recomputeLoanBalances, type ScheduleRowLike } from "@/lib/loan/balances"
 import type { ContractualRow, SettlementLoanLike } from "@/lib/loan/settlement"
-import { loadContractualRows, restoreContractualSchedule } from "@/lib/loan/contractual-schedule"
+import {
+  ContractualScheduleMissingError, isRepricedInstalmentLoan, loadSettlementEvidence, restoreContractualSchedule,
+} from "@/lib/loan/contractual-schedule"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 
 // The loan book as it stood at a past instant, rebuilt from receipts.
@@ -71,7 +73,11 @@ export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
  * known; leaving the book is dated, which is why the population is built from
  * the exits rather than from a status filter.
  */
-export async function loadBookAsOf(db: Pick<typeof prisma, "loan" | "auditLog">, tenantId: string, asOf: Date): Promise<number> {
+export async function loadBookAsOf(
+  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
+  tenantId: string,
+  asOf: Date,
+): Promise<number> {
   const loans = await db.loan.findMany({
     where: {
       tenantId,
@@ -86,9 +92,12 @@ export async function loadBookAsOf(db: Pick<typeof prisma, "loan" | "auditLog">,
       id: true, principal: true, totalInterest: true, totalRepayable: true,
       contractualTotalInterest: true, contractualTotalRepayable: true,
       totalPaid: true, interestRatePm: true, interestModel: true,
-      startDate: true, maturityDate: true, closedAt: true,
+      startDate: true, maturityDate: true, closedAt: true, ncaRegime: true, contractType: true,
       repaymentSchedule: {
-        select: { id: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, totalDue: true, totalPaid: true },
+        select: {
+          id: true, installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true,
+          creditLifePremiumDue: true, totalDue: true, totalPaid: true,
+        },
       },
       payments: {
         select: {
@@ -98,8 +107,10 @@ export async function loadBookAsOf(db: Pick<typeof prisma, "loan" | "auditLog">,
       },
     },
   })
-  const repriced = loans.filter((loan) => loan.interestModel !== "DAILY_ACCRUAL"
-    && loan.contractualTotalRepayable != null && loan.totalRepayable < loan.contractualTotalRepayable)
-  const contractual = await loadContractualRows(db, tenantId, repriced.map((loan) => loan.id))
-  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf({ ...loan, contractualRows: contractual.get(loan.id) ?? null }, asOf), 0)
+  // An s125 re-priced loan without its settlement evidence is refused rather
+  // than rebuilt on the re-priced rows, which would understate the book.
+  const repriced = loans.filter((loan) => isRepricedInstalmentLoan(loan, loan.repaymentSchedule))
+  const evidence = await loadSettlementEvidence(db, tenantId, repriced.map((loan) => loan.id))
+  for (const loan of repriced) if (!evidence.has(loan.id)) throw new ContractualScheduleMissingError(loan.id)
+  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf({ ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }, asOf), 0)
 }

@@ -187,7 +187,7 @@ vi.mock("@/lib/loan/schedule-paid-at", () => ({ restampSchedulePaidAt: vi.fn(asy
 // lib/loan/s125-settlement.integration.test.ts.
 vi.mock("@/lib/loan/contractual-schedule", () => ({
   contractualScheduleOf: async () => schedule,
-  ContractualScheduleMissingError: class extends Error {},
+  ContractualScheduleError: class extends Error {},
 }))
 
 import { PATCH } from "./route"

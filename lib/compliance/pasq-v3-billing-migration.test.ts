@@ -178,12 +178,23 @@ describe("PASQ v3 billing database migration", () => {
     // Re-created by 20261016200000_s125_instalment_settlement: the latest definition.
     expect(billing).toContain(`early_instalment_settlement :=`)
     expect(billing).toContain(`booked."interestModel" <> 'DAILY_ACCRUAL'::"InterestModel"`)
-    expect(billing).toContain(`actual."interestDue"\n            > (expected ->> 'interestDueCents')::INTEGER`)
+    expect(billing).toContain(`actual."interestDue"\n                > (expected ->> 'interestDueCents')::INTEGER`)
     expect(billing).toContain(`actual."principalDue"\n            <> (expected ->> 'principalDueCents')::INTEGER`)
     expect(billing).toContain(`actual_premium_due > booked."creditLifePremiums"`)
     expect(billing).toContain(`audit."newValue" ->> 'earlyInstalmentSettlement' = 'true'`)
     expect(billing).toContain(`audit."newValue" ->> 'loanId' = booked."id"`)
     expect(billing).toContain(`recorded ->> 'totalDue' = expected ->> 'totalDueCents'`)
+    // Only a receipt writer's audit row, naming this loan's live receipt of
+    // exactly the settlement figure; rows due by its value date owed whole.
+    expect(billing).toContain(`audit."action" IN ('PAYMENT_RECORDED', 'SMALL_BALANCE_WAIVED')`)
+    expect(billing).toContain(`audit."entityId" = payment."id"`)
+    expect(billing).toContain(`deposit."paymentId" = payment."id"`)
+    expect(billing).toContain(`AND payment."reversed" = FALSE`)
+    expect(billing).toContain(`END = payment."amount"`)
+    expect(billing).toContain(`ON own."id" = recorded ->> 'id'`)
+    expect(billing).toContain(`<= settle_day`)
+    expect(billing).toContain(`actual."creditLifePremiumDue" <> 0`)
+    expect(baselineConstraintSql("AuditLog_settlement_evidence_receipts_only")).toContain(`"newValue" -> 'earlyInstalmentSettlement' IS NULL`)
     expect(billing).toContain(`Early instalment settlement does not preserve PASQ v3 contractual and ledger evidence`)
     // The DAILY_ACCRUAL rebate and the full PASQ comparison are kept as they were.
     expect(billing).toContain(`audit."newValue" ->> 'earlyDailySettlement' = 'true'`)

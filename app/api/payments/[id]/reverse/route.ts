@@ -7,7 +7,7 @@ import { allocateReceipts, recomputeLoanBalances, nextPaymentDueDate } from "@/l
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { latestCashReceipt, resyncChargesIfLive, scheduleShareOfReceipts } from "@/lib/loan/receipt-charges"
-import { ContractualScheduleMissingError, contractualScheduleOf } from "@/lib/loan/contractual-schedule"
+import { ContractualScheduleError, contractualScheduleOf } from "@/lib/loan/contractual-schedule"
 import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { guardSentence } from "@/lib/asset-finance/recovery-result"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
@@ -146,7 +146,7 @@ export async function PATCH(
 
         // An early settlement re-priced the schedule; the reversal re-opens the
         // contract as signed (lib/loan/contractual-schedule.ts).
-        const contractualRows = await contractualScheduleOf(tx, loan, loan.repaymentSchedule)
+        const contractualRows = await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
         const perRowPaid = allocateReceipts(contractualRows, totalReceipts)
         const postRows = contractualRows.map((row, i) => ({
           ...row,
@@ -276,8 +276,8 @@ export async function PATCH(
         if (error instanceof RecoveryProceedsKeptError || guardSentence(error)?.includes("sale-proceeds receipt is not reversed")) {
           return NextResponse.json({ error: PROCEEDS_KEPT }, { status: 409 })
         }
-        if (error instanceof ContractualScheduleMissingError) {
-          return NextResponse.json({ error: "This loan was settled early and its contractual schedule cannot be restored; refer it to an administrator" }, { status: 409 })
+        if (error instanceof ContractualScheduleError) {
+          return NextResponse.json({ error: error.userMessage }, { status: 409 })
         }
         if (error instanceof PaymentAlreadyReversedError) {
           return NextResponse.json(

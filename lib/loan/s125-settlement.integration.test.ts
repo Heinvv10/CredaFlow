@@ -63,14 +63,15 @@ async function capture(tenantId: string, userId: string, loanId: string, amount:
   return runWithTenant(tenantId, () => applyManualReceipt(prisma, { tenantId, loanId, amount, capturedById: userId }))
 }
 
-async function reverse(tenantId: string, userId: string, paymentId: string) {
+async function reverse(tenantId: string, userId: string, paymentId: string, status = 200) {
   ctx.tenantId = tenantId
   ctx.userId = userId
   const res = await reversePayment(
     new NextRequest(`http://localhost/api/payments/${paymentId}/reverse`, { method: "PATCH", body: JSON.stringify({ reason: "Bank returned the EFT (IT)." }) }),
     { params: Promise.resolve({ id: paymentId }) },
   )
-  expect(res.status).toBe(200)
+  expect(res.status).toBe(status)
+  return res
 }
 
 suite.sequential("NCA s125 early settlement of an instalment loan (real Postgres)", () => {
@@ -80,6 +81,7 @@ suite.sequential("NCA s125 early settlement of an instalment loan (real Postgres
   let principalBefore = 0
   let settlement = 0
   let settlementPaymentId = ""
+  let firstPaymentId = ""
 
   beforeAll(async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: at("2026-07-24") })
@@ -96,7 +98,7 @@ suite.sequential("NCA s125 early settlement of an instalment loan (real Postgres
     const booked = await loanWithRows(loanId)
     const [first, second, third] = booked.repaymentSchedule
     // Instalments 1 and 2 on their due dates, and half of instalment 3 early.
-    await capture(scenario.tenantId, scenario.officerId, loanId, first.totalDue, first.dueDate.toISOString().slice(0, 10))
+    firstPaymentId = (await capture(scenario.tenantId, scenario.officerId, loanId, first.totalDue, first.dueDate.toISOString().slice(0, 10))).payment.id
     await capture(scenario.tenantId, scenario.officerId, loanId, second.totalDue, second.dueDate.toISOString().slice(0, 10))
     await capture(scenario.tenantId, scenario.officerId, loanId, Math.round(third.totalDue / 2), "2026-10-05")
     vi.setSystemTime(at("2026-10-10"))
@@ -173,6 +175,14 @@ suite.sequential("NCA s125 early settlement of an instalment loan (real Postgres
       })
       await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
     })).rejects.toThrow(/Early instalment settlement does not preserve PASQ v3 contractual and ledger evidence/)
+  })
+
+  it("refuses to reverse an earlier receipt while the settlement it priced stands", async () => {
+    const before = await loanWithRows(loanId)
+    const res = await reverse(scenario.tenantId, scenario.officerId, firstPaymentId, 409)
+    expect((await res.json()).error).toMatch(/Reverse the settlement receipt first/)
+    expect(await loanWithRows(loanId)).toEqual(before)
+    expect(await db.payment.findUniqueOrThrow({ where: { id: firstPaymentId } })).toMatchObject({ reversed: false })
   })
 
   it("restores the contractual rows exactly when the settlement receipt is reversed", async () => {
