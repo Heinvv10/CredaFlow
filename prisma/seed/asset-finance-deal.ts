@@ -87,7 +87,7 @@ export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties:
     for (const subject of subjects) await runDealBureauCheck(tenantId, deal.applicationId, subject, { force: false, startedAt: new Date() })
     deal = await prisma.assetFinanceDeal.findFirstOrThrow({ where: { id: dealId, tenantId }, include: { application: true, financials: true, affordabilityAssessment: true } })
     if (!deal.affordabilityAssessment) {
-      const assessed = await prisma.$transaction((tx) => recordAssetFinanceAffordability(tx, dealActor(tenantId, staff.adminOne), dealId, "Synthetic trust cash flow supports this NCA finance lease."))
+      const assessed = await prisma.$transaction((tx) => recordAssetFinanceAffordability(tx, dealActor(tenantId, staff.adminOne), dealId, "Trust cash flow supports this NCA finance lease."))
       if (assessed.kind !== "recorded" || !assessed.affordable) throw new Error(`Seed: trust s81 refused (${JSON.stringify(assessed)})`)
     }
     if (!deal.application.creditLifeElection) {
@@ -97,7 +97,7 @@ export async function seedTrustDeal(tenantId: string, staff: SeedStaff, parties:
       if (election.kind !== "recorded") throw new Error(`Seed: trust credit life refused (${election.kind})`)
     }
     const decided = await prisma.$transaction((tx) => decideDeal(tx, dealActor(tenantId, staff.adminOne), dealId, {
-      decision: "APPROVE", reasons: ["Synthetic trust bank credits support the instalment", "Natural trustees' bureau records were checked"],
+      decision: "APPROVE", reasons: ["Trust bank credits support the instalment", "Natural trustees' bureau records were checked"],
     }))
     if (decided.kind !== "decided" || decided.status !== "APPROVED") throw new Error(`Seed: trust approval refused (${JSON.stringify(decided)})`)
   }
@@ -134,7 +134,7 @@ async function approveOverride(tenantId: string, approver: SeedActor, applicatio
       !overrideMatchesApplication(override, override.application)) {
       throw new Error("Seed: the override is stale")
     }
-    const note = "Synthetic audited AFS (TEST) evidence turnover above the juristic threshold"
+    const note = "Audited AFS evidence turnover above the juristic threshold"
     await tx.ncaRegimeOverride.update({
       where: { id: override.id },
       data: { status: "APPROVED", decidedById: approver.id, decidedAt: new Date(), decisionNote: note },
@@ -193,7 +193,7 @@ export async function originateCompanyDeal(tenantId: string, staff: SeedStaff, p
   const decided = await prisma.$transaction((tx) => decideDeal(tx, dealActor(tenantId, staff.adminOne), dealId, {
     decision: "APPROVE",
     reasons: [
-      "Synthetic AFS show debt service cover comfortably above the credit policy minimum",
+      "AFS show debt service cover comfortably above the credit policy minimum",
       "New excavator, insured with the lender's interest noted and tracked; directors' surety in place",
     ],
   }))

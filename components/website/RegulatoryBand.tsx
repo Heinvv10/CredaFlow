@@ -1,10 +1,13 @@
 import { BadgeCheck, ShieldCheck } from "lucide-react"
 import type { LenderIdentity } from "@/lib/config/identity-schema"
+import { demoLenderNote } from "@/lib/config/demo-mode"
 
 // Above-the-fold licensing strip: the NCR and FSP numbers are the first thing
 // crawlers see on `/`. They come from the tenant's own LenderIdentity; never inline.
-// No FSP number, no FAIS claim.
+// No FSP number, no FAIS claim. On a demo stack the numbers are a fictional
+// demo lender's, and the strip says so.
 export function RegulatoryBand({ identity }: { identity: Pick<LenderIdentity, "ncrNumber" | "fspNumber"> }) {
+  const demoNote = demoLenderNote()
   return (
     <div
       role="region"
@@ -28,6 +31,7 @@ export function RegulatoryBand({ identity }: { identity: Pick<LenderIdentity, "n
             </span>
           </span>
         )}
+        {demoNote && <span className="font-semibold text-white">{demoNote}</span>}
       </div>
     </div>
   )
