@@ -307,6 +307,18 @@ describe("PATCH /api/applications/[id]/affordability", () => {
     expect(transactionMock).not.toHaveBeenCalled()
   })
 
+  it("refuses a declared row carrying the lender-only own-loan sourceId", async () => {
+    const response = await PATCH(request({
+      existingDebtObligations: [
+        { sourceId: "own-loan:loan-1", creditor: "Acme Lending", type: "PERSONAL_LOAN", balance: 0, monthlyInstalment: 100 },
+      ],
+    }), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toContain("counted automatically")
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
   it("rejects a malformed debt row as validation, not a server error", async () => {
     const response = await PATCH(request({ existingDebtObligations: [null] }), context)
 

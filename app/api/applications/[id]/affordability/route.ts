@@ -26,7 +26,7 @@ import {
   creditLifePremiumPaymentLoadCents,
 } from "@/lib/insurance/credit-life-billing"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
-import { loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { isOwnLoanSourceId, loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
 
 export async function PATCH(
   req: NextRequest,
@@ -58,6 +58,13 @@ export async function PATCH(
       if (!Array.isArray(body.existingDebtObligations)) {
         return NextResponse.json(
           { error: "existingDebtObligations must be an array; omitted debt evidence is never treated as an empty declaration" },
+          { status: 422 },
+        )
+      }
+      // `own-loan:` entries are written by the lender only (lib/affordability/own-lender-debt.ts).
+      if (body.existingDebtObligations.some((debt) => isOwnLoanSourceId(debt?.sourceId))) {
+        return NextResponse.json(
+          { error: "Loans with this lender are counted automatically; remove the own-loan rows from the declaration." },
           { status: 422 },
         )
       }

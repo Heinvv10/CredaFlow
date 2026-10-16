@@ -67,6 +67,7 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
   let tenant: ChargesTenant
   let elize = ""
   let activeRef = ""
+  let pendingRef = ""
   let own: OwnLenderDebts
   let declared: AffordabilityDebtInput[]
 
@@ -83,8 +84,13 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
       data: { clientId: elize, creditProvider: "Store account", accountType: "RETAIL", outstandingBalance: 400_000, monthlyInstalment: DECLARED },
     })
     activeRef = (await bookLoan(tenant, elize, "ACTIVE", 27, 84_330)).reference
-    // Settled: owes nothing, so it is no obligation.
+    // Settled, written off, or open with nothing left owing: no obligation.
     await bookLoan(tenant, elize, "COMPLETED")
+    await bookLoan(tenant, elize, "WRITTEN_OFF", 200, 300_000)
+    const repaid = await bookLoan(tenant, elize, "ACTIVE")
+    await db.loan.update({ where: { id: repaid.id }, data: { outstandingPrincipal: 0, arrearsAmount: 0 } })
+    // Parked for write-off approval: still owed, still an obligation.
+    pendingRef = (await bookLoan(tenant, elize, "PENDING_WRITE_OFF", 95, 254_100)).reference
     // Another lender's book: never this lender's own loan.
     const other = await createChargesTenant(db, false)
     const otherClient = await db.client.create({
@@ -99,11 +105,12 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
     await db.$disconnect()
   })
 
-  it("finds the client's ACTIVE loan with this lender, its recurring instalment and arrears", () => {
-    expect(own.lenderNames).toContain("Acme Lending")
-    expect(own.loans).toHaveLength(1)
-    expect(own.loans[0]).toMatchObject({ reference: activeRef, instalmentCents: INSTALMENT, daysInArrears: 27, arrearsAmount: 84_330 })
-    expect(ownLenderArrears(own)).toEqual({ days: 27, amountCents: 84_330 })
+  it("finds every open loan of the client that still owes money, with its instalment and arrears", () => {
+    expect(own.lenderNames).toEqual(["Acme Lending", "Acme Lending (Pty) Ltd"])
+    expect(own.loans.map((loan) => loan.reference)).toEqual([activeRef, pendingRef])
+    expect(own.loans[0]).toMatchObject({ instalmentCents: INSTALMENT, daysInArrears: 27, arrearsAmount: 84_330 })
+    expect(own.loans[1]).toMatchObject({ status: "PENDING_WRITE_OFF", instalmentCents: INSTALMENT })
+    expect(ownLenderArrears(own)).toEqual({ days: 95, amountCents: 84_330 + 254_100 })
   })
 
   it("gives the new-application client picker the same loans, per client", async () => {
@@ -114,17 +121,20 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
 
   it("leaves out the loan booked from the application being viewed", async () => {
     const loan = await db.loan.findFirstOrThrow({ where: { reference: activeRef } })
-    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, elize, loan.applicationId)).loans).toEqual([])
+    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, elize, loan.applicationId)).loans.map((l) => l.reference)).toEqual([pendingRef])
   })
 
-  it("counts it on top of the declared R870, once", () => {
-    const debts = normaliseAffordabilityDebts(withOwnLenderDebts(declared, own))
-    expect(totalAffordabilityDebt(debts)).toBe(DECLARED + INSTALMENT)
-    // Declared by reference, or against this lender's name: not counted again.
-    const byReference = withOwnLenderDebts([...declared, { sourceId: activeRef, provider: "Acme", type: "LOAN", balance: 0, monthlyInstalment: INSTALMENT }], own)
-    expect(totalAffordabilityDebt(normaliseAffordabilityDebts(byReference))).toBe(DECLARED + INSTALMENT)
-    const byName = withOwnLenderDebts([...declared, { provider: "ACME LENDING personal loan", type: "LOAN", balance: 0, monthlyInstalment: 200_000 }], own)
-    expect(totalAffordabilityDebt(normaliseAffordabilityDebts(byName))).toBe(DECLARED + INSTALMENT)
+  it("counts them on top of the declared R870, once", () => {
+    const OWN = 2 * INSTALMENT
+    const total = (debts: AffordabilityDebtInput[]) => totalAffordabilityDebt(normaliseAffordabilityDebts(withOwnLenderDebts(debts, own)))
+    expect(total(declared)).toBe(DECLARED + OWN)
+    // Declared by reference, or against this lender's exact name: not counted
+    // again, and never below the lender's own instalments.
+    expect(total([...declared, { sourceId: activeRef, provider: "Acme", type: "LOAN", balance: 0, monthlyInstalment: INSTALMENT }])).toBe(DECLARED + OWN)
+    expect(total([...declared, { sourceId: activeRef, provider: "Acme", type: "LOAN", balance: 0, monthlyInstalment: 100 }])).toBe(DECLARED + OWN)
+    expect(total([...declared, { provider: "ACME LENDING", type: "LOAN", balance: 0, monthlyInstalment: 200_000 }])).toBe(DECLARED + OWN)
+    // A provider that merely contains the lender's name is another creditor.
+    expect(total([...declared, { provider: "ACME LENDING personal loan", type: "LOAN", balance: 0, monthlyInstalment: 200_000 }])).toBe(DECLARED + 200_000 + OWN)
   })
 
   it("turns an affordable-looking application into a refusal", () => {
@@ -169,7 +179,7 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
       interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "NCA_REG42" as const, initiationFeePct: 0.15,
       initiationFeeMaxCents: 105_000, monthlyServiceFeeCents: 6_900, initiationFeePayment: "DEFERRED" as const, ndiBufferPct: 110,
     }
-    expect(inputs.declaredDebtCents).toBe(DECLARED + INSTALMENT)
+    expect(inputs.declaredDebtCents).toBe(DECLARED + 2 * INSTALMENT)
     const gate = evaluateAffordabilityGate(inputs)
     expect(gate.blocked).toBe(false)
     const approval = createAffordabilitySnapshot({

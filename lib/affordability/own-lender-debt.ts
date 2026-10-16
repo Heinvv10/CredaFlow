@@ -12,15 +12,19 @@ import type { AffordabilityDebtInput } from "@/lib/affordability/snapshot"
 // assessment showed R870. NCA s81(2)(a)(ii) requires the consumer's existing
 // obligations to be assessed, and the lender cannot claim not to know its own.
 //
-// Each ACTIVE / DEFAULTED loan of the client is appended to BOTH declared
-// lists (application and client record), so `max(application, client)` counts
-// it whichever list is larger, unless that list already declares it: by its
-// loan id or reference as the debt's sourceId, or by a debt whose provider is
-// this lender, whose instalments are credited against the own loans first.
+// Each open loan of the client that still owes money is appended to BOTH
+// declared lists (application and client record), so `max(application,
+// client)` counts it whichever list is larger. A list may already declare it —
+// by its loan id or reference as the debt's sourceId, or by a debt whose
+// provider IS this lender's trading or legal name (exact, normalised). A
+// declaration never lowers what is counted: the loan and the debts declaring it
+// together count max(declared, the lender's own instalment). Only the lender
+// writes `own-loan:` sourceIds; one supplied in a declaration is stripped.
 
 export const OWN_LOAN_SOURCE_PREFIX = "own-loan:"
 export const OWN_LOAN_DEBT_TYPE = "LOAN_WITH_THIS_LENDER"
-export const OWN_LOAN_STATUSES = ["ACTIVE", "DEFAULTED"] as const
+/** Every LoanStatus that is not closed (COMPLETED, WRITTEN_OFF, CANCELLED). */
+export const OWN_LOAN_STATUSES = ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF", "RESTRUCTURED"] as const
 
 export interface OwnLenderLoan {
   id: string
@@ -34,25 +38,26 @@ export interface OwnLenderLoan {
 }
 
 export interface OwnLenderDebts {
-  /** names this lender trades under, for recognising a declared debt */
+  /** this lender's trading and legal names, for recognising a declared debt */
   lenderNames: string[]
   loans: OwnLenderLoan[]
 }
 
 const norm = (value: unknown) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")
 
+/** A sourceId only the lender may write. */
+export function isOwnLoanSourceId(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase().startsWith(OWN_LOAN_SOURCE_PREFIX)
+}
+
 function declaresLoan(debt: AffordabilityDebtInput, loan: OwnLenderLoan): boolean {
   const ref = norm(debt.sourceId ?? debt.id)
-  return ref !== "" && [loan.id, loan.reference, `${OWN_LOAN_SOURCE_PREFIX}${loan.id}`].some((v) => norm(v) === ref)
+  return ref !== "" && (ref === norm(loan.id) || ref === norm(loan.reference))
 }
 
 function namesLender(debt: AffordabilityDebtInput, lenderNames: string[]): boolean {
   const provider = norm(debt.provider ?? debt.creditor ?? debt.creditProvider)
-  if (provider.length < 3) return false
-  return lenderNames.some((name) => {
-    const lender = norm(name)
-    return lender.length >= 3 && (provider.includes(lender) || lender.includes(provider))
-  })
+  return provider !== "" && lenderNames.some((name) => norm(name) === provider)
 }
 
 function instalmentOf(debt: AffordabilityDebtInput): number {
@@ -61,26 +66,28 @@ function instalmentOf(debt: AffordabilityDebtInput): number {
 }
 
 /**
- * `debts` plus one entry per own loan the list does not already declare. Pure:
- * the same list and loans give the same entries, so a fingerprint over them is
- * reproducible.
+ * `debts` plus, per own loan, the part of its instalment the list's
+ * declarations do not already count. Pure: the same list and loans give the
+ * same entries, so a fingerprint over them is reproducible.
  */
 export function withOwnLenderDebts(
   debts: readonly AffordabilityDebtInput[] | null | undefined,
   own: OwnLenderDebts,
 ): AffordabilityDebtInput[] {
-  const list = [...(debts ?? [])]
-  const undeclared = own.loans.filter((loan) => !list.some((debt) => declaresLoan(debt, loan)))
-  // A debt the client declared against this lender's name covers own loans
-  // first, so a declared "Fair Score R2,541" is not counted twice.
+  const list = (debts ?? []).map((debt) => (isOwnLoanSourceId(debt.sourceId) ? { ...debt, sourceId: null } : debt))
+  // Declarations of this lender by name, not tied to one loan: credited across
+  // the own loans, oldest first.
   let declaredToLender = list
     .filter((debt) => namesLender(debt, own.lenderNames) && !own.loans.some((loan) => declaresLoan(debt, loan)))
     .reduce((sum, debt) => sum + instalmentOf(debt), 0)
   const lender = own.lenderNames[0] ?? "This lender"
-  for (const loan of undeclared) {
-    const covered = Math.min(declaredToLender, loan.instalmentCents)
-    declaredToLender -= covered
-    const instalment = loan.instalmentCents - covered
+  for (const loan of own.loans) {
+    const byReference = list
+      .filter((debt) => declaresLoan(debt, loan))
+      .reduce((sum, debt) => sum + instalmentOf(debt), 0)
+    const byName = Math.min(declaredToLender, Math.max(0, loan.instalmentCents - byReference))
+    declaredToLender -= byName
+    const instalment = loan.instalmentCents - byReference - byName
     if (instalment <= 0) continue
     list.push({
       sourceId: `${OWN_LOAN_SOURCE_PREFIX}${loan.id}`,
@@ -102,6 +109,12 @@ export function ownLenderDebtEntries<T extends { sourceId: string | null }>(debt
 // Structural, so both the extended client and its transaction client fit.
 type OwnLoanDb = Pick<typeof prisma, "loan" | "tenant" | "tenantConfig">
 
+// Open, and still owing: principal outstanding, or instalments overdue.
+const OWES_MONEY = {
+  status: { in: [...OWN_LOAN_STATUSES] },
+  OR: [{ outstandingPrincipal: { gt: 0 } }, { arrearsAmount: { gt: 0 } }],
+}
+
 const OWN_LOAN_SELECT = {
   id: true, clientId: true, reference: true, status: true, outstandingPrincipal: true, daysInArrears: true, arrearsAmount: true,
   repaymentSchedule: { orderBy: { installmentNo: "asc" as const }, select: { totalDue: true } },
@@ -112,8 +125,10 @@ async function lenderNamesOf(db: OwnLoanDb, tenantId: string): Promise<string[]>
     db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
     db.tenantConfig.findUnique({ where: { tenantId }, select: { brandName: true, legalName: true } }),
   ])
-  return [config?.brandName, tenant?.name, config?.legalName]
+  const names = [config?.brandName, config?.legalName]
     .filter((name): name is string => typeof name === "string" && name.trim() !== "")
+  // A lender with no configured identity is known by its tenant name only.
+  return names.length > 0 ? names : [tenant?.name].filter((name): name is string => !!name?.trim())
 }
 
 function toOwnLoan(loan: {
@@ -145,7 +160,8 @@ export async function loadOwnLenderDebts(
   const [loans, lenderNames] = await Promise.all([
     db.loan.findMany({
       where: {
-        tenantId, clientId, status: { in: [...OWN_LOAN_STATUSES] },
+        ...OWES_MONEY,
+        tenantId, clientId,
         ...(excludeApplicationId ? { applicationId: { not: excludeApplicationId } } : {}),
       },
       orderBy: { startDate: "asc" },
@@ -160,7 +176,7 @@ export async function loadOwnLenderDebts(
 export async function loadOwnLenderDebtsByClient(db: OwnLoanDb, tenantId: string): Promise<Map<string, OwnLenderDebts>> {
   const [loans, lenderNames] = await Promise.all([
     db.loan.findMany({
-      where: { tenantId, clientId: { not: null }, status: { in: [...OWN_LOAN_STATUSES] } },
+      where: { ...OWES_MONEY, tenantId, clientId: { not: null } },
       orderBy: { startDate: "asc" },
       select: OWN_LOAN_SELECT,
     }),
