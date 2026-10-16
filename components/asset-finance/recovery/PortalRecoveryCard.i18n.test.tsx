@@ -3,10 +3,12 @@ import type { RecoveryStatus } from "@prisma/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import type { PortalRecoveryView } from "@/lib/asset-finance/recovery-view"
+import { formatIsoDate } from "@/lib/asset-finance/format"
 import { CATALOGS } from "@/lib/i18n/catalog"
 import { formatDay } from "@/lib/i18n/format"
 import type { Locale } from "@/lib/i18n/locales"
 import { PortalRecoveryCard } from "./PortalRecoveryCard"
+import { STATUS_LABELS } from "./recovery-model"
 
 // Synthetic views covering every status and every line the card can print.
 const base: PortalRecoveryView = {
@@ -20,6 +22,8 @@ const account = (over: Partial<NonNullable<PortalRecoveryView["finalAccount"]>> 
   chargesFrozenUntil: "2026-11-20", ...over,
 })
 const STATUSES: RecoveryStatus[] = ["RECOVERED", "VALUED", "VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED", "FINAL_NOTICE_ISSUED", "SHORTFALL_OPEN", "SURPLUS_HELD", "CLOSED", "WITHDRAWN"]
+const ENGLISH_STATUSES = ["VALUATION_NOTICE_ISSUED", "FINAL_NOTICE_ISSUED", "SHORTFALL_OPEN", "SURPLUS_HELD"] as const
+const TRANSLATED_STATUSES = ["RECOVERED", "VALUED", "LISTED", "SOLD", "PROCEEDS_APPLIED", "CLOSED", "WITHDRAWN"] as const
 const final = { notices: { valuation: true, final: true } }
 const CASES: Record<string, PortalRecoveryView> = {
   ...Object.fromEntries(STATUSES.map((status) => [`status ${status}`, { ...base, status }])),
@@ -59,25 +63,34 @@ describe("PortalRecoveryCard in the borrower's language", () => {
     expect(sha(html(CASES[name], "en"))).toBe(ENGLISH_BEFORE[name])
   })
 
-  it.each(["af", "zu", "xh"] as const)("%s: every line of the final account, the statuses and the treatments come from the catalogue", (locale) => {
+  it.each(["af", "zu", "xh"] as const)("%s: the heading and the neutral statuses come from the catalogue", (locale) => {
     const m = CATALOGS[locale].portalRecovery
     const out = html(CASES["shortfall with costs and freeze"], locale)
-    for (const key of ["title", "valuation", "noticesIssued", "noticeValuation", "noticeFinal", "saleProceeds", "deductedCosts", "netProceeds", "chargedCosts", "shortfall", "recoveryCosts", "status_SHORTFALL_OPEN", "treatment_DEDUCT_FROM_PROCEEDS", "treatment_CHARGE_TO_ACCOUNT"] as const) {
-      expect(out, key).toContain(m[key])
-    }
+    expect(out).toContain(m.title)
+    expect(out).toContain(m.noticesIssued)
     expect(out).toContain(m.description.replace("{asset}", "2022 TEST Excavator").replace("{date}", formatDay("2026-10-01T12:00:00+02:00", locale)))
-    expect(out).toContain(m.chargesFrozenUntil.replace("{date}", formatDay("2026-11-20T12:00:00+02:00", locale)))
-    for (const english of ["Recovery of your asset", "Sale proceeds", "Net proceeds", "Shortfall you owe", "No further charges accrue", "Deducted from the proceeds"]) {
-      expect(out).not.toContain(english)
-    }
-    // Cost names stay English, as on the s127 final notice.
-    expect(out).toContain("Storage")
-    expect(out).toContain("Legal costs (taxed)")
-    for (const status of STATUSES) expect(html({ ...base, status }, locale)).toContain(m[`status_${status}`])
-    expect(html(CASES.surplus, locale)).toContain(m.surplus)
-    expect(html(CASES["unrecoverable costs"], locale)).toContain(m.unrecoverableCosts)
-    expect(html(CASES["nothing owed"], locale)).toContain(m.nothingOwed)
+    expect(out).not.toContain("Recovery of your asset")
     expect(html(CASES["no valuation, no notices"], locale)).toContain(m.noneYet)
+    for (const status of TRANSLATED_STATUSES) expect(html({ ...base, status }, locale)).toContain(m[`status_${status}`])
+  })
+
+  // Statutory and collections text is never translated (lib/i18n/.claude.md): every line
+  // that mirrors the s127/s131 notices or states what is owed prints in English. Each is
+  // matched as a whole element text (">…<"), so "Valuation" is not found inside "Valuation notice".
+  it.each(["af", "zu", "xh"] as const)("%s: the notice, final-account and owed lines stay English", (locale) => {
+    const text = (view: PortalRecoveryView) => html(view, locale).replace(/&nbsp;|\u00a0/g, " ")
+    const shortfall = text(CASES["shortfall with costs and freeze"])
+    for (const english of [
+      "Valuation", "Valuation notice, Final notice", "Sale proceeds", "Costs deducted from the proceeds", "Net proceeds", "Costs charged to the account",
+      "Shortfall you owe", "Recovery costs", "Storage", "Legal costs (taxed)", "Deducted from the proceeds", "Charged to the account",
+      `No further charges accrue on the account until ${formatIsoDate("2026-11-20")}.`, "R 25,000.00", "Shortfall open",
+    ]) expect(shortfall, english).toContain(`>${english}<`)
+    expect(text(CASES["unrecoverable costs"])).toContain(">Charged costs not recoverable on the account<")
+    expect(text(CASES.surplus)).toContain(">Surplus due to you<")
+    expect(text(CASES.surplus)).toContain(">Surplus held<")
+    expect(text(CASES["nothing owed"])).toContain(">Nothing owed either way<")
+    expect(text(CASES["nothing owed"])).toContain(">Balance<")
+    for (const status of ENGLISH_STATUSES) expect(text({ ...base, status })).toContain(`>${STATUS_LABELS[status]}<`)
   })
 
   it("prints the English label for a status the catalogue does not know, rather than failing", () => {
