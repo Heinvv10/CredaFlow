@@ -24,6 +24,12 @@ export async function superAdminPolicyWrite(
   /** Validates the body; a Response refuses the request before any write. */
   parse: (body: unknown, ctx: PolicyWriteContext) => Response | object,
   write: (tx: Tx, input: object, ctx: PolicyWriteContext) => Promise<Response>,
+  /**
+   * Optional slow work between the checks and the transaction (an outbound
+   * call whose answer the write records); a Response refuses. It runs before
+   * the locked re-check, so the role is still verified when the write happens.
+   */
+  prepare?: (input: object, ctx: PolicyWriteContext) => Promise<Response | object>,
 ): Promise<Response> {
   const guard = await requireApiRole("SUPER_ADMIN")
   if (guard.error) return guard.error
@@ -38,11 +44,13 @@ export async function superAdminPolicyWrite(
     const ctx: PolicyWriteContext = { tenantId: tenant.id, actor: { id: actor.id, email: actor.email }, ip: callerIp(req) }
     const input = parse(await req.json().catch(() => null), ctx)
     if (input instanceof Response) return input
+    const prepared = prepare ? await prepare(input, ctx) : input
+    if (prepared instanceof Response) return prepared
     return prisma.$transaction(async (tx) => {
       const locked = await refuseLockedStaffUserWrite(tx, actor, { tenantId: tenant.id, assignedRole: undefined })
       if (locked.refused) return locked.refused
       if (locked.callerRole !== "SUPER_ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-      return write(tx, input, ctx)
+      return write(tx, prepared, ctx)
     }).catch((err: unknown) => {
       const conflict = staffUserWriteConflict(err)
       if (conflict) return conflict
