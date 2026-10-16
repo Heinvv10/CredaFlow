@@ -153,6 +153,13 @@ host_addr() {
   echo "$ip:$2"
 }
 
+# seed_passwords_ok FILE — true when FILE holds only SEED_*_PASSWORD=… lines
+# (blank lines allowed; no comments, no `export`), so it can never override
+# DATABASE_URL, LD_PRELOAD or the sim clock in the seed container.
+seed_passwords_ok() {
+  ! grep -vqE '^(SEED_[A-Z_]+_PASSWORD=.+)?$' "$1"
+}
+
 # record_result NAME LINE — the one-line outcome of the last bake/restore,
 # read by status.sh ($LOG_DIR/last-<NAME>).
 record_result() {

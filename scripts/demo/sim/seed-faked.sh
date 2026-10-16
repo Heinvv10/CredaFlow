@@ -36,12 +36,11 @@ export DATABASE_URL
 [ -n "$DATABASE_URL" ] || { echo "seed-faked: DATABASE_URL missing from .env.demo-sim" >&2; exit 1; }
 [ -s "$ROOT/scripts/demo/.sim-clock/faketime.rc" ] || { echo "seed-faked: set the sim clock first (clock.ts set …)" >&2; exit 1; }
 
-# Pinned demo passwords (lib.sh SEED_PASSWORDS). Only SEED_*_PASSWORD keys: the
-# file must never override DATABASE_URL or the clock.
+# Pinned demo passwords (lib.sh SEED_PASSWORDS, seed_passwords_ok).
 seed_env=()
 if [ -f "$SEED_PASSWORDS" ]; then
-  if grep -vqE '^(SEED_[A-Z_]+_PASSWORD=.+)?$' "$SEED_PASSWORDS"; then
-    echo "seed-faked: $SEED_PASSWORDS may hold only SEED_*_PASSWORD=… lines" >&2
+  if ! seed_passwords_ok "$SEED_PASSWORDS"; then
+    echo "seed-faked: $SEED_PASSWORDS may hold only SEED_*_PASSWORD=… lines (no comments)" >&2
     exit 1
   fi
   seed_env=(--env-file "$SEED_PASSWORDS")
@@ -86,7 +85,7 @@ docker run --rm \
   -e HOME=/tmp \
   -e DATABASE_URL \
   -e DEMO_LENDER \
-  "${seed_env[@]}" \
+  ${seed_env[@]+"${seed_env[@]}"} \
   -e SEED_PRINT_CREDENTIALS=1 \
   -e TZ=UTC \
   -e FAKETIME_TIMESTAMP_FILE=/sim-clock/faketime.rc \
