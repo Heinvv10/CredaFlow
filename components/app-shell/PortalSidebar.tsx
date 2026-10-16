@@ -59,6 +59,8 @@ type PortalSidebarProps = {
   userName: string
   userEmail: string
   brandName: string
+  /** The lender's logo (lib/config/lender-logo.ts publicLenderLogoSrc); null shows the name alone. */
+  logoSrc?: string | null
   /** The lender's `publicWhatsappE164`; null hides the Support link. */
   whatsappE164: string | null
   /** The client may act for a business entity (asset finance). */
@@ -67,7 +69,7 @@ type PortalSidebarProps = {
   enabledLocales?: readonly Locale[]
 }
 
-export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, showBusiness = false, enabledLocales = [] }: PortalSidebarProps) {
+export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, whatsappE164, showBusiness = false, enabledLocales = [] }: PortalSidebarProps) {
   const pathname = usePathname()
   const t = useT("portalShell")
   const label = (item: NavItem) => {
@@ -81,8 +83,13 @@ export function PortalSidebar({ userName, userEmail, brandName, whatsappE164, sh
     <>
       <aside className="fixed bottom-0 left-0 top-[var(--cf-demo-banner-h)] z-40 hidden w-60 border-r border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:flex md:flex-col">
         <div className="flex h-16 items-center border-b border-[var(--cf-border-subtle)] px-5">
-          <div>
-            <p className="text-xs font-semibold text-[var(--cf-text)]">{brandName}</p>
+          <div className="min-w-0">
+            {logoSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset
+              <img src={logoSrc} alt={brandName} className="h-7 w-auto max-w-[180px] rounded bg-white object-contain px-1" />
+            ) : (
+              <p className="text-xs font-semibold text-[var(--cf-text)]">{brandName}</p>
+            )}
             <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">{t("clientPortal")}</p>
           </div>
         </div>

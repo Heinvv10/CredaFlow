@@ -4,6 +4,7 @@ import { WhatsAppLauncher } from "@/components/support/WhatsAppLauncher"
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { PORTAL_INTENTS } from "@/lib/support/whatsapp-intents"
 import { getLenderIdentity } from "@/lib/config/identity"
+import { publicLenderLogoSrc } from "@/lib/config/lender-logo"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLocale, getT } from "@/lib/i18n/server"
 import type { Locale } from "@/lib/i18n/locales"
@@ -21,8 +22,9 @@ export async function PortalShell({ userName, userEmail, showBusiness = false, e
   const firstName = userName.split(" ")[0]
   // Throws LenderIdentityError when the lender is unconfigured: the portal
   // refuses to render rather than show another lender's contact line.
-  const identity = await getLenderIdentity(await getPortalTenantId())
-  const [locale, t] = await Promise.all([getLocale(), getT("portalShell")])
+  const tenantId = await getPortalTenantId()
+  const identity = await getLenderIdentity(tenantId)
+  const [locale, t, logoSrc] = await Promise.all([getLocale(), getT("portalShell"), publicLenderLogoSrc(tenantId)])
 
   return (
     <div lang={locale} className="min-h-screen cf-app-surface">
@@ -30,6 +32,7 @@ export async function PortalShell({ userName, userEmail, showBusiness = false, e
         userName={userName}
         userEmail={userEmail}
         brandName={identity.tradingName}
+        logoSrc={logoSrc}
         whatsappE164={identity.publicWhatsappE164}
         showBusiness={showBusiness}
         enabledLocales={enabledLocales}

@@ -63,4 +63,5 @@ export const portalHome: Catalog["portalHome"] = {
   noPolicies: "Awekho amaphoyisi omshwalense asebenzayo.",
   coverage: "Isembozo:",
   perMonth: "/ngenyanga",
+  overdueToPay: "Khokha u-{amount} ukuze i-akhawunti yakho ibe sesimweni esifanele.",
 }

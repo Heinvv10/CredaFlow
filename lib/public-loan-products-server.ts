@@ -15,6 +15,7 @@ import {
   type PublicLoanProduct,
   type PublicLoanProductCode,
 } from "@/lib/public-loan-products"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Reads active LoanProduct rows for the tenant and maps them to LivePricing keyed
 // by PUBLIC code. Mirrors app/api/website/loan-pricing/route.ts EXACTLY (same
@@ -25,7 +26,7 @@ export async function getLivePricingServer(
 ): Promise<Partial<Record<PublicLoanProductCode, LivePricing>>> {
   try {
     const rows = await prisma.loanProduct.findMany({
-      where: { tenantId, active: true },
+      where: { tenantId, active: true, ...CONSUMER_PRODUCT_WHERE },
       select: {
         code: true,
         interestRatePm: true,

@@ -121,4 +121,22 @@ describe("portal loan page", () => {
     }
     expect(rows[8]).toContain("UPCOMING")
   })
+
+  // Fair Score audit 2026-10-16: the badge read the cron-stamped 27 days.
+  it("counts the days overdue as of today from the schedule", async () => {
+    portalLoanCharges.mockResolvedValue({ outstanding: 0, lines: [], settlementAmount: null })
+    vi.useFakeTimers({ now: new Date("2026-10-16T10:00:00Z"), toFake: ["Date"] })
+    try {
+      const base = defaultedLoan()
+      loanFindFirst.mockResolvedValue({
+        ...base, status: "ACTIVE", daysInArrears: 27,
+        repaymentSchedule: [{ ...base.repaymentSchedule[0], dueDate: new Date("2026-09-17T06:30:01Z"), principalDue: 166_900, interestDue: 50_000, feesDue: 0 }],
+      })
+      const html = await render()
+      expect(html).toContain("29 days overdue")
+      expect(html).not.toContain("27 days overdue")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

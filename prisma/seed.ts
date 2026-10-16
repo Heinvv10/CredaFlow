@@ -26,6 +26,7 @@ import { seedDefaultMessageTemplates } from "../lib/messaging/default-templates"
 import { generateTotpSecret, generateTotpUri } from "../lib/totp"
 import { demoLender } from "./demo-lender"
 import { catalogueHash } from "../lib/i18n/catalogue-hash"
+import { seedEnvPassword } from "./seed/env-password"
 
 // Demo data with known passwords must never reach a production database.
 // Checked before any client exists; ./seed-document-templates is imported
@@ -50,7 +51,7 @@ const STAFF_DOMAIN = LENDER.staffDomain
 // generated on first creation. Credentials are printed only with
 // SEED_PRINT_CREDENTIALS=1, so they stay out of CI logs.
 const kept = (env: string) => `(unchanged; rerun with ${env}=… to reset it)`
-const envPassword = (name: string) => process.env[name] || undefined
+const envPassword = (name: string) => seedEnvPassword(name)
 const generatePassword = () => `Demo-${randomBytes(12).toString("base64url")}!`
 const SEED_LOAN_REFERENCE = "LN-SEED-0001"
 

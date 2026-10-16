@@ -1,7 +1,7 @@
 "use server"
 
 import { prisma } from "@/lib/prisma"
-import { requireMinRole } from "@/lib/auth-guards"
+import { requireLoanBookStaff } from "@/lib/auth-guards"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { isAssignableStaff } from "@/lib/crm/staff"
 import { revalidatePath } from "next/cache"
@@ -12,7 +12,7 @@ const VALID_LEAD_STATUS = new Set<string>(Object.values(LeadStatus))
 const VALID_ACTIVITY_TYPE = new Set<string>(Object.values(ActivityType))
 
 export async function generateCrossSellOpportunities() {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
 
   const tenantId = user.tenantId
 
@@ -72,7 +72,7 @@ type UpdateLeadStatusResult =
   | { ok: false; error: string }
 
 export async function updateLeadStatus(leadId: string, status: string): Promise<UpdateLeadStatusResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
 
   if (!VALID_LEAD_STATUS.has(status)) {
     return { ok: false, error: "Invalid status" }
@@ -147,7 +147,7 @@ export async function reassignLead(
   leadId: string,
   assignedToId: string | null
 ): Promise<ReassignLeadResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
   const tenantId = user.tenantId
 
   // Neither Lead nor User is in TENANT_SCOPED_MODELS (lib/tenant-scope.ts),
@@ -218,7 +218,7 @@ export async function reassignLead(
  * client or application stays protected.
  */
 export async function resetStrandedConvertedLead(leadId: string) {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
 
   const tenantId = user.tenantId
 
@@ -276,7 +276,7 @@ export async function addLeadActivity(data: {
   subject: string
   notes?: string
 }): Promise<AddLeadActivityResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
 
   if (!VALID_ACTIVITY_TYPE.has(data.type)) {
     return { ok: false, error: "Invalid activity type" }

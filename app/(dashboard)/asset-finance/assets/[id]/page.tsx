@@ -8,7 +8,7 @@ import { formatMoney } from "@/lib/asset-finance/format"
 import { dealStatusLabel } from "@/lib/asset-finance/deal-labels"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
-import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
+import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS, assetBookStatus } from "@/lib/asset-finance/asset-labels"
 import { ValuationForm } from "./ValuationForm"
 import { AssetReadinessForm } from "./AssetReadinessForm"
 
@@ -61,7 +61,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             <Detail label="Tracker" value={asset.trackerProvider && `${asset.trackerProvider}${asset.trackerId ? ` · ${asset.trackerId}` : ""}`} />
             <Detail label="Insurance" value={asset.insurer && `${asset.insurer}${asset.policyNumber ? ` · ${asset.policyNumber}` : ""}`} />
             <Detail label="Lender noted on policy" value={asset.lenderNotedConfirmed ? "Confirmed" : "Not confirmed"} />
-            <Detail label="Book status" value={asset.releasedAt ? `Released ${formatDate(asset.releasedAt)}` : "On book"} />
+            <Detail label="Book status" value={assetBookStatus({ releasedAt: asset.releasedAt && formatDate(asset.releasedAt), deals: asset.deals })} />
             <Detail label="Deals" value={asset.deals.length === 0 ? "None" : asset.deals.map((d) => dealStatusLabel(d.status)).join(", ")} />
             <Detail label="Registered" value={formatDate(asset.createdAt)} />
           </dl>

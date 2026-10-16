@@ -11,6 +11,8 @@ import { isOperatorRole } from "@/lib/operator/roles"
 
 export const REQUEST_METHOD_HEADER = "x-cf-request-method"
 export const REQUEST_ID_HEADER = "x-cf-request-id"
+/** The request's path as the edge saw it, for the guards' loan-book check (lib/auth-guards.ts). */
+export const REQUEST_PATH_HEADER = "x-cf-request-path"
 
 const READ_METHODS = new Set(["GET", "HEAD"])
 
@@ -20,9 +22,11 @@ export function isReadMethod(method: string | null | undefined): boolean {
 }
 
 /** Replaces any caller-supplied stamp with the edge's own. */
-export function stampRequest(headers: Headers, method: string): Headers {
+export function stampRequest(headers: Headers, method: string, path: string): Headers {
+  for (const header of [REQUEST_METHOD_HEADER, REQUEST_ID_HEADER, REQUEST_PATH_HEADER]) headers.delete(header)
   headers.set(REQUEST_METHOD_HEADER, method.toUpperCase())
   headers.set(REQUEST_ID_HEADER, crypto.randomUUID())
+  headers.set(REQUEST_PATH_HEADER, path)
   return headers
 }
 

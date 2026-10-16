@@ -7,6 +7,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finance/relationship-input"
 import { loadEntityPeople } from "@/lib/asset-finance/entity-detail"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -96,6 +97,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       }
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return NextResponse.json({ error: "That role was just added by someone else" }, { status: 409 })
+      }
+      // EntityRelationship_fixed_on_open_deal: no party is added or reactivated while a deal is approved.
+      if (isCheckViolation(error)) {
+        return NextResponse.json(
+          { error: "The entity has an approved deal: no party is added or reactivated until the deal is booked or cancelled" },
+          { status: 409 },
+        )
       }
       throw error
     }

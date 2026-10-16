@@ -59,7 +59,7 @@ export async function createRepriceTenant(db: PrismaClient, featureAssetFinance 
   })
   const product = await db.loanProduct.create({
     data: {
-      tenantId, code: "AF-IS", name: "Instalment sale", productType: "PERSONAL",
+      tenantId, code: "AF-IS", name: "Instalment sale", productType: "ASSET_FINANCE",
       minAmount: 1, maxAmount: 500_000_000, minTermDays: 1, maxTermDays: 2_000,
       interestRatePm: 0.010625, interestModel: "REDUCING_BALANCE", monthlyServiceFee: 0,
     },

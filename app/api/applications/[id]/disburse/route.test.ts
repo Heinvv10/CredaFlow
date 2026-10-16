@@ -667,6 +667,8 @@ function buildTxMock(opts: {
       const tx = {
         loan: {
           create: loanCreate,
+          // No loan already holds the reference minted for an EFT loan.
+          findFirst: vi.fn().mockResolvedValue(null),
         },
         repaymentSchedule: { createMany: scheduleCreateMany },
         loanApplication: {

@@ -22,6 +22,10 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
   withTenantContext: async (_req: unknown, handler: (tenant: { id: string; name: string }) => Promise<unknown>) =>
     handler({ id: "tenant-1", name: "RBAC Test Lender" }),
 }))
+// These routes are in the loan book, which the guards' second layer
+// (lib/security/loan-book-guard.ts, #145) also refuses to INSURANCE_OFFICER.
+// It is turned off here so each permission is proved on its own.
+vi.mock("@/lib/security/loan-book-guard", () => ({ refusesLoanBook: async () => false }))
 // Any Prisma access throws unless a test installed that model: a refused
 // request must never reach the database.
 const db = vi.hoisted(() => ({ models: {} as Record<string, unknown>, touched: [] as string[] }))

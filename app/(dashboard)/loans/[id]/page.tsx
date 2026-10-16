@@ -324,7 +324,7 @@ export default async function LoanDetailPage(
                     <div>
                       <p className={`whitespace-nowrap font-semibold ${payment.reversed ? "text-[var(--cf-text-muted)] line-through" : payment.allocationStatus === "ALLOCATED" ? "text-[var(--cf-text)]" : "text-[var(--cf-text-muted)]"}`}>{formatZAR(payment.amount)}</p>
                       <p className="text-xs text-[var(--cf-text-muted)]">
-                        {displayPaymentMethod(payment.paymentMethod, (method) => method)} - {formatDate(payment.receivedAt)}
+                        {displayPaymentMethod(payment.paymentMethod, (method) => method.replace("_", " "))} - {formatDate(payment.receivedAt)}
                       </p>
                     </div>
                     {payment.reversed ? (

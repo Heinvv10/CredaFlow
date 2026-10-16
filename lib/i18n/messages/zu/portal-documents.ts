@@ -75,4 +75,9 @@ export const portalDocuments: Catalog["portalDocuments"] = {
   identityVerifiedScore: "Ubunikazi buqinisekisiwe - ukufana okungu-{score}%",
   checksAwaitingAdvisor: "Ukuhlolwa kobunikazi kulinde ukubuyekezwa ngumeluleki.",
   verifyingIdentity: "Siqinisekisa ubunikazi bakho... Lokhu kungathatha kuze kube imizuzwana engu-60.",
+  selfieNotNeeded: "Akudingeki",
+  selfieInPersonDetail: "Ubuwena bakho buqinisekiswe ngabasebenzi bethu ubuso nobuso, ngakho ayidingeki i-selfie.",
+  recentStatementNeeded: "Layisha isitatimende sasebhange sakamuva (sezinyanga ezi-3 ezedlule) ukuze siqedele ukuhlola isicelo sakho. Isitatimende esinaso sesidala kakhulu.",
+  recentStatementDetail: "Isitatimende esinaso sesidala kakhulu esicelweni sakho. Layisha esezinyanga ezi-3 ezedlule.",
+  recentStatementPill: "Kudingeka isitatimende sakamuva",
 }

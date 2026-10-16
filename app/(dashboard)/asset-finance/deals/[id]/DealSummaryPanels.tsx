@@ -6,7 +6,7 @@ import type { NcaRegime } from "@prisma/client"
 import { formatDate } from "@/lib/utils"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import type { DealDetail } from "@/lib/asset-finance/deal-detail"
-import { PRESET_LABELS, RATE_BASIS_LABELS, ratePercent } from "@/lib/asset-finance/deal-labels"
+import { PRESET_LABELS, RATE_BASIS_LABELS, contractTypeLabel, counterpartyLabel, ratePercent } from "@/lib/asset-finance/deal-labels"
 import {
   BUREAU_OUTCOME_LABELS,
   ENTITY_ROLE_LABELS,
@@ -17,6 +17,9 @@ import {
 } from "@/lib/asset-finance/labels"
 
 // Read-only panels of the staff deal page. No hooks: server-rendered.
+
+const USAGE_UNIT_LABELS = { HOURS: "hours", KM: "km" } as const
+const USAGE_UNIT_SINGULAR = { HOURS: "hour", KM: "km" } as const
 
 function Item({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -32,13 +35,15 @@ export function DealSummaryPanel({ deal }: { deal: DealDetail }) {
   const rate = terms.rate.basis === "FIXED"
     ? `Fixed ${ratePercent(terms.rate.fixedRate ?? "0")}`
     : `${RATE_BASIS_LABELS[terms.rate.basis]} ${terms.rate.margin?.startsWith("-") ? "−" : "+"} ${ratePercent((terms.rate.margin ?? "0").replace("-", ""))}`
+  const lease = terms.lease
   return (
     <DataPanel title="Deal" density="loose">
       <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Item label="Borrower">
+        <Item label="Agreement">{contractTypeLabel(deal.contractType)}</Item>
+        <Item label={counterpartyLabel(deal.contractType)}>
           {deal.entity ? (
             <Link href={`/asset-finance/entities/${deal.entity.id}`} className="text-[var(--cf-brand)] hover:underline">{deal.entity.legalName}</Link>
-          ) : deal.client ? deal.client.name : "Unknown borrower"}
+          ) : deal.client ? deal.client.name : `Unknown ${counterpartyLabel(deal.contractType).toLowerCase()}`}
         </Item>
         <Item label="Asset">
           <Link href={`/asset-finance/assets/${deal.asset.id}`} className="text-[var(--cf-brand)] hover:underline">{deal.asset.description}</Link>
@@ -47,12 +52,35 @@ export function DealSummaryPanel({ deal }: { deal: DealDetail }) {
         <Item label="Supplier">{deal.supplier.name}</Item>
         <Item label="Product">{deal.product.name}</Item>
         <Item label="Cash price incl. VAT">{formatMoney(deal.asset.cashPriceExclVatCents + deal.asset.vatCents)}</Item>
-        <Item label="Deposit / trade-in">{formatMoney(terms.depositCents)} / {formatMoney(terms.tradeInCents)}</Item>
-        <Item label="Financed fees / balloon">{formatMoney(terms.financedFeesCents)} / {formatMoney(terms.balloonCents)}</Item>
-        <Item label="Financed amount">{formatMoney(deal.application.appliedAmount)}</Item>
-        <Item label="Rate">{rate}</Item>
-        <Item label="Structure">{PRESET_LABELS[terms.preset]} · {terms.weights.length} months</Item>
-        <Item label="First due">{formatIsoDate(terms.firstDueDate)}</Item>
+        {lease ? (
+          <>
+            <Item label="Capital (cash price ex VAT)">{formatMoney(deal.asset.cashPriceExclVatCents)}</Item>
+            <Item label="Residual (not paid by the lessee)">{formatMoney(terms.balloonCents)}</Item>
+            <Item label="Rate">{rate}</Item>
+            <Item label="Term">{terms.weights.length} monthly rentals {lease.rentalTiming === "ADVANCE" ? "in advance" : "in arrears"}</Item>
+            <Item label="Rental escalation">{ratePercent(lease.escalationRate)} a year</Item>
+            <Item label="First rental due">{formatIsoDate(terms.firstDueDate)}</Item>
+            {lease.maintenance && (
+              <Item label="Maintenance ex VAT">
+                {formatMoney(lease.maintenance.monthlyExclVatCents)} a month, escalating {ratePercent(lease.maintenance.escalationRate)} a year
+              </Item>
+            )}
+            {lease.usage && (
+              <Item label="Usage allowance">
+                {lease.usage.allowancePerYear.toLocaleString("en-ZA")} {USAGE_UNIT_LABELS[lease.usage.unit]} a year · excess {formatMoney(lease.usage.excessRateCents)} per {USAGE_UNIT_SINGULAR[lease.usage.unit]} ex VAT
+              </Item>
+            )}
+          </>
+        ) : (
+          <>
+            <Item label="Deposit / trade-in">{formatMoney(terms.depositCents)} / {formatMoney(terms.tradeInCents)}</Item>
+            <Item label="Financed fees / balloon">{formatMoney(terms.financedFeesCents)} / {formatMoney(terms.balloonCents)}</Item>
+            <Item label="Financed amount">{formatMoney(deal.application.appliedAmount)}</Item>
+            <Item label="Rate">{rate}</Item>
+            <Item label="Structure">{PRESET_LABELS[terms.preset]} · {terms.weights.length} months</Item>
+            <Item label="First due">{formatIsoDate(terms.firstDueDate)}</Item>
+          </>
+        )}
         <Item label="Application">{deal.application.reference} · {statusLabel(deal.application.status)}</Item>
       </dl>
     </DataPanel>
@@ -78,8 +106,14 @@ export function ClassificationPanel({ deal, children }: { deal: DealDetail; chil
         {app.decisionReason && deal.status === "REFUSED_NCA" && (
           <p className="text-[var(--cf-danger)]">{describeDecisionReason(app.decisionReason)}</p>
         )}
+        {app.ncaRegime === "NCA" && !deal.awaitingRegimeApproval && (
+          <p className="text-xs text-[var(--cf-text-secondary)]">
+            The NCA regulates this deal: approval needs an affordable s81 assessment and the credit-life election, and the
+            pre-agreement quote is acknowledged before the agreement is signed.
+          </p>
+        )}
         <p className="text-xs text-[var(--cf-text-muted)]">
-          Only deals the NCA does not regulate can be financed for now. Sureties: {deal.sureties.length === 0 ? "none on the entity" : deal.sureties.map((s) => s.name).join(", ")}
+          Sureties: {deal.sureties.length === 0 ? "none on the entity" : deal.sureties.map((s) => s.name).join(", ")}
           {" "}(the entity&apos;s active sureties).
         </p>
         {children}
