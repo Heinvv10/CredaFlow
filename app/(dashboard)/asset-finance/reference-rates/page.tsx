@@ -56,7 +56,7 @@ export default async function ReferenceRatesPage({ searchParams }: { searchParam
     <>
       <Header
         title="Reference rates"
-        subtitle="Prime, repo, JIBAR, ZARONIA and the lender's base rate. Prime, repo and ZARONIA are fetched from the Reserve Bank; every value needs a person's approval before loans reprice on it"
+        subtitle="Prime, repo, JIBAR, ZARONIA and the lender's base rate. Prime, repo and ZARONIA are fetched from the Reserve Bank and dated the day the feed showed them (check the date before approving); every value needs a person's approval before loans reprice on it"
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Reference rates" }]}
       />
       <div className="space-y-6 p-4 lg:p-8">

@@ -130,16 +130,16 @@ describe("syncReferenceRatesFromFeed", () => {
     )
     expect(audits[0].newValue).toMatchObject({ basis: "REPO", source: "SARB_FEED", rate: "0.0725", status: "PENDING" })
     expect(bell.filter((b) => b.entityId === created[1].id).map((b) => [b.userId, b.type, b.title])).toEqual([
-      ["admin-1", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% from 2026-10-16 awaits approval"],
-      ["admin-2", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% from 2026-10-16 awaits approval"],
+      ["admin-1", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% observed 2026-10-16 awaits approval"],
+      ["admin-2", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% observed 2026-10-16 awaits approval"],
     ])
-    expect(bell.find((b) => b.entityId === created[2].id)?.title).toBe("SARB feed: ZARONIA 7.097% from 2026-10-15 awaits approval")
+    expect(bell.find((b) => b.entityId === created[2].id)?.title).toBe("SARB feed: ZARONIA 7.097% observed 2026-10-15 awaits approval")
   })
 
   it("formats a whole percent with two places", async () => {
     const { db, bell } = fakeDb([])
     await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.11", "2026-11-21")])
-    expect(bell[0].title).toBe("SARB feed: PRIME 11.00% from 2026-11-21 awaits approval")
+    expect(bell[0].title).toBe("SARB feed: PRIME 11.00% observed 2026-11-21 awaits approval")
   })
 
   it("records nothing when every value matches the latest live one (approved or pending)", async () => {

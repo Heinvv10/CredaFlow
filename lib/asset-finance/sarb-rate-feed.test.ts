@@ -132,3 +132,12 @@ describe("fetchSarbObservations", () => {
     expect(await fetchSarbObservations(respond(JSON.stringify({ rates: [] })))).toMatchObject({ ok: false, reason: "bad_shape" })
   })
 })
+
+describe("parseSarbFeed dates", () => {
+  it("refuses a date after today (SAST) and accepts today's", () => {
+    const body = [row("MMRD002A", 7.25, "2026-10-17"), row("MMRD000A", 10.75), row("MMRD855A", 7.097)]
+    const refused = parseSarbFeed(body, "2026-10-16")
+    expect(refused).toMatchObject({ ok: false, reason: "future_date" })
+    expect(parseSarbFeed(body, "2026-10-17").ok).toBe(true)
+  })
+})

@@ -187,7 +187,7 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
       expect(audit.newValue).toMatchObject({ basis: "PRIME", source: "SARB_FEED", effectiveDate: today, status: "PENDING" })
       const bell = await db.notification.findMany({ where: { tenantId, entityId: prime.id }, orderBy: { userId: "asc" } })
       expect(bell.map((n) => [n.userId, n.type, n.title])).toEqual(
-        [ids.adminA, ids.adminB].sort().map((id) => [id, "REFERENCE_RATE_FEED_PENDING", `SARB feed: PRIME 10.75% from ${today} awaits approval`]),
+        [ids.adminA, ids.adminB].sort().map((id) => [id, "REFERENCE_RATE_FEED_PENDING", `SARB feed: PRIME 10.75% observed ${today} awaits approval`]),
       )
     })
 

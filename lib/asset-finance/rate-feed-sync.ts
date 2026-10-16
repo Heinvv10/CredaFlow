@@ -2,9 +2,10 @@
  * Records the SARB feed's values as PENDING reference rates, for every tenant
  * with featureAssetFinance on (the sweep behind app/api/cron/reference-rate-feed).
  *
- * Four-eyes is unchanged: a fetched value is a ReferenceRate row with source
- * SARB_FEED and no requester, born PENDING, and a user with
- * decide_asset_finance approves or rejects it through the usual decide flow.
+ * A fetched value is a ReferenceRate row with source SARB_FEED and no
+ * requester, born PENDING, and a user with decide_asset_finance approves or
+ * rejects it through the usual decide flow. The feed stands in for the
+ * recording person: a fetched value needs one approver, a manual one two people.
  * Nothing here approves anything, and nothing reprices on a PENDING value.
  *
  * Per tenant and basis, against the latest live (APPROVED or PENDING) value:
@@ -92,8 +93,8 @@ async function recordObservation(db: SyncDb, tenantId: string, observation: Sarb
       }, tx)
       await alertLoanAdmins(tx, tenantId, {
         type: "REFERENCE_RATE_FEED_PENDING",
-        title: `SARB feed: ${basis} ${percentText(row.rate)} from ${effectiveDate} awaits approval`,
-        body: `The Reserve Bank feed shows a new ${basis} value. It is recorded PENDING: a user with the decide permission approves or rejects it on the Reference rates page, and no loan reprices on it until then.`,
+        title: `SARB feed: ${basis} ${percentText(row.rate)} observed ${effectiveDate} awaits approval`,
+        body: `The Reserve Bank feed shows a new ${basis} value. It is dated ${effectiveDate}, the day the feed showed it, which can be later than the day the rate changed: check the date against the Reserve Bank's announcement before approving. Loans reprice from that date once a user with the decide permission approves it on the Reference rates page; a wrong date is rejected and the value re-entered by hand.`,
         entityType: "ReferenceRate",
         entityId: row.id,
       })
@@ -134,7 +135,7 @@ async function syncTenant(db: SyncDb, tenantId: string, observations: SarbObserv
       else run.recorded.push(outcome)
     } catch (error) {
       run.failed++
-      console.error("[reference-rate-feed] recording failed", { tenantId, basis: observation.basis, effectiveDate: observation.effectiveDate, error })
+      console.error("[reference-rate-feed] recording failed", { tenantId, basis: observation.basis, effectiveDate: observation.effectiveDate, error: error instanceof Error ? error.name : "unknown" })
     }
   }
   return run

@@ -43,8 +43,11 @@ accounting system; CredaFlow exports journals — decision D3).
   NCA contracts re-check the cap on every repricing. PRIME, REPO and ZARONIA
   are fetched on weekday mornings from the Reserve Bank's public feed
   (`lib/asset-finance/rate-feed-sync.ts`) and recorded PENDING with source
-  `SARB_FEED` and no requester; a user approves them like a manual value, so
-  the two-person rule stands. ZARONIA is recorded only when it moves 25 bp or
+  `SARB_FEED` and no requester; the feed stands in for the recording person,
+  so a fetched value needs one approver (a manual value still needs two
+  people). Its effective date is the day the feed showed it, which can trail
+  the real change; the approver checks it against the Reserve Bank's
+  announcement. ZARONIA is recorded only when it moves 25 bp or
   more from the latest live value. JIBAR and the lender's base rate stay manual.
 - **D5 NCA classifier.** A pure function
   `classifyNcaRegime(input) → { regime: NCA | NON_NCA, rule, evidence }`.

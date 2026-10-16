@@ -16,6 +16,7 @@
  * database. The fetch is injectable; tests never reach the real endpoint.
  */
 import { Prisma, type ReferenceRateBasis } from "@prisma/client"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { toDayNumber } from "./dates"
 
 export const SARB_FEED_URL = "https://custom.resbank.co.za/SarbWebApi/WebIndicators/HomePageRates"
@@ -54,6 +55,7 @@ export type SarbFeedErrorReason =
   | "missing_series"
   | "duplicate_series"
   | "bad_date"
+  | "future_date"
   | "bad_value"
 
 export interface SarbFeedError {
@@ -90,8 +92,8 @@ function isCalendarDate(value: unknown): value is string {
   }
 }
 
-/** Validates the decoded feed body and picks out the series this module uses. */
-export function parseSarbFeed(body: unknown): SarbFeedResult {
+/** Validates the decoded feed body and picks out the series this module uses. A date after `today` (SAST) is refused. */
+export function parseSarbFeed(body: unknown, today: string = sastCalendarDate(new Date())): SarbFeedResult {
   if (!Array.isArray(body)) return failure("bad_shape", "the feed body is not an array")
   const observations: SarbObservation[] = []
   for (const [timeseriesCode, basis] of Object.entries(SARB_SERIES)) {
@@ -100,6 +102,7 @@ export function parseSarbFeed(body: unknown): SarbFeedResult {
     if (matches.length > 1) return failure("duplicate_series", `${timeseriesCode} (${basis}) appears ${matches.length} times`)
     const row = matches[0] as Record<string, unknown>
     if (!isCalendarDate(row.Date)) return failure("bad_date", `${timeseriesCode} Date is not a YYYY-MM-DD calendar date: ${JSON.stringify(row.Date)}`)
+    if (row.Date > today) return failure("future_date", `${timeseriesCode} Date ${row.Date} is after today (${today})`)
     const rate = percentToDecimalFraction(row.Value)
     if (!rate) return failure("bad_value", `${timeseriesCode} Value is not a percent above 0 and below 50 with at most ${MAX_PERCENT_PLACES} decimals: ${JSON.stringify(row.Value)}`)
     observations.push({ basis, timeseriesCode, effectiveDate: row.Date, rate })
