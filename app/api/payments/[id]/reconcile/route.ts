@@ -231,7 +231,7 @@ export async function PATCH(
             schedule: loan.repaymentSchedule,
             asOf: reconciledAt,
             receivedAt: payment.receivedAt,
-            amount: payment.amount,
+            settles: projection.isCompleted,
           })
           const override = valueDateOverrideReason
             ? {

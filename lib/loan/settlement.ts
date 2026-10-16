@@ -267,13 +267,16 @@ function settlementTerms(args: {
 }
 
 /**
- * Interest that a receipt dated `receivedAt` rebates PURELY because of the
- * back-dating — the difference between pricing it today and pricing it then.
+ * What a receipt dated `receivedAt` rebates PURELY because of the back-dating:
+ * the difference between pricing it today and pricing it then.
  *
  * This is not `projection.interestRebate`, which also contains the lawful s125
  * early-settlement rebate a client earns simply by paying before maturity.
  * Bounding that would refuse ordinary early settlements; only the portion the
- * date choice creates is a control concern.
+ * date choice creates is a control concern. On an instalment loan the date
+ * moves interest, service fees and premiums together (an instalment that fell
+ * due in between is owed whole), so the change in the settlement figure is
+ * measured, not interest alone.
  */
 export function backdatingInterestRebate(args: {
   loan: SettlementLoanLike
@@ -281,15 +284,19 @@ export function backdatingInterestRebate(args: {
   asOf: Date
   receivedAt: Date
   /**
-   * The receipt. An instalment loan re-prices only when a receipt settles it,
-   * so a receipt below the dated s125 figure rebates nothing whatever its date.
+   * The receipt settles the loan at its value date (projection.isCompleted).
+   * An instalment loan re-prices only then, so a receipt that does not settle
+   * rebates nothing whatever its date. Absent: assumed to settle.
    */
-  amount?: number
+  settles?: boolean
 }): { rebateCents: number; accruedInterestAtCaptureCents: number } {
   const now = settlementTerms({ loan: args.loan, schedule: args.schedule, asOf: args.asOf })
   const dated = settlementTerms({ loan: args.loan, schedule: args.schedule, asOf: args.receivedAt })
-  if (dated.instalment && args.amount !== undefined && args.amount < dated.settlementDue) {
-    return { rebateCents: 0, accruedInterestAtCaptureCents: now.accruedInterest }
+  if (dated.instalment) {
+    return {
+      rebateCents: args.settles === false ? 0 : Math.max(0, now.settlementDue - dated.settlementDue),
+      accruedInterestAtCaptureCents: now.accruedInterest,
+    }
   }
   return {
     rebateCents: Math.max(0, now.accruedInterest - dated.accruedInterest),

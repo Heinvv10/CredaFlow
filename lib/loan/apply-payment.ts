@@ -193,7 +193,7 @@ export async function applyManualReceipt(db: PaymentDb, input: ManualReceiptInpu
     // Only the portion the DATE created, not the lawful early-settlement rebate
     // any client earns by paying before maturity.
     const backdating = backdatingInterestRebate({
-      loan, schedule: loan.repaymentSchedule, asOf, receivedAt, amount: input.amount,
+      loan, schedule: loan.repaymentSchedule, asOf, receivedAt, settles: projection.isCompleted,
     })
     // Default charges erased by the date count too (rejectUnauthorisedBackdating).
     const rebateRejection = rejectUnauthorisedBackdating({

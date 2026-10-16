@@ -8,6 +8,7 @@ import {
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "./settlement"
+import { rejectUnauthorisedBackdating } from "./value-date"
 
 // Elize's loan from the Fair Score audit (2026-10-16), rebuilt: R34,000 Personal
 // Loan at 3% a month reducing, 18 months from 17 April 2026, R1,080 initiation
@@ -130,9 +131,24 @@ describe("the receipt path settles at the s125 figure (lib/loan/settlement.ts)",
 
   it("measures back-dating only on a receipt that settles", () => {
     const tenDaysBack = new Date("2026-10-06T10:00:00+02:00")
-    expect(backdatingInterestRebate({ loan: elize, schedule: rows, asOf, receivedAt: tenDaysBack, amount: 254_110 }).rebateCents).toBe(0)
+    expect(backdatingInterestRebate({ loan: elize, schedule: rows, asOf, receivedAt: tenDaysBack, settles: false }).rebateCents).toBe(0)
     // 10 of the 30 days' interest on R27,133.91 = R262.91.
-    expect(backdatingInterestRebate({ loan: elize, schedule: rows, asOf, receivedAt: tenDaysBack, amount: 2_789_634 }).rebateCents)
+    expect(backdatingInterestRebate({ loan: elize, schedule: rows, asOf, receivedAt: tenDaysBack, settles: true }).rebateCents)
       .toBe(76_243 - Math.round((78_872 * 19) / 30))
+  })
+
+  it("measures the fees and premium a back-date across a due date waives, not the interest alone", () => {
+    // With a R150 premium: on 17 October instalment 6 falls due whole (interest,
+    // R69 fee and R150 premium); dated 16 October it is principal and 29 days'
+    // interest. Back-dating one day waives R245.29, which needs an override.
+    const premium = 15_000
+    const covered = rows.map((row) => ({ ...row, creditLifePremiumDue: premium, feesDue: row.feesDue + premium, totalDue: row.totalDue + premium }))
+    const paid = { ...elize, totalPaid: PAID + 4 * premium }
+    const backdating = backdatingInterestRebate({
+      loan: paid, schedule: covered, asOf: new Date("2026-10-17T10:00:00+02:00"), receivedAt: asOf, settles: true,
+    })
+    expect(backdating.rebateCents).toBe(78_872 - 76_243 + 6_900 + premium)
+    expect(rejectUnauthorisedBackdating({ interest: backdating, charges: { rebateCents: 0, accruedAtCaptureCents: 0 } }))
+      .toBe("rebate_needs_authorisation")
   })
 })
