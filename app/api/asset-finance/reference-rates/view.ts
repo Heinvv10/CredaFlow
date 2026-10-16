@@ -11,6 +11,8 @@ export const referenceRateView = (row: ReferenceRate) => ({
   effectiveDate: isoOfDbDate(row.effectiveDate),
   rate: row.rate.toString(),
   status: row.status,
+  source: row.source,
+  // null for a SARB_FEED value, which no user recorded.
   requestedById: row.requestedById,
   decidedById: row.decidedById,
   decidedAt: row.decidedAt,
