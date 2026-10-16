@@ -904,6 +904,18 @@ describe("PATCH /api/clients/[id]/documents/[docId]/verify", () => {
       expect(clientUpdateMock).not.toHaveBeenCalled()
     })
 
+    it("refuses a refused identical copy too: the verified copy already carries its verification", async () => {
+      const refusedTwin = { ...twin, verificationRejectedById: "officer-2", verificationRejectedAt: new Date("2026-07-03T09:00:00.000Z") }
+      documentFindFirstMock.mockReset().mockResolvedValue(null).mockResolvedValueOnce(refusedTwin)
+      idCopiesFindManyMock.mockResolvedValue([verifiedCopy, refusedTwin])
+
+      const res = await PATCH(verificationRequest({ verified: true }), { params: Promise.resolve({ id: "client-1", docId: "doc-1" }) })
+
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: expect.stringContaining("already carries its verification") })
+      expect(documentUpdateManyMock).not.toHaveBeenCalled()
+    })
+
     it("still verifies a re-upload of other bytes", async () => {
       const other = { ...twin, contentSha256: "d".repeat(64) }
       documentFindFirstMock.mockReset().mockResolvedValue(null).mockResolvedValueOnce(other).mockResolvedValueOnce({ ...other, verified: true })

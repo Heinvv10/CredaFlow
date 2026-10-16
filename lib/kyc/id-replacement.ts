@@ -89,18 +89,11 @@ export function pendingIdReplacement<T extends IdReplacementCandidate>(
 }
 
 /**
- * `copy` holds the same bytes as `current`: a well-formed digest equal to
- * its. A missing or malformed digest never matches (fail closed). An identical
- * re-upload of the current verified copy IS that copy: it is no pending
- * replacement, and a selfie binds to the verified copy, not to it
- * (resolveCurrentIdDocument in lib/kyc/usable-id-document.ts).
- */
-/**
  * `document` is an unverified ID copy created after the newest verified one
  * among `copies` (the client's live ID copies), holding its bytes
  * (isIdenticalCopy): it IS that verified copy. Verifying it would only move
  * the evidence a selfie or an in-person attestation is bound to, so the verify
- * route refuses it and the staff checklist offers nothing to do on it.
+ * route refuses it, refused or not, and the staff checklist offers no Verify.
  */
 export function identicalToVerifiedIdCopy(
   document: OrderedCopy & { verified: boolean; contentSha256?: string | null },
@@ -110,6 +103,13 @@ export function identicalToVerifiedIdCopy(
   return current !== null && !document.verified && createdAfter(document, current) && isIdenticalCopy(document, current)
 }
 
+/**
+ * `copy` holds the same bytes as `current`: a well-formed digest equal to
+ * its. A missing or malformed digest never matches (fail closed). An identical
+ * re-upload of the current verified copy IS that copy: it is no pending
+ * replacement, and a selfie binds to the verified copy, not to it
+ * (resolveCurrentIdDocument in lib/kyc/usable-id-document.ts).
+ */
 export function isIdenticalCopy(
   copy: { contentSha256?: string | null },
   current: { contentSha256?: string | null },

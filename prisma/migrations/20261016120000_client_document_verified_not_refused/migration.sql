@@ -17,7 +17,9 @@
 -- 1. Pre-check: abort with the count of rows that already violate it. Never
 --    auto-fixed: which side is true is a staff decision (rollout confirmation
 --    gate, as 20261013213000 does for clear-mismatch exceptions).
--- 2. The CHECK.
+-- 2. The CHECK. ADD CONSTRAINT validates every row under an ACCESS EXCLUSIVE
+--    lock: fine with no live data; on a large live table use NOT VALID, then
+--    VALIDATE CONSTRAINT separately.
 
 DO $precheck$
 DECLARE violating bigint;

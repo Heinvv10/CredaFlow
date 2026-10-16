@@ -19,7 +19,12 @@ import {
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { newestVerifiedIdCopyId } from "@/lib/kyc/verification-restorable"
-import { isIdenticalToVerifiedIdCopy, verifiedCoreDocumentCount } from "@/lib/kyc/staff-checklist"
+import {
+  isIdenticalToVerifiedIdCopy,
+  pendingIdReplacementId,
+  sameBytesAsVerifiedIdCopy,
+  verifiedCoreDocumentCount,
+} from "@/lib/kyc/staff-checklist"
 import { RestorableVerificationHint } from "@/components/clients/RestorableVerificationHint"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
@@ -250,6 +255,10 @@ export function KycChecklistTab({
       docsByType.set(d.docType, d)
     }
   }
+  // While a copy of other bytes holds the client PENDING, the ID row shows it.
+  const pendingIdCopyId = pendingIdReplacementId(docs)
+  const pendingIdCopy = docs.find((d) => d.id === pendingIdCopyId)
+  if (pendingIdCopy) docsByType.set("ID_COPY", pendingIdCopy)
 
   const verifiedCount = verifiedCoreDocumentCount(KYC_DOC_TYPES, docs)
   const totalRequired = KYC_DOC_TYPES.length
@@ -505,7 +514,7 @@ export function KycChecklistTab({
                           View
                         </Button>
 
-                        {!readOnly && status !== "verified" && status !== "identical" && (
+                        {!readOnly && status !== "verified" && !sameBytesAsVerifiedIdCopy(doc, docs) && (
                           <Button
                             size="sm"
                             variant="outline"

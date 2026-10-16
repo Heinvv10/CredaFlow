@@ -87,4 +87,24 @@ describe("KycChecklistTab: an identical ID re-upload is the verified copy", () =
     // The verified copy still carries the KYC: the count agrees with the VERIFIED badge.
     expect(view.text).toContain("4 / 4 verified")
   })
+
+  it("shows the different copy that holds the client PENDING, not a newer twin over it", async () => {
+    // V verified, X of other bytes awaiting review, T identical to V and newest.
+    const pending = doc("id-pending", "ID_COPY", 11, { verified: false, verifiedAt: null, contentSha256: OTHER_SHA })
+    const view = await mount("PENDING", [reupload(), pending, VERIFIED_ID, ...OTHER_CORE])
+
+    expect(view.text).toContain("id-pending.jpg")
+    expect(view.text).not.toContain("Identical to verified copy")
+    expect(view.text).toContain("3 / 4 verified")
+    // Staff can act on the copy that holds the client: Verify and Reject on X.
+    expect(view).toMatchObject({ verify: 1, reject: 4 })
+  })
+
+  it("offers no Verify on a refused identical copy (the route refuses it: the verified copy already carries it)", async () => {
+    const refused = reupload({ verificationRejectedById: "officer-1", verificationRejectedAt: "2026-08-13T09:00:00.000Z", verificationNote: "Synthetic: blurred" })
+    const view = await mount("VERIFIED", [refused, VERIFIED_ID, ...OTHER_CORE])
+
+    expect(view.text).toContain("Rejected")
+    expect(view.verify).toBe(0)
+  })
 })

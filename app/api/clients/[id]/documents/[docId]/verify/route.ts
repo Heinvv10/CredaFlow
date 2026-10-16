@@ -334,7 +334,7 @@ export async function PATCH(
       }
       if (mutation.error === "identical_id_copy") {
         return NextResponse.json(
-          { error: "This ID copy holds the same bytes as the verified copy on file and already counts as it; there is nothing to verify." },
+          { error: "This ID copy holds the same bytes as the verified copy on file, which already carries its verification; there is nothing to verify." },
           { status: 409 },
         )
       }
