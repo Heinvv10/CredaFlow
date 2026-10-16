@@ -56,6 +56,17 @@ export function creditLifePrincipalIsEligible(principalCents: number): boolean {
   )
 }
 
+/**
+ * Whether a configured credit-life product is an OFFER for this principal.
+ * Cover cannot be added at or below the threshold, so nothing is offered: the
+ * application records the no-offer disclosure, and the approval trigger
+ * (migration 20261016152000_credit_life_no_offer_below_threshold) accepts that
+ * record for exactly this case even while a product is active.
+ */
+export function creditLifeOfferedFor(productConfigured: boolean, principalCents: number): boolean {
+  return productConfigured && creditLifePrincipalIsEligible(principalCents)
+}
+
 // Largest principal for which principalCents * 45 + 5_000 is a safe integer.
 const MAX_PREMIUM_PRINCIPAL_CENTS = Math.floor((Number.MAX_SAFE_INTEGER - 5_000) / 45)
 

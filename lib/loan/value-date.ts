@@ -33,6 +33,8 @@ export type ValueDateSource =
   | "BANK_STATEMENT"
   | "STAFF_ASSERTED"
   | "SYSTEM_OBSERVED"
+  /** The client's own report of when they paid (a portal payment notification). */
+  | "CLIENT_ASSERTED"
   /**
    * The date was set when the receipt was created and this writer cannot tell
    * by whom — `Payment` has no source column. Used by reconciliation, which

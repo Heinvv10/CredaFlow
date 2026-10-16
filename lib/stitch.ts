@@ -27,6 +27,14 @@ export interface StitchAccount {
   beneficiary: { name: string; bankId: string; accountNumber: string; branchCode: string }
 }
 
+/** The lender has no complete Stitch account: nothing to pay into. */
+export class StitchNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "StitchNotConfiguredError"
+  }
+}
+
 /**
  * The lender's own Stitch account (TenantConfig.stitchKey, sealed
  * "clientId:clientSecret", and the stitchBeneficiary* columns), taken whole.
@@ -54,15 +62,26 @@ export async function loadStitchAccount(tenantId: string): Promise<StitchAccount
         }
       : null
   if (!source?.clientId || !source.clientSecret) {
-    throw new Error("Stitch is not configured for this lender (Settings → Integrations)")
+    throw new StitchNotConfiguredError("Stitch is not configured for this lender (Settings → Integrations)")
   }
   // No defaults: the beneficiary is the lender's own collection account, so a
   // missing value must stop the payment rather than route it to another bank.
   const { name, bankId, accountNumber, branchCode } = source
   if (!name || !bankId || !accountNumber || !branchCode) {
-    throw new Error("Stitch beneficiary account is not configured for this lender (name, bank, account number, branch code)")
+    throw new StitchNotConfiguredError("Stitch beneficiary account is not configured for this lender (name, bank, account number, branch code)")
   }
   return { clientId: source.clientId, clientSecret: source.clientSecret, beneficiary: { name, bankId, accountNumber, branchCode } }
+}
+
+/** Whether the portal can offer "Pay with Stitch" for this lender. */
+export async function stitchConfigured(tenantId: string): Promise<boolean> {
+  try {
+    await loadStitchAccount(tenantId)
+    return true
+  } catch (err) {
+    if (err instanceof StitchNotConfiguredError) return false
+    throw err
+  }
 }
 
 /**

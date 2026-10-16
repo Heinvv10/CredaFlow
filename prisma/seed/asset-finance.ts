@@ -19,8 +19,10 @@
  * (a) TEST Family Farming Trust: two natural trustees, verified Letters of
  *     Authority, R800 000 turnover → classifier NCA; finance lease with a
  *     balloon, entity PASQ acknowledgement, portal signing and BOOKED today.
- * (b) TEST sole proprietor: TLB instalment sale, NCA affordability and
- *     accepted bundled credit life, portal signing and BOOKED today.
+ * (b) TEST sole proprietor: TLB instalment sale, NCA affordability, credit
+ *     life not offered (the seed configures no credit-life product: a
+ *     placeholder one printed on the PASQ as if a real insurer offered it),
+ *     portal signing and BOOKED today.
  * (c) TEST Earthmoving (Pty) Ltd: verified AFS (R25m turnover), a director
  *     who is also authorised signatory and surety, a separate surety; an
  *     excavator at R1 725 000 incl. VAT on ANNUAL_SEASONAL (Apr–Jun ×3,
@@ -51,7 +53,7 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { ensureDocument, setFinancialsEvidence, verifyDocument } from "./asset-finance-documents"
 import { ensurePeople, ensureEntity, linkPerson } from "./asset-finance-parties"
-import { ensureAsset, ensureCreditLifeProduct, ensurePrime, ensureProduct, ensureRepo, ensureSupplier, ensureVatConfig } from "./asset-finance-book"
+import { ensureAsset, ensurePrime, ensureProduct, ensureRepo, ensureSupplier, ensureVatConfig } from "./asset-finance-book"
 import { originateCompanyDeal, seedTrustDeal, type SeedStaff } from "./asset-finance-deal"
 import { executeCompanyDeal } from "./asset-finance-execution"
 import { COMPANY, EXCAVATOR, TLB, TRACTOR, TRUST } from "./asset-finance-data"
@@ -69,7 +71,6 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     await ensurePrime(tenantId, adminOne, adminTwo)
     await ensureRepo(tenantId, adminOne, adminTwo)
     const productId = await ensureProduct(tenantId)
-    await ensureCreditLifeProduct(tenantId)
     const supplierId = await ensureSupplier(tenantId, officer, adminOne)
     const people = await ensurePeople(tenantId)
 
@@ -84,7 +85,7 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     const trustDealId = await seedTrustDeal(tenantId, staff, { entityId: trust.id, assetId: tractor, supplierId, productId }, people.trusteeOne)
     await executeCompanyDeal(tenantId, staff, trustDealId, { directorId: people.trusteeOne, entityId: trust.id }, sastCalendarDate(new Date()))
 
-    // (b) Sole-proprietor TLB instalment sale: NCA, credit life, booked.
+    // (b) Sole-proprietor TLB instalment sale: NCA, no credit life offered, booked.
     const tlb = await ensureAsset(tenantId, officer, TLB)
     await seedNaturalNcaDeal(tenantId, staff, { clientId: people.director, assetId: tlb, supplierId, productId }, sastCalendarDate(new Date()))
 

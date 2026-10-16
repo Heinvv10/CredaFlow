@@ -1,5 +1,7 @@
 import { FieldGroup } from "@/components/wizard/FieldGroup"
 import { LOAN_PURPOSE_OPTIONS } from "@/lib/loan-purpose-categories"
+import { PO_FUNDING_PURPOSE, requiresPoFundingFacts } from "@/lib/applications/po-funding"
+import { PoFundingWizardFields } from "./PoFundingWizardFields"
 import { INP } from "./constants"
 import { INVALIDATED_AFFORDABILITY } from "./types"
 import type {
@@ -21,6 +23,9 @@ interface StepProps {
 }
 
 export function Step2LoanParams({ data, patch, errors, products }: StepProps) {
+  // PO funding is business credit: the Business purpose only, plus the order.
+  const poFunding = requiresPoFundingFacts(products.find((p) => p.id === data.productId)?.productType)
+  const purposeOptions = poFunding ? LOAN_PURPOSE_OPTIONS.filter((o) => o.value === PO_FUNDING_PURPOSE) : LOAN_PURPOSE_OPTIONS
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-[var(--cf-text)]">Loan parameters</h2>
@@ -41,7 +46,11 @@ export function Step2LoanParams({ data, patch, errors, products }: StepProps) {
                 name="productId"
                 value={p.id}
                 checked={data.productId === p.id}
-                onChange={() => patch({ productId: p.id, ...INVALIDATED_AFFORDABILITY })}
+                onChange={() => patch({
+                  productId: p.id,
+                  ...INVALIDATED_AFFORDABILITY,
+                  ...(requiresPoFundingFacts(p.productType) ? { loanPurposeCategory: PO_FUNDING_PURPOSE } : {}),
+                })}
                 className="mr-2"
               />
               <span className="text-sm font-medium text-[var(--cf-text)]">{p.name}</span>
@@ -74,18 +83,21 @@ export function Step2LoanParams({ data, patch, errors, products }: StepProps) {
         </FieldGroup>
       </div>
 
-      <FieldGroup label="Purpose category" error={errors.loanPurposeCategory} hint="Optional">
+      <FieldGroup label="Purpose category" error={errors.loanPurposeCategory} hint={poFunding ? undefined : "Optional"} required={poFunding}>
         <select
+          id="loanPurposeCategory"
           className={INP}
           value={data.loanPurposeCategory}
           onChange={(e) => patch({ loanPurposeCategory: e.target.value })}
         >
-          <option value="">Select…</option>
-          {LOAN_PURPOSE_OPTIONS.map((o) => (
+          {!poFunding && <option value="">Select…</option>}
+          {purposeOptions.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       </FieldGroup>
+
+      {poFunding && <PoFundingWizardFields data={data} patch={patch} errors={errors} />}
 
       <FieldGroup label="Purpose" required error={errors.purpose}>
         <input

@@ -187,7 +187,9 @@ suite("base demo seed on a fresh migrated database", () => {
       // Four lifecycle records plus the synthetic section 129 notice of the recovered TLB's legal matter.
       complianceRecordCount: 5,
       protectedLifecycleCount: 2,
-      insurancePolicyCount: 1,
+      // The seed configures no credit-life product (a placeholder one printed on
+      // PASQs as if offered), so no deal binds a credit-life policy.
+      insurancePolicyCount: 0,
       nonInvalidEmailCount: 0,
     })
   })

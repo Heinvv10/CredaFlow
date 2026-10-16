@@ -168,10 +168,7 @@ describe("PortalApplyProductClient credit-life acknowledgement", () => {
   it("clears the disclosure acknowledgement when a variable term changes", async () => {
     await act(async () => renderer.root.findByProps({ id: "amount" }).props.onChange({ target: { value: "5000" } }))
     const acceptedElection = renderer.root.findAllByType("input").find(
-      (input) =>
-        input.props.type === "radio"
-        && input.props.name === "creditLifeElection"
-        && input.props.disabled === false,
+      (input) => input.props.type === "radio" && input.props.name === "creditLifeElection",
     )!
     await act(async () => acceptedElection.props.onChange())
 

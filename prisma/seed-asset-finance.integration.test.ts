@@ -125,17 +125,19 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(await fresh().payoutChecklistItem.count({ where: { dealId: deal.id, required: true, confirmedAt: null } })).toBe(0)
   })
 
-  it("books the natural-person asset deal through PASQ, accepted credit life and NCA signing", async () => {
+  it("books the natural-person asset deal through PASQ, credit life not offered, and NCA signing", async () => {
     const client = await fresh().client.findUniqueOrThrow({ where: { reference: "CLI-SEED-AF-0003" } })
     const deal = await fresh().assetFinanceDeal.findFirstOrThrow({
       where: { clientId: client.id },
       include: { application: true, loan: true },
     })
     expect(deal).toMatchObject({ status: "BOOKED", contractType: "INSTALMENT_SALE" })
-    expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NCA", creditLifeElection: "ACCEPTED" })
+    // The seed configures no credit-life product, so none is offered or printed on the PASQ.
+    expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NCA", creditLifeElection: "DECLINED", creditLifeProductId: null })
     expect(deal.application.pasqAcknowledgedSha256).toBe(deal.application.pasqDocumentSha256)
     expect(deal.loan).toMatchObject({ ncaRegime: "NCA", contractType: "INSTALMENT_SALE", entityId: null, clientId: client.id })
-    expect(await fresh().insurancePolicy.count({ where: { linkedLoanId: deal.loanId } })).toBe(1)
+    expect(await fresh().insurancePolicy.count({ where: { linkedLoanId: deal.loanId } })).toBe(0)
+    expect(await fresh().insuranceProduct.count({ where: { name: { startsWith: "TEST" } } })).toBe(0)
   })
 
   it("(b) the loan is booked today and part-paid by an early receipt of instalment 1, with no arrears", async () => {
