@@ -126,6 +126,9 @@ function transactionFor(
     loanApplication: { findUnique: vi.fn().mockResolvedValue(application) },
     creditBureauCheck: { findFirst: vi.fn().mockResolvedValue(bureauCheck) },
     tenantConfig: { findUnique: vi.fn().mockResolvedValue(tenantConfig) },
+    // No own loans with this lender (lib/affordability/own-lender-debt.ts).
+    loan: { findMany: vi.fn().mockResolvedValue([]) },
+    tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
       findMany: vi.fn().mockResolvedValue(kyc.documents ?? verifiedCoreDocuments),
       findFirst: vi.fn().mockResolvedValue(
@@ -623,6 +626,26 @@ describe("product pricing terms are frozen at approval", () => {
     // APPROVED one. Asserting only `ok` would stay green on an implementation
     // that admitted the loan and then priced it off the repriced product.
     expect(result.ok && result.calculation).toEqual(approvedCalculation)
+  })
+
+  it("re-checks an own-lender loan on the entry the approval recorded, not a re-read", () => {
+    // Her loan with this lender was counted at approval. Paying it down (or
+    // settling it) before payout changes the live loan, not the decision.
+    const own = {
+      lenderNames: ["Acme Lending"],
+      loans: [{ id: "own-1", reference: "LN-OWN-1", status: "ACTIVE", instalmentCents: 30_000, outstandingPrincipal: 900_000, daysInArrears: 0, arrearsAmount: 0 }],
+    }
+    const application = applicationFixture("APPROVED", null, own)
+    expect(application.affordabilityResult.approval?.inputs.declaredDebtCents).toBe(50_000 + 30_000)
+
+    const result = verifyCurrentAffordabilityApproval({
+      application,
+      bureauCheck,
+      tenantConfig,
+      requirePasqAcknowledgement: false,
+    })
+
+    expect(result).toMatchObject({ ok: true })
   })
 
   it("permits signing and payout after the product is repriced post-approval", async () => {

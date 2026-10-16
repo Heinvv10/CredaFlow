@@ -53,6 +53,7 @@ import {
 } from "@/lib/affordability/snapshot"
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
+import { loadOwnLenderDebts, ownLenderDebtEntries, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
 import {
   requireClientBorrowerId,
   requireClientBorrowerRow,
@@ -534,11 +535,15 @@ export async function verifyLockedApprovalCandidate(
   let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
   let applicationDebtCents: number
   let clientDebtCents: number
+  // The client's own loans with this lender, read under the same locks as the
+  // decision that is being re-derived (lib/affordability/own-lender-debt.ts).
+  const ownLenderDebts = await loadOwnLenderDebts(tx, args.tenantId, application.client.id, args.applicationId)
   try {
-    applicationDebts = normaliseAffordabilityDebts(
+    applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts(
       readAffordabilityDebtInputs(application.existingDebtObligations),
-    )
-    clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+      ownLenderDebts,
+    ))
+    clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts(application.client.debtObligations, ownLenderDebts))
     applicationDebtCents = totalAffordabilityDebt(applicationDebts)
     clientDebtCents = totalAffordabilityDebt(clientDebts)
   } catch (error) {
@@ -695,11 +700,19 @@ export function verifyCurrentAffordabilityApproval(args: {
   let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
   let applicationDebtCents: number
   let clientDebtCents: number
+  // Own-lender loans are re-checked on the evidence the approval recorded, not
+  // re-read: a payment on the old loan between approval and payout changes its
+  // balance, not what the decision assessed. The declared lists stay live.
+  const approvedDebts = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.debts
   try {
-    applicationDebts = normaliseAffordabilityDebts(
-      readAffordabilityDebtInputs(application.existingDebtObligations),
-    )
-    clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+    applicationDebts = normaliseAffordabilityDebts([
+      ...readAffordabilityDebtInputs(application.existingDebtObligations),
+      ...ownLenderDebtEntries(approvedDebts?.application ?? []),
+    ])
+    clientDebts = normaliseAffordabilityDebts([
+      ...application.client.debtObligations,
+      ...ownLenderDebtEntries(approvedDebts?.client ?? []),
+    ])
     applicationDebtCents = totalAffordabilityDebt(applicationDebts)
     clientDebtCents = totalAffordabilityDebt(clientDebts)
   } catch (error) {

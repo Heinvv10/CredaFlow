@@ -5,13 +5,17 @@ import { FieldGroup } from "@/components/wizard/FieldGroup"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { deriveAffordabilityFlag } from "@/lib/validation/application-wizard"
 import { displayCents } from "./formatters"
+import { OwnLenderArrearsNotice } from "@/components/applications/OwnLenderArrearsNotice"
 import type { ApplicationProduct, ApplicationWizardData, WizardMode } from "./types"
 import type { ValidationErrors } from "@/lib/validation/application-wizard"
 
 export interface ClientForAffordability {
   monthlyIncome: number       // cents
   monthlyExpenses: number     // cents
+  /** declared obligations plus the client's own loans with this lender (lib/affordability/own-lender-debt.ts) */
   debtObligations: { monthlyInstalment: number }[]
+  /** "In arrears with us": the worst DPD and total overdue on their loans with this lender */
+  ownLenderArrears?: { days: number; amountCents: number } | null
 }
 
 interface StepProps {
@@ -103,6 +107,7 @@ export function Step3Affordability({
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-[var(--cf-text)]">Affordability summary</h2>
+      <OwnLenderArrearsNotice arrears={selectedClient?.ownLenderArrears ?? null} />
 
       {/* Interest AND the lender fees are shown, so the summary foots on screen:
           amount + interest + initiation fee + service fees === total repayable.

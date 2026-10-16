@@ -11,6 +11,7 @@ import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { ncaCreditType } from "@/lib/loan/nca-interest-cap"
+import { loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
 import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
 import { Prisma } from "@prisma/client"
 import {
@@ -1013,11 +1014,15 @@ export async function POST(
         let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
         let applicationDebtCents: number
         let clientDebtCents: number
+        // The client's own loans with this lender count as obligations unless
+        // declared (lib/affordability/own-lender-debt.ts).
+        const ownLenderDebts = await loadOwnLenderDebts(prisma, tenant.id, application.client.id, application.id)
         try {
-          applicationDebts = normaliseAffordabilityDebts(
+          applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts(
             readAffordabilityDebtInputs(application.existingDebtObligations),
-          )
-          clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+            ownLenderDebts,
+          ))
+          clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts(application.client.debtObligations, ownLenderDebts))
           applicationDebtCents = totalAffordabilityDebt(applicationDebts)
           clientDebtCents = totalAffordabilityDebt(clientDebts)
         } catch (error) {

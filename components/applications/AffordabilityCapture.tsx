@@ -12,6 +12,8 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
+import { OWN_LOAN_SOURCE_PREFIX, withOwnLenderDebts, type OwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { formatZAR as houseFormatZAR } from "@/lib/utils"
 
 interface DebtEntry {
   sourceId?: string | null
@@ -27,7 +29,10 @@ interface Props {
   monthlyIncome: number
   monthlyExpenses: number
   existingDebts: DebtEntry[]
+  /** includes the client's own loans with this lender (lib/affordability/own-lender-debt.ts) */
   clientDebtTotal: number
+  /** the client's own loans with this lender, while the assessment is live; null once locked */
+  ownLenderDebts?: OwnLenderDebts | null
   proposedInstalment: number
   affordabilityNDI?: number | null
   done: boolean
@@ -52,7 +57,7 @@ function formatZAR(cents: number) {
   return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
+export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
   const [debts, setDebts] = useState<DebtEntry[]>(initialDebts?.length > 0 ? initialDebts : [])
   // The type as STORED, before this panel rendered it canonically. Re-picking
@@ -89,10 +94,15 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   // props, and the proposed instalment. This preview mirrors the server recompute
   // (lib/affordability/ndi) exactly, so the staff view and the persisted, audited
   // NDI agree (the old code treated cents debts as rands → 100x off).
+  // The server adds the client's own loans with this lender unless this list
+  // declares them; the preview does the same, from the same helper.
+  const ownLenderRows = ownLenderDebts
+    ? withOwnLenderDebts(debts, ownLenderDebts).filter((debt) => debt.sourceId?.startsWith(OWN_LOAN_SOURCE_PREFIX))
+    : []
   const applicationDebtTotal = debts.reduce(
     (sum, debt) => sum + Math.max(0, Math.round(debt.monthlyInstalment || 0)),
     0,
-  )
+  ) + ownLenderRows.reduce((sum, debt) => sum + Number(debt.monthlyInstalmentCents ?? 0), 0)
   const calculatedAssessment = assessAffordability({
     monthlyIncomeCents: monthlyIncome,
     monthlyExpensesCents: monthlyExpenses,
@@ -268,6 +278,20 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
             </div>
           )}
         </div>
+
+        {ownLenderRows.length > 0 && (
+          <div data-testid="own-lender-debts">
+            <p className="mb-2 text-sm font-semibold text-[var(--cf-text-secondary)]">Loans with us (counted automatically)</p>
+            <div className="space-y-1 text-xs text-[var(--cf-text-secondary)]">
+              {ownLenderRows.map((debt) => (
+                <div key={debt.sourceId} className="flex justify-between gap-3 rounded border border-[var(--cf-border-subtle)] px-2.5 py-1.5">
+                  <span>{debt.notes}</span>
+                  <span className="whitespace-nowrap font-semibold">{houseFormatZAR(Number(debt.monthlyInstalmentCents ?? 0))} / month</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 

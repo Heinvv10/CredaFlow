@@ -8,6 +8,13 @@ const auditLogCreateMock = vi.fn()
 const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 
+// The client's own loans with this lender: none here (the real-DB behaviour is
+// lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
+const ownLenderLoansMock = vi.hoisted(() => ({ loans: [] as Array<Record<string, unknown>> }))
+vi.mock("@/lib/affordability/own-lender-debt", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt")>()),
+  loadOwnLenderDebts: async () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans }),
+}))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, cb: (tenant: { id: string }) => Promise<unknown>) =>

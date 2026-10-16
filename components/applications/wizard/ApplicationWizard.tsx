@@ -255,6 +255,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
           monthlyIncome: c.monthlyIncome,
           monthlyExpenses: c.monthlyExpenses,
           debtObligations: c.debtObligations,
+          ownLenderArrears: c.ownLenderArrears ?? null,
         }
       : null
   }, [clients, data.clientId])
@@ -264,7 +265,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
       <StepBar step={step} labels={APPLICATION_WIZARD_STEP_LABELS} />
 
       {step === 1 && (
-        <Step1ClientSelect data={data} patch={patch} errors={errors} mode={mode} clients={clients} />
+        <Step1ClientSelect data={data} patch={patch} errors={errors} mode={mode} clients={clients} selectedClientArrears={selectedClientForStep3?.ownLenderArrears} />
       )}
       {step === 2 && (
         <Step2LoanParams data={data} patch={patch} errors={errors} mode={mode} products={products} />

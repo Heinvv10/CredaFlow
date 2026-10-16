@@ -26,6 +26,7 @@ import {
   creditLifePremiumPaymentLoadCents,
 } from "@/lib/insurance/credit-life-billing"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { loadOwnLenderDebts, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
 
 export async function PATCH(
   req: NextRequest,
@@ -61,10 +62,9 @@ export async function PATCH(
         )
       }
       let debts: ReturnType<typeof normaliseAffordabilityDebts>
-      let applicationDebtCents: number
       try {
         debts = normaliseAffordabilityDebts(body.existingDebtObligations)
-        applicationDebtCents = totalAffordabilityDebt(debts)
+        totalAffordabilityDebt(debts)
       } catch (error) {
         if (error instanceof InvalidAffordabilityDebtError) {
           return NextResponse.json(
@@ -89,6 +89,7 @@ export async function PATCH(
           where: { id, tenantId: tenant.id },
           select: {
             id: true,
+            clientId: true,
             status: true,
             productId: true,
             appliedAmount: true,
@@ -166,10 +167,18 @@ export async function PATCH(
           return { kind: "credit_life_invalid" as const }
         }
 
+        // The client's own loans with this lender count unless declared
+        // (lib/affordability/own-lender-debt.ts). The declaration is stored as
+        // typed; the assessment adds the own loans to both lists.
+        const ownLenderDebts = await loadOwnLenderDebts(tx, tenant.id, app.clientId, app.id)
+        let assessedApplicationDebts: ReturnType<typeof normaliseAffordabilityDebts>
+        let assessedApplicationDebtCents: number
         let clientDebts: ReturnType<typeof normaliseAffordabilityDebts>
         let clientDebtCents: number
         try {
-          clientDebts = normaliseAffordabilityDebts(app.client.debtObligations)
+          assessedApplicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts(debts, ownLenderDebts))
+          assessedApplicationDebtCents = totalAffordabilityDebt(assessedApplicationDebts)
+          clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts(app.client.debtObligations, ownLenderDebts))
           clientDebtCents = totalAffordabilityDebt(clientDebts)
         } catch (error) {
           if (error instanceof InvalidAffordabilityDebtError) {
@@ -182,7 +191,7 @@ export async function PATCH(
           throw error
         }
 
-        const declaredDebtCents = Math.max(applicationDebtCents, clientDebtCents)
+        const declaredDebtCents = Math.max(assessedApplicationDebtCents, clientDebtCents)
         const debtSnapshot = debts.map((debt) => ({
           sourceId: debt.sourceId,
           provider: debt.provider,
@@ -243,7 +252,7 @@ export async function PATCH(
           policyVersion: ASSESSMENT_AFFORDABILITY_POLICY_VERSION,
           capturedAt: assessedAt,
           capturedById: guard.user.id,
-          applicationDebts: debts,
+          applicationDebts: assessedApplicationDebts,
           clientDebts,
           expenseEvidence,
           calculation: loanCalc,
@@ -251,7 +260,7 @@ export async function PATCH(
           inputs: {
             monthlyIncomeCents: app.client.monthlyIncome,
             monthlyExpensesCents: app.client.monthlyExpenses,
-            applicationDebtCents,
+            applicationDebtCents: assessedApplicationDebtCents,
             clientDebtCents,
             declaredDebtCents,
             bureauObligationsCents: 0,
@@ -315,7 +324,8 @@ export async function PATCH(
               ndiAfterLoan: assessment.ndiAfterLoan,
               isAffordable: assessment.isAffordable,
               debts: debts.length,
-              applicationDebtFingerprint: affordabilityDebtFingerprint(debts),
+              ownLenderLoans: ownLenderDebts.loans.map((loan) => loan.reference),
+              applicationDebtFingerprint: affordabilityDebtFingerprint(assessedApplicationDebts),
               clientDebtFingerprint: affordabilityDebtFingerprint(clientDebts),
               snapshotSchemaVersion: AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
             },

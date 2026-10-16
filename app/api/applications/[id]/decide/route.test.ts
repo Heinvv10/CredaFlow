@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import {
   createCreditLifeDisclosureSha256,
@@ -35,6 +35,13 @@ const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
 
+// The client's own loans with this lender: none here (the real-DB behaviour is
+// lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
+const ownLenderLoansMock = vi.hoisted(() => ({ loans: [] as Array<Record<string, unknown>> }))
+vi.mock("@/lib/affordability/own-lender-debt", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt")>()),
+  loadOwnLenderDebts: async () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans }),
+}))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
 // The gate's own behaviour is tested in lib/screening; here, only that the
 // route obeys it before and inside the approve transaction.
@@ -971,6 +978,38 @@ it("approves an UNDER_REVIEW application (happy path)", async () => {
         creditLifePremiumCents: 0,
       }),
     }),
+  })
+})
+
+describe("the client's own loans with this lender count in affordability", () => {
+  const ownLoan = (instalmentCents: number) => ({
+    id: "own-loan-1", reference: "LN-OWN-0001", status: "ACTIVE", instalmentCents,
+    outstandingPrincipal: 2_713_391, daysInArrears: 27, arrearsAmount: 84_330,
+  })
+  afterEach(() => { ownLenderLoansMock.loans = [] })
+
+  it("hands the affordability gate the declared debts plus the own loan's instalment", async () => {
+    ownLenderLoansMock.loans = [ownLoan(480_000)]
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(evaluateAffordabilityGateMock).toHaveBeenCalledWith(expect.objectContaining({
+      applicationDebtCents: 25_000 + 480_000,
+      clientDebtCents: 25_000 + 480_000,
+      declaredDebtCents: 25_000 + 480_000,
+    }))
+  })
+
+  it("records the own loan in both debt lists of the approval evidence", async () => {
+    ownLenderLoansMock.loans = [ownLoan(10_000)]
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(200)
+    const data = txUpdateManyMock.mock.calls.find(([a]) => (a as { data: { status?: string } }).data.status === "APPROVED")![0].data
+    const approval = data.affordabilityResult.approval
+    expect(approval.inputs).toMatchObject({ applicationDebtCents: 35_000, clientDebtCents: 35_000, declaredDebtCents: 35_000 })
+    for (const list of [approval.debts.application, approval.debts.client]) {
+      expect(list).toContainEqual(expect.objectContaining({ sourceId: "own-loan:own-loan-1", monthlyInstalmentCents: 10_000, provider: "Acme Lending" }))
+    }
   })
 })
 
