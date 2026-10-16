@@ -36,9 +36,19 @@ export async function simulatesSection129(tenantId: string, to: string): Promise
 
 /**
  * `simulate` is the reservation's recorded decision (simulatesSection129 at
- * reserve time), so the send and the stored record can never disagree.
+ * reserve time), so the send and the stored record can never disagree. The
+ * deployment must still be DEMO_MODE at send time. A recorded simulation on a
+ * stack that has left demo mode is refused before any provider call, never
+ * sent for real: its record says simulated, and a retry reserves afresh.
  */
 export async function sendSection129Email(opts: SendEmailOptions, simulate: boolean): Promise<Section129EmailResult> {
+  if (simulate && !isDemoMode()) {
+    return {
+      ok: false,
+      error: "This notice was reserved as a demo simulation, but the deployment is no longer in demo mode. Send it again.",
+      providerOutcome: "DEFINITELY_REJECTED",
+    }
+  }
   if (simulate) {
     return {
       ok: true,
