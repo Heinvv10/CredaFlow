@@ -37,6 +37,8 @@ vi.mock("@/lib/prisma", () => ({
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
     // The demo transport's question: is email configured? Not here.
     emailConfig: { findUnique: async () => null },
+    // A demo lender's tenant (prisma/demo-lender.ts): the demo transport's second gate.
+    tenant: { findUnique: async () => ({ slug: "fairscore" }) },
   },
 }))
 vi.mock("@/lib/email/service", () => ({
@@ -249,6 +251,17 @@ describe("POST /api/loans/section129", () => {
     })
     expect(sendEmailMock).not.toHaveBeenCalled()
     expect(finaliseIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
+    // Nothing was sent, so nothing tells the borrower it was (#147 review).
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it("carries the simulated flag into reconciliation when the record cannot be finalised", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    loanFindUniqueMock.mockResolvedValue({ ...loan, client: { ...loan.client, email: "kabelo@fairscore.invalid" } })
+    finaliseIssuanceMock.mockRejectedValueOnce(new Error("database went away"))
+    const response = await POST(request())
+    expect(response.status).toBe(202)
+    expect(markReconciliationRequiredMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
   })
 
   it("still refuses on a demo stack for a deliverable address", async () => {

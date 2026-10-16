@@ -61,7 +61,7 @@ export function BulkSection129Button({ count90Plus }: { count90Plus: number }) {
       <div className="max-w-2xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
         <p className="font-semibold text-amber-900">Bulk run completed with exceptions</p>
         <p className="mt-1 text-xs text-amber-800">
-          {result.sent} sent, {result.skipped} skipped, {result.failed} failed, {uncertain.length} require reconciliation, {recovery.length} require timed-out recovery.
+          {result.sent} sent{simulatedCount(result) > 0 ? ` (${simulatedCount(result)} simulated, not sent)` : ""}, {result.skipped} skipped, {result.failed} failed, {uncertain.length} require reconciliation, {recovery.length} require timed-out recovery.
         </p>
         {notSent.length > 0 && (
           <ul className="mt-2 space-y-1">

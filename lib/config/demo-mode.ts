@@ -44,6 +44,11 @@ export function demoBannerText(brandName: string | null): string {
  */
 const UNDELIVERABLE_MAILBOX = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid$/
 
+/** One plain `.invalid` mailbox: mail to it can never be delivered. */
+export function isUndeliverableMailbox(email: string): boolean {
+  return UNDELIVERABLE_MAILBOX.test(email.trim().toLowerCase())
+}
+
 /**
  * A demo borrower's one-time codes (portal activation, password reset) are
  * emailed to fictional `.invalid` addresses and never arrive, so in a demo the
@@ -54,11 +59,6 @@ const UNDELIVERABLE_MAILBOX = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.invali
  * set by mistake — therefore never gets its code in the response, so the
  * reveal can't be used to take over or enumerate a deliverable mailbox.
  */
-/** One plain `.invalid` mailbox: mail to it can never be delivered. */
-export function isUndeliverableMailbox(email: string): boolean {
-  return UNDELIVERABLE_MAILBOX.test(email.trim().toLowerCase())
-}
-
 export function demoCodeReveal(
   code: string,
   recipientEmail: string,

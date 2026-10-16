@@ -42,8 +42,8 @@ vi.mock("@/lib/prisma", () => ({
     paymentArrangement: { findFirst: vi.fn(async () => null) },
     attorneyReferral: { findUnique: vi.fn(async () => null) },
     user: { findUnique: vi.fn(async () => null) },
-    // No Section 129 attempt on file.
-    complianceRecord: { findMany: vi.fn(async () => []) },
+    // No Section 129 attempt on file (lib/collections/section129-failures.ts).
+    $queryRaw: vi.fn(async () => []),
   },
 }))
 

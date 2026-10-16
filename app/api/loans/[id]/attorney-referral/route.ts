@@ -8,6 +8,7 @@ import {
   isCollectionsStageAtOrAfter,
   wouldRegressCollectionsStage,
 } from "@/lib/collections/stages"
+import { SECTION129_ON_RECORD_WHERE } from "@/lib/collections/section129-reporting"
 
 interface ReferralBody {
   firmId?: string
@@ -76,7 +77,7 @@ export async function POST(
             referenceId: id,
             status: "COMPLETED",
             completedAt: { not: null },
-            data: { path: ["lifecycle"], equals: "ISSUED" },
+            ...SECTION129_ON_RECORD_WHERE,
           },
           select: { id: true, completedAt: true },
           orderBy: { completedAt: "desc" },

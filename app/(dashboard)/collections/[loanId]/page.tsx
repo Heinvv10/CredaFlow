@@ -154,7 +154,7 @@ export default async function CollectionDetailPage({ params }: { params: Promise
               rel="noopener noreferrer"
               className="px-3 py-1.5 rounded text-[12px] font-semibold border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
             >
-              View Issued S.129
+              {section129Availability.latestIssuedSimulated ? "View simulated S.129 (not sent)" : "View Issued S.129"}
             </a>
           )}
           {section129Eligibility.eligible && section129Availability.canReserve ? (

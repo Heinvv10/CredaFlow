@@ -427,6 +427,7 @@ export async function POST(req: NextRequest) {
           ...(result.emergencyEvidenceAuditPersisted !== undefined
             ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
             : {}),
+          ...(result.simulated ? { simulated: true } : {}),
         }).catch(() => {
           // The active key remains non-retryable even if the promotion fails.
         })
@@ -481,6 +482,7 @@ export async function POST(req: NextRequest) {
           ...(result.emergencyEvidenceAuditPersisted !== undefined
             ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
             : {}),
+          ...(result.simulated ? { simulated: true } : {}),
         }).catch(() => {
           // Preserve the non-retryable result even during a DB failure.
         })

@@ -123,6 +123,7 @@ export default async function LoanDetailPage(
         <LoanDocumentActions
           loanId={loan.id}
           showSection129={section129Availability.hasRetrievableIssuedArtifact}
+          section129Simulated={section129Availability.latestIssuedSimulated}
         />
       </div>
 

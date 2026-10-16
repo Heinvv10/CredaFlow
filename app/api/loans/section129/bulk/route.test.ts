@@ -38,6 +38,8 @@ vi.mock("@/lib/prisma", () => ({
     loan: { findMany: (args: unknown) => loanFindManyMock(args) },
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
     emailConfig: { findUnique: async () => null },
+    // A demo lender's tenant (prisma/demo-lender.ts): the demo transport's second gate.
+    tenant: { findUnique: async () => ({ slug: "fairscore" }) },
   },
 }))
 vi.mock("@/lib/email/service", () => ({

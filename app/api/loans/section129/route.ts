@@ -409,6 +409,7 @@ export async function POST(req: NextRequest) {
         ...(result.emergencyEvidenceAuditPersisted !== undefined
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
+        ...(result.simulated ? { simulated: true } : {}),
       }).catch(() => {
         // The active key remains non-retryable even if the promotion fails.
       })
@@ -465,6 +466,7 @@ export async function POST(req: NextRequest) {
         ...(result.emergencyEvidenceAuditPersisted !== undefined
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
+        ...(result.simulated ? { simulated: true } : {}),
       }).catch(() => {
         // Keep the response non-retryable even if the reconciliation-state
         // write is part of the same database failure as finalisation.
@@ -483,12 +485,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    triggerNotification({
-      tenantId: tenant.id,
-      event: "section129_sent",
-      loanId,
-      data: { reference: loan.reference },
-    }).catch(() => {})
+    // A simulated notice went nowhere: no borrower notification follows it.
+    if (!result.simulated) {
+      triggerNotification({
+        tenantId: tenant.id,
+        event: "section129_sent",
+        loanId,
+        data: { reference: loan.reference },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       ok: true,

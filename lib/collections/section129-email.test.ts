@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ config: vi.fn(), sendEmail: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: { emailConfig: { findUnique: (...a: unknown[]) => h.config(...a) } } }))
+const h = vi.hoisted(() => ({ config: vi.fn(), tenant: vi.fn(), sendEmail: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    emailConfig: { findUnique: (...a: unknown[]) => h.config(...a) },
+    tenant: { findUnique: (...a: unknown[]) => h.tenant(...a) },
+  },
+}))
 vi.mock("@/lib/email/service", () => ({ sendEmail: (...a: unknown[]) => h.sendEmail(...a) }))
 
 import { sendSection129Email, section129SentMessage } from "./section129-email"
@@ -11,6 +16,7 @@ const opts = (to: string) => ({ tenantId: "t1", to, subject: "Section 129 Notice
 beforeEach(() => {
   vi.clearAllMocks()
   h.config.mockResolvedValue(null)
+  h.tenant.mockResolvedValue({ slug: "fairscore" })
   h.sendEmail.mockResolvedValue({ ok: false, error: "Email not configured for this tenant. Go to Settings → Email.", providerOutcome: "DEFINITELY_REJECTED" })
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -28,6 +34,15 @@ describe("sendSection129Email", () => {
   it("never simulates a deliverable address, even on a demo stack", async () => {
     vi.stubEnv("DEMO_MODE", "true")
     expect(await sendSection129Email(opts("someone@example.com"))).toMatchObject({ ok: false })
+    expect(h.sendEmail).toHaveBeenCalled()
+  })
+
+  // #147 review: DEMO_MODE alone is one switch; a real lender on a
+  // misconfigured deployment must still not have its notices simulated.
+  it("never simulates for a tenant that is not a demo lender, even on DEMO_MODE", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    h.tenant.mockResolvedValue({ slug: "real-lender" })
+    expect(await sendSection129Email(opts("kabelo.mokoena@real-lender.invalid"))).toMatchObject({ ok: false })
     expect(h.sendEmail).toHaveBeenCalled()
   })
 

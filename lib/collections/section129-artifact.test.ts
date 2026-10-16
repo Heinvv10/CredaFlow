@@ -1273,6 +1273,27 @@ describe("Section 129 private artifact lifecycle", () => {
     })
   })
 
+  it("says when the retrievable notice on file was simulated", async () => {
+    const pdf = Buffer.from("%PDF simulated")
+    findUniqueMock.mockResolvedValue(null)
+    findFirstMock.mockResolvedValue(null)
+    findManyMock.mockResolvedValue([{
+      id: "issue-sim",
+      idempotencyKey: null,
+      status: "COMPLETED",
+      completedAt: new Date("2026-07-18"),
+      data: {
+        lifecycle: "SIMULATED",
+        storagePath: "/private/legal/notice.pdf",
+        fileName: "Section-129-Notice-LN-1.pdf",
+        pdfSha256: section129PdfSha256(pdf),
+      },
+    }])
+    readFileMock.mockResolvedValue(pdf)
+    expect(await getSection129IssuanceAvailability("t1", "loan-1", new Date("2026-09-19T00:00:00.000Z")))
+      .toMatchObject({ hasRetrievableIssuedArtifact: true, latestIssuedSimulated: true })
+  })
+
   it("detects tampering when serving a completed issued record", async () => {
     findManyMock.mockResolvedValue([{
       id: "issue-1",
