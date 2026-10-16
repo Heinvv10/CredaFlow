@@ -5,6 +5,7 @@ import { calculateLoan } from "@/lib/loan-calculator"
 import { deriveAffordabilityFlag } from "@/lib/validation/application-wizard"
 import { toApplicationProduct } from "@/lib/applications/product-mapper"
 import { prepareApplicationFields } from "@/lib/applications/prepare-application"
+import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { isUniqueConstraintViolation, OPEN_APPLICATION_STATUSES } from "@/lib/applications/open-application"
 import { EMPTY_APPLICATION_WIZARD_DATA } from "@/components/applications/wizard/types"
@@ -93,6 +94,10 @@ export async function createDraftApplication(caller: ApiCaller, input: CreateApp
       ])
       if (!client) return fail(404, "not_found", "No such client.")
       if (!productRow) return fail(400, "invalid_body", "productId is not an active loan product.")
+      // The API takes no purchase-order document (lib/applications/po-funding.ts).
+      if (requiresPoFundingFacts(productRow.productType)) {
+        return fail(422, "po_funding_not_supported", "Purchase order funding applications are not supported via the API: they need the purchase order document. Capture them in the staff app or the client portal.")
+      }
 
       const product = toApplicationProduct(productRow)
       const calc = calculateLoan({

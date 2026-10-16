@@ -64,6 +64,8 @@ export function PaymentForm({
   const [receivedAt, setReceivedAt] = useState("")
   const [overrideReason, setOverrideReason] = useState("")
   const attemptRef = useRef<PaymentAttempt | null>(null)
+  // Bumped on success to clear the uncontrolled fields: a stale reference invites a double capture.
+  const [formKey, setFormKey] = useState(0)
 
   // en-CA yields YYYY-MM-DD, and the SAST zone stops a browser running behind
   // UTC offering tomorrow — or reading 00:00–01:59 SAST as yesterday.
@@ -139,6 +141,7 @@ export function PaymentForm({
       setAmountInput("")
       setReceivedAt("")
       setOverrideReason("")
+      setFormKey((k) => k + 1)
       router.refresh()
       onSuccess?.()
     } catch (err) {
@@ -151,7 +154,7 @@ export function PaymentForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form key={formKey} onSubmit={handleSubmit} className="space-y-4">
       {error && (
         <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">{error}</div>
       )}

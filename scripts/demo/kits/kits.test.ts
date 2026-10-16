@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PDFDocument } from 'pdf-lib'
+import { calculateLoan } from '@/lib/loan-calculator'
 import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { LIVE_DEMO_PERSONAS, getPersona } from '../personas'
@@ -62,6 +63,27 @@ describe('buildKits', () => {
     const md = readFileSync(join(root, 'kit', 'live-affordability-decline', 'CHEAT-SHEET.md'), 'utf8')
     expect(md).toContain(RECORDED_DECLINE_REASON)
     expect(md).not.toContain('Disburse Loan')
+  })
+
+  it.each(['live-clean-approve', 'live-returning-client'])('%s walks the signing OTPs, either countersign order and one-admin approval', (id) => {
+    const md = readFileSync(join(root, 'kit', id, 'CHEAT-SHEET.md'), 'utf8')
+    // Agreement and mandate each ask for an emailed one-time code first.
+    expect(md.match(/Verify code/g)).toHaveLength(2)
+    expect(md).toContain('Either order works')
+    expect(md).toContain('segregation of duties is off')
+  })
+
+  it("prices the decline line with the app's calculator at the PERSONAL product's 2.25% pm", () => {
+    const p = getPersona('live-affordability-decline')
+    const loan = calculateLoan({
+      principal: p.loanRequest.amountCents, termDays: p.loanRequest.termDays, interestRatePm: 0.0225,
+      interestModel: 'REDUCING_BALANCE', initiationFeeModel: 'FLAT_PCT', initiationFeePct: 0.165, initiationFeeMax: 108_000,
+      monthlyServiceFee: 6_900, productType: 'PERSONAL',
+    }, new Date('2026-10-01T00:00:00Z'))
+    // The gate tests the regular instalment (the first carries the initiation fee) at the tenant's 110% buffer.
+    const required = Math.round(loan.schedule[1].totalDue * 1.1)
+    expect(required).toBe(271_638)
+    expect(RECORDED_DECLINE_REASON).toContain(`below required ${required} (instalment`)
   })
 
   const UPLOAD_SELFIE_KYC = /\bUpload\b|Take selfie|Selfie verification|KYC tab/i

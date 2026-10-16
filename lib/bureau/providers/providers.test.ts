@@ -1,4 +1,5 @@
 import fs from "node:fs"
+import { dryRunScore } from "@/lib/integrations/experian-dry-run"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseEnquiryResult, type ExperianResult } from "@/lib/integrations/experian"
@@ -57,7 +58,7 @@ describe("Experian adapter", () => {
 
   it("labels its dry-run report simulated, with Experian's own guard as the source", async () => {
     const report = await experianBureau.enquiry(request, context)
-    expect(report).toMatchObject({ provider: "experian", simulated: true, simulationSource: "experian", score: { value: 645 } })
+    expect(report).toMatchObject({ provider: "experian", simulated: true, simulationSource: "experian", score: { value: dryRunScore(request.consumer.idNumber).score } })
     expect(bureauInstalmentTotalCents(report)).toBe(0)
     expect(bureauObligationsKnown(reportObligations(report))).toBe(true)
   })

@@ -35,6 +35,11 @@ export interface ApplicationWizardData {
   // in T6 if surfaced, else stays "" and the API stores it as NULL (see
   // app/api/applications/route.ts: `data.loanPurposeCategory || null`).
   loanPurposeCategory: string
+  // PO funding only (lib/applications/po-funding.ts): the purchase order the
+  // advance funds. Required by Step 2 and by prepareApplicationFields.
+  poNumber: string
+  poBuyerName: string
+  poDocumentId: string
   // Step 3 — computed but persisted snapshot.
   // The fee lines are carried alongside interest so the cost summary FOOTS:
   // principal + totalInterest + initiationFee + serviceFees === totalRepayable.
@@ -63,6 +68,7 @@ export const EMPTY_APPLICATION_WIZARD_DATA: ApplicationWizardData = {
   clientId: "",
   productId: "", appliedAmount: "", appliedTermDays: "",
   purpose: "", purposeDetails: "", loanPurposeCategory: "",
+  poNumber: "", poBuyerName: "", poDocumentId: "",
   monthlyInstalment: "", firstInstalment: "", totalInterest: "", initiationFee: "", serviceFees: "", totalRepayable: "",
   affordabilityFlag: "",
   creditLifeElection: "",

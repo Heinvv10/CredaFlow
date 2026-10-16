@@ -28,8 +28,10 @@ import {
   calculateCreditLifeMonthlyPremiumCents,
   creditLifeOfferMatches,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
+  creditLifeOfferedFor,
   isCreditLifeElection,
 } from "@/lib/insurance/credit-life-election"
+import { isClientPoDocument, parsePoFundingFacts, type PoFundingFacts } from "@/lib/applications/po-funding"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import {
   createCreditLifeDisclosureSha256,
@@ -170,12 +172,16 @@ export async function POST(req: NextRequest) {
     // absent; a stated ACCEPTED is still refused above, and a stated
     // DECLINED passes through untouched.
     const statedElection = body.creditLifeElection === "" ? undefined : body.creditLifeElection
-    const creditLifeElection = offerConfiguredAtRequest
+    // A configured product is no offer at or below the threshold (B6): such an
+    // application is a no-offer one, whatever the screen disclosed.
+    const principalOfferable = creditLifeOfferedFor(true, appliedAmount)
+    const offerAtRequest = creditLifeOfferedFor(Boolean(offerConfiguredAtRequest), appliedAmount)
+    const creditLifeElection = offerAtRequest
       ? statedElection
       : (statedElection ?? "DECLINED")
     if (
       !isCreditLifeElection(creditLifeElection)
-      || (offerConfiguredAtRequest && body.creditLifeDisclosureAcknowledged !== true)
+      || (offerAtRequest && body.creditLifeDisclosureAcknowledged !== true)
     ) {
       return NextResponse.json(
         { error: "Choose whether to accept or decline the credit-life offer and acknowledge the exact product, insurer, and premium before the PASQ step." },
@@ -299,6 +305,15 @@ export async function POST(req: NextRequest) {
       appliedTermDays = requestedTerm
     }
 
+    // PO funding is business credit tied to a confirmed order (lib/applications/po-funding.ts).
+    let poFacts: PoFundingFacts | null = null
+    if (product.productType === "PO_FUNDING") {
+      const parsed = parsePoFundingFacts(body, loanPurposeCategory)
+      if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+      // The document itself is checked inside the create transaction, below.
+      poFacts = parsed.facts
+    }
+
     // Block new applications if client has a defaulted loan (mirrors staff
     // endpoint behaviour — defaults must be resolved by ops before a new
     // application is accepted).
@@ -346,6 +361,12 @@ export async function POST(req: NextRequest) {
         if (!evidenceExists) {
           return { ok: false as const, status: 422, body: { error: "Application evidence is no longer available. Please refresh and try again." } }
         }
+        // Under the client-evidence lock DELETE /api/documents/[id] also takes,
+        // so the purchase order cannot be deleted between this check and the
+        // insert that names it (that route then refuses: it is referenced).
+        if (poFacts && !(await isClientPoDocument(tx, { tenantId: tenant.id, clientId: client.id, documentId: poFacts.poDocumentId }))) {
+          return { ok: false as const, status: 422, body: { error: "Upload the purchase order document again: the one sent was not found." } }
+        }
 
         const [currentClient, currentProduct] = await Promise.all([
           tx.client.findFirst({
@@ -363,10 +384,11 @@ export async function POST(req: NextRequest) {
         // rendered. Requiring it unconditionally would make every no-offer
         // submission die here with "offer is incomplete".
         const disclosedCreditLifeProductId =
-          typeof body.creditLifeProductId === "string" && body.creditLifeProductId.trim() !== ""
+          principalOfferable
+          && typeof body.creditLifeProductId === "string" && body.creditLifeProductId.trim() !== ""
             ? body.creditLifeProductId
             : null
-        if (offerConfiguredAtRequest && disclosedCreditLifeProductId === null) {
+        if (offerAtRequest && disclosedCreditLifeProductId === null) {
           return {
             ok: false as const,
             status: 422,
@@ -439,7 +461,7 @@ export async function POST(req: NextRequest) {
         // No active credit-life product means there was no cover to offer, so
         // there is nothing to elect on. Record the no-offer disclosure rather
         // than blocking the application.
-        const creditLifeOffered = Boolean(
+        const creditLifeProductUsable = Boolean(
           currentCreditLifeProduct?.insurerId
           && currentCreditLifeProduct.insurer
           && currentCreditLifeProduct.insurer.id
@@ -449,7 +471,7 @@ export async function POST(req: NextRequest) {
           && currentCreditLifeProduct.name.trim() !== ""
           && currentCreditLifeProduct.insurer.name.trim() !== "",
         )
-        if (!creditLifeOffered && currentCreditLifeProduct) {
+        if (!creditLifeProductUsable && currentCreditLifeProduct) {
           // A product row exists but is unusable (inactive insurer, blank
           // name). That is a broken offer, not an absent one -- fail closed,
           // with copy that matches what this applicant actually did: on the
@@ -464,6 +486,7 @@ export async function POST(req: NextRequest) {
             },
           }
         }
+        const creditLifeOffered = creditLifeProductUsable && principalOfferable
         if (!creditLifeOffered && creditLifeElection === "ACCEPTED") {
           return {
             ok: false as const,
@@ -674,6 +697,7 @@ export async function POST(req: NextRequest) {
             appliedTermDays: lockedTermDays,
             purpose,
             loanPurposeCategory,
+            ...poFacts,
             agreementType: classifyAgreementType(appliedAmount),
             existingDebtObligations: debtSnapshot,
             totalExistingDebt,

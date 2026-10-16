@@ -9,7 +9,7 @@ import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { fspRefusal } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { generateFaisDisclosurePdf } from "@/lib/pdf/faisDisclosure"
-import { signDraftToken } from "@/lib/insurance/disclosure-token"
+import { hashDraftToken, signDraftToken } from "@/lib/insurance/disclosure-token"
 import { requiresRating, screenDraftRating } from "@/lib/insurance/policy/draft-rating-gate"
 import type { PrismaClient } from "@prisma/client"
 import { InsurancePolicyType } from "@prisma/client"
@@ -165,11 +165,12 @@ export async function POST(req: NextRequest) {
       productId: productId ?? null,
     })
 
-    // draftToken format is "<payload>.<sig>", so the on-disk filename contains
-    // two dots, e.g. "abc123.xyz789.pdf". Task 7 reads by reconstructing this
-    // exact path — do not split on "." to derive a base name. Written through
-    // lib/storage, so encrypted at rest like every upload.
-    const storageRelativePath = `disclosures/${tenant.id}/${draftToken}.pdf`
+    // Stored under sha256(token), as the quote route does: a token built from
+    // real (cuid) ids is longer than the 255-byte file name limit, so naming
+    // the file after the token itself failed every write ("Invalid storage
+    // path"). The serving route derives the same hash, so the URL is unchanged.
+    // Written through lib/storage, so encrypted at rest like every upload.
+    const storageRelativePath = `disclosures/${tenant.id}/${hashDraftToken(draftToken)}.pdf`
 
     const pdfBuffer = await generateFaisDisclosurePdf({
       lender: lender.identity,

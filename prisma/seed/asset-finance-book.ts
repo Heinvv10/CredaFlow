@@ -77,20 +77,6 @@ export async function ensureProduct(tenantId: string): Promise<string> {
   return product.id
 }
 
-export async function ensureCreditLifeProduct(tenantId: string): Promise<void> {
-  const insurer = await prisma.insurer.upsert({
-    where: { tenantId_name: { tenantId, name: "TEST Credit Life Underwriter" } },
-    update: {}, create: { tenantId, name: "TEST Credit Life Underwriter", fspNumber: "99999" },
-  })
-  await prisma.insuranceProduct.upsert({
-    where: { tenantId_code: { tenantId, code: "TEST-AF-CREDIT-LIFE" } },
-    update: {}, create: {
-      tenantId, code: "TEST-AF-CREDIT-LIFE", name: "TEST Asset Credit Life", type: "CREDIT_LIFE",
-      premiumAmount: new Prisma.Decimal(1), sumAssured: new Prisma.Decimal(1), insurerId: insurer.id,
-    },
-  })
-}
-
 /** The tenant's VAT vendor details; the registered name is the tenant's legal name. */
 export async function ensureVatConfig(tenantId: string, legalName: string, address: string): Promise<void> {
   await prisma.vatConfig.upsert({

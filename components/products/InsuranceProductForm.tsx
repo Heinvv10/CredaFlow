@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { formatZAR } from "@/lib/utils"
+import { premiumCommission } from "@/lib/insurance/commission"
 import Link from "next/link"
 
 type InsuranceProduct = {
@@ -118,7 +120,7 @@ export function InsuranceProductForm(
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Commission per policy: R{(form.sumAssured * form.commissionRate).toFixed(2)}
+            Commission per policy: {formatZAR(Math.round(premiumCommission(form.premiumAmount, form.commissionRate) * 100))} a month
           </p>
         </div>
 

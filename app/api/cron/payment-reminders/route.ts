@@ -208,6 +208,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // before the instalment falls due.
     const daysUntilDue = daysBetween(now, schedule.dueDate)
     if (daysUntilDue < 0 || daysUntilDue > REMINDER_LEAD_DAYS) continue
+    // Nothing left to pay on the instalment: no reminder, never "R 0.00".
+    if (schedule.totalDue - schedule.totalPaid <= 0) continue
     const { loan } = schedule
     // An entity borrower (asset finance) has no Client to message: the
     // reminder goes to the people who act for it, by email and WhatsApp, in

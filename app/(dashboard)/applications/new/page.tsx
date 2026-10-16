@@ -105,6 +105,9 @@ async function loadDraftForResume(id: string, tenantId: string) {
       appliedTermDays: true,
       purpose: true,
       loanPurposeCategory: true,
+      poNumber: true,
+      poBuyerName: true,
+      poDocumentId: true,
     },
   })
   // The consumer wizard cannot resume an entity-borrower (asset finance) draft;
@@ -129,6 +132,9 @@ function toWizardData(draft: DraftForResume): ApplicationWizardData {
     appliedTermDays: String(draft.appliedTermDays),
     purpose: draft.purpose ?? "",
     loanPurposeCategory: draft.loanPurposeCategory ?? "",
+    poNumber: draft.poNumber ?? "",
+    poBuyerName: draft.poBuyerName ?? "",
+    poDocumentId: draft.poDocumentId ?? "",
   }
 }
 

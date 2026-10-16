@@ -200,6 +200,7 @@ model Loan {
   meterReadings              AssetMeterReading[]
   notes                      LoanNote[]
   paymentArrangement         PaymentArrangement?
+  paymentNotifications       PaymentNotification[]
   paymentPlan                PaymentPlan?
   payments                   Payment[]
   payoutRecoveryCases        PayoutRecoveryCase[]
@@ -345,6 +346,7 @@ model Payment {
   cashThresholdReport     CashThresholdReport?
   collectionResults       CollectionResult[]
   excessPayments          Payment[]              @relation("PaymentOverpayment")
+  paymentNotification     PaymentNotification?
   recoveryProceeds        Recovery?              @relation("RecoveryProceedsPayment")
   remarketingSaleProceeds RemarketingSale[]      @relation("RemarketingSaleProceeds")
   surrenderProceeds       SurrenderRequest[]     @relation("SurrenderProceedsPayment")

@@ -8,7 +8,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: { tenantConfig: { findUnique: tenantConfigFindUnique }, tenant: { findUnique: tenantFindUnique } },
 }))
 
-import { loadStitchAccount, loadStitchWebhookSecret } from "./stitch"
+import { loadStitchAccount, loadStitchWebhookSecret, stitchConfigured } from "./stitch"
 
 // The STITCH_* environment is one lender's Stitch account: it serves only the
 // tenant ENV_CREDENTIALS_TENANT_SLUG names, whatever the other tenants' statuses.
@@ -39,5 +39,40 @@ describe("Stitch environment fallback", () => {
     vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "")
     expect(await loadStitchWebhookSecret("tA")).toBeNull()
     await expect(loadStitchAccount("tA")).rejects.toThrow(/not configured for this lender/)
+  })
+})
+
+describe("stitchConfigured", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENV_CREDENTIALS_TENANT_SLUG", "")
+    tenantConfigFindUnique.mockReset().mockResolvedValue(null)
+    tenantFindUnique.mockReset().mockResolvedValue({ id: "tA" })
+  })
+  afterEach(() => vi.unstubAllEnvs())
+
+  it("is false for a lender with no Stitch account", async () => {
+    expect(await stitchConfigured("tA")).toBe(false)
+  })
+
+  it("is false when the beneficiary account is incomplete", async () => {
+    for (const [k, v] of Object.entries({
+      ENV_CREDENTIALS_TENANT_SLUG: "lender-a", STITCH_CLIENT_ID: "env-client", STITCH_CLIENT_SECRET: "env-secret",
+      STITCH_BENEFICIARY_NAME: "", STITCH_BANK_ID: "", STITCH_ACCOUNT_NUMBER: "", STITCH_BRANCH_CODE: "",
+    })) vi.stubEnv(k, v)
+    expect(await stitchConfigured("tA")).toBe(false)
+  })
+
+  it("is true when the account is complete", async () => {
+    for (const [k, v] of Object.entries({
+      ENV_CREDENTIALS_TENANT_SLUG: "lender-a", STITCH_CLIENT_ID: "env-client", STITCH_CLIENT_SECRET: "env-secret",
+      STITCH_BENEFICIARY_NAME: "Synthetic Lender", STITCH_BANK_ID: "synthetic-bank",
+      STITCH_ACCOUNT_NUMBER: "0000000000", STITCH_BRANCH_CODE: "000000",
+    })) vi.stubEnv(k, v)
+    expect(await stitchConfigured("tA")).toBe(true)
+  })
+
+  it("does not hide a database failure as 'not configured'", async () => {
+    tenantConfigFindUnique.mockRejectedValue(new Error("connection reset"))
+    await expect(stitchConfigured("tA")).rejects.toThrow("connection reset")
   })
 })

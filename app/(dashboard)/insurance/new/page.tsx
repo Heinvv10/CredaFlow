@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { requireMinRole } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { PolicyCreationWizard } from "@/components/insurance/PolicyCreationWizard"
@@ -31,6 +32,7 @@ async function getNewPolicyData() {
         commissionRate: true,
         active: true,
         code: true,
+        insurer: { select: { name: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -40,8 +42,9 @@ async function getNewPolicyData() {
     clients,
     advisors,
     // Serialize Decimal fields so they pass the client component boundary
-    products: products.map((p) => ({
+    products: products.map(({ insurer, ...p }) => ({
       ...p,
+      insurerName: insurer?.name ?? null,
       premiumAmount: Number(p.premiumAmount),
       sumAssured: Number(p.sumAssured),
       commissionRate: Number(p.commissionRate),
@@ -50,6 +53,9 @@ async function getNewPolicyData() {
 }
 
 export default async function NewPolicyPage() {
+  // Issuing a policy is INSURANCE_OFFICER and above (POST /api/insurance/policies/draft),
+  // and the page lists every client: a role that cannot issue does not open it.
+  await requireMinRole("INSURANCE_OFFICER")
   const { clients, advisors, products } = await getNewPolicyData()
 
   return (

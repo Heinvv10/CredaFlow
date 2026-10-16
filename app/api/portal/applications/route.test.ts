@@ -21,6 +21,7 @@ const {
   queryRaw,
   transaction,
   auditLogCreate,
+  findFirstDocument,
 } = vi.hoisted(() => ({
   auth: vi.fn(),
   checkRateLimit: vi.fn(),
@@ -38,6 +39,7 @@ const {
   queryRaw: vi.fn(),
   transaction: vi.fn(),
   auditLogCreate: vi.fn(),
+  findFirstDocument: vi.fn(),
 }))
 
 const tx = {
@@ -48,6 +50,7 @@ const tx = {
   loan: { findFirst: findFirstLoan },
   loanApplication: { findFirst: findFirstApplication, create: createApplication },
   auditLog: { create: auditLogCreate },
+  clientDocument: { findFirst: findFirstDocument },
 }
 
 vi.mock("@/lib/auth", () => ({ auth }))
@@ -59,6 +62,7 @@ vi.mock("@/lib/prisma", () => ({
     insuranceProduct: { findFirst: findFirstInsuranceProduct },
     loan: { findFirst: findFirstLoan, count: countLoan },
     loanApplication: { findFirst: findFirstApplication, create: createApplication },
+    clientDocument: { findFirst: findFirstDocument },
   },
 }))
 vi.mock("@/lib/tenant", () => ({
@@ -698,5 +702,128 @@ describe("POST /api/portal/applications", () => {
     const res = await POST(buildReq(validBody))
     expect(res.status).toBe(201)
     expect(createApplication).toHaveBeenCalledOnce()
+  })
+})
+
+describe("POST /api/portal/applications — PO funding", () => {
+  const PO_PRODUCT = {
+    ...PRODUCT, id: "prod-po", code: "POFUND", name: "Purchase Order Funding", productType: "PO_FUNDING",
+    minAmount: 1_000_000, maxAmount: 50_000_000, minTermDays: 30, maxTermDays: 120,
+    interestModel: "DAILY_ACCRUAL", initiationFeePct: 0.02, initiationFeeMax: 0, monthlyServiceFee: 0,
+  }
+  const poBody = {
+    ...validBody, productCode: "POFUND", amount: 50_000, termDays: 60, purpose: "Supply 400 school uniforms",
+    creditLifeMonthlyPremiumCents: 22_500,
+    loanPurposeCategory: "BUSINESS", poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+  }
+
+  beforeEach(() => {
+    findFirstProduct.mockResolvedValue(PO_PRODUCT)
+    findFirstDocument.mockResolvedValue({ id: "doc-po" })
+  })
+
+  it("refuses a consumer purpose: PO funding is for a business", async () => {
+    const res = await POST(buildReq({ ...poBody, loanPurposeCategory: "MEDICAL" }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/business/i)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["poNumber", { poNumber: " " }],
+    ["poBuyerName", { poBuyerName: "" }],
+    ["poDocumentId", { poDocumentId: undefined }],
+  ])("refuses an application without %s", async (_field, missing) => {
+    const res = await POST(buildReq({ ...poBody, ...missing }))
+    expect(res.status).toBe(400)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("refuses a PO document that is not this client's purchase order", async () => {
+    findFirstDocument.mockResolvedValue(null)
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(422)
+    expect(findFirstDocument).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT", deletedAt: null },
+    }))
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("checks the PO document inside the create transaction, after the client evidence lock the delete route takes", async () => {
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(201)
+    expect(transaction).toHaveBeenCalled()
+    const lockSql = queryRaw.mock.calls.map((c) => JSON.stringify(c[0]))
+    expect(lockSql.some((q) => q.includes("affordability-client:t1:c1"))).toBe(true)
+    // The first raw query in the transaction is the advisory client-evidence lock.
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(findFirstDocument.mock.invocationCallOrder[0])
+    expect(findFirstDocument).toHaveBeenCalledTimes(1)
+  })
+
+  it("stores the purchase-order facts with the application", async () => {
+    const res = await POST(buildReq(poBody))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        loanPurposeCategory: "BUSINESS",
+        poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+      }),
+    }))
+  })
+
+  it("ignores PO fields on a consumer product", async () => {
+    findFirstProduct.mockResolvedValue(PRODUCT)
+    const res = await POST(buildReq({ ...validBody, poNumber: "PO-1", poBuyerName: "X", poDocumentId: "doc-po" }))
+    expect(res.status).toBe(201)
+    const data = createApplication.mock.calls[0][0].data
+    expect(data.poNumber).toBeUndefined()
+    expect(findFirstDocument).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /api/portal/applications — credit life at or below the R1,000 threshold (B6)", () => {
+  // Cover cannot be added to a principal of R1,000 or less, so a configured
+  // product is not an offer here: the application records the no-offer
+  // disclosure, never "DECLINED" against a product the consumer could not take.
+  const small = { ...validBody, amount: 800 }
+
+  it("records the no-offer state although a product is configured", async () => {
+    const res = await POST(buildReq(small))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        creditLifeElection: "DECLINED",
+        creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+        creditLifeProductId: null,
+        creditLifeProductName: null,
+        creditLifeInsurerId: null,
+        creditLifeInsurerName: null,
+        creditLifeMonthlyPremiumCents: 0,
+      }),
+    }))
+  })
+
+  it("needs no election or acknowledgement, as when nothing is configured", async () => {
+    const { creditLifeProductId: _p, creditLifeProductName: _n, creditLifeInsurerId: _i,
+      creditLifeInsurerName: _in, creditLifeMonthlyPremiumCents: _m, ...noOffer } = small as Record<string, unknown>
+    const res = await POST(buildReq({ ...noOffer, creditLifeElection: "", creditLifeDisclosureAcknowledged: false }))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ creditLifeDisclosureVersion: "credit-life-no-offer-v1" }),
+    }))
+  })
+
+  it("still refuses ACCEPTED", async () => {
+    const res = await POST(buildReq({ ...small, creditLifeElection: "ACCEPTED" }))
+    expect(res.status).toBe(422)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("keeps recording DECLINED against the offer above the threshold", async () => {
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ creditLifeDisclosureVersion: "credit-life-election-v1", creditLifeProductId: CREDIT_LIFE_PRODUCT.id }),
+    }))
   })
 })

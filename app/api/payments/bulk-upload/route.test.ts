@@ -50,6 +50,7 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 }))
 
 import { POST } from "./route"
+import { ELIZE_INSTALMENT_CENTS, elizeSchedule } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
 
 function postReq(rows: unknown[]) {
   return new NextRequest("http://x/api/payments/bulk-upload", { method: "POST", body: JSON.stringify({ rows }) })
@@ -262,4 +263,36 @@ it("records money for a COMPLETED loan as refund-due", async () => {
   expect(txPaymentCreateMock).toHaveBeenCalledWith(expect.objectContaining({
     data: expect.objectContaining({ allocationStatus: "UNAPPLIED", reconciliationReason: "overpayment_refund_due" }),
   }))
+})
+
+it("leaves Elize's unpaid future instalments PENDING when a receipt clears her #5 shortfall", async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date("2026-10-16T10:00:00.000Z"))
+  const schedule = elizeSchedule()
+  loanFindManyMock.mockResolvedValue([{ id: "loanA", reference: "LN-1" }])
+  txLoanFindUniqueMock.mockResolvedValue(loanObj({
+    principal: 3_000_000,
+    totalRepayable: ELIZE_INSTALMENT_CENTS * 18,
+    totalInterest: ELIZE_INSTALMENT_CENTS * 18 - 3_000_000,
+    totalPaid: schedule.reduce((sum, row) => sum + row.totalPaid, 0),
+    interestRatePm: 0.03,
+    interestModel: "REDUCING_BALANCE",
+    startDate: new Date("2026-04-17T06:00:00.000Z"),
+    maturityDate: schedule[17].dueDate,
+    repaymentSchedule: schedule,
+  }))
+
+  try {
+    // R843.30, the amount the audit captured for Elize.
+    await POST(postReq([{ reference: "LN-1", amount: 843.3 }]))
+  } finally {
+    vi.useRealTimers()
+  }
+
+  const written = txScheduleUpdateMock.mock.calls.map(
+    (c) => c[0] as { where: { id: string }; data: { status: string } },
+  )
+  expect(written.find((w) => w.where.id === "elize-s5")?.data.status).toBe("PAID")
+  const future = written.filter((w) => Number(w.where.id.replace("elize-s", "")) > 5)
+  for (const w of future) expect(w.data.status).toBe("PENDING")
 })
