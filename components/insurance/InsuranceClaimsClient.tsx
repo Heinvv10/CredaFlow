@@ -4,7 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { formatZAR, formatDate } from "@/lib/utils"
 import Link from "next/link"
-import { Plus, X, CheckCircle, XCircle } from "lucide-react"
+import { ClipboardCheck, Plus } from "lucide-react"
+import { ClaimDecisionModal } from "./ClaimDecisionModal"
 
 type Assessor = {
   id: string
@@ -30,6 +31,7 @@ type Claim = {
   policy: {
     type: string
     policyNumber: string
+    sumAssured: number | string
     client: { firstName: string; lastName: string; phone: string }
   }
 }
@@ -52,11 +54,6 @@ const TYPE_LABELS: Record<string, string> = {
 
 const ALL_STATUSES = ["ALL", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "PAID", "REJECTED"]
 
-type AdjudicationModal =
-  | { type: "approve"; claim: Claim }
-  | { type: "reject"; claim: Claim }
-  | null
-
 export function InsuranceClaimsClient({
   claims,
   advisors = [],
@@ -66,105 +63,37 @@ export function InsuranceClaimsClient({
 }) {
   const router = useRouter()
   const [filter, setFilter] = useState("ALL")
-  const [modal, setModal] = useState<AdjudicationModal>(null)
-  const [processing, setProcessing] = useState(false)
-  const [modalError, setModalError] = useState<string | null>(null)
-
-  // Approve form
-  const [approvedAmount, setApprovedAmount] = useState("")
-  const [assessorId, setAssessorId] = useState("")
-  const [insurerRef, setInsurerRef] = useState("")
-
-  // Reject form
-  const [rejectionReason, setRejectionReason] = useState("")
+  const [deciding, setDeciding] = useState<Claim | null>(null)
 
   const filtered = filter === "ALL" ? claims : claims.filter((c) => c.status === filter)
 
-  const openApprove = (claim: Claim) => {
-    setModal({ type: "approve", claim })
-    setApprovedAmount(String(Number(claim.claimAmount)))
-    setAssessorId(claim.assessor?.id ?? "")
-    setInsurerRef(claim.insurerRef ?? "")
-    setModalError(null)
-  }
-
-  const openReject = (claim: Claim) => {
-    setModal({ type: "reject", claim })
-    setRejectionReason(claim.rejectionReason ?? "")
-    setAssessorId(claim.assessor?.id ?? "")
-    setInsurerRef(claim.insurerRef ?? "")
-    setModalError(null)
-  }
-
-  const closeModal = () => {
-    setModal(null)
-    setModalError(null)
-  }
-
-  const handleApprove = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!modal || modal.type !== "approve") return
-    if (!approvedAmount || isNaN(parseFloat(approvedAmount))) {
-      setModalError("A valid approved amount is required.")
-      return
-    }
-    setProcessing(true)
-    setModalError(null)
+  // The insurer paid an APPROVED claim (the API's "mark_paid", audited).
+  const [paying, setPaying] = useState<string | null>(null)
+  const [payError, setPayError] = useState<{ id: string; message: string } | null>(null)
+  async function recordPaid(claim: Claim) {
+    setPaying(claim.id)
+    setPayError(null)
     try {
-      const res = await fetch(`/api/insurance/claims/${modal.claim.id}`, {
+      const res = await fetch(`/api/insurance/claims/${claim.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "approve",
-          approvedAmount: parseFloat(approvedAmount),
-          assessorId: assessorId || undefined,
-          insurerRef: insurerRef || undefined,
-        }),
+        body: JSON.stringify({ action: "mark_paid" }),
       })
-      if (!res.ok) throw new Error("Failed to approve claim")
-      closeModal()
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        setPayError({ id: claim.id, message: body.error ?? "The payment could not be recorded." })
+        return
+      }
       router.refresh()
-    } catch (err) {
-      setModalError(err instanceof Error ? err.message : "Something went wrong")
+    } catch {
+      setPayError({ id: claim.id, message: "Network error. Please try again." })
     } finally {
-      setProcessing(false)
-    }
-  }
-
-  const handleReject = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!modal || modal.type !== "reject") return
-    if (!rejectionReason.trim()) {
-      setModalError("A rejection reason is required.")
-      return
-    }
-    setProcessing(true)
-    setModalError(null)
-    try {
-      const res = await fetch(`/api/insurance/claims/${modal.claim.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "reject",
-          rejectionReason,
-          assessorId: assessorId || undefined,
-          insurerRef: insurerRef || undefined,
-        }),
-      })
-      if (!res.ok) throw new Error("Failed to reject claim")
-      closeModal()
-      router.refresh()
-    } catch (err) {
-      setModalError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setProcessing(false)
+      setPaying(null)
     }
   }
 
   const canAdjudicate = (status: string) =>
     status === "SUBMITTED" || status === "UNDER_REVIEW"
-
-  const inp = "w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-[#4338CA]"
 
   return (
     <div>
@@ -174,7 +103,7 @@ export function InsuranceClaimsClient({
           <p className="text-sm text-gray-500 mt-1">{claims.length} total claims</p>
         </div>
         <Link
-          href="/insurance"
+          href="/insurance/claims/new"
           className="flex items-center gap-2 px-4 py-2 bg-[#4F46E5] text-white rounded-lg text-sm font-medium hover:bg-[#4338CA]"
         >
           <Plus className="h-4 w-4" /> New Claim
@@ -243,21 +172,23 @@ export function InsuranceClaimsClient({
                 </td>
                 <td className="px-4 py-3">
                   {canAdjudicate(c.status) && (
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => openApprove(c)}
-                        className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border border-green-200 text-green-700 hover:bg-green-50 transition-colors"
-                      >
-                        <CheckCircle className="h-3 w-3" /> Approve
-                      </button>
-                      <button
-                        onClick={() => openReject(c)}
-                        className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-                      >
-                        <XCircle className="h-3 w-3" /> Reject
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setDeciding(c)}
+                      className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border border-gray-200 text-[#4F46E5] hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                    >
+                      <ClipboardCheck className="h-3 w-3" /> Record insurer decision
+                    </button>
                   )}
+                  {c.status === "APPROVED" && (
+                    <button
+                      onClick={() => recordPaid(c)}
+                      disabled={paying === c.id}
+                      className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border border-gray-200 text-[#4F46E5] hover:bg-indigo-50 transition-colors whitespace-nowrap disabled:opacity-60"
+                    >
+                      <ClipboardCheck className="h-3 w-3" /> {paying === c.id ? "Recording..." : "Record insurer payment"}
+                    </button>
+                  )}
+                  {payError?.id === c.id && <p role="alert" className="mt-1 text-[11px] text-red-600">{payError.message}</p>}
                 </td>
               </tr>
             ))}
@@ -272,177 +203,16 @@ export function InsuranceClaimsClient({
         </table>
       </div>
 
-      {/* Approve Modal */}
-      {modal?.type === "approve" && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="font-bold text-gray-900 flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" /> Approve Claim
-              </h2>
-              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <form onSubmit={handleApprove} className="p-6 space-y-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">{modal.claim.claimNumber}</span> —{" "}
-                {modal.claim.policy.client.firstName} {modal.claim.policy.client.lastName}
-              </div>
-
-              {modalError && (
-                <div className="bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm text-red-700">
-                  {modalError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Approved Amount (R) *
-                </label>
-                <input
-                  type="number"
-                  value={approvedAmount}
-                  onChange={(e) => setApprovedAmount(e.target.value)}
-                  className={inp}
-                  placeholder="0.00"
-                  min="0"
-                  step="0.01"
-                  required
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Claimed: {formatZAR(Number(modal.claim.claimAmount) * 100)}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Assessor</label>
-                <select
-                  value={assessorId}
-                  onChange={(e) => setAssessorId(e.target.value)}
-                  className={`${inp} bg-white`}
-                >
-                  <option value="">— Select assessor —</option>
-                  {advisors.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name ?? a.email}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Insurer Reference</label>
-                <input
-                  type="text"
-                  value={insurerRef}
-                  onChange={(e) => setInsurerRef(e.target.value)}
-                  className={inp}
-                  placeholder="Insurer claim reference"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={processing}
-                  className="px-5 py-2 rounded-md text-white text-sm font-medium disabled:opacity-60 bg-green-600 hover:bg-green-700 transition-colors"
-                >
-                  {processing ? "Approving..." : "Approve Claim"}
-                </button>
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Reject Modal */}
-      {modal?.type === "reject" && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="font-bold text-gray-900 flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-red-600" /> Reject Claim
-              </h2>
-              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <form onSubmit={handleReject} className="p-6 space-y-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">{modal.claim.claimNumber}</span> —{" "}
-                {modal.claim.policy.client.firstName} {modal.claim.policy.client.lastName}
-              </div>
-
-              {modalError && (
-                <div className="bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm text-red-700">
-                  {modalError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                  Rejection Reason *
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  rows={3}
-                  required
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:border-[#4338CA] resize-none"
-                  placeholder="Reason for rejecting this claim..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Assessor</label>
-                <select
-                  value={assessorId}
-                  onChange={(e) => setAssessorId(e.target.value)}
-                  className={`${inp} bg-white`}
-                >
-                  <option value="">— Select assessor —</option>
-                  {advisors.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name ?? a.email}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Insurer Reference</label>
-                <input
-                  type="text"
-                  value={insurerRef}
-                  onChange={(e) => setInsurerRef(e.target.value)}
-                  className={inp}
-                  placeholder="Insurer claim reference"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={processing}
-                  className="px-5 py-2 rounded-md text-white text-sm font-medium disabled:opacity-60 bg-red-600 hover:bg-red-700 transition-colors"
-                >
-                  {processing ? "Rejecting..." : "Reject Claim"}
-                </button>
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {deciding && (
+        <ClaimDecisionModal
+          claim={deciding}
+          advisors={advisors}
+          onClose={() => setDeciding(null)}
+          onRecorded={() => {
+            setDeciding(null)
+            router.refresh()
+          }}
+        />
       )}
     </div>
   )

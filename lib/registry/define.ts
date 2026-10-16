@@ -65,9 +65,14 @@ export function defineSimulatedIntegrations<T extends Readonly<Record<string, Si
 }
 
 /**
- * Minimum role per permission: one map, read by lib/auth-guards.ts
- * `PERMISSIONS` on the server and lib/permissions.ts `canDo` on the client.
+ * Who holds each permission: one map, read by lib/auth-guards.ts `canDo` on
+ * the server and lib/permissions.ts `canDo` on the client. A single role is a
+ * minimum on the ladder (ROLE_HIERARCHY); a list grants exactly the roles it
+ * names, for a permission the ladder would hand to a specialist role that
+ * should not have it.
  */
-export function definePermissions<T extends Readonly<Record<string, UserRole>>>(permissions: T): T {
+export type PermissionRule = UserRole | readonly UserRole[]
+
+export function definePermissions<T extends Readonly<Record<string, PermissionRule>>>(permissions: T): T {
   return permissions
 }

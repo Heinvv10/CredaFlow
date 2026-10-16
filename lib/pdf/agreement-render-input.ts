@@ -47,6 +47,9 @@ export interface AgreementRenderEvidence {
   quotePresentedAt: Date
   quoteValidUntilDate: string
   creditLifeAutoBundleEligible: boolean
+  /** The stored credit-life record is the no-offer disclosure. Required, so a
+   *  caller must state it rather than let a missing `creditLife` imply it. */
+  creditLifeNotOffered: boolean
   /**
    * Omitted entirely when no cover was offered. creditAgreement.ts prints its
    * "Offered Credit Life Product/Insurer/Premium" rows whenever this key is
@@ -104,6 +107,7 @@ export function buildAgreementRenderInput(evidence: AgreementRenderEvidence) {
     quoteValidUntilDate: evidence.quoteValidUntilDate,
     willAutoBundleCl: evidence.creditLifeAutoBundleEligible,
     creditLife: evidence.creditLife,
+    creditLifeNotOffered: evidence.creditLifeNotOffered,
     initiationFeePayment: evidence.approvalInputs.initiationFeePayment,
   }
 }

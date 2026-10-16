@@ -34,7 +34,11 @@ const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", async () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // The real permission check (the client-safe twin of auth-guards' canDo).
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
+}))
 // The gate's own behaviour is tested in lib/screening; here, only that the
 // route obeys it before and inside the approve transaction.
 const screeningApprovalGateMock = vi.fn()
@@ -361,7 +365,7 @@ beforeEach(() => {
   lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
   verifyStoredPasqBindingMock.mockReset()
   verifyPasqDocumentArtifactMock.mockReset()
-  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co" } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co", role: "LOAN_ADMIN" } })
   updateManyMock.mockResolvedValue({ count: 1 })
   clientFindUniqueMock.mockResolvedValue({ kycStatus: "VERIFIED" })
   clientDocumentFindManyMock.mockResolvedValue([])
@@ -1432,7 +1436,7 @@ it("declines an UNDER_REVIEW application (happy path)", async () => {
 it.each([
   ["missing", {}],
   ["blank", { declineCategory: "" }],
-  ["unknown", { declineCategory: "FRAUD" }],
+  ["unknown", { declineCategory: "NOT_A_CATEGORY" }],
 ])("400s a decline with a %s category and writes nothing", async (_label, extra) => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
 
@@ -1442,6 +1446,59 @@ it.each([
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(txAuditLogCreateMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+// Fair Score audit 2026-10-16: staff typed internal notes into the one reason
+// field, and the borrower was shown them verbatim.
+it("keeps the staff internal note apart from the reason shown to the client, and audits both", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({
+    action: "decline", declineCategory: "FRAUD",
+    reason: "We could not verify the information in your application.",
+    internalNote: "Payslip employer phone number rings a residential line.",
+  }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({
+      status: "DECLINED",
+      declineCategory: "FRAUD",
+      decisionReason: "We could not verify the information in your application.",
+      declineInternalNote: "Payslip employer phone number rings a residential line.",
+    }),
+  }))
+  expect(txAuditLogCreateMock).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      newValue: expect.objectContaining({
+        reason: "We could not verify the information in your application.",
+        internalNote: "Payslip employer phone number rings a residential line.",
+      }),
+    }),
+  })
+})
+
+it("gives the client the category's reason when staff leave it blank, never the bare word Declined", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "decline", declineCategory: "BUREAU_SCORE" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({
+      decisionReason: "Your credit record at the credit bureau does not meet our lending criteria.",
+      declineInternalNote: null,
+    }),
+  }))
+})
+
+it("400s an Other decline with no reason for the client", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "decline", declineCategory: "OTHER", internalNote: "see file" }), ctx)
+
+  expect(res.status).toBe(400)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
 it("409s on decline when a concurrent decision already moved the application off UNDER_REVIEW, skips audit", async () => {

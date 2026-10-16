@@ -11,9 +11,9 @@ import {
   readPortalKycDocumentState,
 } from "@/lib/kyc/portal-document-state"
 import { getT } from "@/lib/i18n/server"
+import { recentStatementSince } from "@/lib/portal/statement-needed"
 
-async function getClientData(email: string) {
-  const tenantId = await getPortalTenantId()
+async function getClientData(tenantId: string, email: string) {
   return prisma.$transaction(
     (tx) => readPortalKycDocumentState(tx, {
       tenantId,
@@ -27,7 +27,8 @@ export default async function PortalDocumentsPage() {
   const session = await auth()
   if (!session?.user?.email) redirect("/portal/login")
 
-  const client = await getClientData(session.user.email)
+  const tenantId = await getPortalTenantId()
+  const client = await getClientData(tenantId, session.user.email)
 
   if (!client) {
     const t = await getT("portalDocuments")
@@ -62,12 +63,15 @@ export default async function PortalDocumentsPage() {
     }
   })
 
+  const statementSince = await recentStatementSince(prisma, tenantId, client.id)
+
   return (
     <PortalDocumentsClient
       clientId={client.id}
       popiaConsentGiven={client.popiaConsentGiven}
       initialDocs={docs}
       initialKycChecklist={client.kycChecklist}
+      recentStatementSince={statementSince?.toISOString() ?? null}
     />
   )
 }

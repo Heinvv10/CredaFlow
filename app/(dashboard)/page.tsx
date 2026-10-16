@@ -5,6 +5,7 @@ import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import { collectibleLoanWhere, COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { formatZAR, SAST_TIME_ZONE } from "@/lib/utils"
 import { auth } from "@/lib/auth"
+import { requireLoanBookPage } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { getPortfolioPar } from "@/lib/reports/par"
@@ -157,6 +158,8 @@ function taskTone(priority: string): string {
 }
 
 export default async function DashboardPage() {
+  // The executive dashboard is the loan book: a role without it goes to its own home.
+  await requireLoanBookPage({ home: true })
   const session = await auth()
   const userId = session?.user?.id
   const tenantId = await getStaffTenantId()

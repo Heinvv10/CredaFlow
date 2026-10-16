@@ -9,6 +9,7 @@ vi.mock("@/lib/tenant", () => ({
   getResolvedTenantId: async () => "tenant_acme",
   getTenantConfig: async (id: string) => (id === "tenant_acme" ? { primaryColor: "#123456", secondaryColor: "#234567", darkColor: "#010203" } : null),
 }))
+vi.mock("@/lib/config/lender-logo", () => ({ publicLenderLogoSrc: async () => null }))
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams() }))
 
 import { WebsiteShell } from "./WebsiteShell"

@@ -1,5 +1,6 @@
 import type { Prisma, ScheduleStatus } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
+import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 // Writes a receipt's (or a reversal's) projected schedule: every receipt
 // writer goes through here, so a re-priced row — an early settlement under
@@ -26,7 +27,7 @@ export interface WriteScheduleOptions {
   paidAt: Date
   /** keep the date a row was already paid on instead of `paidAt` */
   keepEarlierPaidAt?: boolean
-  /** an unpaid row with nothing paid on it is PENDING (reversal, reconcile); otherwise PARTIAL */
+  /** write a row whose status changed even if its money did not (reversal, reconcile) */
   pendingWhenNothingPaid?: boolean
   /** write every row even if nothing about it changed */
   writeUnchanged?: boolean
@@ -43,10 +44,8 @@ export async function writeReceiptSchedule(
 ): Promise<void> {
   for (const [i, row] of after.entries()) {
     const old = before[i]
-    const isPaid = row.totalPaid >= row.totalDue
-    const status: ScheduleStatus = isPaid
-      ? "PAID"
-      : options.pendingWhenNothingPaid && row.totalPaid <= 0 ? "PENDING" : "PARTIAL"
+    const status: ScheduleStatus = scheduleRowStatus(row.totalPaid, row.totalDue)
+    const isPaid = status === "PAID"
     const unchanged = MONEY.every((key) => (row[key] ?? 0) === (old[key] ?? 0))
       && (!options.pendingWhenNothingPaid || old.status === status)
     if (unchanged && !options.writeUnchanged) continue

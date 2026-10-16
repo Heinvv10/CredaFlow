@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { PASSWORD_MIN_LENGTH, passwordPolicyError } from "@/lib/security/password-policy"
 import { toast } from "@/lib/toast"
 import { Button } from "@/components/ui/button"
 import { assignableRoles, canResetTotp, canWriteUser, loadUsers, type SettingsUser as User, type Branch } from "@/lib/settings-users"
@@ -371,7 +372,7 @@ function InviteModal({ open, onClose, onDone, branches, currentUserRole }: { ope
           <p className="text-[11px] text-gray-400 mt-1">{ROLE_PERMISSIONS[role]?.[0]}</p>
         </Field>
         <Field label="Temporary Password *">
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="Min. 8 characters" />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder={`Min. ${PASSWORD_MIN_LENGTH} characters`} />
         </Field>
         {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>}
         <div className="flex gap-2 pt-2">
@@ -460,7 +461,8 @@ function ResetPasswordModal({ user, onClose }: { user: User | null; onClose: () 
   async function submit() {
     if (!user) return
     if (password !== confirm) { setError("Passwords do not match"); return }
-    if (password.length < 8) { setError("Minimum 8 characters"); return }
+    const weak = passwordPolicyError(password)
+    if (weak) { setError(weak); return }
     setSaving(true); setError(null)
     const res = await fetch(`/api/settings/users/${user.id}`, {
       method: "PATCH",
@@ -482,7 +484,7 @@ function ResetPasswordModal({ user, onClose }: { user: User | null; onClose: () 
         </div>
       ) : (
         <div className="space-y-3">
-          <Field label="New Password"><input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder="Min. 8 characters" /></Field>
+          <Field label="New Password"><input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} placeholder={`Min. ${PASSWORD_MIN_LENGTH} characters`} /></Field>
           <Field label="Confirm Password"><input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} className={inputCls} placeholder="Repeat password" /></Field>
           {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>}
           <div className="flex gap-2 pt-2">

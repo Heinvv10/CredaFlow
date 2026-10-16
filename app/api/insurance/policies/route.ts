@@ -7,6 +7,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { requireLenderFsp } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { premiumCommission } from "@/lib/insurance/commission"
 import { hashDraftToken, verifyDraftToken } from "@/lib/insurance/disclosure-token"
 import { sastMonthStart, sastParts } from "@/lib/date/sast"
 import { policyNumberPrefix } from "@/lib/insurance/policy/bind"
@@ -302,11 +303,15 @@ export async function POST(req: NextRequest) {
       const renewalDate = new Date(startDate)
       renewalDate.setFullYear(renewalDate.getFullYear() + 1)
 
-      const commissionRate = (body.commissionRate as number) || 0.15
-      const commissionAmount = sumAssured * commissionRate
+      // A fraction of the premium (0.15 = 15%), 0 to 1. Absent, the old default.
+      const requestedRate = body.commissionRate ?? 0.15
+      if (typeof requestedRate !== "number" || !Number.isFinite(requestedRate) || requestedRate < 0 || requestedRate > 1) {
+        return NextResponse.json({ error: "commissionRate must be a number from 0 to 1 (a fraction of the premium)" }, { status: 400 })
+      }
 
-      // Fetch product to get commission rate if productId provided
-      let productCommissionRate = commissionRate
+      // A catalogue product's own rate wins, so the policy's commission and the
+      // advisor's commission row are computed from the same figure.
+      let productCommissionRate = requestedRate
       if (body.productId) {
         const product = await prisma.insuranceProduct.findFirst({
           where: { id: String(body.productId), tenantId: tenant.id },
@@ -317,6 +322,8 @@ export async function POST(req: NextRequest) {
         }
         productCommissionRate = Number(product.commissionRate)
       }
+      const commissionRate = productCommissionRate
+      const commissionAmount = premiumCommission(premiumAmount, commissionRate)
 
       // count() and create() can't be atomic without a per-tenant sequence,
       // so two concurrent POSTs for the same prefix can derive the same

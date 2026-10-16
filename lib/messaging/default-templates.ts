@@ -195,6 +195,11 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     wabaTemplateName: "payment_reminder_0d_v2",
   },
   {
+    key: "payment_reminder_0d_v3_whatsapp", event: "payment_reminder_0d_v3", channel: "WHATSAPP", category: "SERVICE",
+    body: WABA_BODY_TEMPLATES.payment_reminder_0d_v3, bodyTemplate: WABA_BODY_TEMPLATES.payment_reminder_0d_v3,
+    wabaTemplateName: "payment_reminder_0d_v3",
+  },
+  {
     key: "payment_reminder_0d_whatsapp", event: "payment_reminder_0d", channel: "WHATSAPP", category: "SERVICE",
     body: WABA_BODY_TEMPLATES.payment_reminder_0d, bodyTemplate: WABA_BODY_TEMPLATES.payment_reminder_0d,
     wabaTemplateName: "payment_reminder_0d",

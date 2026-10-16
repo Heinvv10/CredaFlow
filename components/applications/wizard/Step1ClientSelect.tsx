@@ -32,7 +32,12 @@ export function Step1ClientSelect({ data, patch, errors, clients }: StepProps) {
         selectedClientId={data.clientId}
         clientSearch={search}
         setClientSearch={setSearch}
-        onSelect={(id) => patch({ clientId: id, ...INVALIDATED_AFFORDABILITY })}
+        // A PO document is the previous client's: a new client starts without one.
+        onSelect={(id) => patch({
+          clientId: id,
+          ...INVALIDATED_AFFORDABILITY,
+          ...(id !== data.clientId ? { poDocumentId: "" } : {}),
+        })}
       />
       {errors.clientId && (
         <p className="text-xs text-[var(--cf-danger)]" role="alert">{errors.clientId}</p>

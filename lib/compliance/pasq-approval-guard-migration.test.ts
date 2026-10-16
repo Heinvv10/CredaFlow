@@ -1,3 +1,4 @@
+import { CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS } from "@/lib/insurance/credit-life-election"
 import { describe, expect, it } from "vitest"
 import {
   baselineConstraintSql,
@@ -144,5 +145,18 @@ describe("approved PASQ database guard migration", () => {
     expect(pasqGuard).toContain(
       `NEW."approvedById" IS DISTINCT FROM OLD."approvedById"`,
     )
+  })
+
+  // Fair Score audit B6 (migration 20261016152000): a no-offer record is
+  // refused while a product is active ONLY above the credit-life threshold, and
+  // the SQL threshold is the TypeScript one.
+  it("accepts a no-offer record at or below the credit-life threshold", () => {
+    expect(creditLifeOffer).toContain(
+      `IF GREATEST(NEW."appliedAmount", COALESCE(NEW."approvedAmount", 0)) > ${CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS} AND EXISTS (`,
+    )
+    expect(creditLifeOffer).toContain("cover became available after this application recorded that none was offered")
+    // An amount change on an approved row re-runs the guard (it reads both amounts).
+    expect(creditLifeOffer).toContain(`OR NEW."appliedAmount" IS DISTINCT FROM OLD."appliedAmount"`)
+    expect(creditLifeOffer).toContain(`OR NEW."approvedAmount" IS DISTINCT FROM OLD."approvedAmount"`)
   })
 })

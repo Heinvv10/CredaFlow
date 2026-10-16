@@ -21,6 +21,8 @@ import {
   type ClientInfo,
 } from "./parts"
 import { creditLifePremiumForAmount, validAmountCents } from "./amount"
+import { CreditLifeElectionBox } from "./CreditLifeElectionBox"
+import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
 
 interface ProductInfo {
@@ -33,6 +35,8 @@ interface ProductInfo {
   maxAmount: number   // cents
   minTermDays: number
   maxTermDays: number
+  /** REDUCING_BALANCE repays monthly: its term is asked in months (30 days each, lib/loan-calculator.ts). */
+  interestModel?: string
 }
 
 interface Props {
@@ -41,26 +45,40 @@ interface Props {
   lenderName: string
   /** The lender's `identity.ncrNumber`. */
   ncrNumber: string
+  /** On a demo stack, printed beside the NCR number (lib/config/demo-mode.ts demoLenderNote). */
+  demoLenderNote?: string | null
   product: ProductInfo
   client: ClientInfo
   qualification: QualificationResult | null
   creditLifeOffer: CreditLifePresentedOffer | null
 }
 
-export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, product, client, creditLifeOffer }: Props) {
+export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer }: Props) {
   const router = useRouter()
   const t = useT("portalApply")
 
   const fixedTerm = product.minTermDays === product.maxTermDays
+  // PO funding is business credit: Business purpose only, plus the order's facts.
+  const poFunding = product.productType === "PO_FUNDING"
+  const categories = poFunding ? PURPOSE_CATEGORIES.filter((c) => c.value === "BUSINESS") : PURPOSE_CATEGORIES
+  // Consumers think of a monthly loan in months, not 90-1800 days.
+  const termInMonths = product.interestModel === "REDUCING_BALANCE"
+  const termUnitDays = termInMonths ? 30 : 1
+  const minTerm = termInMonths ? Math.ceil(product.minTermDays / 30) : product.minTermDays
+  const maxTerm = termInMonths ? Math.floor(product.maxTermDays / 30) : product.maxTermDays
 
   const [amount, setAmount] = useState<string>("")
+  // In the unit shown: months for a monthly product, otherwise days.
   const [termDays, setTermDays] = useState<string>(fixedTerm ? String(product.minTermDays) : "")
   const [purpose, setPurpose] = useState("")
-  const [category, setCategory] = useState<string>("")
+  const [category, setCategory] = useState<string>(poFunding ? "BUSINESS" : "")
+  const [po, setPo] = useState(EMPTY_PO_INPUT)
   const [affordabilityDeclared, setAffordabilityDeclared] = useState(false)
   const [pasqDeliveryUnderstood, setPasqDeliveryUnderstood] = useState(false)
   const [creditLifeElection, setCreditLifeElection] = useState<CreditLifeElection | "">("")
   const [creditLifeDisclosureAcknowledged, setCreditLifeDisclosureAcknowledged] = useState(false)
+  // Set when an amount change altered what the applicant had confirmed.
+  const [quoteChanged, setQuoteChanged] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -70,17 +88,25 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
   const amountCents = validAmountCents(product, amount)
   const amountOutOfRange = amountCents === null
   const creditLifeMonthlyPremiumCents = creditLifePremiumForAmount(amountCents)
-  const creditLifeAvailable =
+  const coverAvailableFor = (cents: number | null) =>
     creditLifeOffer?.autoBundleEnabled === true
-    && amountCents !== null
-    && creditLifePrincipalIsEligible(amountCents)
+    && cents !== null
+    && creditLifePrincipalIsEligible(cents)
+  const creditLifeAvailable = coverAvailableFor(amountCents)
+  // What the disclosure acknowledgement confirms for an amount: whether cover
+  // is offered and, when it is, the exact premium shown — whichever option was
+  // chosen: declining is a decision about that premium too.
+  const confirmedQuote = (cents: number | null) => {
+    const available = coverAvailableFor(cents)
+    return `${available}:${available ? creditLifePremiumForAmount(cents) : ""}`
+  }
 
   const termNum = Number(termDays)
   const termOutOfRange = !fixedTerm && (
     termDays.trim() === ""
     || !Number.isInteger(termNum)
-    || termNum < product.minTermDays
-    || termNum > product.maxTermDays
+    || termNum < minTerm
+    || termNum > maxTerm
   )
 
   const canSubmit =
@@ -88,14 +114,18 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
     && !amountOutOfRange
     && !termOutOfRange
     && purpose.trim().length >= 3
+    && (!poFunding || poInputComplete(po))
     && affordabilityDeclared
     // With no configured credit-life product there is no cover to offer, so
     // there is no election to make and nothing to acknowledge.
     && (
       creditLifeOffer === null
+      // Cover not available for this application: there is no choice to make,
+      // only the acknowledgement that it proceeds without cover.
+      || (!creditLifeAvailable && creditLifeDisclosureAcknowledged)
       || (
         (creditLifeElection === "ACCEPTED" || creditLifeElection === "DECLINED")
-        && (creditLifeElection === "DECLINED" || creditLifeAvailable)
+        && creditLifeAvailable
         && creditLifeDisclosureAcknowledged
       )
     )
@@ -109,15 +139,25 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
     setSubmitting(true)
 
     try {
+      let poDocumentId: string | undefined
+      if (poFunding && po.poFile) {
+        const uploaded = await uploadPoDocument(po.poFile)
+        if ("error" in uploaded) {
+          setError(uploaded.error || t("errPoUpload"))
+          return
+        }
+        poDocumentId = uploaded.id
+      }
       const res = await fetch("/api/portal/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productCode: product.code,
           amount: amountCents / 100,
-          termDays: fixedTerm ? undefined : termNum,
+          termDays: fixedTerm ? undefined : termNum * termUnitDays,
           purpose: purpose.trim(),
           loanPurposeCategory: category || null,
+          ...(poFunding ? { poNumber: po.poNumber.trim(), poBuyerName: po.poBuyerName.trim(), poDocumentId } : {}),
           affordabilityDeclared,
           pasqDeliveryUnderstood,
           // No offer rendered ⇒ no election exists; never post the "" the
@@ -125,7 +165,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
           // the payload should be truthful in the first place.
           creditLifeElection: creditLifeOffer === null && creditLifeElection === ""
             ? undefined
-            : creditLifeElection,
+            : creditLifeAvailable ? creditLifeElection : "DECLINED",
           creditLifeDisclosureAcknowledged,
           creditLifeProductId: creditLifeOffer?.productId,
           creditLifeProductName: creditLifeOffer?.productName,
@@ -188,24 +228,37 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
             step={50}
             value={amount}
             onChange={(e) => {
+              // Clear the confirmation only when what it confirmed changed,
+              // and say so; otherwise an amount edit keeps the ticks.
+              const changed = confirmedQuote(validAmountCents(product, e.target.value)) !== confirmedQuote(amountCents)
+              if (changed && creditLifeDisclosureAcknowledged) {
+                setCreditLifeDisclosureAcknowledged(false)
+                setQuoteChanged(true)
+              }
               setAmount(e.target.value)
-              setCreditLifeDisclosureAcknowledged(false)
             }}
             className={inputClass}
+            aria-invalid={amountOutOfRange && amount.trim() !== ""}
+            aria-describedby="amount-error"
             required
           />
+          {amountOutOfRange && amount.trim() !== "" && (
+            <p id="amount-error" role="alert" className="mt-1 text-xs text-red-600">
+              {t("amountOutOfRange", { min: formatZAR(product.minAmount), max: formatZAR(product.maxAmount) })}
+            </p>
+          )}
         </div>
 
         {!fixedTerm && (
           <div>
             <label htmlFor="termDays" className={labelClass}>
-              {t("termBetween", { min: product.minTermDays, max: product.maxTermDays })}
+              {t(termInMonths ? "termMonthsBetween" : "termBetween", { min: minTerm, max: maxTerm })}
             </label>
             <input
               id="termDays"
               type="number"
-              min={product.minTermDays}
-              max={product.maxTermDays}
+              min={minTerm}
+              max={maxTerm}
               step={1}
               value={termDays}
               onChange={(e) => {
@@ -226,12 +279,14 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
             onChange={(e) => setCategory(e.target.value)}
             className={inputClass}
           >
-            <option value="">{t("categoryPlaceholder")}</option>
-            {PURPOSE_CATEGORIES.map(({ value, label }) => (
+            {!poFunding && <option value="">{t("categoryPlaceholder")}</option>}
+            {categories.map(({ value, label }) => (
               <option key={value} value={value}>{t(label)}</option>
             ))}
           </select>
         </div>
+
+        {poFunding && <PoFundingFields value={po} onChange={setPo} inputClass={inputClass} labelClass={labelClass} />}
 
         <div>
           <label htmlFor="purpose" className={labelClass}>
@@ -249,72 +304,38 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         </div>
 
         <div className="space-y-3 pt-2 border-t border-gray-100">
-          {creditLifeOffer && amountCents !== null && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Credit life election</p>
-              {creditLifeAvailable ? (
-                <p className="mt-1 text-xs text-gray-600">
-                  {creditLifeOffer.productName} · {creditLifeOffer.insurerName} · exact monthly
-                  premium <span className="font-semibold">{formatZAR(creditLifeMonthlyPremiumCents)}</span>
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-gray-600">
-                  Credit-life cover is not available for this application. You may
-                  proceed without cover.
-                </p>
-              )}
-            </div>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="radio"
-                name="creditLifeElection"
-                checked={creditLifeElection === "ACCEPTED"}
-                disabled={!creditLifeAvailable}
-                onChange={() => {
-                  setCreditLifeElection("ACCEPTED")
-                  setCreditLifeDisclosureAcknowledged(false)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>Add the offered credit-life cover.</span>
-            </label>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="radio"
-                name="creditLifeElection"
-                checked={creditLifeElection === "DECLINED"}
-                onChange={() => {
-                  setCreditLifeElection("DECLINED")
-                  setCreditLifeDisclosureAcknowledged(false)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>
-                {creditLifeAvailable
-                  ? "Decline the offered bundled cover."
-                  : "Proceed without credit-life cover."}
-              </span>
-            </label>
-            <label className="flex items-start gap-3 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={creditLifeDisclosureAcknowledged}
-                disabled={
-                  !creditLifeElection
-                  || (!creditLifeAvailable && creditLifeElection !== "DECLINED")
-                }
-                onChange={(e) => {
-                  setCreditLifeDisclosureAcknowledged(e.target.checked)
-                }}
-                className="mt-1 h-4 w-4 accent-[#4F46E5]"
-              />
-              <span>
-                {creditLifeAvailable
-                  ? "I confirm I was shown the product, insurer, exact monthly premium and selected option before PASQ generation."
-                  : "I understand that this application will proceed without credit-life cover before PASQ generation."}
-              </span>
-            </label>
+          {/* Rendered whenever cover is offered, before an amount exists too, at
+              a fixed minimum height: appearing mid-typing moved the checkboxes
+              below it under the applicant's cursor. */}
+          {creditLifeOffer && (
+          <div data-credit-life-box className="min-h-[13rem] space-y-2">
+            {amountCents === null ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-gray-900">Credit life election</p>
+                <p className="mt-1 text-xs text-gray-600">Enter an amount to see your credit-life cover options.</p>
+              </div>
+            ) : (<>
+            {quoteChanged && (
+              <p role="status" className="text-xs font-semibold text-amber-800">
+                The amount changed your credit-life premium — please confirm your choice again.
+              </p>
+            )}
+            <CreditLifeElectionBox
+              offer={creditLifeOffer}
+              available={creditLifeAvailable}
+              monthlyPremiumCents={creditLifeMonthlyPremiumCents}
+              election={creditLifeElection}
+              onElect={(election) => {
+                setCreditLifeElection(election)
+                setCreditLifeDisclosureAcknowledged(false)
+              }}
+              acknowledged={creditLifeDisclosureAcknowledged}
+              onAcknowledge={(acknowledged) => {
+                setCreditLifeDisclosureAcknowledged(acknowledged)
+                if (acknowledged) setQuoteChanged(false)
+              }}
+            />
+            </>)}
           </div>
           )}
 
@@ -380,7 +401,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         </div>
 
         <p className="text-[11px] text-gray-400 pt-2">
-          Registered credit provider (NCR Reg: {ncrNumber}). Product reference: {productKey.toUpperCase()}.
+          Registered credit provider (NCR Reg: {ncrNumber}).{demoLenderNote && <> {demoLenderNote}</>} Product reference: {productKey.toUpperCase()}.
         </p>
       </form>
     </div>

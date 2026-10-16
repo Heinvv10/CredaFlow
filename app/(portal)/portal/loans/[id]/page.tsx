@@ -13,10 +13,12 @@ import { PortalRecoverySection } from "@/components/asset-finance/recovery/Porta
 import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { getPortalLoan } from "./portal-loan"
+import { OPEN_PORTAL_LOAN_STATUSES, portalLoanArrears } from "@/lib/portal/loan-overview"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
 import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import { scheduleDisplayStatus, scheduleStatusTone } from "@/lib/loan/schedule-status"
 import type { Locale } from "@/lib/i18n/locales"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
@@ -60,6 +62,10 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const monthlyInstalment = recurringInstalmentDue(loan.repaymentSchedule)
   // A loan CANCELLED by a disbursement reversal owes nothing (lib/loan/charges-summary.ts).
   const cancelled = owesNothing(loan)
+  // As of today from the schedule, not the nightly-stamped column (lib/portal/loan-overview.ts).
+  const daysOverdue = (OPEN_PORTAL_LOAN_STATUSES as readonly string[]).includes(loan.status)
+    ? portalLoanArrears(loan, new Date()).days
+    : 0
 
   const statusColor: Record<string, { bg: string; text: string }> = {
     ACTIVE: { bg: "#D1FAE5", text: "#059669" },
@@ -88,9 +94,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             <p className="text-xs mt-0.5" style={{ color: "#4338CA" }}>{loan.product.name}</p>
           </div>
           <div className="flex items-center gap-3">
-            {loan.daysInArrears > 0 && (
+            {daysOverdue > 0 && (
               <span className="rounded bg-red-500/20 px-2 py-1 text-xs font-bold text-[var(--cf-danger)]">
-                {t("daysOverdue", { n: loan.daysInArrears })}
+                {t("daysOverdue", { n: daysOverdue })}
               </span>
             )}
             <span
@@ -192,6 +198,7 @@ type LoanTabsProps = { loan: Awaited<ReturnType<typeof getPortalLoan>>; t: Trans
 
 function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
   if (!loan) return null
+  const now = new Date()
 
   return (
     <div className="space-y-6">
@@ -211,8 +218,10 @@ function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
             </thead>
             <tbody>
               {loan.repaymentSchedule.map((s, i) => {
-                const isPaid = s.status === "PAID"
-                const isOverdue = s.status === "OVERDUE"
+                const shown = scheduleDisplayStatus(s, now)
+                const tone = scheduleStatusTone(shown)
+                const isPaid = shown === "PAID"
+                const isOverdue = tone === "danger"
                 const isNext = !isPaid && !isOverdue && i === loan.repaymentSchedule.findIndex(
                   x => x.status === "PENDING" || x.status === "PARTIAL"
                 )
@@ -231,10 +240,10 @@ function PortalLoanTabs({ loan, t, l, locale }: LoanTabsProps) {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         isPaid ? "bg-green-100 text-green-700" :
                         isOverdue ? "bg-red-100 text-red-700" :
-                        s.status === "PARTIAL" ? "bg-amber-100 text-amber-700" :
+                        tone === "warning" ? "bg-amber-100 text-amber-700" :
                         "bg-gray-100 text-gray-600"
                       }`}>
-                        {statusLabel(l, s.status)}
+                        {statusLabel(l, shown)}
                       </span>
                       {isNext && (
                         <span className="ml-2 text-[10px] font-semibold" style={{ color: "#4338CA" }}>{t("nextMarker")}</span>

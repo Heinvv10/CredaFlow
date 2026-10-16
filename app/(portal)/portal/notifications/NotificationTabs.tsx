@@ -5,14 +5,14 @@ import { Mail, MessageSquare, Phone, Bell } from "lucide-react"
 import { EmptyState } from "@/components/app-shell/EmptyState"
 import { useT } from "@/lib/i18n/client"
 import type { MessageKey, Translator } from "@/lib/i18n/translate"
+import type { BorrowerNotificationStatus } from "@/lib/portal/notification-status"
 
 interface NotificationDisplay {
   id: string
   event: string
   eventLabel: string
   channel: string
-  status: string
-  error: string | null
+  status: BorrowerNotificationStatus
   createdAt: string
   /** Server-formatted in the reader's language. */
   createdAtLabel: string
@@ -30,23 +30,23 @@ const CHANNEL_LABELS: Record<string, MessageKey<"portalNotifications">> = {
   WHATSAPP: "channelWhatsapp",
 }
 
-// NotificationLog.status is stored lowercase (e.g. "sent", "failed"). Map the
-// known values to friendly labels; anything else falls back to capitalised.
-const STATUS_LABELS: Record<string, MessageKey<"portalNotifications">> = {
+// The borrower-facing status the page derived (lib/portal/notification-status.ts).
+const STATUS_LABELS: Record<BorrowerNotificationStatus, MessageKey<"portalNotifications">> = {
   sent: "st_sent",
-  simulated: "st_simulated",
-  review_required: "st_review_required",
-  delivered: "st_delivered",
-  failed: "st_failed",
+  not_delivered: "st_not_delivered",
   pending: "st_pending",
-  read: "st_read",
-  skipped: "st_skipped",
-  blocked: "st_blocked",
+  simulated: "st_simulated",
 }
 
-function statusLabel(t: NotificationsT, status: string): string {
-  const key = STATUS_LABELS[status]
-  return key ? t(key) : status.charAt(0).toUpperCase() + status.slice(1)
+const STATUS_COLOURS: Record<BorrowerNotificationStatus, { bg: string; fg: string }> = {
+  sent: { bg: "#DCFCE7", fg: "#166534" },
+  not_delivered: { bg: "#FEF3C7", fg: "#92400E" },
+  pending: { bg: "#F3F4F6", fg: "#374151" },
+  simulated: { bg: "#FEF3C7", fg: "#92400E" },
+}
+
+function statusLabel(t: NotificationsT, status: BorrowerNotificationStatus): string {
+  return t(STATUS_LABELS[status])
 }
 
 function channelIcon(channel: string) {
@@ -210,16 +210,8 @@ export function NotificationTabs({ items }: NotificationTabsProps) {
                 <span
                   className="px-2 py-0.5 rounded text-[10px] font-semibold"
                   style={{
-                    backgroundColor: n.status === "sent"
-                      ? "#DCFCE7"
-                      : n.status === "simulated" || n.status === "review_required"
-                        ? "#FEF3C7"
-                        : "#FEE2E2",
-                    color: n.status === "sent"
-                      ? "#166534"
-                      : n.status === "simulated" || n.status === "review_required"
-                        ? "#92400E"
-                        : "#991B1B",
+                    backgroundColor: STATUS_COLOURS[n.status].bg,
+                    color: STATUS_COLOURS[n.status].fg,
                   }}
                 >
                   {statusLabel(t, n.status)}

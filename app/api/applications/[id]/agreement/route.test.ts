@@ -664,6 +664,9 @@ describe("agreement evidence binding", () => {
     expect(pdfArgs.application.appliedTermDays).toBe(30)
     expect(pdfArgs.initiationFeePayment).toBe("DEFERRED")
     expect(pdfArgs.willAutoBundleCl).toBe(false)
+    // A DECLINED offer is an offer: never "Credit Life: Not offered" (B6 review).
+    expect(pdfArgs.creditLifeNotOffered).toBe(false)
+    expect(pdfArgs.creditLife).toMatchObject({ elected: false, productName: creditLifeDisclosure.productName })
     expect(quotationValidUntilDateFromDatabaseMock).toHaveBeenCalledWith(
       expect.any(Object),
       frozenStart,

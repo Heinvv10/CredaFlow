@@ -17,7 +17,7 @@ describe("root website shell", () => {
     expect(source).toContain("@/components/website/Footer")
     expect(source).toContain("@/components/analytics/WebsiteAnalytics")
     expect(source).toContain("<WebsiteAnalytics />")
-    expect(source).toContain("<NavBar enabledLocales={enabledLocales} />")
+    expect(source).toContain("<NavBar enabledLocales={enabledLocales} logoSrc={logoSrc} />")
     expect(source).toContain("<Footer identity={identity} locale={locale} />")
     expect(source).toContain("<WebsiteSupport whatsappE164=")
     expect(source).not.toContain("<WhatsAppLauncher")

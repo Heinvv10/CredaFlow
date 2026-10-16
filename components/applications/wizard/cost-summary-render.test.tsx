@@ -174,8 +174,9 @@ describe("Step 4 renders the full cost of credit above the PASQ delivery notice"
     const html = flat(renderStep4(DATA, false))
 
     expect(html).toContain("Credit-life cover is not available for this application")
-    expect(html).toContain("Proceed without credit-life cover.")
+    expect(html).toContain("will proceed without credit-life cover")
     expect(html).not.toContain("exact monthly premium")
-    expect(html).toMatch(/type="radio"[^>]*disabled=""[^>]*name="creditLifeElection"[^>]*value="ACCEPTED"/)
+    // No election exists, so no radio at all — not a disabled "add cover" one (Fair Score audit).
+    expect(html).not.toContain('type="radio"')
   })
 })

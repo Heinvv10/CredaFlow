@@ -100,6 +100,7 @@ model Client {
   kycOverrideRequests           KycOverrideRequest[]
   loans                         Loan[]
   ncaRepresentativeApplications LoanApplication[]        @relation("NcaRepresentative")
+  paymentNotifications          PaymentNotification[]
   portalAccountLeads            Lead[]                   @relation("LeadPortalAccountClient")
   screeningBlocks               ScreeningBlock[]
   screeningChecks               ScreeningCheck[]
@@ -284,9 +285,11 @@ model ClientDocument {
   client                   Client    @relation(fields: [clientId], references: [id])
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  kycOverrideRequests KycOverrideRequest[]
-  loanNotes           LoanNote[]
-  statementAnalyses   StatementAnalysis[]
+  kycOverrideRequests   KycOverrideRequest[]
+  loanNotes             LoanNote[]
+  paymentNotifications  PaymentNotification[]
+  poFundingApplications LoanApplication[]     @relation("ApplicationPoDocument")
+  statementAnalyses     StatementAnalysis[]
 
   @@unique([tenantId, id])
   @@index([tenantId])

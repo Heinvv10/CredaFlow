@@ -7,7 +7,9 @@ import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { StitchPaymentForm } from "@/components/portal/StitchPaymentForm"
 import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
+import { CopyReferenceButton } from "@/components/portal/CopyReferenceButton"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
+import { stitchConfigured } from "@/lib/stitch"
 import { portalLoanCharges } from "@/lib/portal/loan-charges"
 import { getT } from "@/lib/i18n/server"
 import type { Translator } from "@/lib/i18n/translate"
@@ -96,7 +98,11 @@ export default async function PaymentPage() {
   const loans = await getLoansForClient(session.user.email)
   // Same tenant source as the page's own data above, so the contact
   // details and account name always belong to the lender whose loans are shown.
-  const identity = await getLenderIdentity(await getPortalTenantId())
+  const tenantId = await getPortalTenantId()
+  const identity = await getLenderIdentity(tenantId)
+  // A lender without a Stitch account gets no "Pay with Stitch" form: offering
+  // it only to fail with "temporarily unavailable" on click misleads the borrower.
+  const onlinePayment = await stitchConfigured(tenantId)
   const t = await getT("portalPayment")
   const bankRows = eftBankRows(t)
 
@@ -107,8 +113,35 @@ export default async function PaymentPage() {
         <p className="text-gray-400 text-sm mt-1">{t("portalOf", { brand: identity.tradingName })}</p>
       </div>
 
+      {/* Payment reference — the loan reference the client MUST quote so the
+          bank-sync reconciler can allocate the deposit to the right loan. Shown
+          whether or not the bank panel below is configured. */}
+      {loans.length > 0 && (
+        <div className="mb-5 rounded-lg border p-5" style={{ borderColor: "#4F46E5", backgroundColor: "#4F46E514" }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--cf-text-muted)] mb-3">
+            {loans.length > 1 ? t("yourReferences") : t("yourReference")}
+          </p>
+          <div className="space-y-2">
+            {loans.map((l) => (
+              <div key={l.id} className="flex flex-wrap items-center justify-between gap-3">
+                <span className="font-mono text-xl font-bold tracking-wide text-[var(--cf-text)]">{l.reference}</span>
+                <div className="flex items-center gap-3">
+                  {loans.length > 1 && (
+                    <span className="text-[11px] text-[var(--cf-text-muted)]">
+                      {t(l.lease ? "settlementSuffixLease" : "settlementSuffix", { amount: formatZAR(l.settlementAmount) })}
+                    </span>
+                  )}
+                  <CopyReferenceButton reference={l.reference} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-[var(--cf-text-muted)]">{t("referenceQuote")}</p>
+        </div>
+      )}
+
       {/* Stitch online payment */}
-      <StitchPaymentForm loans={loans} />
+      {onlinePayment && <StitchPaymentForm loans={loans} />}
 
       {/* Manual EFT payment notification */}
       {loans.length > 0 && (
@@ -158,28 +191,6 @@ export default async function PaymentPage() {
               </div>
             ))}
           </div>
-
-          {/* Payment reference — the loan reference the client MUST quote so the
-              bank-sync reconciler can allocate the deposit to the right loan. */}
-          {loans.length > 0 && (
-            <div className="mt-4 rounded-md border p-3" style={{ borderColor: "#4F46E5", backgroundColor: "#4F46E514" }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
-                {loans.length > 1 ? t("paymentReferences") : t("paymentReference")}
-              </p>
-              <div className="space-y-1">
-                {loans.map((l) => (
-                  <div key={l.id} className="flex justify-between items-center gap-3">
-                    <span className="font-mono font-bold text-sm" style={{ color: "#4F46E5" }}>{l.reference}</span>
-                    {loans.length > 1 && (
-                      <span className="text-[11px] text-gray-400">
-                        {t(l.lease ? "settlementSuffixLease" : "settlementSuffix", { amount: formatZAR(l.settlementAmount) })}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <p className="text-[11px] text-gray-400 mt-4">
             {t("referenceNote")}

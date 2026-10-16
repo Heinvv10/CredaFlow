@@ -2,7 +2,7 @@
 
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { requireMinRole } from "@/lib/auth-guards"
+import { requireLoanBookStaff } from "@/lib/auth-guards"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { revalidatePath } from "next/cache"
 
@@ -18,7 +18,7 @@ export async function toggleLeadActivityPinned(
   activityId: string,
   pinned: boolean
 ): Promise<ToggleActivityPinnedResult> {
-  const user = await requireMinRole("CREDIT_OFFICER")
+  const user = await requireLoanBookStaff("CREDIT_OFFICER")
 
   const tenantId = user.tenantId
 

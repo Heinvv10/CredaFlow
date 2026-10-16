@@ -139,6 +139,12 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
   payment_reminder_0d_v2:
     "Your loan payment of {{amount}} is due TODAY. Please pay today to avoid default interest and charges. Ref: {{reference}}. Call {{lenderName}} on {{supportPhone}} if you need help.",
 
+  // v3: the due day is not a default, so no warning of fees or charges (Fair
+  // Score audit B5). Its own row and Meta name; the collections cron sends it
+  // only once Meta has APPROVED it for the tenant, until then v1 keeps sending.
+  payment_reminder_0d_v3:
+    "Your loan payment of {{amount}} is due today. Ref: {{reference}}. Call {{lenderName}} on {{supportPhone}} if you need help.",
+
   // Its trigger fires ONLY at daysUntilDue === -1, so "was due yesterday" is
   // literally true here — unlike loan_overdue_1d, which is also sent at 3 days
   // overdue and therefore had to drop the word. Wording is otherwise the SMS
@@ -220,6 +226,7 @@ export function waTemplateVarsFor(
       return { amount: src.amount, dueDate: src.dueDate, reference: src.reference }
     case "payment_reminder_0d":
     case "payment_reminder_0d_v2":
+    case "payment_reminder_0d_v3":
       return { amount: src.amount, reference: src.reference, supportPhone: src.supportPhone }
     case "payment_reminder_overdue_1d":
       return { amount: src.amount, reference: src.reference }

@@ -32,7 +32,7 @@ describe("operatorWriteRefusal — support access is read-only at the edge", () 
 
 describe("stampRequest", () => {
   it("replaces a caller-supplied method and id with the edge's own", () => {
-    const h = stampRequest(new Headers({ [REQUEST_METHOD_HEADER]: "GET", [REQUEST_ID_HEADER]: "forged" }), "post")
+    const h = stampRequest(new Headers({ [REQUEST_METHOD_HEADER]: "GET", [REQUEST_ID_HEADER]: "forged" }), "post", "/api/x")
     expect(h.get(REQUEST_METHOD_HEADER)).toBe("POST")
     expect(h.get(REQUEST_ID_HEADER)).not.toBe("forged")
     expect(h.get(REQUEST_ID_HEADER)).toMatch(/^[0-9a-f-]{36}$/)

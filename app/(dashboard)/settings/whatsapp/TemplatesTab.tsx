@@ -42,7 +42,7 @@ const TEMPLATE_PREVIEWS: Record<string, string> = {
   application_declined: `Hi {name},\n\nUnfortunately your application *{ref}* was unsuccessful at this time.\n\nPlease contact us if you have any questions.`,
   loan_disbursed: `Hi {name} ✅\n\nYour loan of *{amount}* has been paid to your account.\n\nFirst payment due on *{dueDate}*.`,
   payment_due_3d: `Hi {name},\n\nReminder: A payment of *{amount}* is due on *{dueDate}*.\n\nPayment reference: *{ref}*\n\nPlease ensure funds are available.`,
-  payment_due_today: `Hi {name},\n\n⚠️ Your loan payment of *{amount}* is due *today*.\n\nPayment reference: *{ref}*\n\nPlease pay to avoid further default interest and charges.`,
+  payment_due_today: `Hi {name},\n\nYour loan payment of *{amount}* is due *today*.\n\nPayment reference: *{ref}*\n\nContact us if you need assistance.`,
   payment_overdue_1d: `Hi {name},\n\n⚠️ Your payment of *{amount}* on loan *{ref}* was due yesterday.\n\nPlease pay urgently to avoid additional charges.`,
   payment_overdue_7d: `URGENT - {name}\n\nLoan *{ref}* is *7 days overdue*. Outstanding: *{amount}*.\n\nContact us immediately: {phone}`,
   payment_received: `Hi {name} ✅\n\nWe've received your payment of *{amount}*.\n\nOutstanding balance: *{balance}*.`,
