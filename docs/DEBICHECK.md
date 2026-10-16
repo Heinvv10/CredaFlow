@@ -18,8 +18,12 @@ replaces AEDO and NAEDO for new business.
 
 The debtor confirms the mandate once, with their own bank, before any
 collection. The bank then refuses a collection that does not match the
-confirmed terms (amount, date, frequency). A collection made within the
-confirmed terms cannot be disputed as unauthorised; one outside them can.
+confirmed terms (amount, date, frequency). A DebiCheck collection can still be
+disputed "under certain conditions", but one that matches the mandate is
+harder to dispute; Hyphen states disputes are not allowed after 12 months from
+the action date ([Hyphen FAQ](https://www.hyphen.co.za/debicheck/faqs/); see
+also [Stitch](https://stitch.money/blog/debicheck-the-ultimate-guide)). The
+exact dispute rules are in the PASA rulebook, which was not read **(unverified)**.
 
 Sources: [PASA debit payments](https://pasa.org.za/about-payments/introduction-to-payments/debit-payments/),
 [Stitch guide](https://stitch.money/blog/debicheck-the-ultimate-guide),
@@ -75,11 +79,24 @@ Stitch's split ([amendments](https://docs.stitch.money/payment-products/payins/d
 
 ### Scheme rules not confirmed from a rulebook
 
-`lib/collections-engine/scheme-rules.ts` encodes a 2-presentment cap per
-instalment and suspension after 2 consecutive NPF unpaids. Both come from
-published summaries, not from the PASA rulebook or a provider contract
-**(unverified)**. They must be checked against the chosen provider's rules
-before a lender goes live; the file says so too.
+Every value in `lib/collections-engine/scheme-rules.ts` comes from published
+summaries, not from the PASA rulebook or a provider contract; the file's own
+header (:6-8) says each must be verified before a lender goes live. All are
+**unverified**:
+
+| Value | Line | Note |
+|---|---|---|
+| 2 presentments per instalment | :22 | Also a DB CHECK + unique index |
+| Suspend after 2 consecutive NPF unpaids | :25 | |
+| Tracking 1–10 days | :28-29 | Netcash and Stitch docs agree on max 10; also a DB CHECK |
+| Max collection amount 1.5 x instalment | :32 | Stitch and Netcash docs agree |
+| Batch lead time 2 business days | :35 | Netcash's two-day service; Stitch's cut-offs are not public |
+| Load-report / registration timeout 48 h | :57-64 | Marked as an assumption in the file |
+| Several debits per mandate per action date | :70-77 | `MULTIPLE_DEBITS_PER_DATE_VERIFIED = false` |
+| Hard-stop unpaid reasons | :91-98 | Depends on the provider's return-code mapping |
+
+The header at :8 still says "Netcash first"; it should name the chosen
+provider once one is picked (a code-comment change, not made here).
 
 ## Providers
 
@@ -90,16 +107,16 @@ also requires its own merchant onboarding (FICA, collection risk limits).
 
 | Provider | DebiCheck interface | Status for CredaFlow |
 |---|---|---|
-| **Stitch** | GraphQL API for mandates (`paymentConsentRequestCreate`, hosted debtor flow or `…Confirm`), signed webhooks for mandate status; **collections and results by SFTP files** (REPLY + OUTPUT files, announced by webhook). TT1, TT1-delayed, TT2, RM. Sandbox: test clients, outcome by instalment amount. [Docs](https://docs.stitch.money/payment-products/payins/debicheck/introduction) | **Already a CredaFlow integration** (`lib/stitch.ts`: OAuth client credentials + GraphQL pay-by-bank, per-tenant credentials). Best documented option found. |
-| **Netcash** | NIWS SOAP web services: TT1 synchronous, trace, amend, cancel, batch file upload, mandate template, participating banks. [Docs](https://api.netcash.co.za/inbound-payments/dc/) | Adapter exists for AVS only; mandate/collect methods throw NOT_IMPLEMENTED. **Dropped for this product (Hein, 2026-10-16): Netcash no longer serves micro lenders.** Netcash's own help page does not state this. |
-| **EasyDebit** | Lists DebiCheck and collections among its services ([Bizcommunity listing](https://www.bizcommunity.com/Company/EasyDebitPaymentSolutions)). No public developer documentation found. | Named as a collections partner in sales material. **No adapter in any repo** (2026-10-16). Interface **unverified**; `types.ts` assumes a file-based rail. |
+| **Stitch** | GraphQL API for mandates (`paymentConsentRequestCreate`, hosted debtor flow or `…Confirm`), signed webhooks for mandate status; **collections and results by SFTP files** (REPLY + OUTPUT files, announced by webhook). TT1, TT1-delayed, TT2, RM. Sandbox: test clients, outcome by instalment amount. [Docs](https://docs.stitch.money/payment-products/payins/debicheck/introduction) | **Already a CredaFlow integration** (`lib/stitch.ts`: OAuth client credentials + GraphQL pay-by-bank, per-tenant credentials). The token request hardcodes scope `client_paymentrequest` (`lib/stitch.ts:90`); DebiCheck needs `client_recurringpaymentconsentrequest` ([integration process](https://docs.stitch.money/payment-products/payins/debicheck/integration-process)), so `getStitchAccessToken` must take a scope. Best documented option found. |
+| **Netcash** | NIWS SOAP web services: TT1 synchronous, trace, amend, cancel, batch file upload, mandate template, participating banks. [Docs](https://api.netcash.co.za/inbound-payments/dc/) | Adapter exists for AVS only; mandate/collect methods throw NOT_IMPLEMENTED. **Dropped for this product (Hein, 2026-10-16): Netcash no longer serves micro lenders.** Netcash's own [DebiCheck help page](https://help.netcash.co.za/?p=11875) does not state this. |
+| **EasyDebit** | Lists DebiCheck and collections among its services ([Bizcommunity listing](https://www.bizcommunity.com/Company/EasyDebitPaymentSolutions)). No public developer documentation found. | Named as a collections partner in CredaFlow sales material. **No adapter in this repo** (2026-10-16). Interface **unverified**; `types.ts` assumes a file-based rail. |
 | **BankTech** | Advertises a DebiCheck API: authentication, amendments, cancellations, status, collection results. [Solutions](https://bank.tech/solutions/), [docs](https://docs.bank.tech/) | Endpoint docs not confirmed **(unverified)**. |
 | **Hyphen** | File-based, standard FACS format; no API mentioned. [Page](https://www.hyphen.co.za/debicheck/) | File rail only **(unverified beyond the marketing page)**. |
 | **Altron FinTech (Realpay / NuPay)** | Portal and terminal product; markets microfinance and TT3. No developer docs found. [Page](https://fintech.altron.com/debicheck) | Integration method **unverified**. |
 | **PayM8** | Named in `types.ts` as a file-based rail. No public DebiCheck API docs found. | **Unverified.** |
-| **Peach Payments** | Developer site lists payouts and account verification for SA; DebiCheck not listed. | **No DebiCheck API found.** |
+| **Peach Payments** | [Developer site](https://www.peachpayments.com/developers/developers) lists payouts and account verification for SA; DebiCheck not listed. | **No DebiCheck API found (unverified negative).** |
 | **Paystack** | No SA DebiCheck product found. | **Not a candidate (unverified negative).** |
-| **Bank host-to-host** (Absa, Nedbank, Standard Bank, FNB, RMB) | Bank-specific file/H2H integrations under a sponsoring-bank agreement. [RMB](https://www.rmb.co.za/debicheck) | Needs a direct bank collection agreement; not public. |
+| **Bank host-to-host** (Absa, Nedbank, Standard Bank, FNB, RMB) | Bank-specific file/H2H integrations under a sponsoring-bank agreement. Only [RMB](https://www.rmb.co.za/debicheck) was found publicly describing a creditor-side DebiCheck service; the others are **unverified**. | Needs a direct bank collection agreement; not public. |
 
 Recommendation: Stitch, unless the lender already contracts elsewhere. It is
 the only provider found with public, current API documentation and a
@@ -156,11 +173,11 @@ is; the DebiCheck mandate is raised after it.
 | Tracking is a day count; Stitch sends a boolean | `trackingDays` | Adapter maps `trackingDays > 0` to the indicator; keep the count for the engine |
 | No creditor short name | — | Per-lender `TenantConfig` field (statement descriptor) |
 | No RM or TT3 auth type | `DebitMandateAuthType` | Add `RM` only if the chosen provider exposes it; TT3 not needed for an online lender |
-| No amendment flow | state machine has no amend path | `DebitMandateAmendment` row + `PENDING_AMENDMENT` state, re-auth vs notify split from the provider |
+| No amendment flow | Terms are immutable: trigger `guardDebitMandateStatus` raises "terms are fixed once created: create a fresh mandate" (`prisma/migrations/20261015120000_collections_mandate_provider_end/migration.sql:23`, first in `20261014150000_collections_engine`), and its status allow-list has no amendment state | See "Amendments in the database" below |
 | Paused mandate can be unsuspended by amendment (Stitch) | SUSPENDED is terminal | Keep terminal: the scheme rule in `scheme-rules.ts` is the stricter reading; a resumed mandate is raised as a new one |
 | Revocation reason | `cancelMandate(ref)` takes no reason | Pass `EARLY_SETTLEMENT` / `CONTRACT_EXPIRED` / `FRAUD` / `GENERAL` |
 | Debtor authentication in the portal | engine is staff-initiated | For Stitch's hosted flow: store the redirect URL, show it on the portal mandate page after the document is signed, accept the webhook |
-| Webhook intake | engine polls (`getMandateStatus`, `fetchResults`) | A signed webhook route that triggers the same refresh; polling stays the fallback |
+| Webhook intake | engine polls (`getMandateStatus`, `fetchResults`) | A signed webhook route that triggers the same refresh; polling stays the fallback. Reusable: the per-tenant webhook-secret loader `loadStitchWebhookSecret` (`lib/stitch.ts:73-78`) and the `x-stitch-signature` handling in `app/api/portal/payment/webhook/route.ts:28` |
 | Business-entity borrowers | `mandates.ts` refuses entity borrowers | Stitch allows RM only for entities; decide whether to support |
 
 ### Target lifecycle (provider-neutral)
@@ -169,15 +186,34 @@ is; the DebiCheck mandate is raised after it.
 document signed (layer 1)
   -> mandate CREATED -> SUBMITTING -> PENDING_AUTH        debtor authenticates in bank app / USSD
        -> ACTIVE | REJECTED | EXPIRED (window lapsed; RM conversion if the provider does it)
-  ACTIVE -> PENDING_AMENDMENT -> ACTIVE                  re-auth amendment accepted
-                              -> ACTIVE (old terms)       re-auth amendment rejected/expired
+  ACTIVE + amendment row PENDING_AUTH -> amendment ACCEPTED   mandate stays ACTIVE throughout
+                                      -> amendment REJECTED/EXPIRED
   ACTIVE -> instructions per instalment -> PAID | UNPAID (reason) | DISPUTED
          -> SUSPENDED (NPF stop rule / bank) -> new mandate
   any live -> CANCELLED (settled, written off, staff; revocation reason sent)
 ```
 
-Only `PENDING_AMENDMENT` and the amendment row are new; everything else maps
-onto the existing states.
+Only the amendment row is new; the mandate states are unchanged.
+
+### Amendments in the database
+
+The mandate row's terms cannot change (trigger above), so amended terms live
+in a new `DebitMandateAmendment` row: the changed fields, whether the
+provider requires re-authentication, its own status (`PENDING_AUTH`,
+`ACCEPTED`, `REJECTED`, `EXPIRED`), and the provider's reference. The mandate
+stays `ACTIVE` while an amendment is pending, so a rejected or expired
+amendment needs no rollback: the mandate's original terms were never touched.
+The engine reads a mandate's effective terms as the original row overlaid with
+its accepted amendments, newest last.
+
+This still changes enforcement: the presentment and max-amount checks that
+read `DebitMandate` columns must read the effective terms, and a new trigger
+must keep amendment rows append-only and their status moves legal. That is a
+hand-written migration (Prisma does not diff triggers) and, like every
+enforcement migration here, it ships in the same PR as its code. The
+alternative, a `PENDING_AMENDMENT` mandate status with mutable terms, would
+need `guardDebitMandateStatus` rewritten and loses the original terms on
+rejection; not recommended.
 
 ## Stitch adapter shape (for scoping, not built)
 
@@ -198,8 +234,12 @@ onto the existing states.
 - `verifyAccount` -> Stitch AVS if offered, else keep `avsProvider` separate
   **(unverified)**.
 
-Estimate depends on the file spec; the GraphQL half is small because the
-token client already exists.
+Reusable as is: per-tenant credential loading (`lib/integrations/tenant-credentials.ts`,
+`loadStitchWebhookSecret` at `lib/stitch.ts:73-78`) and the `x-stitch-signature`
+webhook handling (`app/api/portal/payment/webhook/route.ts:28`). Needs a
+change: `getStitchAccessToken` hardcodes scope `client_paymentrequest`
+(`lib/stitch.ts:90`) and must request `client_recurringpaymentconsentrequest`
+for consent calls. The estimate depends mostly on the SFTP file spec.
 
 ## What Hein must supply to proceed
 
@@ -209,11 +249,12 @@ The build stops here until these exist:
    or the lender's existing provider (BYOC).
 2. **A sandbox / test account** with that provider, with DebiCheck enabled,
    and its credentials (for Stitch: a test client id/secret with the
-   `client_recurringpaymentconsentrequest` scope, SFTP test credentials, the
+   `client_recurringpaymentconsentrequest` scope ([Stitch docs](https://docs.stitch.money/payment-products/payins/debicheck/integration-process)),
+   SFTP test credentials, the
    webhook signing secret, and the return-URL domain allowlisted).
 3. **The provider's DebiCheck file and rule specification** (collection
    file layout, REPLY/OUTPUT layout, return codes, presentment and NPF rules)
-   — the scheme rules in `scheme-rules.ts` are verified against it.
+   — every value in the unverified table above is checked against it.
 4. **For EasyDebit specifically:** its API or file documentation; nothing
    public was found.
 
