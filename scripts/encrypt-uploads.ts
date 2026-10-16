@@ -121,6 +121,7 @@ async function replaceWithEncrypted(f: Entry, plain: Buffer, master: Buffer): Pr
     await handle.close()
   }
   try {
+    await fs.chmod(tmp, stat.mode & 0o777)
     if (process.getuid?.() === 0) await fs.chown(tmp, stat.uid, stat.gid)
     const check = await fs.readFile(tmp)
     if (!decryptFile(check, master, f.name).equals(plain)) throw new Error("temp file failed its read-back; file left as it was")
