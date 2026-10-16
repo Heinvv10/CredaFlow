@@ -28,6 +28,7 @@ import {
   sha256DocumentBytes,
 } from "@/lib/documents/content-integrity"
 import { readFile } from "@/lib/storage"
+import { generateReference } from "@/lib/utils"
 import { DebitMandateConfigurationError } from "@/lib/config/debit-mandate"
 import { LenderIdentityError } from "@/lib/config/identity"
 import { EntityBorrowerError, hasClientBorrower, isEntityBorrowerError } from "@/lib/borrower"
@@ -262,8 +263,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         }
 
         const preparedAt = new Date()
+        // Becomes the loan's reference at payout (disburse route), so it is
+        // what the borrower quotes on every EFT: a human reference in the
+        // application style, never the raw application id.
         const collectionReference =
-          application.debitMandateReference ?? `LN-${application.id}`
+          application.debitMandateReference ?? generateReference("LN")
         const evidence = createDebitMandateEvidence({
           applicationId: application.id,
           clientId: application.clientId,

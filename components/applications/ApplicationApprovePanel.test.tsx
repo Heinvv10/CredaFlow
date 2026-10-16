@@ -369,7 +369,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     await act(async () => {
       button(renderer, "Decline").props.onClick()
     })
-    const textarea = renderer.root.findByType("textarea")
+    const textarea = renderer.root.findByProps({ "aria-label": "Reason shown to the client" })
     await act(async () => {
       textarea.props.onChange({ target: { value: "Verified decline reason" } })
     })
@@ -383,7 +383,7 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     expect(childText(renderer.root.findByProps({ role: "alert" }).props.children)).toBe(
       "Failed to process decision",
     )
-    expect(renderer.root.findByType("textarea").props.value).toBe(
+    expect(renderer.root.findByProps({ "aria-label": "Reason shown to the client" }).props.value).toBe(
       "Verified decline reason",
     )
     expect(button(renderer, "Confirm Decline").props.disabled).toBe(false)
@@ -422,6 +422,68 @@ describe("ApplicationApprovePanel bureau override feedback", () => {
     const body = fetchMock.mock.calls[0][1].body as FormData
     expect(body.get("action")).toBe("decline")
     expect(body.get("declineCategory")).toBe("ADVERSE_LISTING")
+    expect(body.get("reason")).toBe("Your credit record at the credit bureau shows an adverse listing or a judgment.")
+
+    await act(async () => renderer.unmount())
+  })
+
+  // Fair Score audit 2026-10-16: the one "Decline reason" box was shown to the
+  // borrower verbatim, so staff notes reached the client.
+  it("posts the client's reason and the staff-only note as separate fields", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(500, { error: "x" }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
+      )
+    })
+    await act(async () => {
+      button(renderer, "Decline").props.onClick()
+    })
+    await act(async () => {
+      renderer.root.findByType("select").props.onChange({ target: { value: "FRAUD" } })
+    })
+    const clientReason = () => renderer.root.findByProps({ "aria-label": "Reason shown to the client" })
+    expect(clientReason().props.value).toBe("We could not verify the information in your application.")
+    await act(async () => {
+      clientReason().props.onChange({ target: { value: "We could not confirm your employment." } })
+    })
+    await act(async () => {
+      renderer.root.findByProps({ "aria-label": "Internal note" }).props.onChange({ target: { value: "Employer number is residential." } })
+    })
+    // Another category keeps wording staff wrote themselves.
+    await act(async () => {
+      renderer.root.findByType("select").props.onChange({ target: { value: "POLICY" } })
+    })
+    expect(clientReason().props.value).toBe("We could not confirm your employment.")
+    await act(async () => {
+      await button(renderer, "Confirm Decline").props.onClick()
+    })
+
+    const body = fetchMock.mock.calls[0][1].body as FormData
+    expect(body.get("declineCategory")).toBe("POLICY")
+    expect(body.get("reason")).toBe("We could not confirm your employment.")
+    expect(body.get("internalNote")).toBe("Employer number is residential.")
+
+    await act(async () => renderer.unmount())
+  })
+
+  it("will not decline as Other until staff write the client's reason", async () => {
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(
+        <ApplicationApprovePanel applicationId="application-1" canApprove openChecks={0} />,
+      )
+    })
+    await act(async () => {
+      button(renderer, "Decline").props.onClick()
+    })
+    await act(async () => {
+      renderer.root.findByType("select").props.onChange({ target: { value: "OTHER" } })
+    })
+    expect(button(renderer, "Confirm Decline").props.disabled).toBe(true)
 
     await act(async () => renderer.unmount())
   })

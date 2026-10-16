@@ -203,3 +203,13 @@ export async function getLenderLogo(
   }
   return new Uint8Array(bytes)
 }
+
+/**
+ * The URL of the tenant's logo for the public website and the client portal
+ * (app/api/website/logo), versioned by content so a new upload shows at once;
+ * null when there is no readable logo, and the brand name shows instead.
+ */
+export async function publicLenderLogoSrc(tenantId: string): Promise<string | null> {
+  const logo = await getLenderLogo(tenantId)
+  return logo ? `/api/website/logo?v=${sha256(logo).slice(0, 12)}` : null
+}

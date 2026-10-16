@@ -50,6 +50,9 @@ model LoanApplication {
   decisionReason                          String?
   // Coarse, for internal reporting. NOT the NCA s.62 statement of reasons.
   declineCategory                         DeclineCategory?
+  // Staff-only context for a decline. Never shown to the client: the reason
+  // the client sees is decisionReason (lib/applications/decline-category.ts).
+  declineInternalNote                     String?
   loanPurposeCategory                     LoanPurposeCategory?
   productRecommendationNote               String?
   existingDebtObligations                 Json?
@@ -243,8 +246,11 @@ model SelfieCaptureToken {
   /// a foreign key: ClientDocument is soft-deleted, and this field is evidence
   /// of what the link produced, which must survive that.
   documentId    String?
-  createdById   String
-  createdBy     User            @relation("SelfieCaptureTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The staff member who sent the link; null for a link the signed-in client
+  /// opened from the portal to continue on their phone (channel PORTAL, CHECK
+  /// SelfieCaptureToken_issuer_matches_channel).
+  createdById   String?
+  createdBy     User?           @relation("SelfieCaptureTokensIssuedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt     DateTime        @default(now())
   // Partial unique index (not expressible in Prisma schema):
   // SelfieCaptureToken_one_active_per_application, created by the baseline
@@ -273,4 +279,7 @@ enum DeclineCategory {
   DOCUMENTS_INCOMPLETE
   IDENTITY
   WITHDRAWN
+  FRAUD
+  POLICY
+  OTHER
 }

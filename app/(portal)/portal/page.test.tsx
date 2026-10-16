@@ -63,4 +63,25 @@ describe("portal overview page", () => {
   it("keeps the payment shortcut while any loan is owed", async () => {
     expect(await overview(["CANCELLED", "ACTIVE"])).toContain("/portal/payment")
   })
+
+  // Elize, Fair Score audit 2026-10-16: the banner said "27 days overdue" (the
+  // cron's stamp) with no amount; due 17 Sep, seen 16 Oct is 29 days, R843.30.
+  it("shows the overdue amount and the days overdue as of today", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-16T10:00:00Z"), toFake: ["Date"] })
+    try {
+      mocks.policyFindMany.mockResolvedValue([])
+      mocks.loanFindMany.mockResolvedValue([{
+        ...loan("ACTIVE"), principal: 3_400_000, outstandingPrincipal: 2_713_391, daysInArrears: 27,
+        repaymentSchedule: [
+          { dueDate: new Date("2026-09-17T06:30:01Z"), principalDue: 289_000, interestDue: 50_000, feesDue: 0, totalDue: 339_000, totalPaid: 254_670 },
+          { dueDate: new Date("2026-10-17T06:30:01Z"), principalDue: 289_000, interestDue: 50_000, feesDue: 0, totalDue: 339_000, totalPaid: 0 },
+        ],
+      }])
+      const html = renderToStaticMarkup(await ClientPortalPage()).replace(/<!-- -->/g, "")
+      expect(html).toContain("your account is 29 days overdue")
+      expect(html).toMatch(/Pay R\s?843[.,]30 to bring your account up to date/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

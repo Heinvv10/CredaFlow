@@ -280,13 +280,15 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           debitMandatePreparedAt: new Date("2026-07-23T16:00:00.000Z"),
-          debitMandateReference: "LN-app-1",
+          // A human reference in the application style, never the raw id:
+          // the borrower quotes it on every EFT (Fair Score audit 2026-10-16).
+          debitMandateReference: expect.stringMatching(/^LN-[0-9A-Z]{8}-[0-9A-Z]{4}$/),
           debitMandateDraftSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           debitMandateEvidenceSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
           debitMandateEvidence: expect.objectContaining({
             applicationId: "app-1",
             clientId: "client-1",
-            collectionReference: "LN-app-1",
+            collectionReference: expect.stringMatching(/^LN-[0-9A-Z]{8}-[0-9A-Z]{4}$/),
             contractFingerprint: "contract-sha",
             bankStatement: expect.objectContaining({
               documentId: "statement-1",
@@ -301,6 +303,8 @@ describe("POST /api/applications/[id]/debit-mandate", () => {
         }),
       }),
     )
+    const prepared = applicationUpdateMany.mock.calls[0][0].data
+    expect(prepared.debitMandateEvidence.collectionReference).toBe(prepared.debitMandateReference)
     expect(auditLogCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

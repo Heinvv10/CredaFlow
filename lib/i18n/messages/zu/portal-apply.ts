@@ -73,4 +73,5 @@ export const portalApply: Catalog["portalApply"] = {
   purposeHint: "(kuyadingeka, izinhlamvu ezi-3–500)",
   cancel: "Khansela",
   submit: "Thumela isicelo",
+  termMonthsBetween: "Isikhathi (izinyanga) — phakathi kuka-{min} no-{max}",
 }

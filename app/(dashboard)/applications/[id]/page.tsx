@@ -671,7 +671,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
               )}
             </div>
           </div>
-          {application.decisionReason && <p className="mt-3 text-sm text-[var(--cf-text-muted)]"><span className="font-medium text-[var(--cf-text-secondary)]">Decision Note:</span> {application.decisionReason}</p>}
+          {application.decisionReason && <p className="mt-3 text-sm text-[var(--cf-text-muted)]"><span className="font-medium text-[var(--cf-text-secondary)]">{application.status === "DECLINED" ? "Reason shown to the client:" : "Decision Note:"}</span> {application.decisionReason}</p>}
+          {application.declineInternalNote && <p className="mt-1 text-sm text-[var(--cf-text-muted)]"><span className="font-medium text-[var(--cf-text-secondary)]">Internal note (staff only):</span> {application.declineInternalNote}</p>}
         </DataPanel>
 
         {/* Document mismatch warning */}

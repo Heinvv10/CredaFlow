@@ -40,7 +40,7 @@ export const portalProfile: Catalog["portalProfile"] = {
   postalCode: "Ikhodi yeposi",
   saving: "Iyagcina...",
   saveChanges: "Gcina izinguquko",
-  pwTooShort: "Iphasiwedi entsha kufanele ibe nezinhlamvu okungenani ezingu-8.",
+  pwTooShort: "Iphasiwedi entsha kufanele ibe nezinhlamvu okungenani ezingu-10.",
   pwMismatch: "Amaphasiwedi amasha awafani.",
   pwFailed: "Asikwazanga ukubuyekeza iphasiwedi. Sicela uzame futhi.",
   unexpected: "Kuvele iphutha ebelingalindelekile. Sicela uzame futhi.",

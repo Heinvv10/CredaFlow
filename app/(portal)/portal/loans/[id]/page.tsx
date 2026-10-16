@@ -13,6 +13,7 @@ import { PortalRecoverySection } from "@/components/asset-finance/recovery/Porta
 import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { getPortalLoan } from "./portal-loan"
+import { OPEN_PORTAL_LOAN_STATUSES, portalLoanArrears } from "@/lib/portal/loan-overview"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
@@ -60,6 +61,10 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
   const monthlyInstalment = recurringInstalmentDue(loan.repaymentSchedule)
   // A loan CANCELLED by a disbursement reversal owes nothing (lib/loan/charges-summary.ts).
   const cancelled = owesNothing(loan)
+  // As of today from the schedule, not the nightly-stamped column (lib/portal/loan-overview.ts).
+  const daysOverdue = (OPEN_PORTAL_LOAN_STATUSES as readonly string[]).includes(loan.status)
+    ? portalLoanArrears(loan, new Date()).days
+    : 0
 
   const statusColor: Record<string, { bg: string; text: string }> = {
     ACTIVE: { bg: "#D1FAE5", text: "#059669" },
@@ -88,9 +93,9 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
             <p className="text-xs mt-0.5" style={{ color: "#4338CA" }}>{loan.product.name}</p>
           </div>
           <div className="flex items-center gap-3">
-            {loan.daysInArrears > 0 && (
+            {daysOverdue > 0 && (
               <span className="rounded bg-red-500/20 px-2 py-1 text-xs font-bold text-[var(--cf-danger)]">
-                {t("daysOverdue", { n: loan.daysInArrears })}
+                {t("daysOverdue", { n: daysOverdue })}
               </span>
             )}
             <span

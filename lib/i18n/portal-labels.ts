@@ -34,7 +34,7 @@ export function loanStatusTitle(t: Labels, status: string, hasArrears: boolean):
   return key ? t(key) : portalLoanStatusLabel(status, hasArrears)
 }
 
-/** The portal's payment-method wording ("eft", "debit order", "Balance waived"), translated. */
+/** The portal's payment-method wording ("EFT", "Debit order", "Balance waived"), translated. */
 export function paymentMethodLabel(t: Labels, method: string): string {
   if (isBalanceWaiver(method)) return t("methodWaived")
   const key = `method_${method}`
