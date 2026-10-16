@@ -14,7 +14,7 @@
 #   DEMO_SIM_LOCK  the sim stack lock bake.sh holds; default ~/.credaflow-demo-sim.lock (per user:
 #                  every demo job on this host runs as one user, so it covers the host).
 #                  One file for every DEMO_DATA_DIR: the sim stack is one per host.
-#                  DEMO_SIM_LOCK_WAIT seconds to wait for it (default 0; cron-run.sh: 3 h).
+#                  DEMO_SIM_LOCK_WAIT whole seconds to wait for it (default 0; cron-run.sh: 3 h).
 #
 # Every Docker name the demo scripts touch is defined once, below. The live
 # project name can be overridden (DEMO_LIVE_PROJECT) only to point restore.sh
