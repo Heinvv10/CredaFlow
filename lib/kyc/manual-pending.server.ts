@@ -13,8 +13,9 @@ type RawQueryDb = Pick<typeof prisma, "$queryRaw">
  * It stands until a later audit row, on the client or on any of its documents
  * (the verify, selfie and delete paths audit the document), records the client
  * in a status other than PENDING. While it stands no automatic path promotes
- * (holdManualPending), so in practice only staff's explicit Approve KYC, Reject
- * KYC or another manual status ends it. Writers record the post-write status
+ * (holdManualPending), so only an explicit staff decision ends it: Approve or
+ * Reject KYC, another manual status, or a staff grant that records VERIFIED
+ * (senior exception, in-person attestation). Writers record the post-write status
  * as newValue.clientKyc.kycStatus, the manual override and the bank-detail
  * revocation as newValue.kycStatus. A row that records no status (an upload, a
  * refused access) changes nothing.
