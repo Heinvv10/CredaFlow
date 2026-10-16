@@ -23,7 +23,7 @@ import type { StatementTransaction } from "./types"
 export { isLiving, LIVING_CATEGORIES, type Category, type LivingCategory } from "./categories"
 
 /** Bump when a rule or a word list changes what a transaction is categorised as. */
-export const CATEGORISER_VERSION = "categoriser-v2"
+export const CATEGORISER_VERSION = "categoriser-v3"
 
 export interface CategoriseContext {
   /** The client's name: a transfer to it is a transfer between their own accounts. */
