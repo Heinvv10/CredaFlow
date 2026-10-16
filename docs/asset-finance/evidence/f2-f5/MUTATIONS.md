@@ -6,34 +6,49 @@ F1's red-first proof is in [`../f1-s127-address/README.md`](../f1-s127-address/R
 
 ## F2 — NCA final-notice reminder
 
-Test: `lib/asset-finance/recovery-final-notice-reminder.integration.test.ts`
-(`RUN_ASSET_FINANCE_RECOVERY_IT=1`, real migrated Postgres 16, clock injected
-with `vi.useFakeTimers({ toFake: ["Date"] })` through the cron route). It takes
-an s131 and an s127 NCA recovery to PROCEEDS_APPLIED, plus two controls (a
-NON_NCA recovery at PROCEEDS_APPLIED and an NCA one at FINAL_NOTICE_ISSUED),
-and runs the cron at 4 business days, the calendar day before the 5th, the 5th,
-and twice on the day after. Then it compares every recovery and loan row with
-its state before the runs.
+Tests (`RUN_ASSET_FINANCE_RECOVERY_IT=1`, `TENANT_RLS=on`, real migrated
+Postgres 16), run together for every mutation (14 tests):
 
-| Mutation (`lib/asset-finance/recovery-freeze-deadline.ts`) | Result | First failure |
+- `recovery-final-notice-reminder.integration.test.ts`: the cron route with an
+  injected clock. Freeze dates are pinned and due days written out by hand:
+  Fri 2027-01-08 → due Fri 2027-01-15 (weekend), Thu 2027-03-18 → due Tue
+  2027-03-30 (Human Rights Day observed Mon 22 Mar, Good Friday 26 Mar, Family
+  Day 29 Mar). It checks for no bell the day before, one bell on the due day,
+  still one after repeat runs, never a bell for a NON_NCA or noticed control,
+  no name or ID number, and every recovery and loan row unchanged.
+- `recovery-final-notice-reminder-rules.integration.test.ts`: a final notice
+  issued while the sweep waits on the loan lock; an inactive creator (active
+  ADMIN and SUPER_ADMIN belled, an inactive ADMIN not); no active admin (no
+  marker, the next run bells); a COMPLETED or WRITTEN_OFF loan still belled.
+- `recovery-final-notice-reminder.breaker.integration.test.ts`: the tester's
+  repros (concurrent sweeps, weekend and Easter boundaries, notice before due,
+  feature flag off, inactive creator F2-f, FK on the creator, future freeze).
+
+| Mutation | Result | Failing tests (first few) |
 |---|---|---|
-| M1 the 5 business days become 4 | RED | a bell at 4 business days (`expected length 0 but got 1`) |
-| M2 the audit-marker check is dropped | RED | the rerun reports `alreadyReminded` 0 |
-| M3 the audit marker is never written | RED | `expected 0 to be 1` (marker count) |
-| M4 `<= day` becomes `< day` | RED | nothing reminded on the 5th business day |
-| M5 the NCA route filter is dropped | RED | the NON_NCA control is belled |
-| M6 FINAL_NOTICE_ISSUED is also selected | RED | the noticed control is belled |
-| M7 the reminder moves the loan's collections stage (update without `tenantId`) | RED | the update throws, so the run answers 503 |
-| M7b the same, tenant-scoped so it commits | RED | the loan rows no longer equal their state before the runs |
-| M8 the title carries the borrower's name | RED | `not to match /TEST\|Debtor/` |
+| M1 the 5 business days become 4 | RED | clock IT; breaker F2-b, F2-c, F2-d |
+| M2 the marker check is dropped | RED | clock IT; breaker F2-a (concurrent sweeps) |
+| M3 the marker is never written | RED | clock IT; rules (admins, closed loans); breaker F2-a |
+| M4 `<= day` becomes `< day` | RED | 11 of 14 |
+| M5 the NCA route filter is dropped | RED | clock IT (NON_NCA control belled) |
+| M6 FINAL_NOTICE_ISSUED also selected by the query | survived alone | see below |
+| M6 + R1 together | RED | clock IT; rules race; breaker F2-d |
+| M7 the reminder moves the loan's collections stage | RED | clock IT (rows changed) |
+| M8 the title names the borrower | RED | clock IT |
+| R1 no re-read of the recovery under the lock | RED | rules: the final notice issued while the sweep waits |
+| R2 always the creator, active or not | RED | rules (admins; no admin); breaker F2-f |
+| R3 inactive admins belled too | RED | rules: never an inactive admin |
+| R4 marker written with no recipient | RED | rules: no marker, the next run bells |
+| R5 a COMPLETED or WRITTEN_OFF loan is skipped (tenant-scoped count) | RED | rules: still bells when the loan is COMPLETED / WRITTEN_OFF (2 of 14) |
+| H1 holiday list without Good Friday (`lib/compliance/sa-business-days.ts`) | RED | clock IT; breaker F2-c |
+| H2 holiday list without Family Day | RED | clock IT; breaker F2-c |
+| H3 no Sunday-to-Monday rule (Human Rights Day 2027) | RED | clock IT; breaker F2-c |
+| H4 Saturday counted as a business day | RED | clock IT; breaker F2-b, F2-c |
 
-The unmutated test passed before and after the mutation runs (1/1).
-
-An earlier version also filtered on `finalNoticeIssuedOn: null`. Dropping that
-filter alone left the test green: an NCA recovery cannot be at PROCEEDS_APPLIED
-with a final-notice date, because issuing the notice sets the date and moves
-the status together (`20261015400000_asset_finance_recovery`). The filter was
-redundant and was removed, so the status filter is the one under test (M6).
+M6 alone survives because the status is checked twice: by the sweep's query
+and by the re-read under the lock (R1, added in review round 1). A recovery
+the widened query lets through is refused by the re-read. Removing both goes
+red. The unmutated suite passed after the runs (14/14).
 
 ## F4 — portal recovery card in the borrower's language
 
