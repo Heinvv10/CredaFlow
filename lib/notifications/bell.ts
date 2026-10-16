@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma"
 
 // `Notification.type` is a String column, not a Prisma enum, so adding a
 // member here needs no migration.
-export type NotificationType = "TASK_DUE" | "LICENCE_EXPIRY" | "COMMS_MENTION" | "LEAD_DUPLICATE" | "CHAT_HANDOFF" | "BUREAU_HELD" | "LOAN_REPRICED" | "REFERENCE_RATE_NO_EFFECT" | "REFERENCE_RATE_FEED_PENDING" | "LEASE_EXPIRY_NOTICE" | "LEGAL_MATTER_NEXT_STEP" | "RECOVERY_DEADLINE_PASSED" | "RECOVERY_FINAL_NOTICE_DUE"
+export type NotificationType = "TASK_DUE" | "LICENCE_EXPIRY" | "COMMS_MENTION" | "LEAD_DUPLICATE" | "CHAT_HANDOFF" | "BUREAU_HELD" | "LOAN_REPRICED" | "REFERENCE_RATE_NO_EFFECT" | "REFERENCE_RATE_FEED_PENDING" | "LEASE_EXPIRY_NOTICE" | "LEGAL_MATTER_NEXT_STEP" | "RECOVERY_DEADLINE_PASSED" | "RECOVERY_FINAL_NOTICE_DUE" | "PAYMENT_NOTIFIED"
 
 export type BellNotification = {
   id: string
