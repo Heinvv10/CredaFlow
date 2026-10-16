@@ -43,6 +43,13 @@ export function redirectStaleSession(callbackUrl?: string): never {
   redirect(callbackUrl ? `/api/auth/expired?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/api/auth/expired")
 }
 
+/**
+ * Where a staff page sends a role that may not open it: a page inside the
+ * staff app that says so (app/(dashboard)/no-access). Never "/", which on a
+ * shared host renders the lender's public website.
+ */
+export const NO_ACCESS_PAGE = "/no-access"
+
 export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {
   const session = await auth()
   if (!session?.user) {
@@ -57,7 +64,7 @@ export async function requireRole(allowedRoles: AppRole[]): Promise<StaffUser> {
   }
 
   if (!allowedRoles.includes(session.user.role)) {
-    redirect("/")
+    redirect(NO_ACCESS_PAGE)
   }
 
   return session.user as StaffUser
@@ -91,7 +98,7 @@ export async function requireMinRole(minRole: UserRole): Promise<StaffUser> {
   }
 
   if (!hasMinRole(session.user.role, minRole)) {
-    redirect("/")
+    redirect(NO_ACCESS_PAGE)
   }
 
   return session.user as StaffUser
@@ -362,15 +369,18 @@ export function staffUserWriteConflict(err: unknown): NextResponse | null {
   return conflict ? NextResponse.json({ error: "This user is being changed elsewhere. Try again." }, { status: 409 }) : null
 }
 
-// Permissions map: action → minimum required role. One file per domain under
+// Permissions map: action → minimum required role, or the explicit list of
+// roles that hold it (lib/registry/define.ts). One file per domain under
 // lib/registry/permissions/ (merged by scripts/gen-registries.ts;
 // docs/ARCHITECTURE.md, "Registries").
-export const PERMISSIONS: { readonly [K in keyof typeof REGISTRY_PERMISSIONS]: UserRole } = REGISTRY_PERMISSIONS
+export const PERMISSIONS = REGISTRY_PERMISSIONS
 
 export type PermissionKey = keyof typeof PERMISSIONS
 
 export function canDo(userRole: AppRole, permission: PermissionKey): boolean {
-  return hasMinRole(userRole, PERMISSIONS[permission])
+  const rule: UserRole | readonly UserRole[] = PERMISSIONS[permission]
+  if (typeof rule !== "string") return userRole !== "CLIENT" && rule.includes(userRole)
+  return hasMinRole(userRole, rule)
 }
 
 type OwnerOrStaffResult =

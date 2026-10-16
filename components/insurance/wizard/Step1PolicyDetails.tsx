@@ -2,8 +2,10 @@ import { ClientPicker } from "@/components/wizard/ClientPicker"
 import { StepBar } from "@/components/wizard/StepBar"
 import { MotorRiskFields, PropertyRiskFields } from "./RiskFields"
 import { ProductPicker } from "./ProductPicker"
-import { INSURANCE_STEP_LABELS, TYPE_LABELS, formatR, inp, lbl } from "./constants"
+import { INSURANCE_STEP_LABELS, TYPE_LABELS, inp, lbl } from "./constants"
 import type { Advisor, Client, PolicyDraftData, Product } from "./types"
+import { formatZAR } from "@/lib/utils"
+import { premiumCommission } from "@/lib/insurance/commission"
 
 interface Props {
   data: PolicyDraftData
@@ -124,6 +126,8 @@ export function Step1PolicyDetails(props: Props) {
             <label className={lbl}>Insurer</label>
             <input
               className={inp}
+              aria-label="Insurer"
+              placeholder="As named in the product terms"
               value={data.insurer}
               onChange={(e) => set("insurer", e.target.value)}
             />
@@ -177,14 +181,18 @@ export function Step1PolicyDetails(props: Props) {
                 set("commissionRate", e.target.value.replace(",", "."))
               }
             />
-            {data.sumAssured && data.commissionRate && (
+            {data.premiumAmount && data.commissionRate && (
               <p className="text-[11px] text-gray-400 mt-1">
                 Commission:{" "}
-                {formatR(
-                  (parseFloat(data.sumAssured || "0") *
-                    parseFloat(data.commissionRate || "0")) /
-                    100
-                )}
+                {formatZAR(
+                  Math.round(
+                    premiumCommission(
+                      parseFloat(data.premiumAmount || "0"),
+                      parseFloat(data.commissionRate || "0") / 100
+                    ) * 100
+                  )
+                )}{" "}
+                a month
               </p>
             )}
           </div>

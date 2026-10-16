@@ -1,0 +1,45 @@
+// ── Client-notified payments (Fair Score audit B7) ────────────────────────────
+// A borrower's "I have paid" report from the portal, with proof of payment. A
+// claim, not a receipt: it never counts as money received. Staff either
+// allocate it, which captures a real Payment through applyManualReceipt, or
+// reject it with a reason. The state CHECK is hand-written in migration
+// 20261016150000_payment_notifications.
+
+enum PaymentNotificationStatus {
+  PENDING
+  ALLOCATED
+  REJECTED
+}
+
+model PaymentNotification {
+  id           String                    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id])
+  loanId       String
+  loan         Loan                      @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId     String
+  client       Client                    @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// cents the client says they paid
+  amount       Int
+  reference    String?
+  /// The date the client says the money left their account (SAST calendar day).
+  paymentDate  DateTime?
+  notes        String?
+  /// The proof of payment (ClientDocument PROOF_OF_PAYMENT).
+  documentId   String
+  document     ClientDocument            @relation(fields: [tenantId, documentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status       PaymentNotificationStatus @default(PENDING)
+  /// The receipt captured when it was allocated.
+  paymentId    String?
+  payment      Payment?                  @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  resolvedById String?
+  resolvedAt   DateTime?
+  rejectReason String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, paymentId])
+  @@index([tenantId, status])
+  @@index([loanId])
+}

@@ -68,7 +68,7 @@ beforeEach(() => {
   delete process.env.BULKSMS_DRY_RUN
   process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
   m.tenantFindFirst.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
-  m.scheduleFindFirst.mockResolvedValue({ totalDue: 300_000 })
+  m.scheduleFindFirst.mockResolvedValue({ totalDue: 300_000, totalPaid: 0 })
   m.loanNoteFindFirst.mockResolvedValue(null)
   m.loanNoteCreate.mockResolvedValue({ id: "note" })
   m.chargesOutstandingAt.mockResolvedValue(12_345)

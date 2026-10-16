@@ -76,6 +76,7 @@ export default async function LoanDetailPage(
         canManageLease={role ? canDo(role, "manage_asset_finance") : false}
         canDecideLease={role ? canDo(role, "decide_asset_finance") : false}
         canRecordPayment={role ? canDo(role, "record_payment") : false}
+        canCapturePayment={role ? canDo(role, "capture_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
       />
@@ -286,7 +287,7 @@ export default async function LoanDetailPage(
           {/* Payment-capture eligibility, NOT a reporting population — this
               must track lib/loan/apply-payment.ts, or the panel offers a
               capture the API rejects. Do not swap in COLLECTIBLE_STATUSES. */}
-          {["ACTIVE", "DEFAULTED"].includes(loan.status) && (
+          {["ACTIVE", "DEFAULTED"].includes(loan.status) && session?.user?.role && canDo(session.user.role, "capture_payment") && (
             <DataPanel variant="accent" density="loose">
               <SectionHeader
                 eyebrow="Servicing"

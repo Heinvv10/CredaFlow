@@ -356,3 +356,30 @@ describe("deriveAffordabilityFlag", () => {
     expect(deriveAffordabilityFlag(-1)).toBe("PASS")
   })
 })
+
+// Staff wizard PO funding (#141 review): the same facts the portal and
+// prepareApplicationFields require, shown and checked only for PO_FUNDING.
+describe("validateStep2LoanParams — PO funding", () => {
+  const PO: ApplicationProduct = { ...PRODUCT, id: "po", productType: "PO_FUNDING", minAmount: 10000, maxAmount: 500000 }
+  const po = {
+    ...EMPTY_APPLICATION_WIZARD_DATA,
+    clientId: "c1", productId: "po", appliedAmount: "50000", appliedTermDays: "60", purpose: "Uniform order",
+    loanPurposeCategory: "BUSINESS", poNumber: "PO-2026-0412", poBuyerName: "Synthetic Schools Trust", poDocumentId: "doc-po",
+  }
+
+  it("passes with the Business purpose and every order fact", () => {
+    expect(validateStep2LoanParams(po, [PO])).toEqual({})
+  })
+
+  it("requires the Business purpose, PO number, buyer and PO document", () => {
+    const e = validateStep2LoanParams(
+      { ...po, loanPurposeCategory: "MEDICAL", poNumber: " ", poBuyerName: "", poDocumentId: "" },
+      [PO],
+    )
+    expect(Object.keys(e).sort()).toEqual(["loanPurposeCategory", "poBuyerName", "poDocumentId", "poNumber"])
+  })
+
+  it("asks nothing of a consumer product", () => {
+    expect(validateStep2LoanParams({ ...po, productId: "p1", appliedAmount: "5000", poNumber: "" }, [PRODUCT, PO])).toEqual({})
+  })
+})

@@ -159,55 +159,51 @@ export function Step4Review({
               </p>
             )}
           </div>
-          <FieldGroup label="" error={errors.creditLifeElection}>
-            <div className="space-y-2 text-sm text-[var(--cf-text)]">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="creditLifeElection"
-                  value="ACCEPTED"
-                  checked={data.creditLifeElection === "ACCEPTED"}
-                  disabled={!creditLifeAvailable}
-                  onChange={() => patch({
-                    creditLifeElection: "ACCEPTED",
-                    creditLifeDisclosureAcknowledged: false,
-                  })}
-                  className="mt-1 accent-[var(--cf-brand)]"
-                />
-                <span>Add the offered credit-life cover.</span>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="creditLifeElection"
-                  value="DECLINED"
-                  checked={data.creditLifeElection === "DECLINED"}
-                  onChange={() => patch({
-                    creditLifeElection: "DECLINED",
-                    creditLifeDisclosureAcknowledged: false,
-                  })}
-                  className="mt-1 accent-[var(--cf-brand)]"
-                />
-                <span>
-                  {creditLifeAvailable
-                    ? "Decline the offered bundled cover."
-                    : "Proceed without credit-life cover."}
-                </span>
-              </label>
-            </div>
-          </FieldGroup>
+          {/* Cover not available here: no choice exists, so no radios — only the
+              acknowledgement below, which records proceeding without cover. */}
+          {creditLifeAvailable && (
+            <FieldGroup label="" error={errors.creditLifeElection}>
+              <div className="space-y-2 text-sm text-[var(--cf-text)]">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="creditLifeElection"
+                    value="ACCEPTED"
+                    checked={data.creditLifeElection === "ACCEPTED"}
+                    onChange={() => patch({
+                      creditLifeElection: "ACCEPTED",
+                      creditLifeDisclosureAcknowledged: false,
+                    })}
+                    className="mt-1 accent-[var(--cf-brand)]"
+                  />
+                  <span>Add the offered credit-life cover.</span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="creditLifeElection"
+                    value="DECLINED"
+                    checked={data.creditLifeElection === "DECLINED"}
+                    onChange={() => patch({
+                      creditLifeElection: "DECLINED",
+                      creditLifeDisclosureAcknowledged: false,
+                    })}
+                    className="mt-1 accent-[var(--cf-brand)]"
+                  />
+                  <span>Decline the offered bundled cover.</span>
+                </label>
+              </div>
+            </FieldGroup>
+          )}
           <FieldGroup label="" error={errors.creditLifeDisclosureAcknowledged}>
             <label className="flex items-start gap-2 text-sm text-[var(--cf-text)] cursor-pointer">
               <input
                 type="checkbox"
                 checked={data.creditLifeDisclosureAcknowledged}
-                disabled={
-                  !data.creditLifeElection
-                  || (!creditLifeAvailable && data.creditLifeElection !== "DECLINED")
-                }
-                onChange={(e) => patch({
-                  creditLifeDisclosureAcknowledged: e.target.checked,
-                })}
+                disabled={creditLifeAvailable && !data.creditLifeElection}
+                onChange={(e) => patch(creditLifeAvailable
+                  ? { creditLifeDisclosureAcknowledged: e.target.checked }
+                  : { creditLifeDisclosureAcknowledged: e.target.checked, creditLifeElection: e.target.checked ? "DECLINED" : "" })}
                 className="mt-1 accent-[var(--cf-brand)]"
               />
               <span>

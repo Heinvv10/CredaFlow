@@ -3,6 +3,7 @@ import type {
   ApplicationWizardData,
 } from "@/components/applications/wizard/types"
 import { AFFORDABILITY_FAIL_REVIEW_REQUIRED } from "@/lib/applications/wizard-copy"
+import { PO_FUNDING_PURPOSE, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 
 /**
  * Partial record of field-level validation error messages.
@@ -55,6 +56,17 @@ export function validateStep2LoanParams(
   }
 
   if (!d.purpose.trim()) errs.purpose = "Required"
+
+  // PO funding is business credit tied to a confirmed order (lib/applications/po-funding.ts).
+  // `?? ""`: the server runs this on API bodies that may omit the fields.
+  if (product && requiresPoFundingFacts(product.productType)) {
+    if (d.loanPurposeCategory !== PO_FUNDING_PURPOSE) errs.loanPurposeCategory = "PO funding is for a business: choose Business"
+    const poNumber = (d.poNumber ?? "").trim()
+    if (poNumber.length < 1 || poNumber.length > 64) errs.poNumber = "Enter the purchase order number"
+    const buyer = (d.poBuyerName ?? "").trim()
+    if (buyer.length < 2 || buyer.length > 200) errs.poBuyerName = "Enter the buyer who issued the purchase order"
+    if (!(d.poDocumentId ?? "").trim()) errs.poDocumentId = "Upload or choose the purchase order document"
+  }
 
   return errs
 }

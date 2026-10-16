@@ -51,6 +51,12 @@ model LoanApplication {
   // Coarse, for internal reporting. NOT the NCA s.62 statement of reasons.
   declineCategory                         DeclineCategory?
   loanPurposeCategory                     LoanPurposeCategory?
+  // PO funding facts (Fair Score audit): the purchase order the advance funds.
+  // Required by the portal for a PO_FUNDING product; null for every other product.
+  poNumber                                String?
+  poBuyerName                             String?
+  poDocumentId                            String?
+  poDocument                              ClientDocument?      @relation("ApplicationPoDocument", fields: [tenantId, poDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   productRecommendationNote               String?
   existingDebtObligations                 Json?
   totalExistingDebt                       Int?

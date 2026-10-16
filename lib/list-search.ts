@@ -100,3 +100,16 @@ export function matchesCentsAmount(query: string, cents: number): boolean {
 export function matchesRandAmount(query: string, rand: number): boolean {
   return matchesCentsAmount(query, Math.round(rand * 100))
 }
+
+/**
+ * Text search across several fields (a client's first name, surname, email):
+ * every whitespace-separated word of the query must appear, case-insensitive,
+ * in at least one field. "Lerato Mah" finds Lerato Mahlangu, which a match of
+ * the whole query against each field separately never could. An empty query
+ * matches everything.
+ */
+export function matchesEveryWord(query: string, fields: readonly string[]): boolean {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const haystack = fields.map((field) => field.toLowerCase())
+  return words.every((word) => haystack.some((field) => field.includes(word)))
+}

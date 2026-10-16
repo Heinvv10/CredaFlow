@@ -146,6 +146,7 @@ model Tenant {
   notifications              Notification[]
   pasqAcknowledgementTokens  PasqAcknowledgementToken[]
   paymentArrangements        PaymentArrangement[]
+  paymentNotifications       PaymentNotification[]
   payments                   Payment[]
   premiumPayments            PremiumPayment[]
   recoveries                 Recovery[]
