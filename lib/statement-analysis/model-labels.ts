@@ -12,11 +12,12 @@
  * gate measures what production asks.
  *
  * The answer is constrained to MODEL_CATEGORIES; anything else is
- * UNCATEGORISED. The model is not deterministic at temperature 0, so every key
- * is asked LABEL_VOTES times, each round in its own fixed order, and the stored
- * label is the vote (vote()). A label can only add to what the rules found: it applies to a
- * rule-UNCATEGORISED debit and nothing else, so it can raise living spend (an
- * officer referral) but never hide spend the rules counted.
+ * UNCATEGORISED. The model is not deterministic at temperature 0, so every
+ * key is asked LABEL_VOTES times, each round in its own fixed order, and the
+ * stored label is the vote (vote()). A label can only add to what the rules
+ * found: it applies to a rule-UNCATEGORISED debit and nothing else, so it can
+ * raise living spend (an officer referral) but never hide spend the rules
+ * counted.
  */
 import { createHash } from "node:crypto"
 import { counterpartyKey } from "@/lib/credit-checks/undisclosed-debt"
@@ -64,8 +65,9 @@ export const UNANIMOUS_CATEGORIES: readonly Category[] = ["CREDIT_INSTALMENT", "
  * missing round is UNCATEGORISED.
  */
 export function vote(votes: readonly Category[]): Category {
+  if (votes.length !== LABEL_VOTES) return "UNCATEGORISED"
   const counts = new Map<Category, number>()
-  for (const v of votes) counts.set(v, (counts.get(v) ?? 0) + 1)
+  for (const v of votes) if (MODEL_CATEGORIES.includes(v)) counts.set(v, (counts.get(v) ?? 0) + 1)
   for (const [c, n] of counts) {
     if (2 * n <= LABEL_VOTES) continue
     if (UNANIMOUS_CATEGORIES.includes(c) && n < LABEL_VOTES) continue
@@ -87,7 +89,8 @@ const REQUEST_TIMEOUT_MS = 30_000
 /**
  * After the model could not be asked, nothing is asked (or queued) for this
  * long: labelling shares the one-at-a-time read queue, so a hung model may
- * hold it for one request timeout, not one per unlabelled statement.
+ * hold it for one request timeout, not one per unlabelled statement. A
+ * healthy model holds it for LABEL_VOTES rounds of requests per read.
  */
 export const LABEL_BACKOFF_MS = 5 * 60_000
 let unavailableUntil = 0
@@ -188,7 +191,7 @@ ${JSON.stringify(keys)}`
  * The model's answer → a label per key, matched by the key the model echoed
  * (not by position, which a model can lose count of). Garbage, a missing
  * entry or a value outside MODEL_CATEGORIES is UNCATEGORISED: the model
- * answered, and a deterministic (temperature 0) answer asked again would be the same.
+ * answered, and that answer is this round's vote.
  */
 export function parseLabels(content: string, keys: string[]): ModelLabels {
   const raw = parseVlmResponse(content).labels

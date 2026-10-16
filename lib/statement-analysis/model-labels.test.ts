@@ -162,6 +162,14 @@ describe("labelKeys", () => {
       .toEqual({ "SYNTH GROCER": "FOOD", "SYNTH FUEL": "TRANSPORT", "SYNTH MIXED": "UNCATEGORISED" })
   })
 
+  it("a round refused as bad votes UNCATEGORISED: a majority label survives it, a unanimous one does not", async () => {
+    let call = 0
+    fetchMock.mockImplementation(async () => (call++ === 1
+      ? new Response("maximum context length", { status: 413 })
+      : answer('{"labels": {"SYNTH GROCER": "FOOD", "SYNTH LENDER": "CREDIT_INSTALMENT"}}')))
+    expect((await labelKeys(["SYNTH GROCER", "SYNTH LENDER"])).labels).toEqual({ "SYNTH GROCER": "FOOD", "SYNTH LENDER": "UNCATEGORISED" })
+  })
+
   it("asks each round in its own fixed order, so one batch's context cannot decide every vote", async () => {
     const keys = Array.from({ length: LABEL_BATCH + 5 }, (_, i) => `SHOP ${i}`)
     fetchMock.mockImplementation(async () => answer("{}"))
@@ -193,6 +201,10 @@ describe("vote", () => {
     [["GAMBLING", "GAMBLING", "GAMBLING"], "GAMBLING"],
     [["GAMBLING", "GAMBLING", "ENTERTAINMENT"], "UNCATEGORISED"],
     [[], "UNCATEGORISED"],
+    [["FOOD", "FOOD"], "UNCATEGORISED"],
+    [["FOOD", null, null], "UNCATEGORISED"],
+    [["SALARY_INCOME", "SALARY_INCOME", "SALARY_INCOME"], "UNCATEGORISED"],
+    [["FOOD", "FOOD", "FOOD", "FOOD"], "UNCATEGORISED"],
   ])("%j → %s", (votes, expected) => {
     expect(vote(votes as never)).toBe(expected)
   })
