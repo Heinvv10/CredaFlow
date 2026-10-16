@@ -76,6 +76,15 @@ describe("Recording the insurer's claim decision", () => {
     expect(newClaim?.props.href).toBe("/insurance/claims/new")
   })
 
+  it("records the insurer's payment of an APPROVED claim through mark_paid", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) })
+    act(() => { renderer = create(<InsuranceClaimsClient claims={[{ ...CLAIM, status: "APPROVED", approvedAmount: 8000 }]} />) })
+    expect(text()).not.toContain("Record insurer decision")
+    const button = renderer.root.findAllByType("button").find((b) => b.findAll((n) => n.children.some((c) => typeof c === "string" && c.includes("Record insurer payment"))).length > 0)!
+    await act(async () => { await button.props.onClick() })
+    expect(fetchMock).toHaveBeenCalledWith("/api/insurance/claims/claim-1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }))
+  })
+
   it("starts the approved amount empty, with the claimed amount as a hint, so typing cannot append to it", () => {
     openModal()
     choose("approve")

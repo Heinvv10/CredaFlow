@@ -67,6 +67,31 @@ export function InsuranceClaimsClient({
 
   const filtered = filter === "ALL" ? claims : claims.filter((c) => c.status === filter)
 
+  // The insurer paid an APPROVED claim (the API's "mark_paid", audited).
+  const [paying, setPaying] = useState<string | null>(null)
+  const [payError, setPayError] = useState<{ id: string; message: string } | null>(null)
+  async function recordPaid(claim: Claim) {
+    setPaying(claim.id)
+    setPayError(null)
+    try {
+      const res = await fetch(`/api/insurance/claims/${claim.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid" }),
+      })
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        setPayError({ id: claim.id, message: body.error ?? "The payment could not be recorded." })
+        return
+      }
+      router.refresh()
+    } catch {
+      setPayError({ id: claim.id, message: "Network error. Please try again." })
+    } finally {
+      setPaying(null)
+    }
+  }
+
   const canAdjudicate = (status: string) =>
     status === "SUBMITTED" || status === "UNDER_REVIEW"
 
@@ -154,6 +179,16 @@ export function InsuranceClaimsClient({
                       <ClipboardCheck className="h-3 w-3" /> Record insurer decision
                     </button>
                   )}
+                  {c.status === "APPROVED" && (
+                    <button
+                      onClick={() => recordPaid(c)}
+                      disabled={paying === c.id}
+                      className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border border-gray-200 text-[#4F46E5] hover:bg-indigo-50 transition-colors whitespace-nowrap disabled:opacity-60"
+                    >
+                      <ClipboardCheck className="h-3 w-3" /> {paying === c.id ? "Recording..." : "Record insurer payment"}
+                    </button>
+                  )}
+                  {payError?.id === c.id && <p role="alert" className="mt-1 text-[11px] text-red-600">{payError.message}</p>}
                 </td>
               </tr>
             ))}

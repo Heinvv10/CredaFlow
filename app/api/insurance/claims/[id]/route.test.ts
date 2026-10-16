@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 const claimUpdateMock = vi.fn()
 const claimFindFirstMock = vi.fn()
 const claimUpdateManyMock = vi.fn()
+const userFindFirstMock = vi.fn()
 const requireApiRoleMock = vi.fn()
 const withTenantContextMock = vi.fn()
 const logAuditMock = vi.fn()
@@ -11,6 +12,7 @@ const logAuditMock = vi.fn()
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true }) },
+    user: { findFirst: (a: unknown) => userFindFirstMock(a) },
     insuranceClaim: {
       update: (a: unknown) => claimUpdateMock(a),
       findFirst: (a: unknown) => claimFindFirstMock(a),
@@ -36,7 +38,7 @@ vi.mock("@/lib/audit", async (orig) => {
   return { ...real, logAudit: (...a: unknown[]) => logAuditMock(...a) }
 })
 
-import { PATCH } from "./route"
+import { GET, PATCH } from "./route"
 
 function buildReq(body: object): NextRequest {
   return new NextRequest("https://app.acme-lending.example/api/insurance/claims/claim_1", {
@@ -60,6 +62,7 @@ beforeEach(() => {
     policy: { sumAssured: "20000.00" },
   })
   claimUpdateManyMock.mockResolvedValue({ count: 1 })
+  userFindFirstMock.mockResolvedValue({ id: "assessor-1" })
 })
 
 describe("PATCH /api/insurance/claims/[id] — audit trail", () => {
@@ -183,30 +186,109 @@ describe("PATCH /api/insurance/claims/[id] — the approved amount is bounded", 
   })
 })
 
-// The generic update took any `status`, so { status: "APPROVED" } approved a
-// claim with no amount and past every bound above.
-describe("PATCH /api/insurance/claims/[id] — status APPROVED is an approval", () => {
-  it("refuses APPROVED without an amount, writing nothing", async () => {
-    const res = await PATCH(buildReq({ status: "APPROVED", notes: "approved by phone" }), ctx)
-    expect(res.status).toBe(400)
+// Blind review of #139 (HIGH): { action: null | "x", status: "APPROVED" } fell
+// through to the generic update, which wrote APPROVED with no amount and no
+// bounds, and { status: "PAID" } paid a SUBMITTED claim. An outcome is now
+// only ever written by its own action, from the status it follows.
+describe("PATCH /api/insurance/claims/[id] — a claim's outcome only through its action", () => {
+  const claimAt = (status: string) => claimFindFirstMock.mockResolvedValue({
+    id: "claim_1", status, claimAmount: "10000.00", approvedAmount: status === "APPROVED" ? { toFixed: () => "8000.00" } : null,
+    policy: { sumAssured: "20000.00" },
+  })
+  const nothingWritten = () => {
     expect(claimUpdateMock).not.toHaveBeenCalled()
     expect(claimUpdateManyMock).not.toHaveBeenCalled()
     expect(logAuditMock).not.toHaveBeenCalled()
+  }
+
+  it.each([
+    [{ status: "APPROVED" }],
+    [{ action: null, status: "APPROVED" }],
+    [{ status: "APPROVED", approvedAmount: 5000 }],
+    [{ status: "REJECTED" }],
+    [{ status: "PAID" }],
+    [{ status: "BANANA" }],
+  ])("refuses the generic status write %j with 400", async (body) => {
+    const res = await PATCH(buildReq(body), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/status may only be SUBMITTED or UNDER_REVIEW/)
+    nothingWritten()
   })
 
-  it("holds APPROVED to the same bounds as the decision", async () => {
-    const res = await PATCH(buildReq({ status: "APPROVED", approvedAmount: 1_000_010_000 }), ctx)
-    expect(res.status).toBe(422)
-    expect(claimUpdateMock).not.toHaveBeenCalled()
-    expect(claimUpdateManyMock).not.toHaveBeenCalled()
+  it("refuses an unknown action with 400 rather than falling through", async () => {
+    const res = await PATCH(buildReq({ action: "x", status: "APPROVED" }), ctx)
+    expect(res.status).toBe(400)
+    nothingWritten()
   })
 
-  it("records APPROVED with a bounded amount as an approval", async () => {
-    const res = await PATCH(buildReq({ status: "APPROVED", approvedAmount: 5000 }), ctx)
+  it("moves an open claim to UNDER_REVIEW, only while it is open", async () => {
+    const res = await PATCH(buildReq({ status: "UNDER_REVIEW" }), ctx)
     expect(res.status).toBe(200)
     expect(claimUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "APPROVED", approvedAmount: 5000 }),
+      where: expect.objectContaining({ status: { in: ["SUBMITTED", "UNDER_REVIEW"] } }),
+      data: expect.objectContaining({ status: "UNDER_REVIEW" }),
     }))
-    expect(logAuditMock.mock.calls[0][0]).toMatchObject({ action: "INSURANCE_CLAIM_APPROVED" })
+  })
+
+  it.each(["APPROVED", "REJECTED", "PAID"])("refuses to reopen a %s claim (409)", async (status) => {
+    claimAt(status)
+    expect((await PATCH(buildReq({ status: "SUBMITTED" }), ctx)).status).toBe(409)
+    nothingWritten()
+  })
+
+  it.each(["APPROVED", "REJECTED", "PAID"])("refuses to approve or reject a %s claim (409)", async (status) => {
+    claimAt(status)
+    expect((await PATCH(buildReq({ action: "approve", approvedAmount: 5000 }), ctx)).status).toBe(409)
+    expect((await PATCH(buildReq({ action: "reject", rejectionReason: "Late" }), ctx)).status).toBe(409)
+    nothingWritten()
+  })
+
+  it("approves and rejects only where the claim is still open in the write itself", async () => {
+    await PATCH(buildReq({ action: "reject", rejectionReason: "Waiting period" }), ctx)
+    expect(claimUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ["SUBMITTED", "UNDER_REVIEW"] } }),
+      data: expect.objectContaining({ status: "REJECTED", rejectionReason: "Waiting period" }),
+    }))
+  })
+
+  it("refuses a reject with a blank reason", async () => {
+    expect((await PATCH(buildReq({ action: "reject", rejectionReason: "   " }), ctx)).status).toBe(400)
+    nothingWritten()
+  })
+
+  it("records PAID only from APPROVED, audited", async () => {
+    claimAt("APPROVED")
+    const res = await PATCH(buildReq({ action: "mark_paid", insurerRef: "INS-1" }), ctx)
+    expect(res.status).toBe(200)
+    expect(claimUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: "APPROVED" }),
+      data: expect.objectContaining({ status: "PAID", insurerRef: "INS-1" }),
+    }))
+    expect(logAuditMock.mock.calls[0][0]).toMatchObject({ action: "INSURANCE_CLAIM_PAID", newValue: { status: "PAID", approvedAmount: "8000.00" } })
+  })
+
+  it.each(["SUBMITTED", "UNDER_REVIEW", "REJECTED", "PAID"])("refuses to pay a %s claim (409)", async (status) => {
+    claimAt(status)
+    expect((await PATCH(buildReq({ action: "mark_paid" }), ctx)).status).toBe(409)
+    nothingWritten()
+  })
+
+  it("refuses a nonsense date with 400, not a database 500", async () => {
+    expect((await PATCH(buildReq({ incidentDate: "not-a-date" }), ctx)).status).toBe(400)
+    nothingWritten()
+  })
+
+  it("refuses an assessor who is not an active staff user of this lender", async () => {
+    userFindFirstMock.mockResolvedValue(null)
+    expect((await PATCH(buildReq({ action: "approve", approvedAmount: 5000, assessorId: "someone-else" }), ctx)).status).toBe(400)
+    expect(userFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "someone-else", tenantId: "tenant_acme", active: true } }))
+    nothingWritten()
+  })
+})
+
+describe("GET /api/insurance/claims/[id]", () => {
+  it("needs INSURANCE_OFFICER, as the claims page does", async () => {
+    await GET(new NextRequest("https://app.acme-lending.example/api/insurance/claims/claim_1"), ctx)
+    expect(requireApiRoleMock).toHaveBeenCalledWith("INSURANCE_OFFICER")
   })
 })

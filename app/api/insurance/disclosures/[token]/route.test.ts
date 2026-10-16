@@ -9,7 +9,11 @@ const { readFile, getTenantFromRequest } = vi.hoisted(() => ({
   getTenantFromRequest: vi.fn(),
 }))
 
-vi.mock("@/lib/storage", () => ({ readFile, storagePathAt: (rel: string) => `/uploads/${rel}` }))
+// storagePathAt keeps its real name check (a segment over 255 characters is refused).
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const { storagePathAt } = await importOriginal<typeof import("@/lib/storage")>()
+  return { readFile, storagePathAt: (rel: string) => { storagePathAt(rel); return `/uploads/${rel}` } }
+})
 vi.mock("@/lib/prisma", () => ({
   prisma: { tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: true }) } },
 }))
@@ -116,6 +120,19 @@ describe("GET /api/insurance/disclosures/[token] through encrypted storage", () 
     ])
     readFile.mockReset().mockRejectedValue(missing())
     expect((await get(t)).status).toBe(404)
+  })
+
+  // Blind review of #139 (LOW): a token from real ids is longer than a file
+  // name may be, so it never had a legacy file; a missing PDF is a 404, not
+  // the "Invalid storage path" 500.
+  it("404s a missing disclosure for a token too long to have a legacy name", async () => {
+    process.env.NEXTAUTH_SECRET = "test-secret-do-not-use-in-prod-1234567890abcdef"
+    const id = "cmgs8x2k10000qz8h3m1n4b7c"
+    const long = signDraftToken({ tenantId: "t1", clientId: id, advisorId: id, type: "FUNERAL_COVER", sumAssured: 50000, premiumAmount: 420, productId: id })
+    expect(long.length + ".pdf".length).toBeGreaterThan(255)
+    readFile.mockReset().mockRejectedValue(missing())
+    expect((await get(long)).status).toBe(404)
+    expect(readFile).toHaveBeenCalledOnce()
   })
 
   it("does not skip past a file that fails its integrity check", async () => {

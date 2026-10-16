@@ -32,7 +32,6 @@ const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 
 let claimId = ""
-let policyId = ""
 
 function approve(approvedAmount: unknown) {
   return PATCH(
@@ -74,7 +73,6 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
         faisDisclosurePdfUrl: `/synthetic/${token}.pdf`,
       },
     })
-    policyId = policy.id
     const claim = await db.insuranceClaim.create({
       data: { tenantId: tenant.id, policyId: policy.id, claimNumber: `CLIT-CLM-${token}`, claimAmount: "10000.00" },
     })
@@ -118,23 +116,37 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
     }
   })
 
-  it("re-checks the cover in the write: a policy cut after the read refuses the approval", async () => {
-    // The write's relation filter is what holds when the cover changes under
-    // the read: with the sum assured below the amount, no row matches.
-    await db.insurancePolicy.update({ where: { id: policyId }, data: { sumAssured: "4000.00" } })
+  it("re-checks the bound in the write: a claim lowered after the route's read is not approved", async () => {
+    // A test hook between the route's read and its write: the read returns as
+    // it was, then the claim amount drops to R4,000 before updateMany runs, so
+    // only the write's own WHERE can refuse R5,000.
+    const { prisma } = await import("@/lib/prisma")
+    const claims = prisma.insuranceClaim as unknown as { findFirst: (args: unknown) => Promise<unknown> }
+    const read = claims.findFirst.bind(claims)
+    const spy = vi.spyOn(claims, "findFirst").mockImplementationOnce(async (args: unknown) => {
+      const before = await read(args)
+      await db.insuranceClaim.update({ where: { id: claimId }, data: { claimAmount: "4000.00" } })
+      return before
+    })
     try {
-      expect((await approve(5_000)).status).toBe(422)
-      const written = await runWithTenant(ctx.tenantId, async () => {
-        const { prisma } = await import("@/lib/prisma")
-        return prisma.insuranceClaim.updateMany({
-          where: { id: claimId, tenantId: ctx.tenantId, claimAmount: { gte: 5_000 }, policy: { sumAssured: { gte: 5_000 } } },
-          data: { notes: "must not be written" },
-        })
-      })
-      expect(written.count).toBe(0)
+      expect((await approve(5_000)).status).toBe(409)
+      expect(spy).toHaveBeenCalled()
+      expect(await stored()).toEqual({ status: "SUBMITTED", approvedAmount: null })
     } finally {
-      await db.insurancePolicy.update({ where: { id: policyId }, data: { sumAssured: "20000.00" } })
+      spy.mockRestore()
+      await db.insuranceClaim.update({ where: { id: claimId }, data: { claimAmount: "10000.00" } })
     }
+  })
+
+  it("refuses a bare status APPROVED with 400 and writes nothing", async () => {
+    const res = await PATCH(
+      new NextRequest(`http://localhost/api/insurance/claims/${claimId}`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: null, status: "APPROVED" }),
+      }),
+      { params: Promise.resolve({ id: claimId }) },
+    )
+    expect(res.status).toBe(400)
+    expect(await stored()).toEqual({ status: "SUBMITTED", approvedAmount: null })
   })
 
   it("approves exactly the claimed amount, stored to the cent and audited", async () => {
@@ -144,5 +156,10 @@ suite("PATCH /api/insurance/claims/[id] approve — bounded on a real database",
     expect(claim.status).toBe("APPROVED")
     expect(claim.approvedAmount?.toFixed(2)).toBe("10000.00")
     expect(await db.auditLog.count({ where: { tenantId: ctx.tenantId, entityId: claimId, action: "INSURANCE_CLAIM_APPROVED" } })).toBe(1)
+  })
+
+  it("refuses to approve the claim a second time (409)", async () => {
+    expect((await approve(1_000)).status).toBe(409)
+    expect((await stored()).approvedAmount?.toFixed(2)).toBe("10000.00")
   })
 })
