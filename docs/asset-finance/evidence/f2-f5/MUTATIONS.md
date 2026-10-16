@@ -37,31 +37,32 @@ redundant and was removed, so the status filter is the one under test (M6).
 
 ## F4 — portal recovery card in the borrower's language
 
-Only the card's heading, its description, "Notices issued", "None yet" and
-the neutral statuses (recovered, valued, listed, sold, proceeds applied,
-closed, withdrawn) are translated. Every line that mirrors the s127/s131
-notices or states what is owed stays English (statutory and collections text
-is never translated, `lib/i18n/.claude.md`). The list, and why, is in the
-header of `lib/i18n/messages/en/portal-recovery.ts`.
+Only the card's heading, its description ("{asset}, recovered on {date}"),
+"Notices issued" and "None yet" are translated. Every recovery status (the
+legal state of the s127/s131 process, review round 1), and every line that
+mirrors the notices or states what is owed, stays English (statutory and
+collections text is never translated, `lib/i18n/.claude.md`). The list, and
+why, is in the header of `lib/i18n/messages/en/portal-recovery.ts`.
 
 Tests: `components/asset-finance/recovery/` (including
-`PortalRecoveryCard.i18n.test.tsx`) and `app/(portal)/portal/loans/[id]/`
+`PortalRecoveryCard.i18n.test.tsx` and the tester's
+`PortalRecoveryCard.breaker.test.tsx`) and `app/(portal)/portal/loans/[id]/`
 (including `page.recovery-locale.test.tsx`).
 
 | Mutation | Result | Failing test |
 |---|---|---|
-| M1 the card ignores its locale (always `en`) | RED | af/zu/xh: the heading and the neutral statuses come from the catalogue |
-| M2 neutral statuses always English | RED | af/zu/xh: the heading and the neutral statuses |
-| M3 the recovered-on date is not localised | RED | af/zu/xh: the heading and the neutral statuses (description) |
-| M4 an English value is edited (`Listed for sale`) | RED | English is byte-identical to the card before translation |
-| M5 no English fallback for a status without a key | RED | English pins, the English-kept statuses, the unknown-status case |
+| M1 the card ignores its locale (always `en`) | RED | af/zu/xh: the heading, the description and the notices label come from the catalogue |
+| M3 the recovered-on date is not localised | RED | the same (description) |
+| M4 an English value is edited (`None yet`) | RED | English is byte-identical to the card before translation |
 | M6 the instalment-sale page passes `en` | RED | the borrower's language on an instalment-sale page |
 | M7 the lease page passes the borrower's locale | RED | stays English on a lease page |
+| M8 no English fallback for an unknown locale | RED | breaker F4-a (an unknown locale crashes) |
 
-The English-kept lines: the test "af/zu/xh: the notice, final-account and owed
-lines stay English" renders each case under af, zu and xh and expects each line
-as a whole element's text (`>…<`). Each mutation gives a line a catalogue key
-in all four languages (as the types demand) and prints it through `t()`:
+The English-kept lines: the test "af/zu/xh: the statuses, the notice,
+final-account and owed lines stay English" renders each case under af, zu and
+xh and expects each line, and every one of the 11 statuses, as a whole
+element's text (`>…<`). Each mutation gives a line a catalogue key in all four
+languages (as the types demand) and prints it through `t()`:
 
 | Mutation | Result |
 |---|---|
@@ -72,10 +73,12 @@ in all four languages (as the types demand) and prints it through `t()`:
 | E5 the figure "Valuation" | RED (af, zu, xh) |
 | E6 the "Recovery costs" heading | RED (af, zu, xh) |
 | E7 the treatment "Charged to the account" | RED (af, zu, xh) |
+| E8 the status "Listed for sale" | RED (af, zu, xh) |
+| E9 the status "Proceeds applied" | RED (af, zu, xh) |
 
 E5 first survived while the test matched substrings: "Valuation" was found
-inside "Valuation notice". The assertions now match whole element text, and
-E5 is red.
+inside "Valuation notice". The assertions match whole element text, and E5 is
+red.
 
 ## F5 — recovery deadline cron route
 

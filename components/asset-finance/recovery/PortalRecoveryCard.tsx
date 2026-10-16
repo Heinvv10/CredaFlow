@@ -3,16 +3,9 @@ import { StatusPill } from "@/components/app-shell/StatusPill"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import type { PortalRecoveryView } from "@/lib/asset-finance/recovery-view"
 import { formatDay } from "@/lib/i18n/format"
-import type { Locale } from "@/lib/i18n/locales"
-import { portalRecovery } from "@/lib/i18n/messages/en/portal-recovery"
-import { createTranslator, type MessageKey } from "@/lib/i18n/translate"
+import { DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n/locales"
+import { createTranslator } from "@/lib/i18n/translate"
 import { STATUS_LABELS, TREATMENT_LABELS } from "./recovery-model"
-
-// Only a status with a portalRecovery key is translated. The rest (the notice,
-// shortfall and surplus statuses) and any value the catalogue does not know
-// print the English label: lib/i18n/messages/en/portal-recovery.ts says why.
-const KEYS: ReadonlySet<string> = new Set(Object.keys(portalRecovery))
-const isKey = (key: string): key is MessageKey<"portalRecovery"> => KEYS.has(key)
 
 function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -27,18 +20,21 @@ function Figure({ label, value, strong }: { label: string; value: string; strong
  * The borrower's view of the recovery of their asset: where it stands, which
  * notices have been issued, and, once the account is final, what the sale
  * raised, the costs and the shortfall or surplus. Never the buyer or the sale.
- * The heading and neutral statuses are in the borrower's language; every line
- * that mirrors the s127/s131 notices or states what is owed stays English.
+ * Only the heading, the description and the notices label are in the
+ * borrower's language; the statuses (the legal state of the s127/s131 process)
+ * and every line that mirrors the notices or states what is owed stay English
+ * (lib/i18n/messages/en/portal-recovery.ts says which and why).
  */
-export function PortalRecoveryCard({ view, locale }: { view: PortalRecoveryView; locale: Locale }) {
+export function PortalRecoveryCard({ view, locale: requested }: { view: PortalRecoveryView; locale: Locale }) {
+  // getLocale only ever returns a known locale; anything else prints English rather than failing.
+  const locale = isLocale(requested) ? requested : DEFAULT_LOCALE
   const t = createTranslator(locale, "portalRecovery")
-  const statusKey = `status_${view.status}`
   const account = view.finalAccount
   const notices = [view.notices.valuation ? "Valuation notice" : null, view.notices.final ? "Final notice" : null].filter(Boolean)
   const tone = view.status === "WITHDRAWN" ? "neutral" : view.status === "SHORTFALL_OPEN" ? "danger" : view.status === "CLOSED" ? "success" : "warning"
   return (
     <DataPanel title={t("title")} description={t("description", { asset: view.asset, date: formatDay(`${view.recoveredOn}T12:00:00+02:00`, locale) })}
-      actions={<StatusPill tone={tone}>{isKey(statusKey) ? t(statusKey) : STATUS_LABELS[view.status]}</StatusPill>}>
+      actions={<StatusPill tone={tone}>{STATUS_LABELS[view.status]}</StatusPill>}>
       <div className="space-y-5 text-sm">
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
           {/* The server withholds the valuation until the borrower may see it: absent says nothing, so nothing is printed. */}

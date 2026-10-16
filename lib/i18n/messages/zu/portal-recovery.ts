@@ -6,11 +6,4 @@ export const portalRecovery: Catalog["portalRecovery"] = {
   description: "{asset}, ibuyiswe ngo-{date}",
   noticesIssued: "Izaziso ezikhishiwe",
   noneYet: "Azikabi bikho",
-  status_RECOVERED: "Ibuyisiwe",
-  status_VALUED: "Inani lilinganisiwe",
-  status_LISTED: "Ifakwe ukuze ithengiswe",
-  status_SOLD: "Ithengisiwe",
-  status_PROCEEDS_APPLIED: "Imali yokuthengisa isetshenzisiwe",
-  status_CLOSED: "Ivaliwe",
-  status_WITHDRAWN: "Ihoxisiwe",
 }
