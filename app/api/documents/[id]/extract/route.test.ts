@@ -25,6 +25,10 @@ const tx = {
   client: {},
 }
 
+const auditDocumentAccessRefusalMock = vi.fn()
+vi.mock("@/lib/audit-refusals", () => ({
+  auditDocumentAccessRefusal: (...args: unknown[]) => auditDocumentAccessRefusalMock(...args),
+}))
 vi.mock("@/lib/document-auth", () => ({
   getDocumentCaller: () => getDocumentCallerMock(),
 }))
@@ -178,7 +182,9 @@ describe("POST /api/documents/[id]/extract", () => {
   })
 
   it("lets only credit staff discard a failed read when re-extracting", async () => {
-    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "ro-1", role: "READONLY", tenantId: "tenant-1" })
+    // READONLY may not extract at all; a writing role below credit staff
+    // still re-reads but may not discard the failed read.
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "co-1", role: "COLLECTIONS_OFFICER", tenantId: "tenant-1" })
     await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
     expect(readStatementInBackgroundMock).toHaveBeenCalledWith(expect.any(String), "doc-1", expect.objectContaining({ retryFailed: false }))
   })
@@ -439,5 +445,58 @@ describe("POST /api/documents/[id]/extract", () => {
         validationScore: null,
       }),
     }))
+  })
+
+  describe("a read-only role", () => {
+    it("refuses READONLY with 403 before any read, claim, extraction or recompute, and audits it", async () => {
+      getDocumentCallerMock.mockResolvedValue({
+        type: "staff",
+        userId: "viewer-1",
+        role: "READONLY",
+        tenantId: "tenant-1",
+      })
+
+      const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({ error: "Your role can view documents but not change them." })
+      expect(scopeFindFirstMock).not.toHaveBeenCalled()
+      expect(transactionMock).not.toHaveBeenCalled()
+      expect(documentUpdateManyMock).not.toHaveBeenCalled()
+      expect(readFileMock).not.toHaveBeenCalled()
+      expect(extractDocumentDataMock).not.toHaveBeenCalled()
+      expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
+      expect(recomputeClientApplicationsMock).not.toHaveBeenCalled()
+      expect(auditDocumentAccessRefusalMock).toHaveBeenCalledWith(expect.objectContaining({
+        documentId: "doc-1",
+        reason: "document_write_read_only_role",
+        status: 403,
+        tenantId: "tenant-1",
+        actorUserId: "viewer-1",
+        detail: { action: "extract", role: "READONLY" },
+      }))
+    })
+
+    it("still lets CREDIT_OFFICER extract", async () => {
+      const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+
+      expect(response.status).toBe(200)
+      expect(extractDocumentDataMock).toHaveBeenCalled()
+      expect(auditDocumentAccessRefusalMock).not.toHaveBeenCalled()
+    })
+
+    it("still lets COLLECTIONS_OFFICER extract, as merged in #120", async () => {
+      getDocumentCallerMock.mockResolvedValue({
+        type: "staff",
+        userId: "collector-1",
+        role: "COLLECTIONS_OFFICER",
+        tenantId: "tenant-1",
+      })
+
+      const response = await POST(request(), { params: Promise.resolve({ id: "doc-1" }) })
+
+      expect(response.status).toBe(200)
+      expect(extractDocumentDataMock).toHaveBeenCalled()
+    })
   })
 })

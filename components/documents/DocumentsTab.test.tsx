@@ -183,6 +183,31 @@ describe("DocumentsTab generic document actions", () => {
     expect(markup).toContain('"Extract"')
     expect(markup).toContain('"Delete"')
   })
+
+  // READONLY views and lists only (Hein, 2026-10-16): the server refuses every
+  // write, so offering one would be a dead button.
+  it("offers a read-only role View and nothing that changes a document", async () => {
+    stubFetch([{
+      ...baseDocument,
+      docType: "BANK_STATEMENT",
+      fileName: "bank-statement.pdf",
+    }])
+
+    await act(async () => {
+      renderer = create(
+        <DocumentsTab clientId="client-1" popiaConsentGiven readOnly />,
+      )
+    })
+
+    const markup = rendered(renderer)
+    expect(markup).toContain("bank-statement.pdf")
+    expect(markup).toContain('"View"')
+    expect(markup).not.toContain("Upload Document")
+    expect(markup).not.toContain('"Verify"')
+    expect(markup).not.toContain('"Extract"')
+    expect(markup).not.toContain('"Delete"')
+    expect(markup).not.toContain("Override & Accept")
+  })
 })
 
 // What a staff member actually SEES. The lifecycle states are unit-tested as a

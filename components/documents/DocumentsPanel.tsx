@@ -11,6 +11,8 @@ interface Props {
   customTemplates: CustomTemplateOption[]
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no generate, request-signature or document write controls. */
+  readOnly?: boolean
 }
 
 /**
@@ -37,18 +39,20 @@ interface Props {
  * link goes client→client today), so this is hardening against a reachable
  * shape, not a fixed sighting.
  */
-export function DocumentsPanel({ clientId, popiaConsentGiven, customTemplates, selfieAlternatives, signedAgreementReturn }: Props) {
+export function DocumentsPanel({ clientId, popiaConsentGiven, customTemplates, selfieAlternatives, signedAgreementReturn, readOnly = false }: Props) {
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <GenerateDocumentPanel
-          clientId={clientId}
-          templates={customTemplates}
-          onGenerated={() => setRefreshKey((k) => k + 1)}
-        />
-      </div>
+      {!readOnly && (
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <GenerateDocumentPanel
+            clientId={clientId}
+            templates={customTemplates}
+            onGenerated={() => setRefreshKey((k) => k + 1)}
+          />
+        </div>
+      )}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <DocumentsTab
           key={`${clientId}:${refreshKey}`}
@@ -56,6 +60,7 @@ export function DocumentsPanel({ clientId, popiaConsentGiven, customTemplates, s
           popiaConsentGiven={popiaConsentGiven}
           selfieAlternatives={selfieAlternatives}
           signedAgreementReturn={signedAgreementReturn}
+          readOnly={readOnly}
         />
       </div>
     </div>
