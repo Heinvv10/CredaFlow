@@ -1,5 +1,6 @@
 import { Shield, HeartHandshake, ClipboardCheck } from "lucide-react"
 import type { Metadata } from "next"
+import { notFound } from "next/navigation"
 import ProductPageTemplate, { type ProductPageProps } from "@/components/website/ProductPageTemplate"
 import { ProductDetailSections } from "@/components/website/ProductDetailSections"
 import type { LenderIdentity } from "@/lib/config/identity-schema"
@@ -22,11 +23,14 @@ import { insuranceFaqs } from "./faqs"
 const QUOTES_PATH = "/site/products/insurance/quotes"
 
 export async function generateMetadata(): Promise<Metadata> {
+  const identity = await getWebsiteIdentity()
   return buildPageMetadata({
-    identity: await getWebsiteIdentity(),
+    identity,
     title: "Credit-Life & Funeral Insurance Enquiries",
-    description:
-      "FAIS-authorised insurance enquiry pathways — funeral, credit-life and short-term insurance options for South Africans.",
+    // The page 404s without an FSP number; its metadata claims nothing either.
+    description: identity?.fspNumber
+      ? "FAIS-authorised insurance enquiry pathways — funeral, credit-life and short-term insurance options for South Africans."
+      : "",
     path: "/site/products/insurance",
   })
 }
@@ -117,6 +121,8 @@ export const dynamic = "force-dynamic"
 export default async function CoverProductPage() {
   const identity = await getWebsiteIdentity()
   if (!identity) return null
+  // The page is a FAIS intermediary's offer: a lender with no FSP number has none.
+  if (!identity.fspNumber) notFound()
   const coverFaqs = insuranceFaqs(identity)
   const content = coverContent(identity)
 

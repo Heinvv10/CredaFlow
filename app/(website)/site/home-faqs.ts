@@ -30,16 +30,19 @@ export function homeFaqs(
   const brand = identity.tradingName
   const offered = products.map((product) => localizeProduct(product, tp).label.toLowerCase())
   return [
-    {
+    // The answer claims FSP authorisation, so it is asked only when the lender
+    // holds an FSP number (a no-FSP variant would need every catalogue re-reviewed).
+    ...(identity.fspNumber ? [{
       question: t("faqWhatQ", { brand }),
       answer: t("faqWhatA", { brand, legalName: identity.legalName, ncr: identity.ncrNumber, fsp: identity.fspNumber }),
-    },
-    {
+    }] : []),
+    // Both answers say insurance enquiries are offered: only true with an FSP number.
+    ...(identity.fspNumber ? [{
       question: t("faqOfferQ", { brand }),
       answer:
         (offered.length > 0 ? t("faqOfferProducts", { brand, products: offered.join(", ") }) : t("faqOfferInsuranceOnly", { brand })) +
         t("faqOfferAffordability"),
-    },
+    }] : []),
     {
       question: t("faqApplyQ", { brand }),
       answer: t("faqApplyA"),

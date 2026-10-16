@@ -5,6 +5,7 @@ import {
   getLenderIdentity,
   parseLenderIdentity,
   parseNcrNumber,
+  parseStatutoryNumber,
   type LenderIdentityColumns,
 } from "./identity"
 import { VALID_LENDER_COLUMNS as VALID_COLUMNS } from "./__fixtures__/lender-identity"
@@ -38,7 +39,7 @@ describe("parseLenderIdentity", () => {
   it("refuses when there is no config row at all, naming every required field", () => {
     for (const raw of [null, undefined, {}]) {
       expect(fieldsOf(() => parseLenderIdentity(raw))).toEqual(expect.arrayContaining([
-        "legalName", "brandName", "ncrNumber", "fscaNumber", "companyRegNumber",
+        "legalName", "brandName", "ncrNumber", "companyRegNumber",
         "registeredOffice", "publicEmail", "publicPhone", "collectionsEmail", "collectionsPhone",
       ]))
     }
@@ -51,7 +52,6 @@ describe("parseLenderIdentity", () => {
     ["ncrNumber", "NCRCP"],
     ["ncrNumber", "NCRCP12a45"],
     ["ncrNumber", "NCRCP 99999"],
-    ["fscaNumber", null],
     ["fscaNumber", "FSP12345"],
     ["fscaNumber", "12 345"],
     ["legalName", null],
@@ -68,6 +68,22 @@ describe("parseLenderIdentity", () => {
     ["publicWhatsapp", "+1 555 0100"],
   ] as const)("refuses %s = %j", (field, value) => {
     expect(fieldsOf(() => parseLenderIdentity({ ...VALID_COLUMNS, [field]: value }))).toEqual([field])
+  })
+})
+
+// §2a.2 of the Fair Score audit goal: no FAIS/FSP claim unless the lender
+// holds an FSP number. A lender without one (it sells no insurance) still has a
+// complete identity; everything that prints the FSP line checks it is there.
+describe("a lender without an FSP number", () => {
+  it("resolves, with fspNumber null", () => {
+    for (const fscaNumber of [null, "", "  "]) {
+      expect(parseLenderIdentity({ ...VALID_COLUMNS, fscaNumber }).fspNumber).toBeNull()
+    }
+  })
+
+  it("is refused where an FSP number is required (the FSCA return)", () => {
+    expect(fieldsOf(() => parseStatutoryNumber("fscaNumber", null))).toEqual(["fscaNumber"])
+    expect(parseStatutoryNumber("fscaNumber", " 12345 ")).toBe("12345")
   })
 })
 
