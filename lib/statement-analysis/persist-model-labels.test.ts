@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("readStatementInBackground: model labels", () => {
   it("asks only for the debits no rule categorises, stores the labels on the tenant's row, then runs the callbacks", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED"}}'))
+    fetchMock.mockImplementation(async () => answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED"}}'))
     const order: string[] = []
     update.mockImplementation((async () => { order.push("stored"); return { count: 1 } }) as never)
     const onRead = vi.fn(async () => { order.push("onRead") })
@@ -78,13 +78,13 @@ describe("readStatementInBackground: model labels", () => {
     expect(sent).toBe(labelPrompt(["SYNTH ZOLA TRADING", "J SOAP"]))
     expect(update).toHaveBeenCalledWith({
       where: { id: "row-1", tenantId: TENANT },
-      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p2", modelCategoriesAt: expect.any(Date) },
+      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p3x3", modelCategoriesAt: expect.any(Date) },
     })
     expect(order).toEqual(["stored", "onRead", "onLabelled"])
   })
 
   it("looks the client's name up on the tenant's own document", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {}}'))
+    fetchMock.mockImplementation(async () => answer('{"labels": {}}'))
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onLabelled })
     await vi.waitFor(() => expect(onLabelled).toHaveBeenCalledTimes(1))
@@ -102,7 +102,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("a failed store does not skip the read's callbacks", async () => {
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD"}}'))
+    fetchMock.mockImplementation(async () => answer('{"labels": {"SYNTH ZOLA TRADING": "FOOD"}}'))
     update.mockRejectedValueOnce(new Error("db down"))
     const onRead = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onRead })
@@ -110,7 +110,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("does not ask again for a read labelled by this model and prompt", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p2" }) as never)
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p3x3" }) as never)
     const onRead = vi.fn().mockResolvedValue(undefined)
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onRead, onLabelled })
@@ -120,8 +120,8 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("asks again when the labels came from another model", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p2" }) as never)
-    fetchMock.mockResolvedValueOnce(answer('{"labels": {}}'))
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p3x3" }) as never)
+    fetchMock.mockImplementation(async () => answer('{"labels": {}}'))
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onLabelled })
     await vi.waitFor(() => expect(onLabelled).toHaveBeenCalledTimes(1))

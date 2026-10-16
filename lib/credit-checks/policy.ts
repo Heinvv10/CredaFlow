@@ -160,8 +160,9 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * 2026-10-15 with local-model labels for rule-UNCATEGORISED keys
  * (statement-analysis/model-labels.ts, prompt labels-p2, tuned on the dev
  * split only): held-out 90.3%, 67.1%, 67.1% over three runs; rules alone
- * 90.2%. The model is not deterministic at temperature 0 and mislabels a
- * high-volume key, so model labelling ships off (MODEL_LABELS) and this stays off.
+ * 90.2%. 2026-10-16, a three-run vote (labels-p3x3) and categoriser-v3 as of
+ * 5a661d3b: 91.5%, 91.5%, 91.4%; rules alone still 90.2%. Living spend the rules do not
+ * see stays the blocker, so model labelling ships off (MODEL_LABELS) and this stays off.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false
 
