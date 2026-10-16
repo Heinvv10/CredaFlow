@@ -327,7 +327,10 @@ sources. Sources: instalment sale and finance lease (financed amount at inceptio
 each row accrues, capitalised interest included, the balloon posts nothing), leases per tax invoice
 (rentals, end-of-term and termination invoices, credit notes), credit notes on an inception invoice
 or a repossession sale's invoice, the maintenance fund, and a repossession through `RECOVERY_CLEARING`
-to nil. Every month ties to independent SQL and six controls
+to nil. An instalment sale or finance lease posts its inception when the supplier payout is released
+(each row's interest is `B(next) - B(this) + totalDue`); a lease's end-of-term and termination invoices
+are schedule rows, so they sit on the receivable. A contract that predates the first open month posts
+there, dated by origin. Every month ties to independent SQL and six controls
 (VAT in and out, recovery clearing and result, refund payable, fund liability); a control that
 differs refuses the close. Hand-worked acceptance deals are in
 `lib/asset-finance/__fixtures__/acceptance-journal-*.ts` (`CLIENT_JOURNAL_DEALS` empty until the
