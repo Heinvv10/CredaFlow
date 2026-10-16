@@ -86,7 +86,10 @@ const SPECS: readonly PlanSpec[] = [
   { id: "bg-26", anchor: { missed: { row: 1, dpd: 125 } },
     servicing: { channel: DO, paidRows: 0, reminders: true, s129AtDpd: 93, attorneyAfterBusinessDays: 12 } },
   // payment arrangement with resumed payments
-  { id: "bg-27", anchor: { dbe: 187 }, servicing: { channel: DO, paidRows: 1, reminders: true, arrangement: { atDpd: 36, periods: 4 } } },
+  // Anchored on the missed instalment, like the arrears storylines: the
+  // arrangement starts ~75 days before the end, so three of its four payments
+  // land in the window and the last after it, whatever the end date.
+  { id: "bg-27", anchor: { missed: { row: 2, dpd: 111 } }, servicing: { channel: DO, paidRows: 1, reminders: true, arrangement: { atDpd: 36, periods: 4 } } },
   { id: "bg-28", anchor: { dbe: 178 },
     servicing: { channel: DO, paidRows: 2, reminders: true, arrangement: { atDpd: 35, periods: 6, withPlan: true } } },
   // written off
@@ -139,6 +142,20 @@ function startFor(anchor: Anchor, w: Window): string {
   if ("missed" in anchor) return startForPayout(addMonths(addDays(w.until, -anchor.missed.dpd), -anchor.missed.row))
   if ("startDbe" in anchor) return nextBusinessDay(addDays(w.until, -anchor.startDbe))
   return shiftBusinessDays(w.lastBusinessDay, -anchor.parkBiz)
+}
+
+/**
+ * The days an arrangement storyline's payments fall due, from the plan alone:
+ * payout three business days after origination starts, instalment n due n
+ * months after payout, the arrangement `atDpd` days after the first missed
+ * instalment, one payment a month. null when the plan has no arrangement.
+ */
+export function arrangementDays(plan: PersonaPlan): string[] | null {
+  const a = plan.servicing?.arrangement
+  if (!a) return null
+  const firstMissed = addMonths(shiftBusinessDays(plan.originationStart, 3), (plan.servicing?.paidRows ?? 0) + 1)
+  const start = nextBusinessDay(addDays(firstMissed, a.atDpd))
+  return Array.from({ length: a.periods }, (_, k) => nextBusinessDay(addMonths(start, k)))
 }
 
 export function buildPlans(w: Window): PersonaPlan[] {

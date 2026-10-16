@@ -13,9 +13,12 @@ vi.mock("@/lib/tenant", () => ({
     callback: (tenant: { id: string }) => unknown,
   ) => callback({ id: "tenant-1" }),
 }))
+// The lender's FSP number (TenantConfig.fscaNumber).
+const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     insuranceProduct: { create: (...args: unknown[]) => create(...args) },
+    tenantConfig: { findUnique: async () => ({ fscaNumber: fsp.number }) },
   },
 }))
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }))
@@ -69,5 +72,23 @@ describe("POST /api/products/insurance credit-life terms", () => {
   it("does not apply the rule to other product types", async () => {
     const response = await POST(request({ type: "FUNERAL_COVER", premiumAmount: 0 }))
     expect(response.status).toBe(201)
+  })
+})
+
+// #143 blind review: a lender with no FSP number offers no cover, and the
+// approval guard counts any active credit-life product as an offer.
+describe("POST /api/products/insurance without an FSP number", () => {
+  it("refuses an active credit-life product with 409 and the Settings hint", async () => {
+    vi.clearAllMocks()
+    requireApiRole.mockResolvedValue({ user: { id: "admin-1", email: "admin@example.test" } })
+    fsp.number = null
+    try {
+      const res = await POST(request())
+      expect(res.status).toBe(409)
+      expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED" })
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      fsp.number = "12345"
+    }
   })
 })

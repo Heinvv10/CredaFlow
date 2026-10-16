@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
+import { requireLenderFsp } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { createQuote, type QuoteLifeRequest } from "@/lib/insurance/quote/create"
 import { parseInsuranceDateInput, parseInsuranceExpiryInput } from "@/lib/insurance/parse-date-input"
@@ -135,6 +136,8 @@ export async function POST(req: NextRequest) {
     return await withTenantContext(req, async (tenant) => {
       const blocked = await requireImsEnabled(tenant.id)
       if (blocked) return blocked
+      const noFsp = await requireLenderFsp(tenant.id)
+      if (noFsp) return noFsp
 
       const parsedBody = await readJsonObject(req)
       if (!parsedBody.ok) {

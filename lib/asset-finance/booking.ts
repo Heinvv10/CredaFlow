@@ -69,6 +69,7 @@ import { BookingRaceError, signedTerms } from "./booking-terms"
 export { BookingRaceError } from "./booking-terms"
 import { isLeaseContract } from "./lease-input"
 import { bookLease } from "./lease-booking"
+import { creditLifeBundleFor, type CreditLifeBundleReader } from "./booking-credit-life"
 
 export type BookingResult =
   | { kind: "not_found" }
@@ -150,20 +151,10 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
       totalInterest: ncaEvidence.calculator.totalInterestCents,
       totalRepayable: ncaEvidence.billing.totalRepayableCents,
     } : basePlan
-    let creditLifeBundle: { clientId: string; productId: string; insurerId: string | null; commissionRate: Prisma.Decimal; premiumAmount: number } | null = null
-    if (ncaEvidence?.creditLife.election === "ACCEPTED") {
-      if (!application.creditLifeProductId || !application.creditLifeMonthlyPremiumCents || !client) {
-        return refuse("credit_life_evidence", "Accepted credit life is missing its product or premium evidence")
-      }
-      const product = await tx.insuranceProduct.findFirst({ where: {
-        id: application.creditLifeProductId, tenantId, type: "CREDIT_LIFE", active: true,
-      }, select: { id: true, insurerId: true, commissionRate: true } })
-      if (!product) return refuse("credit_life_product", "The elected credit-life product is no longer active")
-      creditLifeBundle = {
-        clientId: client.id, productId: product.id, insurerId: product.insurerId,
-        commissionRate: product.commissionRate, premiumAmount: application.creditLifeMonthlyPremiumCents / 100,
-      }
-    }
+    // Variance cast for the $extends client, as elsewhere in asset finance.
+    const bundled = await creditLifeBundleFor(tx as unknown as CreditLifeBundleReader, tenantId, ncaEvidence?.creditLife.election === "ACCEPTED", application, client)
+    if ("reason" in bundled) return refuse(bundled.reason, bundled.error)
+    const creditLifeBundle = bundled.bundle
 
     const annualRate = new Prisma.Decimal(rate.annualRate)
     const loan = await tx.loan.create({

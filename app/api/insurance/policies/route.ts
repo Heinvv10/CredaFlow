@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
+import { requireLenderFsp } from "@/lib/insurance/require-fsp"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { hashDraftToken, verifyDraftToken } from "@/lib/insurance/disclosure-token"
 import { sastMonthStart, sastParts } from "@/lib/date/sast"
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
     return withTenantContext(req, async (tenant) => {
       const blocked = await requireImsEnabled(tenant.id)
       if (blocked) return blocked
+      const noFsp = await requireLenderFsp(tenant.id)
+      if (noFsp) return noFsp
 
       let body: Record<string, unknown>
       try {
