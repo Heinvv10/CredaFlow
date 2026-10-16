@@ -117,10 +117,10 @@ function ctx(extra: Partial<SystemDocContext> = {}): SystemDocContext {
   return { tenant, client, ...extra } as unknown as SystemDocContext
 }
 
-/** A stored, verifiable credit-life record: an offer the consumer DECLINED. */
-function declinedOffer(principalCents: number, termDays: number) {
+/** A stored, verifiable credit-life record: an offer the consumer DECLINED (or ACCEPTED). */
+function declinedOffer(principalCents: number, termDays: number, election: "DECLINED" | "ACCEPTED" = "DECLINED") {
   const offer = {
-    version: "credit-life-election-v1" as const, election: "DECLINED" as const, principalCents, termDays,
+    version: "credit-life-election-v1" as const, election, principalCents, termDays,
     monthlyPremiumCents: Math.floor((principalCents * 45 + 5_000) / 10_000),
     productId: "cl-1", productName: "Synthetic Credit Life", insurerId: "ins-1", insurerName: "Synthetic Insurer",
   }
@@ -322,6 +322,48 @@ describe("SYSTEM_GENERATORS", () => {
     const args = vi.mocked(generateCreditAgreementPdf).mock.calls.at(-1)![0]
     expect(args.creditLifeNotOffered).toBe(true)
     expect(args.creditLife).toBeUndefined()
+  })
+
+  // Matches POST /agreement: an accepted election whose cover can no longer be
+  // added (auto-bundling off) is refused, never printed as accepted cover with
+  // the auto-bundle disclosure switched off.
+  describe("accepted election", () => {
+    const accepted = () => ({
+      productId: "p1", appliedAmount: 500000, appliedTermDays: 30, initiationFeePayment: "DEFERRED",
+      reference: "APP-0005", agreementType: null,
+      pasqAcknowledgedAt: new Date("2026-07-28T10:00:00.000Z"),
+      pasqDocumentSha256: "d".repeat(64), pasqAcknowledgedSha256: "d".repeat(64),
+      pasqEvidence: {
+        calculator: { startDate: "2026-07-28T09:55:00.000Z" },
+        creditLife: { premiumPeriods: 1, totalPremiumCents: 2_250 },
+        billing: { schedule: [] },
+      },
+      ...declinedOffer(500000, 30, "ACCEPTED"),
+    })
+    beforeEach(() => {
+      vi.mocked(prisma.loanProduct.findUnique).mockResolvedValue({
+        id: "p1", interestRatePm: 0.05, interestModel: "FLAT", initiationFeePct: 0.1, initiationFeeMax: 0, monthlyServiceFee: 6900,
+      } as never)
+      vi.mocked(generateCreditAgreementPdf).mockClear().mockResolvedValue(Buffer.from("credit-agreement"))
+    })
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    it("refuses when the accepted cover is no longer eligible", async () => {
+      vi.stubEnv("CREDIT_LIFE_AUTO_BUNDLE_ENABLED", "")
+      await expect(SYSTEM_GENERATORS.creditAgreement(ctx({ application: accepted() as never })))
+        .rejects.toThrow(/accepted credit-life election is no longer available/)
+      expect(generateCreditAgreementPdf).not.toHaveBeenCalled()
+    })
+
+    it("prints the accepted cover with its disclosure when still eligible", async () => {
+      vi.stubEnv("CREDIT_LIFE_AUTO_BUNDLE_ENABLED", "true")
+      await SYSTEM_GENERATORS.creditAgreement(ctx({ application: accepted() as never }))
+      expect(generateCreditAgreementPdf).toHaveBeenCalledWith(expect.objectContaining({
+        willAutoBundleCl: true,
+        creditLifeNotOffered: false,
+        creditLife: expect.objectContaining({ elected: true, totalPremiumCents: 2_250 }),
+      }))
+    })
   })
 
   it("creditAgreement refuses a record with no verifiable credit-life election", async () => {

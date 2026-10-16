@@ -169,6 +169,12 @@ async function creditAgreementAdapter(ctx: SystemDocContext): Promise<Buffer> {
   // 409-ing on drift — this adapter must do the same before exposure.
   // Credit life from the stored record, never inferred (Fair Score audit B6).
   const { creditLife, creditLifeNotOffered, elected: clElected } = agreementCreditLifeFromRecord(application)
+  // As POST /agreement: accepted cover that can no longer be added is refused,
+  // never printed as accepted with the auto-bundle disclosure switched off.
+  const bundleEligible = creditLifeAutoBundleDecision(application.appliedAmount).eligible
+  if (clElected && !bundleEligible) {
+    throw new Error("The accepted credit-life election is no longer available for this application. Capture the client's current election first.")
+  }
 
   const startDate = new Date()
   const maturityDate = new Date()
@@ -211,7 +217,7 @@ async function creditAgreementAdapter(ctx: SystemDocContext): Promise<Buffer> {
     // Interim compliance containment — must mirror the signed agreement and
     // disbursement paths (an accepted election that is still eligible).
     // Missing configuration defaults to no auto-bundle.
-    willAutoBundleCl: clElected && creditLifeAutoBundleDecision(application.appliedAmount).eligible,
+    willAutoBundleCl: clElected && bundleEligible,
     creditLife,
     creditLifeNotOffered,
     initiationFeePayment: application.initiationFeePayment,
