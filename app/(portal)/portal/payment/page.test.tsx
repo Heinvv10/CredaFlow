@@ -17,14 +17,14 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: { client: { findFirst: vi.fn(async () => ({ id: "c1" })) }, loan: { findMany: loanFindMany } },
 }))
+// The settlement is the shared s125 figure (lib/loan/charges-summary.ts via portalLoanCharges).
 vi.mock("@/lib/portal/loan-charges", () => ({
-  portalLoanCharges: vi.fn(async () => ({ outstanding: 0, lines: [], settlementAmount: null })),
+  portalLoanCharges: vi.fn(async () => ({ outstanding: 0, lines: [], settlementAmount: null, totalToSettle: 123_456 })),
 }))
 vi.mock("@/components/portal/StitchPaymentForm", () => ({
   StitchPaymentForm: (props: unknown) => { formProps(props); return null },
 }))
 vi.mock("@/components/portal/ManualPaymentForm", () => ({ ManualPaymentForm: () => null }))
-vi.mock("@/lib/loan/settlement", () => ({ currentSettlementAmount: () => 123_456 }))
 
 import PaymentPage from "./page"
 import { formatZAR } from "@/lib/utils"

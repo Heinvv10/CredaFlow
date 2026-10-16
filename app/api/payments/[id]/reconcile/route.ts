@@ -15,6 +15,7 @@ import {
   SettlementOverpaymentError,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import {
   rejectUnauthorisedBackdating,
   valueDateEvidence,
@@ -230,6 +231,7 @@ export async function PATCH(
             schedule: loan.repaymentSchedule,
             asOf: reconciledAt,
             receivedAt: payment.receivedAt,
+            amount: payment.amount,
           })
           const override = valueDateOverrideReason
             ? {
@@ -268,29 +270,9 @@ export async function PATCH(
           if (claimed.count !== 1) throw new ReceiptReconciliationConflict()
 
           const postRows = projection.rows
-          for (let i = 0; i < postRows.length; i++) {
-            const before = loan.repaymentSchedule[i]
-            const after = postRows[i]
-            const isPaid = after.totalPaid >= after.totalDue
-            const isPartial = after.totalPaid > 0 && !isPaid
-            const status = isPaid ? "PAID" : isPartial ? "PARTIAL" : "PENDING"
-            if (
-              after.totalPaid === before.totalPaid
-              && after.interestDue === before.interestDue
-              && after.totalDue === before.totalDue
-              && before.status === status
-            ) continue
-            await tx.repaymentSchedule.update({
-              where: { id: after.id },
-              data: {
-                totalPaid: after.totalPaid,
-                interestDue: after.interestDue,
-                totalDue: after.totalDue,
-                status,
-                paidAt: isPaid ? (before.paidAt ?? payment.receivedAt) : null,
-              },
-            })
-          }
+          await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, {
+            tenantId: tenant.id, paidAt: payment.receivedAt, keepEarlierPaidAt: true, pendingWhenNothingPaid: true,
+          })
           // A held receipt dated before one already on the loan changes which
           // receipt completed rows the loop skipped: re-date every row from the replay.
           if (!chargesOn) {
@@ -358,6 +340,7 @@ export async function PATCH(
               },
               newValue: {
                 allocationStatus: "ALLOCATED",
+                paymentId: id,
                 reason,
                 bankReference: reference,
                 reconciledAt: reconciledAt.toISOString(),

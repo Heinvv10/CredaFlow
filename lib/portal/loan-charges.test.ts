@@ -17,22 +17,24 @@ vi.mock("@/lib/loan/charges-replay", async (importOriginal) => ({
 
 import { portalLoanCharges, portalOutstanding, sumPortalCharges } from "./loan-charges"
 import { staffLoanFigures } from "@/lib/loan/loan-page-figures"
+import { certificateSettlement, loanSettlementFigures } from "@/lib/loan/charges-summary"
 
 describe("sumPortalCharges", () => {
   it("adds charges and the settlement amount across a client's loans, one line per charge type", () => {
     expect(sumPortalCharges([
-      { outstanding: 11_200, lines: [{ label: "Default interest", amount: 3_000 }, { label: "Collection letter fee", amount: 8_200 }], settlementAmount: 100_000 },
-      { outstanding: 1_000, lines: [{ label: "Default interest", amount: 1_000 }], settlementAmount: 20_000 },
-      { outstanding: 0, lines: [], settlementAmount: 0 },
+      { outstanding: 11_200, lines: [{ label: "Default interest", amount: 3_000 }, { label: "Collection letter fee", amount: 8_200 }], settlementAmount: 100_000, totalToSettle: 100_000 },
+      { outstanding: 1_000, lines: [{ label: "Default interest", amount: 1_000 }], settlementAmount: 20_000, totalToSettle: 20_000 },
+      { outstanding: 0, lines: [], settlementAmount: 0, totalToSettle: 0 },
     ])).toEqual({
       outstanding: 12_200,
       lines: [{ label: "Default interest", amount: 4_000 }, { label: "Collection letter fee", amount: 8_200 }],
       settlementAmount: 120_000,
+      totalToSettle: 120_000,
     })
   })
 
   it("has no settlement amount while charges are off", () => {
-    expect(sumPortalCharges([{ outstanding: 0, lines: [], settlementAmount: null }]).settlementAmount).toBeNull()
+    expect(sumPortalCharges([{ outstanding: 0, lines: [], settlementAmount: null, totalToSettle: 5_000 }]).settlementAmount).toBeNull()
   })
 })
 
@@ -70,6 +72,25 @@ describe("the balance staff and the client see for one loan", () => {
     // October's interest included) plus R30 of default interest.
     expect(staff.balance).toBe(223_000)
     expect(portal).toBe(223_000)
+  })
+
+  it("states one s125 settlement for an NCA instalment loan on the staff page and the portal payment page", async () => {
+    // October's R100 interest is 25 of its 30 days earned on 26 September.
+    const nca = {
+      ...loan, ncaRegime: "NCA", contractType: "LOAN", initiationFee: 0, monthlyServiceFee: 0,
+      repaymentSchedule: loan.repaymentSchedule.map((r) => ({ ...r, creditLifePremiumDue: 0 })),
+    }
+    loadChargesReplay.mockResolvedValue(null)
+    prismaMock.loan.findUnique.mockResolvedValue(nca)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const staff = await staffLoanFigures(prismaMock as any, nca, asOf)
+    const portal = await portalLoanCharges("t1", "loan-1", asOf)
+    expect(staff.settlementAmount).toBe(110_000 + 100_000 + Math.round(10_000 * 25 / 30))
+    expect(portal.totalToSettle).toBe(staff.settlementAmount)
+    // The certificate of balance certifies the same figure (app/api/loans/[id]/certificate-of-balance).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cob = certificateSettlement(await loanSettlementFigures(prismaMock as any, nca, asOf))
+    expect(cob.totalToSettle).toBe(staff.settlementAmount)
   })
 
   it("stays exactly as before while charges are off", async () => {

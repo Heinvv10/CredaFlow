@@ -173,4 +173,20 @@ describe("PASQ v3 billing database migration", () => {
       `OLD."contractualTotalRepayable"`,
     )
   })
+
+  it("permits an audited s125 early settlement of an instalment loan, against the PASQ and the recorded contract", () => {
+    // Re-created by 20261016200000_s125_instalment_settlement: the latest definition.
+    expect(billing).toContain(`early_instalment_settlement :=`)
+    expect(billing).toContain(`booked."interestModel" <> 'DAILY_ACCRUAL'::"InterestModel"`)
+    expect(billing).toContain(`actual."interestDue"\n            > (expected ->> 'interestDueCents')::INTEGER`)
+    expect(billing).toContain(`actual."principalDue"\n            <> (expected ->> 'principalDueCents')::INTEGER`)
+    expect(billing).toContain(`actual_premium_due > booked."creditLifePremiums"`)
+    expect(billing).toContain(`audit."newValue" ->> 'earlyInstalmentSettlement' = 'true'`)
+    expect(billing).toContain(`audit."newValue" ->> 'loanId' = booked."id"`)
+    expect(billing).toContain(`recorded ->> 'totalDue' = expected ->> 'totalDueCents'`)
+    expect(billing).toContain(`Early instalment settlement does not preserve PASQ v3 contractual and ledger evidence`)
+    // The DAILY_ACCRUAL rebate and the full PASQ comparison are kept as they were.
+    expect(billing).toContain(`audit."newValue" ->> 'earlyDailySettlement' = 'true'`)
+    expect(billing).toContain(`Repayment schedule does not match the acknowledged PASQ v3 billing evidence`)
+  })
 })

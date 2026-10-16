@@ -11,6 +11,7 @@ import {
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { OVERPAYMENT_REASON } from "@/lib/loan/receipt-rules"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { recordHeldReceipt } from "@/lib/payments/held-receipt"
@@ -121,7 +122,7 @@ export async function applyBankTransaction(args: {
     // Only the portion the DATE created, not the lawful early-settlement rebate
     // any client earns by paying before maturity.
     const backdating = backdatingInterestRebate({
-      loan, schedule: loan.repaymentSchedule, asOf, receivedAt,
+      loan, schedule: loan.repaymentSchedule, asOf, receivedAt, amount: txn.amountCents,
     })
     // Default charges erased by the date count too (rejectUnauthorisedBackdating).
     const rebateRejection = rejectUnauthorisedBackdating({
@@ -195,25 +196,8 @@ export async function applyBankTransaction(args: {
     }
 
     const postRows = projection.rows
-    for (let i = 0; fullyUnapplied ? false : i < postRows.length; i++) {
-      const before = loan.repaymentSchedule[i]
-      const after = postRows[i]
-      if (
-        after.totalPaid === before.totalPaid
-        && after.interestDue === before.interestDue
-        && after.totalDue === before.totalDue
-      ) continue
-      const isPaid = after.totalPaid >= after.totalDue
-      await tx.repaymentSchedule.update({
-        where: { id: after.id },
-        data: {
-          totalPaid: after.totalPaid,
-          interestDue: after.interestDue,
-          totalDue: after.totalDue,
-          status: isPaid ? "PAID" : "PARTIAL",
-          paidAt: isPaid ? receivedAt : null,
-        },
-      })
+    if (!fullyUnapplied) {
+      await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, { tenantId: args.tenantId, paidAt: receivedAt })
     }
     // A deposit dated before a receipt already on the loan changes which
     // receipt completed rows the loop skipped: re-date every row from the replay.

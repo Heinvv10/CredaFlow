@@ -183,8 +183,11 @@ vi.mock("@/lib/loan/balances", () => ({
 // Schedule dates are re-derived against real Postgres in
 // lib/loan/schedule-paid-at.integration.test.ts.
 vi.mock("@/lib/loan/schedule-paid-at", () => ({ restampSchedulePaidAt: vi.fn(async () => undefined) }))
-vi.mock("@/lib/loan/settlement", () => ({
-  restoreContractualBulletSchedule: () => schedule,
+// The contractual-schedule restore is proven against real Postgres in
+// lib/loan/s125-settlement.integration.test.ts.
+vi.mock("@/lib/loan/contractual-schedule", () => ({
+  contractualScheduleOf: async () => schedule,
+  ContractualScheduleMissingError: class extends Error {},
 }))
 
 import { PATCH } from "./route"

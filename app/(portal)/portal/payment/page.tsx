@@ -8,7 +8,6 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { StitchPaymentForm } from "@/components/portal/StitchPaymentForm"
 import { ManualPaymentForm } from "@/components/portal/ManualPaymentForm"
 import type { LoanOption } from "@/components/portal/StitchPaymentForm"
-import { currentSettlementAmount } from "@/lib/loan/settlement"
 import { portalLoanCharges } from "@/lib/portal/loan-charges"
 import { getT } from "@/lib/i18n/server"
 import type { Translator } from "@/lib/i18n/translate"
@@ -37,6 +36,8 @@ async function getLoansForClient(email: string): Promise<LoanOption[]> {
         take: 1,
       },
     },
+    // The settlement figure is read whole (portalLoanCharges below), not from
+    // this one-row slice of the schedule.
     orderBy: { createdAt: "desc" },
   })
 
@@ -47,12 +48,8 @@ async function getLoansForClient(email: string): Promise<LoanOption[]> {
     const nextInstallment = l.repaymentSchedule[0]
       ? l.repaymentSchedule[0].totalDue - l.repaymentSchedule[0].totalPaid + charges.outstanding
       : null
-    const settlementAmount = currentSettlementAmount({
-      loan: l,
-      schedule: l.repaymentSchedule,
-      asOf,
-      chargesOutstanding: charges.outstanding,
-    })
+    // s125: the same figure as the staff loan page and the certificate of balance.
+    const settlementAmount = charges.totalToSettle
     return {
       id: l.id,
       reference: l.reference,

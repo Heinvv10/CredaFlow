@@ -223,9 +223,14 @@ export function certificatePaidToDate(figures: SettlementFigures): number | unde
   return figures.live || figures.chargeSplitsPaid > 0 ? figures.paymentsReceived : undefined
 }
 
-/** The certificate of balance's itemised block, or undefined while charges are off. */
+/**
+ * The certificate of balance's itemised settlement block. Always present: with
+ * charges off the certificate used to certify the principal alone, which left
+ * out the interest earned since the last instalment (R27,133.91 instead of
+ * R27,896.34 on the Fair Score audit's loan). It now certifies what settles the
+ * agreement today (s125), the figure the staff loan page and the portal state.
+ */
 export function certificateSettlement(figures: SettlementFigures) {
-  if (!figures.live) return undefined
   return {
     paymentsReceived: figures.paymentsReceived,
     interestAndFeesOutstanding: figures.interestAndFeesOutstanding,

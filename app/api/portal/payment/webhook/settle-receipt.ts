@@ -15,6 +15,7 @@ import {
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 
 import type { Prisma } from "@prisma/client"
 
@@ -137,26 +138,7 @@ export async function settleReceipt(
         const newPayment = await createReceipt("ALLOCATED")
         const postRows = projection.rows
 
-        for (let i = 0; i < postRows.length; i++) {
-          const before = loan.repaymentSchedule[i]
-          const after = postRows[i]
-          if (
-            after.totalPaid === before.totalPaid
-            && after.interestDue === before.interestDue
-            && after.totalDue === before.totalDue
-          ) continue
-          const isPaid = after.totalPaid >= after.totalDue
-          await tx.repaymentSchedule.update({
-            where: { id: after.id },
-            data: {
-              totalPaid: after.totalPaid,
-              interestDue: after.interestDue,
-              totalDue: after.totalDue,
-              status: isPaid ? "PAID" : "PARTIAL",
-              paidAt: isPaid ? asOf : null,
-            },
-          })
-        }
+        await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, { tenantId, paidAt: asOf })
 
         // Recompute outstanding principal + arrears + DPD from the full
         // post-payment schedule.

@@ -1,4 +1,5 @@
 import { allocateReceipts, type ScheduleRowLike } from "@/lib/loan/balances"
+import { s125InstalmentSettlement, type S125Settlement } from "@/lib/loan/s125-settlement"
 
 const MS_PER_DAY = 86_400_000
 
@@ -13,12 +14,33 @@ export interface SettlementLoanLike {
   interestModel: "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL"
   startDate: Date
   maturityDate: Date
+  /** the loan, so an early-settlement audit row names it */
+  id?: string
+  // s125 applies to an NCA consumer loan; absent means the column defaults.
+  ncaRegime?: string | null
+  contractType?: string | null
+  initiationFee?: number
+  monthlyServiceFee?: number | null
 }
 
 export interface SettlementScheduleRow extends ScheduleRowLike {
   id: string
+  installmentNo?: number
+  /** part of feesDue (lib/compliance/pasq.ts) */
+  creditLifePremiumDue?: number
   status?: string
   paidAt?: Date | null
+}
+
+/** A row's contractual money as it stood before an early instalment settlement re-priced it. */
+export interface ContractualRow {
+  id: string
+  installmentNo: number | null
+  principalDue: number
+  interestDue: number
+  feesDue: number
+  creditLifePremiumDue: number
+  totalDue: number
 }
 
 export interface ReceiptProjection {
@@ -41,8 +63,15 @@ export interface ReceiptProjection {
   newTotalPaid: number
   isCompleted: boolean
   isEarlyDailySettlement: boolean
+  /** an NCA s125 early settlement of an instalment loan re-priced its rows */
+  isEarlyInstalmentSettlement: boolean
+  /** with isEarlyInstalmentSettlement: the rows before re-pricing, for the audit row a reversal restores from */
+  contractualRows: ContractualRow[] | null
+  loanId: string | null
   accruedInterest: number
   interestRebate: number
+  /** service fees and initiation-free fees not charged (with isEarlyInstalmentSettlement) */
+  feesRebate: number
   totalInterest: number
   totalRepayable: number
   contractualTotalInterest: number
@@ -56,6 +85,17 @@ export function settlementAuditEvidence(projection: ReceiptProjection) {
     // Absent, not 0, while charges are off, so the audit shape is unchanged.
     ...(projection.chargesAllocated > 0
       ? { chargesAllocated: projection.chargesAllocated }
+      : {}),
+    // The database's early-settlement guard reads these (migration
+    // 20261016200000_s125_instalment_settlement), and a reversal restores the
+    // contractual rows from them (restoreContractualSchedule).
+    ...(projection.isEarlyInstalmentSettlement
+      ? {
+          earlyInstalmentSettlement: true,
+          loanId: projection.loanId,
+          feesRebate: projection.feesRebate,
+          contractualRows: projection.contractualRows,
+        }
       : {}),
     earlyDailySettlement: projection.isEarlyDailySettlement,
     accruedInterest: projection.accruedInterest,
@@ -76,7 +116,7 @@ export function settlementAuditEvidence(projection: ReceiptProjection) {
 export function receiptContractualTotalsUpdate(
   projection: ReceiptProjection,
 ) {
-  if (!projection.isEarlyDailySettlement) return {}
+  if (!projection.isEarlyDailySettlement && !projection.isEarlyInstalmentSettlement) return {}
   return {
     contractualTotalInterest: projection.contractualTotalInterest,
     contractualTotalRepayable: projection.contractualTotalRepayable,
@@ -94,6 +134,8 @@ interface SettlementTerms {
   settlementDue: number
   settlementTotal: number
   isEarlyDailySettlement: boolean
+  /** the s125 re-pricing of an instalment loan settled early, or null */
+  instalment: S125Settlement | null
   accruedInterest: number
   contractualTotalInterest: number
   contractualTotalRepayable: number
@@ -132,6 +174,34 @@ function elapsedContractDays(startDate: Date, asOf: Date, maturityDate: Date) {
   }
 }
 
+/**
+ * s125 on an instalment loan: an NCA consumer loan (not an asset-finance
+ * contract) of more than one instalment. DAILY_ACCRUAL bullets keep their own
+ * rule below.
+ */
+export function isS125InstalmentLoan(
+  loan: SettlementLoanLike,
+  schedule: Array<{ creditLifePremiumDue?: number }>,
+): boolean {
+  return loan.interestModel !== "DAILY_ACCRUAL"
+    && schedule.length > 1
+    && loan.ncaRegime === "NCA"
+    && loan.contractType === "LOAN"
+    && schedule.every((row) => row.creditLifePremiumDue !== undefined)
+}
+
+/**
+ * The fields s125 re-pricing reads. A caller that loads a loan with a narrow
+ * `select` must include them, or an instalment loan cannot be priced: the
+ * regime and contract type decide whether s125 applies, and a row's premium
+ * sits inside its fees (lib/compliance/pasq.ts).
+ */
+export const S125_LOAN_SELECT = { ncaRegime: true, contractType: true, initiationFee: true, monthlyServiceFee: true } as const
+export const S125_SCHEDULE_SELECT = { installmentNo: true, creditLifePremiumDue: true } as const
+
+const byDueDate = <T extends { dueDate: Date; installmentNo?: number }>(rows: T[]) =>
+  [...rows].sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || (a.installmentNo ?? 0) - (b.installmentNo ?? 0))
+
 function settlementTerms(args: {
   loan: SettlementLoanLike
   schedule: SettlementScheduleRow[]
@@ -142,6 +212,22 @@ function settlementTerms(args: {
     loan.contractualTotalInterest ?? loan.totalInterest
   const contractualTotalRepayable =
     loan.contractualTotalRepayable ?? loan.totalRepayable
+
+  if (isS125InstalmentLoan(loan, schedule)) {
+    const instalment = s125InstalmentSettlement(loan, byDueDate(schedule), asOf)
+    if (instalment.rebate > 0) {
+      return {
+        settlementDue: instalment.settlementDue,
+        settlementTotal: instalment.totalRepayable,
+        isEarlyDailySettlement: false,
+        instalment,
+        accruedInterest: instalment.totalInterest,
+        contractualTotalInterest,
+        contractualTotalRepayable,
+      }
+    }
+  }
+
   let accruedInterest = contractualTotalInterest
   let settlementTotal = contractualTotalRepayable
   let isEarlyDailySettlement = false
@@ -173,6 +259,7 @@ function settlementTerms(args: {
     settlementDue,
     settlementTotal,
     isEarlyDailySettlement,
+    instalment: null,
     accruedInterest,
     contractualTotalInterest,
     contractualTotalRepayable,
@@ -193,9 +280,17 @@ export function backdatingInterestRebate(args: {
   schedule: SettlementScheduleRow[]
   asOf: Date
   receivedAt: Date
+  /**
+   * The receipt. An instalment loan re-prices only when a receipt settles it,
+   * so a receipt below the dated s125 figure rebates nothing whatever its date.
+   */
+  amount?: number
 }): { rebateCents: number; accruedInterestAtCaptureCents: number } {
   const now = settlementTerms({ loan: args.loan, schedule: args.schedule, asOf: args.asOf })
   const dated = settlementTerms({ loan: args.loan, schedule: args.schedule, asOf: args.receivedAt })
+  if (dated.instalment && args.amount !== undefined && args.amount < dated.settlementDue) {
+    return { rebateCents: 0, accruedInterestAtCaptureCents: now.accruedInterest }
+  }
   return {
     rebateCents: Math.max(0, now.accruedInterest - dated.accruedInterest),
     accruedInterestAtCaptureCents: now.accruedInterest,
@@ -272,12 +367,19 @@ export function projectReceipt(args: {
   // it — hence the explicit > 0 rather than `appliedAmount === settlementDue`.
   const isCompleted = settlementDue > 0 && appliedAmount >= settlementDue
   const applyEarlyReprice = isCompleted && isEarlyDailySettlement
-  const totalInterest = applyEarlyReprice
+  // s125 on an instalment loan: the receipt that settles it re-prices the rows
+  // not yet due to what they earned (lib/loan/s125-settlement.ts).
+  const instalment = isCompleted ? terms.instalment : null
+  const repriced = applyEarlyReprice || instalment !== null
+  const totalInterest = repriced
     ? accruedInterest
     : loan.totalInterest
-  const totalRepayable = applyEarlyReprice
+  const totalRepayable = repriced
     ? settlementTotal
     : loan.totalRepayable
+  const priceById = instalment
+    ? new Map(byDueDate(schedule).map((row, index) => [row.id, instalment.rows[index]]))
+    : null
   const baseRows = applyEarlyReprice
     ? schedule.map((row, index) => index === 0
       ? {
@@ -286,7 +388,9 @@ export function projectReceipt(args: {
           totalDue: row.totalDue - row.interestDue + accruedInterest,
         }
       : { ...row })
-    : schedule.map((row) => ({ ...row }))
+    : priceById
+      ? schedule.map((row) => ({ ...row, ...priceById.get(row.id)! }))
+      : schedule.map((row) => ({ ...row }))
   const allocated = allocateReceipts(baseRows, newTotalPaid)
   const rows = baseRows.map((row, index) => ({
     ...row,
@@ -301,9 +405,25 @@ export function projectReceipt(args: {
     newTotalPaid,
     isCompleted,
     isEarlyDailySettlement: applyEarlyReprice,
+    isEarlyInstalmentSettlement: instalment !== null,
+    contractualRows: instalment
+      ? schedule.map((row) => ({
+          id: row.id,
+          installmentNo: row.installmentNo ?? null,
+          principalDue: row.principalDue,
+          interestDue: row.interestDue,
+          feesDue: row.feesDue,
+          creditLifePremiumDue: row.creditLifePremiumDue ?? 0,
+          totalDue: row.totalDue,
+        }))
+      : null,
+    loanId: loan.id ?? null,
     accruedInterest,
-    interestRebate: applyEarlyReprice
+    interestRebate: repriced
       ? contractualTotalInterest - accruedInterest
+      : 0,
+    feesRebate: instalment
+      ? schedule.reduce((sum, row) => sum + row.feesDue, 0) - instalment.rows.reduce((sum, row) => sum + row.feesDue, 0)
       : 0,
     totalInterest,
     totalRepayable,

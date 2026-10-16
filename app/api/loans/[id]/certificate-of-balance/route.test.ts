@@ -142,9 +142,11 @@ describe("certificate of balance", () => {
     }))
   })
 
-  it("renders the certificate as before, with no settlement block, while charges are off", async () => {
+  it("certifies the settlement figure (s125), not the principal alone, while charges are off", async () => {
     await GET(new NextRequest("http://localhost/api/loans/loan-1/certificate-of-balance"), context)
-    expect(generatePdfMock.mock.calls[0][0].settlement).toBeUndefined()
+    expect(generatePdfMock.mock.calls[0][0].settlement).toEqual({
+      paymentsReceived: 50_000, interestAndFeesOutstanding: 0, charges: [], totalToSettle: 205_514,
+    })
   })
 
   it("never states the repriced product rate", async () => {

@@ -407,8 +407,10 @@ describe("SYSTEM_GENERATORS", () => {
     const result = await SYSTEM_GENERATORS.certificateOfBalance(ctx({ loan: loan as never }))
 
     expect(generateCertificateOfBalancePdf).toHaveBeenCalledTimes(1)
-    // Charges off: no settlement block, so the certificate renders as on main.
-    expect(vi.mocked(generateCertificateOfBalancePdf).mock.calls[0][0].settlement).toBeUndefined()
+    // Charges off: the certificate still states what settles the loan (s125).
+    expect(vi.mocked(generateCertificateOfBalancePdf).mock.calls[0][0].settlement).toEqual(
+      expect.objectContaining({ charges: [], totalToSettle: expect.any(Number) }),
+    )
     expect(generateCertificateOfBalancePdf).toHaveBeenCalledWith(
       expect.objectContaining({
         client: expect.objectContaining({
