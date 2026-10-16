@@ -124,9 +124,13 @@ describe('bake.sh sim env preflight', { timeout: 30_000 }, () => {
     expect(simulated(r.calls)).toBe(false)
   })
 
-  it('never prints a secret value, on success or on failure', () => {
-    for (const env of <Record<string, string>[]>[{}, { STUB_SIM_ENV: 'PATH=/usr/bin' }, { STUB_DROP_SECRET: '1' }]) {
-      expect(bake(env).out).not.toContain(SECRET_VALUE)
-    }
+  it.each(<[string, Record<string, string>][]>[
+    ['success', {}],
+    ['a sim app missing both keys', { STUB_SIM_ENV: 'PATH=/usr/bin' }],
+    ['secrets.env missing the key', { STUB_DROP_SECRET: '1' }],
+  ])('never prints a secret value on %s', (_what, env) => {
+    const r = bake(env)
+    expect(r.status).not.toBeNull() // a killed (hung) run proves nothing
+    expect(r.out).not.toContain(SECRET_VALUE)
   })
 })
