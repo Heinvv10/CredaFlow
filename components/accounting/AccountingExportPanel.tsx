@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
@@ -28,6 +28,20 @@ interface Preview {
   reconciliation: { journalTotalCents: number; bookTotalCents: number; mismatches: Array<{ loanId: string; reference: string; journalCents: number; bookCents: number }> } | null
 }
 
+type Snapshot = { preview: (Preview & { error?: string }) | null; previewError: string | null; batches: Batch[] | null }
+
+async function fetchSnapshot(period: string): Promise<Snapshot> {
+  const [p, h] = await Promise.all([
+    fetch(`/api/accounting/preview?period=${encodeURIComponent(period)}`),
+    fetch("/api/accounting/periods"),
+  ])
+  const pj = (await p.json().catch(() => ({}))) as Preview & { error?: string }
+  const batches = h.ok ? ((await h.json()) as { batches: Batch[] }).batches : null
+  return p.ok
+    ? { preview: pj, previewError: null, batches }
+    : { preview: null, previewError: pj.error ?? `Preview failed (${p.status})`, batches }
+}
+
 export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean }) {
   const [period, setPeriod] = useState(initialPeriod)
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -35,18 +49,18 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const [p, h] = await Promise.all([
-      fetch(`/api/accounting/preview?period=${encodeURIComponent(period)}`),
-      fetch("/api/accounting/periods"),
-    ])
-    const pj = (await p.json().catch(() => ({}))) as Preview & { error?: string }
-    if (p.ok) setPreview(pj)
-    else { setPreview(null); setMessage(pj.error ?? `Preview failed (${p.status})`) }
-    if (h.ok) setBatches(((await h.json()) as { batches: Batch[] }).batches)
-  }, [period])
+  function applySnapshot(snap: Snapshot) {
+    setPreview(snap.preview)
+    if (snap.previewError !== null) setMessage(snap.previewError)
+    if (snap.batches) setBatches(snap.batches)
+  }
 
-  useEffect(() => { void load() }, [load])
+  // A stale response (the month changed while it was in flight) is ignored.
+  useEffect(() => {
+    let ignore = false
+    void fetchSnapshot(period).then((snap) => { if (!ignore) applySnapshot(snap) })
+    return () => { ignore = true }
+  }, [period])
 
   async function post(url: string, body: unknown, done: (json: Record<string, unknown>) => string) {
     setBusy(true)
@@ -55,7 +69,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
       const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
       setMessage(res.ok ? done(json) : String(json.error ?? `Failed (${res.status})`))
-      await load()
+      applySnapshot(await fetchSnapshot(period))
     } catch {
       setMessage("Network error; refresh to see the current state.")
     } finally {

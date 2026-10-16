@@ -34,6 +34,8 @@ interface Props {
   popiaConsentGiven: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no upload, verify, override, extract or delete. */
+  readOnly?: boolean
 }
 
 /**
@@ -55,11 +57,42 @@ function formatExtractedValue(key: string, value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value) : String(value)
 }
 
+/** The client's documents, or null when the route refuses (the list stays as it was). */
+async function loadDocuments(clientId: string): Promise<DocumentRecord[] | null> {
+  const res = await fetch(`/api/clients/${clientId}/documents`)
+  if (!res.ok) return null
+  return (await res.json()) as DocumentRecord[]
+}
+
+/** The client's signing packets, or null to leave the previous state. */
+async function loadPackets(clientId: string): Promise<SigningPacketLifecycle[] | null> {
+  try {
+    const res = await fetch(`/api/clients/${clientId}/signing-packets`)
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!Array.isArray(data)) return null
+    // Array.isArray alone is not enough. Any JSON array reaches this — a
+    // different endpoint's payload, a proxy error body — and every field the
+    // card reads would be undefined, so it rendered an empty "Signing packet"
+    // shell for a client with no packet, with a duplicate React key. On a
+    // lender, a card asserting a packet exists when none does is worse than
+    // no card. Only entries carrying the two fields the card cannot render
+    // without are accepted.
+    return data.filter((p): p is SigningPacketLifecycle =>
+      typeof p?.applicationId === "string" && typeof p?.state === "string")
+  } catch {
+    // Leave the previous state: the halves and any executed agreement are
+    // still listed below, so staff are not stranded without a download.
+    return null
+  }
+}
+
 export function DocumentsTab({
   clientId,
   popiaConsentGiven,
   selfieAlternatives,
   signedAgreementReturn,
+  readOnly = false,
 }: Props) {
   const [docs, setDocs] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -73,44 +106,43 @@ export function DocumentsTab({
   const [packets, setPackets] = useState<SigningPacketLifecycle[]>([])
   const router = useRouter()
 
+  // Refresh after a mutation and on the polling tick (handlers and timers, so
+  // setting state here is fine). The mount load below is a separate effect.
   const fetchDocs = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/documents`)
-      if (res.ok) {
-        const data = await res.json()
-        setDocs(data)
-      }
+      const loaded = await loadDocuments(clientId)
+      if (loaded) setDocs(loaded)
     } finally {
       setLoading(false)
     }
   }, [clientId])
 
-  // Kept separate from fetchDocs: the packet card is application-scoped and a
-  // failure here must not blank the document list, nor the reverse.
-  const fetchPackets = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/clients/${clientId}/signing-packets`)
-      if (!res.ok) return
-      const data = await res.json()
-      if (!Array.isArray(data)) return
-      // Array.isArray alone is not enough. Any JSON array reaches this — a
-      // different endpoint's payload, a proxy error body — and every field the
-      // card reads would be undefined, so it rendered an empty "Signing packet"
-      // shell for a client with no packet, with a duplicate React key. On a
-      // lender, a card asserting a packet exists when none does is worse than
-      // no card. Only entries carrying the two fields the card cannot render
-      // without are accepted.
-      setPackets(data.filter((p): p is SigningPacketLifecycle =>
-        typeof p?.applicationId === "string" && typeof p?.state === "string"))
-    } catch {
-      // Leave the previous state: the halves and any executed agreement are
-      // still listed below, so staff are not stranded without a download.
-    }
+  // A different client shows the spinner until its own documents arrive, as
+  // fetchDocs did when it ran on every client change.
+  const [prevClientId, setPrevClientId] = useState(clientId)
+  if (clientId !== prevClientId) {
+    setPrevClientId(clientId)
+    setLoading(true)
+  }
+
+  // `ignore` drops a response that lands after the client changed or the tab
+  // unmounted.
+  useEffect(() => {
+    let ignore = false
+    loadDocuments(clientId)
+      .then((loaded) => { if (!ignore && loaded) setDocs(loaded) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [clientId])
 
-  useEffect(() => { fetchDocs() }, [fetchDocs])
-  useEffect(() => { fetchPackets() }, [fetchPackets])
+  // Separate from the document load: the packet card is application-scoped and
+  // a failure here must not blank the document list, nor the reverse.
+  useEffect(() => {
+    let ignore = false
+    loadPackets(clientId).then((loaded) => { if (!ignore && loaded) setPackets(loaded) })
+    return () => { ignore = true }
+  }, [clientId])
 
   // Auto-poll every 5s while any doc is pending/processing
   useEffect(() => {
@@ -379,7 +411,7 @@ export function DocumentsTab({
                 docType={doc.docType}
                 verified={doc.verified}
                 docId={doc.id}
-                onOverride={handleOverride}
+                onOverride={readOnly ? undefined : handleOverride}
               />
             )}
 
@@ -528,7 +560,7 @@ export function DocumentsTab({
                 <Eye className="h-3 w-3 mr-1" />
                 View
               </Button>
-              {actionPolicy.canVerify && !doc.verified && (
+              {!readOnly && actionPolicy.canVerify && !doc.verified && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -539,7 +571,8 @@ export function DocumentsTab({
                   Verify
                 </Button>
               )}
-              {actionPolicy.canExtract &&
+              {!readOnly &&
+                actionPolicy.canExtract &&
                 popiaConsentGiven &&
                 (doc.extractionStatus === "failed" ||
                   doc.extractionStatus === "skipped" ||
@@ -557,7 +590,7 @@ export function DocumentsTab({
               {/* Spacer keeps the remaining actions right-aligned even when
                   Delete is not offered (statutory documents). */}
               <span className="ml-auto" />
-              {actionPolicy.canDelete && (
+              {!readOnly && actionPolicy.canDelete && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -578,10 +611,12 @@ export function DocumentsTab({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Documents</h3>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Upload className="h-4 w-4 mr-2" />
-          Upload Document
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Document
+          </Button>
+        )}
       </div>
 
       {/* Required docs checklist */}
@@ -728,15 +763,17 @@ export function DocumentsTab({
         </div>
       )}
 
-      <UploadDialog
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
-        clientId={clientId}
-        onUploadComplete={() => { fetchDocs(); router.refresh() }}
-        hasIdDocument={hasIdDocument}
-        selfieAlternatives={selfieAlternatives}
-        signedAgreementReturn={signedAgreementReturn}
-      />
+      {!readOnly && (
+        <UploadDialog
+          open={uploadOpen}
+          onOpenChange={setUploadOpen}
+          clientId={clientId}
+          onUploadComplete={() => { fetchDocs(); router.refresh() }}
+          hasIdDocument={hasIdDocument}
+          selfieAlternatives={selfieAlternatives}
+          signedAgreementReturn={signedAgreementReturn}
+        />
+      )}
 
       {previewDoc && (
         <DocumentPreviewDialog

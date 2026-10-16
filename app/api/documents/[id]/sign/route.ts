@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getDocumentCaller } from "@/lib/document-auth"
 import { withTenantContextLoggingRefusal } from "@/lib/documents/tenant-refusal"
+import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
@@ -32,6 +33,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   const { id } = await params
   return withTenantContextLoggingRefusal(req, { documentId: id, caller }, async (tenant) => {
+    const readOnly = await refuseReadOnlyDocumentWrite({ caller, documentId: id, tenantId: tenant.id, action: "sign", req })
+    if (readOnly) return readOnly
+
     const body = (await req.json()) as { method?: string }
     const method = body.method
     if (method !== "branch" && method !== "portal") {

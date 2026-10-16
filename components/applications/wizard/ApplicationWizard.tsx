@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { StepBar } from "@/components/wizard/StepBar"
 import type { Client } from "@/components/wizard/types"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { sessionWizardStore } from "@/lib/wizard/session-storage"
 import {
   validateStep1ClientSelect,
@@ -81,10 +82,13 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
   const submitting = submittingAs !== null
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const hydrated = useRef(false)
-
-  useEffect(() => {
-    if (hydrated.current) return
+  // sessionStorage and the URL step are browser-only, so restore them once
+  // after hydration, while rendering (before that render commits): the server
+  // and the first client render both show the blank/initialData wizard on step 1.
+  const hydrated = useHydrated()
+  const [restored, setRestored] = useState(false)
+  if (hydrated && !restored) {
+    setRestored(true)
     // Resuming an existing application: server-loaded `initialData` wins —
     // never let a stale sessionStorage draft (from an unrelated in-progress
     // "New Application") clobber it.
@@ -95,30 +99,28 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
       const saved = store.load()
       if (saved) setData({ ...EMPTY_APPLICATION_WIZARD_DATA, ...saved })
     }
-    const urlStep = clampStep(Number(searchParams.get("step") ?? "1"))
-    setStep(urlStep)
-    hydrated.current = true
-  }, [searchParams, store, appId])
+    setStep(clampStep(Number(searchParams.get("step") ?? "1")))
+  }
 
-  useEffect(() => {
-    if (!hydrated.current) return
+  // Sync state.step when the URL changes (browser back/forward). Adjusted while
+  // rendering, on the identity of `searchParams` (new object per navigation).
+  const [prevSearchParams, setPrevSearchParams] = useState(searchParams)
+  if (searchParams !== prevSearchParams) {
+    setPrevSearchParams(searchParams)
     const urlStep = clampStep(Number(searchParams.get("step") ?? "1"))
-    setStep((prev) => {
-      if (urlStep !== prev) {
-        setEditingFromReview(false)
-        setErrors({})
-        return urlStep
-      }
-      return prev
-    })
-  }, [searchParams])
+    if (urlStep !== step) {
+      setStep(urlStep)
+      setEditingFromReview(false)
+      setErrors({})
+    }
+  }
 
   useEffect(() => {
     // Don't let a resumed application's edits overwrite the shared
     // sessionStorage draft key — that key belongs to the blank "New
     // Application" flow and must not pick up an unrelated saved row's data.
-    if (hydrated.current && !appId) store.save(data)
-  }, [data, store, appId])
+    if (restored && !appId) store.save(data)
+  }, [data, store, appId, restored])
 
   const patch = (partial: Partial<ApplicationWizardData>) =>
     setData((d) => ({ ...d, ...partial }))
