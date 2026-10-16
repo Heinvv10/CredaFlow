@@ -19,6 +19,12 @@ import {
 } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { newestVerifiedIdCopyId } from "@/lib/kyc/verification-restorable"
+import {
+  isIdenticalToVerifiedIdCopy,
+  pendingIdReplacementId,
+  sameBytesAsVerifiedIdCopy,
+  verifiedCoreDocumentCount,
+} from "@/lib/kyc/staff-checklist"
 import { RestorableVerificationHint } from "@/components/clients/RestorableVerificationHint"
 import { documentActionFailureMessage } from "@/lib/documents/verify-failure"
 import {
@@ -77,7 +83,7 @@ function getExtractedItems(doc: DocumentRecord): DisplayItem[] {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type DocStatus = "missing" | "uploaded" | "verified" | "flagged" | "rejected"
+type DocStatus = "missing" | "uploaded" | "verified" | "identical" | "flagged" | "rejected"
 
 interface RejectDialogState {
   docId: string
@@ -142,9 +148,11 @@ interface Props {
 
 const KYC_DOC_TYPES = [...REQUIRED_DOC_TYPES] as const
 
-function docStatus(doc: DocumentRecord | undefined): DocStatus {
+function docStatus(doc: DocumentRecord | undefined, docs: readonly DocumentRecord[]): DocStatus {
   if (!doc) return "missing"
   if (doc.verified) return "verified"
+  // An identical re-upload of the verified ID copy IS that copy.
+  if (isIdenticalToVerifiedIdCopy(doc, docs)) return "identical"
   // Verified (incl. accepted-with-override) docs returned above. A note alone
   // cannot say who wrote it — the system writes one when a bank-detail change
   // re-flags a statement (app/api/clients/[id]/route.ts). Only a recorded
@@ -158,6 +166,7 @@ const STATUS_BADGE: Record<DocStatus, { label: string; className: string }> = {
   missing:  { label: "Missing",  className: "bg-red-100 text-red-800" },
   uploaded: { label: "Pending",  className: "bg-amber-100 text-amber-800" },
   verified: { label: "Verified", className: "bg-green-100 text-green-800" },
+  identical: { label: "Identical to verified copy", className: "bg-green-100 text-green-800" },
   flagged:  { label: "Flagged",  className: "bg-amber-100 text-amber-900" },
   rejected: { label: "Rejected", className: "bg-red-100 text-red-800" },
 }
@@ -166,6 +175,7 @@ const STATUS_ICON: Record<DocStatus, React.ReactNode> = {
   missing:  <AlertCircle className="h-4 w-4 text-red-400" />,
   uploaded: <Clock       className="h-4 w-4 text-amber-500" />,
   verified: <CheckCircle className="h-4 w-4 text-green-600" />,
+  identical: <CheckCircle className="h-4 w-4 text-green-600" />,
   flagged:  <AlertCircle className="h-4 w-4 text-amber-500" />,
   rejected: <XCircle     className="h-4 w-4 text-red-500" />,
 }
@@ -245,10 +255,12 @@ export function KycChecklistTab({
       docsByType.set(d.docType, d)
     }
   }
+  // While a copy of other bytes holds the client PENDING, the ID row shows it.
+  const pendingIdCopyId = pendingIdReplacementId(docs)
+  const pendingIdCopy = docs.find((d) => d.id === pendingIdCopyId)
+  if (pendingIdCopy) docsByType.set("ID_COPY", pendingIdCopy)
 
-  const verifiedCount = KYC_DOC_TYPES.filter(
-    (dt) => docsByType.get(dt)?.verified
-  ).length
+  const verifiedCount = verifiedCoreDocumentCount(KYC_DOC_TYPES, docs)
   const totalRequired = KYC_DOC_TYPES.length
 
   // ── Actions ──────────────────────────────────────────────────────────────────
@@ -444,7 +456,7 @@ export function KycChecklistTab({
           <div className="divide-y">
             {KYC_DOC_TYPES.map((docType) => {
               const doc    = docsByType.get(docType)
-              const status = docStatus(doc)
+              const status = docStatus(doc, docs)
               const badge  = STATUS_BADGE[status]
               const extractedItems = doc ? getExtractedItems(doc) : []
               const alreadyApplied = doc ? appliedDocIds.has(doc.id) : false
@@ -506,7 +518,7 @@ export function KycChecklistTab({
                           View
                         </Button>
 
-                        {!readOnly && status !== "verified" && (
+                        {!readOnly && status !== "verified" && !sameBytesAsVerifiedIdCopy(doc, docs) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -523,7 +535,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {!readOnly && status !== "rejected" && status !== "flagged" && (
+                        {!readOnly && status !== "rejected" && status !== "flagged" && status !== "identical" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -540,7 +552,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {!readOnly && (status === "rejected" || status === "flagged" || status === "verified") && (
+                        {!readOnly && (status === "rejected" || status === "flagged" || status === "verified" || status === "identical") && (
                           <Button
                             size="sm"
                             variant="outline"

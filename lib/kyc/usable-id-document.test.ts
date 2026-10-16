@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { selectUsableIdDocument } from "./usable-id-document"
+import { resolveCurrentIdDocument, selectUsableIdDocument } from "./usable-id-document"
 
 const SHA = "de55ee75641f3f62e5649ac5156746177ae35de35135597f7fb11d08368134ce"
 const SHA2 = "1eb68864b31287e63085d5de00d8860aea0d5e8bd073e8791924f4ffd816ba71"
@@ -101,5 +101,53 @@ describe("selectUsableIdDocument", () => {
       doc({ id: "b", contentSha256: SHA2, createdAt: undefined }),
     ])
     expect(chosen?.id).toBe("b")
+  })
+})
+
+describe("resolveCurrentIdDocument", () => {
+  const copy = (id: string, day: number, over: { verified?: boolean; sha?: string | null; rejected?: boolean } = {}) => ({
+    id,
+    verified: over.verified ?? false,
+    contentSha256: over.sha === undefined ? SHA : over.sha,
+    createdAt: new Date(Date.UTC(2026, 7, day)),
+    verificationRejectedAt: over.rejected ? new Date(Date.UTC(2026, 7, day)) : null,
+  })
+  const resolve = (...copies: ReturnType<typeof copy>[]) => resolveCurrentIdDocument(copies)?.id ?? null
+
+  it("resolves an unverified identical re-upload to the verified copy it repeats", () => {
+    expect(resolve(copy("verified", 1, { verified: true }), copy("twin", 2))).toBe("verified")
+  })
+
+  it("keeps a re-upload of other bytes as the current copy", () => {
+    expect(resolve(copy("verified", 1, { verified: true }), copy("other", 2, { sha: SHA2 }))).toBe("other")
+  })
+
+  it("never matches a missing digest, on either side", () => {
+    expect(resolve(copy("verified", 1, { verified: true }), copy("no-digest", 2, { sha: null }))).toBe("no-digest")
+    expect(resolve(copy("verified", 1, { verified: true, sha: null }), copy("no-digest", 2, { sha: null }))).toBe("no-digest")
+  })
+
+  it("never matches a malformed digest", () => {
+    const upper = SHA.toUpperCase()
+    expect(resolve(copy("verified", 1, { verified: true, sha: upper }), copy("twin", 2, { sha: upper }))).toBe("twin")
+  })
+
+  it("matches the newest verified copy only, not an older one", () => {
+    expect(resolve(
+      copy("old", 1, { verified: true }),
+      copy("current", 2, { verified: true, sha: SHA2 }),
+      copy("stale-twin", 3),
+    )).toBe("stale-twin")
+  })
+
+  it("skips a rejected copy and has nothing to resolve without a verified one", () => {
+    expect(resolve(copy("verified", 1, { verified: true }), copy("twin", 2), copy("refused", 3, { sha: SHA2, rejected: true }))).toBe("verified")
+    expect(resolve(copy("first", 1), copy("second", 2))).toBe("second")
+    expect(resolve(copy("refused", 1, { rejected: true }))).toBeNull()
+  })
+
+  it("orders a createdAt tie by id, as the readers do", () => {
+    expect(resolve(copy("a-verified", 1, { verified: true }), copy("b-twin", 1))).toBe("a-verified")
+    expect(resolve(copy("b-verified", 1, { verified: true }), copy("a-older", 1, { sha: SHA2 }))).toBe("b-verified")
   })
 })

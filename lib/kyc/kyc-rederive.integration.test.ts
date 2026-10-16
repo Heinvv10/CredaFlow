@@ -126,12 +126,12 @@ suite("KYC re-derive (Re-verify ID)", () => {
     expect((await post(clientId, `id_extra0_${clientId}`)).status).toBe(200)
   })
 
-  it("refuses a verified copy that carries a refusal marker", async () => {
-    const { clientId, idCopyId } = await seedRestorableClient()
-    await db.clientDocument.update({ where: { id: idCopyId }, data: { verificationRejectedAt: new Date() } })
-
-    expect((await post(clientId, idCopyId)).status).toBe(409)
-    expect((await stored(clientId)).kycStatus).toBe("PENDING")
+  // The re-derive still refuses one (defence in depth), but since 20261016120000
+  // the database cannot hold a verified copy that carries a refusal marker.
+  it("never meets a verified copy that carries a refusal marker", async () => {
+    const { idCopyId } = await seedRestorableClient()
+    await expect(db.clientDocument.update({ where: { id: idCopyId }, data: { verificationRejectedAt: new Date() } }))
+      .rejects.toThrow("ClientDocument_verified_not_refused_check")
   })
 
   it("refuses a deleted copy", async () => {

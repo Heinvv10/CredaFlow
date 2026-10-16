@@ -1,18 +1,52 @@
 import type { DocType } from "@prisma/client"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { isIdenticalCopy, newestCopy } from "@/lib/kyc/id-replacement"
+
+/** The client's ID copies resolveCurrentIdDocument chooses among: every one not deleted. */
+export const LIVE_ID_COPIES = {
+  docType: "ID_COPY" as DocType,
+  deletedAt: null,
+}
+
+/** What resolveCurrentIdDocument reads of each copy. */
+export const CURRENT_ID_DOCUMENT_FIELDS = {
+  id: true,
+  verified: true,
+  contentSha256: true,
+  createdAt: true,
+  verificationRejectedAt: true,
+} as const
+
+export type CurrentIdDocumentCandidate = {
+  id: string
+  verified: boolean
+  contentSha256: string | null
+  createdAt: Date
+  verificationRejectedAt?: Date | null
+}
 
 /**
  * The ID copy a selfie is compared against (lib/kyc/selfie-capture.server.ts)
  * and re-checked against when its result is stored
- * (lib/kyc/selfie-biometric.server.ts): the newest upload that is neither
- * deleted nor rejected by staff, ordered createdAt DESC then id DESC. Callers
- * also require a usable digest. Verified or not: whether the match counts is
- * the composite gate's question.
+ * (lib/kyc/selfie-biometric.server.ts), from the client's non-deleted copies:
+ * the newest upload staff have not rejected, ordered createdAt DESC then id
+ * DESC. Verified or not: whether the match counts is the composite gate's
+ * question. Callers also require a usable digest.
+ *
+ * Except that an unverified identical re-upload of the newest verified copy
+ * (isIdenticalCopy: the same well-formed digest) IS that verified copy, so the
+ * selfie binds to the verified copy every KYC gate reads
+ * (subject_has_composite_kyc, the in-person lapse rule) rather than failing
+ * against its twin. A copy of other bytes, or the same bytes as an older
+ * verified copy, is still the copy compared against.
  */
-export const CURRENT_ID_DOCUMENT = {
-  docType: "ID_COPY" as DocType,
-  deletedAt: null,
-  verificationRejectedAt: null,
+export function resolveCurrentIdDocument<T extends CurrentIdDocumentCandidate>(
+  copies: readonly T[],
+): T | null {
+  const newest = newestCopy(copies.filter((copy) => (copy.verificationRejectedAt ?? null) === null))
+  if (newest === null || newest.verified) return newest
+  const verified = newestCopy(copies.filter((copy) => copy.verified))
+  return verified !== null && isIdenticalCopy(newest, verified) ? verified : newest
 }
 
 /** The subset of a ClientDocument this selection needs. */

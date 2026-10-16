@@ -412,7 +412,11 @@ suite("face match v3 through the real pipeline", () => {
       stubVlm(silhouette)
       await capture(fixture)
       const duplicate = await addIdCopy(fixture, "duplicate", { verified: false, contentSha256: ID_SHA })
-      expect((await verifyDocument(fixture.clientId, duplicate)).status).toBe(200)
+      // The verify route refuses an identical copy (it already counts as the
+      // verified one); a row verified before that rule, written directly here,
+      // still cannot reopen the route.
+      expect((await verifyDocument(fixture.clientId, duplicate)).status).toBe(409)
+      await db.clientDocument.update({ where: { id: duplicate }, data: { verified: true, verifiedAt: new Date() } })
 
       const response = await recordInPerson(fixture.clientId)
       expect(response.status).toBe(422)

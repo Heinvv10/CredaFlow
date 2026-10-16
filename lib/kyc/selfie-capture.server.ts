@@ -9,7 +9,11 @@ import { isSha256Digest, sha256DocumentBytes } from "@/lib/documents/content-int
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
 import { databaseNow } from "@/lib/db-clock"
 import { runBiometricVerification } from "@/lib/kyc/selfie-biometric.server"
-import { CURRENT_ID_DOCUMENT } from "@/lib/kyc/usable-id-document"
+import {
+  CURRENT_ID_DOCUMENT_FIELDS,
+  LIVE_ID_COPIES,
+  resolveCurrentIdDocument,
+} from "@/lib/kyc/usable-id-document"
 
 const MAX_SELFIE_SIZE = 5 * 1024 * 1024
 
@@ -39,8 +43,6 @@ export interface CaptureSelfieArgs {
 export type CaptureSelfieResult =
   | { ok: true; documentId: string; document: Record<string, unknown> }
   | { ok: false; status: number; error: string }
-
-const NEWEST_FIRST = [{ createdAt: "desc" as const }, { id: "desc" as const }]
 
 function sanitiseDoc(doc: Record<string, unknown>) {
   const { storagePath: _sp, ...safe } = doc
@@ -112,12 +114,12 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
     // proves nothing until staff verify it. A rejected copy is skipped: a
     // passing match against it was stored as verified, blocked the in-person
     // route, and every retake hit the same copy again. The digest is what
-    // the gates bind to.
-    const idDoc = await prisma.clientDocument.findFirst({
-      where: { tenantId, clientId, ...CURRENT_ID_DOCUMENT },
-      orderBy: NEWEST_FIRST,
-      select: { contentSha256: true },
-    })
+    // the gates bind to. An identical re-upload of the verified copy is that
+    // copy (resolveCurrentIdDocument).
+    const idDoc = resolveCurrentIdDocument(await prisma.clientDocument.findMany({
+      where: { tenantId, clientId, ...LIVE_ID_COPIES },
+      select: CURRENT_ID_DOCUMENT_FIELDS,
+    }))
     if (!isSha256Digest(idDoc?.contentSha256)) {
       return {
         ok: false,
@@ -142,11 +144,10 @@ export async function captureSelfie(args: CaptureSelfieArgs): Promise<CaptureSel
       // Re-check after taking the same evidence lock as deletion and payout.
       // The optimistic read above avoids storing a file in the common error
       // case; this read closes the ID-delete/upload race.
-      const currentIdDocument = await tx.clientDocument.findFirst({
-        where: { tenantId, clientId, ...CURRENT_ID_DOCUMENT },
-        select: { id: true, storagePath: true, mimeType: true, contentSha256: true },
-        orderBy: NEWEST_FIRST,
-      })
+      const currentIdDocument = resolveCurrentIdDocument(await tx.clientDocument.findMany({
+        where: { tenantId, clientId, ...LIVE_ID_COPIES },
+        select: { ...CURRENT_ID_DOCUMENT_FIELDS, storagePath: true, mimeType: true },
+      }))
       if (!currentIdDocument || !isSha256Digest(currentIdDocument.contentSha256)) return null
 
       const clientBeforeAttempt = await tx.client.findUnique({
