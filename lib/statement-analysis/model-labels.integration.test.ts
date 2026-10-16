@@ -88,7 +88,7 @@ suite("model labels against Postgres", () => {
 
     const [a] = await prisma.statementAnalysis.findMany({ where: { tenantId: tenants[0] } })
     expect(a.modelCategories).toEqual({ "SYNTH ZOLA TRADING": "FOOD" })
-    expect(a.modelCategoriesVersion).toBe("synthetic-model|labels-p2")
+    expect(a.modelCategoriesVersion).toBe("synthetic-model|labels-p3")
     expect(a.modelCategoriesAt).toBeInstanceOf(Date)
     // The model saw the masked key alone.
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }]

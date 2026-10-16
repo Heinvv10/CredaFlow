@@ -12,10 +12,13 @@
  * gate measures what production asks.
  *
  * The answer is constrained to MODEL_CATEGORIES; anything else is
- * UNCATEGORISED. A label can only add to what the rules found: it applies to a
+ * UNCATEGORISED. The model is not deterministic at temperature 0, so every key
+ * is asked LABEL_VOTES times, each round in its own fixed order, and the stored
+ * label is the vote (vote()). A label can only add to what the rules found: it applies to a
  * rule-UNCATEGORISED debit and nothing else, so it can raise living spend (an
  * officer referral) but never hide spend the rules counted.
  */
+import { createHash } from "node:crypto"
 import { counterpartyKey } from "@/lib/credit-checks/undisclosed-debt"
 import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
 import { LIVING_CATEGORIES, type Category } from "./categories"
@@ -33,7 +36,7 @@ import { VlmUnavailableError } from "./vlm-reader"
 export const MODEL_LABELS = { enabled: false }
 
 /** Bump when the prompt or the parsing changes what a key is labelled. */
-export const MODEL_LABEL_PROMPT_VERSION = "labels-p2"
+export const MODEL_LABEL_PROMPT_VERSION = "labels-p3"
 
 /**
  * What the model may answer. Not the income or own-transfer categories: it
@@ -45,6 +48,41 @@ export const MODEL_CATEGORIES: readonly Category[] = [
 
 /** Keys per request: short enough that one bad answer costs little. */
 export const LABEL_BATCH = 20
+
+/** Times each key is asked; its label is the vote. */
+export const LABEL_VOTES = 3
+
+/**
+ * Categories a check flags on their own (credit instalments, gambling): one
+ * wrong label is a referral, so every round must agree.
+ */
+export const UNANIMOUS_CATEGORIES: readonly Category[] = ["CREDIT_INSTALMENT", "GAMBLING"]
+
+/**
+ * The label from one key's answers: the category more than half the rounds
+ * gave, and every round for UNANIMOUS_CATEGORIES. A tie, no majority or a
+ * missing round is UNCATEGORISED.
+ */
+export function vote(votes: readonly Category[]): Category {
+  const counts = new Map<Category, number>()
+  for (const v of votes) counts.set(v, (counts.get(v) ?? 0) + 1)
+  for (const [c, n] of counts) {
+    if (2 * n <= LABEL_VOTES) continue
+    if (UNANIMOUS_CATEGORIES.includes(c) && n < LABEL_VOTES) continue
+    return c
+  }
+  return "UNCATEGORISED"
+}
+
+/**
+ * The keys in round `round`'s order: a fixed shuffle (by hash), so each round
+ * puts a key among other neighbours, and the same keys are always asked the
+ * same way whatever order they arrive in.
+ */
+export function roundOrder(keys: string[], round: number): string[] {
+  const rank = (k: string) => createHash("sha256").update(`${round}\0${k}`).digest("hex")
+  return keys.map((k) => [rank(k), k] as const).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([, k]) => k)
+}
 const REQUEST_TIMEOUT_MS = 30_000
 /**
  * After the model could not be asked, nothing is asked (or queued) for this
@@ -161,19 +199,32 @@ export function parseLabels(content: string, keys: string[]): ModelLabels {
 }
 
 /**
- * Labels the keys. Throws VlmUnavailableError when the model could not be
- * asked (not configured, down, timed out, any HTTP error but a refused batch)
- * for any batch: then nothing is stored and the read is labelled on a later
- * run. A batch refused as bad (400, 413, 422) is UNCATEGORISED.
+ * Labels the keys: LABEL_VOTES rounds over every key, then the vote. Throws
+ * VlmUnavailableError when the model could not be asked (not configured,
+ * down, timed out, any HTTP error but a refused batch) for any batch of any
+ * round: then nothing is stored and the read is labelled on a later run. A
+ * batch refused as bad (400, 413, 422) votes UNCATEGORISED.
  */
 export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; version: string }> {
   const config = getVlmConfig()
   if (!config) throw new VlmUnavailableError("VLM is not configured")
   if (Date.now() < unavailableUntil) throw new VlmUnavailableError("VLM unavailable recently: backing off")
-  const labels: ModelLabels = {}
   const distinct = [...new Set(keys.filter((k) => k))]
-  for (let i = 0; i < distinct.length; i += LABEL_BATCH) {
-    const batch = distinct.slice(i, i + LABEL_BATCH)
+  const votes = new Map<string, Category[]>(distinct.map((k) => [k, []]))
+  for (let round = 0; round < LABEL_VOTES; round++) {
+    const answers = await labelRound(config, roundOrder(distinct, round))
+    for (const k of distinct) votes.get(k)!.push(answers[k])
+  }
+  const labels: ModelLabels = {}
+  for (const [k, v] of votes) labels[k] = vote(v)
+  return { labels, version: modelLabelsVersion(config.model) }
+}
+
+/** One round: every key asked once, in batches, in the order given. */
+async function labelRound(config: NonNullable<ReturnType<typeof getVlmConfig>>, keys: string[]): Promise<ModelLabels> {
+  const labels: ModelLabels = {}
+  for (let i = 0; i < keys.length; i += LABEL_BATCH) {
+    const batch = keys.slice(i, i + LABEL_BATCH)
     let res: Response
     try {
       res = await fetch(config.url, {
@@ -215,5 +266,5 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
     }
     Object.assign(labels, parseLabels(content, batch))
   }
-  return { labels, version: modelLabelsVersion(config.model) }
+  return labels
 }
