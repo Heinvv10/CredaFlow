@@ -14,6 +14,7 @@ import {
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
 import {
+  creditLifeOfferedFor,
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
   calculateCreditLifeMonthlyPremiumCents,
@@ -286,8 +287,10 @@ export async function prepareApplicationFields(
     // No active credit-life product with an active insurer means there was no
     // cover to offer, so there is nothing to decline against. Record the
     // no-offer disclosure instead of rejecting the submission — requiring an
-    // offer here is what made every application unsubmittable.
-    if (!configuredCreditLifeOffer) {
+    // offer here is what made every application unsubmittable. Cover cannot be
+    // added at or below the threshold either, so a configured product is no
+    // offer there (Fair Score audit B6).
+    if (!creditLifeOfferedFor(configuredCreditLifeOffer !== null, data.appliedAmount)) {
       if (data.creditLifeElection === "ACCEPTED") {
         return {
           ok: false,
@@ -299,7 +302,7 @@ export async function prepareApplicationFields(
       }
       // The client echoed an offer that no longer resolves. Refuse rather than
       // silently downgrade a real disclosure into a no-offer one.
-      if (data.creditLifeProductId != null || data.creditLifeInsurerId != null) {
+      if (!configuredCreditLifeOffer && (data.creditLifeProductId != null || data.creditLifeInsurerId != null)) {
         return {
           ok: false,
           status: 409,

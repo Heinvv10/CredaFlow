@@ -771,3 +771,50 @@ describe("POST /api/portal/applications — PO funding", () => {
     expect(findFirstDocument).not.toHaveBeenCalled()
   })
 })
+
+describe("POST /api/portal/applications — credit life at or below the R1,000 threshold (B6)", () => {
+  // Cover cannot be added to a principal of R1,000 or less, so a configured
+  // product is not an offer here: the application records the no-offer
+  // disclosure, never "DECLINED" against a product the consumer could not take.
+  const small = { ...validBody, amount: 800 }
+
+  it("records the no-offer state although a product is configured", async () => {
+    const res = await POST(buildReq(small))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        creditLifeElection: "DECLINED",
+        creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+        creditLifeProductId: null,
+        creditLifeProductName: null,
+        creditLifeInsurerId: null,
+        creditLifeInsurerName: null,
+        creditLifeMonthlyPremiumCents: 0,
+      }),
+    }))
+  })
+
+  it("needs no election or acknowledgement, as when nothing is configured", async () => {
+    const { creditLifeProductId: _p, creditLifeProductName: _n, creditLifeInsurerId: _i,
+      creditLifeInsurerName: _in, creditLifeMonthlyPremiumCents: _m, ...noOffer } = small as Record<string, unknown>
+    const res = await POST(buildReq({ ...noOffer, creditLifeElection: "", creditLifeDisclosureAcknowledged: false }))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ creditLifeDisclosureVersion: "credit-life-no-offer-v1" }),
+    }))
+  })
+
+  it("still refuses ACCEPTED", async () => {
+    const res = await POST(buildReq({ ...small, creditLifeElection: "ACCEPTED" }))
+    expect(res.status).toBe(422)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("keeps recording DECLINED against the offer above the threshold", async () => {
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(201)
+    expect(createApplication).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ creditLifeDisclosureVersion: "credit-life-election-v1", creditLifeProductId: CREDIT_LIFE_PRODUCT.id }),
+    }))
+  })
+})

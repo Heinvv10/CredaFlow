@@ -458,6 +458,29 @@ describe("prepareApplicationFields — credit-life election evidence", () => {
     expect(queryRawMock).not.toHaveBeenCalled()
   })
 
+  // Fair Score audit B6: cover cannot be added at or below the threshold, so a
+  // configured product is not an offer — record the no-offer state, not a
+  // decline of a product the client could not take.
+  it("records the no-offer state at the threshold although a product is configured", async () => {
+    const result = await prepareApplicationFields(
+      validInput({ ...submissionFields, appliedAmount: 100_000, creditLifeElection: "DECLINED", creditLifeMonthlyPremiumCents: 450 }),
+      "t1",
+      "u1",
+      { action: "create" },
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("expected success")
+    expect(result.fields).toEqual(expect.objectContaining({
+      creditLifeElection: "DECLINED",
+      creditLifeDisclosureVersion: "credit-life-no-offer-v1",
+      creditLifeProductId: null,
+      creditLifeInsurerId: null,
+      creditLifeMonthlyPremiumCents: 0,
+    }))
+    expect(queryRawMock).not.toHaveBeenCalled()
+  })
+
   it("persists the locked product, insurer, exact premium, acknowledgement, and evidence hash", async () => {
     process.env.CREDIT_LIFE_AUTO_BUNDLE_ENABLED = "true"
     const result = await prepareApplicationFields(
