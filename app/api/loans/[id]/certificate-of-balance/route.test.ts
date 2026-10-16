@@ -39,9 +39,9 @@ vi.mock("@/lib/loan/charges-summary", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/loan/charges-summary")>()),
   loanSettlementFigures: (...args: unknown[]) => settlementFiguresMock(...args),
 }))
-const figures = (live: boolean) => ({
+const figures = (live: boolean, s125Priced = false) => ({
   live, charges: live ? {} : null, chargeLines: live ? [{ label: "Default interest", amount: 8_000 }] : [],
-  chargesOutstanding: live ? 8_000 : 0, totalToSettle: 205_514,
+  chargesOutstanding: live ? 8_000 : 0, totalToSettle: 205_514, s125Priced, chargeSplitsPaid: 0,
   interestAndFeesOutstanding: 0, arrearsIncludingCharges: 197_514, paymentsReceived: 50_000,
 })
 vi.mock("@/lib/pdf/certificateOfBalance", () => ({
@@ -142,11 +142,19 @@ describe("certificate of balance", () => {
     }))
   })
 
-  it("certifies the settlement figure (s125), not the principal alone, while charges are off", async () => {
+  it("certifies the s125 settlement figure, not the principal alone, while charges are off", async () => {
+    settlementFiguresMock.mockResolvedValue(figures(false, true))
     await GET(new NextRequest("http://localhost/api/loans/loan-1/certificate-of-balance"), context)
-    expect(generatePdfMock.mock.calls[0][0].settlement).toEqual({
-      paymentsReceived: 50_000, interestAndFeesOutstanding: 0, charges: [], totalToSettle: 205_514,
+    // "Total Paid to Date" stays Loan.totalPaid: no paymentsReceived, cash or otherwise.
+    expect(generatePdfMock.mock.calls[0][0]).toMatchObject({
+      settlement: { paymentsReceived: undefined, interestAndFeesOutstanding: 0, charges: [], totalToSettle: 205_514 },
+      paymentsReceived: undefined,
     })
+  })
+
+  it("renders as before, with no settlement block, for a loan s125 pricing does not cover while charges are off", async () => {
+    await GET(new NextRequest("http://localhost/api/loans/loan-1/certificate-of-balance"), context)
+    expect(generatePdfMock.mock.calls[0][0].settlement).toBeUndefined()
   })
 
   it("never states the repriced product rate", async () => {

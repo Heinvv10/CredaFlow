@@ -90,7 +90,7 @@ describe("the balance staff and the client see for one loan", () => {
     // The certificate of balance certifies the same figure (app/api/loans/[id]/certificate-of-balance).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cob = certificateSettlement(await loanSettlementFigures(prismaMock as any, nca, asOf))
-    expect(cob.totalToSettle).toBe(staff.settlementAmount)
+    expect(cob?.totalToSettle).toBe(staff.settlementAmount)
   })
 
   it("stays exactly as before while charges are off", async () => {
