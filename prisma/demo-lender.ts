@@ -34,16 +34,18 @@ export const DEMO_LENDERS: Readonly<Record<string, DemoLender>> = {
   },
   fairscore: {
     slug: "fairscore",
-    // A clearly fictional demo lender (none of these is Fair Score's own
-    // registration, office or number): the tagline labels it "Demo lender" on
-    // the site and documents, and with no FSP number nothing claims FAIS
-    // authorisation.
+    // A clearly fictional demo lender: none of these is Fair Score's own
+    // registration, office or number. Its NCR and FSP numbers are fictional
+    // too (the FSP one lets the demo show insurance); on a demo stack the
+    // site and portal print "Demo lender" beside them
+    // (lib/config/demo-mode.ts demoLenderNote), and the tagline says it on
+    // the site and letterhead.
     identity: {
       ...VALID_LENDER_COLUMNS,
       legalName: "Fair Score Demo Lender (Pty) Ltd",
       brandName: "Fair Score",
       ncrNumber: "NCRCP98765",
-      fscaNumber: null,
+      fscaNumber: "98765",
       companyRegNumber: "2021/905731/07",
       registeredOffice: "Suite 4, 18 Marula Lane\nUmhlanga Ridge\n4319",
       publicEmail: "hello@fairscore.example",

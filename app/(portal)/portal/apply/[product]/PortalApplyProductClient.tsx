@@ -41,13 +41,15 @@ interface Props {
   lenderName: string
   /** The lender's `identity.ncrNumber`. */
   ncrNumber: string
+  /** On a demo stack, printed beside the NCR number (lib/config/demo-mode.ts demoLenderNote). */
+  demoLenderNote?: string | null
   product: ProductInfo
   client: ClientInfo
   qualification: QualificationResult | null
   creditLifeOffer: CreditLifePresentedOffer | null
 }
 
-export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, product, client, creditLifeOffer }: Props) {
+export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer }: Props) {
   const router = useRouter()
   const t = useT("portalApply")
 
@@ -380,7 +382,7 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, pr
         </div>
 
         <p className="text-[11px] text-gray-400 pt-2">
-          Registered credit provider (NCR Reg: {ncrNumber}). Product reference: {productKey.toUpperCase()}.
+          Registered credit provider (NCR Reg: {ncrNumber}).{demoLenderNote && <> {demoLenderNote}</>} Product reference: {productKey.toUpperCase()}.
         </p>
       </form>
     </div>

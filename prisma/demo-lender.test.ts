@@ -38,7 +38,7 @@ describe("demoLender", () => {
     expect(demoLender({ DEMO_LENDER: "acme" })).toEqual(acme)
   })
 
-  it("selects the Fair Score profile: a fictional demo lender with no FSP number", () => {
+  it("selects the Fair Score profile: a fictional demo lender with fictional NCR and FSP numbers", () => {
     const fairscore = demoLender({ DEMO_LENDER: "fairscore" })
     expect(fairscore).toMatchObject({
       slug: "fairscore",
@@ -46,7 +46,7 @@ describe("demoLender", () => {
         legalName: "Fair Score Demo Lender (Pty) Ltd",
         brandName: "Fair Score",
         ncrNumber: "NCRCP98765",
-        fscaNumber: null,
+        fscaNumber: "98765",
         companyRegNumber: "2021/905731/07",
         publicEmail: "hello@fairscore.example",
         collectionsEmail: "collections@fairscore.example",

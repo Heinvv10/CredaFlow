@@ -403,7 +403,7 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
       legalName: "Fair Score Demo Lender (Pty) Ltd",
       tradingName: "Fair Score",
       ncrNumber: "NCRCP98765",
-      fspNumber: null,
+      fspNumber: "98765",
       brandTagline: "Demo lender: fair credit, clearly scored",
       publicEmail: "hello@fairscore.example",
       collectionsEmail: "collections@fairscore.example",

@@ -228,6 +228,7 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
         <PortalApplyProductClient
         lenderName="Acme Lending"
         ncrNumber="NCRCP99999"
+        demoLenderNote="Demo lender: registration numbers are fictional."
           productKey="micro"
           product={{
             id: "product-1",
@@ -259,6 +260,12 @@ describe("PortalApplyProductClient with no credit-life offer", () => {
   afterEach(async () => {
     await act(async () => renderer.unmount())
     delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  it("labels the NCR number as a demo lender's when given the demo note", () => {
+    const text = JSON.stringify(renderer.toJSON())
+    expect(text).toContain("NCR Reg: ")
+    expect(text).toContain("Demo lender: registration numbers are fictional.")
   })
 
   // Regression: when the only CREDIT_LIFE product has no insurer, every
