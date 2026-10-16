@@ -48,12 +48,7 @@ export async function mappingRefusal(db: Pick<PushDb, "accountingAccountMapping"
 export async function pushBatchToIsaFlow(db: PushDb, args: { tenantId: string; batchId: string; actor: Actor }, http: IsaFlowHttp = {}): Promise<PushOutcome> {
   const batch = await db.accountingExportBatch.findFirst({ where: { id: args.batchId, tenantId: args.tenantId, status: "CLOSED" }, select: { id: true, periodKey: true } })
   if (!batch) return refused(404, "Closed batch not found")
-  const lines = await loadBatchLines(db, args.tenantId, batch.id)
-  const period = parsePeriodKey(batch.periodKey)
-  if (!lines || !period) return refused(404, "Closed batch not found")
-  const unmapped = await mappingRefusal(db, args.tenantId, lines)
-  if (unmapped) return refused(422, unmapped)
-
+  // What already happened to this batch answers first: a mapping changed since does not matter to a push that is done.
   const existing = await db.accountingIsaFlowPush.findUnique({ where: { batchId: batch.id }, select: { status: true } })
   if (existing?.status === "PUSHED") return refused(409, "This batch is already in IsaFlow")
   if (existing?.status === "NEEDS_REVIEW") return refused(409, "A previous push has an unknown outcome; check it first")
@@ -62,6 +57,12 @@ export async function pushBatchToIsaFlow(db: PushDb, args: { tenantId: string; b
       ? { ok: false, httpStatus: 409, status: "NEEDS_REVIEW", error: "An earlier push never recorded IsaFlow's answer; check it" }
       : refused(409, "A push of this batch is in progress")
   }
+  const lines = await loadBatchLines(db, args.tenantId, batch.id)
+  const period = parsePeriodKey(batch.periodKey)
+  if (!lines || !period) return refused(404, "Closed batch not found")
+  const unmapped = await mappingRefusal(db, args.tenantId, lines)
+  if (unmapped) return refused(422, unmapped)
+
   if (existing?.status === "FAILED") return retryIsaFlowPush(db, { ...args, from: "FAILED" }, http)
 
   let target: Awaited<ReturnType<typeof isaflowTarget>>
