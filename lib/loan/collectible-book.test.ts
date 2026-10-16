@@ -3,7 +3,6 @@ import {
   COLLECTIBLE_STATUSES,
   SETTLED_STATUSES,
   collectibleLoanWhere,
-  collectibleParWhere,
 } from "./collectible-book"
 
 // Mirrors prisma/schema/loans-payments.prisma's LoanStatus. Written out so the split below is
@@ -52,29 +51,9 @@ describe("where builders", () => {
     })
   })
 
-  it("narrows to a DPD threshold at or beyond the boundary", () => {
-    for (const days of [1, 30, 60, 90]) {
-      expect(collectibleParWhere("t1", days)).toEqual({
-        tenantId: "t1",
-        status: { in: ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF", "RESTRUCTURED"] },
-        daysInArrears: { gte: days },
-      })
-    }
-  })
-
-  it("gives the PAR numerator the same population as its denominator", () => {
-    // A numerator drawn from a wider population than its denominator prints a
-    // ratio above 100%.
-    const book = collectibleLoanWhere("t1")
-    const par = collectibleParWhere("t1", 30)
-    expect(par.status).toEqual(book.status)
-    expect(par.tenantId).toBe(book.tenantId)
-  })
-
   it("does not mutate the exported constant", () => {
     const before = [...COLLECTIBLE_STATUSES]
     collectibleLoanWhere("t1")
-    collectibleParWhere("t1", 30)
     expect([...COLLECTIBLE_STATUSES]).toEqual(before)
   })
 })

@@ -72,7 +72,7 @@ const REPORTING_PATHS = [
 describe("the reporting / behaviour boundary", () => {
   // Importing the module is the invariant, not naming the constant — the
   // reporting surfaces reach it through COLLECTIBLE_STATUSES, through the
-  // collectibleLoanWhere / collectibleParWhere helpers, or through
+  // collectibleLoanWhere helper, or through
   // lib/reports/book-arrears.ts, which builds book, arrears and PAR on it.
   const IMPORTS_BOOK = /from "@\/lib\/loan\/collectible-book"/
   const IMPORTS_REPORTING_BOOK = /from "@\/lib\/(loan\/collectible-book|reports\/book-arrears)"/
@@ -116,14 +116,15 @@ describe("the reporting / behaviour boundary", () => {
     })
   })
 
-  it("lets arrears-aging add WRITTEN_OFF, but only as an explicit addition", () => {
-    // The one documented deviation: a collections drill-down that also shows
-    // written-off accounts, each row status-labelled. It must still build on
-    // the shared book rather than re-listing statuses, or it drifts again — it
-    // previously omitted PENDING_WRITE_OFF and RESTRUCTURED while every other
-    // reporting surface included them.
+  it("keeps arrears-aging on the shared book, with written-off accounts apart", () => {
+    // Its bands, totals and rows are the book's "in arrears"; written-off
+    // accounts are a separate section with their own totals, never mixed into
+    // figures that read as collectible.
     const src = code("app/(dashboard)/reports/arrears-aging/page.tsx")
-    expect(src).toContain('status: { in: [...COLLECTIBLE_STATUSES, "WRITTEN_OFF"] }')
+    expect(src).toContain("getBookArrears(tenantId)")
+    expect(src).toContain("where: overdueWhere(tenantId)")
+    expect(src).toContain('status: "WRITTEN_OFF"')
+    expect(src).not.toContain('[...COLLECTIBLE_STATUSES, "WRITTEN_OFF"]')
   })
 
   it("keeps the collections work lists on the eligibility population", () => {
