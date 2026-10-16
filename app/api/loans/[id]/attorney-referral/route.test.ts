@@ -88,7 +88,11 @@ describe("POST attorney referral collections guard", () => {
         type: "SECTION_129_NOTICE",
         referenceId: "loan-1",
         status: "COMPLETED",
-        data: { path: ["lifecycle"], equals: "ISSUED" },
+        // Issued, or (demo only) simulated: the flow continues, labelled.
+        OR: [
+          { data: { path: ["lifecycle"], equals: "ISSUED" } },
+          { data: { path: ["lifecycle"], equals: "SIMULATED" } },
+        ],
       }),
     }))
     expect(auditCreateMock).toHaveBeenCalledWith(expect.objectContaining({
