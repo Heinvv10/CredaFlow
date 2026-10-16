@@ -58,6 +58,7 @@ const BEHAVIOUR_PATHS = [
 
 // Paths that decide what the system REPORTS about a loan.
 const REPORTING_PATHS = [
+  "lib/reports/book-arrears.ts",
   "lib/reports/par.ts",
   "lib/compliance/ncr-return.ts",
   "app/(dashboard)/page.tsx",
@@ -70,9 +71,11 @@ const REPORTING_PATHS = [
 
 describe("the reporting / behaviour boundary", () => {
   // Importing the module is the invariant, not naming the constant — the
-  // reporting surfaces reach it through COLLECTIBLE_STATUSES or through the
-  // collectibleLoanWhere / collectibleParWhere helpers.
+  // reporting surfaces reach it through COLLECTIBLE_STATUSES, through the
+  // collectibleLoanWhere / collectibleParWhere helpers, or through
+  // lib/reports/book-arrears.ts, which builds book, arrears and PAR on it.
   const IMPORTS_BOOK = /from "@\/lib\/loan\/collectible-book"/
+  const IMPORTS_REPORTING_BOOK = /from "@\/lib\/(loan\/collectible-book|reports\/book-arrears)"/
 
   it.each(BEHAVIOUR_PATHS)("%s does not use the reporting population", (path) => {
     const src = code(path)
@@ -82,7 +85,7 @@ describe("the reporting / behaviour boundary", () => {
 
   it.each(REPORTING_PATHS)("%s uses the shared population, not a literal", (path) => {
     const src = code(path)
-    expect(src).toMatch(IMPORTS_BOOK)
+    expect(src).toMatch(IMPORTS_REPORTING_BOOK)
     // A stray literal beside the shared constant is how the two drift apart.
     expect(src).not.toMatch(/status:\s*\{\s*in:\s*\["ACTIVE",\s*"DEFAULTED"\]\s*\}/)
   })
