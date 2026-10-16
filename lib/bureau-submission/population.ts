@@ -10,8 +10,13 @@ import type { HoldReason } from "./validate"
 
 type Db = Pick<typeof prisma, "loan" | "bureauSubmissionRecord">
 
-/** PO funding is not reported (product rule). */
-export const REPORTED_PRODUCT_TYPES = ["MICRO", "PERSONAL"] as const
+/**
+ * PO funding is not reported (product rule). ASSET_FINANCE is reported as
+ * before it had its own type (its products were PERSONAL): only a natural
+ * person's loan reaches the file (CONSUMER_BORROWER_WHERE), i.e. a sole
+ * proprietor's NCA instalment sale or finance lease.
+ */
+export const REPORTED_PRODUCT_TYPES = ["MICRO", "PERSONAL", "ASSET_FINANCE"] as const
 
 /**
  * The consumer file reports natural persons' credit: a loan to a business
