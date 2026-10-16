@@ -173,6 +173,21 @@ worktree_tag() {
   fi
 }
 
+# sim_env_preflight — die within seconds, naming each missing key, when the sim
+# stack cannot finish a bake: secrets.env without UNSUB_TOKEN_SECRET, or a sim
+# app container started without DEMO_MODE=true or UNSUB_TOKEN_SECRET (the signing
+# OTP then 502s for every persona, which simulate.ts found 70 minutes in).
+# Prints key names only; the container env is held in a variable and only tested.
+sim_env_preflight() {
+  local missing="" env
+  [ -n "$(env_get "$SHARED_SECRETS" UNSUB_TOKEN_SECRET)" ] || missing+=" secrets.env: UNSUB_TOKEN_SECRET;"
+  env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SIM_APP" 2>/dev/null)" \
+    || die "$SIM_APP not found; the sim stack is not up"
+  grep -x 'DEMO_MODE=true' <<< "$env" >/dev/null || missing+=" $SIM_APP: DEMO_MODE=true;"
+  grep -E '^UNSUB_TOKEN_SECRET=.' <<< "$env" >/dev/null || missing+=" $SIM_APP: UNSUB_TOKEN_SECRET;"
+  [ -z "$missing" ] || die "sim env incomplete, missing:$missing nothing was simulated (fix secrets.env / docker-compose.demo-sim.yml and re-run)"
+}
+
 # ensure_shared_secrets — create secrets.env (0600) and add any missing random
 # key. Never rotates an existing value: rotating WABA_ENC_KEY would orphan the
 # SMTP password sealed inside every existing snapshot.
@@ -184,9 +199,12 @@ worktree_tag() {
 # Needed by both, shared so there is one value (nothing persisted outlives it):
 #   NEXTAUTH_SECRET  FAIS disclosure tokens (1 h TTL; only their hash is stored)
 #   CRON_SECRET, INTERNAL_API_SECRET, ADMIN_SECRET
-#   UNSUB_TOKEN_SECRET  signs List-Unsubscribe links; a production build refuses
-#     a templated email without it (the signing-OTP email). upgrade-stack adds it
-#     to a live app that predates it (ADDABLE_SECRETS, upgrade-stack.lib.sh).
+#   UNSUB_TOKEN_SECRET  signs List-Unsubscribe links; sendMessage refuses a
+#     redacted-body email without it (the signing-OTP email), in every
+#     environment, not only a production build (assertRedactedSendIsRecoverable,
+#     lib/messaging/send.ts, called unconditionally from sendMessage).
+#     upgrade-stack adds it to a live app that predates it (ADDABLE_SECRETS,
+#     upgrade-stack.lib.sh); sim_env_preflight checks it before a bake simulates.
 #   TURNSTILE_SECRET_KEY  Cloudflare's documented always-pass TEST secret.
 # Not here: AUTH_SECRET. Sessions are JWT cookies (lib/auth-config.ts) and no
 # stored row is derived from it, so live keeps per-container STAFF_/PORTAL_
