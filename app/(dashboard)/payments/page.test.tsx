@@ -186,10 +186,15 @@ describe("payments page — client-notified payments (Fair Score audit B7)", () 
   })
 
   it("lets only the roles the allocate/reject route admits act on a report", async () => {
-    sessionRole.value = "READONLY"
+    for (const role of ["READONLY", "INSURANCE_OFFICER"]) {
+      sessionRole.value = role
+      await render({ period: "today" })
+      expect(calls.notifiedProps, role).toEqual(expect.objectContaining({ canAct: false }))
+    }
+    sessionRole.value = "COLLECTIONS_AGENT"
     await render({ period: "today" })
     sessionRole.value = "LOAN_ADMIN"
-    expect(calls.notifiedProps).toEqual(expect.objectContaining({ canAct: false }))
+    expect(calls.notifiedProps).toEqual(expect.objectContaining({ canAct: true }))
   })
 })
 
