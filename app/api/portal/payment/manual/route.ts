@@ -7,6 +7,7 @@ import { MAX_FILE_SIZE } from "@/lib/document-auth"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { callerIp } from "@/lib/rate-limit"
 import { owesNothing } from "@/lib/loan/charges-summary"
+import { recordPaymentNotification } from "@/lib/payments/payment-notifications"
 
 // Proof of payment accepts PDF/JPEG/PNG only (matches the form's accept attr).
 // Narrower than document-auth's ALLOWED_MIME_TYPES, which also permits webp.
@@ -107,6 +108,8 @@ export async function POST(req: Request) {
     try {
       // Document + linking note are written atomically: a retained POPIA
       // ClientDocument must never exist without its manual_payment_claim note.
+      // The claim itself is an item awaiting reconciliation on the Payments
+      // page, with a bell item for the staff who reconcile, in the same commit.
       // Retained, POPIA-access-logged proof. Skip VLM extraction — a bank slip
       // is not a KYC doc and validating it against client fields is just noise.
       doc = await prisma.$transaction(async (tx) => {
@@ -143,6 +146,22 @@ export async function POST(req: Request) {
             ].filter(Boolean).join("\n"),
             createdBy: `client:${client.id}`,
           },
+        })
+
+        await recordPaymentNotification(tx, {
+          tenantId,
+          loanId: loan.id,
+          loanReference: loan.reference,
+          clientId: client.id,
+          clientName: `${client.firstName} ${client.lastName}`,
+          amount,
+          reference: typeof reference === "string" && reference ? reference : null,
+          // The SAST calendar day the client named, at SAST midnight.
+          paymentDate: typeof paymentDate === "string" && paymentDate ? new Date(`${paymentDate}T00:00:00+02:00`) : null,
+          notes: typeof notes === "string" && notes ? notes : null,
+          documentId: created.id,
+          actorEmail: session.user.email ?? null,
+          ipAddress: callerIp(req),
         })
 
         return created

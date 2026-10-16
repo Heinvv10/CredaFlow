@@ -21,6 +21,8 @@ const calls = vi.hoisted(() => ({
   aggregate: [] as Array<Record<string, unknown>>,
   count: [] as Array<Record<string, unknown>>,
   clientProps: null as Record<string, unknown> | null,
+  notified: [] as Array<Record<string, unknown>>,
+  notifiedProps: null as Record<string, unknown> | null,
 }))
 
 vi.mock("@/lib/prisma", () => ({
@@ -40,6 +42,7 @@ vi.mock("@/lib/prisma", () => ({
       }),
     },
     repaymentSchedule: { findMany: vi.fn(async () => []) },
+    paymentNotification: { findMany: vi.fn(async () => calls.notified) },
   },
 }))
 
@@ -48,6 +51,13 @@ vi.mock("@/components/layout/Header", () => ({ Header: () => null }))
 vi.mock("@/components/payments/PaymentsClient", () => ({
   PaymentsClient: (props: Record<string, unknown>) => {
     calls.clientProps = props
+    return null
+  },
+}))
+
+vi.mock("@/components/payments/ClientNotifiedPayments", () => ({
+  ClientNotifiedPayments: (props: Record<string, unknown>) => {
+    calls.notifiedProps = props
     return null
   },
 }))
@@ -148,5 +158,27 @@ describe("payments page — period scoping", () => {
   it("hands the client a period query the export link can reuse", async () => {
     await render({ period: "custom", from: "2026-07-01", to: "2026-07-31" })
     expect(calls.clientProps?.periodQuery).toBe("period=custom&from=2026-07-01&to=2026-07-31")
+  })
+})
+
+describe("payments page — client-notified payments (Fair Score audit B7)", () => {
+  const report = {
+    id: "pn1", amount: 84_330, reference: "EFT SEP", paymentDate: new Date("2026-10-14T22:00:00Z"), notes: null,
+    documentId: "d1", createdAt: new Date("2026-10-15T08:00:00Z"),
+    loan: { id: "l1", reference: "LN-0005" }, client: { firstName: "Elize", lastName: "Synthetic" },
+  }
+
+  it("lists a portal payment report awaiting reconciliation and points the KPI card at it", async () => {
+    calls.notified = [report]
+    const html = await render({ period: "today" })
+    calls.notified = []
+    expect(calls.notifiedProps).toEqual({ items: [expect.objectContaining({ id: "pn1", amount: 84_330 })] })
+    expect(html).toContain("+ 1 client-notified payment to confirm")
+  })
+
+  it("says nothing extra when no report is waiting", async () => {
+    const html = await render({ period: "today" })
+    expect(html).not.toContain("client-notified payment")
+    expect(calls.notifiedProps).toEqual({ items: [] })
   })
 })

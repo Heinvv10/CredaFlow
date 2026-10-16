@@ -4,6 +4,8 @@ import { formatZAR, formatDate } from "@/lib/utils"
 import { Header } from "@/components/layout/Header"
 import Link from "next/link"
 import { PaymentsClient } from "@/components/payments/PaymentsClient"
+import { ClientNotifiedPayments } from "@/components/payments/ClientNotifiedPayments"
+import { listPendingPaymentNotifications } from "@/lib/payments/payment-notifications"
 import { PeriodPills } from "@/components/payments/PeriodPills"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import {
@@ -46,6 +48,7 @@ async function getData(period: Period, now: Date) {
     unappliedStats,
     precedingStats,
     overdue,
+    clientNotified,
   ] = await Promise.all([
     prisma.payment.findMany({
       where: { tenantId, reversed: false, allocationStatus: "ALLOCATED", receivedAt },
@@ -132,6 +135,9 @@ async function getData(period: Period, now: Date) {
         },
       },
     }),
+    // Not period-scoped, like unapplied receipts: an unanswered client report
+    // must not drop off the screen because the pills moved.
+    listPendingPaymentNotifications(tenantId),
   ])
 
   const money = (agg: { _sum: { amount: number | null }; _count: number }) => ({
@@ -153,6 +159,7 @@ async function getData(period: Period, now: Date) {
       precedingLabel: preceding?.label ?? null,
     },
     overdue: JSON.parse(JSON.stringify(overdue)),
+    clientNotified: JSON.parse(JSON.stringify(clientNotified)),
   }
 }
 
@@ -169,7 +176,7 @@ export default async function PaymentsPage({
   // last of the previous month, so the table below (which renders in SAST)
   // showed it in August while this page's month total counted it in July.
   const period = resolvePeriod(params, now)
-  const { allocated, allocatedCount, unapplied, resolved, resolvedCount, stats, overdue } =
+  const { allocated, allocatedCount, unapplied, resolved, resolvedCount, stats, overdue, clientNotified } =
     await getData(period, now)
 
   const delta =
@@ -216,6 +223,11 @@ export default async function PaymentsPage({
                 ? "nothing held"
                 : `${stats.unapplied.count} receipt${stats.unapplied.count === 1 ? "" : "s"} not applied to a loan`}
             </p>
+            {clientNotified.length > 0 && (
+              <a href="#client-notified" className="mt-1 block text-xs font-medium text-amber-700 hover:underline">
+                + {clientNotified.length} client-notified payment{clientNotified.length === 1 ? "" : "s"} to confirm
+              </a>
+            )}
           </div>
         </div>
 
@@ -265,6 +277,8 @@ export default async function PaymentsPage({
             </table>
           </div>
         )}
+
+        <ClientNotifiedPayments items={clientNotified} />
 
         {/* Main tabbed payments panel */}
         <PaymentsClient
