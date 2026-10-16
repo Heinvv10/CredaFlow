@@ -173,11 +173,14 @@ function selfieItem(
  * Project the customer checklist from the same composite KYC decision used by
  * review, approval, and disbursement. "Still needed" means the customer has
  * an action; uploaded evidence awaiting staff/provider review is not counted
- * as missing.
+ * as missing. Complete needs the STORED status VERIFIED as well: while staff
+ * hold the client PENDING on complete evidence, the borrower sees it awaiting
+ * the final decision, as staff see the stored status.
  */
 export function derivePortalKycChecklist(args: {
   documents: readonly PortalChecklistDocument[]
   composite: CompositeKycResult
+  storedKycStatus: string
   latestSelfieId: string | null
 }): PortalKycChecklist {
   const coreDocuments = Object.fromEntries(
@@ -194,7 +197,7 @@ export function derivePortalKycChecklist(args: {
   const items = [...Object.values(coreDocuments), selfie]
 
   return {
-    complete: args.composite.ok,
+    complete: args.composite.ok && args.storedKycStatus === "VERIFIED",
     customerActionCount: items.filter(
       (item) => item.status === "missing" || item.status === "action_required",
     ).length,
