@@ -34,6 +34,8 @@ interface Props {
   popiaConsentGiven: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no upload, verify, override, extract or delete. */
+  readOnly?: boolean
 }
 
 /**
@@ -60,6 +62,7 @@ export function DocumentsTab({
   popiaConsentGiven,
   selfieAlternatives,
   signedAgreementReturn,
+  readOnly = false,
 }: Props) {
   const [docs, setDocs] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -379,7 +382,7 @@ export function DocumentsTab({
                 docType={doc.docType}
                 verified={doc.verified}
                 docId={doc.id}
-                onOverride={handleOverride}
+                onOverride={readOnly ? undefined : handleOverride}
               />
             )}
 
@@ -528,7 +531,7 @@ export function DocumentsTab({
                 <Eye className="h-3 w-3 mr-1" />
                 View
               </Button>
-              {actionPolicy.canVerify && !doc.verified && (
+              {!readOnly && actionPolicy.canVerify && !doc.verified && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -539,7 +542,8 @@ export function DocumentsTab({
                   Verify
                 </Button>
               )}
-              {actionPolicy.canExtract &&
+              {!readOnly &&
+                actionPolicy.canExtract &&
                 popiaConsentGiven &&
                 (doc.extractionStatus === "failed" ||
                   doc.extractionStatus === "skipped" ||
@@ -557,7 +561,7 @@ export function DocumentsTab({
               {/* Spacer keeps the remaining actions right-aligned even when
                   Delete is not offered (statutory documents). */}
               <span className="ml-auto" />
-              {actionPolicy.canDelete && (
+              {!readOnly && actionPolicy.canDelete && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -578,10 +582,12 @@ export function DocumentsTab({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Documents</h3>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Upload className="h-4 w-4 mr-2" />
-          Upload Document
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Upload Document
+          </Button>
+        )}
       </div>
 
       {/* Required docs checklist */}
@@ -728,15 +734,17 @@ export function DocumentsTab({
         </div>
       )}
 
-      <UploadDialog
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
-        clientId={clientId}
-        onUploadComplete={() => { fetchDocs(); router.refresh() }}
-        hasIdDocument={hasIdDocument}
-        selfieAlternatives={selfieAlternatives}
-        signedAgreementReturn={signedAgreementReturn}
-      />
+      {!readOnly && (
+        <UploadDialog
+          open={uploadOpen}
+          onOpenChange={setUploadOpen}
+          clientId={clientId}
+          onUploadComplete={() => { fetchDocs(); router.refresh() }}
+          hasIdDocument={hasIdDocument}
+          selfieAlternatives={selfieAlternatives}
+          signedAgreementReturn={signedAgreementReturn}
+        />
+      )}
 
       {previewDoc && (
         <DocumentPreviewDialog

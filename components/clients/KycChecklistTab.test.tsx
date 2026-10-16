@@ -241,3 +241,40 @@ describe("KycChecklistTab restorable-verification hint", () => {
     expect(await mount("VERIFIED", true)).not.toContain(VERIFICATION_RESTORABLE_COPY)
   })
 })
+
+// READONLY views and lists only (Hein, 2026-10-16). The server refuses every
+// write, so each control below would be a dead button.
+describe("KycChecklistTab for a read-only role", () => {
+  beforeEach(() => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, [ID_DOC])))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  })
+
+  async function buttonLabels(readOnly: boolean): Promise<string[]> {
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(<KycChecklistTab clientId="client-1" kycStatus="PENDING" readOnly={readOnly} />)
+    })
+    return renderer.root
+      .findAll((node) => node.type === "button", { deep: true })
+      .map((node) => textOf(node).trim())
+  }
+
+  it("offers View and nothing that changes a document", async () => {
+    const labels = await buttonLabels(true)
+    expect(labels).toContain("View")
+    for (const write of ["Upload", "Re-upload", "Verify", "Reject", "Apply to profile"]) {
+      expect(labels).not.toContain(write)
+    }
+  })
+
+  it("still offers the write controls to a writing role", async () => {
+    const labels = await buttonLabels(false)
+    expect(labels).toEqual(expect.arrayContaining(["View", "Upload", "Verify", "Reject", "Apply to profile"]))
+  })
+})

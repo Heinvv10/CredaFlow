@@ -518,3 +518,42 @@ describe("SelfieKycTab pending override controls", () => {
     expect(html).not.toContain(">Approve<")
   })
 })
+
+// READONLY views and lists only (Hein, 2026-10-16): the selfie route refuses
+// the capture and the client route refuses the KYC decision.
+describe("SelfieKycTab for a read-only role", () => {
+  function render(readOnly: boolean) {
+    return renderToStaticMarkup(
+      <SelfieKycTab
+        clientId="client-1"
+        currentKycStatus="PENDING"
+        currentManualRejectionActive={false}
+        currentManualRejectionReason={null}
+        selfieDoc={baseSelfie}
+        imageUrl="/api/documents/selfie-latest/view"
+        biometricEvidence={null}
+        biometricAttemptFailed={false}
+        biometricAwaitingIdVerification={false}
+        inPersonRoute={IN_PERSON_ROUTE_OPEN}
+        seniorExceptionAvailable={false}
+        readOnly={readOnly}
+      />,
+    )
+  }
+
+  it("shows the selfie but offers no capture or KYC decision", () => {
+    const html = render(true)
+    expect(html).toContain('alt="Client selfie"')
+    expect(html).not.toContain("Open Camera")
+    expect(html).not.toContain("Capture New Selfie")
+    expect(html).not.toContain("Approve KYC")
+    expect(html).not.toContain("Reject KYC")
+  })
+
+  it("still offers them to a writing role", () => {
+    const html = render(false)
+    expect(html).toContain("Open Camera")
+    expect(html).toContain("Approve KYC")
+    expect(html).toContain("Reject KYC")
+  })
+})

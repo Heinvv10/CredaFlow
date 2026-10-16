@@ -134,6 +134,8 @@ interface Props {
   verificationRestorable?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** View and list only: no upload, verify, reject or apply-extraction controls. */
+  readOnly?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -178,6 +180,7 @@ export function KycChecklistTab({
   verificationRestorable = false,
   selfieAlternatives,
   signedAgreementReturn,
+  readOnly = false,
 }: Props) {
   const [docs, setDocs]                       = useState<DocumentRecord[]>([])
   const [loading, setLoading]                 = useState(true)
@@ -457,14 +460,16 @@ export function KycChecklistTab({
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
                     {!doc ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setUploadDocType(docType)}
-                      >
-                        <Upload className="h-3 w-3 mr-1" />
-                        Upload
-                      </Button>
+                      !readOnly && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setUploadDocType(docType)}
+                        >
+                          <Upload className="h-3 w-3 mr-1" />
+                          Upload
+                        </Button>
+                      )
                     ) : (
                       <>
                         <Button
@@ -476,7 +481,7 @@ export function KycChecklistTab({
                           View
                         </Button>
 
-                        {status !== "verified" && (
+                        {!readOnly && status !== "verified" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -493,7 +498,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {status !== "rejected" && status !== "flagged" && (
+                        {!readOnly && status !== "rejected" && status !== "flagged" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -510,7 +515,7 @@ export function KycChecklistTab({
                           </Button>
                         )}
 
-                        {(status === "rejected" || status === "flagged" || status === "verified") && (
+                        {!readOnly && (status === "rejected" || status === "flagged" || status === "verified") && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -526,7 +531,7 @@ export function KycChecklistTab({
                 </div>
 
                 {/* OCR suggestions — shown when extraction is done and not yet applied */}
-                {extractedItems.length > 0 && !alreadyApplied && (
+                {!readOnly && extractedItems.length > 0 && !alreadyApplied && (
                   <div className="flex items-start gap-3 px-4 py-2.5 bg-blue-50 border-t border-blue-100">
                     <Sparkles className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
                     <div className="flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -687,7 +692,7 @@ export function KycChecklistTab({
       )}
 
       {/* ── Dialogs ───────────────────────────────────────────────── */}
-      {uploadDocType && (
+      {!readOnly && uploadDocType && (
         <UploadDialog
           open={!!uploadDocType}
           onOpenChange={(open) => { if (!open) setUploadDocType(null) }}

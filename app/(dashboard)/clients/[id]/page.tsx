@@ -32,6 +32,7 @@ import { getAuthoritativeStaffSelfie } from "@/lib/kyc/staff-selfie"
 import { isManualKycExceptionableAttempt } from "@/lib/kyc/manual-exception-policy"
 import { auth } from "@/lib/auth"
 import { canDo, hasMinRole } from "@/lib/auth-guards"
+import { isDocumentReadOnlyRole } from "@/lib/documents/write-access"
 import { ScreeningPanel } from "@/components/clients/ScreeningPanel"
 import { RaiseStrButton } from "@/components/clients/RaiseStrButton"
 import {
@@ -101,6 +102,9 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   if (!client) notFound()
   const session = await auth()
   const staffRole = session?.user?.role && session.user.role !== "CLIENT" ? session.user.role : null
+  // The session role is revalidated against the User row on every request
+  // (lib/auth.ts), so this hides exactly the controls the document routes refuse.
+  const documentsReadOnly = isDocumentReadOnlyRole(staffRole)
   const [compositeKyc, overridePolicyBase, requireStaffTotp, pendingOverrideRequests] = await Promise.all([
     readCompositeKycState(
       prisma as unknown as CompositeKycReader,
@@ -443,6 +447,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
               customTemplates={customTemplates}
               selfieAlternatives={selfieAlternatives}
               signedAgreementReturn={signedAgreementReturn}
+              readOnly={documentsReadOnly}
             />
           </TabsContent>
 
@@ -456,6 +461,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 verificationRestorable={verificationRestorable(client.kycStatus, compositeKyc)}
                 selfieAlternatives={selfieAlternatives}
                 signedAgreementReturn={signedAgreementReturn}
+                readOnly={documentsReadOnly}
               />
               <SelfieKycTab
                 clientId={client.id}
@@ -473,6 +479,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 overrideMinRole={overridePolicy.minRole}
                 secondApproverRequired={overridePolicy.secondApprover}
                 currentUserId={session?.user?.id ?? null}
+                readOnly={documentsReadOnly}
                 pendingOverrideRequests={pendingOverrideRequests.map((request) => ({
                   ...request,
                   requestedAt: request.requestedAt.toISOString(),

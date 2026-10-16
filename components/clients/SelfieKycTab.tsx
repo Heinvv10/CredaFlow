@@ -89,6 +89,8 @@ interface Props {
    * action the API refuses, and the rule is not duplicated here by halves.
    */
   seniorExceptionAvailable: boolean
+  /** View only: no selfie capture and no KYC approve/reject. */
+  readOnly?: boolean
 }
 
 interface PendingOverrideRequest {
@@ -139,6 +141,7 @@ export function SelfieKycTab({
   biometricAwaitingIdVerification,
   inPersonRoute,
   seniorExceptionAvailable,
+  readOnly = false,
 }: Props) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -507,27 +510,29 @@ export function SelfieKycTab({
           <h3 className="font-semibold text-[#1b1d24]">KYC Status</h3>
           <span className={`px-3 py-1 rounded-full text-sm font-semibold ${kycBadgeClass}`}>{kycBadgeLabel}</span>
         </div>
-        <div className="flex gap-3">
-          <Button
-            size="sm"
-            onClick={() => updateKycStatus("VERIFIED")}
-            disabled={updatingKyc || kycStatus === "VERIFIED"}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            {updatingKyc ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <UserCheck className="h-4 w-4 mr-1.5" />}
-            Approve KYC
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => updateKycStatus("FAILED")}
-            disabled={updatingKyc || manualRejectionActive}
-            className="border-red-300 text-red-600 hover:bg-red-50"
-          >
-            {updatingKyc ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <UserX className="h-4 w-4 mr-1.5" />}
-            Reject KYC
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="flex gap-3">
+            <Button
+              size="sm"
+              onClick={() => updateKycStatus("VERIFIED")}
+              disabled={updatingKyc || kycStatus === "VERIFIED"}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {updatingKyc ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <UserCheck className="h-4 w-4 mr-1.5" />}
+              Approve KYC
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => updateKycStatus("FAILED")}
+              disabled={updatingKyc || manualRejectionActive}
+              className="border-red-300 text-red-600 hover:bg-red-50"
+            >
+              {updatingKyc ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <UserX className="h-4 w-4 mr-1.5" />}
+              Reject KYC
+            </Button>
+          </div>
+        )}
         {manualRejectionActive && (
           <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             <p className="font-medium">Manual KYC rejection is active</p>
@@ -744,81 +749,83 @@ export function SelfieKycTab({
       )}
 
       {/* Camera Capture */}
-      <div className="bg-white rounded-lg border border-[#e5e7eb] p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-[#1b1d24]">Capture New Selfie</h3>
-          {mode === "view" && (
-            <Button size="sm" onClick={() => { setMode("capture"); startCamera() }}>
-              <Camera className="h-4 w-4 mr-1.5" />Open Camera
-            </Button>
-          )}
-        </div>
-
-        {error && (
-          <div className="flex items-center gap-2 text-red-600 text-sm mb-4 bg-red-50 border border-red-200 rounded p-3">
-            <AlertCircle className="h-4 w-4 shrink-0" />{error}
-          </div>
-        )}
-
-        {mode === "capture" && (
-          <div className="space-y-4">
-            {!capturedUrl ? (
-              <>
-                <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "4/3", maxHeight: "400px" }}>
-                  <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                  {!streaming && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Loader2 className="h-8 w-8 text-white animate-spin" />
-                    </div>
-                  )}
-                  {/* Face guide oval */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-44 h-56 border-2 border-white border-dashed rounded-full opacity-60" />
-                  </div>
-                </div>
-                <canvas ref={canvasRef} className="hidden" />
-                <div className="flex gap-3">
-                  <Button onClick={capturePhoto} disabled={!streaming}>
-                    <Camera className="h-4 w-4 mr-1.5" />Capture Photo
-                  </Button>
-                  <Button variant="ghost" onClick={() => { stopCamera(); setMode("view") }}>Cancel</Button>
-                </div>
-                <p className="text-xs text-gray-400">Position your face within the oval. Ensure good lighting.</p>
-              </>
-            ) : (
-              <>
-                <div className="rounded-lg overflow-hidden border" style={{ maxWidth: "320px" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={capturedUrl} alt="Captured selfie" className="w-full" />
-                </div>
-                <div className="flex gap-3">
-                  <Button onClick={uploadSelfie} disabled={uploading}>
-                    {uploading ? (
-                      <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Uploading...</>
-                    ) : (
-                      <><CheckCircle className="h-4 w-4 mr-1.5" />Use This Photo</>
-                    )}
-                  </Button>
-                  <Button variant="ghost" onClick={retake} disabled={uploading}>
-                    <RotateCcw className="h-4 w-4 mr-1.5" />Retake
-                  </Button>
-                  <Button variant="ghost" onClick={() => { setMode("view"); setCapturedBlob(null); setCapturedUrl(null) }} disabled={uploading}>
-                    Cancel
-                  </Button>
-                </div>
-              </>
+      {!readOnly && (
+        <div className="bg-white rounded-lg border border-[#e5e7eb] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-[#1b1d24]">Capture New Selfie</h3>
+            {mode === "view" && (
+              <Button size="sm" onClick={() => { setMode("capture"); startCamera() }}>
+                <Camera className="h-4 w-4 mr-1.5" />Open Camera
+              </Button>
             )}
           </div>
-        )}
 
-        {mode === "view" && !selfieDoc && !uploadDone && (
-          <div className="text-center py-8 text-gray-400">
-            <XCircle className="h-10 w-10 mx-auto mb-2 text-gray-300" />
-            <p className="text-sm">No selfie on file</p>
-            <p className="text-xs mt-1">Click &quot;Open Camera&quot; to capture and upload a selfie</p>
-          </div>
-        )}
-      </div>
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 text-sm mb-4 bg-red-50 border border-red-200 rounded p-3">
+              <AlertCircle className="h-4 w-4 shrink-0" />{error}
+            </div>
+          )}
+
+          {mode === "capture" && (
+            <div className="space-y-4">
+              {!capturedUrl ? (
+                <>
+                  <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "4/3", maxHeight: "400px" }}>
+                    <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                    {!streaming && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Loader2 className="h-8 w-8 text-white animate-spin" />
+                      </div>
+                    )}
+                    {/* Face guide oval */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-44 h-56 border-2 border-white border-dashed rounded-full opacity-60" />
+                    </div>
+                  </div>
+                  <canvas ref={canvasRef} className="hidden" />
+                  <div className="flex gap-3">
+                    <Button onClick={capturePhoto} disabled={!streaming}>
+                      <Camera className="h-4 w-4 mr-1.5" />Capture Photo
+                    </Button>
+                    <Button variant="ghost" onClick={() => { stopCamera(); setMode("view") }}>Cancel</Button>
+                  </div>
+                  <p className="text-xs text-gray-400">Position your face within the oval. Ensure good lighting.</p>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg overflow-hidden border" style={{ maxWidth: "320px" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={capturedUrl} alt="Captured selfie" className="w-full" />
+                  </div>
+                  <div className="flex gap-3">
+                    <Button onClick={uploadSelfie} disabled={uploading}>
+                      {uploading ? (
+                        <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Uploading...</>
+                      ) : (
+                        <><CheckCircle className="h-4 w-4 mr-1.5" />Use This Photo</>
+                      )}
+                    </Button>
+                    <Button variant="ghost" onClick={retake} disabled={uploading}>
+                      <RotateCcw className="h-4 w-4 mr-1.5" />Retake
+                    </Button>
+                    <Button variant="ghost" onClick={() => { setMode("view"); setCapturedBlob(null); setCapturedUrl(null) }} disabled={uploading}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {mode === "view" && !selfieDoc && !uploadDone && (
+            <div className="text-center py-8 text-gray-400">
+              <XCircle className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm">No selfie on file</p>
+              <p className="text-xs mt-1">Click &quot;Open Camera&quot; to capture and upload a selfie</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
