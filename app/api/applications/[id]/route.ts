@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { isClientPoDocument, parsePoFundingFacts, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
@@ -257,10 +258,15 @@ export async function PATCH(
         select: {
           id: true,
           status: true,
+          clientId: true,
           appliedAmount: true,
           appliedTermDays: true,
           productId: true,
           initiationFeePayment: true,
+          loanPurposeCategory: true,
+          poNumber: true,
+          poBuyerName: true,
+          poDocumentId: true,
           affordabilityResult: true,
           updatedAt: true,
           creditLifeElection: true,
@@ -314,6 +320,16 @@ export async function PATCH(
         termDays: application.appliedTermDays,
       }).ok) {
         return { kind: "credit_life_missing" as const }
+      }
+      // A PO-funding draft still names the client's undeleted purchase order,
+      // checked under the client-evidence lock DELETE /api/documents/[id] takes.
+      if (requiresPoFundingFacts(application.product.productType)) {
+        const facts = parsePoFundingFacts(application as unknown as Record<string, unknown>, application.loanPurposeCategory)
+        if (!facts.ok || !(await isClientPoDocument(tx, {
+          tenantId: tenant.id, clientId: application.clientId, documentId: facts.facts.poDocumentId,
+        }))) {
+          return { kind: "po_order_missing" as const }
+        }
       }
 
       const expenseEvidence = createAffordabilityExpenseEvidence(application.client)
@@ -412,6 +428,12 @@ export async function PATCH(
     }
     if (outcome.kind === "asset_finance") {
       return NextResponse.json({ error: ASSET_FINANCE_APPLICATION_ERROR }, { status: 409 })
+    }
+    if (outcome.kind === "po_order_missing") {
+      return NextResponse.json(
+        { error: "Open Edit Draft and record the purchase order (number, buyer and document) before submitting for review." },
+        { status: 422 },
+      )
     }
     if (outcome.kind === "credit_life_missing") {
       return NextResponse.json(
