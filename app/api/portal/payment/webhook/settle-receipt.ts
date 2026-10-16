@@ -12,9 +12,11 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { holdStitchReceipt, recordHeldReceipt } from "@/lib/payments/held-receipt"
 import {
+  backdatingInterestRebate,
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
+import { rejectUnauthorisedBackdating } from "@/lib/loan/value-date"
 import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 
 import type { Prisma } from "@prisma/client"
@@ -50,9 +52,14 @@ export async function settleReceipt(
       })
       if (result.count === 0) throw new AlreadyCompletedError()
 
-      // One instant for the receipt's value date and every instalment it pays,
-      // so a paid row is dated by exactly its receipt.
+      // The value date is when the client paid: when they opened the payment
+      // request they paid through, not when this webhook is processed (it can
+      // land after midnight, or be retried). A receipt is priced at its value
+      // date, so the s125 figure the client was shown that day settles the
+      // loan; every instalment it pays is dated by it. `asOf` stays now for
+      // arrears and charges, which describe today.
       const asOf = new Date()
+      const receivedAt = stitchPayment.createdAt < asOf ? stitchPayment.createdAt : asOf
       const createReceipt = (
         allocationStatus: "ALLOCATED" | "UNAPPLIED",
         reconciliationReason?: string,
@@ -64,9 +71,7 @@ export async function settleReceipt(
           paymentMethod: "EFT",
           reference: stitchPayment.externalReference,
           notes: `Stitch instant EFT — id: ${stitchId}`,
-          // SYSTEM_OBSERVED: Stitch confirms the money at webhook time, so that
-          // IS the value date. Never back-dated — there is nothing to assert.
-          receivedAt: asOf,
+          receivedAt,
           allocationStatus,
           reconciliationReason,
         },
@@ -93,9 +98,10 @@ export async function settleReceipt(
         // Loaded outside the try: its catch reads every failure as over-settlement.
         const replay = await loadReceiptReplay(tx, loan, asOf)
         let projection
+        let chargesBackdating
         try {
-          ;({ projection } = projectReceiptWithReplay(replay, {
-            loan, schedule: loan.repaymentSchedule, amount: stitchPayment.amount, receivedAt: asOf, asOf,
+          ;({ projection, chargesBackdating } = projectReceiptWithReplay(replay, {
+            loan, schedule: loan.repaymentSchedule, amount: stitchPayment.amount, receivedAt, asOf,
           }))
         } catch (error) {
           const newPayment = await createReceipt(
@@ -135,10 +141,27 @@ export async function settleReceipt(
           })
           return newPayment
         }
+        // The value date is bounded as for every receipt: one that waives more
+        // than may stand unreviewed (an instalment that fell due in between,
+        // say) is held for staff, who allocate it with a reason or not at all.
+        const backdating = rejectUnauthorisedBackdating({
+          interest: backdatingInterestRebate({
+            loan, schedule: loan.repaymentSchedule, asOf, receivedAt, settles: projection.isCompleted,
+          }),
+          charges: chargesBackdating,
+        })
+        if (backdating) {
+          return await recordHeldReceipt(tx, {
+            tenantId, loanId: stitchPayment.loanId, amount: stitchPayment.amount, paymentMethod: "EFT",
+            reference: stitchPayment.externalReference, notes: `Stitch instant EFT — id: ${stitchId}`,
+            receivedAt, reason: backdating, oldValue: { status: loan.status, totalPaid: loan.totalPaid },
+            source: "stitch_webhook",
+          })
+        }
         const newPayment = await createReceipt("ALLOCATED")
         const postRows = projection.rows
 
-        await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, { tenantId, paidAt: asOf })
+        await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, { tenantId, paidAt: receivedAt })
 
         // Recompute outstanding principal + arrears + DPD from the full
         // post-payment schedule.
@@ -154,11 +177,11 @@ export async function settleReceipt(
             totalRepayable: projection.totalRepayable,
             ...receiptContractualTotalsUpdate(projection),
             outstandingPrincipal: balances.outstandingPrincipal,
-            lastPaymentDate: asOf,
+            lastPaymentDate: loan.lastPaymentDate && loan.lastPaymentDate > receivedAt ? loan.lastPaymentDate : receivedAt,
             lastPaymentAmount: stitchPayment.amount,
             nextPaymentDate: nextPaymentDueDate(postRows),
             status: isCompleted ? "COMPLETED" : loan.status,
-            closedAt: isCompleted ? asOf : loan.closedAt,
+            closedAt: isCompleted ? receivedAt : loan.closedAt,
             daysInArrears: balances.daysInArrears,
             arrearsAmount: balances.arrearsAmount,
           },
