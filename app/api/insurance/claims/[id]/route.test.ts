@@ -251,6 +251,17 @@ describe("PATCH /api/insurance/claims/[id] — a claim's outcome only through it
     }))
   })
 
+  it.each(["APPROVED", "PAID", "REJECTED"])("a %s claim takes a note, and nothing else", async (status) => {
+    claimAt(status)
+    expect((await PATCH(buildReq({ notes: "Insurer paid the beneficiary." }), ctx)).status).toBe(200)
+    expect(claimUpdateManyMock).toHaveBeenLastCalledWith(expect.objectContaining({ data: { notes: "Insurer paid the beneficiary." } }))
+    claimUpdateManyMock.mockClear()
+    for (const body of [{ claimType: "THEFT" }, { incidentDate: "2026-01-01" }, { insurerRef: "X" }, { rejectionReason: "late" }, { notes: "n", claimType: "FIRE" }]) {
+      expect((await PATCH(buildReq(body), ctx)).status).toBe(409)
+    }
+    expect(claimUpdateManyMock).not.toHaveBeenCalled()
+  })
+
   it("refuses a reject with a blank reason", async () => {
     expect((await PATCH(buildReq({ action: "reject", rejectionReason: "   " }), ctx)).status).toBe(400)
     nothingWritten()

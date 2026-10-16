@@ -174,8 +174,9 @@ export async function PATCH(
       const generic = parseGenericClaimUpdate(body)
       if (!generic.ok) return NextResponse.json({ error: generic.error }, { status: 400 })
       const updateData: Record<string, unknown> = { ...generic.data, ...decisionFields }
-      if (updateData.status !== undefined && !decidable) {
-        return NextResponse.json({ error: `A ${current.status} claim has already been decided.` }, { status: 409 })
+      // A decided claim takes notes only; its facts and decision stay as recorded.
+      if (!decidable && Object.keys(updateData).some((key) => key !== "notes")) {
+        return NextResponse.json({ error: `A ${current.status} claim has already been decided; only its notes can change.` }, { status: 409 })
       }
       const written = await prisma.insuranceClaim.updateMany({
         where: { id, tenantId: tenant.id, ...(updateData.status !== undefined ? { status: { in: [...OPEN_CLAIM_STATUSES] } } : {}) },
