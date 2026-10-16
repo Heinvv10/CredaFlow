@@ -1,0 +1,66 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Asset-finance slice 4b: IsaFlow draft-journal push (lib/accounting/isaflow).
+// Hand-written guards: prisma/migrations/20261016100000_isaflow_connection_push
+// (CONNECTED only by a TOTP-verified SUPER_ADMIN of the tenant, token sealed;
+// a push is claimed before it is sent and its request never changes).
+// ════════════════════════════════════════════════════════════════════════════
+
+enum IsaFlowConnectionStatus {
+  CONNECTED
+  // IsaFlow refused the token: a SUPER_ADMIN must connect again.
+  NEEDS_RECONNECT
+  DISCONNECTED
+}
+
+enum IsaFlowTokenKind {
+  PAT
+  OAUTH
+}
+
+// One IsaFlow company per tenant. The token is secret-box sealed and never
+// returned to a browser or written to an audit row.
+model IsaFlowConnection {
+  id                 String                  @id @default(cuid())
+  tenantId           String                  @unique
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id])
+  status             IsaFlowConnectionStatus
+  baseUrl            String
+  tokenSealed        String?
+  tokenKind          IsaFlowTokenKind        @default(PAT)
+  isaflowCompanyId   String?
+  isaflowCompanyName String?
+  connectedById      String
+  connectedWithTotp  Boolean                 @default(false)
+  connectedAt        DateTime
+  lastVerifiedAt     DateTime?
+  disconnectedAt     DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+}
+
+// A closed batch pushed to IsaFlow as one DRAFT journal, at most once: the row
+// is the claim taken before the request leaves. `requestJson` is the exact
+// create_draft_journal arguments text; every retry resends it under the same
+// `idempotencyKey`, so IsaFlow replays instead of creating a second draft.
+model AccountingIsaFlowPush {
+  id               String                @id @default(cuid())
+  tenantId         String
+  batchId          String                @unique
+  batch            AccountingExportBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status           AccountingPushStatus
+  externalRef      String
+  idempotencyKey   String                @unique
+  requestJson      String
+  requestSha256    String
+  isaflowCompanyId String
+  isaflowJournalId String?
+  foundOnReadBack  Boolean               @default(false)
+  error            String?
+  pushedById       String
+  resolvedById     String?
+  resolutionNote   String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@unique([tenantId, batchId])
+}
