@@ -128,6 +128,9 @@ model Loan {
   // Original signed maturity totals. totalInterest/totalRepayable may reduce
   // only when a DAILY_ACCRUAL loan settles early; these fields preserve the
   // immutable agreement baseline and make payment reversal deterministic.
+  commercialCancelledAt DateTime?
+  commercialCancellationSaleId String? @unique
+  commercialCancellationSale RemarketingSale? @relation("CommercialCancellation", fields: [commercialCancellationSaleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   contractualTotalInterest    Int?
   contractualTotalRepayable   Int?
   outstandingPrincipal        Int

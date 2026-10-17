@@ -235,6 +235,7 @@ enum RemarketingBuyerType {
 // The sale of a recovered asset. The trigger recomputes belowValuation, forces
 // relatedPartyMatch on an ID match, and demands a second approver (guardRemarketingSale).
 model RemarketingSale {
+  cancelledLoan Loan? @relation("CommercialCancellation")
   id                    String                @id @default(cuid())
   tenantId              String
   tenant                Tenant                @relation(fields: [tenantId], references: [id])
