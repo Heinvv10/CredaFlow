@@ -73,6 +73,9 @@ export async function leaseCapitalRows(
       feesDue: 0,
       creditLifePremiumDue: 0,
       totalDue: payment + balloon,
+      // The funding cash basis excludes VAT and maintenance, including when
+      // common-law replay supplied a gross collectible snapshot.
+      collectibleTotalDue: payment + balloon,
     })
   }
   return {

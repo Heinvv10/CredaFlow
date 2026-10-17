@@ -272,3 +272,17 @@ accounting unit tests pass (`/tmp/cf-rate-cancel-fix-tsc3.log`,
 `/tmp/cf-rate-cancel-fix-lint-final.log`, `/tmp/cf-rate-cancel-fix-unit.log`). The
 throwaway database was removed. The positive-rental CHECK is unchanged; this
 checkpoint does not assert full CI or resolution of the zero-rental gate.
+
+## Fresh review: notice revision race and paid-lease cash basis
+
+The independent security race is retained as a deterministic regression: a
+provider result from revision 0 cannot complete or overwrite revision 1. Every
+snapshot outcome/completion write uses a revision-and-pending compare-and-set;
+a stale result remains pending and creates no misleading completion audit.
+The new revision sends with its own idempotency key. Lease funding rows now
+explicitly replace the gross collectible snapshot with ex-VAT rental cash.
+The reviewers' repro tests were converted to required safe-behaviour assertions
+and failed before the fixes (`/tmp/cf-rate-review-red2.log`); all 15 pass after
+(`/tmp/cf-rate-review-green.log`). Two real booked paid-lease tests independently
+replay daily rental-only capital and preserve receipts, issued invoices, paid
+bills, maintenance and correct per-line VAT (`/tmp/cf-rate-paid-lease-green2.log`).

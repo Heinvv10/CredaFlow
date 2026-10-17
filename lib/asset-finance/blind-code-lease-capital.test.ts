@@ -4,7 +4,7 @@ import { restateSettledSchedule } from './reprice-restatement'
 import type { StoredScheduleRow } from './stored-schedule'
 
 describe('independent lease late-rate capital boundary', () => {
- it('OBSERVED BUG: carried gross collectibleTotalDue contaminates ex-VAT funding restatement', async () => {
+ it('uses ex-VAT rental cash for funding restatement', async () => {
   const stored: StoredScheduleRow[] = [
    { id: 'one', installmentNo: 1, dueDate: new Date('2026-02-01T00:00:00+02:00'), principalDue: 13800, interestDue: 0, feesDue: 0, creditLifePremiumDue: 0, totalDue: 13800, collectibleTotalDue: 13800, totalPaid: 13800, status: 'PAID', assetFinanceOpeningBalanceCents: 100000 },
    { id: 'two', installmentNo: 2, dueDate: new Date('2026-03-01T00:00:00+02:00'), principalDue: 13800, interestDue: 0, feesDue: 0, creditLifePremiumDue: 0, totalDue: 13800, collectibleTotalDue: 13800, totalPaid: 0, status: 'PENDING', assetFinanceOpeningBalanceCents: 90849 },
@@ -20,7 +20,7 @@ describe('independent lease late-rate capital boundary', () => {
   const result = restateSettledSchedule({ ...input, stored: view.rows })
   const correct = restateSettledSchedule({ ...input, stored: view.rows.map(row => ({ ...row, collectibleTotalDue: row.totalDue })) })
   expect(correct.rows[0].totalCents).toBe(10000)
-  expect(result.rows[0].totalCents).toBe(13800)
-  expect(correct.closingBalanceCents - result.closingBalanceCents).toBe(3800)
+  expect(result.rows[0].totalCents).toBe(10000)
+  expect(result.closingBalanceCents).toBe(correct.closingBalanceCents)
  })
 })

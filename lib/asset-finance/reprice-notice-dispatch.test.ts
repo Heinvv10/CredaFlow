@@ -10,13 +10,13 @@ const row = {
   id: "notice-1", tenantId: "tenant-1", loanId: "loan-1", contractRateId: "rate-1", loanReference: "AF-TEST",
   effectiveDate: new Date("2026-09-25Z"), firstChangedPaymentDate: new Date("2026-11-01Z"),
   resultingRate: { toString: () => "0.13" }, oldInstalmentCents: 100000, newInstalmentCents: 110000,
-  recipientClientIds: ["client-1"], totalInterestCents: 90000, monthlyInterestCents: 1200,
+  taxAdjustmentRevision: 0, recipientClientIds: ["client-1"], totalInterestCents: 90000, monthlyInterestCents: 1200,
 }
 const recipient = { id: "client-1", firstName: "SYNTHETIC", lastName: "CLIENT", email: "synthetic@client.invalid" }
 function setup() {
-  const update = vi.fn(async () => ({}))
+  const update = vi.fn(async () => ({count:1}))
   const db = {
-    assetFinanceRateNotice: { findMany: vi.fn(async () => [row]), update },
+    assetFinanceRateNotice: { findMany: vi.fn(async () => [row]), updateMany: update },
     loan: { findFirst: vi.fn(async () => ({ clientId: "client-1", entityId: null })) },
     client: { findMany: vi.fn(async () => [recipient]) },
     messageTemplate: { findFirst: vi.fn(async () => ({ id: "template-1", tenantId: "tenant-1", statutoryOverride: false, channel: "EMAIL" })) },
@@ -92,25 +92,27 @@ describe("written repricing notices", () => {
 })
 
 // Independent security review: a new supply revision commits during provider I/O.
-it("SECURITY REPRO: stale provider completion suppresses an unsent tax revision", async () => {
+it("does not let a stale provider completion suppress an unsent tax revision", async () => {
   const { db, notices, update } = setup()
   const current = { ...row, taxAdjustmentRevision: 0, completedAt: null as Date | null }
   notices.findMany.mockImplementation(async () => current.completedAt ? [] : [{ ...current }] as never)
   update.mockImplementation(async (args: never) => {
-    const a = args as { data: { completedAt: Date | null } }
+    const a = args as { where: {taxAdjustmentRevision:number}; data: { completedAt: Date | null } }
+    if(a.where.taxAdjustmentRevision !== current.taxAdjustmentRevision)return {count:0}
     Object.assign(current, a.data)
-    return {} 
+    return {count:1} 
   })
   const send = vi.fn(async () => {
     // Actual supply commits revision 1 and schedules its written correction.
-    current.taxAdjustmentRevision = 1
+    if(current.taxAdjustmentRevision===0)current.taxAdjustmentRevision = 1
     current.completedAt = null
     return { id: "old-revision-message", status: "SENT" }
   })
   await dispatchRepriceNotices(db, "tenant-1", send as never)
   expect(current.taxAdjustmentRevision).toBe(1)
-  expect(current.completedAt).toBeInstanceOf(Date)
-  expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toEqual({ completed: 0, pending: 0 })
-  expect(send).toHaveBeenCalledTimes(1)
+  expect(current.completedAt).toBeNull()
+  expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toEqual({ completed: 1, pending: 0 })
+  expect(send).toHaveBeenCalledTimes(2)
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: "rate-notice:rate-1:client-1:EMAIL" }))
 })
+

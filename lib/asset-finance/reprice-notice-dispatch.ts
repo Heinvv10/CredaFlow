@@ -83,14 +83,16 @@ export async function dispatchRepriceNotices(db: RateNoticeDb, tenantId: string,
       outcomes.push({ clientId: missing, channel: "EMAIL", status: "BLOCKED", reason: "Recipient unavailable or deceased" })
     }
     const completed = outcomes.length > 0 && outcomes.every((outcome) => ACCEPTED.has(outcome.status))
-    await db.$transaction(async (tx) => {
-      await tx.assetFinanceRateNotice.update({ where: { id: notice.id, tenantId }, data: { completedAt: completed ? new Date() : null, lastOutcomes: outcomes } })
+    const persisted = await db.$transaction(async (tx) => {
+      const written = await tx.assetFinanceRateNotice.updateMany({ where: { id: notice.id, tenantId, taxAdjustmentRevision: notice.taxAdjustmentRevision, completedAt: null }, data: { completedAt: completed ? new Date() : null, lastOutcomes: outcomes } })
+      if (written.count !== 1) return false
       await logAuditStrict({
         tenantId, userEmail: "system@asset-finance-reprice", action: AuditAction.ASSET_FINANCE_RATE_NOTICE_DISPATCH,
         entity: "AssetFinanceRateNotice", entityId: notice.id, newValue: { completed, outcomes },
       }, tx)
+      return true
     })
-    result[completed ? "completed" : "pending"]++
+    result[completed && persisted ? "completed" : "pending"]++
   }
   return result
 }
