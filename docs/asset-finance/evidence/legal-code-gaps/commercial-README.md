@@ -71,3 +71,15 @@ snapshot while collecting zero unearned interest; all four freeze tests pass
 with that assertion (`/tmp/cf-commercial-fixture-history-pg.log`). Relevant
 unit tests passed 26/26, with TypeScript and scoped ESLint also passing. The
 root-owned exact-head full CI and final review acknowledgements remain pending.
+
+UTC/SAST midnight fixture checkpoint (18 October): the full gate exposed two
+synthetic invoice builders using PostgreSQL `CURRENT_DATE` (17 October UTC)
+while cancellation fixtures correctly recorded 18 October SAST. The six
+focused suites reproduced nine failures, then passed all 30 tests after both
+builders bound the explicit SAST date. No production date guard changed.
+The accounting late-recovery fixture also now records actual cancellation
+through the staff route before selling; its original response was 409 for
+missing cancellation evidence. The combined commercial, accounting and all
+recovery suites then passed under `TZ=UTC`: 53 suites, 437 tests, zero skips
+(`/tmp/cf-commercial-midnight-final53.log`, 102.57 seconds). TypeScript and
+scoped ESLint passed. Final exact-head full CI remains root-owned.
