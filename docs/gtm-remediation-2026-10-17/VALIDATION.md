@@ -39,3 +39,9 @@ Independent A source review approved post-freeze tracker33622b52 and gate-map099
 ### Candidate31339 pristine-image attempt1 failed
 
 Actual Step34 SFace full-body transfer terminated; Dockerexit1 after14:05:26–14:17:10UTC, OOMKilled=false. No image or runtime accepted. Source quality/integration passes above remain exact predecessor evidence. MQ retained immutable attempt logs/exit/transfer measurements and official HEAD/tail/1MiB range diagnostics. A implementing G18-R under682ea42c ownership/specification, B independent review follows; no changes to URL/pins/models/runtime thresholds/Dockerfile allowed. New reviewed source requires a new freeze and full gates/image. No old-image retries, host-cache overlay or fingerprint waiver.
+
+## Candidate5 pristine image attempt: second acquisition failure
+
+Exact source3e6674986e5fd782a6c24dce9b3a22354bdd3088 preserved currentmain5711f533. Adopted pristine build session50526/builder7b529a952e15 failed exit1, OOMKilledfalse,14:33:46–14:40:05UTC. Actual bounded range acquisition progressed to16MiB validated partial before a response body terminated; helper cleanup ran. No image/runtime/browser acceptance exists. Do not confuse root's pending-verification adoption of the ongoing build with a successful artifact. MQ retains original logs/exit/metrics.
+
+A owns a second minimal G18-R correction on download helper/test/review note only: bounded per-chunk timeout and bounded transient transport/body retries at the same offset, with strict range/length/stable-total checks, official URLs/pins, final digest and atomic publication preserved. B independent review required. Exact3e667 hostquality already running will finish uninterrupted; avoid knowingly superseded fullintegration if correction is pending by that boundary. Ultimate reviewed source requires its own fullquality/integration/image/browser evidence. PR168 exists at3e667, unqueued/unmerged with required hosted checks only.
