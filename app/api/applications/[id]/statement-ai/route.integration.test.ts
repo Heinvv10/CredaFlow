@@ -25,16 +25,13 @@ import { GET } from "./route"
 const RUN = process.env.RUN_STATEMENT_AI_IT === "1"
 const suite = RUN ? describe : describe.skip
 
-/** The stubbed model: answers a summary prompt with `summary`, an explanation prompt with `explain(code)`. */
-const model = { summary: "", explain: (code: string) => `${code} was raised.`, calls: 0 }
+/** The stubbed model: answers the summary prompt (the only one A and B make) with `summary`. */
+const model = { summary: "", calls: 0 }
 
 function stubModel() {
-  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+  vi.stubGlobal("fetch", vi.fn(async () => {
     model.calls++
-    const prompt = (JSON.parse(init.body) as { messages: Array<{ content: string }> }).messages[0].content
-    const code = prompt.match(/name the flag by its code exactly as given \(([A-Z_]+)\)/)?.[1]
-    const content = code ? model.explain(code) : model.summary
-    return new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 900, completion_tokens: 80 } }), { status: 200 })
+    return new Response(JSON.stringify({ choices: [{ message: { content: model.summary } }], usage: { prompt_tokens: 900, completion_tokens: 20 } }), { status: 200 })
   }))
 }
 
@@ -86,51 +83,55 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     expect(await prisma.statementAiUsage.count({ where: { tenantId: off.tenantId } })).toBe(0)
   })
 
-  it("flag on: the GET queues, the worker stores, and a later GET shows only what passed the post-check", async () => {
-    model.summary = "The 1 statement covers 2026-07 to 2026-09. Rent to SYNTH RENTALS came to R19 500.00. GAMBLING was raised."
-    // A wrong threshold: R1 500.00 is an evidence figure, not the policy's 5% of income.
-    model.explain = (code) => `${code}: betting is above the policy threshold of R1 500.00 a month.`
+  it("flag on: the GET queues the summary, the worker stores it, and explanations need no model", async () => {
+    // Not a claims list first: asked once more.
+    let n = 0
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      model.calls++
+      const content = ++n === 1 ? "Everything looks fine." : '{"claims": ["payees", "flags"]}'
+      return new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 900, completion_tokens: 20 } }), { status: 200 })
+    }))
     const first = await get(on, "LOAN_ADMIN")
     expect(first.status).toBe(200)
-    expect(await first.json()).toMatchObject({ summary: null, explanations: [], pending: 2, modelAvailable: true })
+    const body = await first.json()
+    expect(body).toMatchObject({ summary: null, pending: 1, modelAvailable: true })
+    // B is written by code at once, from the flag's own facts.
+    expect(body.explanations).toEqual([expect.objectContaining({ flagCode: "GAMBLING", status: "OK", text: expect.stringContaining("GAMBLING (RISK_BEHAVIOUR)") })])
     await drained()
-    const rows = await prisma.statementAiOutput.findMany({ where: { tenantId: on.tenantId }, orderBy: { kind: "asc" } })
-    expect(rows.map((r) => [r.kind, r.flagCode, r.status])).toEqual([["SUMMARY", "", "OK"], ["FLAG_EXPLANATION", "GAMBLING", "REJECTED"]])
-    expect(rows[1].rejectReason).toMatch(/threshold other than policy/)
-    // Summary once; the rejected explanation asked twice.
-    expect(model.calls).toBe(3)
-    expect(await prisma.statementAiUsage.count({ where: { tenantId: on.tenantId } })).toBe(3)
-    expect(await prisma.auditLog.count({ where: { tenantId: on.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED" } })).toBe(2)
+    const rows = await prisma.statementAiOutput.findMany({ where: { tenantId: on.tenantId } })
+    expect(rows.map((r) => [r.kind, r.status])).toEqual([["SUMMARY", "OK"]])
+    expect(rows[0].text).toMatch(/^Largest payees by money out: SYNTH RENTALS R19 500.00/)
+    expect(model.calls).toBe(2)
+    expect(await prisma.statementAiUsage.count({ where: { tenantId: on.tenantId } })).toBe(2)
+    expect(await prisma.auditLog.count({ where: { tenantId: on.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED" } })).toBe(1)
 
     // READONLY reads answers only: the summary and explanations restate the insights (CREDIT_OFFICER and up).
     const readonly = await (await get(on, "READONLY")).json()
     expect(readonly).toMatchObject({ summary: null, explanations: [], answers: [] })
     const second = await (await get(on, "CREDIT_OFFICER")).json()
     expect(second.pending).toBe(0)
-    expect(second.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringContaining("R19 500.00") })
-    expect(second.explanations).toEqual([expect.objectContaining({ flagCode: "GAMBLING", status: "REJECTED", text: null, citations: null })])
-    expect(JSON.stringify(second)).not.toContain("policy threshold of R1 500.00")
+    expect(second.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringContaining("Flags raised by the credit checks: GAMBLING") })
     // Viewed outputs cite the statement: each GET logs the access.
     expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "statement_ai" } })).toBe(3)
     await drained()
-    expect(model.calls).toBe(3)
+    expect(model.calls).toBe(2)
   })
 
-  it("shows an output as stale once the facts change, and queues the new one", async () => {
+  it("shows the summary as stale once the facts change, and queues the new one", async () => {
     await prisma.applicationCheckFlag.create({
       data: {
         tenantId: on.tenantId, applicationId: on.applicationId, check: "RISK_BEHAVIOUR", code: "RETURNED_DEBIT", fingerprint: `fp2_${on.applicationId}`,
         summary: "1 debit was returned unpaid.", evidence: { documentId: on.documentId, analysisId: on.analysisId, transactionIndexes: [1], occurrences: 1 },
       },
     })
-    model.summary = "GAMBLING and RETURNED_DEBIT were raised."
+    model.summary = '{"claims": ["flags"]}'
     const body = await (await get(on, "CREDIT_OFFICER")).json()
     expect(body.summary).toMatchObject({ status: "OK", stale: true })
-    // The new summary and RETURNED_DEBIT's explanation; GAMBLING's facts did not change.
-    expect(body.pending).toBe(2)
+    expect(body.pending).toBe(1)
+    expect(body.explanations.map((e: { flagCode: string }) => e.flagCode)).toEqual(["GAMBLING", "RETURNED_DEBIT"])
     await drained()
     const after = await (await get(on, "CREDIT_OFFICER")).json()
-    expect(after.summary).toMatchObject({ status: "OK", stale: false, text: "GAMBLING and RETURNED_DEBIT were raised." })
+    expect(after.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringMatching(/GAMBLING .*RETURNED_DEBIT/) })
   })
 
   it("cross-tenant: another lender with Statement AI on can neither read nor trigger them", async () => {

@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { RECOMPUTE_STATUSES } from "@/lib/credit-checks/recompute"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 import { statementAiEnabled } from "./enabled"
-import { generate, missing, planOutputs } from "./generate"
+import { generate, planOutputs, summaryStored } from "./generate"
 import { modelAvailable } from "./model"
 import { runQuestion } from "./ask/run"
 
@@ -57,14 +57,12 @@ export function drained(): Promise<unknown> {
   return queue
 }
 
-/** The summary and flag explanations the application's current facts lack. */
+/** The summary, if the application's current facts lack one (explanations need no model). */
 async function runApplication(job: { tenantId: string; applicationId: string }): Promise<void> {
   if (!modelAvailable()) return
   const planned = await planOutputs(job.tenantId, job.applicationId)
-  if (!planned) return
-  for (const plan of await missing(job.tenantId, job.applicationId, planned.plans)) {
-    await generate(job.tenantId, job.applicationId, plan)
-  }
+  if (!planned?.summary || (await summaryStored(job.tenantId, job.applicationId, planned.summary))) return
+  await generate(job.tenantId, job.applicationId, planned.summary)
 }
 
 /** Generate whatever an application lacks, if the tenant has Statement AI on. */

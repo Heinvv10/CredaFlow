@@ -6,10 +6,9 @@
  */
 import type { StatementAiOutput } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import type { Planned } from "./generate"
+import type { ApplicationPlan } from "./generate"
 import { checkNoContradiction } from "./post-check"
 import { askInputHash } from "./ask/answer"
-import type { AskRow } from "./ask/tools"
 
 export interface OutputView {
   id: string
@@ -61,35 +60,40 @@ export interface ApplicationAiView {
 }
 
 /**
- * Per (kind, flag): the output for the current facts and prompt if stored,
- * else the newest older one (stale). Flags no longer raised are not shown.
+ * The summary for the current facts and prompt if stored, else the newest
+ * older OK one (stale); the explanations as code writes them now; the newest
+ * answers.
  */
 export const ANSWERS_SHOWN = 10
 
 export async function applicationAiView(
   tenantId: string,
   applicationId: string,
-  plan: { plans: Planned[]; rows: AskRow[]; raisedFlagCodes: string[] },
+  plan: Pick<ApplicationPlan, "summary" | "explanations" | "rows" | "raisedFlagCodes">,
   opts: { summaries: boolean },
 ): Promise<ApplicationAiView> {
-  const { plans, rows: askRows, raisedFlagCodes } = plan
-  const rows = await prisma.statementAiOutput.findMany({
-    where: { tenantId, applicationId, kind: { in: ["SUMMARY", "FLAG_EXPLANATION"] } },
-    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-  })
+  const { rows: askRows, raisedFlagCodes } = plan
   let pending = 0
-  const pick = (plan: Planned): OutputView | null => {
-    const mine = rows.filter((r) => r.kind === plan.kind && r.flagCode === plan.flagCode)
-    const current = mine.find((r) => r.inputHash === plan.built.inputHash && r.promptVersion === plan.promptVersion)
-    if (current) return toView(current, plan.built.inputHash, raisedFlagCodes)
-    pending++
-    const older = mine.find((r) => r.status === "OK")
-    return older ? toView(older, plan.built.inputHash, raisedFlagCodes) : null
-  }
+  let summary: OutputView | null = null
   // The summary and explanations restate the statement insights: shown only to those who see those (CREDIT_OFFICER and up).
-  const summaryPlan = opts.summaries ? plans.find((p) => p.kind === "SUMMARY") : undefined
-  const summary = summaryPlan ? pick(summaryPlan) : null
-  const explanations = opts.summaries ? plans.filter((p) => p.kind === "FLAG_EXPLANATION").map(pick).filter((v): v is OutputView => v !== null) : []
+  if (opts.summaries && plan.summary) {
+    const want = plan.summary
+    const mine = await prisma.statementAiOutput.findMany({
+      where: { tenantId, applicationId, kind: "SUMMARY" },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    })
+    const current = mine.find((r) => r.inputHash === want.built.inputHash && r.promptVersion === want.promptVersion)
+    if (!current) pending++
+    const shown = current ?? mine.find((r) => r.status === "OK")
+    summary = shown ? toView(shown, want.built.inputHash, raisedFlagCodes) : null
+  }
+  const now = new Date().toISOString()
+  const explanations: OutputView[] = opts.summaries
+    ? plan.explanations.map((e) => ({
+        id: `flag:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
+        inputHash: e.inputHash, promptVersion: "template", createdAt: now, stale: false, citations: e.text === null ? null : { facts: e.facts }, question: null,
+      }))
+    : []
   const asked = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: "ANSWER" },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],

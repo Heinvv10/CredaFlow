@@ -5,7 +5,7 @@ import { syntheticTransactions } from "./synthetic.test-helpers"
 import { allowedFrom, explanationFacts, safeKey, summaryFacts } from "./facts"
 import { rand } from "./format"
 import { postCheck } from "./post-check"
-import { EXPLANATION_PROMPT_VERSION, explanationPrompt, SUMMARY_PROMPT_VERSION, summaryPrompt } from "./prompts"
+import { SUMMARY_PROMPT_VERSION, summaryPrompt } from "./prompts"
 
 const read = { periodStart: "2026-07-01", periodEnd: "2026-09-30", openingBalanceCents: 500_000, closingBalanceCents: null, accountHolderName: "T TESTER", accountNumberLast4: "0001", transactions: syntheticTransactions() }
 const insights = computeInsights(
@@ -89,10 +89,6 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-p4", "e8dd6bc50bdd0b7f"])
-  })
-  it("pins the explanation prompt to its version", () => {
-    const built = explanationFacts(flags[0], [], ["GAMBLING"], "T TESTER")
-    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p5", "22a661565093a99e"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-1", "c07099d6b04a73a5"])
   })
 })

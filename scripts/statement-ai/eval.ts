@@ -187,13 +187,15 @@ async function main() {
       const insights = computeInsights([{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read }], { clientName: app.clientName, declaredExpensesCents: app.declaredExpensesCents })
       const flags = runChecks(factsOf({ applicationDate: `${app.months[2]}-${lastDay(app.months[2])}`, clientName: app.clientName, monthlyIncomeCents: app.rows.find((t) => t.description.includes("SALARY"))!.amountCents, declaredExpensesCents: app.declaredExpensesCents, statements: [st] }))
       const counted = distinctRows([{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read }])
-      const plans = buildPlans(insights, counted, flags as unknown as Parameters<typeof buildPlans>[2], new Map([["an-1", read.transactions]]), app.clientName)
-      for (const plan of plans) {
-        const res = await produce(plan, asker(plan.kind))
-        if (plan.kind === "SUMMARY") { ab.summaries++; if (res.status === "OK") ab.summariesOk++ } else { ab.explanations++; if (res.status === "OK") ab.explanationsOk++ }
-        if (res.status !== "OK") ab.reasons[reasonKey(res.rejectReason!)] = (ab.reasons[reasonKey(res.rejectReason!)] ?? 0) + 1
-        if (run === 0 && examples.length < 12) examples.push({ app: app.id, kind: plan.kind, flag: plan.flagCode, status: res.status, reason: res.rejectReason, text: res.text })
-      }
+      const { summary, explanations } = buildPlans(insights, counted, flags as unknown as Parameters<typeof buildPlans>[2], new Map([["an-1", read.transactions]]), app.clientName)
+      const res = await produce(summary, asker("SUMMARY"))
+      ab.summaries++
+      if (res.status === "OK") ab.summariesOk++
+      else ab.reasons[reasonKey(res.rejectReason!)] = (ab.reasons[reasonKey(res.rejectReason!)] ?? 0) + 1
+      if (run === 0 && examples.length < 6) examples.push({ app: app.id, kind: "SUMMARY", status: res.status, reason: res.rejectReason, claims: res.claims, text: res.text })
+      // Explanations are written by code: counted, never asked.
+      ab.explanations += explanations.length
+      ab.explanationsOk += explanations.filter((e) => e.text !== null).length
       const rows = askRows([{ ref: "S1", transactions: read.transactions.map((t, index) => ({ index, t })) }], app.clientName)
       for (const q of app.questions) {
         const res = await answerQuestion({ question: q.question, rows, raisedFlagCodes: flags.map((f) => f.code) }, asker("ANSWER"))

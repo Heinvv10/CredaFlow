@@ -37,6 +37,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // A question queued before a restart is queued again (the worker skips one already running or waiting).
     for (const a of view.answers) if (a.status === "PENDING") enqueueQuestion(tenant.id, id, a.id)
     await logDocumentContentAccess({ documentIds: planned.documentIds, staffUserId: guard.user.id, action: "statement_ai", req })
-    return NextResponse.json({ ...view, noStatements: planned.plans.length === 0, modelAvailable: modelAvailable() })
+    return NextResponse.json({ ...view, noStatements: planned.summary === null, modelAvailable: modelAvailable() })
   })
 }

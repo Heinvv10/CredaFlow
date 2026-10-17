@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 
-interface EvidenceRow { ref: string; date: string; payee: string; amount: string }
+interface EvidenceRow { ref: string; date: string; payee: string; amount: string; direction?: "in" | "out" }
 
 interface QueryCitation {
   id: string
@@ -77,7 +77,7 @@ function RowsTable({ rows }: { rows: EvidenceRow[] }) {
               <td className="py-1 pr-2 font-mono">{r.ref}</td>
               <td className="py-1 pr-2 whitespace-nowrap">{r.date}</td>
               <td className="py-1 pr-2">{r.payee}</td>
-              <td className="py-1 text-right whitespace-nowrap">{r.amount}</td>
+              <td className="py-1 text-right whitespace-nowrap">{r.amount}{r.direction ? ` ${r.direction}` : ""}</td>
             </tr>
           ))}
         </tbody>
@@ -256,7 +256,7 @@ export function StatementAiCard({ applicationId, canAsk = false }: { application
           {!data.modelAvailable && data.pending > 0 && <p className="text-xs text-[var(--cf-text-muted)]">The model is not available right now; outputs will be generated when it is.</p>}
         </div>
       )}
-      <p className="mt-3 text-[11px] text-[var(--cf-text-muted)]">Written by a language model from the statement figures. Every figure is checked against them before it is shown; it never changes a flag or the decision.</p>
+      <p className="mt-3 text-[11px] text-[var(--cf-text-muted)]">The model only chooses what to show; every sentence is written from the statement figures. Every figure is checked against them before it is shown; it never changes a flag or the decision.</p>
     </section>
   )
 }

@@ -61,52 +61,36 @@ describe("runPlan", () => {
   })
 })
 
-describe("checkAnswer and answerQuestion", () => {
+describe("answerQuestion: the model plans, code writes", () => {
   const plan = '{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"out","payee":"KOPANO FRESH FOODS"}}]}'
-  it("allows the result's figures and the query ids only", () => {
-    const planned = runPlan(plan, rows)
-    if (!planned.ok) throw new Error("plan")
-    expect(checkAnswer("KOPANO FRESH FOODS was paid R323.45 over 2 payments [q1].", planned.results, [])).toEqual({ ok: true })
-    expect(checkAnswer("KOPANO FRESH FOODS was paid R323.46 [q1].", planned.results, []).ok).toBe(false)
-    expect(checkAnswer("About R300 [q1].", planned.results, []).ok).toBe(false)
-    expect(checkAnswer("R323.45 [q1], which is fine.", planned.results, ["GAMBLING"]).ok).toBe(false)
-  })
-  it("plans, answers, and stores the queries as the citations", async () => {
-    const ask = vi.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce("R323.45 went to KOPANO FRESH FOODS [q1].")
+  it("asks the model once, for a plan, and writes the answer from the results", async () => {
+    const ask = vi.fn().mockResolvedValueOnce(plan)
     const out = await answerQuestion({ question: "How much went to Kopano?", rows, raisedFlagCodes: [] }, ask)
-    expect(out).toMatchObject({ status: "OK", text: "R323.45 went to KOPANO FRESH FOODS [q1].", citations: [{ id: "q1", tool: "sum", matchedRows: 2 }] })
+    expect(out).toMatchObject({ status: "OK", text: "[q1] Total for money out to KOPANO FRESH FOODS: R323.45, from 2 rows.", citations: [{ id: "q1", tool: "sum", matchedRows: 2 }] })
+    expect(ask).toHaveBeenCalledTimes(1)
     // The planner sees masked payees, never the client's name or a raw description.
     expect(ask.mock.calls[0][0]).toContain("KOPANO FRESH FOODS")
     expect(ask.mock.calls[0][0]).not.toContain("TESTER")
     expect(ask.mock.calls[0][0]).not.toContain("Card Purchase")
   })
-  it("asks again after a rejected answer, then stores REJECTED with the reason", async () => {
-    const ask = vi.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce("Roughly R320 [q1].").mockResolvedValueOnce(plan).mockResolvedValueOnce("R999.00 [q1].")
+  it("asks again after an invalid plan, then stores REJECTED with the reason", async () => {
+    const ask = vi.fn().mockResolvedValue("I think it is about R300.")
     const out = await answerQuestion({ question: "How much went to Kopano?", rows, raisedFlagCodes: [] }, ask)
-    expect(out).toMatchObject({ status: "REJECTED", rejectReason: 'figure not given as written: "R999.00"' })
-    expect(ask).toHaveBeenCalledTimes(4)
+    expect(out).toMatchObject({ status: "REJECTED", rejectReason: expect.stringMatching(/invalid plan/) })
+    expect(ask).toHaveBeenCalledTimes(2)
   })
-  it("never allows a filter's own figure, nor a net outflow called money received", async () => {
+  it("shows a filter as the filter and a net total with its sign: the model writes neither", async () => {
     const money = askRows([{ ref: "S1", transactions: [t("2026-09-02", "Card Purchase: KOPANO FRESH FOODS", -100_000), t("2026-09-25", "Payment Received: SALARY SYNTHCO", 1_000_000)].map((tx, index) => ({ index, t: tx })) }], "T TESTER")
-    const steered = runPlan('{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"in","minAmount":500}}]}', money)
-    if (!steered.ok) throw new Error("plan")
-    expect(checkAnswer("Money in totals R500.00 [q1].", steered.results, []).ok).toBe(false)
-    const dated = runPlan('{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"in","to":"2026-12-31"}}]}', money)
-    if (!dated.ok) throw new Error("plan")
-    expect(checkAnswer("The last salary was received on 2026-12-31 [q1].", dated.results, []).ok).toBe(false)
-    const net = runPlan('{"queries":[{"id":"q1","tool":"sum","filter":{"payee":"KOPANO FRESH FOODS"}}]}', money)
-    if (!net.ok) throw new Error("plan")
-    expect(checkAnswer("The client received R1 000.00 [q1].", net.results, []).ok).toBe(false)
-    expect(checkAnswer("Net -R1 000.00 to KOPANO FRESH FOODS [q1].", net.results, [])).toEqual({ ok: true })
+    const steered = await answerQuestion({ question: "Money in?", rows: money, raisedFlagCodes: [] }, async () => '{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"in","minAmount":500}}]}')
+    expect(steered.text).toBe("[q1] Total for money in of R500.00 or more: R10 000.00, from 1 row.")
+    const net = await answerQuestion({ question: "Kopano?", rows: money, raisedFlagCodes: [] }, async () => '{"queries":[{"id":"q1","tool":"sum","filter":{"payee":"KOPANO FRESH FOODS"}}]}')
+    expect(net.text).toBe("[q1] Net total (a minus means more went out than came in) for all rows to KOPANO FRESH FOODS: -R1 000.00, from 1 row.")
   })
-  it("lets an answer echo the officer's own amount as written, and say 'no transactions' only for a zero result", () => {
-    const counted = runPlan('{"queries":[{"id":"q1","tool":"count","filter":{"direction":"out","minAmount":1000}}]}', rows)
-    if (!counted.ok) throw new Error("plan")
-    expect(checkAnswer("There were 1 debits larger than R1 000 [q1].", counted.results, [], "How many debits were larger than R1 000?")).toEqual({ ok: true })
-    const none = runPlan('{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"out","payee":"VUKA HOUSING","from":"2026-08-01","to":"2026-08-31"}}]}', rows)
-    if (!none.ok) throw new Error("plan")
-    expect(checkAnswer("There were no transactions to VUKA HOUSING [q1].", none.results, [])).toEqual({ ok: true })
-    expect(checkAnswer("There were no transactions to KOPANO FRESH FOODS [q1].", counted.results, []).ok).toBe(false)
+  it("refuses a rendered figure no result gave (a render bug guard)", () => {
+    const planned = runPlan(plan, rows)
+    if (!planned.ok) throw new Error("plan")
+    expect(checkAnswer("[q1] Total: R323.45.", planned.results)).toEqual({ ok: true })
+    expect(checkAnswer("[q1] Total: R999.00.", planned.results).ok).toBe(false)
   })
   it("keys an answer by the question and the rows", () => {
     expect(askInputHash("How much?", rows)).toBe(askInputHash("  how   much? ", rows))

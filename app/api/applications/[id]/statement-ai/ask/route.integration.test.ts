@@ -27,14 +27,14 @@ import { GET } from "../route"
 const RUN = process.env.RUN_STATEMENT_AI_IT === "1"
 const suite = RUN ? describe : describe.skip
 
-/** The stubbed model: a plan for a planning prompt, `answer` for an answering one; `down` answers 503. */
-const model = { plan: "", answer: "", down: false, calls: 0 }
+/** The stubbed model: a plan for a planning prompt (the answer is written by code); `down` answers 503. */
+const model = { plan: "", down: false, calls: 0 }
 function stubModel() {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
     model.calls++
     if (model.down) return new Response("down", { status: 503 })
     const prompt = (JSON.parse(init.body) as { messages: Array<{ content: string }> }).messages[0].content
-    const content = prompt.startsWith("You plan read-only queries") ? model.plan : prompt.startsWith("You answer a credit officer's question") ? model.answer : "Summary."
+    const content = prompt.startsWith("You plan read-only queries") ? model.plan : '{"claims": ["coverage"]}'
     return new Response(JSON.stringify({ choices: [{ message: { content } }], usage: { prompt_tokens: 500, completion_tokens: 30 } }), { status: 200 })
   }))
 }
@@ -92,7 +92,6 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
 
   it("queues the question without asking the model, then the worker answers with its citations", async () => {
     model.plan = '{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"out","payee":"SYNTH RENTALS"}}]}'
-    model.answer = "R19 500.00 was paid to SYNTH RENTALS [q1]."
     const res = await ask(a, "CREDIT_OFFICER", "How much rent was paid to SYNTH RENTALS?")
     expect(res.status).toBe(202)
     const { id, status } = await res.json()
@@ -101,9 +100,9 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     expect(model.calls).toBe(0)
     await drained()
     const row = await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })
-    expect(row).toMatchObject({ tenantId: a.tenantId, kind: "ANSWER", status: "OK", askedById: a.userIds.CREDIT_OFFICER, text: "R19 500.00 was paid to SYNTH RENTALS [q1]." })
+    expect(row).toMatchObject({ tenantId: a.tenantId, kind: "ANSWER", status: "OK", askedById: a.userIds.CREDIT_OFFICER, text: "[q1] Total for money out to SYNTH RENTALS: R19 500.00, from 3 rows." })
     expect(row.citations).toMatchObject([{ id: "q1", tool: "sum", result: { total: "R19 500.00", rowCount: 3 }, matchedRows: 3, rows: [{ ref: "S1-R5" }, { ref: "S1-R11" }, { ref: "S1-R17" }] }])
-    expect(await prisma.statementAiUsage.count({ where: { tenantId: a.tenantId, kind: "ANSWER" } })).toBe(2)
+    expect(await prisma.statementAiUsage.count({ where: { tenantId: a.tenantId, kind: "ANSWER" } })).toBe(1)
     expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_QUESTION_ASKED", entityId: id } })).toBe(1)
     expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED", entityId: id } })).toBe(1)
 
@@ -117,12 +116,11 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     expect(await again.json()).toEqual({ id, status: "OK" })
     await drained()
     // (The view queued the summary; the question itself was not asked again.)
-    expect(await prisma.statementAiUsage.count({ where: { tenantId: a.tenantId, kind: "ANSWER" } })).toBe(2)
+    expect(await prisma.statementAiUsage.count({ where: { tenantId: a.tenantId, kind: "ANSWER" } })).toBe(1)
   })
 
   it("never reads another tenant's rows: a payee only tenant B has is unknown to tenant A's question", async () => {
     model.plan = '{"queries":[{"id":"q1","tool":"sum","filter":{"payee":"OTHERLENDER SECRET SHOP"}}]}'
-    model.answer = "R999.00 [q1]."
     const { id } = await (await ask(a, "LOAN_ADMIN", "How much went to OTHERLENDER SECRET SHOP?")).json()
     await drained()
     expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "REJECTED", rejectReason: expect.stringMatching(/payee the statement does not have/), text: "" })
@@ -140,11 +138,10 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     model.down = false
     resetModelBackoff()
     model.plan = '{"queries":[{"id":"q1","tool":"count","filter":{"payee":"SYNTH RENTALS"}}]}'
-    model.answer = "3 payments went to SYNTH RENTALS [q1]."
     const retried = await ask(a, "LOAN_ADMIN", "How many payments to SYNTH RENTALS?")
     expect(await retried.json()).toEqual({ id, status: "PENDING" })
     await drained()
-    expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "OK", text: "3 payments went to SYNTH RENTALS [q1]." })
+    expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "OK", text: "[q1] Rows for all rows to SYNTH RENTALS: 3." })
   })
 
   it("rate-limits an officer's questions", async () => {

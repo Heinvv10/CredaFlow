@@ -60,6 +60,8 @@ export interface SummaryFacts {
   coverageDays: number
   months: Array<{ month: string; moneyIn: string; moneyOut: string; salaryCredits: number }>
   monthCount: number
+  /** Months with a salary credit: counted here, so no sentence counts. */
+  salaryMonthCount: number
   moneyInWholePeriod: string
   moneyOutWholePeriod: string
   salaryPayDays: number[]
@@ -191,6 +193,7 @@ export function summaryFacts(
     coverageDays: insights.coverageDays,
     months: insights.months.map((m) => ({ month: m.month, moneyIn: rand(m.inCents), moneyOut: rand(m.outCents), salaryCredits: m.salaryCredits })),
     monthCount: insights.months.length,
+    salaryMonthCount: insights.months.filter((m) => m.salaryCredits > 0).length,
     moneyInWholePeriod: rand(insights.months.reduce((t, m) => t + m.inCents, 0)),
     moneyOutWholePeriod: rand(insights.months.reduce((t, m) => t + m.outCents, 0)),
     salaryPayDays: insights.salary.payDays,
