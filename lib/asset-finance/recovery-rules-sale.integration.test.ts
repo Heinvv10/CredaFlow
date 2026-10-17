@@ -301,7 +301,7 @@ async function invoiceFor(tx: Tx, totalCents = 120_000_000): Promise<string> {
   await triggersOff(tx)
   await tx.$executeRawUnsafe(`INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName", "supplierAddress", "supplierVatNumber",
     "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents")
-    VALUES ('${id}', '${fx.tenantId}', ${Math.floor(Math.random() * 1_000_000_000) + 1}, 'INV-X', CURRENT_DATE, CURRENT_DATE, 'TEST', 'A', '4000000001', 'B', 'C', 0.15, ${totalCents - Math.floor((totalCents * 15) / 115)}, ${Math.floor((totalCents * 15) / 115)}, ${totalCents})`)
+    VALUES ('${id}', '${fx.tenantId}', ${Math.floor(Math.random() * 1_000_000_000) + 1}, 'INV-X', $1::date, $1::date, 'TEST', 'A', '4000000001', 'B', 'C', 0.15, ${totalCents - Math.floor((totalCents * 15) / 115)}, ${Math.floor((totalCents * 15) / 115)}, ${totalCents})`, dbDate(today()))
   await triggersOn(tx)
   return id
 }

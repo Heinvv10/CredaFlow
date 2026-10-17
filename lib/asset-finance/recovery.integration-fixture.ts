@@ -177,16 +177,16 @@ export async function legalDocument(db: PrismaClient, fx: DealFixture, docType: 
   })).id
 }
 
-/** A tax invoice for a sale, to the buyer outside any loan (triggers off: numbering and the VAT-rate rule are not under test here). */
+/** A tax invoice for the SAST sale day, to the buyer outside any loan (triggers off: numbering and the VAT-rate rule are not under test here). */
 export async function saleInvoice(db: PrismaClient, fx: DealFixture, totalInclVatCents = 120_000_000, loanId: string | null = null): Promise<string> {
   const id = `inv_rcv_${randomUUID().replaceAll("-", "").slice(0, 12)}`
   const number = Math.floor(Math.random() * 1_000_000_000) + 1
   await testSetup(db, [
     `INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName", "supplierAddress", "supplierVatNumber",
        "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents", "loanId")
-     VALUES ($1, $2, $3, $4, CURRENT_DATE, CURRENT_DATE, 'TEST Asset Credit (Pty) Ltd', '1 Synthetic Road', '4000000001', 'TEST Buyer', '2 Buyer Street', 0.15,
+     VALUES ($1, $2, $3, $4, $7::date, $7::date, 'TEST Asset Credit (Pty) Ltd', '1 Synthetic Road', '4000000001', 'TEST Buyer', '2 Buyer Street', 0.15,
        $5::int - $5::int * 15 / 115, $5::int * 15 / 115, $5::int, $6)`,
-    id, fx.tenantId, number, `INV-${number}`, totalInclVatCents, loanId,
+    id, fx.tenantId, number, `INV-${number}`, totalInclVatCents, loanId, dbDate(today()),
   ])
   return id
 }
