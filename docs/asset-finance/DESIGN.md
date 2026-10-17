@@ -524,7 +524,9 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   clauses 9.5/9.11:** cancellation damages discount unearned rentals at the contract
   rate; total loss ends the lease on the evidenced write-off or confirmed unrecovered
   theft-loss date, values PV on that date, and credits actual insurer receipts, including
-  later receipts, without a penalty or physical-return condition. Commercial acceptance
+  later receipts, without a penalty or physical-return condition. Staff records the evidenced
+  historical event date (commencement through today); PV uses the contract rate effective
+  on that date, and arrears/cancellation use that date independently of actual receipt dates. Commercial acceptance
   recalculates the amount at the acceptance date even if rentals were invoiced/prepaid.
 - **Changed 2026-10-17 to comply with VAT Act s67:** rentals use supply-date VAT,
   adjusting the rental and schedule ledger in the same transaction as their invoice.
