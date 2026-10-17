@@ -2,7 +2,7 @@
 import type { Catalog } from "../../catalog"
 
 export const portalLoans: Catalog["portalLoans"] = {
-  principalOutstanding: "Outstanding principal",
+  principalOutstanding: "Eseleyo kwimali eyintloko",
   currentAccountAmount: "Current account amount",
   accountPrincipalDefinition: "Principal still owed. This excludes future interest, fees and premiums and is not a settlement quote.",
   accountSettlementDefinition: "Today’s calculated settlement amount, including any default charges shown below.",
@@ -22,7 +22,7 @@ export const portalLoans: Catalog["portalLoans"] = {
   noLoansDesc: "Iimali-mboleko ezivunyiweyo nezikhutshiweyo ziya kuvela apha kunye neeshedyuli zokubuyisa neengxelo.",
   startApplication: "Qalisa isicelo",
   loanCardDesc: "{product} / Iqale ngo-{date}",
-  outstanding: "Outstanding principal",
+  outstanding: "Eseleyo kwimali eyintloko",
   totalPaid: "Ehlawuliweyo iyonke",
   totalRepayable: "Eza kubuyiswa iyonke",
   nextPayment: "Intlawulo elandelayo",
