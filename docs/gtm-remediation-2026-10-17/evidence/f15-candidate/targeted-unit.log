@@ -1,0 +1,12 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  9 passed (9)
+      Tests  309 passed (309)
+   Start at  15:23:49
+   Duration  1.75s (transform 320ms, setup 0ms, import 879ms, tests 507ms, environment 0ms)
+

@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { act, create, type ReactTestRenderer } from "react-test-renderer"
+import { PortalAgreementClient } from "./PortalAgreementClient"
+import { AGREEMENT_DECLARATIONS, AGREEMENT_DECLARATION_PAYLOAD } from "@/lib/signing/agreement-declaration-set"
+vi.mock("@/lib/toast", () => ({ toast: {} }))
 
 /**
  * The consumer signature pad's coordinate mapping.
@@ -80,5 +84,46 @@ describe("consumer signature pad — the ink follows the cursor", () => {
     // The component reads e.touches[0] or e directly; both reach this mapping.
     expect(signaturePoint(at, RECT, CANVAS)).toEqual(signaturePoint(at, RECT, CANVAS))
     expect(signaturePoint(at, RECT, CANVAS).x).toBeLessThan(CANVAS.width)
+  })
+})
+
+
+function nodeText(node: unknown): string {
+  if (typeof node === "string") return node
+  if (Array.isArray(node)) return node.map(nodeText).join("")
+  if (node && typeof node === "object" && "props" in node) return nodeText((node as { props: { children?: unknown } }).props.children)
+  return ""
+}
+
+describe("portal declaration submission", () => {
+  it("sends the exact displayed set only after every declaration is accepted", async () => {
+    const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    environment.IS_REACT_ACT_ENVIRONMENT = true
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal("fetch", fetchMock)
+    let renderer!: ReactTestRenderer
+    try {
+      await act(async () => { renderer = create(<PortalAgreementClient applicationId="synthetic" reference="SYNTHETIC" clientName="Synthetic" agreementDocumentSha256={"a".repeat(64)} agreementExecutedDocumentId={null} pasqDocumentSha256={"b".repeat(64)} repaymentMethod="EFT" />) })
+      const displayed = JSON.stringify(renderer.toJSON())
+      for (const declaration of AGREEMENT_DECLARATIONS) expect(displayed).toContain(declaration.text)
+      await act(async () => { renderer.root.findAllByType("button").find(b => nodeText(b.props.children) === "Type")!.props.onClick() })
+      await act(async () => { renderer.root.findAllByType("input").find(i => i.props.type === "text")!.props.onChange({ target: { value: "Synthetic Signer" } }) })
+      const checks = renderer.root.findAllByType("input").filter(i => i.props.type === "checkbox")
+      for (const check of checks.slice(0, 4)) await act(async () => { check.props.onChange() })
+      const sign = () => renderer.root.findAllByType("button").find(b => nodeText(b.props.children).includes("I Accept and Sign Digitally"))!
+      expect(sign().props.disabled).toBe(true)
+      await act(async () => { await sign().props.onClick() })
+      expect(fetchMock).not.toHaveBeenCalled()
+      await act(async () => { checks[4].props.onChange() })
+      expect(sign().props.disabled).toBe(false)
+      await act(async () => { await sign().props.onClick() })
+      expect(fetchMock).toHaveBeenCalledOnce()
+      const request = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
+      expect(JSON.parse(request[1].body)).toMatchObject({ declarations: AGREEMENT_DECLARATION_PAYLOAD, agreementDocumentSha256: "a".repeat(64), pasqDocumentSha256: "b".repeat(64), signature: "Synthetic Signer" })
+    } finally {
+      if (renderer) await act(async () => renderer.unmount())
+      vi.unstubAllGlobals()
+      delete environment.IS_REACT_ACT_ENVIRONMENT
+    }
   })
 })
