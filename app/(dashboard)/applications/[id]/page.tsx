@@ -80,6 +80,7 @@ import { signingOtpView } from "@/lib/signing-otp/view"
 import { previewAffordability } from "@/lib/affordability/preview"
 import { ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 import { approvalGateBlockers, headerBlockerLabel } from "@/lib/applications/rail-blockers"
+import { approvalInterestCapCheck } from "@/lib/loan/nca-interest-cap.server"
 import {
   isSegregationOfDutiesRequired,
   segregationOfDutiesConflict,
@@ -494,6 +495,10 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     clientDebtTotalCents: clientDebtTotal,
     proposedInstalmentCents: displayedProposedInstalment,
   })
+  // NCA Regulation 42, server-side: the same verdict /decide answers with a 422.
+  const rateCap = application.status === "UNDER_REVIEW"
+    ? await approvalInterestCapCheck(prisma, tenantId, application)
+    : { ok: true as const }
   const blockers = [
     ...(docMismatches.length > 0
       ? [{ label: `${docMismatches.length} document mismatch${docMismatches.length === 1 ? "" : "es"}`, detail: "Resolve document validation issues before final approval.", tone: "warning" as const }]
@@ -518,6 +523,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       recklessLendingAssessed: application.recklessLendingAssessed,
       clientAffordabilityDeclared: !!application.clientAffordabilityDeclaredAt,
       openCreditChecks: openChecks,
+      rateCapRefusal: rateCap.ok ? null : rateCap.message,
     }),
   ]
   const decisionItem = decisionAuditItem(application)

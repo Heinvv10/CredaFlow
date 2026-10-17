@@ -165,6 +165,7 @@ export function ManualPaymentForm({ loans }: Props) {
               type="number"
               value={amountStr}
               onChange={(e) => setAmountStr(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
               placeholder="0.00"
               min="0"
               step="0.01"
@@ -188,6 +189,7 @@ export function ManualPaymentForm({ loans }: Props) {
             type="text"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             placeholder={t("bankReferencePlaceholder")}
             className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
           />

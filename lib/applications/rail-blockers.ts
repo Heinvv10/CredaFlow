@@ -21,6 +21,11 @@ export interface ApprovalGateFacts {
   recklessLendingAssessed: boolean
   clientAffordabilityDeclared: boolean
   openCreditChecks: number
+  /**
+   * The NCA Regulation 42 rate-cap refusal /decide would answer
+   * (approvalInterestCapCheck), computed server-side; null when the rate is within the cap.
+   */
+  rateCapRefusal: string | null
 }
 
 export function approvalGateBlockers(f: ApprovalGateFacts): RailBlocker[] {
@@ -32,6 +37,9 @@ export function approvalGateBlockers(f: ApprovalGateFacts): RailBlocker[] {
       detail: "Approval is refused while the assessment shows the loan is not affordable. Correct the figures or decline.",
       tone: "danger",
     })
+  }
+  if (f.rateCapRefusal !== null) {
+    blockers.push({ label: "Rate exceeds NCA cap", detail: f.rateCapRefusal, tone: "danger" })
   }
   if (!f.recklessLendingAssessed || !f.clientAffordabilityDeclared) {
     blockers.push({

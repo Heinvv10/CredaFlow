@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { PortalDebitMandateClient } from "./PortalDebitMandateClient"
+import { PortalDebitMandateClient, bankOption } from "./PortalDebitMandateClient"
 
 const props = {
   applicationId: "app-1",
@@ -21,5 +21,34 @@ describe("PortalDebitMandateClient", () => {
 
   it("shows no such note otherwise", () => {
     expect(renderToStaticMarkup(<PortalDebitMandateClient {...props} />)).not.toContain("Why you are signing again")
+  })
+})
+
+// Fair Score acceptance (2026-10-17): the client record held "NEDBANK" but the
+// picker lists "Nedbank", so the select fell back to the placeholder.
+describe("bankOption", () => {
+  it.each([
+    ["NEDBANK", "Nedbank"],
+    ["FIRSTRAND BANK LIMITED t/a FNB", "FNB (First National Bank)"],
+    ["Capitec Bank Limited", "Capitec Bank"],
+    ["Some Unknown Bank", ""],
+    ["", ""],
+    ["   ", ""],
+  ])("maps %j to %j", (stored, option) => {
+    expect(bankOption(stored)).toBe(option)
+  })
+
+  it("pre-selects the matching option in the rendered picker", () => {
+    const html = renderToStaticMarkup(
+      <PortalDebitMandateClient {...props} initialBankDetails={{ ...props.initialBankDetails, bankName: "NEDBANK" }} />,
+    )
+    expect(html).toContain("<option selected=\"\">Nedbank</option>")
+  })
+
+  it("never selects a wrong bank for one it does not list", () => {
+    const html = renderToStaticMarkup(
+      <PortalDebitMandateClient {...props} initialBankDetails={{ ...props.initialBankDetails, bankName: "Some Unknown Bank" }} />,
+    )
+    expect(html).toContain('<option value="" selected="">Select your bank</option>')
   })
 })

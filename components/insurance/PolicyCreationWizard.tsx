@@ -24,6 +24,9 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  // The premium the product's ACTIVE rate table produced, as named by the draft
+  // route's PREMIUM_MISMATCH refusal. Offered as a one-click fix on step 1.
+  const [ratedPremium, setRatedPremium] = useState<string | null>(null)
 
   const [selectedProductId, setSelectedProductId] = useState<string>("")
   const [useProduct, setUseProduct] = useState<"catalogue" | "manual">(
@@ -54,10 +57,20 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
   })
 
   function set(k: keyof PolicyDraftData, v: string) {
+    // The rated premium belongs to one client, cover and product: stale once any changes.
+    if (k === "clientId" || k === "sumAssured" || k === "type") setRatedPremium(null)
     setData((prev) => ({ ...prev, [k]: v }))
   }
 
+  function applyRatedPremium() {
+    if (!ratedPremium) return
+    set("premiumAmount", ratedPremium)
+    setRatedPremium(null)
+    setError(null)
+  }
+
   function applyProduct(product: Product) {
+    setRatedPremium(null)
     setSelectedProductId(product.id)
     setData((prev) => ({
       ...prev,
@@ -74,6 +87,7 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
   async function renderDisclosure() {
     setValidationError(null)
     setError(null)
+    setRatedPremium(null)
 
     if (!data.clientId) {
       setValidationError("Please select a client.")
@@ -117,8 +131,11 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
         }),
       })
       if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        setError((json as { error?: string }).error ?? "Failed to render disclosure")
+        const json = (await res.json().catch(() => ({}))) as { error?: string; reason?: string; derivedPremium?: unknown }
+        setError(json.error ?? "Failed to render disclosure")
+        if (json.reason === "PREMIUM_MISMATCH" && typeof json.derivedPremium === "string" && /^\d+\.\d{2}$/.test(json.derivedPremium)) {
+          setRatedPremium(json.derivedPremium)
+        }
         return
       }
       const json = await res.json()
@@ -206,6 +223,8 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
         setValidationError={setValidationError}
         error={error}
         submitting={submitting}
+        ratedPremium={ratedPremium}
+        applyRatedPremium={applyRatedPremium}
         onNext={renderDisclosure}
       />
     )
