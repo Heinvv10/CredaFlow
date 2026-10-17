@@ -233,13 +233,24 @@ export function checkFlagExplanation(rawText: string, flag: FlagSpec): CheckResu
       if (s.includes(flag.code) && opposite.test(s)) return fail(`states the opposite direction: "${s.match(opposite)![0]}"`)
     }
   }
-  // The figure a threshold word introduces ("the policy threshold of 5%") must be the policy's.
+  // The figure a threshold word introduces ("the policy threshold of 5%") or
+  // qualifies ("the 5% policy limit") must be the policy's. In a threshold
+  // sentence no figure may be written in words: the figure check reads a
+  // word as a count, never as the percentage it may stand for.
   for (const s of sentences(strip(text, [flag.code]))) {
-    for (const word of s.matchAll(new RegExp(THRESHOLD_WORDS.source, "gi"))) {
-      const next = new RegExp(FIGURE.source, "i").exec(s.slice(word.index + word[0].length))
-      if (!next) continue
-      const r = checkFigures(next[0], flag.thresholds)
-      if (!r.ok) return fail(`threshold other than policy: ${r.reason}`)
+    const words = [...s.matchAll(new RegExp(THRESHOLD_WORDS.source, "gi"))]
+    if (words.length === 0) continue
+    const spelled = s.toLowerCase().match(/\b[a-z]+\b/g)?.find((w) => Object.prototype.hasOwnProperty.call(NUMBER_WORDS, w))
+    if (spelled) return fail(`threshold other than policy: figure in words: "${spelled}"`)
+    for (const word of words) {
+      const after = new RegExp(FIGURE.source, "i").exec(s.slice(word.index + word[0].length))
+      // Up to three words before it: "the 5% policy limit", "R50.00 tolerance".
+      const before = [...s.slice(0, word.index).split(/\s+/).slice(-4).join(" ").matchAll(new RegExp(FIGURE.source, "gi"))].pop()
+      for (const figure of [after, before]) {
+        if (!figure) continue
+        const r = checkFigures(figure[0], flag.thresholds)
+        if (!r.ok) return fail(`threshold other than policy: ${r.reason}`)
+      }
     }
   }
   return OK
