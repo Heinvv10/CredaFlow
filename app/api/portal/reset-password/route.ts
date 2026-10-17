@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { passwordPolicyError } from "@/lib/security/password-policy"
 
 // Per-EMAIL brute-force bound on the OTP (the load-bearing gate below).
 const OTP_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
@@ -36,8 +37,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "All fields are required." }, { status: 400 })
   }
 
-  if (password.length < 8) {
-    return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 })
+  const weak = passwordPolicyError(password)
+  if (weak) {
+    return NextResponse.json({ error: weak }, { status: 400 })
   }
 
   if (password !== confirmPassword) {

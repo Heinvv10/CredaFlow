@@ -121,11 +121,15 @@ export interface DocumentRecord {
   fileSize: number | null
   mimeType: string | null
   extractionStatus: string
-  extractionResult: Record<string, unknown> | null
+  /**
+   * The lending read of the document. Absent (not null) for a viewer without
+   * the loan book: LOAN_BOOK_DOCUMENT_FIELDS, lib/security/client-redaction.ts.
+   */
+  extractionResult?: Record<string, unknown> | null
   extractionError: string | null
-  validationResult: ValidationResult | null
-  validationMismatch: boolean
-  validationScore: number | null
+  validationResult?: ValidationResult | null
+  validationMismatch?: boolean
+  validationScore?: number | null
   biometricMatchScore: number | null
   biometricLiveness: number | null
   biometricVerifiedAt: string | null

@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useEffect, useState } from "react"
+import { PASSWORD_MIN_LENGTH } from "@/lib/security/password-policy"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Loader2 } from "lucide-react"
@@ -212,7 +213,7 @@ function PortalRegisterInner({ whatsappAvailable }: { whatsappAvailable: boolean
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="mt-2 w-full border border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)] px-4 py-3 text-sm text-[var(--cf-text)] outline-none transition focus:border-[var(--cf-brand)]"
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 required
               />
             </label>
@@ -223,7 +224,7 @@ function PortalRegisterInner({ whatsappAvailable }: { whatsappAvailable: boolean
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="mt-2 w-full border border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)] px-4 py-3 text-sm text-[var(--cf-text)] outline-none transition focus:border-[var(--cf-brand)]"
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 required
               />
             </label>

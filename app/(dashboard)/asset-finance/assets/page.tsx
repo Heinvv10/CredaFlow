@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
-import { ASSET_CLASS_LABELS } from "@/lib/asset-finance/asset-labels"
+import { ASSET_CLASS_LABELS, assetBookStatus } from "@/lib/asset-finance/asset-labels"
 
 export default async function AssetsPage() {
   const { tenantId, canManage } = await requireAssetFinanceStaffPage()
@@ -20,6 +20,7 @@ export default async function AssetsPage() {
     select: {
       id: true, assetClass: true, make: true, model: true, year: true, serialNumber: true, vin: true,
       registrationNumber: true, cashPriceExclVatCents: true, vatCents: true, releasedAt: true, createdAt: true,
+      deals: { select: { status: true } },
     },
   })
 
@@ -76,7 +77,7 @@ export default async function AssetsPage() {
                       {a.vin && <p className="text-[var(--cf-text-muted)]">{a.vin}</p>}
                     </TableCell>
                     <TableCell className="text-right">{formatMoney(a.cashPriceExclVatCents + a.vatCents)}</TableCell>
-                    <TableCell>{a.releasedAt ? `Released ${formatDate(a.releasedAt)}` : "On book"}</TableCell>
+                    <TableCell>{assetBookStatus({ releasedAt: a.releasedAt && formatDate(a.releasedAt), deals: a.deals })}</TableCell>
                     <TableCell>{formatDate(a.createdAt)}</TableCell>
                   </TableRow>
                 ))}

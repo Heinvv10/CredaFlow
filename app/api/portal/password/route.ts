@@ -6,6 +6,7 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { keepClientSessionAfterPasswordChange } from "@/lib/client-session-cookie"
+import { passwordPolicyError } from "@/lib/security/password-policy"
 
 const PASSWORD_RATE_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000 } as const
 
@@ -51,8 +52,9 @@ export async function POST(req: NextRequest) {
   if (!currentPassword || !newPassword || !confirmPassword) {
     return NextResponse.json({ error: "All fields are required." }, { status: 400 })
   }
-  if (newPassword.length < 8) {
-    return NextResponse.json({ error: "New password must be at least 8 characters." }, { status: 400 })
+  const weak = passwordPolicyError(newPassword)
+  if (weak) {
+    return NextResponse.json({ error: weak }, { status: 400 })
   }
   if (newPassword !== confirmPassword) {
     return NextResponse.json({ error: "New passwords do not match." }, { status: 400 })

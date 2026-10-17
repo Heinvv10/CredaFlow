@@ -1,5 +1,5 @@
-import type { AssetDealStatus, ReferenceRateBasis } from "@prisma/client"
-import type { StructurePresetName } from "./deal-input"
+import type { AssetDealStatus, ContractType, ReferenceRateBasis } from "@prisma/client"
+import type { AssetContractType, StructurePresetName } from "./deal-input"
 import { statusLabel } from "./labels"
 
 // Display labels for asset-finance deals, shared by the staff pages.
@@ -21,6 +21,23 @@ export const DEAL_STATUS_TONE: Record<AssetDealStatus, Tone> = {
 /** "REFUSED_NCA" → "Refused: NCA applies"; other statuses as statusLabel. */
 export function dealStatusLabel(status: AssetDealStatus): string {
   return status === "REFUSED_NCA" ? "Refused: NCA applies" : statusLabel(status)
+}
+
+export const CONTRACT_TYPE_LABELS: Record<AssetContractType, string> = {
+  INSTALMENT_SALE: "Instalment sale",
+  FINANCE_LEASE: "Finance lease",
+  OPERATING_LEASE: "Operating lease",
+  FULL_MAINTENANCE_LEASE: "Full-maintenance lease",
+}
+
+/** The agreement type of a deal; a plain LOAN (never a deal) reads "Loan". */
+export function contractTypeLabel(type: ContractType): string {
+  return type === "LOAN" ? "Loan" : CONTRACT_TYPE_LABELS[type]
+}
+
+/** The party who takes the asset: a lessee on any lease, a borrower on an instalment sale. */
+export function counterpartyLabel(type: ContractType): "Lessee" | "Borrower" {
+  return type === "FINANCE_LEASE" || type === "OPERATING_LEASE" || type === "FULL_MAINTENANCE_LEASE" ? "Lessee" : "Borrower"
 }
 
 export const PRESET_LABELS: Record<StructurePresetName, string> = {

@@ -225,24 +225,26 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
     expect(await signerOf(fx.suretyB, "SURETYSHIP")).toMatchObject({ confirmedById: fx.adminA })
   })
 
-  it("the prepared signer set is fixed: a later surety is not required, and a prepared surety cannot be deactivated (DB)", async () => {
+  it("the prepared signer set is fixed: no surety is added after approval, and a prepared surety cannot be deactivated (DB)", async () => {
     const late = await database().client.create({
       data: {
         tenantId: fx.tenantId, firstName: "TEST", lastName: "late", email: `late-${t}@client.invalid`,
         phone: `0002${t.slice(0, 6)}`, idNumber: `97${t.replace(/\D/g, "0").slice(0, 11)}`,
       },
     })
-    await database().entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: late.id, role: "SURETY" } })
+    // Fair Score E5: the approval cross-checked the entity's people; none is added after it.
+    expect(await sqlError(() => database().entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: late.id, role: "SURETY" } })))
+      .toContain("The entity has an approved deal: no director, trustee, surety or other party is added or reactivated")
     expect(await sqlError(() => database().entityRelationship.updateMany({
       where: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId: fx.suretyB, role: "SURETY" }, data: { active: false },
-    }))).toContain("The entity has an approved deal: its sureties and signatories are fixed")
+    }))).toContain("The entity has a deal under review or approved: its directors, trustees, sureties and other parties are fixed")
     signIn(fx.officer, "CREDIT_OFFICER")
     expect((await routes().prepare(fx.dealId, { plannedStartDate: plannedStart })).status).toBe(409)
     const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })
     expect(deal.preparedSigners).not.toContainEqual(expect.objectContaining({ clientId: late.id }))
   })
 
-  it("all prepared signers satisfied → CONTRACTED (the later surety is not required), audited; signer rows are then closed to change", async () => {
+  it("all prepared signers satisfied → CONTRACTED, audited; signer rows are then closed to change", async () => {
     signIn(fx.officer, "CREDIT_OFFICER")
     const response = await routes().contract(fx.dealId)
     expect(response.status).toBe(200)

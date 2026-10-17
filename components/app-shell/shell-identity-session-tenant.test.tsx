@@ -36,7 +36,7 @@ vi.mock("@/lib/config/identity", () => ({
   getLenderIdentity: vi.fn(async (tenantId: string) => IDENTITIES[tenantId]),
   getLenderBrandName: vi.fn(async (tenantId: string) => IDENTITIES[tenantId].tradingName),
 }))
-vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: vi.fn(async () => null) }))
+vi.mock("@/lib/config/lender-logo", () => ({ getLenderLogo: vi.fn(async () => null), publicLenderLogoSrc: vi.fn(async () => null) }))
 vi.mock("./PortalSidebar", () => ({
   PortalSidebar: ({ brandName, whatsappE164 }: { brandName: string; whatsappE164: string }) => (
     <aside>{brandName} {whatsappE164}</aside>

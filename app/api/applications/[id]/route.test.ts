@@ -12,8 +12,11 @@ const transactionMock = vi.fn()
 const prepareApplicationFieldsMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const auditLogCreateMock = vi.fn()
+const assetFinanceDealCountMock = vi.fn()
+const clientDocumentFindFirstMock = vi.fn()
 
 const tx = {
+  assetFinanceDeal: { count: (a: unknown) => assetFinanceDealCountMock(a) },
   $queryRaw: (query: unknown) => queryRawMock(query),
   loanApplication: {
     findUnique: (a: unknown) => findUniqueMock(a),
@@ -21,6 +24,7 @@ const tx = {
     updateMany: (a: unknown) => updateManyMock(a),
   },
   auditLog: { create: (a: unknown) => auditLogCreateMock(a) },
+  clientDocument: { findFirst: (a: unknown) => clientDocumentFindFirstMock(a) },
 }
 
 vi.mock("@/lib/auth-guards", async () => ({
@@ -174,6 +178,7 @@ beforeEach(() => {
   findFirstMock.mockResolvedValue(null)
   triggerNotificationMock.mockResolvedValue(undefined)
   auditLogCreateMock.mockResolvedValue({ id: "audit-1" })
+  assetFinanceDealCountMock.mockResolvedValue(0)
 })
 
 it("allows DRAFT -> SUBMITTED", async () => {
@@ -495,6 +500,27 @@ it("PATCH action:update — 404 when the application does not exist in the tenan
   expect(prepareApplicationFieldsMock).not.toHaveBeenCalled()
 })
 
+it("PATCH action:update — 409 for an asset-finance deal's application: never re-validated against consumer products (Fair Score E4)", async () => {
+  findUniqueMock.mockResolvedValue({ id: "app-1", status: "DRAFT", updatedAt: new Date(), affordabilityResult: null })
+  assetFinanceDealCountMock.mockResolvedValue(1)
+
+  const res = await PATCH(patchReq(draftUpdateBody), ctx)
+
+  expect(res.status).toBe(409)
+  expect((await res.json()).error).toMatch(/asset-finance deal/)
+  expect(assetFinanceDealCountMock).toHaveBeenCalledWith({ where: { tenantId: expect.any(String), applicationId: "app-1" } })
+  expect(prepareApplicationFieldsMock).not.toHaveBeenCalled()
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("DRAFT -> SUBMITTED is refused (409) for an asset-finance deal's application: it is submitted on the deal", async () => {
+  findUniqueMock.mockResolvedValue(draftForSubmission)
+  assetFinanceDealCountMock.mockResolvedValue(1)
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+  expect(res.status).toBe(409)
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
 it("PATCH action:update — 400 when the application is no longer DRAFT", async () => {
   findUniqueMock.mockResolvedValue({ id: "app-1", status: "SUBMITTED", affordabilityResult: null })
 
@@ -646,4 +672,51 @@ it("DELETE 409s with no audit row when UNDER_REVIEW is moved by a concurrent wri
   expect(res.status).toBe(409)
   expect(updateManyMock).toHaveBeenCalledOnce()
   expect(auditLogCreateMock).not.toHaveBeenCalled()
+})
+
+// A stored PO-funding draft submitted with { status: "SUBMITTED" } must still
+// name the client's undeleted purchase order, checked under the evidence lock.
+const poDraft = {
+  ...draftForSubmission,
+  clientId: "c1",
+  loanPurposeCategory: "BUSINESS",
+  poNumber: "PO-2026-0412",
+  poBuyerName: "Synthetic Schools Trust",
+  poDocumentId: "doc-po",
+  product: { ...draftForSubmission.product, productType: "PO_FUNDING" },
+}
+
+it("submits a PO-funding draft whose purchase order is still on file", async () => {
+  findUniqueMock.mockResolvedValue(poDraft)
+  clientDocumentFindFirstMock.mockResolvedValue({ id: "doc-po" })
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(clientDocumentFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+    where: { id: "doc-po", tenantId: "t1", clientId: "c1", docType: "PO_DOCUMENT", deletedAt: null },
+  }))
+  // Checked after the client-evidence lock the document delete route takes.
+  expect(queryRawMock.mock.invocationCallOrder.at(-1)!).toBeLessThan(clientDocumentFindFirstMock.mock.invocationCallOrder[0])
+})
+
+it("refuses to submit a PO-funding draft whose purchase order was deleted", async () => {
+  findUniqueMock.mockResolvedValue(poDraft)
+  clientDocumentFindFirstMock.mockResolvedValue(null)
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect((await res.json()).error).toMatch(/purchase order/i)
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
+it("refuses to submit a PO-funding draft missing its order facts", async () => {
+  findUniqueMock.mockResolvedValue({ ...poDraft, poNumber: null })
+  clientDocumentFindFirstMock.mockResolvedValue({ id: "doc-po" })
+
+  const res = await PATCH(patchReq({ status: "SUBMITTED" }), ctx)
+
+  expect(res.status).toBe(422)
+  expect(updateManyMock).not.toHaveBeenCalled()
 })

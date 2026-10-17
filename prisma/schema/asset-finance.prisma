@@ -672,6 +672,10 @@ model AssetFinanceDeal {
   cancelReason                   String?
   decision                       CreditDecision?
   decisionReasons                String[]              @default([])
+  // The approval's exceptions, each key with its severity when answered
+  // (lib/asset-finance/deal-exception-severity.ts): payout and booking refuse
+  // one that is new or worse. Fixed once approved.
+  approvalExceptions             Json                  @default("[]")
   decidedById                    String?
   decidedAt                      DateTime?
   createdById                    String

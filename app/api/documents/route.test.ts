@@ -427,6 +427,21 @@ describe("POST /api/documents", () => {
     expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
+  // #145 security review: an INSURANCE_OFFICER upload does not start the
+  // lending reads (extraction, statement analysis, credit-check recompute),
+  // as POST /api/documents/[id]/extract already refuses that role.
+  it.each([["BANK_STATEMENT"], ["PAYSLIP"]])("stores an INSURANCE_OFFICER %s upload without any lending read", async (docType) => {
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "io-1", role: "INSURANCE_OFFICER", tenantId: "tenant-1" })
+    const response = await POST(request(docType) as never)
+    expect(response.status).toBe(201)
+    expect(documentCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ extractionStatus: "skipped", extractionGeneration: null }),
+    }))
+    expect(extractDocumentDataMock).not.toHaveBeenCalled()
+    expect(readStatementInBackgroundMock).not.toHaveBeenCalled()
+    expect(recomputeClientApplicationsMock).not.toHaveBeenCalled()
+  })
+
   it("reads a staff-uploaded bank statement for the credit checks", async () => {
     const response = await POST(request("BANK_STATEMENT") as never)
 

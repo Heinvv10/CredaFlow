@@ -8,6 +8,7 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { resetStrandedConvertedLead } from "@/app/actions/crm"
 import { leadConversionState } from "@/lib/crm/lead-conversion"
 import { Prisma } from "@prisma/client"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 async function getLead(id: string, tenantId: string) {
   return prisma.lead.findFirst({
@@ -66,7 +67,7 @@ async function getRecoveryCandidates(leadId: string, clientId: string, tenantId:
 
 async function getProducts(tenantId: string) {
   return prisma.loanProduct.findMany({
-    where: { tenantId, active: true },
+    where: { tenantId, active: true, ...CONSUMER_PRODUCT_WHERE },
     select: { id: true, name: true, productType: true, minAmount: true, maxAmount: true, minTermDays: true, maxTermDays: true },
     orderBy: { name: "asc" },
   })

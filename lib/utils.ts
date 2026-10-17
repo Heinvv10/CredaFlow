@@ -104,8 +104,16 @@ export function formatTermDays(days: number): string {
   return `${months} month${months !== 1 ? "s" : ""}`
 }
 
+const REFERENCE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+/**
+ * `<PREFIX>-<base-36 ms timestamp>-<4 random characters>`. The random part is
+ * always 4 characters from the platform CSPRNG (Web Crypto: server and
+ * browser); Math.random() could return fewer digits and is guessable.
+ */
 export function generateReference(prefix: string): string {
   const timestamp = Date.now().toString(36).toUpperCase()
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase()
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(4))
+  const random = Array.from(bytes, (b) => REFERENCE_ALPHABET[b % REFERENCE_ALPHABET.length]).join("")
   return `${prefix}-${timestamp}-${random}`
 }

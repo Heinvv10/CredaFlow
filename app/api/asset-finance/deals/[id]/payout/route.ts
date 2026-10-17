@@ -37,6 +37,8 @@ export async function POST(req: NextRequest, { params }: Params) {
         return refuse("checklist_open", 409, "Every required checklist item must be confirmed first", { open: result.open })
       case "no_approved_account":
         return refuse("no_approved_account", 409, "The supplier has no APPROVED bank account")
+      case "credit_gate":
+        return refuse(result.reason, 409, result.message)
       case "amount_invalid":
         return refuse("amount_invalid", 422, `The payout amount ${result.amountCents} cents is not payable`)
       case "created":

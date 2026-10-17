@@ -13,7 +13,7 @@
  * all three fields or none. The database holds the same shape
  * (AssetFinanceDeal_lease_terms_shape).
  */
-import type { ContractType } from "@prisma/client"
+import type { AssetClass, ContractType } from "@prisma/client"
 import { MAX_INT, readEnum, readInt, type Errors, type Fields } from "./input-fields"
 import { RENTAL_TIMINGS, type RentalTiming } from "./lease-pricing"
 
@@ -26,6 +26,14 @@ export type UsageUnit = (typeof USAGE_UNITS)[number]
 
 export const isLeaseContract = (type: string): type is LeaseContractType =>
   (LEASE_CONTRACT_TYPES as readonly string[]).includes(type)
+
+/** Road vehicles (and trailers, on a hub odometer) are metered in km, machinery in hours. */
+const KM_ASSET_CLASSES: readonly AssetClass[] = ["PASSENGER_VEHICLE", "LIGHT_COMMERCIAL", "TRUCK", "TRAILER"]
+
+/** The usage unit a new lease on an asset of this class starts with (staff may change it). */
+export function defaultUsageUnit(assetClass: AssetClass): UsageUnit {
+  return KM_ASSET_CLASSES.includes(assetClass) ? "KM" : "HOURS"
+}
 
 export interface LeaseUsage {
   allowancePerYear: number

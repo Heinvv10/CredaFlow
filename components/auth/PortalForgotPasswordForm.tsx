@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { passwordPolicyError } from "@/lib/security/password-policy"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -72,8 +73,9 @@ export default function PortalForgotPasswordForm({
       setError("Passwords do not match.")
       return
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.")
+    const weak = passwordPolicyError(password)
+    if (weak) {
+      setError(weak)
       return
     }
     setLoading(true)
@@ -189,7 +191,7 @@ export default function PortalForgotPasswordForm({
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
+                    placeholder="At least 10 characters"
                     required
                     disabled={loading}
                     className="border-[var(--cf-border-strong)] focus:ring-[var(--cf-brand)]"

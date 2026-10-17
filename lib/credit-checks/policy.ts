@@ -21,6 +21,11 @@ export const CLEAR_REASON_MAX_LENGTH = 1000
  */
 export const STATEMENT_UPLOAD_LOOKBACK_DAYS = 90
 
+/** The earliest upload that still counts as an application's statement evidence. */
+export function statementWindowStart(applicationCreatedAt: Date): Date {
+  return new Date(applicationCreatedAt.getTime() - STATEMENT_UPLOAD_LOOKBACK_DAYS * 86_400_000)
+}
+
 /** A statement ending more than this before the application is stale (goal §5). */
 export const STALE_STATEMENT_DAYS = 45
 

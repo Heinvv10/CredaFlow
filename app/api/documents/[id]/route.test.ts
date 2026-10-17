@@ -65,6 +65,24 @@ describe("GET /api/documents/[id] — POPIA access log", () => {
     })
   })
 
+  // #145 re-review: the lending read of a document (extraction, validation)
+  // is withheld from a role without the loan book; still logged as read.
+  it("withholds the extraction and validation from INSURANCE_OFFICER, and keeps them for LOAN_ADMIN", async () => {
+    clientDocumentFindFirstMock.mockResolvedValue({
+      id: "doc_1", clientId: "cl_1", tenantId: "tenant_acme", deletedAt: null, storagePath: "docs/doc_1.pdf",
+      extractionStatus: "done", extractionResult: { netPay: 1_500_000 },
+      validationResult: { mismatches: [] }, validationScore: 97, validationMismatch: false,
+    })
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "io_1", role: "INSURANCE_OFFICER", tenantId: "tenant_acme" })
+    const forOfficer = await (await GET(buildReq(), ctx)).json()
+    expect(forOfficer).toEqual({ id: "doc_1", clientId: "cl_1", tenantId: "tenant_acme", deletedAt: null, extractionStatus: "done" })
+    expect(documentAccessLogCreateMock).toHaveBeenCalledTimes(1)
+
+    getDocumentCallerMock.mockResolvedValue({ type: "staff", userId: "u_1", role: "LOAN_ADMIN", tenantId: "tenant_acme" })
+    const forAdmin = await (await GET(buildReq(), ctx)).json()
+    expect(forAdmin).toMatchObject({ extractionResult: { netPay: 1_500_000 }, validationScore: 97, validationMismatch: false })
+  })
+
   it("client owner GET: 200 + logs the CLIENT id as accessor", async () => {
     getDocumentCallerMock.mockResolvedValue({ type: "client", clientId: "cl_1", email: "a@b.c" })
     const res = await GET(buildReq(), ctx)

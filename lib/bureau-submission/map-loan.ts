@@ -85,10 +85,14 @@ export interface MappedRecord {
   statusDate: Date | null
 }
 
-/** MICRO -> M, PERSONAL -> P. Anything else (PO funding) is not reported. */
+/**
+ * MICRO -> M, PERSONAL -> P. ASSET_FINANCE -> P, unchanged from when asset
+ * products were typed PERSONAL (whether an instalment sale needs its own
+ * SACRRA account type is open). Anything else (PO funding) is not reported.
+ */
 export function bureauAccountType(productType: string): "M" | "P" | null {
   if (productType === "MICRO") return "M"
-  if (productType === "PERSONAL") return "P"
+  if (productType === "PERSONAL" || productType === "ASSET_FINANCE") return "P"
   return null
 }
 
