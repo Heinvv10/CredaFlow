@@ -141,6 +141,14 @@ export class DealDocumentWriter {
     this.paragraph(PLACEHOLDER_CLAUSE, this.italic, 14)
   }
 
+  /** A numbered clause: bold heading, then its wording. Paragraphs split on line breaks. */
+  clause(number: string, heading: string, text: string): void {
+    this.ensure(3 * LINE)
+    drawText(this.page, winAnsiSafe(`${number} ${heading}`), MARGIN, this.y, this.bold, BODY, DARK)
+    this.y -= LINE
+    for (const para of text.split(/\n{2,}/)) this.paragraph(para, this.regular, 14)
+  }
+
   /** Label/value rows; long values wrap under their value column. */
   labelValues(rows: readonly [string, string][]): void {
     const valueX = MARGIN + 170
