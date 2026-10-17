@@ -36,8 +36,8 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
     const surplus = recovery.surplusCents ?? 0
     // Owed on the account: the shortfall less the charged costs the account could not carry (they stay recorded on the recovery).
     const owed = shortfall - (recovery.unrecoverableCostsCents ?? 0)
-    const instructed = nca && surplus > 0 && await tx.ncaSurplusRemittance.count({ where: { tenantId: actor.tenantId, status: "INSTRUCTED", OR: [{ recoveryId }, ...(recovery.surrenderRequestId ? [{ surrenderId: recovery.surrenderRequestId }] : [])] } }) > 0
-    const status: OutcomeSettled["status"] = owed > 0 ? "SHORTFALL_OPEN" : surplus > 0 && !instructed ? "SURPLUS_HELD" : "CLOSED"
+    const executed = nca && surplus > 0 && await tx.ncaSurplusRemittance.count({ where: { tenantId: actor.tenantId, status: "INSTRUCTED", executedOn: { not: null }, OR: [{ recoveryId }, ...(recovery.surrenderRequestId ? [{ surrenderId: recovery.surrenderRequestId }] : [])] } }) > 0
+    const status: OutcomeSettled["status"] = owed > 0 ? "SHORTFALL_OPEN" : surplus > 0 && !executed ? "SURPLUS_HELD" : "CLOSED"
     await advance(tx, actor, recovery.id, from, { status, ...(status === "CLOSED" ? { closedAt: new Date() } : {}) })
     const audit = { tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined }
     await logAuditStrict({
@@ -45,7 +45,7 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
       newValue: { status, shortfallCents: shortfall, surplusCents: surplus, unrecoverableCostsCents: recovery.unrecoverableCostsCents ?? 0, owedCents: owed },
     }, tx)
     if (status === "CLOSED") {
-      await logAuditStrict({ ...audit, action: AuditAction.ASSET_RECOVERY_CLOSED, entity: "Recovery", entityId: recovery.id, newValue: { reason: "nothing owed either way" } }, tx)
+      await logAuditStrict({ ...audit, action: AuditAction.ASSET_RECOVERY_CLOSED, entity: "Recovery", entityId: recovery.id, newValue: { reason: surplus > 0 ? "Surplus bank execution evidenced" : "nothing owed either way" } }, tx)
     }
     return { kind: "done", id: recovery.id, status }
   }))

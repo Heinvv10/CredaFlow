@@ -517,7 +517,10 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   starts the statutory sale wait; timely withdrawal records goods returned;
   standalone surrender shortfalls freeze charges. Final notices atomically
   issue an independently authorised surplus instruction or an audited missing-
-  account exception. No external bank settlement is asserted.
+  account exception. An instruction leaves the surplus outstanding (SURPLUS_HELD),
+  even though the loan debt is settled. Only retained bank execution evidence,
+  recording the exact amount, date, reference and staff actor once, permits
+  recovery closure. No transfer is initiated by the evidence form.
 - **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
   agreement disclosures include cash price, deposit and credit-life premium;
   schedule capital excludes fees; total cost of credit retains principal debt

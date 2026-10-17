@@ -13,7 +13,7 @@ export async function issueNcaSurplusRemittance(tx: SigningTx, actor: RecoveryAc
     accountId: status === "INSTRUCTED" ? account!.id : null, amountCents: input.amountCents, status,
     exceptionReason: status === "INSTRUCTED" ? null : "No staff-verified consumer bank account; surplus held pending verification", issuedById: actor.userId,
   } })
-  await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: status === "INSTRUCTED" ? "ASSET_SURPLUS_REMITTED" : "ASSET_SURPLUS_HELD_EXCEPTION", entity: "NcaSurplusRemittance", entityId: row.id,
+  await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: status === "INSTRUCTED" ? "ASSET_SURPLUS_INSTRUCTION_ISSUED" : "ASSET_SURPLUS_HELD_EXCEPTION", entity: "NcaSurplusRemittance", entityId: row.id,
     newValue: { loanId: input.loanId, amountCents: row.amountCents, status, accountId: row.accountId, exceptionReason: row.exceptionReason } }, tx)
   return row
 }

@@ -86,7 +86,9 @@ async function main(): Promise<void> {
     costs: [{ label: "Towing and transport", grossCents: 5_000, treatment: "DEDUCT_FROM_PROCEEDS" }, { label: "Legal costs (taxed)", grossCents: 2_000, treatment: "CHARGE_TO_ACCOUNT" }] }
   writeFileSync(`${OUT}/s131-valuation-notice.pdf`, await renderRecoveryValuationNotice(recovery))
   writeFileSync(`${OUT}/s131-final-notice.pdf`, await renderRecoveryFinalNotice(recovery))
-  process.stdout.write(`wrote 6 PDFs to ${OUT}\n`)
+  writeFileSync(`${OUT}/s127-final-notice-surplus-instructed.pdf`, await renderSurrenderFinalNotice({ ...surrender, surplusDisposition: "INSTRUCTED", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  writeFileSync(`${OUT}/s131-final-notice-surplus-instructed.pdf`, await renderRecoveryFinalNotice({ ...recovery, surplusDisposition: "INSTRUCTED", outcome: { ...recovery.outcome!, grossProceedsCents: 175_000, netProceedsCents: 170_000, shortfallCents: 0, surplusCents: 18_000 } }))
+  process.stdout.write(`wrote 8 PDFs to ${OUT}\n`)
 }
 
 void main()

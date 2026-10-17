@@ -52,8 +52,8 @@ const token = randomUUID().replaceAll("-", "").slice(0,16)
   const received='2026-12-11'
   const {id}=await notice(received)
   const end=addSouthAfricanBusinessDays(received,10)
-  await expect(database().$transaction(tx=>requireNcaSaleWindow(tx,fx.tenantId,id,'surrender',new Date(`${end}T21:59:59Z`)))).rejects.toThrow(/ten business days/)
-  await expect(database().$transaction(tx=>requireNcaSaleWindow(tx,fx.tenantId,id,'surrender',new Date(`${end}T22:00:00Z`)))).resolves.toBeUndefined()
+  await expect(database().$transaction(tx=>requireNcaSaleWindow(tx as unknown as Parameters<typeof requireNcaSaleWindow>[0],fx.tenantId,id,'surrender',new Date(`${end}T21:59:59Z`)))).rejects.toThrow(/ten business days/)
+  await expect(database().$transaction(tx=>requireNcaSaleWindow(tx as unknown as Parameters<typeof requireNcaSaleWindow>[0],fx.tenantId,id,'surrender',new Date(`${end}T22:00:00Z`)))).resolves.toBeUndefined()
  })
  it("refuses future, pre-issue and impossible historical receipt dates without persisting evidence",async()=>{
   const {id}=await notice()

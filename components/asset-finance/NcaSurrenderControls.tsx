@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 const field = "rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg)] p-2 text-sm"
 const button = "rounded bg-[var(--cf-brand)] px-3 py-2 text-sm text-[var(--cf-on-brand)] disabled:opacity-50"
 export function NcaSurrenderControls({ loanId, surrenders, recovery, accountStatus, instructions, canRequest, canManage, canDecide, canRecordPayment }: {
-  loanId: string; canRequest: boolean; instructions: { id: string; status: string; amountCents: number }[]; surrenders: { id: string; status: string; receivedOn: string | null }[];
+  loanId: string; canRequest: boolean; instructions: { id: string; status: string; amountCents: number; executedOn: string | null }[]; surrenders: { id: string; status: string; receivedOn: string | null }[];
   recovery: { id: string; receivedOn: string | null } | null; accountStatus: string; canManage: boolean; canDecide: boolean; canRecordPayment: boolean;
 }) {
   const router = useRouter()
@@ -55,7 +55,20 @@ export function NcaSurrenderControls({ loanId, surrenders, recovery, accountStat
       {canDecide && accountStatus === "awaiting verification" && <button className={button} disabled={busy} onClick={() => void post(`${accountBase}/approve`)}>Verify consumer bank account</button>}
       {canDecide && accountStatus === "awaiting release authority" && <button className={button} disabled={busy} onClick={() => void post(`${accountBase}/authorise`)}>Authorise surplus release</button>}
     </div>
-    {instructions.map((i) => <p key={i.id}>Surplus {(i.amountCents / 100).toFixed(2)}: {i.status === "INSTRUCTED" ? canRecordPayment ? <a className="underline" href={`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}`}>Download payment instruction</a> : "Payment instruction issued" : "Held — no verified bank account (recorded exception)"}</p>)}
+    {instructions.map((i) => <div key={i.id} className="space-y-2">
+      <p>Surplus {(i.amountCents / 100).toFixed(2)}: {i.executedOn ? `Bank execution evidenced on ${i.executedOn}` : i.status === "INSTRUCTED" ? "Payment instruction issued; payment outstanding. The loan debt is settled, but the surplus remains due to the consumer." : "Held — no verified bank account (recorded exception)"}</p>
+      {i.status === "INSTRUCTED" && canRecordPayment && <>
+        <a className="underline" href={`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}`}>Download payment instruction</a>
+        {i.executedOn ? <a className="ml-3 underline" href={`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}/execution`}>View bank execution evidence</a> : <form className="flex flex-wrap gap-2" onSubmit={(e) => { const f = form(e); f.set("docType", "OTHER"); f.set("amountCents", String(Math.round(Number(f.get("amount")) * 100))); void post(`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}/execution`, f) }}>
+          <p className="w-full">Record an already executed bank payment. This form does not send a bank transfer.</p>
+          <label>Bank execution date <input className={field} name="executedOn" type="date" required /></label>
+          <label>Bank transaction reference <input className={field} name="bankReference" minLength={6} maxLength={200} required /></label>
+          <label>Exact amount paid (R) <input className={field} name="amount" type="number" min="0.01" step="0.01" required /></label>
+          <label>Bank proof of execution <input name="file" type="file" accept="application/pdf,image/*" required /></label>
+          <button className={button} disabled={busy}>Record bank execution evidence</button>
+        </form>}
+      </>}
+    </div>)}
     {surrenders.map((s) => <p key={s.id}>Surrender {s.id}: {s.status.replaceAll("_", " ")} · <a className="underline" href={`/api/asset-finance/surrenders/${s.id}/documents/valuation`}>Valuation notice</a> · <a className="underline" href={`/api/asset-finance/surrenders/${s.id}/documents/final`}>Final notice</a></p>)}
   </section>
 }

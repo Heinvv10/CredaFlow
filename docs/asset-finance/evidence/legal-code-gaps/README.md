@@ -34,6 +34,10 @@ settlement. `nca-surplus-final-notice.pdf` is the matching DRAFT notice. The
 application has no bank-transfer provider for this instruction. Real-bank
 execution remains an operator action outside this local acceptance.
 
+The original browser final-notice PDF above predates the law-review correction:
+see `nca-execution-review/` for the corrected pending-payment text and execution
+proof regression evidence. Final browser acceptance must refresh that fixture.
+
 ## NCA render comparison
 
 `nca-render-comparison/` contains before/after PDF text and hashes against this

@@ -41,6 +41,13 @@ model NcaSurplusRemittance {
   releasedAt DateTime?
   releasedById String?
   releasedBy User? @relation("NcaSurplusReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  executedOn DateTime? @db.Date
+  bankExecutionReference String?
+  executionEvidenceDocumentId String?
+  executionEvidenceDocument EntityDocument? @relation("NcaSurplusExecutionEvidence", fields: [tenantId, executionEvidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  executedById String?
+  executedBy User? @relation("NcaSurplusExecutedBy", fields: [tenantId, executedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  executionRecordedAt DateTime?
   issuedById String
   issuedBy User @relation("NcaSurplusIssuedBy", fields: [tenantId, issuedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime @default(now())

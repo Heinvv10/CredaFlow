@@ -40,7 +40,7 @@ export async function approveSurplusAccount(actor: RecoveryActor, loanId: string
       const held = await tx.ncaSurplusRemittance.findFirst({ where: { tenantId: actor.tenantId, status: "HELD_NO_VERIFIED_ACCOUNT", surrender: { loanId, status: "FINAL_NOTICE_ISSUED", recovery: null } } })
       if (held) {
         await tx.ncaSurplusRemittance.update({ where: { id: held.id, tenantId: actor.tenantId }, data: { status: "INSTRUCTED", accountId: row.id, releasedAt: new Date(), releasedById: actor.userId } })
-        await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: "ASSET_SURPLUS_REMITTED", entity: "NcaSurplusRemittance", entityId: held.id, oldValue: { status: held.status, exceptionReason: held.exceptionReason }, newValue: { status: "INSTRUCTED", amountCents: held.amountCents, accountId: row.id, previousExceptionRetained: true } }, tx)
+        await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: "ASSET_SURPLUS_INSTRUCTION_ISSUED", entity: "NcaSurplusRemittance", entityId: held.id, oldValue: { status: held.status, exceptionReason: held.exceptionReason }, newValue: { status: "INSTRUCTED", amountCents: held.amountCents, accountId: row.id, previousExceptionRetained: true } }, tx)
       }
     }
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: "ASSET_SURPLUS_ACCOUNT_APPROVED", entity: "NcaSurplusAccount", entityId: row.id, newValue: { loanId, step: action } }, tx)

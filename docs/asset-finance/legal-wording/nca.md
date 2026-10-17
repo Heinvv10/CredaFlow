@@ -77,7 +77,8 @@ large (Form 20.2). Low confidence on the regulation numbering.
 - Final notice, "Consumer rights following disposal and account reconciliation":
   the s127(5) notice; shortfall demanded (net of unrecoverable charged costs when
   a recovery is linked) with 10 business days before proceedings, or the surplus
-  remitted with the notice into the account given after the valuation notice,
+  instruction issued with the notice for the account given after valuation;
+  payment remains outstanding until bank execution is evidenced,
   or nothing owed; after a shortfall (with or without a linked recovery, the
   same rule as the s131 notice) no interest or charges from the proceeds date
   to 10 business days after the notice; the agreement ends on
@@ -94,7 +95,7 @@ large (Form 20.2). Low confidence on the regulation numbering.
 - Final notice, "Consumer rights following sale and account reconciliation":
   s127(5) and s131 notice; shortfall (settlement value plus charged costs less net
   proceeds, net of unrecoverable charged costs) demanded with 10 business days, or
-  surplus remitted with the notice, or nothing owed; after a shortfall, charge
+  surplus instruction issued with payment pending, or nothing owed; after a shortfall, charge
   freeze to 10 business days after the notice;
   disputes and s128.
 
@@ -141,7 +142,12 @@ Bank proof, independent verification and release authorisation precede the
 final notice. That action creates the exact surplus payment instruction with
 the notice; an unverified account instead creates an audited held-account
 exception and matching notice text. The instruction is downloadable; external
-bank settlement is not asserted. Agreement disclosures now include cash price,
+bank settlement is not asserted. The final notice states payment remains
+outstanding; the recovery remains SURPLUS_HELD until staff record an already
+executed bank payment with exact amount, bank date/reference and retained
+borrower-owned proof. The instruction, original missing-account exception and
+release authority remain immutable; evidence reads are access-logged. No bank
+transfer is initiated by this path. Agreement disclosures now include cash price,
 deposit and monthly credit-life premium, and schedule capital excludes fees.
 
 **Total cost of credit (former gap 23).** Regulation 23A(15)(d), inserted by

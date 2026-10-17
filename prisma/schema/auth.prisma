@@ -86,6 +86,7 @@ model User {
   ncaSurplusAccountsCreated NcaSurplusAccount[] @relation("NcaSurplusCreatedBy")
   ncaSurplusAccountsReleaseAuthorised NcaSurplusAccount[] @relation("NcaSurplusReleaseAuthorisedBy")
   ncaSurplusRemittancesReleased NcaSurplusRemittance[] @relation("NcaSurplusReleasedBy")
+  ncaSurplusRemittancesExecuted NcaSurplusRemittance[] @relation("NcaSurplusExecutedBy")
   ncaSurplusRemittancesIssued NcaSurplusRemittance[] @relation("NcaSurplusIssuedBy")
   notifications                Notification[]
   pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
