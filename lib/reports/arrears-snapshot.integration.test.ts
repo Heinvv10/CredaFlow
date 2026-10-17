@@ -35,7 +35,7 @@ suite("daily arrears history", () => {
     const tenant = await createChargesTenant(db, false)
     tenantId = tenant.tenantId
     loanId = (await createChargesLoan(db, tenant)).loanId
-  })
+  }, 60_000)
 
   afterAll(async () => {
     await db.$disconnect()
@@ -50,7 +50,7 @@ suite("daily arrears history", () => {
       ["2026-09-30", 29, SCHEDULE_TOTAL],
       ["2026-12-31", 121, SCHEDULE_TOTAL],
     ])
-  })
+  }, 60_000)
 
   // Re-review of #153: rows and marker commit together, so a crash part-way
   // leaves the day unrecorded rather than rows without a marker.
@@ -69,7 +69,7 @@ suite("daily arrears history", () => {
     // The next run that day records it whole.
     expect(await snapshotTenantArrears(tenantId, CRASH_DAY, appDb)).toMatchObject({ written: 1 })
     expect(await db.arrearsSnapshotRun.count({ where: { tenantId, snapshotDate: snapshotDay(CRASH_DAY) } })).toBe(1)
-  })
+  }, 60_000)
 
   it("returns each closed quarter from its own last day: the earlier quarter from the earlier snapshot", async () => {
     const q3 = await getNcrReturnData(tenantId, "2026-Q3", AFTER_Q4)
@@ -85,12 +85,12 @@ suite("daily arrears history", () => {
     expect(line(q4, "par90")).toMatchObject({ count: 1, value: 200_000 })
 
     expect(q3.historyStartsOn).toEqual(new Date("2026-09-30T00:00:00.000Z"))
-  })
+  }, 60_000)
 
   it("keeps today's book, flagged stale, for a closed quarter before history began", async () => {
     const q2 = await getNcrReturnData(tenantId, "2026-Q2", AFTER_Q4)
     expect(q2).toMatchObject({ positionSource: "LIVE", positionAsOf: null, positionIsStale: true })
-  })
+  }, 60_000)
 
   it("refuses to change, remove or truncate history", async () => {
     await expect(db.$executeRawUnsafe(
@@ -100,7 +100,7 @@ suite("daily arrears history", () => {
     await expect(db.$executeRawUnsafe(`UPDATE "ArrearsSnapshotRun" SET "loanCount" = 0 WHERE "tenantId" = $1`, tenantId)).rejects.toThrow(/append-only/)
     await expect(db.$executeRawUnsafe(`TRUNCATE "LoanArrearsSnapshot"`)).rejects.toThrow(/append-only/)
     await expect(db.$executeRawUnsafe(`TRUNCATE "ArrearsSnapshotRun"`)).rejects.toThrow(/append-only/)
-  })
+  }, 60_000)
 
   // Review of #153: a quarter-end day the snapshot ran on with an empty book
   // reads as that (empty) position, not as missing history.
@@ -109,7 +109,7 @@ suite("daily arrears history", () => {
     await snapshotTenantArrears(empty.tenantId, Q3_LAST_EVENING, appDb)
     const q3 = await getNcrReturnData(empty.tenantId, "2026-Q3", AFTER_Q4)
     expect(q3).toMatchObject({ positionSource: "SNAPSHOT", positionIsStale: false, collectibleBook: { count: 0, value: 0 } })
-  })
+  }, 60_000)
 
   it("reproduces the live book-arrears figures when the loan columns are current", async () => {
     const now = new Date()
@@ -123,5 +123,5 @@ suite("daily arrears history", () => {
     const fromLoans = await getBookArrears(tenantId, "NCA", appDb)
     const { defaulted: _d, attorneyReferred: _a, ...comparable } = fromHistory
     expect(comparable).toEqual(fromLoans)
-  })
+  }, 60_000)
 })

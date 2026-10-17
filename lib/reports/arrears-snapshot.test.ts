@@ -71,6 +71,7 @@ describe("snapshotTenantArrears", () => {
           { dueDate: new Date("2026-10-17T06:30:01Z"), principalDue: 289_000, interestDue: 50_000, feesDue: 0, totalDue: 339_000, totalPaid: 0 },
         ],
       }]) },
+      arrearsSnapshotRun: { createMany: runCreateMany },
       $transaction: transaction,
     } as unknown as Parameters<typeof snapshotTenantArrears>[2]
     return { db, createMany, runCreateMany, transaction, order }
@@ -100,6 +101,18 @@ describe("snapshotTenantArrears", () => {
     expect(order).toEqual(["begin", "marker", "rows", "commit"])
     // A large book's insert outlasts Prisma's 5 s default.
     expect(transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 60_000 })
+  })
+
+  it("records an empty book's day with the marker alone, outside an interactive transaction", async () => {
+    const { db, transaction, runCreateMany, createMany } = writerDb()
+    ;(db as unknown as { loan: { findMany: () => Promise<unknown[]> } }).loan.findMany = async () => []
+    expect(await snapshotTenantArrears("t1", AS_OF, db)).toEqual({ snapshotDate: "2026-10-16", loans: 0, written: 0 })
+    expect(transaction).not.toHaveBeenCalled()
+    expect(createMany).not.toHaveBeenCalled()
+    expect(runCreateMany).toHaveBeenCalledWith({
+      data: [{ tenantId: "t1", snapshotDate: new Date("2026-10-16T00:00:00.000Z"), loanCount: 0 }],
+      skipDuplicates: true,
+    })
   })
 
   it("adds nothing to a day that already has its marker", async () => {

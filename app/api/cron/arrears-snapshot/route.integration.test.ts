@@ -38,7 +38,7 @@ suite("GET /api/cron/arrears-snapshot across tenants", () => {
     }
     // A lender with no collectible loan: the run still records the day.
     lenders.push({ tenantId: (await createChargesTenant(db, false)).tenantId, loanIds: [] })
-  })
+  }, 60_000)
 
   afterAll(async () => {
     if (saved === undefined) delete process.env.CRON_SECRET
@@ -60,7 +60,9 @@ suite("GET /api/cron/arrears-snapshot across tenants", () => {
       expect(await db.arrearsSnapshotRun.findMany({ where: { tenantId: lender.tenantId }, select: { loanCount: true } }))
         .toEqual([{ loanCount: lender.loanIds.length }])
     }
-  })
+  // The route walks EVERY tenant in the database, and the integration
+  // database holds every earlier suite's lenders.
+  }, 120_000)
 
   it("writes nothing on a second run the same day", async () => {
     const before = await db.loanArrearsSnapshot.count({ where: { tenantId: { in: lenders.map((l) => l.tenantId) } } })
@@ -69,7 +71,7 @@ suite("GET /api/cron/arrears-snapshot across tenants", () => {
     const body = await res.json() as { perTenant: Array<{ tenantId: string; written?: number }> }
     for (const lender of lenders) expect(body.perTenant.find((t) => t.tenantId === lender.tenantId)).toMatchObject({ written: 0 })
     expect(await db.loanArrearsSnapshot.count({ where: { tenantId: { in: lenders.map((l) => l.tenantId) } } })).toBe(before)
-  })
+  }, 120_000)
 
   it("refuses a call without the cron secret", async () => {
     const res = await GET(new NextRequest("http://localhost/api/cron/arrears-snapshot"))

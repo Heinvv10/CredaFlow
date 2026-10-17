@@ -43,7 +43,7 @@ export function snapshotDay(instant: Date): Date {
 export const SNAPSHOT_TX_TIMEOUT_MS = 60_000
 
 type WriterTx = Pick<typeof prisma, "loanArrearsSnapshot" | "arrearsSnapshotRun">
-type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig"> & {
+type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig" | "arrearsSnapshotRun"> & {
   $transaction: <T>(fn: (tx: WriterTx) => Promise<T>, options?: { timeout?: number }) => Promise<T>
 }
 
@@ -84,10 +84,16 @@ export async function snapshotTenantArrears(
       chargesLive,
     }
   })
+  // An empty book is the marker alone: one statement, atomic by itself, with
+  // no interactive transaction (most tenants on a multi-lender run).
+  if (data.length === 0) {
+    await db.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: 0 }], skipDuplicates: true })
+    return { snapshotDate: sastCalendarDate(asOf), loans: 0, written: 0 }
+  }
   const written = await db.$transaction(async (tx) => {
     const run = await tx.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: loans.length }], skipDuplicates: true })
     if (run.count === 0) return 0
-    return data.length === 0 ? 0 : (await tx.loanArrearsSnapshot.createMany({ data })).count
+    return (await tx.loanArrearsSnapshot.createMany({ data })).count
   }, { timeout: SNAPSHOT_TX_TIMEOUT_MS })
   return { snapshotDate: sastCalendarDate(asOf), loans: loans.length, written }
 }
