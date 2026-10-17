@@ -51,3 +51,14 @@ accrual. The loader keeps frozen postings and paid shares as audit history.
 The reviewer's actual-loader repro failed before the correction and passed
 afterward; a further 2030 replay leaves the historical contractual cap and
 charge postings unchanged, with zero collectible default interest.
+
+Stop-day boundary follow-up: a fixed historical charge share valued on the stop
+day previously subtracted from an already forgiven balance, creating negative
+unpaid default interest and fictitious contractual headroom. The review repro
+failed first. After each receipt on or after the stop day, the engine keeps
+accrued charges equal to their actually paid fixed shares, so unpaid charges
+stay zero. Regression coverage now includes two receipts valued the day before,
+on, and after the stop, with no later receipts, and checks the unpaid-interest
+ceiling and preserved paid shares. Daily accrual remains bounded by SAST days;
+this correction preserves recorded intraday paid shares without inventing
+post-stop default accrual or negative unpaid charges.

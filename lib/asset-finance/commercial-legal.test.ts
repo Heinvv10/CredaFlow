@@ -108,3 +108,24 @@ it("resumes only new daily interest after a partial receipt releases common-law 
   expect(nextDay.interestOutstanding).toBe(5329)
   expect(nextDay.interestAccrued).toBe(10329)
 })
+
+it.each([-1, 0, 1])("stop boundary preserves the ceiling with two receipts valued %s days from the stop", (offset) => {
+  const stop = d("2021-01-01")
+  const receivedAt = new Date(stop.getTime() + offset * 86400000)
+  const schedule = [
+    { dueDate: d("2020-01-01"), principalDue: 5000, interestDue: 1000, feesDue: 0, totalDue: 6000 },
+    { dueDate: d("2025-01-01"), principalDue: 5000, interestDue: 20000, feesDue: 0, totalDue: 25000 },
+  ]
+  const receipts = ["first", "second"].map((id) => ({ id, amount: 2500, receivedAt }))
+  const result = computeNonNcaCharges({ startDate: d("2019-01-01"), schedule, receipts, interestRatePm: 1,
+    maturityDate: d("2025-01-01"), asOf: d("2026-01-01"), defaultInterestMargin: 0, collectionFeeCents: null,
+    stoppedCharges: { at: stop, receipts: receipts.map((r) => ({ id: r.id, defaultInterestAllocated: offset <= 0 ? 2500 : 0, chargeFeesAllocated: 0 })) },
+  })
+  const rows = result.lawfulSchedule!
+  const unpaidInterest = rows.reduce((sum, row, i) => sum + Math.max(0, row.interestDue - result.scheduleRows[i].paid), 0)
+  const capital = rows.reduce((sum, row, i) => sum + Math.min(schedule[i].principalDue, Math.max(0, row.totalDue - result.scheduleRows[i].paid)), 0)
+  expect(result.interestOutstanding).toBe(0)
+  expect(result.feesOutstanding).toBe(0)
+  expect(unpaidInterest).toBeLessThanOrEqual(capital)
+  expect(result.receiptSplits.reduce((sum, r) => sum + r.toDefaultInterest, 0)).toBe(offset <= 0 ? 5000 : 0)
+})
