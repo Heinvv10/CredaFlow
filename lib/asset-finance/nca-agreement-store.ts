@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
+import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { dbDate } from "./dates"
 import { createPayoutChecklist } from "./payout-checklist-store"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
@@ -48,16 +49,17 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     basis: deal.rateBasis, margin: deal.rateMargin?.toString() ?? null, fixedRate: deal.fixedRate?.toString() ?? null,
   }, startDate)
   if ("error" in rate) return { kind: "not_ready", reason: rate.error }
-  const lender = await getLenderIdentity(actor.tenantId)
+  const [lender, approved] = await Promise.all([getLenderIdentity(actor.tenantId), legalWordingApproved(prisma, actor.tenantId)])
   const generatedAt = new Date(evidence.calculator.startDate)
   const bytes = await renderNcaAssetAgreement({
-    reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
+    legalWordingApproved: approved, reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,
+      rateBasis: deal.rateBasis, rateMargin: deal.rateMargin?.toString() ?? null, reference: rate.reference,
       initiationFeeCents: evidence.calculator.initiationFeeCents,
       monthlyServiceFeeCents: Math.round(evidence.calculator.serviceFeesCents / evidence.calculator.schedule.length),
       creditLifePremiumCents: evidence.creditLife.monthlyPremiumCents, instalmentCents: evidence.billing.recurringPaymentCents,

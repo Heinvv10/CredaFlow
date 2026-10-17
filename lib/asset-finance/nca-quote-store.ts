@@ -10,6 +10,7 @@ import { termsFromDeal, DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { solveNcaDealStructure } from "./nca-structure"
 import { createAssetPasqEvidence, pasqJson } from "./nca-evidence"
 import { renderNcaAssetQuote } from "./documents/nca/quote-pdf"
+import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 
@@ -66,9 +67,9 @@ export async function issueAssetNcaQuote(
     productId: deal.application.productId, termDays: deal.application.appliedTermDays, generatedAt, solved,
     initiationFeeCents: terms.financedFeesCents, creditLife: creditLife.evidence,
   })
-  const lender = await getLenderIdentity(actor.tenantId)
+  const [lender, approved] = await Promise.all([getLenderIdentity(actor.tenantId), legalWordingApproved(tx, actor.tenantId)])
   const bytes = await renderNcaAssetQuote({
-    reference: deal.application.reference, documentDate: generatedAt, contractType: deal.contractType,
+    legalWordingApproved: approved, reference: deal.application.reference, documentDate: generatedAt, contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: deal.client ? {
       name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber,
@@ -81,6 +82,7 @@ export async function issueAssetNcaQuote(
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: terms.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,
+      rateBasis: terms.rate.basis, rateMargin: terms.rate.margin, reference: rate.reference,
       initiationFeeCents: evidence.calculator.initiationFeeCents,
       monthlyServiceFeeCents: solved.result.rows[0]?.feesCents === undefined ? 0 : solved.result.rows[0].feesCents - terms.financedFeesCents,
       creditLifePremiumCents: evidence.creditLife.monthlyPremiumCents, instalmentCents: evidence.billing.recurringPaymentCents,

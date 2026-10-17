@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
-import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 import { DRAFT_WATERMARK, PLACEHOLDER_CLAUSE } from "../pdf-layout"
 import { renderPostSaleStatement } from "../post-sale-statement"
+import { expectDraftMarks, expectWordedClauses, prose, texts } from "./nca-wording.test-helpers"
 import { COST_LINES_NOTE, renderRecoveryFinalNotice, renderRecoveryValuationNotice, type RecoveryNoticeData } from "./recovery-pdf"
 
-const CP1252_HIGH = "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ"
-const winAnsi = (hex: string) => [...Buffer.from(hex, "hex")].map((b) => b >= 0x80 && b <= 0x9f ? CP1252_HIGH[b - 0x80] : String.fromCharCode(b)).join("")
-const texts = async (bytes: Buffer) => (await pdfPageContents(bytes)).flatMap((content) => [...content.matchAll(/<([0-9A-Fa-f]+)> Tj/g)].map((m) => winAnsi(m[1])))
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
 
 const data: RecoveryNoticeData = {
+  legalWordingApproved: false,
   reference: "AF-NCA-S131-TEST", documentDate: new Date("2026-10-15T08:00:00.000Z"),
   lender: { legalName: "TEST Credit Provider", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] },
   borrower: { name: "TEST Borrower", identityNumber: "0000000000000", addressLines: ["2 Synthetic Street", "Testville", "Free State", "9999"] },
@@ -30,9 +28,12 @@ describe("s131 DRAFT notices", () => {
     expect(sha(first)).toBe(sha(await renderRecoveryValuationNotice({ ...data })))
     const all = await texts(first)
     expect(all.join(" ")).toContain("REPOSSESSED GOODS VALUATION NOTICE")
-    expect(all).toContain(DRAFT_WATERMARK)
-    expect(all).toContain(PLACEHOLDER_CLAUSE)
+    expectDraftMarks(all, false)
     expect(all).toContain("R 1,250.00")
+  })
+
+  it.each([renderRecoveryValuationNotice, renderRecoveryFinalNotice])("drops the watermark, subtitle and cost note once the wording is approved", async (render) => {
+    expectDraftMarks(await texts(await render({ ...data, legalWordingApproved: true })), true)
   })
 
   it("prints the consumer's address on one line with real separators, not '?'", async () => {
@@ -91,10 +92,37 @@ describe("NON_NCA post-sale statement", () => {
     expect(all).not.toContain(DRAFT_WATERMARK)
     expect(all).not.toContain(PLACEHOLDER_CLAUSE)
     expect(all.join(" ")).not.toMatch(/NOTICE|NCR/)
+    // The NCA notices' consumer-rights wording, which the same data renders, stays out of it.
+    expect(prose(await texts(await renderRecoveryFinalNotice(data)))).toContain("section 127")
+    expect(all.join(" ")).not.toMatch(/Consumer rights|section 12[789]|National Credit Act/)
     expect(all).toEqual(expect.arrayContaining(["R 1,200.00", "R 370.00", "Towing and transport"]))
   })
 
   it("needs the applied proceeds", async () => {
     await expect(renderPostSaleStatement({ ...data, outcome: undefined })).rejects.toThrow(RangeError)
+  })
+})
+
+describe("s131 notice wording", () => {
+  it("prints each notice's clause with wording, no placeholder", async () => {
+    expectWordedClauses(await texts(await renderRecoveryValuationNotice(data)), ["Consumer rights following repossession and valuation"])
+    expectWordedClauses(await texts(await renderRecoveryFinalNotice(data)), ["Consumer rights following sale and account reconciliation"])
+  })
+
+  it("the valuation notice names the parties, the place, the dates and the valuation", async () => {
+    const all = prose(await texts(await renderRecoveryValuationNotice(data)))
+    expect(all).toContain('"you" means TEST Borrower and "we" means TEST Credit Provider, registered credit provider NCRCP00000')
+    expect(all).toContain("enforcing agreement AF-NCA-S131-TEST and has been held at TEST Yard since 10 October 2026")
+    expect(all).toContain("R 1,250.00, as valued by TEST Valuer on 12 October 2026")
+    expect(all).toContain("reinstate the agreement")
+  })
+
+  it("the final notice demands the shortfall net of unrecoverable costs, or promises the surplus", async () => {
+    expect(prose(await texts(await renderRecoveryFinalNotice(data)))).toContain("we demand payment of the shortfall of R 370.00")
+    const net = prose(await texts(await renderRecoveryFinalNotice({ ...data, outcome: { ...data.outcome!, unrecoverableCostsCents: 10_000 } })))
+    expect(net).toContain("we demand payment of the shortfall of R 270.00")
+    const surplus = prose(await texts(await renderRecoveryFinalNotice({ ...data, outcome: { ...data.outcome!, shortfallCents: 0, surplusCents: 8_000 } })))
+    expect(surplus).toContain("exceeded what you owe by R 80.00")
+    expect(surplus).not.toContain("we demand payment")
   })
 })

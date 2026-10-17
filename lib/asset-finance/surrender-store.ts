@@ -9,6 +9,7 @@ import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { renderSurrenderFinalNotice, renderSurrenderValuationNotice, type SurrenderNoticeData } from "./documents/nca/surrender-pdf"
+import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { dbDate, isoOfDbDate } from "./dates"
 import { readVerified } from "./notice-bytes"
 import { COST_TYPE_LABELS } from "./recovery-labels"
@@ -177,7 +178,7 @@ async function loadNoticeData(tenantId: string, id: string) {
 }
 
 async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date): Promise<SurrenderNoticeData> {
-  const lender = await getLenderIdentity(tenantId)
+  const [lender, approved] = await Promise.all([getLenderIdentity(tenantId), legalWordingApproved(prisma, tenantId)])
   const borrower = row.loan.client ? {
     name: `${row.loan.client.firstName} ${row.loan.client.lastName}`, identityNumber: row.loan.client.idNumber,
     addressLines: [row.loan.client.addressLine1, row.loan.client.city, row.loan.client.province, row.loan.client.postalCode].filter((v): v is string => !!v),
@@ -186,7 +187,7 @@ async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date):
     addressLines: [row.loan.entity.addressLine1, row.loan.entity.addressLine2, row.loan.entity.city, row.loan.entity.province, row.loan.entity.postalCode].filter((v): v is string => !!v),
   } : { name: "Unknown borrower", identityNumber: "Unknown", addressLines: [] }
   return {
-    reference: row.loan.reference, documentDate,
+    legalWordingApproved: approved, reference: row.loan.reference, documentDate,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines }, borrower,
     asset: { description: `${row.asset.year} ${row.asset.make} ${row.asset.model}`, serialNumber: row.asset.vin ?? row.asset.serialNumber, condition: row.assetCondition },
     requestDate: isoOfDbDate(row.requestedOn), valuationDueDate: isoOfDbDate(row.valuationDueOn),

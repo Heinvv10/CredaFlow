@@ -1,6 +1,7 @@
 import { getLenderIdentity } from "@/lib/config/identity"
 import { prisma } from "@/lib/prisma"
 import type { RecoveryNoticeData } from "./documents/nca/recovery-pdf"
+import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { isoOfDbDate } from "./dates"
 import { COST_TYPE_LABELS } from "./recovery-labels"
 
@@ -13,7 +14,7 @@ export async function loadRecoveryNoticeData(tenantId: string, id: string, docum
     costs: { where: { status: "APPROVED" }, orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] },
   } })
   if (!row) return null
-  const lender = await getLenderIdentity(tenantId)
+  const [lender, approved] = await Promise.all([getLenderIdentity(tenantId), legalWordingApproved(prisma, tenantId)])
   const { client, entity } = row.loan
   const borrower = client ? {
     name: `${client.firstName} ${client.lastName}`, identityNumber: client.idNumber,
@@ -29,7 +30,7 @@ export async function loadRecoveryNoticeData(tenantId: string, id: string, docum
       unrecoverableCostsCents: row.unrecoverableCostsCents ?? undefined,
     }
   const data: RecoveryNoticeData = {
-    reference: row.loan.reference, documentDate,
+    legalWordingApproved: approved, reference: row.loan.reference, documentDate,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines }, borrower,
     asset: { description: `${row.asset.year} ${row.asset.make} ${row.asset.model}`, serialNumber: row.asset.vin ?? row.asset.serialNumber, condition: row.condition },
     recoveredOn: isoOfDbDate(row.recoveredOn), location: row.location,

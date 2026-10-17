@@ -1,5 +1,6 @@
 import { formatDatePdf, formatZarPdf } from "@/lib/pdf/helpers"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
+import { recoveryFinalClause, recoveryValuationClause } from "../wording/nca-recovery"
 
 export interface RecoveryCostLine {
   label: string
@@ -8,6 +9,8 @@ export interface RecoveryCostLine {
 }
 
 export interface RecoveryNoticeData {
+  /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark, subtitle and cost note on the NCA notices. */
+  legalWordingApproved: boolean
   reference: string
   documentDate: Date
   lender: { legalName: string; ncrNumber: string; registeredOfficeLines: string[] }
@@ -42,7 +45,7 @@ export const COST_COLUMNS: readonly TableColumn[] = [
   { header: "Amount", x: 460, width: 90, align: "right" },
 ]
 
-// UNTESTED: legal sign-off. Titles and layout follow docs/asset-finance/SLICE4.md; the clauses are placeholders.
+// UNTESTED: legal sign-off. Titles and layout follow docs/asset-finance/SLICE4.md; the clause wording is ../wording/nca-recovery.ts.
 export async function renderRecoveryValuationNotice(data: RecoveryNoticeData): Promise<Buffer> {
   const w = await baseWriter(data, "REPOSSESSED GOODS VALUATION NOTICE")
   if (!data.valuation) throw new RangeError("Valuation evidence is required")
@@ -52,8 +55,9 @@ export async function renderRecoveryValuationNotice(data: RecoveryNoticeData): P
     ["Valuer", data.valuation.valuerName],
     ["Valuation", formatZarPdf(data.valuation.amountCents)],
   ])
-  w.placeholderClause("1", "Consumer rights following repossession and valuation")
-  return w.finish({ reference: data.reference, watermark: true })
+  const clause = recoveryValuationClause(data)
+  w.clause("1", clause.heading, clause.text)
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
 }
 
 export async function renderRecoveryFinalNotice(data: RecoveryNoticeData): Promise<Buffer> {
@@ -76,10 +80,11 @@ export async function renderRecoveryFinalNotice(data: RecoveryNoticeData): Promi
     w.table("RECOVERY COSTS", COST_COLUMNS, data.costs.map((c) => [
       c.label, c.treatment === "DEDUCT_FROM_PROCEEDS" ? "Deducted from proceeds" : "Charged to account", formatZarPdf(c.grossCents),
     ]))
-    w.paragraph(COST_LINES_NOTE, w.italic)
+    if (!data.legalWordingApproved) w.paragraph(COST_LINES_NOTE, w.italic)
   }
-  w.placeholderClause("1", "Consumer rights following sale and account reconciliation")
-  return w.finish({ reference: data.reference, watermark: true })
+  const clause = recoveryFinalClause(data)
+  w.clause("1", clause.heading, clause.text)
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
 }
 
 async function baseWriter(data: RecoveryNoticeData, title: string): Promise<DealDocumentWriter> {
@@ -87,7 +92,7 @@ async function baseWriter(data: RecoveryNoticeData, title: string): Promise<Deal
   w.letterhead(data.lender.legalName, [`NCR ${data.lender.ncrNumber}`, ...data.lender.registeredOfficeLines])
   w.title(title, [
     `Loan ${data.reference} · prepared ${formatDatePdf(data.documentDate)}`,
-    "DRAFT legal wording — statutory wording requires lender legal approval",
+    ...(data.legalWordingApproved ? [] : ["DRAFT legal wording — statutory wording requires lender legal approval"]),
   ])
   w.section("CONSUMER AND ASSET")
   w.labelValues([
