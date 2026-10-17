@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { sendEmail } from "@/lib/email/service"
+import { sendSection129Email, section129SentMessage, simulatesSection129 } from "@/lib/collections/section129-email"
 import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
@@ -144,6 +144,8 @@ export async function POST(req: NextRequest) {
         pdf: pdfAttachment?.content as Buffer,
         createdById: guard.user.id,
         createdByEmail: guard.user.email,
+        // Only the email transport below simulates; the messaging pipeline never does.
+        simulated: !(newSend && template) && await simulatesSection129(tenant.id, addressee.email),
       })
     } catch (error) {
       if (error instanceof Section129IssuanceConflictError) {
@@ -182,6 +184,8 @@ export async function POST(req: NextRequest) {
       acceptedAt?: Date
       error?: string
       providerOutcome?: "ACCEPTED" | "DEFINITELY_REJECTED" | "AMBIGUOUS"
+      /** Demo stack, .invalid mailbox: recorded, never sent (lib/collections/section129-email.ts). */
+      simulated?: true
     }
     let providerInvoked = false
 
@@ -291,13 +295,15 @@ export async function POST(req: NextRequest) {
       }
 
       try {
+        // The decision recorded at reservation, never re-taken at send time.
+        const simulate = reservation.recordData.simulated === true
         const dispatch = await dispatchSection129UnderEligibilityLock({
           reservation,
           tenantId: tenant.id,
           loanId: loan.id,
           actorId: guard.user.id,
           actorEmail: guard.user.email,
-          dispatch: (markProviderInvocation) => sendEmail({
+          dispatch: (markProviderInvocation) => sendSection129Email({
               tenantId: tenant.id,
               to: addressee.email,
               toName: clientName,
@@ -308,7 +314,7 @@ export async function POST(req: NextRequest) {
               referenceId: loan.id,
               attachments,
               onProviderDispatchStart: markProviderInvocation,
-            }),
+            }, simulate),
         })
         if (dispatch.kind === "INELIGIBLE") {
           return NextResponse.json({ ok: false, error: dispatch.error.message }, { status: 422 })
@@ -411,6 +417,7 @@ export async function POST(req: NextRequest) {
         ...(result.emergencyEvidenceAuditPersisted !== undefined
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
+        ...(result.simulated ? { simulated: true } : {}),
       }).catch(() => {
         // The active key remains non-retryable even if the promotion fails.
       })
@@ -446,6 +453,7 @@ export async function POST(req: NextRequest) {
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
         issuedAt: result.acceptedAt,
+        ...(result.simulated ? { simulated: true } : {}),
       })
     } catch (error) {
       await markSection129ReconciliationRequired({
@@ -466,6 +474,7 @@ export async function POST(req: NextRequest) {
         ...(result.emergencyEvidenceAuditPersisted !== undefined
           ? { emergencyEvidenceAuditPersisted: result.emergencyEvidenceAuditPersisted }
           : {}),
+        ...(result.simulated ? { simulated: true } : {}),
       }).catch(() => {
         // Keep the response non-retryable even if the reconciliation-state
         // write is part of the same database failure as finalisation.
@@ -484,16 +493,20 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    triggerNotification({
-      tenantId: tenant.id,
-      event: "section129_sent",
-      loanId,
-      data: { reference: loan.reference },
-    }).catch(() => {})
+    // A simulated notice went nowhere: no borrower notification follows it.
+    if (!result.simulated) {
+      triggerNotification({
+        tenantId: tenant.id,
+        event: "section129_sent",
+        loanId,
+        data: { reference: loan.reference },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       ok: true,
-      message: `Section 129 notice accepted by the email provider for ${addressee.email}`,
+      message: section129SentMessage(addressee.email, result.simulated === true),
+      ...(result.simulated ? { simulated: true } : {}),
       messageId: result.messageId,
       issuanceId: reservation.issuanceId,
       providerAccepted: true,

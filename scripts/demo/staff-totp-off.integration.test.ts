@@ -23,7 +23,7 @@ const superId = `user_demo_totp_super_${token}`
 
 class Rollback extends Error {}
 
-function libSql(name: "STAFF_TOTP_OFF_SQL" | "TENANT_TOTP_POLICY_OFF_SQL" | "TENANT_SOD_OFF_SQL"): string {
+function libSql(name: "STAFF_TOTP_OFF_SQL" | "TENANT_TOTP_POLICY_OFF_SQL" | "TENANT_SOD_OFF_SQL" | "TENANT_DEMO_LENDER_SQL"): string {
   const lib = join(__dirname, "lib.sh")
   const r = spawnSync("bash", ["-c", `. "$0"; printf %s "$${name}"`, lib], { encoding: "utf8" })
   if (r.status !== 0) throw new Error(`lib.sh: ${r.stderr}`)
@@ -113,5 +113,34 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
       ),
     ).rejects.toBeInstanceOf(Rollback)
     expect({ before, after }).toEqual({ before: true, after: false })
+  })
+
+  it("TENANT_DEMO_LENDER_SQL marks the tenant as a demo lender, and leaves a db without the column alone", async () => {
+    const sql = libSql("TENANT_DEMO_LENDER_SQL")
+    let before: boolean | undefined
+    let after: boolean | undefined
+    await expect(
+      withoutTenantScope(() =>
+        prisma.$transaction(async (tx) => {
+          await tx.tenantConfig.create({ data: { tenantId } })
+          before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
+          await tx.$executeRawUnsafe(sql)
+          after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
+          throw new Rollback()
+        }),
+      ),
+    ).rejects.toBeInstanceOf(Rollback)
+    expect({ before, after }).toEqual({ before: false, after: true })
+
+    // A snapshot baked before the column: the guard skips the UPDATE. The
+    // transaction takes no lock before the DROP, so it can only queue, never
+    // deadlock, behind a parallel suite; the rollback restores the column.
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`ALTER TABLE "TenantConfig" DROP COLUMN "isDemoLender"`)
+        await tx.$executeRawUnsafe(sql)
+        throw new Rollback()
+      }, { timeout: 30_000 }),
+    ).rejects.toBeInstanceOf(Rollback)
   })
 })

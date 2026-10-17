@@ -55,6 +55,11 @@ export function demoBannerText(brandName: string | null): string {
  */
 const UNDELIVERABLE_MAILBOX = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.invalid$/
 
+/** One plain `.invalid` mailbox: mail to it can never be delivered. */
+export function isUndeliverableMailbox(email: string): boolean {
+  return UNDELIVERABLE_MAILBOX.test(email.trim().toLowerCase())
+}
+
 /**
  * A demo borrower's one-time codes (portal activation, password reset) are
  * emailed to fictional `.invalid` addresses and never arrive, so in a demo the
@@ -71,6 +76,5 @@ export function demoCodeReveal(
   env: Record<string, string | undefined> = process.env,
 ): { demoCode?: string } {
   if (!isDemoMode(env)) return {}
-  const email = recipientEmail.trim().toLowerCase()
-  return UNDELIVERABLE_MAILBOX.test(email) ? { demoCode: code } : {}
+  return isUndeliverableMailbox(recipientEmail) ? { demoCode: code } : {}
 }

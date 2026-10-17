@@ -1,6 +1,7 @@
 "use client"
 
 import { AlertTriangle, UserCheck, Calendar, FileText } from "lucide-react"
+import { formatZAR } from "@/lib/utils"
 
 interface Props {
   writeOffAt: string
@@ -14,10 +15,6 @@ function formatDate(d: string) {
   // zone, which differs between the server (SSR, typically UTC) and the
   // browser (SAST) — a text mismatch that trips React hydration (#418).
   return new Date(d).toLocaleDateString("en-ZA", { day: "2-digit", month: "long", year: "numeric", timeZone: "Africa/Johannesburg" })
-}
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 export function WriteOffCard({ writeOffAt, writeOffReason, approvedByName, outstandingAtWriteOff }: Props) {

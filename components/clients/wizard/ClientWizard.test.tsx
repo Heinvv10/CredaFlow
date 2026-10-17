@@ -97,3 +97,30 @@ describe("ClientWizard restore", () => {
     expect(headings(r)).toContain("Identity")
   })
 })
+
+describe("ClientWizard stale errors", () => {
+  const nodeText = (children: unknown): string => {
+    if (children == null || typeof children === "boolean") return ""
+    if (typeof children === "string" || typeof children === "number") return String(children)
+    if (Array.isArray(children)) return children.map(nodeText).join("")
+    const el = children as { props?: { children?: unknown } }
+    return el.props ? nodeText(el.props.children) : ""
+  }
+  const text = (r: ReactTestRenderer) => r.root.findAll((n) => typeof n.type === "string").map((n) => nodeText(n.props.children)).join(" ")
+
+  // Fair Score audit 2026-10-16: corrected fields kept their red message until Next.
+  it("clears the ID and date-of-birth messages as soon as a valid ID is typed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ exists: false }) }))
+    const r = await mount()
+    const idInput = () => r.root.findAll((n) => n.type === "input" && n.props.inputMode === "numeric")[0]
+    await act(async () => idInput().props.onChange({ target: { value: "123" } }))
+    const next = r.root.findAll((n) => n.type === "button" && nodeText(n.props.children).includes("Next"))[0]
+    await act(async () => next.props.onClick())
+    expect(text(r)).toContain("Not a valid 13-digit SA ID number")
+    await act(async () => idInput().props.onChange({ target: { value: "8503015000081" } }))
+    expect(text(r)).not.toContain("Not a valid 13-digit SA ID number")
+    expect(r.root.findAll((n) => n.type === "input" && n.props.type === "date")[0].props.value).toBe("1985-03-01")
+    expect(text(r)).toContain("Required") // first name etc. still missing
+    vi.unstubAllGlobals()
+  })
+})

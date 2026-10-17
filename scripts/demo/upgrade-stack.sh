@@ -43,7 +43,8 @@
 #      plus .env and .env.production beside it. Never pruned: delete by hand;
 #   5. `prisma migrate deploy` from the worktree against the db's published
 #      127.0.0.1 port; DATABASE_URL (it has the password) is env-only, never argv;
-#      then segregation of duties off for the demo tenant (TENANT_SOD_OFF_SQL);
+#      then segregation of duties off for the demo tenant (TENANT_SOD_OFF_SQL)
+#      and every tenant marked as a demo lender (TENANT_DEMO_LENDER_SQL);
 #   6. pin APP_IMAGE, GIT_SHA, BUILD_TIME in $LIVE_DIR/.env, `up -d --no-deps
 #      app app-portal`, and verify: /api/health on both, both containers run the
 #      new image, and every TENANT_HOST_MAP host gets 200 (Host: header) from the
@@ -254,6 +255,12 @@ step="segregation of duties off"
 live_sql "$db" "$TENANT_SOD_OFF_SQL" >/dev/null \
   && note "demo segregation of duties switched off (TenantConfig.requireSegregationOfDuties)" \
   || note "WARNING: could not switch off segregation of duties; the approver cannot pay out in the demo"
+# Same guard: a migration that adds TenantConfig.isDemoLender leaves it false on the
+# existing tenants, and the demo's simulated Section 129 email needs it.
+step="demo lender marker"
+live_sql "$db" "$TENANT_DEMO_LENDER_SQL" >/dev/null \
+  && note "tenants marked as demo lenders (TenantConfig.isDemoLender)" \
+  || note "WARNING: could not mark the demo lenders; Section 129 notices in the demo fail instead of being simulated"
 
 # --- 6. swap and verify.
 step="pin $image"

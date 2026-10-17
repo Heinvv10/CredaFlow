@@ -390,6 +390,13 @@ model TenantConfig {
   // is derived for the tenant and --apply refuses to re-enable.
   defaultChargesStoppedAt  DateTime?
 
+  // A synthetic demo lender. Set only by the demo seed (prisma/seed.ts) and
+  // the demo stack scripts (TENANT_DEMO_LENDER_SQL, scripts/demo/lib.sh);
+  // provisioning refuses it (scripts/lender/bootstrap-tenant.ts) and no route
+  // writes it. On a DEMO_MODE stack it lets a Section 129 notice to an
+  // undeliverable mailbox be simulated (lib/collections/section129-email.ts).
+  isDemoLender Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

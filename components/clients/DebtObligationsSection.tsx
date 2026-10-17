@@ -19,6 +19,7 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
+import { formatRands } from "@/lib/utils"
 
 interface DebtObligation {
   id?: string
@@ -129,7 +130,7 @@ export function DebtObligationsSection({ debts, onChange }: DebtObligationsSecti
       {debts.length > 0 && (
         <div className="mt-4 p-3 bg-gray-50 rounded-lg">
           <p className="text-sm font-semibold text-gray-900">
-            Total Monthly Debt Repayments: R {totalMonthly.toLocaleString("en-ZA")}
+            Total Monthly Debt Repayments: {formatRands(totalMonthly)}
           </p>
         </div>
       )}

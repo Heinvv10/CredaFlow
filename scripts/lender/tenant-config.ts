@@ -55,7 +55,17 @@ const fileSchema = z.strictObject({
 
 const norm = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim().toUpperCase() : null)
 
+const DEMO_LENDER_REFUSAL = "isDemoLender: only the demo seed marks a demo lender; a lender file may not set it"
+
+/** The demo-lender marker anywhere in the file (TenantConfig.isDemoLender, prisma/seed.ts only). */
+function setsDemoLender(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null) return false
+  const file = raw as Record<string, unknown>
+  return [file, file.features, file.identity].some((o) => typeof o === "object" && o !== null && "isDemoLender" in o)
+}
+
 export function parseTenantConfig(raw: unknown): TenantConfigParse {
+  if (setsDemoLender(raw)) return { ok: false, errors: [DEMO_LENDER_REFUSAL] }
   const file = fileSchema.safeParse(raw)
   if (!file.success) {
     return { ok: false, errors: file.error.issues.map((i) => `${i.path.join(".") || "(file)"}: ${i.message}`) }

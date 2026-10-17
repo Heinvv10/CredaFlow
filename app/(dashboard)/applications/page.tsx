@@ -35,6 +35,7 @@ async function getApplications() {
         product: { select: { name: true, productType: true } },
         branch: { select: { name: true } },
         assignedTo: { select: { name: true } },
+        loan: { select: { status: true } },
       },
     }),
     prisma.loanApplication.count({

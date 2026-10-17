@@ -26,6 +26,7 @@ import { Step1Identity } from "./Step1Identity"
 import { Step2Address } from "./Step2Address"
 import { Step3Employment } from "./Step3Employment"
 import { Step4Review } from "./Step4Review"
+import { reconcileErrors } from "./reconcile-errors"
 
 interface Props {
   mode: WizardMode
@@ -83,8 +84,14 @@ export function ClientWizard({ mode, onCreated }: Props) {
     if (restored) store.save(data)
   }, [data, store, restored])
 
-  const patch = (partial: Partial<ClientWizardData>) =>
+  const patch = (partial: Partial<ClientWizardData>) => {
+    const next = { ...data, ...partial }
     setData((d) => ({ ...d, ...partial }))
+    // Clear a message the edit has resolved, without waiting for Next.
+    setErrors((shown) => Object.keys(shown).length === 0
+      ? shown
+      : reconcileErrors(shown, validateCurrentStep(step, data), validateCurrentStep(step, next), Object.keys(partial)))
+  }
 
   function goTo(
     n: ClientWizardStep,

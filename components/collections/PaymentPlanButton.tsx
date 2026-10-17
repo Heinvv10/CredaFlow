@@ -1,7 +1,9 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "@/lib/toast"
+import { formatRands } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -11,6 +13,7 @@ interface Props {
 }
 
 export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAmountDisplay }: Props) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [installments, setInstallments] = useState(3)
   const [startDate, setStartDate] = useState(() => {
@@ -36,6 +39,8 @@ export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAm
       if (res.ok) {
         toast.success("Payment plan created")
         setDone(true)
+        // The stage panel, the plan badge and the notes history are server-rendered.
+        router.refresh()
         setTimeout(() => { setOpen(false); setDone(false) }, 1000)
       } else {
         toast.error("Failed to create payment plan")
@@ -85,7 +90,7 @@ export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAm
               <div className="bg-amber-50 rounded-xl p-4 text-center">
                 <p className="text-xs text-gray-500">Monthly Payment</p>
                 <p className="text-2xl font-bold text-[#4F46E5]">
-                  R {installmentAmt.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatRands(installmentAmt)}
                 </p>
                 <p className="text-xs text-gray-400">{installments} × payment{installments > 1 ? "s" : ""} of arrears only</p>
               </div>

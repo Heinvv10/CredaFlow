@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle } from "lucide-react"
+import { formatZAR } from "@/lib/utils"
 
 interface Props {
   loanId: string
@@ -10,10 +11,6 @@ interface Props {
   requestedByName: string
   isRequester: boolean
   outstandingPrincipal: number
-}
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 export function WriteOffApprovalCard({ loanId, reason, requestedByName, isRequester, outstandingPrincipal }: Props) {

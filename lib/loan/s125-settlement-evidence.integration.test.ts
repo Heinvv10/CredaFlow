@@ -125,6 +125,15 @@ suite.sequential("early instalment settlement evidence (real Postgres)", () => {
     await expect(settle({ action: "ATTORNEY_UPDATED", entity: "Attorney" })).rejects.toThrow(/AuditLog_settlement_evidence_receipts_only/)
   })
 
+  it("refuses the DAILY_ACCRUAL settlement key on any audit row but a receipt writer's or its status change", async () => {
+    const audit = (action: string) => db.auditLog.create({
+      data: { tenantId: scenario.tenantId, action, entity: "Loan", entityId: loanId, newValue: { paymentId: "p", earlyDailySettlement: true } },
+    })
+    await expect(audit("ATTORNEY_UPDATED")).rejects.toThrow(/AuditLog_settlement_evidence_receipts_only/)
+    await expect(audit("LOAN_STATUS_CHANGED")).resolves.toMatchObject({ action: "LOAN_STATUS_CHANGED" })
+    await expect(audit("PAYMENT_RECORDED")).resolves.toMatchObject({ action: "PAYMENT_RECORDED" })
+  })
+
   it("refuses a receipt action that does not name this loan's receipt", async () => {
     await expect(settle({ entityId: () => otherLoanId })).rejects.toThrow(REFUSED)
     await expect(settle({ action: "PAYMENT_ALLOCATED", entity: "Loan" })).rejects.toThrow(REFUSED)

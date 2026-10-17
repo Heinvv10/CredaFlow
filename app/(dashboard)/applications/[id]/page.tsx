@@ -85,6 +85,8 @@ import {
   segregationOfDutiesConflict,
   SEGREGATION_OF_DUTIES_REFUSALS,
 } from "@/lib/security/segregation-of-duties"
+import { bureauRailAction } from "@/lib/applications/bureau-rail-action"
+import { selfieLinkNeeded } from "@/lib/kyc/selfie-link-needed"
 
 const KYC_GAP_LABELS: Record<CoreDocumentGapState, string> = {
   not_uploaded: "not uploaded yet",
@@ -559,7 +561,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       {application.status === "UNDER_REVIEW" && (
         <>
           <ApplicationApprovePanel applicationId={application.id} canApprove={canApprove} openChecks={openChecks} />
-          <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
+          {bureauRailAction(bureauDisplay) === "retry" && (
+            <ApplicationStartReviewButton applicationId={application.id} mode="retry" />
+          )}
           {canDo(userRole, "amend_application") && <ApplicationReturnToDraftButton applicationId={application.id} />}
         </>
       )}
@@ -611,6 +615,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   )
   const secondaryActions = (
     <>
+      {application.status === "UNDER_REVIEW" && bureauRailAction(bureauDisplay) === "rerun" && (
+        <ApplicationStartReviewButton applicationId={application.id} mode="rerun" />
+      )}
       {canCancelApplication(application) && canDo(userRole, "cancel_application") && (
         <ApplicationCancelButton applicationId={application.id} />
       )}
@@ -806,7 +813,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
             offers a link the consumer's click would be refused. */}
         {(application.status === "SUBMITTED"
           || application.status === "UNDER_REVIEW"
-          || application.status === "APPROVED") && (
+          || application.status === "APPROVED") && selfieLinkNeeded(kycGate) && (
           <SelfieLinkSection
             applicationId={application.id}
             latestToken={latestSelfieTokenView}

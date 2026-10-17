@@ -33,6 +33,8 @@ import {
 } from "@/lib/kyc/document-state"
 import { updateClientWithBiometricIdentityRevocation } from "@/lib/kyc/identity-revocation"
 import { holdManualPending } from "@/lib/kyc/manual-pending.server"
+import { kycApprovalBlockedMessage } from "@/lib/kyc/approval-blocked-message"
+import { getKycOverridePolicy } from "@/lib/kyc/override-policy"
 import type { BankAccountType } from "@prisma/client"
 
 
@@ -1441,7 +1443,7 @@ export async function PATCH(
       if ("kycBlocked" in updated) {
         return NextResponse.json(
           {
-            error: "Cannot approve KYC: all four core documents are required, plus one of a current valid biometric attempt, an exact reasoned senior exception (where a selfie was captured and failed), or a recorded in-person verification (where no selfie could be captured). The latter two are ADMIN-only actions.",
+            error: kycApprovalBlockedMessage(await getKycOverridePolicy(tenant.id)),
             biometricEvidence: updated.biometricEvidence,
             missingDocs: updated.missingDocs,
           },

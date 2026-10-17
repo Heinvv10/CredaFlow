@@ -13,6 +13,8 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
+import { formatZAR } from "@/lib/utils"
+import { toast } from "@/lib/toast"
 import { OwnLenderDebtRows, ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 
 interface DebtEntry {
@@ -52,10 +54,6 @@ interface Props {
 // wrote UPPER_SNAKE and lower_snake into the same free-text column. A value
 // from another vocabulary matched no <option>, so the select displayed its
 // FIRST entry — "Home Loan" — for every unmatched row. See lib/credit/debt-account-types.ts.
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
@@ -151,12 +149,14 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
         }),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
+        const d = await res.json().catch(() => ({})) as { error?: string }
         setError(d.error ?? "Failed to save")
+        toast.error("Affordability not saved", d.error)
         return
       }
       setSaved(true)
       setSavedDebts(JSON.stringify(debts))
+      toast.success("Affordability saved", "Net disposable income was recalculated from the client's figures.")
       router.refresh()
     } catch {
       setError("Request failed")

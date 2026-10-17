@@ -13,7 +13,7 @@ import { DATE_FIELDS, LENDER_IDENTITY_FIELDS, storedDateString } from "@/lib/con
 import { TENANT_COLOUR_VARS } from "@/lib/theme/tenant-colours"
 import { FEATURE_COLUMNS, type TenantBootstrapConfig } from "./tenant-config"
 
-export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN"
+export type TenantRefusalCode = "TENANT_DIFFERS" | "DOMAIN_IN_USE" | "DOMAIN_RESERVED" | "SLUG_HOST_TAKEN" | "DEMO_LENDER"
 
 export class TenantBootstrapRefusal extends Error {
   readonly code: TenantRefusalCode
@@ -72,7 +72,18 @@ export async function bootstrapTenant(db: PrismaClient, c: TenantBootstrapConfig
   const outcome = await db.$transaction(async (tx): Promise<TenantBootstrapResult> => {
     // Only the columns differences() compares: TenantConfig also holds sealed
     // provider credentials, which this has no reason to read.
-    const stored = await tx.tenant.findUnique({ where: { slug: c.slug }, include: { config: { select: COMPARED_CONFIG_SELECT } } })
+    const stored = await tx.tenant.findUnique({
+      where: { slug: c.slug },
+      include: { config: { select: { ...COMPARED_CONFIG_SELECT, isDemoLender: true } } },
+    })
+    // A seeded synthetic tenant (prisma/seed.ts) is never adopted as a real
+    // lender: its marker lets a demo stack simulate Section 129 notices.
+    if (stored?.config?.isDemoLender) {
+      throw new TenantBootstrapRefusal(
+        "DEMO_LENDER",
+        `Tenant "${c.slug}" is a seeded demo lender (TenantConfig.isDemoLender). A real lender is never provisioned onto it; use a database without the demo seed.`,
+      )
+    }
     if (stored) {
       const diff = differences(stored as never, c)
       if (diff.length > 0) {

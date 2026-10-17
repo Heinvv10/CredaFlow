@@ -83,6 +83,24 @@ describe("Section 129 regulatory reporting", () => {
     expect(row["Completed At"]).toBe("SAST:2026-07-02T22:01:00.000Z")
   })
 
+  // #147 review: a demo stack's simulated notice must read as such in the register.
+  it("marks a simulated notice in the register", () => {
+    const row = section129LogRow({
+      id: "notice-1",
+      referenceId: "loan-1",
+      status: "COMPLETED",
+      createdAt: new Date("2026-07-02T08:00:00.000Z"),
+      completedAt: new Date("2026-07-02T08:05:00.000Z"),
+      data: { lifecycle: "SIMULATED", simulated: true },
+    }, (date) => date.toISOString())
+    expect(row).toMatchObject({ Lifecycle: "SIMULATED", "Attempt Outcome": "SIMULATED_NOT_SENT", Delivery: "Simulated (not sent): demo mailbox" })
+  })
+
+  it("counts only ISSUED notices as sent", () => {
+    const where = section129SentInPeriodWhere("tenant-1", new Date("2026-07-01"), new Date("2026-10-01"))
+    expect(where.data).toEqual({ path: ["lifecycle"], equals: "ISSUED" })
+  })
+
   it("does not expose an invalid issuedAt value as legal-register evidence", () => {
     const row = section129LogRow({
       id: "notice-1",

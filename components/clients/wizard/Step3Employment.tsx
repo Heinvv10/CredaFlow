@@ -1,5 +1,6 @@
 import { FieldGroup } from "@/components/wizard/FieldGroup"
 import { INP } from "./constants"
+import { SA_BANKS, toBankCode } from "@/lib/banks"
 import type {
   ClientWizardData,
   DebtObligationInput,
@@ -371,11 +372,22 @@ export function Step3Employment({ data, patch, errors }: StepProps) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FieldGroup label="Bank name" required error={errors.bankName}>
-          <input
+          {/* The one bank vocabulary (lib/banks.ts), as the client edit form
+              offers it: free text wrote "CAPITEC" here and "Capitec Bank"
+              elsewhere for the same account. */}
+          <select
             className={INP}
-            value={data.bankName}
+            value={toBankCode(data.bankName) ?? data.bankName}
             onChange={(e) => patch({ bankName: e.target.value })}
-          />
+          >
+            <option value="">Select bank</option>
+            {SA_BANKS.map((bank) => (
+              <option key={bank.code} value={bank.code}>{bank.label}</option>
+            ))}
+            {data.bankName && !toBankCode(data.bankName) && (
+              <option value={data.bankName}>{data.bankName}</option>
+            )}
+          </select>
         </FieldGroup>
         <FieldGroup label="Branch code" required error={errors.bankBranchCode} hint="6-digit universal code">
           <input

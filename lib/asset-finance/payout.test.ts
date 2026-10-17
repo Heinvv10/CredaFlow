@@ -27,7 +27,7 @@ vi.mock("@/lib/prisma", () => {
   }
   return { prisma: { $transaction: async (cb: (t: typeof tx) => unknown) => cb(tx) } }
 })
-vi.mock("./deal-credit-gate", () => ({ dealCreditGateProblem: (...args: unknown[]) => h.creditGate(...args) }))
+vi.mock("./deal-credit-gate", () => ({ dealCreditGate: (...args: unknown[]) => h.creditGate(...args) }))
 vi.mock("./payout-checklist", async (importOriginal) => ({
   ...await importOriginal<typeof import("./payout-checklist")>(),
   requiredChecklistKinds: () => [],
@@ -39,7 +39,7 @@ const actor = { tenantId: "tenant-1", userId: "creator-1", userEmail: "creator@e
 
 beforeEach(() => {
   vi.clearAllMocks()
-  h.creditGate.mockResolvedValue(null)
+  h.creditGate.mockResolvedValue({ problem: null, arrearsGrown: [] })
   h.create.mockImplementation(async ({ data }: { data: { status: string } }) => ({ id: "payout-1", status: data.status, dualApprovalRequired: data.status === "PENDING_APPROVAL" }))
 })
 
@@ -62,7 +62,10 @@ describe("createPayout below the dual-approval threshold", () => {
   // credit gate: a refused deal gets no payout, approved or pending.
   it.each([true, false])("creates no payout when the credit gate refuses (segregation of duties %s)", async (segregated) => {
     h.config.mockResolvedValue({ assetPayoutDualApprovalCents: 100_000_000, requireSegregationOfDuties: segregated })
-    h.creditGate.mockResolvedValue({ kind: "exceptions_since_approval", message: "Not answered by the deal's approval: synthetic.", exceptions: ["synthetic"] })
+    h.creditGate.mockResolvedValue({
+      problem: { kind: "exceptions_since_approval", message: "Not answered by the deal's approval: synthetic.", exceptions: ["synthetic"] },
+      arrearsGrown: [],
+    })
     expect(await createPayout(actor, "deal-1")).toEqual({
       kind: "credit_gate", reason: "exceptions_since_approval", message: "Not answered by the deal's approval: synthetic.",
     })

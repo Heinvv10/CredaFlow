@@ -7,6 +7,7 @@ import { ArrangementForm } from "./ArrangementForm"
 import { AttorneyReferralForm } from "./AttorneyReferralForm"
 import { WriteOffForm } from "./WriteOffForm"
 import { ArrangementSummary } from "./ArrangementSummary"
+import { formatZAR } from "@/lib/utils"
 
 type Stage =
   | "NONE"
@@ -60,10 +61,6 @@ const STAGE_ORDER: Stage[] = [
   "NONE", "SOFT_REMINDER", "FORMAL_REMINDER", "SECTION_129_SENT",
   "PAYMENT_ARRANGEMENT", "ATTORNEY_REFERRED", "WRITTEN_OFF",
 ]
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 export function CollectionsStagePanel({
   loanId,

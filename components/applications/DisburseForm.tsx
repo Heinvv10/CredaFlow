@@ -6,6 +6,7 @@ import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
+import { formatZAR } from "@/lib/utils"
 
 interface Props {
   applicationId: string
@@ -26,10 +27,6 @@ interface Props {
 
 /** No example reference: a dated one goes stale (the audit saw an April date in October). */
 export const PAYMENT_REFERENCE_PLACEHOLDER = "Your bank's transfer reference"
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 /**
  * Turns the API's machine-readable evidence reason into the next action. The

@@ -15,7 +15,8 @@ import {
   creditLifePrincipalIsEligible,
   type CreditLifePresentedOffer,
 } from "@/lib/insurance/credit-life-election"
-import { formatZAR } from "@/lib/utils"
+import { formatZAR, formatRands } from "@/lib/utils"
+import { AFFORDABILITY_FAIL_REVIEW_RECONFIRM, PASQ_TIMING_COPY } from "@/lib/applications/wizard-copy"
 
 interface StepProps {
   data: ApplicationWizardData
@@ -107,7 +108,7 @@ export function Step4Review({
 
       <Section title="Loan parameters" step={2} editJump={editJump}>
         <Row label="Product" value={product?.name ?? ""} />
-        <Row label="Amount" value={`R ${Number(data.appliedAmount).toLocaleString("en-ZA")}`} />
+        <Row label="Amount" value={formatRands(Number(data.appliedAmount))} />
         <Row label="Term" value={`${data.appliedTermDays} days`} />
         <Row label="Purpose" value={data.purpose} />
         {data.purposeDetails && <Row label="Details" value={data.purposeDetails} />}
@@ -227,12 +228,7 @@ export function Step4Review({
               onChange={(e) => patch({ pasqAcknowledged: e.target.checked })}
               className="mt-1 accent-[var(--cf-brand)]"
             />
-            <span>
-              The client understands that a versioned Pre-Agreement Statement
-              &amp; Quotation will be generated during review and must be opened
-              and acknowledged in the client portal before approval. This is
-              not the PASQ acknowledgement.
-            </span>
+            <span>{PASQ_TIMING_COPY}</span>
           </label>
         </FieldGroup>
 
@@ -260,9 +256,7 @@ export function Step4Review({
                 onChange={(e) => patch({ recklessLendingConfirmed: e.target.checked })}
                 className="mt-1 accent-[var(--cf-brand)]"
               />
-              <span>
-                Reckless-lending risk acknowledged (re-confirmed from Step 3).
-              </span>
+              <span>{AFFORDABILITY_FAIL_REVIEW_RECONFIRM}</span>
             </label>
           </FieldGroup>
         )}
