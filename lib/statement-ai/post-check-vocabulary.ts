@@ -58,7 +58,7 @@ question questions answer answers query queries result results computed calculat
 appear appears appeared
 whether because so if then
 came come comes went go goes going made make makes individual individually separate separately
-against indicate indicates indicated indicating resulting result
+against represents represent represented recorded respectively reached varying indicate indicates indicated indicating resulting result
 undisclosed disclosed recent recently whole part parts process processes showing entire full overall period's whose presence present absence absent available on
 `
 

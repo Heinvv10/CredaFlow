@@ -99,6 +99,15 @@ describe("checkAnswer and answerQuestion", () => {
     expect(checkAnswer("The client received R1 000.00 [q1].", net.results, []).ok).toBe(false)
     expect(checkAnswer("Net -R1 000.00 to KOPANO FRESH FOODS [q1].", net.results, [])).toEqual({ ok: true })
   })
+  it("lets an answer echo the officer's own amount as written, and say 'no transactions' only for a zero result", () => {
+    const counted = runPlan('{"queries":[{"id":"q1","tool":"count","filter":{"direction":"out","minAmount":1000}}]}', rows)
+    if (!counted.ok) throw new Error("plan")
+    expect(checkAnswer("There were 1 debits larger than R1 000 [q1].", counted.results, [], "How many debits were larger than R1 000?")).toEqual({ ok: true })
+    const none = runPlan('{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"out","payee":"VUKA HOUSING","from":"2026-08-01","to":"2026-08-31"}}]}', rows)
+    if (!none.ok) throw new Error("plan")
+    expect(checkAnswer("There were no transactions to VUKA HOUSING [q1].", none.results, [])).toEqual({ ok: true })
+    expect(checkAnswer("There were no transactions to KOPANO FRESH FOODS [q1].", counted.results, []).ok).toBe(false)
+  })
   it("keys an answer by the question and the rows", () => {
     expect(askInputHash("How much?", rows)).toBe(askInputHash("  how   much? ", rows))
     expect(askInputHash("How much?", rows)).not.toBe(askInputHash("How much?", rows.slice(1)))

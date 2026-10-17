@@ -257,4 +257,12 @@ describe("postCheck", () => {
     expect(checkFigures("R1 234.56% of income.", a).ok).toBe(false)
     for (const t of ["Rent R1 000.00/month.", "Rent R1 000.00 p/m.", "Rent R1 000.00 for the month."]) expect(checkFigures(t, a).ok, t).toBe(false)
   })
+
+  it("keeps the eval's false rejections fixed", () => {
+    // A payee holding a system name ("HOUSING") is still one payee.
+    expect(postCheck({ text: "The largest payee is VUKA HOUSING.", allowed: { amountsCents: [], names: ["HOUSING"], payees: ["VUKA HOUSING"] }, raisedFlagCodes: [] })).toEqual({ ok: true })
+    // The rule's match tolerance later in the sentence does not void its own "checks whether … match".
+    const text = "UNDISCLOSED_DEBIT_ORDER is raised because the rule checks whether debit orders match the debts declared, with a match tolerance of 10%."
+    expect(postCheck({ text, allowed: { amountsCents: [], percents: [10] }, raisedFlagCodes: ["UNDISCLOSED_DEBIT_ORDER"] })).toEqual({ ok: true })
+  })
 })

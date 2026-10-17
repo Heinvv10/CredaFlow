@@ -80,7 +80,8 @@ export function checkVocabulary(rawText: string, names: Iterable<string>, payeeN
   // capitals, so it reads as a name and can never lend the prose an ordinary word.
   const trusted = [...names].filter((n) => !payees.has(n))
   // Only the whole payee phrase: a single word of it ("ORDINARY" of "ORDINARY JOES") must not stand alone.
-  let text = stripLiterals(stripLiterals(plainLetters(rawText), trusted, "i"), payees)
+  // Payees first, whole and as given: a system name inside one ("HOUSING" of "VUKA HOUSING") must not split it.
+  let text = stripLiterals(stripLiterals(plainLetters(rawText), payees), trusted, "i")
   text = text.replace(/\S*\d\S*/g, " ").replace(ALLOWED_NEGATIONS, " ")
   for (const word of text.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) ?? []) {
     const w = word.toLowerCase().replace(/'s$/, "")
@@ -102,7 +103,7 @@ const RULE_PHRASES = new RegExp([
   "within (the |a )?(\\d+(\\.\\d+)?% )?(match |amount |instalment match )?tolerance( of \\d+(\\.\\d+)?%)?",
   "(instalment |amount )?match tolerance", "within (the )?pay[- ]date window", "within \\d+ days",
   // The span may hold no other match-type word: one "match" per rule sentence, the rule's own.
-  "checks? whether (?:(?!\\b(match\\w*|equal\\w*|same as|in line|consistent|level with)\\b)[^.;]){0,100}?\\bmatch(es)?\\b(?![^.;]*\\b(match\\w*|equal\\w*|same as|in line|consistent|level with)\\b)",
+  "checks? whether (?:(?!\\b(match\\w*|equal\\w*|same as|in line|consistent|level with)\\b)[^.;]){0,100}?\\bmatch(es)?\\b(?![^.;]*\\b(match(?! tolerance)\\w*|equal\\w*|same as|in line|consistent|level with)\\b)",
 ].join("|"), "gi")
 
 /**
@@ -131,7 +132,7 @@ export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[
   const contradiction = checkNoContradiction(rawText, raisedFlagCodes)
   if (!contradiction.ok) return contradiction
   // Payees (client text) only as given, like the vocabulary; system names and codes in any case.
-  const relations = checkRelations(stripLiterals(stripLiterals(norm(rawText), [...names, ...raisedFlagCodes], "i"), payees), allowed)
+  const relations = checkRelations(stripLiterals(stripLiterals(norm(rawText), payees), [...names, ...raisedFlagCodes], "i"), allowed)
   if (!relations.ok) return relations
   return checkVocabulary(rawText, [...names, ...raisedFlagCodes], payees)
 }

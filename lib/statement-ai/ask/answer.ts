@@ -112,13 +112,19 @@ export function checkAnswer(text: string, results: QueryResult[], raisedFlagCode
   const names = [...(allowed.names ?? []), ...(fromArgs.names ?? [])]
   // The question's capitalised words are the officer's, but may name a payee: copied as given only.
   const payees = [...(allowed.payees ?? []), ...(fromArgs.payees ?? []), ...asked.names]
+  // "No transactions" is a figure: allowed only where a query found none, read as the 0 it is.
+  const zero = results.some(({ result }) => [result].flat().some((r) => r && typeof r === "object" && ((r as Record<string, unknown>).rowCount === 0 || (r as Record<string, unknown>).count === 0)))
+  const checked = zero ? text.replace(/\bno (transactions|payments|rows|debits|credits)\b/gi, "0 $1") : text
   return postCheck({
-    text,
+    text: checked,
     allowed: {
       ...allowed,
       names,
       payees,
       amountsCents: [...allowed.amountsCents, ...asked.amountsCents],
+      // The officer's amounts as the officer wrote them ("R1 000"), whole tokens only.
+      literals: [...(allowed.literals ?? []), ...asked.written],
+      numbers: [...(allowed.numbers ?? []), ...(zero ? [0] : [])],
       dates: [...(allowed.dates ?? []), ...asked.dates],
       months: [...(allowed.months ?? []), ...asked.months],
       // The officer asked about something below a figure: the answer may say so.
@@ -129,13 +135,14 @@ export function checkAnswer(text: string, results: QueryResult[], raisedFlagCode
 }
 
 /** Figures and capitalised names an officer wrote in the question. */
-export function questionFigures(question: string): { amountsCents: number[]; dates: string[]; months: string[]; names: string[] } {
-  const amountsCents = [...question.matchAll(/R\s?(\d{1,3}(?:[ ,]\d{3})+|\d+)(?:\.(\d{2}))?(?!\d)/g)]
-    .map((m) => Number(m[1].replace(/[ ,]/g, "")) * 100 + Number(m[2] ?? 0))
+export function questionFigures(question: string): { amountsCents: number[]; written: string[]; dates: string[]; months: string[]; names: string[] } {
+  const found = [...question.matchAll(/R\s?(\d{1,3}(?:[ ,]\d{3})+|\d+)(?:\.(\d{2}))?(?!\d)/g)]
+  const amountsCents = found.map((m) => Number(m[1].replace(/[ ,]/g, "")) * 100 + Number(m[2] ?? 0))
+  const written = found.map((m) => m[0])
   const dates = question.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? []
   const months = question.match(/\b\d{4}-\d{2}\b/g) ?? []
   const names = question.match(/\b[A-Z][A-Z&'-]+(?: [A-Z][A-Z&'-]+)*\b/g) ?? []
-  return { amountsCents, dates, months, names }
+  return { amountsCents, written, dates, months, names }
 }
 
 export interface Answered {
