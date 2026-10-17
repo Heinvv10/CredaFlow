@@ -72,6 +72,7 @@ describe("repriceLoanForReference eligibility guards", () => {
 
   const cases: Array<[NotEligibleReason, Parameters<typeof fakeTx>[0], string?]> = [
     ["loan_not_found", { loan: null }],
+    ["contract_cancelled", { loan: { ...ACTIVE_LOAN, commercialCancelledAt: new Date("2026-01-01Z") } }],
     ["not_active", { loan: { ...ACTIVE_LOAN, status: "CANCELLED" } }],
     ["not_asset_finance", { loan: { ...ACTIVE_LOAN, contractType: "LOAN" } }],
     ["nca_regime", { loan: { ...ACTIVE_LOAN, ncaRegime: null } }],

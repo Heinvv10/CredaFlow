@@ -102,6 +102,7 @@ export interface RepriceRequest {
 export type NotEligibleReason =
   | "loan_not_found"
   | "not_active"
+  | "contract_cancelled"
   | "not_asset_finance"
   | "nca_regime"
   | "nca_rate_cap"
@@ -139,13 +140,14 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const loan = await tx.loan.findFirst({
     where: { id: loanId, tenantId },
     select: {
-      id: true, reference: true, status: true, contractType: true, ncaRegime: true,
+      id: true, reference: true, status: true, commercialCancelledAt: true, contractType: true, ncaRegime: true,
       entityId: true, balloonAmount: true, startDate: true, interestRatePm: true,
       assetFinanceWeights: true, application: { select: { pasqEvidence: true } },
       contractualTotalInterest: true, contractualTotalRepayable: true, totalInterest: true, monthlyServiceFee: true, principal: true, closedAt: true,
     },
   })
   if (!loan) return notEligible("loan_not_found")
+  if (loan.commercialCancelledAt) return notEligible("contract_cancelled")
   const existing = await tx.contractRate.findFirst({
     where: { tenantId, loanId, effectiveDate: dbDate(effectiveDate) },
     select: { id: true },
