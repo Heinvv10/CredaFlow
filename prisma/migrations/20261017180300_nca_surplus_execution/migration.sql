@@ -51,7 +51,7 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='A verified bank account cannot be reported unavailable';
  END IF;
  IF NEW."executedOn" IS NOT NULL THEN
-  IF parent.status<>'FINAL_NOTICE_ISSUED' OR parent.notice_path IS NULL OR NEW."executedOn" < (COALESCE(OLD."releasedAt",OLD."createdAt") AT TIME ZONE 'Africa/Johannesburg')::date OR NEW."executedOn">(now() AT TIME ZONE 'Africa/Johannesburg')::date
+  IF parent.status<>'FINAL_NOTICE_ISSUED' OR parent.notice_path IS NULL OR NEW."executedOn" < (COALESCE(OLD."releasedAt",OLD."createdAt") AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date OR NEW."executedOn">(now() AT TIME ZONE 'Africa/Johannesburg')::date
     OR NOT EXISTS (SELECT 1 FROM "EntityDocument" d JOIN "Loan" l ON l."id"=parent."loanId" AND l."tenantId"=NEW."tenantId"
       WHERE d."id"=NEW."executionEvidenceDocumentId" AND d."tenantId"=NEW."tenantId" AND d."deletedAt" IS NULL
         AND d."clientId" IS NOT DISTINCT FROM l."clientId" AND d."entityId" IS NOT DISTINCT FROM l."entityId"

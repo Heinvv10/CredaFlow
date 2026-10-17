@@ -38,6 +38,14 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   const execution={executedOn:new Date(`${day(0)}T00:00:00Z`),bankExecutionReference:`TEST-EXECUTION-${randomUUID()}`,executionEvidenceDocumentId:document.id,executedById:fx.officer,executionRecordedAt:new Date()}
   return {input,actor,row:row!,document,execution}
  }
+ it.each(["createdAt","releasedAt"] as const)("uses the SAST day of UTC %s at the midnight boundary",async(field)=>{
+  const {row,execution}=await readyInstruction()
+  const utcTimestamp=`${day(-1)}T22:30:00Z`
+  if(field==="createdAt") await testSetup(database(),[`UPDATE "NcaSurplusRemittance" SET "createdAt"=$2::timestamptz AT TIME ZONE 'UTC' WHERE "id"=$1`,row.id,utcTimestamp])
+  else await testSetup(database(),[`UPDATE "NcaSurplusRemittance" SET "releasedAt"=$2::timestamptz AT TIME ZONE 'UTC',"releasedById"=$3,"exceptionReason"='TEST retained missing-bank exception' WHERE "id"=$1`,row.id,utcTimestamp,fx.adminB])
+  await rules(database).refuses({table:"NcaSurplusRemittance",trigger:"NcaSurplusRemittance_guard"},/valid bank date/,(tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:{...execution,executedOn:new Date(`${day(-1)}T00:00:00Z`)}}))
+  await rules(database).admits((tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:execution}))
+ })
  it("guards future bank dates with an executable mutation control",async()=>{
   const {row,execution}=await readyInstruction()
   await rules(database).refuses({table:"NcaSurplusRemittance",trigger:"NcaSurplusRemittance_guard"},/valid bank date/,(tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:{...execution,executedOn:new Date(`${day(1)}T00:00:00Z`)}}))
