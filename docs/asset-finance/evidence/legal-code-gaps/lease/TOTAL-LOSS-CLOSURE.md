@@ -19,3 +19,10 @@ Prepared coverage: operating loss, lender-risk FML loss, lessee-settled FML with
 real refund evidence, refusal without/mismatched/cross-lease/future refund proof,
 actual cash unchanged by settlement, no fabricated inspection/usage, paid closure,
 unpaid damages remaining open until receipt, and asset/refund guard mutations.
+
+Prepared race fix: fund→proof FOR UPDATE ordering plus a live ownership/deletion
+recheck after waiting. Once referenced, proof identity, owner, storage, content/hash
+and deletion metadata are immutable. PostgreSQL regressions prepare both real
+interleavings (delete wins and settlement wins), inspect actual blocking backend
+PIDs, and ensure a winning delete creates no refund movement. Those races remain
+unrun pending §8. Types/lint and 201 focused tests pass for this delta.

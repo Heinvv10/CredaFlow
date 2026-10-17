@@ -21,6 +21,20 @@ let fx: LeaseFixture
 const bookedLoans: string[] = []
 const setSession = (user: SessionUser | null) => { session.current = user && { user } }
 const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession({ id, role, email: `${id}@invalid.test`, tenantId: fx.tenantId })
+async function waitForProofLock(waitingPid: number, blockingPid: number) {
+  const until = Date.now() + 5000
+  while (Date.now() < until) {
+    const [row] = await database().$queryRaw<Array<{ blocked: boolean }>>`SELECT ${blockingPid}::int = ANY(pg_blocking_pids(${waitingPid}::int)) AS blocked`
+    if (row.blocked) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error("The expected proof row-lock interleaving did not occur")
+}
+function latch<T>() {
+  let release!: (value: T) => void
+  const ready = new Promise<T>((resolve) => { release = resolve })
+  return { ready, release }
+}
 ;(run ? describe : describe.skip).sequential("blind code reviewer total-loss closure reproduction", () => {
   beforeAll(async () => { process.env.TRUSTED_PROXY = "1"; fx = await createLeaseFixture(database(), token) }, 120_000)
   afterAll(async () => {
@@ -47,6 +61,7 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
       expect(await database().$transaction((tx) => recordInspection(tx as never, actor, { loanId, today, inspectedOn: today, condition: "Invented inspection", finalReading: 500, damage: [] }))).toMatchObject({ kind: "refused", reason: "not_returnable" })
       await payAllOwed(database(), fx, loanId)
       const cashBefore = await database().payment.findMany({ where: { loanId }, orderBy: { id: "asc" } })
+      let racedBill: Awaited<ReturnType<typeof invoiceEndOfTerm>> | undefined
       let refund: { amountCents: number; paidOn: string; reference: string; documentId: string } | undefined
       const fundBefore = await database().maintenanceFund.findUnique({ where: { loanId }, include: { movements: true } })
       if (risk === "LESSEE_SETTLED") {
@@ -64,8 +79,52 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
           await tx.maintenanceFundMovement.create({ data: { tenantId: fx.tenantId, fundId: fundBefore!.id, kind: "SETTLEMENT_REFUND", amountCents, occurredOn: new Date(today), createdById: fx.adminA } })
           await tx.maintenanceFund.update({ where: { id: fundBefore!.id }, data: { settledAt: new Date(), settledBalanceCents: amountCents, settledById: fx.adminA } })
         })
+        // Delete wins: settlement waits for the same proof row, then sees the deletion.
+        const deletedProofId = await leaseDocument(database(), fx, loanId, "OTHER")
+        const deletionReady = latch<number>()
+        const allowDeletionCommit = latch<void>()
+        const deletion = database().$transaction(async (tx) => {
+          const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+          await tx.entityDocument.update({ where: { id: deletedProofId }, data: { deletedAt: new Date(), deletedById: fx.adminA } })
+          deletionReady.release(row.pid)
+          await allowDeletionCommit.ready
+        }, { timeout: 30_000 })
+        const deletingPid = await deletionReady.ready
+        const blockedRefundPid = latch<number>()
+        const rejectedSettlement = database().$transaction(async (tx) => {
+          const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+          blockedRefundPid.release(row.pid)
+          return invoiceEndOfTerm(tx as never, actor, { loanId, today, refund: { ...refund!, documentId: deletedProofId } })
+        }, { timeout: 30_000 })
+        try { await waitForProofLock(await blockedRefundPid.ready, deletingPid) } finally { allowDeletionCommit.release() }
+        await deletion
+        expect(await rejectedSettlement).toMatchObject({ kind: "refused", reason: "refund_evidence" })
+        expect(await database().maintenanceFundMovement.count({ where: { fundId: fundBefore!.id, kind: "SETTLEMENT_REFUND" } })).toBe(0)
+        // Settlement wins: a concurrent delete waits, then finds committed retained refund proof.
+        const settlementReady = latch<number>()
+        const allowSettlementCommit = latch<void>()
+        const settlement = database().$transaction(async (tx) => {
+          const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+          const result = await invoiceEndOfTerm(tx as never, actor, { loanId, today, refund })
+          expect(result.kind).toBe("ok")
+          settlementReady.release(row.pid)
+          await allowSettlementCommit.ready
+          return result
+        }, { timeout: 30_000 })
+        const settlingPid = await settlementReady.ready
+        const blockedDeletePid = latch<number>()
+        const lateDeletion = database().$transaction(async (tx) => {
+          const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
+          blockedDeletePid.release(row.pid)
+          await tx.entityDocument.update({ where: { id: refund!.documentId }, data: { deletedAt: new Date(), deletedById: fx.adminA } })
+        }, { timeout: 30_000 }).then(() => null, (error: unknown) => error)
+        try { await waitForProofLock(await blockedDeletePid.ready, settlingPid) } finally { allowSettlementCommit.release() }
+        racedBill = await settlement
+        expect(String(await lateDeletion)).toMatch(/proof is retained/)
+        expect(await database().entityDocument.findUniqueOrThrow({ where: { id: refund.documentId } })).toMatchObject({ deletedAt: null })
+        await expect(database().entityDocument.update({ where: { id: refund.documentId }, data: { contentSha256: "f".repeat(64) } })).rejects.toThrow()
       }
-      const billed = await database().$transaction((tx) => invoiceEndOfTerm(tx as never, actor, { loanId, today, refund }))
+      const billed = racedBill ?? await database().$transaction((tx) => invoiceEndOfTerm(tx as never, actor, { loanId, today, refund }))
       expect(billed.kind, JSON.stringify(billed)).toBe("ok")
       expect(await database().$transaction((tx) => completeEndOfTermIfSettled(tx as never, { tenantId: fx.tenantId, loanId, userId: fx.adminA }))).toBe(false) // Already closed by billing.
       expect(await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId } })).toMatchObject({ status: "COMPLETED", outcome: "TOTAL_LOSS", inspectedOn: null, finalReadingId: null, excessUsageCents: null })

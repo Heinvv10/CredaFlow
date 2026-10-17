@@ -209,6 +209,10 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A total-loss refund is the exact positive maintenance-fund surplus';
     END IF;
   END IF;
+  IF NEW."kind" = 'SETTLEMENT_REFUND' AND loss_on IS NOT NULL THEN
+    PERFORM 1 FROM "EntityDocument" d WHERE d."id" = NEW."refundDocumentId" AND d."tenantId" = NEW."tenantId" FOR UPDATE;
+    -- A separate live predicate below observes a delete that won the row lock.
+  END IF;
   IF NEW."kind" = 'SETTLEMENT_REFUND' AND loss_on IS NOT NULL AND (
     NEW."refundReference" IS NULL OR NEW."refundReference" <> upper(btrim(NEW."refundReference")) OR length(NEW."refundReference") NOT BETWEEN 1 AND 120
     OR NEW."occurredOn" < loss_on OR NEW."occurredOn" > (now() AT TIME ZONE 'Africa/Johannesburg')::date
@@ -228,7 +232,8 @@ FOR EACH ROW EXECUTE FUNCTION public."guardTotalLossFundRefund"();
 
 CREATE FUNCTION public."guardRetainedLossRefundProof"() RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
-  IF NEW."deletedAt" IS NOT NULL AND EXISTS (SELECT 1 FROM "MaintenanceFundMovement" m WHERE m."tenantId" = NEW."tenantId" AND m."refundDocumentId" = NEW."id") THEN
+  IF EXISTS (SELECT 1 FROM "MaintenanceFundMovement" m WHERE m."tenantId" = OLD."tenantId" AND m."refundDocumentId" = OLD."id")
+    AND (to_jsonb(NEW) - ARRAY['verifiedAt', 'verifiedById']) IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['verifiedAt', 'verifiedById']) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An actual maintenance refund proof is retained';
   END IF;
   RETURN NEW;

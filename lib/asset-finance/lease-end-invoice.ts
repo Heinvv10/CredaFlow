@@ -126,6 +126,8 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
     try { toDayNumber(proof.paidOn) } catch { return refused("refund_evidence", "Record a valid actual refund date") }
     const loss = await tx.leaseTerminationQuote.findFirst({ where: { tenantId, loanId: input.loanId, totalLoss: true, status: "ACCEPTED" }, select: { terminationDate: true } })
     if (!loss || proof.paidOn < isoOfDbDate(loss.terminationDate) || proof.paidOn > input.today) return refused("refund_evidence", "The actual refund date must be between the loss and today")
+    // Fund lock precedes proof lock. Re-read live ownership after a concurrent delete commits.
+    await tx.$queryRaw`SELECT "id" FROM "EntityDocument" WHERE "id" = ${proof.documentId} AND "tenantId" = ${tenantId} FOR UPDATE`
     const document = await tx.entityDocument.findFirst({ where: { id: proof.documentId, tenantId, deletedAt: null, uploadedByType: "staff", fileSize: { gt: 0 }, deal: { loanId: input.loanId, tenantId } }, select: { id: true } })
     if (!document) return refused("refund_evidence", "Use retained staff-uploaded refund proof from this lease's deal")
     const reference = proof.reference.trim().toUpperCase()
