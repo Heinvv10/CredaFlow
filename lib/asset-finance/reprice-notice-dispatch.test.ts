@@ -90,3 +90,27 @@ describe("written repricing notices", () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: null, lastOutcomes: [expect.objectContaining({ status })] }) }))
   })
 })
+
+// Independent security review: a new supply revision commits during provider I/O.
+it("SECURITY REPRO: stale provider completion suppresses an unsent tax revision", async () => {
+  const { db, notices, update } = setup()
+  const current = { ...row, taxAdjustmentRevision: 0, completedAt: null as Date | null }
+  notices.findMany.mockImplementation(async () => current.completedAt ? [] : [{ ...current }] as never)
+  update.mockImplementation(async (args: never) => {
+    const a = args as { data: { completedAt: Date | null } }
+    Object.assign(current, a.data)
+    return {} 
+  })
+  const send = vi.fn(async () => {
+    // Actual supply commits revision 1 and schedules its written correction.
+    current.taxAdjustmentRevision = 1
+    current.completedAt = null
+    return { id: "old-revision-message", status: "SENT" }
+  })
+  await dispatchRepriceNotices(db, "tenant-1", send as never)
+  expect(current.taxAdjustmentRevision).toBe(1)
+  expect(current.completedAt).toBeInstanceOf(Date)
+  expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toEqual({ completed: 0, pending: 0 })
+  expect(send).toHaveBeenCalledTimes(1)
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: "rate-notice:rate-1:client-1:EMAIL" }))
+})
