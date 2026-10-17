@@ -4,6 +4,22 @@ import { currentSettlementAmount, projectReceipt } from "@/lib/loan/settlement"
 import { portalSignatureProblem } from "./signing-esign"
 
 const d = (s: string) => new Date(`${s}T12:00:00+02:00`)
+it("a default-interest receipt on the permanent stop day cannot inflate later contractual headroom", () => {
+  const stop = d("2021-01-01")
+  const result = computeNonNcaCharges({
+    startDate: d("2019-01-01"),
+    schedule: [
+      { dueDate: d("2020-01-01"), principalDue: 5000, interestDue: 1000, feesDue: 0, totalDue: 6000 },
+      { dueDate: d("2025-01-01"), principalDue: 5000, interestDue: 20000, feesDue: 0, totalDue: 25000 },
+    ],
+    receipts: [{ id: "paid-before-disable", amount: 5000, receivedAt: stop }],
+    interestRatePm: 1, maturityDate: d("2025-01-01"), asOf: d("2026-01-01"),
+    defaultInterestMargin: 0, collectionFeeCents: null,
+    stoppedCharges: { at: stop, receipts: [{ id: "paid-before-disable", defaultInterestAllocated: 5000, chargeFeesAllocated: 0 }] },
+  })
+  expect.soft(result.interestOutstanding).toBe(0)
+  expect.soft(result.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0)).toBeLessThanOrEqual(10000)
+})
 describe("commercial legal safeguards", () => {
   it("requires wet ink for every suretyship", () => {
     expect(portalSignatureProblem("SURETYSHIP")).toMatch(/wet ink/i)
