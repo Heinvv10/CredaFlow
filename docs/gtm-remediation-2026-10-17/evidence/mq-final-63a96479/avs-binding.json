@@ -1,0 +1,90 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "cases": [
+    {
+      "collectionsEnabled": true,
+      "payoutsEnabled": false,
+      "avsCheckId": "cmvckt28u005kji0re7vsyp3n",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "passed": true,
+      "provider": "simulated",
+      "currentSubjectBound": true,
+      "applicationBound": true,
+      "serverAvsGate": {
+        "ok": true,
+        "reason": null
+      },
+      "auditFound": true,
+      "applicationStatus": "SUBMITTED",
+      "agreementReady": false,
+      "mandateSigned": false,
+      "repaymentMethod": null,
+      "hasLoan": false,
+      "payoutReadinessBoundary": "AVS predicate passes on actual persisted evidence. Other application and banking/mandate/contract prerequisites remain independently enforced; no payout dispatched."
+    },
+    {
+      "collectionsEnabled": false,
+      "payoutsEnabled": true,
+      "avsCheckId": "cmvckt370005zji0ry2p2rxsm",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "passed": true,
+      "provider": "simulated",
+      "currentSubjectBound": true,
+      "applicationBound": true,
+      "serverAvsGate": {
+        "ok": true,
+        "reason": null
+      },
+      "auditFound": true,
+      "applicationStatus": "SUBMITTED",
+      "agreementReady": false,
+      "mandateSigned": false,
+      "repaymentMethod": null,
+      "hasLoan": false,
+      "payoutReadinessBoundary": "AVS predicate passes on actual persisted evidence. Other application and banking/mandate/contract prerequisites remain independently enforced; no payout dispatched."
+    },
+    {
+      "collectionsEnabled": true,
+      "payoutsEnabled": true,
+      "avsCheckId": "cmvckt42c006fji0r3m7bwk2f",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "passed": true,
+      "provider": "simulated",
+      "currentSubjectBound": true,
+      "applicationBound": true,
+      "serverAvsGate": {
+        "ok": true,
+        "reason": null
+      },
+      "auditFound": true,
+      "applicationStatus": "SUBMITTED",
+      "agreementReady": false,
+      "mandateSigned": false,
+      "repaymentMethod": null,
+      "hasLoan": false,
+      "payoutReadinessBoundary": "AVS predicate passes on actual persisted evidence. Other application and banking/mandate/contract prerequisites remain independently enforced; no payout dispatched."
+    },
+    {
+      "collectionsEnabled": false,
+      "payoutsEnabled": true,
+      "avsCheckId": "cmvckt50l006uji0r5s2p0ctk",
+      "applicationId": "cmv4x9jsn091q5f4gzmc9mnjj",
+      "passed": true,
+      "provider": "simulated",
+      "currentSubjectBound": true,
+      "applicationBound": true,
+      "serverAvsGate": {
+        "ok": true,
+        "reason": null
+      },
+      "auditFound": true,
+      "applicationStatus": "APPROVED",
+      "agreementReady": true,
+      "mandateSigned": true,
+      "repaymentMethod": "DEBIT_ORDER",
+      "hasLoan": false,
+      "payoutReadinessBoundary": "AVS predicate passes on actual persisted evidence. Other application and banking/mandate/contract prerequisites remain independently enforced; no payout dispatched."
+    }
+  ],
+  "method": "Read actual browser-created AVS rows/audit/current client from ownedDB, apply unchanged exact server subject and AVS predicates; no evidence rewritten"
+}
