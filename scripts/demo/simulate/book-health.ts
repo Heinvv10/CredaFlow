@@ -7,6 +7,7 @@
  * two new-client personas not yet in the book. plan.test.ts holds the scripted
  * storylines to the same limits.
  */
+import { UNBOOKED_PIPELINE_FILTER } from "../../../lib/applications/pipeline-query"
 import { demoLender } from "../../../prisma/demo-lender"
 import { getPersona } from "../personas"
 import { simEnv } from "../sim/env"
@@ -68,7 +69,7 @@ export async function readBookFacts(until: string): Promise<BookFacts> {
     db.loan.count({ where: { tenantId: tenant.id } }),
     db.loan.count({ where: { tenantId: tenant.id, status: { in: ["DEFAULTED", "PENDING_WRITE_OFF", "WRITTEN_OFF"] } } }),
     db.loanApplication.findFirst({
-      where: { tenantId: tenant.id, status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] } },
+      where: { tenantId: tenant.id, ...UNBOOKED_PIPELINE_FILTER },
       orderBy: { createdAt: "asc" },
       select: { createdAt: true },
     }),
