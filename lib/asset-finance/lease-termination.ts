@@ -7,7 +7,9 @@
  *          + the penalty: penaltyRate × that PV, half-up
  *          + the arrears (rentals and charges already due and unpaid).
  * The asset comes back; no credit is given for its resale value.
- * Formula and penalty (CPA Reg 5 "reasonable"): signed off (see DESIGN.md sign-off record 2026-10-17).
+ * This percentage formula applies to commercial lessees only. CPA cancellation
+ * instead uses cpaCancellationCharge below: goods credit and documented costs,
+ * without a percentage penalty (changed 2026-10-17, DESIGN.md sign-off record).
  *
  * PRESENT VALUE. A rental due after the termination date is discounted back
  * period by period with the solver's own convention (actual/365, simple
@@ -95,4 +97,46 @@ export function earlyTerminationAmount(input: TerminationInput): TerminationAmou
 /** The CPA s14 termination date for a consumer's cancellation notice given on `noticeDate`. */
 export function cpaCancellationDate(noticeDate: string): string {
   return addSouthAfricanBusinessDays(noticeDate, CPA_CANCELLATION_NOTICE_BUSINESS_DAYS)
+}
+
+export interface CancellationCost {
+  description: string
+  amountCents: number
+  /** File/document reference for the actual recovery, refurbishment or re-letting cost. */
+  evidence: string
+}
+
+function nonNegativeCents(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${field}: non-negative integer cents required`)
+}
+
+/** CPA s14(3)(b)(ii), Reg 5(2): actual loss, crediting the returned goods. */
+export function cpaCancellationCharge(input: {
+  rentals: readonly RentalDue[]; terminationDate: string; annualRate: number
+  goodsValueCents: number; costs: readonly CancellationCost[]
+}): { pvCents: number; goodsValueCents: number; costsCents: number; chargeCents: number } {
+  nonNegativeCents(input.goodsValueCents, "goodsValueCents")
+  let costsCents = 0
+  for (const cost of input.costs) {
+    nonNegativeCents(cost.amountCents, "cost.amountCents")
+    if (!cost.description.trim() || !cost.evidence.trim()) throw new RangeError("Every actual cost needs its description and evidence")
+    costsCents += cost.amountCents
+  }
+  nonNegativeCents(costsCents, "costsCents")
+  const remaining = input.rentals.filter((r) => r.dueDate > input.terminationDate)
+  const undiscounted = remaining.reduce((sum, r) => sum + r.rentalExclVatCents, 0)
+  const pvCents = presentValueOfRentals(remaining, input.terminationDate, input.annualRate)
+  return { pvCents, goodsValueCents: input.goodsValueCents, costsCents,
+    chargeCents: Math.max(0, Math.min(pvCents - input.goodsValueCents + costsCents, undiscounted - 1)) }
+}
+
+/** A write-off ends the lease: arrears + PV, no penalty, less insurance actually received. */
+export function totalLossAmount(input: {
+  rentals: readonly RentalDue[]; terminationDate: string; annualRate: number
+  arrearsCents: number; insuranceProceedsCents: number
+}): { pvCents: number; totalCents: number } {
+  nonNegativeCents(input.arrearsCents, "arrearsCents")
+  nonNegativeCents(input.insuranceProceedsCents, "insuranceProceedsCents")
+  const pvCents = presentValueOfRentals(input.rentals, input.terminationDate, input.annualRate)
+  return { pvCents, totalCents: Math.max(0, input.arrearsCents + pvCents - input.insuranceProceedsCents) }
 }

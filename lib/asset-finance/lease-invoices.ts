@@ -22,8 +22,8 @@
  * waits and then finds the invoice (already_invoiced). The unique index on
  * LeaseRental.taxInvoiceId is the backstop.
  *
- * PARTIAL: a VAT-rate change between booking and the supply date is not
- * re-priced: such a rental is refused (vat_rate_changed) for staff to resolve.
+ * VAT Act s67: supply-date VAT is recomputed before linking the invoice; the
+ * rental, repayment schedule and loan totals change in that same transaction.
  */
 import { Prisma, type ContractType } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -33,9 +33,12 @@ import type { VatTransaction } from "@/lib/vat/db"
 import { recipientAddress } from "./booking-load"
 import { completeEndOfTermIfSettled } from "./lease-end-invoice"
 import { dbDate, isoOfDbDate } from "./dates"
+import { vatOnExclusive } from "@/lib/vat/amounts"
+import { refreshLoan } from "./lease-charges"
+import type { SigningTx } from "./signing-prepare"
 import { cashReachedOn } from "./lease-supply-date"
 
-export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement" | "leaseEndOfTerm" | "financedAsset" | "loan">
+export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement" | "leaseEndOfTerm" | "financedAsset" | "loan" | "repaymentSchedule">
 
 export type IssueRentalResult =
   | { kind: "issued"; invoiceId: string; invoiceNumber: string }
@@ -78,9 +81,9 @@ export async function issueLeaseRentalInvoice(
   const address = lessee ? recipientAddress(lessee) : null
   if (!lessee || !address || !loan.asset) return { kind: "refused", reason: "recipient", error: "The lessee's name and address and the asset are needed on the tax invoice" }
   const vat = await loadRateOn(tx, input.supplyDate)
-  if (vat.rateTenThousandths !== rateTenThousandthsOf(rental.vatRate)) {
-    return { kind: "refused", reason: "vat_rate_changed", error: `The VAT rate on ${input.supplyDate} (${vat.rate}) is not the rate the rental was booked at (${rental.vatRate.toString()})` }
-  }
+  const vatChanged = vat.rateTenThousandths !== rateTenThousandthsOf(rental.vatRate)
+  const supplyVatCents = vatOnExclusive(rental.rentalExclVatCents, vat.rateTenThousandths) + vatOnExclusive(rental.maintenanceExclVatCents, vat.rateTenThousandths)
+  const supplyTotalCents = rental.rentalExclVatCents + rental.maintenanceExclVatCents + supplyVatCents
   const period = `rental ${rental.periodNo} of ${loan._count.leaseRentals}, due ${dueDate}`
   const lines = [
     { description: `Lease ${loan.reference}, ${period}: ${describeAsset(loan.asset)}`, quantity: 1, unitExclVatCents: rental.rentalExclVatCents },
@@ -93,11 +96,17 @@ export async function issueLeaseRentalInvoice(
     tenantId, loanId: rental.loanId, issueDate: input.today, supplyDate: input.supplyDate,
     recipient: { name, address, vatNumber: loan.entity?.vatNumber ?? null }, lines, createdById: input.createdById,
   })
-  if (invoice.totalInclVatCents !== rental.totalCents) {
+  if (invoice.totalInclVatCents !== supplyTotalCents) {
     throw new Error(`tax invoice ${invoice.invoiceNumber}: total ${invoice.totalInclVatCents} is not rental ${rental.periodNo}'s ${rental.totalCents}`)
   }
-  const bound = await tx.leaseRental.updateMany({ where: { id: rental.id, tenantId, taxInvoiceId: null }, data: { taxInvoiceId: invoice.id } })
+  if (vatChanged) {
+    await tx.$queryRaw`SELECT set_config('credaflow.lease_vat_supply', 'on', true)`
+    const delta = supplyTotalCents - rental.totalCents
+    await tx.repaymentSchedule.updateMany({ where: { tenantId, leaseRental: { id: rental.id } }, data: { principalDue: { increment: delta }, totalDue: { increment: delta } } })
+  }
+  const bound = await tx.leaseRental.updateMany({ where: { id: rental.id, tenantId, taxInvoiceId: null }, data: { taxInvoiceId: invoice.id, ...(vatChanged ? { vatRate: vat.rate, vatCents: supplyVatCents, totalCents: supplyTotalCents } : {}) } })
   if (bound.count !== 1) throw new Error(`lease rental ${rental.id} was invoiced concurrently`)
+  if (vatChanged) await refreshLoan(tx as SigningTx, tenantId, rental.loanId, supplyTotalCents - rental.totalCents, input.createdById, "supply_date_vat_change")
   // A full-maintenance rental funds the maintenance fund as it is invoiced (./maintenance-fund.ts).
   if (rental.maintenanceExclVatCents > 0) {
     const fund = await tx.maintenanceFund.findFirst({ where: { tenantId, loanId: rental.loanId }, select: { id: true } })

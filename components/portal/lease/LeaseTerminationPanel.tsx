@@ -11,6 +11,7 @@ import { leaseApi, postLeaseAction } from "./lease-action"
 
 interface Props {
   loanId: string
+  cpa?: boolean
   quote: PortalLeaseQuote | null
   actions: TerminationActions
 }
@@ -30,7 +31,7 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
   )
 }
 
-export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
+export function LeaseTerminationPanel({ loanId, quote, actions, cpa = false }: Props) {
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -49,7 +50,7 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
   const pill = actions.state === "NONE" ? null : STATE_PILL[actions.state]
   return (
     <div className="space-y-4 text-sm">
-      {!quote && actions.canRequest && <p className="text-[var(--cf-text-muted)]">You can ask what it would cost to end this lease early. A quote commits you to nothing until you accept it.</p>}
+      {!quote && actions.canRequest && <p className="text-[var(--cf-text-muted)]">{cpa ? "Give written notice to cancel your lease. It ends 20 business days after notice, whether or not you accept a charge quote. The charge credits the returned goods." : "You can ask what it would cost to end this lease early. A quote commits you to nothing until you accept it."}</p>}
       {quote && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -60,13 +61,13 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
             <Line label="Lease ends on" value={formatIsoDate(quote.terminationDate)} />
             <Line label="Rentals cancelled" value={String(quote.remainingRentals)} />
             <Line label="Present value of those rentals" value={formatMoney(quote.pvCents)} />
-            <Line label="Early-termination penalty" value={formatMoney(quote.penaltyCents)} />
+            <Line label={quote.cpaCancellation ? "Cancellation charge" : "Early-termination penalty"} value={quote.cpaCancellation && quote.status === "QUOTED" ? "Awaiting goods valuation and actual costs" : formatMoney(quote.cpaCancellation ? quote.totalCents - quote.arrearsCents - quote.invoiceVatCents : quote.penaltyCents)} />
             <Line label="VAT" value={formatMoney(quote.invoiceVatCents)} />
             <Line label="Rentals already overdue" value={formatMoney(quote.arrearsCents)} />
             <Line label="Total to pay" value={formatMoney(quote.totalCents)} strong />
           </dl>
           <p className="text-xs text-[var(--cf-text-muted)]">
-            {actions.state === "ACCEPTED" ? `Accepted: the lease ends on ${formatIsoDate(quote.terminationDate)}.` : `${actions.state === "EXPIRED" ? "Expired on" : "Valid until"} ${formatIsoDate(quote.validUntil)}.`}
+            {quote.cpaCancellation ? `Cancellation notified: the lease ends on ${formatIsoDate(quote.terminationDate)}. No acceptance is required.` : actions.state === "ACCEPTED" ? `Accepted: the lease ends on ${formatIsoDate(quote.terminationDate)}.` : `${actions.state === "EXPIRED" ? "Expired on" : "Valid until"} ${formatIsoDate(quote.validUntil)}.`}
           </p>
           <div>
             <p className="text-xs font-semibold text-[var(--cf-text)]">How this was worked out</p>
@@ -80,7 +81,7 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
       )}
       {!confirming && (actions.canAccept || actions.canRequest) && (
         <div className="flex flex-wrap gap-2">
-          {actions.canAccept && (
+          {actions.canAccept && !quote?.cpaCancellation && (
             <button type="button" onClick={() => setConfirming(true)} className="rounded-md bg-[var(--cf-brand)] px-4 py-2 font-semibold text-[var(--cf-on-brand)]">
               Accept this quote
             </button>
@@ -88,7 +89,7 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
           {actions.canRequest && (
             <button type="button" onClick={() => send("termination-quotes", "The quote could not be requested")} disabled={busy}
               className="rounded-md border border-[var(--cf-border-strong)] px-4 py-2 font-semibold text-[var(--cf-text)] disabled:opacity-50">
-              {busy ? "Requesting…" : quote ? "Request a new quote" : "Request a quote"}
+              {busy ? "Submitting…" : cpa ? "Give cancellation notice" : quote ? "Request a new quote" : "Request a quote"}
             </button>
           )}
         </div>

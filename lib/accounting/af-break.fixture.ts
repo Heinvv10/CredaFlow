@@ -106,7 +106,7 @@ export async function expectedBank(tenantId: string, asOf: Date, from = new Date
           WHERE rs."tenantId" = ${tenantId} AND rs."status" = 'COMPLETED' AND (i."issueDate"::timestamp - interval '2 hours') >= ${from} AND (i."issueDate"::timestamp - interval '2 hours') < ${asOf}), 0)
       - COALESCE((SELECT SUM(m."amountCents") FROM "MaintenanceFundMovement" m JOIN "MaintenanceFund" f ON f."id" = m."fundId"
           WHERE m."tenantId" = ${tenantId} AND (m."occurredOn"::timestamp - interval '2 hours') >= ${from} AND (m."occurredOn"::timestamp - interval '2 hours') < ${asOf}
-            AND ((f."riskModel" = 'LENDER_RISK' AND m."kind" = 'CLAIM') OR (f."riskModel" = 'LESSEE_SETTLED' AND m."kind" NOT IN ('CONTRIBUTION', 'SETTLEMENT_BILLED')))), 0)
+            AND ((f."riskModel" = 'LENDER_RISK' AND m."kind" = 'CLAIM') OR (f."riskModel" = 'LESSEE_SETTLED' AND m."kind" IN ('CLAIM', 'SETTLEMENT_REFUND')))), 0)
       - COALESCE((SELECT SUM(f."amountCents") FROM "RecoveryRefund" f WHERE f."tenantId" = ${tenantId} AND f."status" = 'RELEASED' AND f."releasedAt" >= ${from} AND f."releasedAt" < ${asOf}), 0)
     )::bigint AS cents`
   return Number(r.cents)

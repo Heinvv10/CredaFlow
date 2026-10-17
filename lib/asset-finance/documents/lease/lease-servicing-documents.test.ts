@@ -80,7 +80,7 @@ describe("early-termination quote", () => {
     const all = pages.flat()
     for (const page of pages) expect(page).toContain(DRAFT_WATERMARK)
     expect(all).toContain("EARLY-TERMINATION QUOTE")
-    for (const cents of [QUOTE.pvCents, QUOTE.penaltyCents, QUOTE.invoiceVatCents, QUOTE.arrearsCents, QUOTE.totalCents]) expect(all).toContain(formatZarPdf(cents))
+    for (const cents of [QUOTE.pvCents, QUOTE.goodsValueCents!, QUOTE.invoiceVatCents, QUOTE.arrearsCents, QUOTE.totalCents]) expect(all).toContain(formatZarPdf(cents))
     for (const date of ["23 February 2027", "15 March 2027", "5 March 2027"]) expect(all.some((line) => line.includes(date)), date).toBe(true)
     expect(all).toContain("14")
     // The basis wraps over lines; its words, in order, are the stored text.

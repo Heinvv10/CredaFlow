@@ -76,6 +76,8 @@ export interface QuoteRow {
   terminationDate: string
   validUntil: string
   cpaCancellation: boolean
+  totalLoss?: boolean
+  insuranceProceedsCents?: number
   remainingRentals: number
   pvCents: number
   penaltyCents: number
@@ -211,7 +213,7 @@ export async function loadLeaseStaffData(tenantId: string, loanId: string): Prom
     expiryNotice: loan.leaseExpiryNotice && { queuedOn: isoOfDbDate(loan.leaseExpiryNotice.queuedOn) },
     quotes: loan.leaseTerminationQuotes.map((q) => ({
       id: q.id, status: q.status, quotedOn: isoOfDbDate(q.quotedOn), terminationDate: isoOfDbDate(q.terminationDate), validUntil: isoOfDbDate(q.validUntil),
-      cpaCancellation: q.cpaCancellation, remainingRentals: q.remainingRentals, pvCents: q.pvCents, penaltyCents: q.penaltyCents, arrearsCents: q.arrearsCents,
+      cpaCancellation: q.cpaCancellation, totalLoss: q.totalLoss, insuranceProceedsCents: q.insuranceProceedsCents, remainingRentals: q.remainingRentals, pvCents: q.pvCents, penaltyCents: q.penaltyCents, arrearsCents: q.arrearsCents,
       invoiceVatCents: q.invoiceVatCents, totalCents: q.totalCents, basis: q.basis, invoice: invoiceOf(q.taxInvoice),
     })),
     purchaseMaxAgeDays: config?.leasePurchaseValuationMaxAgeDays ?? 30,

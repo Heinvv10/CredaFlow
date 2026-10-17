@@ -60,8 +60,7 @@ function endOptions(i: LeaseWordingInput): string {
 /** The CPA variant's cancellation charge: the lessor's reasonable loss, crediting the returned goods (s14(3)(b)(ii), Reg 5(2)). */
 export const CPA_CANCELLATION_CHARGE = "The cancellation penalty is the lessor's reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT "
   + "and maintenance) that would have fallen due after it, discounted at the contract rate; less (b) the net amount the lessor realises, or can reasonably expect to "
-  + "realise, by selling or letting the returned goods, after the reasonable costs of doing so. It is never more than the lessee would have paid had the lease run its "
-  + "full term, no further penalty is added, and it is determined having regard to regulation 5(2) of the CPA Regulations."
+  + "realise, by selling or letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs, itemised with their evidence. The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added, and it is determined having regard to regulation 5(2) of the CPA Regulations."
 
 function earlyTermination(i: LeaseWordingInput): string {
   if (i.cpa) {

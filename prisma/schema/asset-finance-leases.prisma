@@ -37,11 +37,15 @@ model LeaseRental {
   taxInvoiceId            String?                  @unique
   taxInvoice              TaxInvoice?              @relation(fields: [tenantId, taxInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   // Set when an accepted early termination cancels this rental (its schedule row goes to 0).
+  cancellationCreditNoteId String? @unique
+  cancellationCreditNote CreditNote? @relation("LeaseRentalCancellationCredit", fields: [tenantId, cancellationCreditNoteId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   cancelledAt             DateTime?
   createdAt               DateTime                 @default(now())
+  creditedFundMovement    MaintenanceFundMovement? @relation("MaintenanceContributionCredit")
   fundMovement            MaintenanceFundMovement?
 
   @@unique([tenantId, id])
+  @@unique([tenantId, cancellationCreditNoteId])
   @@unique([tenantId, scheduleId])
   @@unique([tenantId, taxInvoiceId])
   @@unique([loanId, periodNo])
@@ -53,6 +57,7 @@ enum MaintenanceMovementKind {
   CLAIM
   SETTLEMENT_REFUND
   SETTLEMENT_BILLED
+  CONTRIBUTION_CREDIT
 }
 
 enum MaintenanceClaimStatus {
@@ -134,6 +139,8 @@ model MaintenanceFundMovement {
   amountCents   Int
   leaseRentalId String?                 @unique
   leaseRental   LeaseRental?            @relation(fields: [tenantId, leaseRentalId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creditedLeaseRentalId String? @unique
+  creditedLeaseRental LeaseRental? @relation("MaintenanceContributionCredit", fields: [tenantId, creditedLeaseRentalId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   claimId       String?                 @unique
   claim         MaintenanceClaim?       @relation(fields: [tenantId, claimId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   taxInvoiceId  String?                 @unique
@@ -143,6 +150,7 @@ model MaintenanceFundMovement {
   createdById   String?
   createdAt     DateTime                @default(now())
 
+  @@unique([tenantId, creditedLeaseRentalId])
   @@unique([tenantId, leaseRentalId])
   @@unique([tenantId, claimId])
   @@unique([tenantId, taxInvoiceId])
@@ -226,6 +234,7 @@ model LeaseEndOfTerm {
   electedAt                  DateTime           @default(now())
   electedById                String?
   electedByClientId          String?
+  extensionNoticeByClientId String?
   extensionNoticeOn          DateTime?          @db.Date
   extensionEndsOn            DateTime?          @db.Date
   inspectedOn                DateTime?          @db.Date
@@ -293,6 +302,12 @@ model LeaseTerminationQuote {
   quotedOn            DateTime               @db.Date
   terminationDate     DateTime               @db.Date
   validUntil          DateTime               @db.Date
+  goodsValueCents     Int?
+  documentedCosts    Json                   @default("[]")
+  lessorCancellation Boolean                @default(false)
+  totalLoss          Boolean                @default(false)
+  insuranceProceedsCents Int                 @default(0)
+  lossEvidence       String?
   cpaCancellation     Boolean
   remainingRentals    Int
   pvCents             Int

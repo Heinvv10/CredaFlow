@@ -92,7 +92,7 @@ export interface PortalLeaseView {
   fund: { balanceCents: number; riskModel: MaintenanceRiskModel; claims: PortalLeaseClaim[] } | null
   /** Leases with contracted usage only. */
   meter: { unit: UsageUnit; latest: { readingDate: string; value: number } | null } | null
-  termination: { penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
+  termination: { cpaApplies?: boolean; penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
   endOfTerm: {
     chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean; inspected: boolean } | null
     valuation: { valuedOn: string; amountExclVatCents: number } | null
@@ -111,7 +111,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
   const loan = await prisma.loan.findFirst({
     where: { id: loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
     select: {
-      id: true, reference: true, status: true, contractType: true, startDate: true, maturityDate: true, assetId: true,
+      id: true, reference: true, status: true, contractType: true, startDate: true, maturityDate: true, assetId: true, cpaApplies: true,
       entity: { select: { id: true, legalName: true } },
       asset: { select: { assetClass: true, make: true, model: true, year: true, serialNumber: true, registrationNumber: true } },
       assetFinanceDeal: { select: { usageUnit: true, earlyTerminationPenaltyRate: true } },
@@ -203,6 +203,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
     },
     meter: unit ? { unit, latest: latestReading ? { readingDate: isoOfDbDate(latestReading.readingDate), value: latestReading.value } : null } : null,
     termination: {
+      cpaApplies: loan.cpaApplies === true,
       penaltyConfigured: Boolean(loan.assetFinanceDeal?.earlyTerminationPenaltyRate),
       latestQuote: quote && {
         id: quote.id, quotedOn: isoOfDbDate(quote.quotedOn), terminationDate: isoOfDbDate(quote.terminationDate), validUntil: isoOfDbDate(quote.validUntil),

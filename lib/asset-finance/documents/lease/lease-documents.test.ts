@@ -115,7 +115,7 @@ describe("lease agreements (C9)", () => {
     expect(text).toContain("The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, as section 14(2)(b)(i)(bb) "
       + "of the CPA allows. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or pays any quote.")
     expect(text).toContain("less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or letting the returned goods")
-    expect(text).toContain("It is never more than the lessee would have paid had the lease run its full term, no further penalty is added")
+    expect(text).toContain("The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added")
     expect(text).toContain("regulation 5(2) of the CPA Regulations")
     expect(text).toContain("The lessee may end the extension at any time by giving the lessor at least 20 business days' written notice")
     expect(text).toContain("claim the amounts owed up to the cancellation date and a reasonable cancellation penalty calculated as clause 9.10 provides")

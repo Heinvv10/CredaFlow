@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   writeFileSync(`${LEASE}/expiry-notice.pdf`, await renderLeaseExpiryNotice(NOTICE, LENDER))
   writeFileSync(`${LEASE}/inspection-report.pdf`, await renderLeaseInspectionReport(REPORT, LENDER))
   writeFileSync(`${LEASE}/termination-quote-cpa.pdf`, await renderLeaseTerminationQuote(QUOTE, LENDER))
-  writeFileSync(`${LEASE}/termination-quote-commercial.pdf`, await renderLeaseTerminationQuote({ ...QUOTE, cpaCancellation: false, basis: "Present value of the rentals (ex VAT and maintenance) falling due after 2027-02-23, discounted at the contract rate, plus a penalty of 10.00% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value.", terminationDate: "2027-02-23" }, LENDER))
+  writeFileSync(`${LEASE}/termination-quote-commercial.pdf`, await renderLeaseTerminationQuote({ ...QUOTE, status: "QUOTED", cpaCancellation: false, goodsValueCents: null, documentedCosts: [], penaltyCents: 4_123_457, invoiceExclVatCents: 45_358_024, invoiceVatCents: 6_803_704, totalCents: 53_396_228, basis: "Present value of the rentals (ex VAT and maintenance) falling due after 2027-02-23, discounted at the contract rate, plus a penalty of 10.00% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value.", terminationDate: "2027-02-23" }, LENDER))
   const d = syntheticDealDocumentData()
   const trust = syntheticDealDocumentData({ entity: { ...d.entity, type: "TRUST", legalName: "TEST Family Trust", registrationNumber: "IT0000/2099", mastersReference: "IT0000/2099" } })
   writeFileSync(join(COMMERCIAL, "instalment-sale-agreement.pdf"), await renderInstalmentSaleAgreement(d))

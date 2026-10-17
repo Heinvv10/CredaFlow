@@ -15,10 +15,10 @@
  *                   outside CredaFlow, as payouts do), a deficit billed on the
  *                   end-of-term tax invoice.
  */
-export type MovementKind = "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"
+export type MovementKind = "CONTRIBUTION_CREDIT" | "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"
 export type RiskModel = "LENDER_RISK" | "LESSEE_SETTLED"
 
-const SIGN: Record<MovementKind, 1 | -1> = { CONTRIBUTION: 1, CLAIM: -1, SETTLEMENT_REFUND: -1, SETTLEMENT_BILLED: 1 }
+const SIGN: Record<MovementKind, 1 | -1> = { CONTRIBUTION: 1, CONTRIBUTION_CREDIT: -1, CLAIM: -1, SETTLEMENT_REFUND: -1, SETTLEMENT_BILLED: 1 }
 
 export function fundBalance(movements: readonly { kind: MovementKind; amountCents: number }[]): number {
   return movements.reduce((sum, m) => sum + SIGN[m.kind] * m.amountCents, 0)

@@ -158,11 +158,11 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
   }, 60_000)
 
   it("a rental that cannot be invoiced never refuses the receipt, and is audited once", async () => {
-    // Tamper (triggers off): rental 1's booked VAT rate no longer matches the rate in force.
+    // Corrupt only rental 1's net/VAT split (test setup): its invoice cannot match the stored ledger.
     const first = (await rentals(spareLoan))[0]
     await database().$transaction([
       database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
-      database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "vatRate" = 0.1400 WHERE "id" = $1`, first.id),
+      database().$executeRawUnsafe(`UPDATE "LeaseRental" SET "rentalExclVatCents" = "rentalExclVatCents" + 100, "vatCents" = "vatCents" - 100 WHERE "id" = $1`, first.id),
     ])
     for (const reference of ["SYNTHETIC-1", "SYNTHETIC-2"]) {
       const result = await applyManualReceipt(database() as unknown as PaymentDb, { loanId: spareLoan, tenantId: fx.tenantId, amount: 100, capturedById: fx.officer, reference })
@@ -171,7 +171,7 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
     expect((await rentals(spareLoan))[0].taxInvoiceId).toBeNull()
     const audits = await database().auditLog.findMany({ where: { tenantId: fx.tenantId, action: "LEASE_INVOICE_REFUSED", entityId: first.id } })
     expect(audits).toHaveLength(1)
-    expect(audits[0].newValue).toMatchObject({ reason: "vat_rate_changed", source: "receipt" })
+    expect(audits[0].newValue).toMatchObject({ reason: "invoice_error", source: "receipt" })
   }, 60_000)
 
   it("an invoice that throws after it is written is rolled back alone: the receipt stands", async () => {
@@ -219,7 +219,7 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
   }, 60_000)
 
   it("the cron leaves a tenant with asset finance off alone, and keeps going past a failing rental", async () => {
-    await backdate(spareLoan, 2) // rentals 1–2 due; rental 1 refused (VAT tampered), rental 2 invoiceable
+    await backdate(spareLoan, 2) // rentals 1–2 due; rental 1 refused (corrupted ledger), rental 2 invoiceable
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { featureAssetFinance: false } })
     try {
       const off = await runLeaseInvoiceBatch(database() as never, today())
@@ -229,7 +229,7 @@ suite.sequential("lease receipts on every path, and the invoice issuer's refusal
       await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { featureAssetFinance: true } })
     }
     const on = await runLeaseInvoiceBatch(database() as never, today())
-    expect(on.refused.vat_rate_changed).toBe(1)
+    expect(on.failed).toBe(1)
     expect((await rentals(spareLoan))[1].taxInvoiceId).not.toBeNull()
   }, 60_000)
 })

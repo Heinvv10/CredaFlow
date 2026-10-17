@@ -58,7 +58,7 @@ export async function loadTerminationQuote(db: LeaseDocsDb, tenantId: string, lo
     where: { id: quoteId, tenantId, loanId, loan: { contractType: LEASES } },
     select: {
       id: true, status: true, quotedOn: true, terminationDate: true, validUntil: true, cpaCancellation: true, remainingRentals: true,
-      pvCents: true, penaltyCents: true, arrearsCents: true, invoiceExclVatCents: true, invoiceVatCents: true, totalCents: true, basis: true,
+      goodsValueCents: true, documentedCosts: true, pvCents: true, penaltyCents: true, arrearsCents: true, invoiceExclVatCents: true, invoiceVatCents: true, totalCents: true, basis: true,
       loan: { select: LOAN_SELECT },
     },
   })
@@ -67,6 +67,7 @@ export async function loadTerminationQuote(db: LeaseDocsDb, tenantId: string, lo
   return {
     ...(await baseOf(db, tenantId, loan)),
     ...figures,
+    documentedCosts: figures.documentedCosts as unknown as TerminationQuoteData["documentedCosts"],
     quoteId: id,
     quotedOn: isoOfDbDate(quotedOn),
     terminationDate: isoOfDbDate(terminationDate),
