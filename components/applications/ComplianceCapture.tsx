@@ -78,23 +78,27 @@ export function ComplianceCapture({
       </div>
 
       <div className="space-y-4 p-5">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input type="checkbox" checked={reckless} disabled={!canConfirm} onChange={e => { setReckless(e.target.checked); setSaved(false) }} className="mt-1 h-4 w-4 accent-[var(--cf-brand)] disabled:cursor-not-allowed" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-[var(--cf-text)]">Reckless lending assessment completed</p>
-            <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">Affordability has been assessed under NCA Sections 80-81. No reckless lending determination applies.</p>
-            {reckless && (
-              <textarea
-                value={note}
-                onChange={e => { setNote(e.target.value); setSaved(false) }}
-                placeholder="Assessment notes (optional)"
-                rows={2}
-                className="mt-2 w-full resize-none rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-2.5 py-1.5 text-xs text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)]"
-              />
-            )}
-          </div>
-          {reckless && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
-        </label>
+        <div>
+          <label className="flex cursor-pointer items-start gap-3">
+            <input type="checkbox" checked={reckless} disabled={!canConfirm} onChange={e => { setReckless(e.target.checked); setSaved(false) }} className="mt-1 h-4 w-4 accent-[var(--cf-brand)] disabled:cursor-not-allowed" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-[var(--cf-text)]">Reckless lending assessment completed</p>
+              <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">Affordability has been assessed under NCA Sections 80-81. No reckless lending determination applies.</p>
+            </div>
+            <TickMark visible={reckless} />
+          </label>
+          {/* Always rendered, outside the label: mounting it on tick shifted every control below it
+              by its own height, so the next click landed on the wrong checkbox. */}
+          <textarea
+            value={note}
+            onChange={e => { setNote(e.target.value); setSaved(false) }}
+            disabled={!reckless || !canConfirm}
+            aria-label="Reckless lending assessment notes"
+            placeholder="Assessment notes (optional)"
+            rows={2}
+            className="mt-2 ml-7 block w-[calc(100%-1.75rem)] resize-none rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-2.5 py-1.5 text-xs text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)] disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </div>
         <div className="border-t border-[var(--cf-border-subtle)]" />
         <CheckRow checked={declared} disabled={!canConfirm} onChange={(value) => { setDeclared(value); setSaved(false) }} title="Client affordability declaration captured" description="The client declared income, expenses, and obligations truthfully and accepted the affordability assessment." />
 
@@ -119,7 +123,12 @@ function CheckRow({ checked, disabled, onChange, title, description }: { checked
         <p className="text-sm font-semibold text-[var(--cf-text)]">{title}</p>
         <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">{description}</p>
       </div>
-      {checked && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
+      <TickMark visible={checked} />
     </label>
   )
+}
+
+/** Hidden, not unmounted, when unticked: its width must not change how the row's text wraps. */
+function TickMark({ visible }: { visible: boolean }) {
+  return <CheckCircle aria-hidden="true" className={`ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)] ${visible ? "" : "invisible"}`} />
 }

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { describe, expect, it, vi } from "vitest"
-import { capRepoRate, checkNcaInterestRateFor, earlierShortTermCreditThisYear } from "./nca-interest-cap.server"
+import { approvalInterestCapCheck, capRepoRate, checkNcaInterestRateFor, earlierShortTermCreditThisYear } from "./nca-interest-cap.server"
 
 const dec = (rate: string) => new Prisma.Decimal(rate)
 function db(approved: string | null, fed: string[] = []) {
@@ -101,3 +101,28 @@ describe("the client's earlier short-term credit this calendar year", () => {
   })
 })
 
+// Fair Score acceptance (2026-10-17): the application page needs the verdict /decide
+// answers with, not a client-side guess, to list it as a blocker.
+describe("approvalInterestCapCheck: the verdict the application page lists as a blocker", () => {
+  const application = (interestRatePm: number, overrides: Record<string, unknown> = {}) => ({
+    id: "app-1", approvedAt: null, ncaRegime: "NCA", clientId: "c1",
+    appliedAmount: 5_000_000, appliedTermDays: 360,
+    product: { interestRatePm, interestModel: "REDUCING_BALANCE" },
+    ...overrides,
+  })
+
+  it("fails a product rate above the cap, naming the maximum", async () => {
+    // 3% a month = 36% a year; repo 8.25% + 21% caps it at 29.25%.
+    const result = await approvalInterestCapCheck(db("0.0825"), "t1", application(0.03), on)
+    expect(result).toMatchObject({ ok: false, reason: "ABOVE_CAP" })
+    expect(!result.ok && result.message).toContain("exceeds the NCA maximum of 29.25%")
+  })
+
+  it("passes a rate within the cap", async () => {
+    expect(await approvalInterestCapCheck(db("0.0825"), "t1", application(0.0233), on)).toEqual({ ok: true })
+  })
+
+  it("does not apply Regulation 42 to a NON_NCA agreement", async () => {
+    expect(await approvalInterestCapCheck(db("0.0825"), "t1", application(0.03, { ncaRegime: "NON_NCA" }), on)).toEqual({ ok: true })
+  })
+})
