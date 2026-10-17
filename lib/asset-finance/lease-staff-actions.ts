@@ -25,7 +25,7 @@ export interface EndOfTermState {
 export function nextEndStep(eot: EndOfTermState, today: string): { step: EndStep; needs: "manage" | "decide" } | null {
   switch (eot.status) {
     case "ELECTED":
-      return eot.outcome === "PURCHASE" ? { step: "invoice", needs: "decide" } : { step: "inspection", needs: "manage" }
+      return (eot.outcome === "PURCHASE" || eot.outcome === "TOTAL_LOSS") ? { step: "invoice", needs: "decide" } : { step: "inspection", needs: "manage" }
     case "EXTENDING":
       if (!eot.extensionNoticeOn) return { step: "extension-notice", needs: "manage" }
       return eot.extensionEndsOn !== null && eot.extensionEndsOn <= today ? { step: "inspection", needs: "manage" } : null

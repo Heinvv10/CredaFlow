@@ -61,7 +61,8 @@ export async function recordLeaseTotalLoss(tx: SigningTx, actor: { tenantId: str
   const scheduleId = invoice ? await appendLeaseCharge(tx, { tenantId, loanId: loan.id, amountCents: invoice.totalInclVatCents, dueDate: lossOn, actorUserId: actor.userId, why: "lease_total_loss" }) : null
   await tx.leaseTerminationQuote.update({ where: { id: quote.id }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: actor.userId,
     taxInvoiceId: invoice?.id, scheduleId, invoiceExclVatCents: invoice?.totalExclVatCents ?? 0, invoiceVatCents: invoice?.vatCents ?? 0, totalCents: pvCents + arrearsCents } })
-  await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: loan.id, origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED", electedById: actor.userId } })
+  await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: loan.id, origin: "EARLY_TERMINATION", outcome: "TOTAL_LOSS", status: "ELECTED", electedById: actor.userId } })
+  if (loan.assetId) await tx.financedAsset.update({ where: { id: loan.assetId, tenantId }, data: { lessorStatus: "TOTAL_LOSS", lessorStatusAt: new Date() } })
   if (input.insuranceProceedsCents > 0) {
     const db = { $transaction: <T>(run: (client: SigningTx) => Promise<T>) => run(tx) } as unknown as PaymentDb
     await applyManualReceipt(db, { tenantId, loanId: loan.id, amount: input.insuranceProceedsCents, paymentMethod: "EFT", reference: `LOSS-${quote.id}`,

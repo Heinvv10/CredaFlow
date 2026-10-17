@@ -56,6 +56,7 @@ export interface ElectInput {
 
 export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: ElectInput): Promise<EndResult> {
   const { tenantId } = actor
+  if (input.outcome === "TOTAL_LOSS") return refused("total_loss", "Record a total loss with its retained loss evidence")
   // A portal client acts only on a lease they are the lessee of, or have authority for.
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied

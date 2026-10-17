@@ -268,6 +268,11 @@ trigger or CHECK, each proven by an IT that removes it
 - **Total loss:** staff records the write-off evidence and insurer proceeds. Future
   rentals stop; a PV charge, without a penalty, replaces them. The insurer's actual
   cash is credited through the ordinary payment ledger; arrears remain collectible.
+  A separate TOTAL_LOSS end outcome settles the maintenance fund without a fabricated
+  physical inspection, meter reading or stock return. The unavailable asset remains
+  TOTAL_LOSS and cannot be financed again. A positive LESSEE_SETTLED maintenance
+  balance is refunded only on recorded evidence of the exact actual external payment:
+  date, unique bank reference and retained proof from the original lease deal.
 - **Charges** (end of term, purchase, termination) are schedule rows of their
   own: the row's total is its tax invoice's total, never a rental's row or
   invoice, and a closed loan is reopened for it. Receipts settle them like
@@ -523,6 +528,12 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   at or below that ceiling (including reduction or waiver), and why cancellation
   remains available. Billing and raw database acceptance require the retained
   assessment. Prior accepted charges are not silently backfilled or repriced.
+- **Changed 2026-10-18 to give effect to total-loss clause 9.5:** closure has an
+  evidenced TOTAL_LOSS outcome, with no physical-return/inspection prerequisite or
+  stock return. Full-maintenance fund settlement preserves genuine cash: a refund
+  needs retained proof of the exact actual external payment before its BANK movement
+  is recorded. This implements the signed-off total-loss rule; the loan calculation
+  and insurer receipt rules are unchanged.
 
 - **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
   cancellation, valuation credit and documented actual costs, automatic continuation

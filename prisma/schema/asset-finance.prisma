@@ -381,6 +381,7 @@ model EntityDocument {
   commercialCancellations CommercialCancellation[]
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
+  maintenanceRefunds MaintenanceFundMovement[] @relation("MaintenanceRefundEvidence")
   meterReadings     AssetMeterReading[]
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")

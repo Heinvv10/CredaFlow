@@ -5,6 +5,7 @@ import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "@/lib/asset-fin
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { canElect, nextEndStep, type EndStep } from "@/lib/asset-finance/lease-staff-actions"
 import { ElectForm, InspectionForm, type ValuationChoice } from "./EndOfTermForms"
+import { TotalLossRefundForm } from "./TotalLossRefundForm"
 import { LeaseActionButton } from "./LeaseActionButton"
 import type { LeaseStaffData } from "./lease-staff-data"
 
@@ -12,7 +13,7 @@ import type { LeaseStaffData } from "./lease-staff-data"
 // whichever single step applies (lib/asset-finance/lease-staff-actions.ts
 // nextEndStep), shown only to a user whose permission it needs.
 
-const OUTCOME_LABELS = { RETURN: "Return", EXTEND: "Extend month to month", PURCHASE: "Purchase" } as const
+const OUTCOME_LABELS = { TOTAL_LOSS: "Total loss: no physical return", RETURN: "Return", EXTEND: "Extend month to month", PURCHASE: "Purchase" } as const
 const STATUS_LABELS = {
   ELECTED: "Elected", EXTENDING: "Month to month", INSPECTED: "Inspected", INVOICED: "Invoiced: awaiting payment", COMPLETED: "Completed",
 } as const
@@ -56,6 +57,7 @@ export async function LeaseEndOfTermPanel({ tenantId, data, canManage, canDecide
   const elect = canElect({ loanStatus: data.loanStatus, hasEndOfTerm: eot !== null, windowOpen, canManage })
   const next = eot ? nextEndStep(eot, data.today) : null
   const allowed = next !== null && (next.needs === "manage" ? canManage : canDecide)
+  const lossRefund = eot?.outcome === "TOTAL_LOSS" && data.fund?.riskModel === "LESSEE_SETTLED" && data.fund.balanceCents > 0 ? data.fund.balanceCents : null
   const valuations = elect ? await recentValuations(tenantId, data) : []
   const unit = data.deal.usage ? (data.deal.usage.unit === "HOURS" ? "hours" : "km") : null
 
@@ -107,7 +109,8 @@ export async function LeaseEndOfTermPanel({ tenantId, data, canManage, canDecide
         {next && allowed && next.step === "extension-notice" && (
           <LeaseActionButton url={`${base}/extension-notice`} label="Give notice to end the extension" busyLabel="Recording…" variant="outline" />
         )}
-        {next && allowed && next.step === "invoice" && (
+        {next && allowed && next.step === "invoice" && lossRefund !== null && <TotalLossRefundForm url={`${base}/invoice`} dealId={data.deal.id} amountCents={lossRefund} today={data.today} />}
+        {next && allowed && next.step === "invoice" && lossRefund === null && (
           <LeaseActionButton url={`${base}/invoice`} label={eot?.outcome === "PURCHASE" ? "Issue the sale invoice" : "Issue the end-of-term invoice"} busyLabel="Invoicing…" />
         )}
         {next && allowed && next.step === "natis-confirmed" && (

@@ -73,6 +73,7 @@ enum MeterReadingSource {
 }
 
 enum LeaseEndOutcome {
+  TOTAL_LOSS
   RETURN
   EXTEND
   PURCHASE
@@ -92,6 +93,7 @@ enum LeaseEndOrigin {
 }
 
 enum AssetLessorStatus {
+  TOTAL_LOSS
   RETURNED_TO_STOCK
   SOLD_TO_LESSEE
   // Slice 4 (recovery): set and cleared by the database with the asset's
@@ -150,6 +152,12 @@ model MaintenanceFundMovement {
   createdById   String?
   createdAt     DateTime                @default(now())
 
+  refundDocumentId String?
+  refundDocument EntityDocument? @relation("MaintenanceRefundEvidence", fields: [tenantId, refundDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  refundReference String?
+
+  @@unique([tenantId, refundDocumentId])
+  @@unique([tenantId, refundReference])
   @@unique([tenantId, creditedLeaseRentalId])
   @@unique([tenantId, leaseRentalId])
   @@unique([tenantId, claimId])
