@@ -20,9 +20,9 @@ export function pendingLeaseRateTax(value: Prisma.JsonValue): PendingLeaseRateTa
 }
 
 /** Each note adjusts this rental's own original supply, at its actual VAT rate. */
-export async function issueRentalRateTaxDocument(tx: RepriceTx,input:{tenantId:string;loanId:string;invoiceId:string;periodNo:number;exclVatCents:number;issueDate:string;effectiveDate:string;actorUserId?:string|null}):Promise<RateTaxDocument>{
+export async function issueRentalRateTaxDocument(tx: RepriceTx,input:{tenantId:string;loanId:string;invoiceId:string;periodNo:number;exclVatCents:number;issueDate:string;effectiveDate:string;actorUserId?:string|null;reason?:string}):Promise<RateTaxDocument>{
  const original=await tx.taxInvoice.findFirstOrThrow({where:{tenantId:input.tenantId,id:input.invoiceId,loanId:input.loanId}})
- const reason=`Rental-only reference-rate correction, period ${input.periodNo}, effective ${input.effectiveDate}`
+ const reason=input.reason??`Rental-only reference-rate correction, period ${input.periodNo}, effective ${input.effectiveDate}`
  const common={invoiceId:original.id,periodNo:input.periodNo,originalInvoiceNumber:original.invoiceNumber,issueDate:input.issueDate,reason,supplierName:original.supplierName,supplierAddress:original.supplierAddress,supplierVatNumber:original.supplierVatNumber,recipientName:original.recipientName,recipientAddress:original.recipientAddress,recipientVatNumber:original.recipientVatNumber,vatRate:original.vatRate.toString()}
  if(input.exclVatCents<0){
   const note=await issueCreditNote(tx,{tenantId:input.tenantId,invoiceId:original.id,issueDate:input.issueDate,reason,exclVatCents:-input.exclVatCents,createdById:input.actorUserId})
@@ -58,5 +58,50 @@ export async function consumeDeferredLeaseRateTax(tx:TaxTx,input:{tenantId:strin
    await tx.assetFinanceRateNotice.update({where:{id:notice.id,tenantId:input.tenantId},data:{historicalBalanceAdjustmentCents:notice.historicalBalanceAdjustmentCents+delta,taxAdjustmentPending:remaining,taxAdjustmentRevision:{increment:1},taxDocuments:[...rateTaxDocuments(notice.taxDocuments),...(doc?[doc]:[])] as unknown as Prisma.InputJsonValue,completedAt:null,lastOutcomes:Prisma.DbNull}})
   }
   await logAuditStrict({tenantId:input.tenantId,userId:input.actorUserId??undefined,action:AuditAction.LEASE_RENTAL_INVOICED,entity:"Loan",entityId:input.loanId,newValue:{source:doc?"deferred_rate_tax_supply":"deferred_rate_tax_cancelled",sourceCorrectionId:source.id,rentalId:pending.rentalId,amountCents:delta,taxDocuments:doc?[doc]:[]}},tx)
+ }
+}
+
+/** Immutable period price amendments survive the later replacement of the rental claim by damages. */
+export async function amendedLeaseRentals<T extends {periodNo:number;rentalExclVatCents:number}>(tx:Pick<TaxTx,"assetFinanceRateCorrection">,tenantId:string,loanId:string,rentals:T[]):Promise<T[]>{
+ const sources=await tx.assetFinanceRateCorrection.findMany({where:{tenantId,loanId,reason:"LATE_CLOSED_LEASE_RATE"},select:{contractualRows:true}})
+ return rentals.map(rental=>{
+  let delta=0
+  for(const source of sources){
+   const parts=objectEvidence(source.contractualRows).periodAdjustments
+   if(Array.isArray(parts))for(const part of parts)if(part&&typeof part==="object"&&!Array.isArray(part)&&part.periodNo===rental.periodNo&&typeof part.exclVatCents==="number")delta+=part.exclVatCents
+  }
+  const rentalExclVatCents=rental.rentalExclVatCents+delta
+  if(!Number.isSafeInteger(rentalExclVatCents)||rentalExclVatCents<0)throw new RangeError("Amended rental consideration cannot be negative")
+  return {...rental,rentalExclVatCents}
+ })
+}
+
+/** Cancellation replaces only future rental claims. Preserve their issued notes,
+ * credit any remaining debit-note supply and neutralise the old face correction once. */
+export async function cancelSuppliedLeaseRateAdjustments(tx:TaxTx,input:{tenantId:string;loanId:string;rentalIds:string[];today:string;actorUserId:string|null}):Promise<void>{
+ const sources=await tx.assetFinanceRateCorrection.findMany({where:{tenantId:input.tenantId,loanId:input.loanId,reason:"LATE_CLOSED_LEASE_RATE"}})
+ for(const source of sources){
+  const supplyEvents=await tx.assetFinanceRateCorrection.findMany({where:{tenantId:input.tenantId,loanId:input.loanId,reason:"LEASE_SUPPLY_TAX_ADJUSTMENT",cause:{startsWith:`LEASE_TAX:${source.id}:`}}})
+  const docs=[...rateTaxDocuments(objectEvidence(source.contractualRows).taxDocuments??null),...supplyEvents.flatMap(event=>rateTaxDocuments(objectEvidence(event.contractualRows).taxDocuments??null))]
+  for(const rentalId of input.rentalIds){
+   const rental=await tx.leaseRental.findFirstOrThrow({where:{tenantId:input.tenantId,loanId:input.loanId,id:rentalId},select:{periodNo:true,taxInvoiceId:true,cancelledAt:true,dueDate:true}})
+   if(!rental.taxInvoiceId||isoOfDbDate(rental.dueDate)<=input.today)continue
+   const own=docs.filter(doc=>doc.periodNo===rental.periodNo&&doc.invoiceId===rental.taxInvoiceId)
+   if(!own.length)continue
+   const cause=`LEASE_SUPPLIED_RATE_CANCEL:${source.id}:${rentalId}`
+   if(await tx.assetFinanceRateCorrection.findUnique({where:{cause}}))continue
+   const cancellations:RateTaxDocument[]=[]
+   for(const doc of own.filter(doc=>doc.kind==="DEBIT_NOTE")){
+    const prior=await tx.creditNote.aggregate({where:{tenantId:input.tenantId,invoiceId:doc.id},_sum:{exclVatCents:true}})
+    const remaining=doc.exclVatCents-(prior._sum.exclVatCents??0)
+    if(remaining>0)cancellations.push(await issueRentalRateTaxDocument(tx as RepriceTx,{...input,invoiceId:doc.id,periodNo:rental.periodNo,exclVatCents:-remaining,issueDate:input.today,effectiveDate:input.today,reason:`Lease cancellation effective ${input.today}: reversal of rental reference-rate debit note ${doc.number}`}))
+   }
+   const delta=-own.reduce((sum,doc)=>sum+doc.inclVatCents,0)
+   const total=await tx.assetFinanceRateCorrection.aggregate({where:{tenantId:input.tenantId,loanId:input.loanId},_sum:{amountCents:true}})
+   await tx.assetFinanceRateCorrection.create({data:{tenantId:input.tenantId,loanId:input.loanId,contractRateId:source.contractRateId,cause,amountCents:delta,cumulativeAmountCents:(total._sum.amountCents??0)+delta,reason:"LEASE_SUPPLY_TAX_CANCELLED",contractualRows:{sourceCorrectionId:source.id,rentalId,periodNo:rental.periodNo,exclVatAdjustmentCents:-own.reduce((sum,doc)=>sum+doc.exclVatCents,0),taxDocuments:cancellations} as unknown as Prisma.InputJsonValue}})
+   const notice=await tx.assetFinanceRateNotice.findFirst({where:{tenantId:input.tenantId,loanId:input.loanId,contractRateId:source.contractRateId}})
+   if(notice)await tx.assetFinanceRateNotice.update({where:{id:notice.id,tenantId:input.tenantId},data:{historicalBalanceAdjustmentCents:notice.historicalBalanceAdjustmentCents+delta,taxAdjustmentRevision:{increment:1},taxDocuments:[...rateTaxDocuments(notice.taxDocuments),...cancellations] as unknown as Prisma.InputJsonValue,completedAt:null,lastOutcomes:Prisma.DbNull}})
+   await logAuditStrict({tenantId:input.tenantId,userId:input.actorUserId??undefined,action:AuditAction.LEASE_EARLY_TERMINATION_ACCEPTED,entity:"Loan",entityId:input.loanId,newValue:{source:"supplied_rate_claim_cancelled",sourceCorrectionId:source.id,rentalId,amountCents:delta,taxDocuments:cancellations}},tx)
+  }
  }
 }

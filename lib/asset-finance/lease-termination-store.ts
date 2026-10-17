@@ -7,6 +7,7 @@
  * prepaid cash is retained in the ordinary reconciliation/refund ledger.
  * All writes share the caller's transaction and strict audit trail.
  */
+import { amendedLeaseRentals } from "./lease-rate-tax-adjustment"
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { describeAsset, issueTaxInvoice } from "@/lib/vat/tax-invoice"
@@ -52,7 +53,7 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
       id: true, status: true, cpaApplies: true, interestRatePm: true, totalRepayable: true, totalPaid: true, outstandingPrincipal: true, arrearsAmount: true, tenantId: true, principal: true, totalInterest: true, interestModel: true, startDate: true, maturityDate: true,
       contractualTotalInterest: true, contractualTotalRepayable: true,
       repaymentSchedule: true, leaseEndOfTerm: { select: { id: true } }, assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } },
-      leaseRentals: { where: { cancelledAt: null }, select: { dueDate: true, rentalExclVatCents: true } },
+      leaseRentals: { where: { cancelledAt: null }, select: { periodNo: true, dueDate: true, rentalExclVatCents: true } },
       contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
     },
   })
@@ -73,7 +74,7 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   const figures = await loanSettlementFigures(tx, loan, new Date())
   const vat = await loadRateOn(tx, input.today)
   let amount = earlyTerminationAmount({
-    rentals: loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
+    rentals: (await amendedLeaseRentals(tx, tenantId, loan.id, loan.leaseRentals)).map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
     terminationDate, annualRate: Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)),
     arrearsCents: figures.arrearsIncludingCharges, penaltyRate: penalty.toString(), vatRateTenThousandths: vat.rateTenThousandths,
   })
@@ -120,7 +121,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       client: { select: { firstName: true, lastName: true, addressLine1: true, city: true, province: true, postalCode: true } },
       asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true } },
       assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } }, interestRatePm: true, contractRates: { orderBy: { effectiveDate: "desc" }, select: { resultingRate: true, effectiveDate: true } },
-      leaseRentals: { where: { cancelledAt: null }, select: { dueDate: true, rentalExclVatCents: true } },
+      leaseRentals: { where: { cancelledAt: null }, select: { periodNo: true, dueDate: true, rentalExclVatCents: true } },
     } } },
   })
   if (await clientLeaseRefusal(actor, quote.loanId)) return { kind: "not_found" }
@@ -140,9 +141,10 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
   const acceptanceDate = quote.cpaCancellation ? isoOfDbDate(quote.terminationDate) : input.today
   const rate = Number(loan.contractRates.find((r) => isoOfDbDate(r.effectiveDate) <= acceptanceDate)?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12))
   // CPA rentals were cancelled at notice: retain those rows for the valuation calculation.
-  const assessmentRentals = quote.cpaCancellation
-    ? await tx.leaseRental.findMany({ where: { tenantId, loanId: quote.loanId, dueDate: { gt: quote.terminationDate } }, select: { dueDate: true, rentalExclVatCents: true } })
+  const originalAssessmentRentals = quote.cpaCancellation
+    ? await tx.leaseRental.findMany({ where: { tenantId, loanId: quote.loanId, dueDate: { gt: quote.terminationDate } }, select: { periodNo: true, dueDate: true, rentalExclVatCents: true } })
     : loan.leaseRentals
+  const assessmentRentals = await amendedLeaseRentals(tx, tenantId, quote.loanId, originalAssessmentRentals)
   const now = earlyTerminationAmount({
     rentals: assessmentRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
     terminationDate: acceptanceDate, annualRate: rate,

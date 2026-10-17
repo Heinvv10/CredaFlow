@@ -1,3 +1,4 @@
+import { amendedLeaseRentals } from "./lease-rate-tax-adjustment"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { loadRateOn } from "@/lib/vat/vat-rate"
 import { splitInclusive } from "@/lib/vat/amounts"
@@ -33,9 +34,10 @@ export async function prepareLeaseRecoveryDamages(tx: SigningTx, input: {
   const lessee = loan.entity ?? loan.client
   const address = lessee ? recipientAddress(lessee) : null
   if (!lessee || !address) throw new RangeError("The lessee's address is required on the damages invoice")
-  const pvCents = presentValueOfRentals(loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), input.recoveredOn,
+  const amendedRentals = await amendedLeaseRentals(tx, tenantId, loan.id, loan.leaseRentals)
+  const pvCents = presentValueOfRentals(amendedRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), input.recoveredOn,
     Number(loan.contractRates[0]?.resultingRate ?? loan.interestRatePm * 12))
-  const undiscounted = loan.leaseRentals.reduce((sum, r) => sum + r.rentalExclVatCents, 0)
+  const undiscounted = amendedRentals.reduce((sum, r) => sum + r.rentalExclVatCents, 0)
   const vat = await loadRateOn(tx, input.today)
   const cappedGross = Math.max(0, input.netProceedsCents + Math.max(0, undiscounted - 1) - input.chargedCostsCents)
   const damagesExclVatCents = loan.cpaApplies ? Math.min(pvCents, splitInclusive(cappedGross, vat.rateTenThousandths).exclVatCents) : pvCents

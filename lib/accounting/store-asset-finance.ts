@@ -57,7 +57,7 @@ const LOAN_SELECT = {
   taxInvoices: {
     orderBy: { number: "asc" },
     select: {
-      ...INVOICE, leaseRental: { select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true } },
+      ...INVOICE, leaseRental: { select: { id: true, rentalExclVatCents: true, maintenanceExclVatCents: true, cancellationCreditNoteId: true } },
       creditNotes: { orderBy: { number: "asc" }, select: CREDIT_NOTE },
     },
   },
@@ -172,7 +172,7 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
         invoiceIncome: i.leaseRental && rentalCreditNotes.get(n.id) === i.id
           ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }]
           : i.leaseRental
-          ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
+          ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents - (n.id === i.leaseRental.cancellationCreditNoteId ? i.creditNotes.filter(prior => rentalCreditNotes.get(prior.id) === i.id).reduce((sum, prior) => sum + prior.exclVatCents, 0) : 0) }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
           : [
             { role: "ASSET_DISPOSAL_PROCEEDS", exclVatCents: assetSale(i.id) }, { role: "MAINTENANCE_FUND_LIABILITY", exclVatCents: billed(i.id) },
             { role: "RENTAL_INCOME", exclVatCents: i.totalExclVatCents - assetSale(i.id) - billed(i.id) },

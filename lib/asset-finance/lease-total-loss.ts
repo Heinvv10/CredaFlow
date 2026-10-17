@@ -1,3 +1,4 @@
+import { amendedLeaseRentals } from "./lease-rate-tax-adjustment"
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { allocateReceipts, recomputeLoanBalances } from "@/lib/loan/balances"
@@ -38,7 +39,8 @@ export async function recordLeaseTotalLoss(tx: SigningTx, actor: { tenantId: str
   const lessee = loan.entity ?? loan.client
   const address = lessee ? recipientAddress(lessee) : null
   if (!lessee || !address) return { kind: "refused", reason: "recipient", error: "The lessee's address is required" }
-  const pvCents = presentValueOfRentals(loan.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), lossOn, Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)))
+  const amendedRentals = await amendedLeaseRentals(tx, tenantId, loan.id, loan.leaseRentals)
+  const pvCents = presentValueOfRentals(amendedRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), lossOn, Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)))
   const lossAsOf = new Date(`${lossOn}T23:59:59.999+02:00`)
   const receiptsAtLoss = await tx.payment.findMany({ where: { tenantId, loanId: loan.id, reversed: false, allocationStatus: "ALLOCATED", receivedAt: { lte: lossAsOf } } })
   const paidAtLoss = receiptsAtLoss.reduce((sum, p) => sum + p.amount - p.defaultInterestAllocated - p.chargeFeesAllocated, 0)

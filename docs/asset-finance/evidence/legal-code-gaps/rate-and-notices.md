@@ -241,3 +241,34 @@ Temporary PostgreSQL containers are removed. Catalog evidence in
 
 This is an integration checkpoint, not the final full gate or whole-goal
 acceptance. The zero-rental confirmation/implementation remains outstanding.
+
+## Cancellation after an issued rental rate adjustment
+
+A combined B/D reproduction exposed two failures when a prepaid future rental
+had already received its own reference-rate credit/debit note: damages still
+used the nominal rental price, and cancellation left a rate debit note's supply
+uncredited. The four real-booked cases cover an operating-lease cut and an FML
+increase, with prepayment both before and after the rate correction.
+`/tmp/cf-rate-cancel-supply-red4.log` records the failing independent money/VAT
+oracles; `/tmp/cf-rate-cancel-supply-green2.log` records all four passing after
+the correction.
+
+Termination, recovery and total-loss valuation now read immutable contractual
+per-period rental amendments, excluding maintenance. Cancellation replaces only
+future rental claims with the amended PV damages claim: issued documents remain,
+remaining debit-note supplies receive their own linked credit notes, and an
+append-only causal correction neutralises the prior future rental face claim.
+Unmade supplies continue through their separate deferred consumer; past supplies
+and cash amounts/value dates remain intact. Accounting credits the remaining
+rental and full maintenance consideration without assigning a rental-only rate
+credit to maintenance. Retry assertions prove no duplicate correction or note.
+
+`/tmp/cf-rate-abcd-cancel-proof.log` records all 102 passing real-PostgreSQL tests
+across 14 combined A/B/C/D suites, including the new retry and maintenance
+accounting assertions. `/tmp/cf-rate-abcd-schema-diff.log` reports no difference
+between a fresh migrated database and `prisma/schema`; the existing tax-invoice
+adjustment FK is explicitly mapped. TypeScript, focused lint and 66 valuation /
+accounting unit tests pass (`/tmp/cf-rate-cancel-fix-tsc3.log`,
+`/tmp/cf-rate-cancel-fix-lint-final.log`, `/tmp/cf-rate-cancel-fix-unit.log`). The
+throwaway database was removed. The positive-rental CHECK is unchanged; this
+checkpoint does not assert full CI or resolution of the zero-rental gate.
