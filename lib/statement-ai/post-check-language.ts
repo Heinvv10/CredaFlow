@@ -94,11 +94,15 @@ export function checkVocabulary(rawText: string, names: Iterable<string>, payeeN
 /** Words that place one figure below or level with another: each a claim the facts must make, not the model. */
 const BELOW_FAMILY = /\b(below|lower|less|under|within|smaller|fewer|short of|beneath)\b/i
 const MATCH_FAMILY = /\b(match|matches|matched|matching|equal|equals|same as|in line|consistent|level with)\b/i
+/** Where a rule's description starts: "the rule checks whether …", "this check compares …". */
+const RULE_SENTENCE = /\b(the|this|its|that) (flag'?s? )?(rule|check)s? (checks?|compares?|looks? at|tests?|asks?)\b/i
+
 /** The rules' own wording, where these words describe a rule, never a finding. */
 const RULE_PHRASES = new RegExp([
   "within (the |a )?(\\d+(\\.\\d+)?% )?(match |amount |instalment match )?tolerance( of \\d+(\\.\\d+)?%)?",
   "(instalment |amount )?match tolerance", "within (the )?pay[- ]date window", "within \\d+ days",
-  "checks? whether [^.;]{0,100}?\\bmatch(es)?\\b(?![^.;]*\\b(match|matches|matched)\\b)",
+  // The span may hold no other match-type word: one "match" per rule sentence, the rule's own.
+  "checks? whether (?:(?!\\b(match\\w*|equal\\w*|same as|in line|consistent|level with)\\b)[^.;]){0,100}?\\bmatch(es)?\\b(?![^.;]*\\b(match\\w*|equal\\w*|same as|in line|consistent|level with)\\b)",
 ].join("|"), "gi")
 
 /**
@@ -109,8 +113,12 @@ const RULE_PHRASES = new RegExp([
  */
 export function checkRelations(rawText: string, allowed: Allowed): CheckResult {
   // The rules' phrasing is exempt only in a sentence about the rule ("the rule checks whether … within a 10% tolerance").
-  const text = plainLetters(rawText).replace(ALLOWED_NEGATIONS, " ").split(/(?<=[.!?;])\s+/)
-    .map((s) => (/\b(rule|rules|checks?|checked)\b/i.test(s) ? s.replace(RULE_PHRASES, " ") : s)).join(" ")
+  // Only the rule's description: the words after "the rule checks / compares", in that sentence.
+  const text = plainLetters(rawText).replace(ALLOWED_NEGATIONS, " ").split(/[.!?;]+/)
+    .map((s) => {
+      const m = RULE_SENTENCE.exec(s)
+      return m ? s.slice(0, m.index) + s.slice(m.index).replace(RULE_PHRASES, " ") : s
+    }).join(". ")
   const match = text.match(MATCH_FAMILY)
   if (match) return fail(`a match the facts do not state: "${match[0]}"`)
   const below = text.match(BELOW_FAMILY)

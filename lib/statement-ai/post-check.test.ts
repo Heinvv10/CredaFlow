@@ -223,6 +223,10 @@ describe("postCheck", () => {
     // Outside a sentence about the rule, the rule's phrasing is a finding.
     expect(postCheck({ text: "Betting is within a 5% tolerance.", allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok).toBe(false)
     expect(postCheck({ text: "The rule checks whether debit orders match, and they matched.", allowed: a, raisedFlagCodes: [] }).ok).toBe(false)
+    expect(postCheck({ text: "The rule checks whether spend equals what was declared and it does match.", allowed: a, raisedFlagCodes: [] }).ok).toBe(false)
+    expect(postCheck({ text: "UNDISCLOSED_DEBIT_ORDER is raised because the rule checks whether debit orders match declared instalments within a 5% tolerance.", allowed: a, raisedFlagCodes: ["UNDISCLOSED_DEBIT_ORDER"] })).toEqual({ ok: true })
+    // A sentence that only mentions a rule is not the rule's description.
+    expect(postCheck({ text: "Betting, which the rules list, is within a 5% tolerance.", allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok).toBe(false)
     // A payee is matched only as given: "Within Limits" is not the payee "WITHIN LIMITS".
     expect(postCheck({ text: "Spend is Within Limits.", allowed: { ...a, payees: ["WITHIN LIMITS"] }, raisedFlagCodes: [] }).ok).toBe(false)
   })
