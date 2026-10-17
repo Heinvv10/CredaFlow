@@ -17,6 +17,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { PrismaClient, type DealDocumentKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { ruleRefuses } from "./lease-servicing.integration-fixture"
 import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { dealStartDate } from "./deal-structure"
@@ -139,30 +140,30 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   })
 
   it("refuses an e-signature without a verified code, or with a code for another document, and changes nothing", async () => {
-    const own = await signerOf(fx.suretyA, "SURETYSHIP")
-    const other = await signerOf(fx.director, "AGREEMENT")
-    asClient(fx.suretyA)
+    const own = await signerOf(fx.director, "AGREEMENT")
+    const other = await signerOf(fx.director, "RESOLUTION")
+    asClient(fx.director)
     const bare = await routes().portalSign(own.id, { signature: "TEST Surety A", documentSha256: own.documentSha256 })
     expect(bare.status).toBe(403)
     expect(await bare.json()).toEqual(expect.objectContaining({ signingOtp: "required" }))
     const wrongBytes = await verifiedSigningOtp(database(), {
-      tenantId: fx.tenantId, clientId: fx.suretyA, purpose: "DEAL_DOCUMENT", subjectId: own.id, documentSha256: "0".repeat(64),
+      tenantId: fx.tenantId, clientId: fx.director, purpose: "DEAL_DOCUMENT", subjectId: own.id, documentSha256: "0".repeat(64),
     })
     expect((await routes().portalSign(own.id, {
       signature: "TEST Surety A", documentSha256: own.documentSha256, signingOtpChallengeId: wrongBytes,
     })).status).toBe(409)
     const wrongRow = await verifiedSigningOtp(database(), {
-      tenantId: fx.tenantId, clientId: fx.suretyA, purpose: "DEAL_DOCUMENT", subjectId: other.id, documentSha256: own.documentSha256!,
+      tenantId: fx.tenantId, clientId: fx.director, purpose: "DEAL_DOCUMENT", subjectId: other.id, documentSha256: own.documentSha256!,
     })
     expect((await routes().portalSign(own.id, {
       signature: "TEST Surety A", documentSha256: own.documentSha256, signingOtpChallengeId: wrongRow,
     })).status).toBe(403)
-    expect((await signerOf(fx.suretyA, "SURETYSHIP")).method).toBeNull()
+    expect((await signerOf(fx.director, "AGREEMENT")).method).toBeNull()
   })
 
   it("e-signs: a stale digest is refused, the signature is stored with its sha256 and IP, audited, once", async () => {
-    const own = await signerOf(fx.suretyA, "SURETYSHIP")
-    asClient(fx.suretyA)
+    const own = await signerOf(fx.director, "AGREEMENT")
+    asClient(fx.director)
     expect((await routes().portalSign(own.id, { signature: "TEST Surety A", documentSha256: "0".repeat(64) })).status).toBe(409)
     const challengeId = await otpFor(own)
     const response = await routes().portalSign(own.id, {
@@ -173,7 +174,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
       .toMatchObject({ consumedAt: expect.any(Date), signingMethod: "portal" })
     expect(await database().auditLog.findFirst({ where: { entityId: own.id, action: "ASSET_DEAL_DOCUMENT_SIGNED" } }))
       .toMatchObject({ newValue: expect.objectContaining({ signingOtp: expect.objectContaining({ challengeId }) }) })
-    const signed = await signerOf(fx.suretyA, "SURETYSHIP")
+    const signed = await signerOf(fx.director, "AGREEMENT")
     expect(signed).toMatchObject({
       method: "E_SIGN", signatureData: "TEST Surety A", signedByIp: "198.51.100.7",
       signatureSha256: createHash("sha256").update("TEST Surety A").digest("hex"),
@@ -183,7 +184,7 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   })
 
   it("a signed row is immutable and never deleted (trigger)", async () => {
-    const own = await signerOf(fx.suretyA, "SURETYSHIP")
+    const own = await signerOf(fx.director, "AGREEMENT")
     expect(await sqlError(() => database().dealSigner.update({ where: { id: own.id }, data: { signatureData: "forged" } })))
       .toContain("A signed or confirmed deal signer is immutable")
     expect(await sqlError(() => database().dealSigner.delete({ where: { id: own.id } })))
@@ -191,7 +192,18 @@ suite.sequential("asset-finance deal signing (real Postgres, real routes)", () =
   })
 
   it("contract is refused (route 409 listing them, and by the DB) while one surety is unsigned", async () => {
-    for (const document of ["AGREEMENT", "RESOLUTION", "SURETYSHIP"] as const) expect((await sign(fx.director, document)).status).toBe(200)
+    expect((await sign(fx.director, "RESOLUTION")).status).toBe(200)
+    for (const clientId of [fx.director, fx.suretyA]) {
+      const row = await signerOf(clientId, "SURETYSHIP")
+      asClient(clientId)
+      expect((await routes().portalSign(row.id, { signature: "TEST Surety", documentSha256: row.documentSha256 })).status).toBe(409)
+      await ruleRefuses(database(), { table: "DealSigner", trigger: "DealSigner_surety_wet_ink" }, /Suretyships require wet ink/, (tx) => tx.dealSigner.update({ where: { id: row.id }, data: { method: "E_SIGN", signedAt: new Date(), signatureData: "TEST Surety", signatureSha256: createHash("sha256").update("TEST Surety").digest("hex") } }))
+      signIn(fx.officer, "CREDIT_OFFICER")
+      expect((await routes().wetInk(fx.dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
+      const scan = await signerOf(clientId, "SURETYSHIP")
+      signIn(fx.adminA, "LOAN_ADMIN")
+      expect((await routes().confirm(fx.dealId, row.id, scan.scanDocumentId!)).status).toBe(200)
+    }
     signIn(fx.officer, "CREDIT_OFFICER")
     const response = await routes().contract(fx.dealId)
     expect(response.status).toBe(409)

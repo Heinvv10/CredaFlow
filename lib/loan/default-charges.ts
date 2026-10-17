@@ -39,6 +39,7 @@ import { withoutPausedDays, type ChargePause } from "@/lib/loan/charge-pauses"
 export type ChargeType = "DEFAULT_INTEREST" | "SERVICE_FEE" | "DEFAULT_ADMIN" | "COLLECTION_FEE" | "RECOVERY_COST"
 
 export interface DefaultChargeScheduleRow {
+  commonLawContractualInterestDue?: number | null
   dueDate: Date
   principalDue: number
   interestDue: number
@@ -103,6 +104,7 @@ export interface ReceiptSplit {
 }
 
 export interface DefaultChargeResult {
+  lawfulSchedule?: Array<{ interestDue: number; totalDue: number; contractualInterestDue: number }>
   /** interest aggregated per calendar month; fees and letters per event */
   postings: ChargePosting[]
   interestAccrued: number

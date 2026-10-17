@@ -11,6 +11,7 @@ export default defineAuditActions({
   // the documents, each e-signature, each wet-ink scan and its confirmation by
   // a second user, and the move to CONTRACTED. Refusals (four eyes, signers
   // outstanding) are audited too. Document reads go to DocumentAccessLog.
+  ASSET_SURETY_CONSENT_VERIFIED: "ASSET_SURETY_CONSENT_VERIFIED",
   ASSET_DEAL_DOCUMENTS_PREPARED: "ASSET_DEAL_DOCUMENTS_PREPARED",
   ASSET_DEAL_DOCUMENT_SIGNED: "ASSET_DEAL_DOCUMENT_SIGNED",
   ASSET_DEAL_WET_INK_UPLOADED: "ASSET_DEAL_WET_INK_UPLOADED",

@@ -17,7 +17,7 @@ import { repriceTail } from "./reprice"
 import { repriceLoanForReference, type RepriceOutcome } from "./reprice-loan"
 import { runRepriceBatch } from "./reprice-batch"
 import { dbDate, fromDayNumber, toDayNumber } from "./dates"
-import { toScheduleRecord } from "./schedule-records"
+import { dueDateInstant, toScheduleRecord } from "./schedule-records"
 import { expectRowIdentities } from "./__tests__/oracle-assertions"
 import { oracleDealFromInput, oracleReplay } from "./__tests__/structure-oracle"
 import {
@@ -133,9 +133,12 @@ suite("repriceLoanForReference against a migrated database", () => {
     expect(loan.contractualTotalInterest).toBe(loan.totalInterest)
     expect(loan.contractualTotalRepayable).not.toBe(booked.reduce((sum, r) => sum + r.totalDue, 0))
     const owedOnSchedule = rows.reduce((sum, r) => sum + r.totalDue - r.totalPaid, 0)
-    expect(currentSettlementAmount({ loan, schedule: rows, asOf: new Date() })).toBe(owedOnSchedule)
-    const settling = projectReceipt({ loan, schedule: rows, amount: owedOnSchedule, asOf: new Date() })
-    expect(settling).toMatchObject({ settlementDue: owedOnSchedule, isCompleted: true, excessAmount: 0 })
+    const asOf = dueDateInstant(effectiveDate)
+    const quote = currentSettlementAmount({ loan, schedule: rows, asOf })
+    expect(quote).toBe(loan.outstandingPrincipal)
+    expect(quote).toBeLessThan(owedOnSchedule)
+    const settling = projectReceipt({ loan, schedule: rows, amount: quote, asOf })
+    expect(settling).toMatchObject({ settlementDue: quote, isCompleted: true, isEarlyInstalmentSettlement: true, excessAmount: 0 })
   })
 
   it("is a no-op the second time: already_repriced, and every row byte-identical", async () => {

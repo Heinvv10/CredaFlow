@@ -32,6 +32,12 @@ const draft = syntheticDealDocumentData()
 const approved = syntheticDealDocumentData({ legalWordingApproved: true })
 
 describe("deal document renderers", () => {
+  it("prints the surety physical address as the domicilium", async () => {
+    const pdf = await renderSuretyship(draft, "client-surety")
+    const text = normalise((await pageTexts(pdf)).flat().join(" "))
+    expect(text).toContain("3 Test Surety Road")
+    expect(text).toContain("Physical address (domicilium)")
+  })
   it("prints the DRAFT watermark diagonally on every page while the legal wording is not approved", async () => {
     for (const bytes of [
       await renderInstalmentSaleAgreement(draft),

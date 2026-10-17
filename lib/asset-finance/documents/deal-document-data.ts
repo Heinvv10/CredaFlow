@@ -43,10 +43,12 @@ export interface DocumentPerson {
   clientId: string
   name: string
   idNumber: string
+  addressLines?: string[]
 }
 
 export interface DealDocumentData {
   /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark. */
+  isaCpaApplies?: boolean
   legalWordingApproved: boolean
   /** The application's NCA regime is not NON_NCA (unclassified counts as NCA): the suretyship drops terms s90 forbids. */
   ncaApplies: boolean
@@ -123,10 +125,11 @@ export type DocumentDataDb = Pick<
   "assetFinanceDeal" | "entityRelationship" | "tenantConfig" | "referenceRate" | "contractRate" | "vatRate"
 >
 
-const person = (c: { id: string; firstName: string; lastName: string; idNumber: string }): DocumentPerson => ({
+const person = (c: { id: string; firstName: string; lastName: string; idNumber: string; addressLine1?: string | null; city?: string | null; province?: string | null; postalCode?: string | null }): DocumentPerson => ({
   clientId: c.id,
   name: `${c.firstName} ${c.lastName}`,
   idNumber: c.idNumber,
+  addressLines: [c.addressLine1, c.city, c.province, c.postalCode].filter((line): line is string => !!line?.trim()),
 })
 
 /**
@@ -147,6 +150,7 @@ export async function loadDealDocumentData(
       entityId: true,
       contractType: true,
       cpaApplies: true,
+      isaCpaApplies: true,
       cpaRule: true,
       client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } },
       ...DEAL_STRUCTURE_SELECT,
@@ -178,7 +182,7 @@ export async function loadDealDocumentData(
     deal.entityId === null ? [] : db.entityRelationship.findMany({
       where: { tenantId, entityId: deal.entityId },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: { clientId: true, role: true, active: true, client: { select: { id: true, firstName: true, lastName: true, idNumber: true } } },
+      select: { clientId: true, role: true, active: true, client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } } },
     }),
   ])
   const product = deal.application.product
@@ -219,6 +223,7 @@ export async function loadDealDocumentData(
   })
 
   const common = {
+    isaCpaApplies: deal.isaCpaApplies ?? true,
     legalWordingApproved: config?.assetFinanceLegalWordingApproved === true,
     ncaApplies: deal.application.ncaRegime !== "NON_NCA",
     documentDate: deal.decidedAt,

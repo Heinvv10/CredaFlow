@@ -16,6 +16,7 @@ vi.mock("@/lib/asset-finance/non-nca-charges", async (importOriginal) => {
 })
 
 import { syncLoanCharges } from "./charges-sync"
+import { loadChargesReplay } from "./charges-replay"
 
 // Midday SAST so a date never straddles the SAST/UTC day boundary.
 const d = (ymd: string) => new Date(`${ymd}T12:00:00+02:00`)
@@ -72,6 +73,19 @@ function makeTx(loan: ReturnType<typeof makeLoan>) {
   }
 }
 
+it("preserves historical NON_NCA charges and live-era receipt splits after the permanent stop", async () => {
+  const loan = makeLoan("NON_NCA")
+  Object.assign(loan.tenant.config, { defaultChargesEnabled: false, defaultChargesStoppedAt: d("2026-09-20") })
+  const tx = makeTx(loan)
+  tx.loanCharge.findMany.mockResolvedValue([{ type: "DEFAULT_INTEREST", day: d("2026-09-10"), amount: 1000, sourceId: null }] as never)
+  tx.payment.findMany.mockResolvedValue([{ id: "live-era-receipt", amount: 5000, receivedAt: d("2026-09-10"), defaultInterestAllocated: 1000, chargeFeesAllocated: 0 }] as never)
+  // The permanent stop leaves stored charge history and paid splits unchanged.
+  const result = await syncLoanCharges(tx as never, ref, d("2026-09-26"), { source: "test" })
+  expect(result).toMatchObject({ totalPaid: 4000, chargesAccrued: 1000, chargesOutstanding: 0 })
+  expect.soft(tx.loanCharge.deleteMany).not.toHaveBeenCalled()
+  expect.soft(tx.payment.update).not.toHaveBeenCalled()
+})
+
 async function sync(ncaRegime: "NCA" | "NON_NCA") {
   engines.nca.mockClear()
   engines.nonNca.mockClear()
@@ -81,6 +95,27 @@ async function sync(ncaRegime: "NCA" | "NON_NCA") {
   const posted = tx.loanCharge.createMany.mock.calls[0]?.[0].data as Array<{ type: string; day: Date; amount: number }>
   return { result, posted: posted.map((c) => ({ type: c.type, day: c.day.toISOString().slice(0, 10), amount: c.amount })) }
 }
+
+it("does not resurrect contractual interest blocked before the permanent stop", async () => {
+  const loan = makeLoan("NON_NCA")
+  Object.assign(loan, { startDate: d("2019-01-01"), principal: 10000, interestRatePm: 1,
+    maturityDate: d("2021-01-01"), nonNcaDefaultInterestMargin: new Prisma.Decimal(0), nonNcaCollectionFeeCents: null })
+  Object.assign(loan.tenant.config, { defaultChargesStartedAt: d("2019-01-01") })
+  loan.repaymentSchedule = ["2020-01-01", "2021-01-01"].map((date, i) => ({ id: `row-${i}`, dueDate: d(date), principalDue: 5000, interestDue: 1000, feesDue: 0, creditLifePremiumDue: 0, totalDue: 6000, totalPaid: 0, status: "PENDING", paidAt: null }))
+  const tx = makeTx(loan)
+  const before = await loadChargesReplay(tx as never, ref, d("2022-01-01"))
+  const lawful = before!.result.lawfulSchedule!
+  expect(lawful[1].interestDue).toBeLessThan(1000)
+  loan.repaymentSchedule.forEach((row, i) => Object.assign(row, { interestDue: lawful[i].interestDue, totalDue: lawful[i].totalDue, commonLawContractualInterestDue: lawful[i].contractualInterestDue }))
+  tx.loanCharge.findMany.mockResolvedValue(before!.result.postings.map((row) => ({ ...row, day: d(row.day), sourceId: null })) as never)
+  Object.assign(loan.tenant.config, { defaultChargesEnabled: false, defaultChargesStoppedAt: d("2022-01-01") })
+  const after = await loadChargesReplay(tx as never, ref, d("2022-01-02"))
+  expect(after!.result.lawfulSchedule![1].interestDue).toBe(lawful[1].interestDue)
+  expect(after!.result.interestOutstanding).toBe(0)
+  const later = await loadChargesReplay(tx as never, ref, d("2030-01-01"))
+  expect(later!.result.lawfulSchedule).toEqual(after!.result.lawfulSchedule)
+  expect(later!.result.postings).toEqual(after!.result.postings)
+})
 
 describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
   it("an NCA loan runs the NCA engine: default interest at the monthly rate and the s129 letter charge", async () => {
@@ -167,8 +202,8 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     loan.tenant.config.defaultChargesEnabled = false
     const tx = makeTx(loan)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })).toBeNull()
+    expect(await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })).toMatchObject({ chargesAccrued: 0, chargesOutstanding: 0 })
     expect(tx.loanCharge.createMany).not.toHaveBeenCalled()
-    expect(tx.loan.update).not.toHaveBeenCalled()
+    // Contractual interest remains subject to common-law replay while optional charges are off.
   })
 })

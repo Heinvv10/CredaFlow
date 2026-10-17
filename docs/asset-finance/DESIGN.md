@@ -511,3 +511,20 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   lender until the list "Code changes required before approval" in
   [`legal-wording/README.md`](legal-wording/README.md) is empty: the drafted
   wording states the law where the code does not yet do what it says.
+
+- **Changed 2026-10-17 to comply with the Conventional Penalties Act:** a
+  NON_NCA instalment sale settlement excludes future interest; settling
+  receipts reprice the schedule and preserve contractual rows as audit evidence.
+- **Changed 2026-10-17 to comply with common-law in duplum:** unpaid default
+  plus due contractual interest is capped at unpaid capital, including when
+  another contractual-interest instalment falls due; collection fees remain
+  outside this common-law interest-only ceiling.
+- **Changed 2026-10-17 to comply with GLAA s6, ECTA s13(1), MPA s15(2)(h)
+  and s15(5):** suretyships require wet ink; the database refuses payout while
+  any surety's marital regime is unknown or an in-community surety lacks a
+  staff-verified consent scan identifying the spouse and two distinct witnesses.
+- **Changed 2026-10-17 to comply with CPA scope and s49:** instalment sales
+  snapshot the purchaser's evidenced CPA classification separately from lease
+  scope; the CPA agreement preserves statutory goods remedies and prominently
+  draws attention to risk and indemnity. The surety's existing client physical
+  address is included in the deed and its domicilium clause.

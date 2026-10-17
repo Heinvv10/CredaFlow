@@ -1,8 +1,8 @@
 /**
  * Execution of the asset-finance demo deal, through the lib functions the
  * signing, payout and booking routes call: documents prepared; the director
- * e-signs the agreement, the resolution and their own suretyship; the
- * separate surety's suretyship is signed in wet ink (scan uploaded by the
+ * e-signs the agreement and resolution; every suretyship is signed in wet
+ * ink (scan uploaded by the
  * officer, confirmed by the first loan admin); contracted; every payout
  * checklist item confirmed with a staff evidence document; the payout created
  * by one loan admin and approved by the other; booked on `bookingDate` (today,
@@ -15,6 +15,7 @@ import type { PayoutChecklistItemKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { applyManualReceipt } from "@/lib/loan/apply-payment"
 import { prepareDealDocuments } from "@/lib/asset-finance/signing-prepare"
+import { recordSuretyConsent } from "@/lib/asset-finance/surety-consent"
 import { recordESignature } from "@/lib/asset-finance/signing-esign"
 import { confirmWetInkScan, uploadWetInkScan } from "@/lib/asset-finance/signing-wet-ink"
 import { SIGNED_DOC_TYPE } from "@/lib/asset-finance/signing"
@@ -41,7 +42,11 @@ export async function signAndContract(tenantId: string, staff: SeedStaff, dealId
   })
   for (const row of rows) {
     const name = `${row.client.firstName} ${row.client.lastName}`
-    if (row.clientId === directorId) {
+    if (row.document === "SURETYSHIP" && !(await prisma.suretyConsent.findFirst({ where: { tenantId, signerId: row.id } }))) {
+      const recorded = await recordSuretyConsent(officer, dealId, row.id, { maritalRegime: "UNMARRIED", spouseName: null, witnessOne: null, witnessTwo: null, evidenceDocumentId: null })
+      if (!("recorded" in recorded)) throw new Error(`Seed: synthetic surety regime refused (${JSON.stringify(recorded)})`)
+    }
+    if (row.clientId === directorId && row.document !== "SURETYSHIP") {
       if (row.method !== null || !row.documentSha256) continue
       const signed = await recordESignature({
         tenantId, clientId: row.clientId, clientEmail: row.client.email, signerId: row.id,

@@ -217,3 +217,8 @@ describe("the certificate's settlement block", () => {
   })
 })
 
+it("keeps stopped historical fee postings visible without presenting forgiven fees as collectible", () => {
+  const summary = summariseCharges(result({ postings: [{ type: "COLLECTION_FEE", day: "2026-01-01", amount: 25000 }], feesAccrued: 25000, feesPaid: 1000, feesOutstanding: 0 }))
+  expect(summary.buckets.COLLECTION_FEE).toEqual({ accrued: 25000, paid: 1000, outstanding: 0 })
+  expect(chargeBreakdownLines(summary)).toEqual([])
+})

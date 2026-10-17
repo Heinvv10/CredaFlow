@@ -105,7 +105,7 @@ export async function createDeal(
     return refused(422, `The term of ${solved.termDays} days is outside the product's ${product.minTermDays}–${product.maxTermDays}`)
   }
 
-  const cpa = lease ? await leaseCpaScope(tx, tenantId, { clientId: client?.id ?? null, entityId: entity?.id ?? null }) : null
+  const cpa = (lease || input.contractType === "INSTALMENT_SALE") ? await leaseCpaScope(tx, tenantId, { clientId: client?.id ?? null, entityId: entity?.id ?? null }) : null
   if (lease && !cpa) return refused(422, "The lessee is not on this lender's book")
   const { terms } = input
   const application = await tx.loanApplication.create({
@@ -152,6 +152,7 @@ export async function createDeal(
       fixedRate: terms.rate.fixedRate,
       baseInstalmentCents: solved.result.baseInstalmentCents,
       ...(lease && cpa ? { ...leaseDealColumns(lease), ...cpaColumns(cpa) } : {}),
+      ...(input.contractType === "INSTALMENT_SALE" && cpa ? { isaCpaApplies: cpa.applies, isaCpaRule: cpa.rule } : {}),
       createdById: params.userId,
     },
     select: { id: true },

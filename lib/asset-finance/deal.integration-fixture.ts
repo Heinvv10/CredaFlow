@@ -137,6 +137,7 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
   await Promise.all(surrenders.flatMap((row) => [row.valuationNoticePath, row.finalNoticePath].filter((path): path is string => !!path).map((path) => unlink(path).catch(() => undefined))))
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+    db.commercialCancellation.deleteMany({ where: { tenantId } }),
     db.documentAccessLog.deleteMany({ where: { documentId: { in: [...documentIds, ...invoices.map((invoice) => invoice.id)] } } }),
     db.documentAccessLog.deleteMany({ where: { documentId: { in: surrenders.flatMap((row) => [`${row.id}:valuation`, `${row.id}:final`]) } } }),
     db.taxInvoiceLine.deleteMany({ where: { invoice: { tenantId } } }),

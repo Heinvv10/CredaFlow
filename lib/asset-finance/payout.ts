@@ -9,6 +9,7 @@
  * and the Payout CHECKs (migration 20261013113000) refuse every one of these
  * rules in the database too. Booking (./booking.ts) releases it.
  */
+import { consentTimingProblem } from "./surety-consent"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
@@ -47,6 +48,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
         select: {
           contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
           asset: { select: { cashPriceExclVatCents: true, vatCents: true, registrationNumber: true } },
+          signers: { where: { document: "SURETYSHIP" }, select: { client: { select: { firstName: true, lastName: true } }, suretyConsent: { select: { maritalRegime: true, evidenceDocumentId: true, suretySignedOn: true, consentSignedOn: true, consentBeforeSurety: true } } } },
           checklist: { select: { item: true, confirmedAt: true } },
           payout: { select: { id: true } },
         },
@@ -54,6 +56,8 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       if (deal.payout) return { kind: "exists" }
       const credit = await dealCreditGate(tx, tenantId, dealId)
       if (credit.problem) return { kind: "credit_gate", reason: credit.problem.kind, message: credit.problem.message }
+      const missingConsent = (deal.signers ?? []).filter((s) => !s.suretyConsent || s.suretyConsent.maritalRegime === "UNKNOWN" || (s.suretyConsent.maritalRegime === "IN_COMMUNITY" && (!s.suretyConsent.evidenceDocumentId || !s.suretyConsent.suretySignedOn || consentTimingProblem(s.suretyConsent.consentSignedOn?.toISOString().slice(0, 10) ?? null, s.suretyConsent.consentBeforeSurety, s.suretyConsent.suretySignedOn) !== null)))
+      if (missingConsent.length) return { kind: "checklist_open", open: missingConsent.map((s) => `Surety ${s.client.firstName} ${s.client.lastName}: confirm marital regime and witnessed spouse consent before payout`) }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))
       const open = requiredChecklistKinds(deal.contractType, deal.asset).filter((kind) => !confirmed.has(kind))
       if (open.length > 0) return { kind: "checklist_open", open: open.map((kind) => checklistLabel(kind, deal.contractType)) }

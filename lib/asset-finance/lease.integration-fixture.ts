@@ -119,6 +119,15 @@ export async function signLease(fx: LeaseFixture, db: PrismaClient, setSession: 
   const prepared = await routes.prepare(dealId, plannedStartDate ? { plannedStartDate } : undefined)
   expect(prepared.status, await prepared.clone().text()).toBe(200)
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
+    if (row.document === "SURETYSHIP") {
+      setSession({ id: fx.officer, email: "officer@lease-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
+      expect((await routes.wetInk(dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
+      const scan = await db.dealSigner.findUniqueOrThrow({ where: { id: row.id } })
+      setSession({ id: fx.adminA, email: "admin@lease-it.test", role: "LOAN_ADMIN", tenantId: fx.tenantId })
+      expect((await routes.confirm(dealId, row.id, scan.scanDocumentId!)).status).toBe(200)
+      await db.suretyConsent.create({ data: { tenantId: fx.tenantId, signerId: row.id, maritalRegime: "UNMARRIED", verifiedById: fx.adminA } })
+      continue
+    }
     setSession({ id: row.clientId, email: `${row.clientId}@lease-it.test`, role: "CLIENT", tenantId: fx.tenantId })
     // The lender requires a signing code by default (lib/signing-otp): a lease
     // document e-signed without one is refused and stays unsigned. Proved once
@@ -189,6 +198,7 @@ export async function cleanupLeaseRows(db: PrismaClient, tenantId: string): Prom
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.leaseRental.deleteMany({ where: { tenantId } }),
+    db.suretyConsent.deleteMany({ where: { tenantId } }),
     db.dealSigner.deleteMany({ where: { tenantId } }),
     db.entityDocument.deleteMany({ where: { tenantId } }),
   ])

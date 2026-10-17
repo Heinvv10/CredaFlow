@@ -19,7 +19,7 @@ import { dbDate } from "./dates"
 import { attempt } from "./lease-servicing.integration-fixture"
 import { advance, saleData } from "./recovery-path.integration-fixture"
 import {
-  cleanupRecoveryFixture, createRecoveryFixture, newLoan, newRecovery, newValuation, recoveryFixtureTenantId, saleInvoice, today, type RecoveryFixture, type RecoveryLoan,
+  recordFixtureCommercialCancellation, cleanupRecoveryFixture, createRecoveryFixture, newLoan, newRecovery, newValuation, recoveryFixtureTenantId, saleInvoice, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { clauseOff, raiseOff, rules, takeOut, type Tx } from "./recovery-rules.integration-fixture"
 
@@ -51,6 +51,7 @@ async function listed(officerValuations: number[], reliesOnOfficers = false): Pr
     const officers = await newValuation(database(), fx, loan.assetId, amount, "ASSESSOR", today(), fx.officer)
     if (reliesOnOfficers) reliedOn = officers
   }
+  await recordFixtureCommercialCancellation(database(), fx, loan.loanId)
   return { loan, id, reliedOn }
 }
 const saleIn = async (tx: Tx, r: Rec, over: Record<string, unknown> = {}) =>
