@@ -62,3 +62,11 @@ ALTER TABLE "StatementAiOutput" ADD CONSTRAINT "StatementAiOutput_tenantId_asked
 
 -- AddForeignKey
 ALTER TABLE "StatementAiUsage" ADD CONSTRAINT "StatementAiUsage_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Row-level security, as for every tenant table (20261014130000_tenant_rls).
+ALTER TABLE "StatementAiOutput" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StatementAiOutput" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "StatementAiOutput" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+ALTER TABLE "StatementAiUsage" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "StatementAiUsage" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "StatementAiUsage" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
