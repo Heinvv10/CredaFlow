@@ -13,6 +13,7 @@ export async function recordSurplusAccount(actor: RecoveryActor, loanId: string,
   const stored = await saveFile(bytes, input.upload.file.type)
   try {
     const result = await refusable(() => prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Loan" WHERE "id"=${loanId} AND "tenantId"=${actor.tenantId} FOR UPDATE`
       const loan = await tx.loan.findFirst({ where: { id: loanId, tenantId: actor.tenantId, ncaRegime: "NCA", contractType: { not: "LOAN" } } })
       if (!loan) return { kind: "not_found" as const }
       const determination = await tx.ncaSurplusDetermination.findFirst({ where: { tenantId: actor.tenantId, loanId } })
@@ -33,6 +34,7 @@ export async function recordSurplusAccount(actor: RecoveryActor, loanId: string,
 
 export async function approveSurplusAccount(actor: RecoveryActor, loanId: string, action: "approve" | "authorise") {
   return refusable(() => prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Loan" WHERE "id"=${loanId} AND "tenantId"=${actor.tenantId} FOR UPDATE`
     const row = await tx.ncaSurplusAccount.findFirst({ where: { tenantId: actor.tenantId, loanId } })
     if (!row) return { kind: "not_found" as const }
     if (row.createdById === actor.userId || (action === "authorise" && row.approvedById === actor.userId)) throw new RecoveryRefusal("Verification and release need staff other than the account preparer and each other")

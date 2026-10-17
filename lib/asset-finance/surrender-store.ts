@@ -112,7 +112,7 @@ async function issueSurrenderNoticeChecked(actor: Actor, id: string, kind: "valu
         : { status: "FINAL_NOTICE_ISSUED", finalNoticePath: stored.storagePath, finalNoticeSha256: sha256 } })
       await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
         action: kind === "valuation" ? AuditAction.ASSET_SURRENDER_VALUATION_NOTICE_ISSUED : AuditAction.ASSET_SURRENDER_FINAL_NOTICE_ISSUED,
-        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, draftLegalWording: !data.legalWordingApproved },
+        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, surplusDisposition: data.surplusDisposition, draftLegalWording: !data.legalWordingApproved },
       }, tx)
       if (kind === "final" && (request.refundCents ?? 0) > 0) await tx.$executeRaw`SET CONSTRAINTS ALL IMMEDIATE`
     })

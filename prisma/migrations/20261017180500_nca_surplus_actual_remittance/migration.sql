@@ -83,13 +83,15 @@ CREATE OR REPLACE FUNCTION public."requireNcaFinalNoticeRemittance"() RETURNS tr
 DECLARE surplus INTEGER; covered BOOLEAN;
 BEGIN
  IF NEW."status"::TEXT <> 'FINAL_NOTICE_ISSUED' OR OLD."status"::TEXT='FINAL_NOTICE_ISSUED' THEN RETURN NULL; END IF;
+ PERFORM 1 FROM "Loan" WHERE "id"=NEW."loanId" AND "tenantId"=NEW."tenantId" FOR UPDATE;
+ PERFORM 1 FROM "NcaSurplusAccount" WHERE "loanId"=NEW."loanId" AND "tenantId"=NEW."tenantId" FOR SHARE;
  IF TG_TABLE_NAME='SurrenderRequest' THEN
   surplus:=NEW."refundCents";
-  SELECT EXISTS(SELECT 1 FROM "NcaSurplusRemittance" r WHERE r."surrenderId"=NEW."id" AND r."tenantId"=NEW."tenantId" AND r."amountCents"=surplus AND (r."executedOn" IS NOT NULL OR r."status"='HELD_NO_VERIFIED_ACCOUNT')) INTO covered;
+  SELECT EXISTS(SELECT 1 FROM "NcaSurplusRemittance" r WHERE r."surrenderId"=NEW."id" AND r."tenantId"=NEW."tenantId" AND r."amountCents"=surplus AND (r."executedOn" IS NOT NULL OR (r."status"='HELD_NO_VERIFIED_ACCOUNT' AND EXISTS (SELECT 1 FROM "NcaSurplusDetermination" d WHERE d."tenantId"=NEW."tenantId" AND d."loanId"=NEW."loanId" AND NOT d."competingAgreement") AND NOT EXISTS (SELECT 1 FROM "NcaSurplusAccount" a WHERE a."tenantId"=NEW."tenantId" AND a."loanId"=NEW."loanId" AND a."recipient"='CONSUMER' AND a."approvedById" IS NOT NULL)))) INTO covered;
  ELSE
   IF NEW."route"<>'NCA_S131_ATTACHMENT' THEN RETURN NULL; END IF;
   surplus:=NEW."surplusCents";
-  SELECT EXISTS(SELECT 1 FROM "NcaSurplusRemittance" r WHERE r."recoveryId"=NEW."id" AND r."tenantId"=NEW."tenantId" AND r."amountCents"=surplus AND (r."executedOn" IS NOT NULL OR r."status"='HELD_NO_VERIFIED_ACCOUNT')) INTO covered;
+  SELECT EXISTS(SELECT 1 FROM "NcaSurplusRemittance" r WHERE r."recoveryId"=NEW."id" AND r."tenantId"=NEW."tenantId" AND r."amountCents"=surplus AND (r."executedOn" IS NOT NULL OR (r."status"='HELD_NO_VERIFIED_ACCOUNT' AND EXISTS (SELECT 1 FROM "NcaSurplusDetermination" d WHERE d."tenantId"=NEW."tenantId" AND d."loanId"=NEW."loanId" AND NOT d."competingAgreement") AND NOT EXISTS (SELECT 1 FROM "NcaSurplusAccount" a WHERE a."tenantId"=NEW."tenantId" AND a."loanId"=NEW."loanId" AND a."recipient"='CONSUMER' AND a."approvedById" IS NOT NULL)))) INTO covered;
  END IF;
  IF surplus>0 AND NOT covered THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='NCA final notice and surplus require actual executed remittance or an explicit unverified-consumer-account exception'; END IF;
  RETURN NULL;

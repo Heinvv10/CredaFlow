@@ -47,16 +47,19 @@ identify the outstanding payable. All lender legal approval flags remain off.
   Recovery guard is disabled.
 - Earlier complete targeted regression: 92/92 across 11 suites. Broad recovery
   run identified only legacy-refund fixture conflicts; all six affected suites
-  subsequently passed, 50/50. Final broad rerun is recorded separately below
-  when it completes. This is not the complete integration gate.
+  subsequently passed, 50/50. Final broad rerun passed: 471 tests, 3 expected skips, 56 passed suites and
+  1 skipped suite (57 total), `/tmp/cf-nca-remit-all-recovery-final.log`. This is
+  not the complete integration gate.
 - Final source units: `/tmp/cf-nca-remit-units-final.log`, 78/78 across 13 suites.
   Types, lint, docs-path and generated AGENTS checks pass. Read-only Prisma
   introspection reports `No difference detected`.
 
-Only the PR-new `public.guardNcaSurplusRemittance` was refined on the already
+Only PR-new functions were refined on the already
 owned disposable PostgreSQL database after the root gate was identified.
-`applied-pr-new-remittance-guard.sql` is the exact applied function SQL;
-`/tmp/cf-nca-remit-guard-catalog.sql` records its catalog definition. No baseline
+`applied-pr-new-remittance-guard.sql` and
+`applied-pr-new-account-final-guards.sql` are the exact applied function SQL;
+`/tmp/cf-nca-remit-guard-catalog.sql` and
+`/tmp/cf-nca-remit-boundaries-catalog.sql` record their catalog definitions. No baseline
 function replacement or migration deploy was run after the root gate hold.
 The final complete migration-chain rebuild remains pending approval of the
 baseline-function gate. No shared database was modified.
@@ -113,3 +116,37 @@ untouched. Older instruction-first artifacts are retained under
 - Any fixes from those reviews, and final PR175 exact-head/queue handling by root.
 
 PR175 remains draft. This worker did not push, ready, queue or merge it.
+
+## Final raw-boundary follow-up
+
+Parent review identified two further boundaries: a prepared held record followed
+by account verification must not retain an inaccurate missing-account exception
+at first finalisation, and raw bank-account creation must not accept deleted or
+concurrently deleted proof. Three tests failed first in
+`/tmp/cf-nca-remit-boundaries-red.log`. Final canonical PG and history suites pass
+32/32 in `/tmp/cf-nca-remit-boundaries-green.log`. Final unit/portal/PDF/history
+checks pass 80/80 across 14 suites in
+`/tmp/cf-nca-remit-boundaries-units.log`; final types pass and lint has no
+errors (one unrelated pre-existing dashboard unused-import warning remains).
+
+- PR-new `guardNcaSurplusAccount` now locks loan then proof and validates live,
+  positive-size, hash-bound borrower bank evidence on creation and approval.
+  Real lock-based raw account/preexisting bank-proof deletion race is covered.
+- PR-new `requireNcaFinalNoticeRemittance` locks loan/account and accepts the
+  held bypass only for an evidenced NO competing-agreement determination and
+  genuinely unverified consumer destination. Source checks the same state.
+- Prepared-held → verified account → first finalisation is refused while payment
+  is outstanding; authorisation/release and actual payment before the first
+  ordinary notice remain possible. Preparation history is retained, but only an
+  actually issued held statement is described as an original issued exception.
+  New notice audits record disposition; earlier PR-only audits have a conservative
+  release/statement chronology fallback.
+- The browser's UI payload remains the same as the 43-event final run. This
+  follow-up changes server/DB boundaries and truthful history description;
+  targeted real PG/history proofs cover it. Fresh full CI and delta reviews
+  remain pending, including a clean migration rebuild after root gate approval.
+
+No source rebase/merge/push occurred. The owned browser app was stopped. The
+owned existing database is retained temporarily for root's review handoff;
+`/tmp/cf-nca-remit-db.env` identifies it. There are zero true legal wording
+approval flags in that disposable database.

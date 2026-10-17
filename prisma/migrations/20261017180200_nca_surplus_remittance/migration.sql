@@ -87,10 +87,12 @@ CREATE OR REPLACE FUNCTION public."guardNcaSurplusAccount"() RETURNS trigger LAN
 DECLARE borrower RECORD;
 BEGIN
  IF TG_OP IN ('DELETE','TRUNCATE') THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Surplus bank verification is retained'; END IF;
- SELECT "clientId","entityId" INTO borrower FROM "Loan" WHERE "id"=NEW."loanId" AND "tenantId"=NEW."tenantId" AND "ncaRegime"='NCA' AND "contractType"<>'LOAN';
+ SELECT "clientId","entityId" INTO borrower FROM "Loan" WHERE "id"=NEW."loanId" AND "tenantId"=NEW."tenantId" AND "ncaRegime"='NCA' AND "contractType"<>'LOAN' FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Surplus account needs the NCA borrower bank evidence'; END IF;
+ PERFORM 1 FROM "EntityDocument" d WHERE d."id"=NEW."evidenceDocumentId" AND d."tenantId"=NEW."tenantId" FOR UPDATE;
  IF NOT FOUND OR NOT EXISTS (SELECT 1 FROM "EntityDocument" d WHERE d."id"=NEW."evidenceDocumentId" AND d."tenantId"=NEW."tenantId"
    AND (d."clientId",d."entityId") IS NOT DISTINCT FROM (borrower."clientId",borrower."entityId")
-   AND d."docType" IN ('BANK_STATEMENT','OTHER') AND d."contentSha256" IS NOT NULL AND d."uploadedByType"='staff') THEN
+   AND d."deletedAt" IS NULL AND d."fileSize">0 AND d."docType" IN ('BANK_STATEMENT','OTHER') AND d."contentSha256" ~ '^[0-9a-f]{64}$' AND d."uploadedByType"='staff') THEN
   RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Surplus account needs the NCA borrower bank evidence';
  END IF;
  IF TG_OP='INSERT' THEN

@@ -1,3 +1,4 @@
+import { issuedHeldSurplusException } from "@/lib/asset-finance/nca-surplus-exception-history"
 import { NextRequest, NextResponse } from "next/server"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
@@ -21,7 +22,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ loan
     const writer = await DealDocumentWriter.create({ title: `Surplus remittance confirmation ${row.id}`, documentDate: row.executionRecordedAt! })
     writer.title("SUPPLEMENTAL SURPLUS REMITTANCE CONFIRMATION", [])
     writer.labelValues([["Instruction", row.id], ["Amount remitted", formatZarPdf(row.amountCents)], ["Executed on", formatDatePdf(row.executedOn)], ["Recipient", row.account.recipient === "TRIBUNAL" ? "National Consumer Tribunal" : "Consumer"], ["Bank reference", row.bankExecutionReference!]])
-    writer.paragraph(row.exceptionReason ? `The original account statement recorded this exception: ${row.exceptionReason}. That statement is retained unchanged. The surplus payable was outstanding until the actual remittance evidenced above.` : "Actual surplus remittance is evidenced above. The original final account notice is retained unchanged.")
+    const notice = await prisma.auditLog.findFirst({ where: { tenantId: tenant.id, entity: row.surrenderId ? "SurrenderRequest" : "Recovery", entityId: row.surrenderId ?? row.recoveryId!, action: row.surrenderId ? "ASSET_SURRENDER_FINAL_NOTICE_ISSUED" : "ASSET_RECOVERY_FINAL_NOTICE_ISSUED" }, orderBy: { createdAt: "asc" }, select: { createdAt: true, newValue: true } })
+    writer.paragraph(issuedHeldSurplusException(row, notice) ? `The original account statement recorded this exception: ${row.exceptionReason}. That statement is retained unchanged. The surplus payable was outstanding until the actual remittance evidenced above.` : "Actual surplus remittance is evidenced above. The original final account notice is retained unchanged.")
     writer.paragraph(row.account.recipient === "TRIBUNAL" ? "The credit provider has provided the post-sale account statement and remitted the surplus to the National Consumer Tribunal under section 127(6)(a), for distribution as it directs. This confirmation does not assert consumer-remittance termination under section 127(6)(b). It records an external bank payment and does not initiate a transfer." : "The credit provider has provided the post-sale account statement and remitted the surplus under section 127(6). The agreement has terminated under section 127(6)(b), subject to any correction ordered by the National Consumer Tribunal. This confirmation records an external bank payment; it does not initiate a transfer.")
     const bytes = await writer.finish({ reference: row.id, watermark: !await legalWordingApproved(prisma, tenant.id) })
     return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": "application/pdf", "Cache-Control": "no-store" } })

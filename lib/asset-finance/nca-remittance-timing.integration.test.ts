@@ -93,4 +93,26 @@ let fx: RecoveryFixture
   expect(await d().payment.count({where:{loanId:loan.loanId}})).toBe(0)
  })
 
+ it("a prepared held instruction cannot bypass a now-verified account, but can release/pay before first finalisation",async()=>{
+  const loan=await newLoan(d(),fx,"NCA"),surrenderId=await newSurrender(d(),fx,loan)
+  await determineSurplusRecipient(fx,loan.loanId)
+  await testSetup(d(),[`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`,loan.loanId],[`UPDATE "SurrenderRequest" SET "status"='PROCEEDS_CREDITED',"refundCents"=12345,"shortfallCents"=0 WHERE "id"=$1`,surrenderId])
+  const actor={tenantId:fx.tenantId,userId:fx.officer},input={loanId:loan.loanId,surrenderId,amountCents:12345}
+  const row=await d().$transaction(tx=>issueNcaSurplusRemittance(tx as never,actor,input))
+  await recordSurplusAccount(actor,loan.loanId,{bank:{accountHolder:"TEST Consumer",bankName:"TEST Bank",branchCode:"000000",accountNumber:"0000000001",accountType:null},upload:{file:new File(["%PDF-1.4 TEST bank proof"],"bank.pdf",{type:"application/pdf"}),docType:"BANK_STATEMENT",dealId:null}})
+  await approveSurplusAccount({...actor,userId:fx.adminA},loan.loanId,"approve")
+  await expect(d().$transaction(tx=>issueNcaSurplusRemittance(tx as never,actor,input,true))).rejects.toThrow(/verified|actual|execution/i)
+  await rules(d).refuses({table:"SurrenderRequest",trigger:"SurrenderRequest_final_remittance"},/verified|actual|executed/i,async tx=>{
+    await tx.$executeRawUnsafe('ALTER TABLE "SurrenderRequest" DISABLE TRIGGER "SurrenderRequest_guard"')
+    await tx.$executeRawUnsafe('ALTER TABLE "SurrenderRequest" DISABLE TRIGGER "SurrenderRequest_sale_window"')
+    await tx.surrenderRequest.update({where:{id:surrenderId},data:{status:"FINAL_NOTICE_ISSUED",finalNoticePath:"/synthetic/final.pdf",finalNoticeSha256:"a".repeat(64)}})
+    await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+  })
+  expect(await approveSurplusAccount({...actor,userId:fx.adminB},loan.loanId,"authorise")).toMatchObject({kind:"done"})
+  const released=await d().ncaSurplusRemittance.findUniqueOrThrow({where:{id:row!.id}})
+  expect(released.exceptionReason).toBe(row!.exceptionReason)
+  expect(await recordSurplusExecution(actor,loan.loanId,row!.id,{executedOn:day(0),bankReference:`TEST-PREPARED-HELD-${randomUUID()}`,amountCents:12345,destinationAccountId:released.accountId!,destinationConfirmed:true,upload:{file:new File(["%PDF-1.4 TEST actual execution"],"execution.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}})).toMatchObject({kind:"done"})
+  expect(await d().$transaction(tx=>issueNcaSurplusRemittance(tx as never,actor,input,true))).toMatchObject({id:row!.id})
+ })
+
 })

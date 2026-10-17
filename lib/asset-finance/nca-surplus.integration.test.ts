@@ -262,4 +262,23 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   expect((await database().ncaSurplusRemittance.findUniqueOrThrow({where:{id:row.id}})).executedOn).toBeNull()
  })
 
+ it("refuses raw surplus account creation from already deleted bank proof",async()=>{
+  const input=await outcome(),loan=await database().loan.findUniqueOrThrow({where:{id:input.loanId}})
+  const proof=await database().entityDocument.create({data:{tenantId:fx.tenantId,clientId:loan.clientId,entityId:loan.entityId,docType:"BANK_STATEMENT",fileName:"TEST-bank.pdf",mimeType:"application/pdf",fileSize:123,storagePath:"/synthetic/bank.pdf",contentSha256:"c".repeat(64),uploadedByType:"staff",uploadedById:fx.officer,deletedAt:new Date()}})
+  await expect(database().ncaSurplusAccount.create({data:{tenantId:fx.tenantId,loanId:input.loanId,accountHolder:"TEST Consumer",bankName:"TEST Bank",branchCode:"000000",accountNumber:"0000000001",evidenceDocumentId:proof.id,createdById:fx.officer}})).rejects.toThrow(/live|bank evidence/)
+ })
+ it("serializes raw account preparation with concurrent bank-proof deletion",async()=>{
+  const input=await outcome(),loan=await database().loan.findUniqueOrThrow({where:{id:input.loanId}})
+  const proof=await database().entityDocument.create({data:{tenantId:fx.tenantId,clientId:loan.clientId,entityId:loan.entityId,docType:"BANK_STATEMENT",fileName:"TEST-bank.pdf",mimeType:"application/pdf",fileSize:123,storagePath:"/synthetic/bank.pdf",contentSha256:"c".repeat(64),uploadedByType:"staff",uploadedById:fx.officer}})
+  let unlock!:()=>void,started!:()=>void,pid=0
+  const proceed=new Promise<void>(resolve=>{unlock=resolve}),ready=new Promise<void>(resolve=>{started=resolve})
+  const deletion=database().$transaction(async tx=>{const [p]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`;pid=p.pid;await tx.entityDocument.update({where:{id:proof.id},data:{deletedAt:new Date()}});started();await proceed},{timeout:15000})
+  await ready
+  let finished=false
+  const creation=database().ncaSurplusAccount.create({data:{tenantId:fx.tenantId,loanId:input.loanId,accountHolder:"TEST Consumer",bankName:"TEST Bank",branchCode:"000000",accountNumber:"0000000001",evidenceDocumentId:proof.id,createdById:fx.officer}}).then(()=>"accepted",()=>"refused").finally(()=>{finished=true})
+  try {let blocked=false;const limit=Date.now()+3000;while(!finished&&Date.now()<limit){const [s]=await database().$queryRaw<{blocked:boolean}[]>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE ${pid}=ANY(pg_blocking_pids(pid))) AS blocked`;if(s.blocked){blocked=true;break}await new Promise(resolve=>setTimeout(resolve,10))}expect(blocked).toBe(true)}finally{unlock();await deletion}
+  expect(await creation).toBe("refused")
+  expect(await database().ncaSurplusAccount.count({where:{loanId:input.loanId}})).toBe(0)
+ })
+
 })
