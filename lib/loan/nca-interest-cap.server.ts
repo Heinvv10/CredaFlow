@@ -132,12 +132,25 @@ export async function approvalInterestCapRefusal(
   application: CapApplication,
   on: Date = new Date(),
 ): Promise<NextResponse | null> {
-  if (application.ncaRegime === "NON_NCA") return null
-  const creditType = ncaCreditType(application.appliedAmount, application.appliedTermDays)
-  const { interestRatePm, interestModel } = application.product
-  let result = await checkNcaInterestRateFor(db, tenantId, { creditType, interestRatePm, interestModel }, on)
-  if (result.ok) result = await checkRepeatShortTermFor(db, tenantId, application, on)
+  const result = await approvalInterestCapCheck(db, tenantId, application, on)
   return result.ok
     ? null
     : NextResponse.json({ error: `Approval blocked: ${result.message}`, interestRateCap: result.reason, requiresOverride: false }, { status: 422 })
+}
+
+/**
+ * The verdict behind approvalInterestCapRefusal, for a surface that shows it
+ * before anyone clicks Approve (the application page's blocker list).
+ */
+export async function approvalInterestCapCheck(
+  db: ApprovalDb,
+  tenantId: string,
+  application: CapApplication,
+  on: Date = new Date(),
+): Promise<InterestRateCapResult> {
+  if (application.ncaRegime === "NON_NCA") return { ok: true }
+  const creditType = ncaCreditType(application.appliedAmount, application.appliedTermDays)
+  const { interestRatePm, interestModel } = application.product
+  const result = await checkNcaInterestRateFor(db, tenantId, { creditType, interestRatePm, interestModel }, on)
+  return result.ok ? checkRepeatShortTermFor(db, tenantId, application, on) : result
 }

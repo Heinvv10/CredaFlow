@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { canonicalBankName } from "@/lib/banks"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 type BankDetails = {
@@ -47,6 +48,14 @@ const BANKS = [
   "Other",
 ]
 
+// The client record may hold any spelling ("NEDBANK", "Capitec Bank Limited");
+// pre-select the option that names the same bank, or leave the picker unset.
+export function bankOption(stored: string): string {
+  if (!stored.trim()) return ""
+  const key = canonicalBankName(stored)
+  return BANKS.find((name) => name !== "Other" && canonicalBankName(name) === key) ?? ""
+}
+
 const fieldClass =
   "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-[#4F46E5]"
 
@@ -64,7 +73,7 @@ export function PortalDebitMandateClient({
   // Remounts the OTP step after a signing refusal that spent or voided the code.
   const [otpAttempt, setOtpAttempt] = useState(0)
   const otpSatisfied = !signingOtp.required || otpChallengeId !== null
-  const [bank, setBank] = useState(initialBankDetails)
+  const [bank, setBank] = useState({ ...initialBankDetails, bankName: bankOption(initialBankDetails.bankName) })
   const [draftSha256, setDraftSha256] = useState(initialDraftSha256)
   const [signed, setSigned] = useState(initiallySigned)
   const [preparing, setPreparing] = useState(false)

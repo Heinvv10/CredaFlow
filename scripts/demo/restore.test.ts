@@ -89,7 +89,8 @@ beforeEach(() => {
   stub('docker-compose', '#!/bin/sh\necho "docker-compose $*" >> "$STUB_LOG"\nexit 0\n')
   stub('sleep', '#!/bin/sh\nexit 0\n')
   stub('seq', '#!/bin/sh\necho 1\n')
-  stub('curl', '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\n[ -z "$STUB_HEALTH_FAIL" ]\n')
+  // Records any -H @file header too, so a test can see what was sent without it being on argv.
+  stub('curl', '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\nfor a in "$@"; do case "$a" in @*) cat "${a#@}" >> "$STUB_LOG.headers" ;; esac; done\ncase "$*" in *dpd-update*) [ -z "$STUB_DPD_FAIL" ] ;; *) [ -z "$STUB_HEALTH_FAIL" ] ;; esac\n')
   mkdirSync(join(root, 'live'))
   writeFileSync(join(root, 'live', 'docker-compose.demo.yml'), '')
   writeFileSync(join(root, 'live', '.env.production'), 'DEBIT_MANDATE_CREDITOR_TENANT_ID=old\n')
@@ -98,6 +99,7 @@ beforeEach(() => {
   mkdirSync(snap, { recursive: true })
   writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantSlug: 'acme', tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
   writeFileSync(join(snap, 'db.dump'), 'x')
+  writeFileSync(join(root, 'data', 'secrets.env'), 'CRON_SECRET=test-cron-secret\n')
   writeFileSync(join(snap, 'uploads.tar.gz'), 'x')
 })
 
@@ -118,8 +120,9 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
     expect(idx('UPDATE "User"')).toBeGreaterThan(idx('RENAME TO "demo"'))
     expect(idx('UPDATE "User"')).toBeGreaterThan(idx('docker-compose'))
-    expect(r.calls.filter((c) => c.startsWith('curl ')).length).toBe(2)
-    expect(idx('UPDATE "User"')).toBeGreaterThan(r.calls.map((c) => c.startsWith('curl ')).lastIndexOf(true))
+    const health = (c: string) => c.startsWith('curl ') && c.includes('/api/health')
+    expect(r.calls.filter(health).length).toBe(2)
+    expect(idx('UPDATE "User"')).toBeGreaterThan(r.calls.map(health).lastIndexOf(true))
     expect(idx('UPDATE "User"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
   })
 
@@ -165,6 +168,32 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
 
   it('does not touch segregation of duties when the restore fails before the swap', () => {
     expect(sodCalls(run({ STUB_COUNTS: '{}' }).calls)).toHaveLength(0)
+  })
+
+  it('refreshes arrears days on the restored stack once it is healthy, without the secret on the command line', () => {
+    const live = run()
+    const dpd = live.calls.filter((c) => c.includes('/api/cron/dpd-update'))
+    expect(dpd).toHaveLength(1)
+    expect(dpd[0]).not.toContain('test-cron-secret')
+    expect(dpd[0]).toContain('--max-time')
+    expect(readFileSync(`${log}.headers`, 'utf8')).toContain('x-cron-secret: test-cron-secret')
+    expect(live.out).toMatch(/arrears days refreshed/)
+  })
+
+  it('only warns, and still succeeds, when the arrears refresh fails or the cron secret is missing', () => {
+    const failed = run({ STUB_DPD_FAIL: '1' })
+    expect(failed.status).toBe(0)
+    expect(failed.out).toMatch(/WARNING: could not refresh arrears days/)
+    writeFileSync(join(root, 'data', 'secrets.env'), '')
+    writeFileSync(log, '')
+    const noSecret = run()
+    expect(noSecret.status).toBe(0)
+    expect(noSecret.calls.filter((c) => c.includes('dpd-update'))).toHaveLength(0)
+    expect(noSecret.out).toMatch(/WARNING: could not refresh arrears days/)
+  })
+
+  it('does not refresh arrears days when the restore fails before the swap', () => {
+    expect(run({ STUB_COUNTS: '{}' }).calls.filter((c) => c.includes('dpd-update'))).toHaveLength(0)
   })
 
   it('reads the container env whole: env printed after the match is no SIGPIPE refusal or skipped clear', () => {

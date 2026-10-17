@@ -29,6 +29,10 @@ interface Props {
   error: string | null
   submitting: boolean
 
+  /** Rands ("268.00") the product's rate table produced for this client and cover, once the server has refused another premium. */
+  ratedPremium: string | null
+  applyRatedPremium: () => void
+
   onNext: () => void
 }
 
@@ -49,6 +53,8 @@ export function Step1PolicyDetails(props: Props) {
     setValidationError,
     error,
     submitting,
+    ratedPremium,
+    applyRatedPremium,
     onNext,
   } = props
 
@@ -166,6 +172,15 @@ export function Step1PolicyDetails(props: Props) {
               value={data.premiumAmount}
               onChange={(e) => set("premiumAmount", e.target.value.replace(",", "."))}
             />
+            {ratedPremium && parseFloat(data.premiumAmount) !== parseFloat(ratedPremium) && (
+              <button
+                type="button"
+                onClick={applyRatedPremium}
+                className="mt-1 text-[11px] font-semibold text-[#4F46E5] underline"
+              >
+                Use R{ratedPremium} (rate table premium)
+              </button>
+            )}
           </div>
         </div>
 

@@ -67,6 +67,21 @@ describe("portal Make Payment", () => {
     expect(html).toMatch(/<button[^>]*aria-label="Copy payment reference LN-MNSKSZ0Y-GCRU"/)
   })
 
+  // Fair Score acceptance (2026-10-17): the panel's inline #4F46E514 fill stayed
+  // light lavender in dark mode, so the theme's light heading and helper text
+  // vanished into it. The panel takes the theme tokens, which flip with the theme.
+  it("paints the payment reference panel with theme tokens, not a fixed hex fill", async () => {
+    loanFindMany.mockResolvedValue([
+      { id: "b", reference: "LN-1", contractType: "LOAN", interestModel: "REDUCING_BALANCE", outstandingPrincipal: 100_000, repaymentSchedule: [] },
+    ])
+    const html = renderToStaticMarkup(await PaymentPage())
+    const panel = html.match(/<div class="[^"]*">(?=<p class="[^"]*">Your payment reference)/)?.[0] ?? ""
+    expect(panel).toContain("border-[var(--cf-brand)]")
+    expect(panel).toMatch(/bg-\[color-mix\(in_srgb,var\(--cf-brand\)_8%,var\(--cf-bg-raised\)\)\]/)
+    expect(panel).not.toMatch(/#[0-9a-fA-F]{3,8}/)
+    expect(html).not.toContain("#4F46E514")
+  })
+
   describe("bank transfer panel", () => {
     const BANK_ENV = {
       STITCH_BENEFICIARY_NAME: "Acme Collections Account",
