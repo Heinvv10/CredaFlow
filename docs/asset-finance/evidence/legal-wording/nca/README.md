@@ -26,7 +26,9 @@ mapped as `nca-agreement-store.ts` maps them. The render script,
 (`npx tsx scripts/asset-finance/render-legal-wording-nca-samples.ts`), refuses
 to write unless the capital rows sum to the principal, principal = cash price -
 deposit, and each row's capital, interest and fees add up to its total. It
-renders all six PDFs here; rerunning it reproduces the committed bytes.
+renders all six PDFs here; rerunning it reproduces the committed bytes. It
+runs with `npx tsx` and needs `lib/registry/generated` (gitignored): run
+`npm run gen:registries` first in a fresh checkout.
 
 One departure from the store: the schedule rows are the solver's rows, not the
 PASQ billing records, because `toScheduleRecord` folds an NCA row's fees into
