@@ -34,3 +34,5 @@ Wave A integrated: A cb35643d -> a679a71c (B independent approve,53 tests). B ae
 A F08 additions: components/applications/AffordabilityCapture.{tsx,test.tsx} and already-owned application detail page; optional single-scheduled-repayment label only, no underwriting arithmetic. Source correction: PO portal card is already range-only; do not change good current behavior based on historical proxy assumption. A WaveB314a9321 in B review; root found false account definition below next-payment amount in PaymentHero, queue held for corrected follow-up and review.
 
 Coordinator owns docs/gtm-remediation-2026-10-17/evidence/f15-baseline/* for unchanged-current-render reproduction artifacts and digest manifest (synthetic source fixture). A owns app/(portal)/portal/page.test.tsx for PaymentHero regression. B F09 additions approved: app/(dashboard)/clients/{page.tsx,page.test.tsx,new/page.tsx,new/page.test.tsx}; components/clients/ClientsPageClient.{tsx,test.tsx}; only actual create affordance/direct-access alignment with existing POST role floor.
+
+Coordinator owns ROUTE-ACCEPTANCE.csv for the19previously uncaptured routes and their fresh browser evidence/status.
