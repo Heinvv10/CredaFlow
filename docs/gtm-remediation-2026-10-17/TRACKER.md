@@ -71,8 +71,8 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F08 — PO-funding promise and the displayed affordability process conflict
 
-- Priority/status/owner: P2 / pending / unassigned sequential policy wave.
-- Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Runtime verification pending.
+- Priority/status/owner: P2 / implementing / A.
+- Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Current portal card already shows configured range only, so preserve it; false translated intake promise remains. Runtime verification pending.
 - Intended smallest change: Truthful intake and repayment/assessment explanation; preserve affordability enforcement.
 - Acceptance: PO submission, review, affordable/declined scenarios; no new underwriting model. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
