@@ -16,16 +16,11 @@
  * refers; it never declines.
  */
 import { CATEGORISER_VERSION } from "@/lib/statement-analysis/categorise"
-import { computeInsights } from "@/lib/statement-analysis/insights"
+import { computeInsights, understated } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
-import { EXPENSE_GAP_MIN_CENTS, EXPENSE_GAP_MIN_SHARE } from "./policy"
 import { statementKey, type ApplicationFacts, type FlagCandidate } from "./types"
 
-/** Both must hold: more than R1,500 a month above declared, and more than 25% of declared. */
-export function understated(livingMonthlyCents: number, declaredCents: number): boolean {
-  const gap = livingMonthlyCents - declaredCents
-  return gap > EXPENSE_GAP_MIN_CENTS && gap > declaredCents * EXPENSE_GAP_MIN_SHARE
-}
+export { understated }
 
 export function expenseUnderstated(f: ApplicationFacts): FlagCandidate[] {
   const declared = f.declaredExpensesCents

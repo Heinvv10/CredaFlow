@@ -135,3 +135,17 @@ describe("computeInsights with model labels", () => {
     expect(ins.statements[0].modelLabelled).toBe(false)
   })
 })
+
+describe("aboveDeclared: a hint, not a flag", () => {
+  it("holds only beyond both EXPENSE_UNDERSTATED margins, with a month of coverage", () => {
+    const spend = (cents: number) => [row("2026-07-02", "Card Purchase: SHOPRITE", -cents)]
+    const at = (cents: number, declared: number | null, over: Partial<StatementRead> = {}) =>
+      computeInsights([statement(spend(cents), over)], { clientName: null, declaredExpensesCents: declared }).aboveDeclared
+    expect(at(2_000_000, 300_000)).toBe(true)
+    // 30 days of coverage scale R4,400 to about R4,465 a month: R1,465 above, under R1,500.
+    expect(at(300_000 + 140_000, 300_000)).toBe(false)
+    expect(at(2_000_000, null)).toBe(false)
+    expect(at(2_000_000, 300_000, { periodEnd: "2026-07-20" })).toBe(false)
+  })
+})
+
