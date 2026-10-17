@@ -215,9 +215,9 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const ledgerOnlyDates = new Set(correctionLedger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE", "LATE_CLOSED_LEASE_RATE"].includes(row.reason) && !appliedDates.some((day) => day > isoOfDbDate(row.contractRate.effectiveDate))).map((row) => isoOfDbDate(row.contractRate.effectiveDate)))
   const billedHistory = history.filter((point) => !ledgerOnlyDates.has(point.effectiveDate))
   const monthlyServiceFee = loan.ncaRegime === "NCA" ? loan.monthlyServiceFee ?? 0 : 0
-  if (loan.status === "COMPLETED" && lease) return writeClosedLeaseRateCorrection(tx, { request, view: lease, startDate, oldPath: billedHistory, newPath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }], resultingRate, margin: prior.margin, loan })
   const pendingCashRows = rawStored.filter((row) => row.totalDue > row.totalPaid)
   const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + REPRICE_NOTICE_DAYS)
+  if (lease && (loan.status === "COMPLETED" || fixedFinalWindow)) return writeClosedLeaseRateCorrection(tx, { request, view: lease, startDate, oldPath: billedHistory, newPath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }], resultingRate, margin: prior.margin, loan })
   if (loan.status === "COMPLETED" || fixedFinalWindow) {
     const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
     const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })

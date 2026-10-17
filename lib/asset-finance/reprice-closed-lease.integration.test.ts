@@ -3,8 +3,9 @@ import { Prisma, PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import { cleanupDealFixture } from "./deal.integration-fixture"
-import { backdateLease, payAllOwed } from "./lease-servicing.integration-fixture"
+import { backdateLease, shiftLease, payAllOwed } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
+import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
 import { repriceLoanForReference, type RepriceTx } from "./reprice-loan"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import { loadAssetFinanceLoans } from "@/lib/accounting/store-asset-finance"
@@ -24,16 +25,24 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
 suite.sequential("closed booked lease late rates preserve ex-VAT capital and maintenance", () => {
   afterAll(async () => { for (const fixture of fixtures) { await cleanupLeaseRows(db,fixture.tenantId).catch(() => undefined); await cleanupDealFixture(db,{tenantId:fixture.tenantId}).catch(() => undefined) }; await db.$disconnect() },60000)
   it.each([
-    ["OPERATING_LEASE",-.02], ["OPERATING_LEASE",.02], ["FULL_MAINTENANCE_LEASE",-.02], ["FULL_MAINTENANCE_LEASE",.02],
-  ] as const)("%s signed adjustment %s uses original rental tax documents", async (contractType, change) => {
+    ["OPERATING_LEASE",-.02,false], ["OPERATING_LEASE",.02,false], ["FULL_MAINTENANCE_LEASE",-.02,false], ["FULL_MAINTENANCE_LEASE",.02,false],
+    ["OPERATING_LEASE",-.02,true], ["OPERATING_LEASE",.02,true], ["FULL_MAINTENANCE_LEASE",-.02,true], ["FULL_MAINTENANCE_LEASE",.02,true],
+  ] as const)("%s signed adjustment %s, active final window %s, uses original rental tax documents", async (contractType, change, active) => {
     process.env.TRUSTED_PROXY = "1"; fx = await createLeaseFixture(db, randomUUID().replaceAll("-", "").slice(0,16)); fixtures.push(fx)
     const dealId = await approveLease(fx,staff,leaseBody(fx,{ assetId:fx.assets[0], contractType,rentalTiming:"ARREARS",entityId:fx.evidenced,preset:{kind:"MONTHLY",periods:12},escalationRate:"0" }))
     await signLease(fx,db,setSession,dealId)
     const loanId = await payoutAndBook(fx,db,staff,dealId)
-    await backdateLease(db,loanId,24)
-    await payAllOwed(db,fx,loanId)
+    if (active) {
+      await shiftLease(db,loanId,"12 months - 7 days")
+      const rows=await db.repaymentSchedule.findMany({where:{loanId},orderBy:{installmentNo:"asc"}})
+      await applyManualReceipt(db as unknown as PaymentDb,{tenantId:fx.tenantId,loanId,amount:rows.slice(0,-1).reduce((sum,row)=>sum+row.totalDue,0),capturedById:fx.adminA})
+    } else {
+      await backdateLease(db,loanId,24)
+      await payAllOwed(db,fx,loanId)
+    }
     const before = await db.loan.findUniqueOrThrow({where:{id:loanId},include:{ repaymentSchedule:{orderBy:{installmentNo:"asc"}},leaseRentals:{orderBy:{periodNo:"asc"}},contractRates:{orderBy:{effectiveDate:"asc"}},taxInvoices:true,payments:true,maintenanceFund:{include:{movements:true}} }})
-    expect(before.status).toBe("COMPLETED")
+    expect(before.status).toBe(active?"ACTIVE":"COMPLETED")
+    if(active){expect(toDayNumber(sastCalendarDate(before.repaymentSchedule.at(-1)!.dueDate))-toDayNumber(sastCalendarDate(new Date()))).toBe(7);expect(before.leaseRentals.at(-1)!.taxInvoiceId).toBeNull()}
     const initial = before.contractRates[0], annual = initial.resultingRate.toNumber()
     const effectiveDate = isoOfDbDate(before.leaseRentals[3].dueDate), runDate = sastCalendarDate(new Date())
     const pending = await db.referenceRate.create({data:{tenantId:fx.tenantId,basis:"PRIME",effectiveDate:dbDate(effectiveDate),rate:new Prisma.Decimal(annual+change).sub(initial.margin!),requestedById:fx.adminA}})
@@ -89,6 +98,8 @@ suite.sequential("closed booked lease late rates preserve ex-VAT capital and mai
     expect(after.payments).toEqual(before.payments)
     expect(after.maintenanceFund).toEqual(before.maintenanceFund)
     expect(after.principal).toBe(before.principal)
+    expect(after.status).toBe(before.status)
+    if(active)expect(await db.repaymentSchedule.findMany({where:{loanId},orderBy:{installmentNo:"asc"}})).toEqual(before.repaymentSchedule)
     expect(await db.$transaction(tx=>repriceLoanForReference(tx as unknown as RepriceTx,request))).toEqual({kind:"already_repriced"})
     expect(await db.assetFinanceRateCorrection.count({where:{tenantId:fx.tenantId,loanId}})).toBe(1)
   },120000)

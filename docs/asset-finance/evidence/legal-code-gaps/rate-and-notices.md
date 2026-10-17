@@ -173,3 +173,27 @@ under goal §8. It has **not** been implemented or applied; user confirmation is
 pending through root. Active lease floor acceptance remains unfinished and this
 checkpoint does not close item 26 or authorize PR queueing. No full gate has been
 launched for this changing source.
+
+## Active lease final-notice-window correction
+
+An ACTIVE lease whose final unpaid rental is inside the notice window now uses
+the same ex-VAT rental-only capital and retained-residual correction as a closed
+lease. It cannot enter the generic gross-loan/receipt correction. The final
+scheduled payment remains fixed; affected already-issued rental supplies receive
+original-rate credit/debit notes. An uninvoiced rental is not treated as an
+already-issued VAT supply. No zero-rental CHECK is changed by this fix.
+
+Four new real signed/booked cases (operating/FML, each +/-2 percentage points,
+11 actual paid periods and a final uninvoiced rental due in seven days) failed
+before the fix and pass afterward against an independent daily oracle. They
+verify the unchanged pending schedule, maintenance fund and actual cash, signed
+ex-VAT/gross correction, linked tax documents, auditable PDF access, written
+notice and retry. `/tmp/cf-rate-final-window-red.log` records the four failures;
+`/tmp/cf-rate-final-window-green1.log` records all eight closed/active cases
+passing. `/tmp/cf-rate-final-window-unit.log` records 23 focused checks passing.
+
+A separate boundary is identified for follow-up: where the effective date is
+only after every previously invoiced affected rental, there is no affected
+original issued supply to adjust yet. Such an adjustment must be deferred until
+its actual original invoice, rather than attached to an unrelated earlier
+invoice. This checkpoint does not claim that pending-supply case is complete.

@@ -13,7 +13,7 @@ import type { Prisma } from "@prisma/client"
 import type { RateTaxDocument } from "./rate-tax-documents"
 const evidenceOf = (value: Prisma.JsonValue) => value && typeof value === "object" && !Array.isArray(value) ? value : {}
 
-/** A closed lease's capital is the ex-VAT asset funding. Rentals, excluding
+/** A lease with closed or notice-fixed rentals has capital is the ex-VAT asset funding. Rentals, excluding
  * maintenance and VAT, amortise it to the lessor's retained residual; that
  * residual is not a receipt. Issued invoices remain immutable. */
 export async function writeClosedLeaseRateCorrection(tx: RepriceTx, input: {
@@ -33,7 +33,7 @@ export async function writeClosedLeaseRateCorrection(tx: RepriceTx, input: {
   const cumulativeExcl = revisedClosing - oldClosing
   const exclDelta = cumulativeExcl - priorExcl
   const rate = await tx.contractRate.create({ data: { tenantId, loanId, effectiveDate: dbDate(effectiveDate), basis: request.basis, margin: input.margin, resultingRate: input.resultingRate, newInstalmentCents: 0, createdById: request.actorUserId } })
-  const sources = [...view.rentals.entries()].filter(([period]) => events[period-1].day >= effectiveDate).sort(([a],[b]) => b-a)
+  const sources = [...view.rentals.entries()].filter(([period,rental]) => events[period-1].day >= effectiveDate && rental.taxInvoiceId !== null).sort(([a],[b]) => b-a)
   const taxDocuments: RateTaxDocument[] = []
   if (exclDelta < 0) {
     let credit = -exclDelta
