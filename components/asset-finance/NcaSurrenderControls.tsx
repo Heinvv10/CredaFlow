@@ -62,7 +62,7 @@ export function NcaSurrenderControls({ loanId, surrenders, recovery, accountStat
         {i.executedOn ? <a className="ml-3 underline" href={`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}/execution`}>View bank execution evidence</a> : <form className="flex flex-wrap gap-2" onSubmit={(e) => { const f = form(e); f.set("docType", "OTHER"); f.set("amountCents", String(Math.round(Number(f.get("amount")) * 100))); void post(`/api/asset-finance/loans/${loanId}/surplus-instructions/${i.id}/execution`, f) }}>
           <p className="w-full">Record an already executed bank payment. This form does not send a bank transfer.</p>
           <label>Bank execution date <input className={field} name="executedOn" type="date" required /></label>
-          <label>Bank transaction reference <input className={field} name="bankReference" minLength={6} maxLength={200} required /></label>
+          <label>Unique bank transaction reference <input className={field} name="bankReference" minLength={6} maxLength={200} required /></label>
           <label>Exact amount paid (R) <input className={field} name="amount" type="number" min="0.01" step="0.01" required /></label>
           <label>Bank proof of execution <input name="file" type="file" accept="application/pdf,image/*" required /></label>
           <button className={button} disabled={busy}>Record bank execution evidence</button>

@@ -23,7 +23,10 @@
   bank authorisation issues it once with a separate release actor/date.
   A payment instruction leaves the surplus outstanding. Only one-way bank
   execution evidence (exact amount/date/reference, borrower-owned hashed proof,
-  actor) permits recovery closure. `nca-surplus-execution.ts` records an already
+  actor) permits recovery closure. An s131 recovery accepts execution after
+  its final notice opens SURPLUS_HELD; this never permits a new instruction.
+  One tenant bank transaction reference (trimmed, case-normalised) clears only
+  one instruction, even when a second confirmation document is uploaded. `nca-surplus-execution.ts` records an already
   executed payment; it never initiates a transfer. Reads use document access logs.
 - `schedule-records.ts` excludes fees from capital: every NCA row satisfies
   capital + interest + fees = payment. Premiums remain fees in the PASQ billing

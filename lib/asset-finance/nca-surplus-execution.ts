@@ -32,7 +32,8 @@ export async function recordSurplusExecution(actor: RecoveryActor, loanId: strin
       const row = await tx.ncaSurplusRemittance.findFirst({ where: { id: instructionId, tenantId: actor.tenantId, OR: [{ surrender: { loanId } }, { recovery: { loanId } }] }, include: { surrender: true, recovery: true } })
       if (!loan || !row) return { kind: "not_found" as const }
       const parent = row.surrender ?? row.recovery
-      if (row.status !== "INSTRUCTED" || row.executedOn || parent?.status !== "FINAL_NOTICE_ISSUED" || !parent.finalNoticePath) throw new RecoveryRefusal("An unpaid instruction and issued final notice are required; execution is recorded once")
+      const noticeIssued = parent?.status === "FINAL_NOTICE_ISSUED" || row.recovery?.status === "SURPLUS_HELD"
+      if (row.status !== "INSTRUCTED" || row.executedOn || !noticeIssued || !parent?.finalNoticePath) throw new RecoveryRefusal("An unpaid instruction and issued final notice are required; execution is recorded once")
       if (input.amountCents !== row.amountCents) throw new RecoveryRefusal("Bank execution must equal the exact instructed surplus")
       const document = await tx.entityDocument.create({ data: { tenantId: actor.tenantId, clientId: loan.clientId, entityId: loan.entityId,
         docType: input.upload.docType, fileName: safeFileName(input.upload.file.name), mimeType: input.upload.file.type, fileSize: stored.fileSize,

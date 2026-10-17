@@ -52,6 +52,7 @@ model NcaSurplusRemittance {
   issuedBy User @relation("NcaSurplusIssuedBy", fields: [tenantId, issuedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime @default(now())
   @@unique([tenantId, id])
+  @@unique([tenantId, bankExecutionReference])
   @@unique([tenantId, surrenderId])
   @@unique([tenantId, recoveryId])
 }

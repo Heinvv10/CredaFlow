@@ -26,3 +26,16 @@ adversarial tests and surrender/recovery regressions remain green.
 The older browser final-notice PDF in the parent evidence folder predates this
 wording correction. It is historical until the final acceptance run replaces the
 fixture and captures the candidate notice and manual evidence flow.
+
+The follow-up s131 regression starts with a court attachment and real final-outcome
+transition to SURPLUS_HELD. Execution now accepts that issued final notice,
+closes the recovery and refuses a second proof/payment. An insert cannot use the
+held-state exception. A nullable unique tenant bank transaction reference,
+trimmed and case-normalised, also prevents one bank payment clearing two
+instructions even with separately uploaded confirmation files. Removing its
+unique index admits the exact duplicate-reference attack in the PG test.
+
+Document settlement certification now uses the same expanded s125 predicate:
+NCA instalment sales and finance leases with multiple instalments are marked
+s125-priced. A single DAILY_ACCRUAL bullet remains eligible only for consumer
+LOAN contracts. The targeted test failed before this helper correction.

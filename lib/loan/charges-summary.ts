@@ -133,14 +133,13 @@ export interface SettlementFigures {
 
 /**
  * The loans whose settlement figure is priced under s125 (lib/loan/settlement.ts):
- * an NCA consumer loan of several instalments, or an NCA DAILY_ACCRUAL bullet.
- * For anything else — an asset-finance instalment sale, a NON_NCA loan, a
- * single instalment — currentSettlementAmount is the contractual remainder,
+ * an NCA loan, instalment sale or finance lease with several instalments, or
+ * an NCA consumer-loan DAILY_ACCRUAL bullet. For NON_NCA contracts and other
+ * single-instalment schedules, currentSettlementAmount is the contractual remainder,
  * unearned interest included, so no document certifies it as what settles.
  */
 export function isS125Priced(loan: SettlementLoanLike, schedule: SettlementScheduleRow[]): boolean {
-  if (loan.ncaRegime !== "NCA" || loan.contractType !== "LOAN") return false
-  return isS125InstalmentLoan(loan, schedule) || (loan.interestModel === "DAILY_ACCRUAL" && schedule.length === 1)
+  return isS125InstalmentLoan(loan, schedule) || (loan.ncaRegime === "NCA" && loan.contractType === "LOAN" && loan.interestModel === "DAILY_ACCRUAL" && schedule.length === 1)
 }
 
 /**
