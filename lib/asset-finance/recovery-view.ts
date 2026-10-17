@@ -32,6 +32,7 @@ const costView = (c: RecoveryCost) => ({
 export async function loadStaffRecoveryView(tenantId: string, id: string, opts: { bankDetails?: boolean } = {}) {
   const row = await prisma.recovery.findFirst({ where: { id, tenantId }, include: {
     valuation: true,
+    leaseTerminationQuote: { select: { reasonableAssessment: true, basis: true } },
     costs: { orderBy: [{ incurredOn: "asc" }, { createdAt: "asc" }] },
     sales: { orderBy: { createdAt: "asc" } },
     refund: { select: { id: true, status: true, amountCents: true, createdById: true, approvedById: true, releasedAt: true, accountHolder: true, bankName: true, branchCode: true, accountNumber: true, bankVerifiedById: true } },
@@ -70,6 +71,7 @@ export async function loadStaffRecoveryView(tenantId: string, id: string, opts: 
         verificationDocumentUrl: `/api/asset-finance/recoveries/${row.id}/refund/document`,
       } : null,
     } : null,
+    ...(row.leaseTerminationQuote ? { cancellationAssessment: row.leaseTerminationQuote.reasonableAssessment, cancellationBasis: row.leaseTerminationQuote.basis } : {}),
     withdrawnReason: row.withdrawnReason, closedAt: row.closedAt?.toISOString() ?? null,
   }
 }

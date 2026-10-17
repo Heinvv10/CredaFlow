@@ -146,6 +146,7 @@ model Recovery {
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   costs                   RecoveryCost[]
+  leaseTerminationQuote   LeaseTerminationQuote?
   refund                  RecoveryRefund?
   sales                   RemarketingSale[]
   vatEvents               RecoveryVatEvent[]

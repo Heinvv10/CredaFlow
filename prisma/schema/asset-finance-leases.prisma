@@ -307,6 +307,8 @@ model LeaseTerminationQuote {
   tenant              Tenant                 @relation(fields: [tenantId], references: [id])
   loanId              String
   loan                Loan                   @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recoveryId String? @unique
+  recovery Recovery? @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   quotedOn            DateTime               @db.Date
   terminationDate     DateTime               @db.Date
   validUntil          DateTime               @db.Date
@@ -338,6 +340,7 @@ model LeaseTerminationQuote {
   schedule            RepaymentSchedule?     @relation("LeaseTerminationCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt           DateTime               @default(now())
 
+  @@unique([tenantId, recoveryId])
   @@unique([tenantId, id])
   @@unique([tenantId, taxInvoiceId])
   @@unique([tenantId, scheduleId])

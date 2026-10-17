@@ -57,6 +57,8 @@ export interface DefaultChargeReceipt {
 }
 
 export interface AdminChargeEvent {
+  /** Only an immutable staff-assessed CPA lease cancellation can create genuine costs after capital settlement. */
+  assessedLeaseCancellation?: boolean
   id: string
   date: Date
   amount: number

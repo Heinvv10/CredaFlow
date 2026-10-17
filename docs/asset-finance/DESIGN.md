@@ -522,6 +522,17 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 
 ## Sign-off record
 
+- **Changed 2026-10-18 to give effect to clause 9.10 and CPA s48 after lessor
+  cancellation:** all ten factor findings inform a recorded fair, reasonable final
+  net charge at or below the financial ceiling, including lower/zero amounts.
+  Arrears stay separate. Gross taxable damages and collectible costs are reduced
+  through explicit noncash concessions; actual vendor expense evidence, cash and
+  the single net-goods receipt remain intact. Surplus goods proceeds remain due
+  to the lessee. Certified costs become collectible before the proceeds receipt
+  even if capital is already settled; this does not enable optional default
+  interest/fees. Consumer-initiated cancellation retains its separate Reg5(3)
+  right-to-cancel finding.
+
 - **Changed 2026-10-18 to comply with CPA Regulations 5(2) and 5(3):** the
   PV less goods plus actual costs calculation is a financial ceiling. Staff must
   record case-specific findings on all ten statutory factors, a reasoned charge

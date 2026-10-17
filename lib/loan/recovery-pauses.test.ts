@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { loadChargesReplay } from "./charges-replay"
-import { recoveryChargePauses } from "./recovery-pauses"
+import { recoveryChargePauses, recoveryCostCharges } from "./recovery-pauses"
 
 const d = (ymd: string) => new Date(`${ymd}T12:00:00+02:00`)
 
@@ -62,4 +62,33 @@ describe("loadChargesReplay — the loan's recovery freeze", () => {
     const both = (await loadChargesReplay(txOf(frozen), ref, d("2026-09-11"), { pauses: [{ from: d("2026-09-08"), until: d("2026-09-08") }] }))!
     expect(both.result.interestAccrued).toBe(1_667) // 9 accruing days less 3 frozen and 1 paused: 5 x 333.33
   })
+})
+
+
+describe("recovery cost noncash concession budget", () => {
+  it("preserves original cost IDs and dates while collecting only the assessed allowance", () => {
+    const from = new Date("2026-09-04T00:00:00Z")
+    const costs = [{ id: "cost-b", grossCents: 30_000 }, { id: "cost-a", grossCents: 10_000 }]
+    expect(recoveryCostCharges([{ chargesFrozenFrom: from, chargesFrozenUntil: null, chargedCostsCents: 25_000, costs }])).toEqual([
+      { id: "cost-a", date: from, amount: 10_000 }, { id: "cost-b", date: from, amount: 15_000 },
+    ])
+    expect(recoveryCostCharges([{ chargesFrozenFrom: from, chargesFrozenUntil: null, chargedCostsCents: 0, costs }])).toBeUndefined()
+    expect(costs.map((cost) => cost.grossCents)).toEqual([30_000, 10_000])
+  })
+})
+
+it("an accepted CPA lessor cost creates genuine debt before proceeds, even with settled zero capital and optional defaults off", async () => {
+  const quote = { status: "ACCEPTED", quotedOn: new Date("2026-09-05"), reasonableAssessment: { context: "lessor_breach_cpa48_contract9_10", chargedCostsCents: 25_000 } }
+  const recoveries = [{ chargesFrozenFrom: null, chargesFrozenUntil: null, chargedCostsCents: null, leaseTerminationQuote: quote, costs: [{ id: "actual-vendor-cost", grossCents: 40_000 }] }]
+  const load = (receipts: unknown[]) => ({
+    loan: { findUnique: vi.fn().mockResolvedValue({ ...loan(recoveries), ncaRegime: "NON_NCA", status: "COMPLETED", closedAt: d("2026-09-03"),
+      repaymentSchedule: [{ dueDate: d("2026-10-01"), principalDue: 0, interestDue: 0, feesDue: 0, totalDue: 0 }],
+      tenant: { config: { defaultChargesEnabled: false, defaultChargesStartedAt: null, defaultChargesStoppedAt: null } },
+    }) },
+    payment: { findMany: vi.fn().mockResolvedValue(receipts) }, complianceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+  }) as never
+  const before = await loadChargesReplay(load([]), { tenantId: "t1", loanId: "loan-1" }, d("2026-09-11"))
+  expect(before?.result).toMatchObject({ feesAccrued: 25_000, feesOutstanding: 25_000, interestAccrued: 0, scheduleAllocated: 0 })
+  const after = await loadChargesReplay(load([{ id: "real-proceeds", amount: 10_000, receivedAt: d("2026-09-05") }]), { tenantId: "t1", loanId: "loan-1" }, d("2026-09-11"))
+  expect(after?.result).toMatchObject({ feesAccrued: 25_000, feesPaid: 10_000, feesOutstanding: 15_000, interestAccrued: 0 })
 })

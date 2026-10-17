@@ -92,20 +92,13 @@ suite.sequential("lease legal calculations applied to actual accounts", () => {
     expect(updated.totalCents).toBe(rental.totalCents)
     expect(updated.schedule.totalDue).toBe(updated.taxInvoice?.totalInclVatCents)
   })
-  it("CPA lessor damages replace undiscounted rentals, carry no percentage penalty, and cap the charge after actual costs and net proceeds", async () => {
+  it("CPA lessor cancellation cannot automatically bill a ceiling without actual recovery and a reasoned assessment", async () => {
     const loanId = loans[3]
     const before = await database().loan.findUniqueOrThrow({ where: { id: loanId } })
-    const undiscounted = (await database().leaseRental.findMany({ where: { loanId } })).reduce((sum, r) => sum + r.rentalExclVatCents, 0)
-    const chargedCostsCents = 20_000_000
-    const netProceedsCents = 1_000_000
-    await database().$transaction((tx) => prepareLeaseRecoveryDamages(tx as never, { tenantId: fx.tenantId, userId: fx.adminA, loanId, recoveredOn: today(), today: today(), netProceedsCents, chargedCostsCents }))
-    const quote = await database().leaseTerminationQuote.findFirstOrThrow({ where: { loanId } })
-    const after = await database().loan.findUniqueOrThrow({ where: { id: loanId } })
-    expect(quote.lessorCancellation).toBe(true)
-    expect(quote.penaltyCents).toBe(0)
-    expect(after.totalRepayable).toBeLessThan(before.totalRepayable)
-    expect(quote.totalCents + chargedCostsCents - netProceedsCents).toBeLessThan(undiscounted)
-    expect(await database().leaseRental.count({ where: { loanId, cancelledAt: null } })).toBe(0)
+    await expect(database().$transaction((tx) => prepareLeaseRecoveryDamages(tx as never, { tenantId: fx.tenantId, userId: fx.adminA, loanId, recoveredOn: today(), today: today(), netProceedsCents: 1_000_000, chargedCostsCents: 20_000_000 }))).rejects.toThrow(/actual sold recovery|assessment/i)
+    expect(await database().leaseTerminationQuote.count({ where: { loanId } })).toBe(0)
+    expect(await database().loan.findUniqueOrThrow({ where: { id: loanId } })).toEqual(before)
+    expect(await database().leaseRental.count({ where: { loanId, cancelledAt: null } })).toBeGreaterThan(0)
   })
 
   it("a fully prepaid CPA lease can be cancelled: future invoices are credited, cash conserved, and excess is held as a refund credit", async () => {

@@ -276,13 +276,10 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     expect((await routes().portalEndOfTerm(loans.expiry, { action: "extension-notice", noticeOn: today() })).status).toBe(200)
     const ended = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
     expect(isoOfDbDate(ended.extensionEndsOn!)).toBe(cpaCancellationDate(today()))
-    await database().$transaction(async (tx) => {
-      await prepareLeaseRecoveryDamages(tx as never, { tenantId: fx.tenantId, userId: fx.adminA, loanId: loans.expiry, recoveredOn: today(), today: today(), netProceedsCents: 0, chargedCostsCents: 0 })
-      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
-    })
-    const cancelledByLessor = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
-    expect(isoOfDbDate(cancelledByLessor.extensionEndsOn!)).toBe(today())
-    expect((await database().leaseTerminationQuote.findFirstOrThrow({ where: { loanId: loans.expiry } })).lessorCancellation).toBe(true)
+    await expect(database().$transaction((tx) => prepareLeaseRecoveryDamages(tx as never, { tenantId: fx.tenantId, userId: fx.adminA, loanId: loans.expiry, recoveredOn: today(), today: today(), netProceedsCents: 0, chargedCostsCents: 0 }))).rejects.toThrow(/actual sold recovery|assessment/i)
+    const unchanged = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
+    expect(isoOfDbDate(unchanged.extensionEndsOn!)).toBe(cpaCancellationDate(today()))
+    expect(await database().leaseTerminationQuote.count({ where: { loanId: loans.expiry, lessorCancellation: true } })).toBe(0)
 
   }, 60_000)
 })

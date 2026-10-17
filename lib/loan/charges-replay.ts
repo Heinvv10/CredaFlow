@@ -136,7 +136,7 @@ export async function loadChargesReplay(
   tx: ChargesTx,
   ref: LoanRef,
   asOf: Date,
-  { preview, decidingStatus = false, pauses }: { preview?: GoLiveInputs; decidingStatus?: boolean; pauses?: ChargePause[] } = {},
+  { preview, decidingStatus = false, pauses, excludeRecoveryCosts }: { preview?: GoLiveInputs; decidingStatus?: boolean; pauses?: ChargePause[]; excludeRecoveryCosts?: string } = {},
 ) {
   const loan = await tx.loan.findUnique({
     where: { id: ref.loanId, tenantId: ref.tenantId },
@@ -186,16 +186,17 @@ export async function loadChargesReplay(
       repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
       // A recovery's charge freeze (chargesFrozenFrom..chargesFrozenUntil), so that every writer's replay honours it.
       recoveries: {
-        where: { chargesFrozenFrom: { not: null } },
+        where: { OR: [{ chargesFrozenFrom: { not: null } }, { leaseTerminationQuote: { is: { status: "ACCEPTED", lessorCancellation: true, reasonableAssessment: { path: ["context"], equals: "lessor_breach_cpa48_contract9_10" } } } }] },
         select: {
-          chargesFrozenFrom: true, chargesFrozenUntil: true,
+          id: true, chargesFrozenFrom: true, chargesFrozenUntil: true, chargedCostsCents: true,
+          leaseTerminationQuote: { select: { status: true, quotedOn: true, acceptedAt: true, reasonableAssessment: true } },
           costs: { where: { status: "APPROVED", treatment: "CHARGE_TO_ACCOUNT" }, orderBy: { id: "asc" }, select: { id: true, grossCents: true } },
         },
       },
     },
   })
   const allPauses = [...(pauses ?? []), ...(recoveryChargePauses(loan?.recoveries) ?? [])]
-  const recoveryCosts = recoveryCostCharges(loan?.recoveries)
+  const recoveryCosts = recoveryCostCharges(loan?.recoveries?.filter((recovery) => !excludeRecoveryCosts || recovery.id !== excludeRecoveryCosts), loan?.tenant.config?.defaultChargesStoppedAt)
   const config = loan?.tenant.config
   // Once charges were stopped nothing is ever derived again, not even a preview.
   if (!loan || !config) return null
@@ -225,6 +226,8 @@ export async function loadChargesReplay(
     : null
   // Only notices the provider confirmed, dated when they were issued — the
   // same predicate the attorney-referral gate and the S129 register use.
+  const frozenReceipts = config.defaultChargesStoppedAt ? receipts.filter((receipt) => receipt.receivedAt.getTime() <= config.defaultChargesStoppedAt!.getTime()) : []
+  const certifiedCostIds = new Set((recoveryCosts ?? []).filter((cost) => cost.assessedLeaseCancellation).map((cost) => cost.id))
   const letters = await tx.complianceRecord.findMany({
     where: {
       tenantId: ref.tenantId,
@@ -289,25 +292,21 @@ export async function loadChargesReplay(
         contractualInterestUntil: loan.commercialCancelledAt ?? undefined,
         defaultInterestMargin: (!defaultChargesLive && !stoppedHistory) || margin === null ? null : margin.toNumber(),
         collectionFeeCents: defaultChargesLive || stoppedHistory ? terms.nonNcaCollectionFeeCents : null,
-        stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts } : undefined,
+        stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts: frozenReceipts } : undefined,
         contractRateHistory: loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),
         })),
       })
       if (!stoppedHistory) return result
-      const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]))
+      const history = stoppedHistory.filter((posting) => !posting.sourceId || !certifiedCostIds.has(posting.sourceId))
+      const newCosts = result.postings.filter((posting) => posting.type === "RECOVERY_COST" && posting.sourceId && certifiedCostIds.has(posting.sourceId))
       return { ...result,
-        postings: stoppedHistory.map((posting) => ({ ...posting, day: posting.day.toISOString().slice(0, 10), sourceId: posting.sourceId ?? undefined })),
-        interestAccrued: stoppedHistory.filter((posting) => posting.type === "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
-        feesAccrued: stoppedHistory.filter((posting) => posting.type !== "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
-        interestOutstanding: 0, feesOutstanding: 0,
-        interestPaid: receipts.reduce((sum, receipt) => sum + receipt.defaultInterestAllocated, 0),
-        feesPaid: receipts.reduce((sum, receipt) => sum + receipt.chargeFeesAllocated, 0),
-        receiptSplits: result.receiptSplits.map((split) => ({ ...split,
-          toDefaultInterest: byId.get(split.receiptId)?.defaultInterestAllocated ?? 0,
-          toFees: byId.get(split.receiptId)?.chargeFeesAllocated ?? 0,
-        })),
+        postings: [...history.map((posting) => ({ ...posting, day: posting.day.toISOString().slice(0, 10), sourceId: posting.sourceId ?? undefined })), ...newCosts],
+        interestAccrued: history.filter((posting) => posting.type === "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
+        feesAccrued: history.filter((posting) => posting.type !== "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0) + newCosts.reduce((sum, posting) => sum + posting.amount, 0),
+        interestOutstanding: 0,
+        interestPaid: frozenReceipts.reduce((sum, receipt) => sum + receipt.defaultInterestAllocated, 0),
       }
     }
     return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })
@@ -316,6 +315,7 @@ export async function loadChargesReplay(
     loan,
     receipts,
     defaultChargesLive,
+    stoppedCertifiedCostIds: stoppedHistory ? [...certifiedCostIds] : null,
     result: replayAt(asOf),
     replayAt,
     monthlyServiceFee,
