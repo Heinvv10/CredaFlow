@@ -19,3 +19,19 @@ No official URL, model pin, license pin, runtime detector transformation hash, t
 - `npm run ci:quick`: PASS (exit 0): application/demo TypeScript, full ESLint, mirror/docs checks and all four time-zone date gates. Final frozen-source rerun scheduled before queue admission.
 
 No browser/product behavior changes. This branch's network proof does not establish a new image or final candidate pass. MQ must integrate the independently reviewed commit, rerun final combined gates, build a pristine immutable image and run the pending portal/staff acceptance on the resulting exact candidate. Previously green 31339 gates remain evidence only for that superseded source.
+
+## Second pristine-build failure and bounded transport recovery
+
+Follow-up base: `3e6674986e5fd782a6c24dce9b3a22354bdd3088`, branch `fix/gtm-model-acquisition-retry-20261017`. The earlier no-retry design above describes the first submission and is superseded by this section.
+
+Actual pristine Docker build still failed: MQ observed complete validated chunks through 16 MiB, then a range response body terminated, exit 1 and OOM false. It ran 14:33:46–14:40:05 UTC; MQ preserved the failed builder and build log under its private `provisional-dir` record. No partial file survived failure. A successful host download had not established that Docker's network would remain reliable.
+
+The helper now gives each chunk at most 3 attempts, each with a 60-second abort deadline covering response headers and body. Only thrown fetch/body transport errors retry. Every attempt requests the same incomplete offset; no bytes reach the hash or partial file until its entire validated body succeeds. Stable total and all existing range/length checks remain; HTTP, protocol, completed-length and final SHA failures are not retried. Exhaustion rethrows the original transport error with its cause intact and cleans the partial. Logs identify offset and attempt without adding credentials. No official URL, pin, model, license, runtime hash, threshold, Dockerfile or dependency changed.
+
+- Fail first on the original base helper: 3 new tests failed, 13 existing tests passed. Private `model-retry-failfirst.log` preserves the result.
+- Focused suite: 18 tests PASS, including transport rejection recovery, partial-body termination recovery, exactly bounded exhaustion, stalled headers and stalled-body timeout cleanup. Protocol-negative cases explicitly assert a single attempt. Existing assembly, metadata, digest and atomic-publication checks remain.
+- Changed-file ESLint: PASS.
+- Actual lightweight Docker proof: unique disposable local `node:22-bookworm-slim` container on CPUs 0–3, Node's type stripping, exact helper/constants mounted read-only and an empty owned output directory. No model cache overlay or image pull. All 5 official model/license downloads passed unchanged SHA checks; SFace 38,696,353 bytes completed in 2342 ms. No natural transient occurred, so this proves actual Docker acquisition, not observed real-network retry recovery. Fault-injection tests prove the latter behavior. Log `/tmp/cf-gtm-a-model-retry-container-bsv_neqr/download.log`; exit 0 retained alongside it. Container removed automatically; output/evidence retained privately.
+- Final frozen-source `ci:quick`: running; MQ admission waits for completion.
+
+MQ still must independently integrate and run combined gates plus an actual pristine application-image build. Neither this lightweight probe nor prior green gates establish that resulting candidate/image or browser acceptance passed.
