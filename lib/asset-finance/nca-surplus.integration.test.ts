@@ -196,4 +196,24 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
 
  })
 
+ it("independently serializes simultaneous execution submissions to one proof and audit",async()=>{
+  const {input,row,actor}=await readyInstruction()
+  const before=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
+  const submissions=['A','B'].map(suffix=>recordSurplusExecution(actor,input.loanId,row.id,{executedOn:day(0),bankReference:`TEST-CONCURRENT-${suffix}-${randomUUID()}`,amountCents:12345,upload:{file:new File(["%PDF-1.4 independently uploaded execution"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
+  expect((await Promise.all(submissions)).map(r=>r.kind).sort()).toEqual(['done','not_ready'])
+  expect(await database().entityDocument.count({where:{tenantId:fx.tenantId}})).toBe(before+1)
+  expect(await database().auditLog.count({where:{entityId:row.id,action:'ASSET_SURPLUS_EXECUTION_RECORDED'}})).toBe(1)
+  expect(await database().payment.count({where:{loanId:input.loanId}})).toBe(0)
+ })
+ it("independently rejects concurrent normalized bank-reference reuse across separate loans atomically",async()=>{
+  const a=await readyInstruction(),b=await readyInstruction()
+  const reference=`TEST-INDEPENDENT-${randomUUID()}`
+  const before=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
+  const submissions=[a,b].map((v,index)=>recordSurplusExecution(v.actor,v.input.loanId,v.row.id,{executedOn:day(0),bankReference:index?`  ${reference.toUpperCase()}  `:reference,amountCents:12345,upload:{file:new File([`%PDF-1.4 separate proof ${index}`],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
+  expect((await Promise.all(submissions)).map(r=>r.kind).sort()).toEqual(['done','not_ready'])
+  expect(await database().entityDocument.count({where:{tenantId:fx.tenantId}})).toBe(before+1)
+  expect(await database().ncaSurplusRemittance.count({where:{id:{in:[a.row.id,b.row.id]},executedOn:{not:null}}})).toBe(1)
+  expect(await database().auditLog.count({where:{entityId:{in:[a.row.id,b.row.id]},action:'ASSET_SURPLUS_EXECUTION_RECORDED'}})).toBe(1)
+ })
+
 })
