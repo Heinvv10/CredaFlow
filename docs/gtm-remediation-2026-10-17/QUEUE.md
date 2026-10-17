@@ -110,3 +110,12 @@ G06-U operator origin defect reproduced on candidate6: mandatory enrollment redi
 
 
 Final pre-freeze main fetch discovered actual PR167 landing685c86e951c0591324446af148d30d41ddc33652. Root and A independently reviewed its exact four-file delta; A reran2suites/7tests PASS. Actual hosted quality/integration on head2970f904 succeeded. Additions only explicit demo-simulator manual-cron scheduling and real hydrated NavBar root cleanup, no schema/provider/production behavior activation. Clean reviewed merge-tree e0a5e75d05c30adc783b8dd62760284fe20ac65c reproduced and merged without conflicts; operator correction retained. Source is being revalidated before next freeze. Other sessions/queues preserved.
+
+
+## Candidate 8: operator client callback correction
+
+Candidate7 66c183c1 completed exact full quality, integration and pristine image checks; required hosted checks also passed. Financial, portal, staff, recovery and token evidence remains scoped to that source. Operator acceptance found a second real callback defect: NextAuth sign-out returned the configured staff origin after operator enrollment/sign-out. Consequently candidate7 is not accepted for merge. No release artifact or production deployment was approved.
+
+A ecf84394c6abf7b8b25c2ed1c3f2224426208eae independently APPROVED by B (three suites/40 tests rerun PASS), root source review, and exact frozen ci:quick PASS. MQ serially integrated it as10d19e42, followed by independently reviewed A final66 evidence and root scoped evidence/specification records. Shared awaited redirect:false sign-out now navigates to the fixed same-host operator login; global authentication policy, CSRF and database schema are unchanged. Fresh main remains685c86e951c0591324446af148d30d41ddc33652.
+
+Candidate8 requires fresh exact-source full quality/integration, pristine image and affected operator/browser acceptance. Historical passes are not inherited. Image build CPUs0–3 may run alongside serialized host quality then integration CPUs4–7. PR168 remains unqueued/unmerged. F15 remains separate and legally gated; its legal-only canonical model-list test failure does not establish a core regression.
