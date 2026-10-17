@@ -1,0 +1,182 @@
+{
+  "route": "/compliance/coi",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/compliance/coi",
+    "title": "Client and staff workspace",
+    "headings": [
+      "Conflict of Interest Declarations"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nCompliance\nCOI\nConflict of Interest Declarations\n\nFSCA Code of Conduct · annual self-attestation\n\n← Compliance\n2026\n2025\n2024\n2023\n2022\nDeclare for 2026\n\nSTAFF USERS\n\n12\n\nDECLARED 2026\n\n6 / 12\n\nCONFLICTS DISCLOSED\n\n1\n\nCOMPLIANCE RATE\n\n50%\n\nUSER\tROLE\t2026 STATUS\tCONFLICT?\tDETAILS\tDECLARED AT\tACTIONS\n\nDemo Admin\nadmin@tsela-lending.example\n\tADMIN\tDeclared\tNone\t—\t02 Apr 2026\t\nEdit\n\nSynthetic GTM ADMINYOU\ngtm-mq-admin-20261017-b@synthetic.invalid\n\tADMIN\tNot yet\t—\t—\t—\t\nDeclare\n\nDemo Loan Admin One\nloan.admin.one@tsela-lending.example\n\tLOAN_ADMIN\tNot yet\t—\t—\t—\t\nRecord\n\nDemo Loan Admin Two\nloan.admin.two@tsela-lending.example\n\tLOAN_ADMIN\tNot yet\t—\t—\t—\t\nRecord\n\nNomsa Khumalo-Reddy\ncollections.manager@tsela-lending.example\n\tLOAN_ADMIN\tDeclared\tNone\t—\t02 Apr 2026\t\nEdit\n\nSynthetic GTM LOAN_ADMIN\ngtm-mq-loan_admin-20261017-b@synthetic.invalid\n\tLOAN_ADMIN\tNot yet\t—\t—\t—\t\nRecord\n\nDemo Credit Officer\ncredit.officer@tsela-lending.example\n\tCREDIT_OFFICER\tDeclared\tNone\t—\t02 Apr 2026\t\nEdit\n\nLindiwe Mahlangu\nlindiwe.mahlangu@tsela-lending.example\n\tCREDIT_OFFICER\tDeclared\tNone\t—\t02 Apr 2026\t\nEdit\n\nPriya Govender\npriya.govender@tsela-lending.example\n\tINSURANCE_OFFICER\tDeclared\tDisclosed\t\nSpouse is a broker consultant at Umoya Life (the panel insurer); recuses herself from claims assessment.\n\t02 Apr 2026\t\nEdit\n\nPieter Steyn\npieter.steyn@tsela-lending.example\n\tBRANCH_MANAGER\tDeclared\tNone\t—\t02 Apr 2026\t\nEdit\n\nSynthetic GTM READONLY\ngtm-mq-readonly-20261017@synthetic.invalid\n\tREADONLY\tNot yet\t—\t—\t—\t\nRecord\n\nSynthetic GTM READONLY\ngtm-mq-readonly-20261017-b@synthetic.invalid\n\tREADONLY\tNot yet\t—\t—\t—\t\nRecord",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "← Compliance",
+        "href": "/compliance"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": []
+}

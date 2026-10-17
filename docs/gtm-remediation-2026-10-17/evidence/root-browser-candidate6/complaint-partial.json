@@ -1,0 +1,167 @@
+{
+  "base": "http://localhost:44213",
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "at": "2026-10-17T15:11:29.024Z",
+  "results": [
+    {
+      "scenario": "actual authenticated role",
+      "role": "ADMIN",
+      "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+    },
+    {
+      "route": "/compliance",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "scope no broad Good Standing certification",
+          "ok": true
+        },
+        {
+          "label": "no broad statutory denominator",
+          "ok": true
+        },
+        {
+          "label": "tracked scope explained",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance.json"
+    },
+    {
+      "route": "/compliance/coi",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_coi.json"
+    },
+    {
+      "route": "/compliance/fic",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_fic.json"
+    },
+    {
+      "route": "/compliance/screening",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_screening.json"
+    },
+    {
+      "route": "/settings/notifications",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "implementation paths absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_notifications.json"
+    },
+    {
+      "route": "/settings/integrations",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "phase go-live copy absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_integrations.json"
+    },
+    {
+      "route": "/learn/agreement-signing",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "no missing advertised training media",
+          "ok": true
+        },
+        {
+          "label": "written learning content remains",
+          "ok": true
+        }
+      ],
+      "evidence": "_learn_agreement_signing.json"
+    },
+    {
+      "scenario": "complaint form ready",
+      "form": {
+        "valid": true,
+        "controls": [
+          {
+            "tag": "SELECT",
+            "type": "select-one",
+            "required": true,
+            "valid": true,
+            "empty": false
+          },
+          {
+            "tag": "SELECT",
+            "type": "select-one",
+            "required": false,
+            "valid": true,
+            "empty": false
+          },
+          {
+            "tag": "TEXTAREA",
+            "type": "textarea",
+            "required": true,
+            "valid": true,
+            "empty": false
+          }
+        ],
+        "submitDisabled": false
+      }
+    },
+    {
+      "scenario": "complaint actual creation response",
+      "status": 201,
+      "id": "cmvcjahor00mdju65smi8dvwt",
+      "reference": "COMP-MVCJAHOQ-LZBJ"
+    },
+    {
+      "scenario": "complaint actual update response",
+      "status": 200
+    }
+  ],
+  "failures": [],
+  "completed": false,
+  "error": "TimeoutError: Timed out after waiting 30000ms"
+}
