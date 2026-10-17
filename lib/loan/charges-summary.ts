@@ -9,6 +9,7 @@ import { CHARGE_TYPE_LABELS } from "@/lib/loan/charge-labels"
 import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import {
   currentSettlementAmount,
+  isS125InstalmentLoan,
   type SettlementLoanLike,
   type SettlementScheduleRow,
 } from "@/lib/loan/settlement"
@@ -126,6 +127,20 @@ export interface SettlementFigures {
   paymentsReceived: number
   /** the part of those receipts that paid default charges (kept after a stop) */
   chargeSplitsPaid: number
+  /** totalToSettle is the s125 figure (s125Priced), not the contractual remainder */
+  s125Priced: boolean
+}
+
+/**
+ * The loans whose settlement figure is priced under s125 (lib/loan/settlement.ts):
+ * an NCA consumer loan of several instalments, or an NCA DAILY_ACCRUAL bullet.
+ * For anything else — an asset-finance instalment sale, a NON_NCA loan, a
+ * single instalment — currentSettlementAmount is the contractual remainder,
+ * unearned interest included, so no document certifies it as what settles.
+ */
+export function isS125Priced(loan: SettlementLoanLike, schedule: SettlementScheduleRow[]): boolean {
+  if (loan.ncaRegime !== "NCA" || loan.contractType !== "LOAN") return false
+  return isS125InstalmentLoan(loan, schedule) || (loan.interestModel === "DAILY_ACCRUAL" && schedule.length === 1)
 }
 
 /**
@@ -170,7 +185,7 @@ export async function loanSettlementFigures(
     })
     return {
       live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
-      interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0,
+      interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0, s125Priced: false,
       paymentsReceived: received._sum.amount ?? 0,
       chargeSplitsPaid: (received._sum.defaultInterestAllocated ?? 0) + (received._sum.chargeFeesAllocated ?? 0),
     }
@@ -192,6 +207,7 @@ export async function loanSettlementFigures(
     totalToSettle,
     interestAndFeesOutstanding: Math.max(0, totalToSettle - chargesOutstanding - loan.outstandingPrincipal),
     arrearsIncludingCharges: loan.arrearsAmount + chargesOutstanding,
+    s125Priced: isS125Priced(loan, loan.repaymentSchedule),
     paymentsReceived: received._sum.amount ?? 0,
     chargeSplitsPaid: (received._sum.defaultInterestAllocated ?? 0) + (received._sum.chargeFeesAllocated ?? 0),
   }
@@ -223,11 +239,20 @@ export function certificatePaidToDate(figures: SettlementFigures): number | unde
   return figures.live || figures.chargeSplitsPaid > 0 ? figures.paymentsReceived : undefined
 }
 
-/** The certificate of balance's itemised block, or undefined while charges are off. */
+/**
+ * The certificate of balance's itemised settlement block: while charges are
+ * live, and for a loan priced under s125 (isS125Priced) whatever the charges.
+ * With charges off the certificate used to certify the principal alone, which
+ * left out the interest earned since the last instalment (R27,133.91 instead
+ * of R27,896.34 on the Fair Score audit's loan). Undefined otherwise: the
+ * certificate renders as before rather than certify a contractual remainder.
+ * "Total Paid to Date" stays Loan.totalPaid unless cash received differs from
+ * it (certificatePaidToDate).
+ */
 export function certificateSettlement(figures: SettlementFigures) {
-  if (!figures.live) return undefined
+  if (!figures.live && !figures.s125Priced) return undefined
   return {
-    paymentsReceived: figures.paymentsReceived,
+    paymentsReceived: certificatePaidToDate(figures),
     interestAndFeesOutstanding: figures.interestAndFeesOutstanding,
     charges: figures.chargeLines,
     totalToSettle: figures.totalToSettle,

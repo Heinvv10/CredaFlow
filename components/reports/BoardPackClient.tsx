@@ -27,7 +27,7 @@ type Props = {
   /** The lender's brand and NCR number (lib/config/identity.ts); ncrNumber is null until configured. */
   lenderName: string
   ncrNumber: string | null
-  book: number; activeLoans: number; clients: number; collectionsRate: number | null; arrearsRate: string | null
+  book: number; bookLoans: number; clients: number; collectionsRate: number | null; arrearsRate: string | null
   totalArrears: number; totalDisbursed: number
   buckets: { label: string; count: number; value: number; charges?: number }[]
   /** Of the accounts in the buckets, those under a NON_NCA (asset finance) agreement; stated separately. */
@@ -47,9 +47,10 @@ const PRODUCT_COLORS: Record<string, string> = {
   MICRO: "#4F46E5",
   PERSONAL: "#1565c0",
   PO_FUNDING: "#1e6b3f",
+  ASSET_FINANCE: "#8a5908",
 }
 
-export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clients, collectionsRate, arrearsRate, totalArrears, totalDisbursed, buckets, nonNcaArrears, topLoans, productMix, insurancePolicies, monthlyPremiums, nplRatio, nplAmount, par30, par60, par90, monthlyCollectionRate, delinquentAccounts, defaultCharges }: Props) {
+export function BoardPackClient({ lenderName, ncrNumber, book, bookLoans, clients, collectionsRate, arrearsRate, totalArrears, totalDisbursed, buckets, nonNcaArrears, topLoans, productMix, insurancePolicies, monthlyPremiums, nplRatio, nplAmount, par30, par60, par90, monthlyCollectionRate, delinquentAccounts, defaultCharges }: Props) {
   const maxVal = Math.max(...productMix.map(p => p.value), 1)
 
   return (
@@ -90,7 +91,7 @@ export function BoardPackClient({ lenderName, ncrNumber, book, activeLoans, clie
         <h2 className="text-lg font-bold text-[#1b1d24] mb-3">1. Executive Summary</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Loan Book", value: formatZAR(book), sub: `${activeLoans} active loans`, color: "#4F46E5" },
+            { label: "Loan Book", value: formatZAR(book), sub: `${bookLoans} loans in the collectible book`, color: "#4F46E5" },
             { label: "Active Clients", value: String(clients), sub: "With an active loan", color: "#1565c0" },
             collectionsRate === null
               ? { label: "Accounts Up To Date", value: "—", sub: "Data anomaly — see server logs", color: "#6b7280" }

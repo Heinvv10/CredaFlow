@@ -14,6 +14,7 @@ const PRODUCT_KIND: Record<string, string> = {
   MICRO: "Micro",
   PERSONAL: "Personal",
   PO_FUNDING: "PO Fund",
+  ASSET_FINANCE: "Asset finance",
 }
 
 export function productKindLabel(productType: string): string {

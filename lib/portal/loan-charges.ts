@@ -12,19 +12,25 @@ export interface PortalCharges {
    * staff loan page and the NCA documents. null while charges are off.
    */
   settlementAmount: number | null
+  /**
+   * What settles the loan today (s125, charges included), whether or not
+   * charges are live: the figure the staff loan page and the certificate of
+   * balance state (lib/loan/charges-summary.ts loanSettlementFigures).
+   */
+  totalToSettle: number
 }
 
-const NONE: PortalCharges = { outstanding: 0, lines: [], settlementAmount: null }
+const NONE: PortalCharges = { outstanding: 0, lines: [], settlementAmount: null, totalToSettle: 0 }
 
 export async function portalLoanCharges(tenantId: string, loanId: string, asOf: Date): Promise<PortalCharges> {
   const loan = await prisma.loan.findUnique({
     where: { id: loanId, tenantId },
-    include: { repaymentSchedule: { orderBy: { dueDate: "asc" } } },
+    include: { repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] } },
   })
   if (!loan) return NONE
   const figures = await loanSettlementFigures(prisma, loan, asOf)
-  if (!figures.live) return NONE
-  return { outstanding: figures.chargesOutstanding, lines: figures.chargeLines, settlementAmount: figures.totalToSettle }
+  if (!figures.live) return { ...NONE, totalToSettle: figures.totalToSettle }
+  return { outstanding: figures.chargesOutstanding, lines: figures.chargeLines, settlementAmount: figures.totalToSettle, totalToSettle: figures.totalToSettle }
 }
 
 /** The outstanding balance to show: the settlement amount while charges are live. */
@@ -43,5 +49,6 @@ export function sumPortalCharges(all: PortalCharges[]): PortalCharges {
     outstanding: all.reduce((sum, charges) => sum + charges.outstanding, 0),
     lines: [...byLabel].map(([label, amount]) => ({ label, amount })),
     settlementAmount: live.length > 0 ? live.reduce((sum, charges) => sum + (charges.settlementAmount ?? 0), 0) : null,
+    totalToSettle: all.reduce((sum, charges) => sum + charges.totalToSettle, 0),
   }
 }

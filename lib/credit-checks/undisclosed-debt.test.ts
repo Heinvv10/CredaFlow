@@ -32,6 +32,11 @@ describe("undisclosedDebt", () => {
     expect(undisclosedDebt(facts({ statements: [lender()], debts }))).toEqual([])
   })
 
+  it("is satisfied by the client's own loan with this lender: its debit order is no undisclosed debt", () => {
+    const debts = [{ name: "Synthlend Finance (Pty) Ltd", monthlyInstalmentCents: 125_000, source: "LENDER" as const }]
+    expect(undisclosedDebt(facts({ statements: [lender()], debts }))).toEqual([])
+  })
+
   it("still raises when the declared instalment is more than 10% off the debit order", () => {
     const debts = [{ name: "Synthlend Finance", monthlyInstalmentCents: 100_000, source: "DECLARED" as const }]
     expect(codes(undisclosedDebt(facts({ statements: [lender()], debts })))).toEqual(["UNDISCLOSED_DEBIT_ORDER"])

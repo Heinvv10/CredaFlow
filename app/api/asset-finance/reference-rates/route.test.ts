@@ -65,6 +65,27 @@ describe("POST /api/asset-finance/reference-rates", () => {
     expect(m.create).not.toHaveBeenCalled()
   })
 
+  it("records a REPO rate without asset finance: the NCA cap needs it at every lender", async () => {
+    m.requireAssetFinanceEnabled.mockResolvedValue(NextResponse.json({ error: "Not found" }, { status: 404 }))
+    const response = await post({ basis: "REPO", effectiveDate: "2026-11-21", rate: "0.07" })
+    expect(response.status).toBe(201)
+    expect(m.create).toHaveBeenCalledWith({ data: expect.objectContaining({ basis: "REPO", rate: new Prisma.Decimal("0.07") }) })
+  })
+
+  it("refuses a REPO rate to a role without manage_repo_rate, audited", async () => {
+    signIn("CREDIT_OFFICER")
+    expect((await post({ basis: "REPO", effectiveDate: "2026-11-21", rate: "0.07" })).status).toBe(403)
+    expect(m.create).not.toHaveBeenCalled()
+    expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({ reason: "insufficient_role", status: 403 }))
+  })
+
+  it.each(["0.005", "0.25"])("refuses an implausible repo rate (%s): 1%–20% only", async (rate) => {
+    const response = await post({ basis: "REPO", effectiveDate: "2026-11-21", rate })
+    expect(response.status).toBe(400)
+    expect((await response.json()).fields.rate).toContain("between 1% and 20%")
+    expect(m.create).not.toHaveBeenCalled()
+  })
+
   it("passes through the role guard's refusal", async () => {
     m.requireApiRole.mockResolvedValue({ error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) })
     expect((await post(VALID)).status).toBe(403)
@@ -108,10 +129,10 @@ describe("POST /api/asset-finance/reference-rates", () => {
 })
 
 describe("GET /api/asset-finance/reference-rates", () => {
-  it("answers 404 and reads nothing when the tenant has not enabled asset finance", async () => {
+  it("shows a tenant without asset finance its repo rate only", async () => {
     m.requireAssetFinanceEnabled.mockResolvedValue(NextResponse.json({ error: "Not found" }, { status: 404 }))
-    expect((await get()).status).toBe(404)
-    expect(m.findMany).not.toHaveBeenCalled()
+    expect((await get()).status).toBe(200)
+    expect(m.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "t1", basis: { in: ["REPO"] } } }))
   })
 
   it("passes through the role guard's refusal", async () => {

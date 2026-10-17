@@ -5,6 +5,8 @@ const ensure = vi.fn()
 const queueRead = vi.fn()
 const recomputeClient = vi.fn()
 
+const ownLenderDebtsMock = vi.hoisted(() => ({ value: { lenderNames: [] as string[], loans: [] as Array<{ instalmentCents: number }> } }))
+vi.mock("@/lib/affordability/own-lender-debt-load", () => ({ loadOwnLenderDebts: async () => ownLenderDebtsMock.value }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: {

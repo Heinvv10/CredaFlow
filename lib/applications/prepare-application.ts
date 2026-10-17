@@ -19,6 +19,7 @@ import {
   createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { loadOwnLenderDebts, ownAwareDebtTotal, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import {
   creditLifeOfferedFor,
   CREDIT_LIFE_DISCLOSURE_VERSION,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/insurance/credit-life-election.server"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount" | "appliedTermDays"> & {
   appliedAmount: number // cents (wizard coerces to cents before POST/PATCH)
@@ -120,7 +122,7 @@ export async function prepareApplicationFields(
   const db = database ?? prisma
   // Load active products for server-side validation
   const activeProductRows = await db.loanProduct.findMany({
-    where: { tenantId, active: true },
+    where: { tenantId, active: true, ...CONSUMER_PRODUCT_WHERE },
     select: {
       id: true,
       name: true,
@@ -225,9 +227,8 @@ export async function prepareApplicationFields(
     }
   }
 
-  const totalExistingDebt = client.debtObligations.reduce(
-    (sum, d) => sum + d.monthlyInstalment, 0
-  )
+  const own = await loadOwnLenderDebts(db, tenantId, client.id) // obligations to this lender count too
+  const totalExistingDebt = ownAwareDebtTotal(client.debtObligations, own)
   const netDisposableIncome = client.monthlyIncome - client.monthlyExpenses - totalExistingDebt
 
   // Persist the exact server-side submission inputs, rather than only the NDI
@@ -495,8 +496,8 @@ export async function prepareApplicationFields(
     capturedAt: now,
     capturedById: userId,
     client,
-    applicationDebts: debtSnapshot,
-    clientDebts: client.debtObligations,
+    applicationDebts: withOwnLenderDebts(debtSnapshot, own),
+    clientDebts: withOwnLenderDebts(client.debtObligations, own),
     application: {
       appliedAmount: data.appliedAmount,
       appliedTermDays: data.appliedTermDays,

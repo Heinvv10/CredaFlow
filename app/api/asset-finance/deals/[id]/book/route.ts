@@ -9,6 +9,7 @@ import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
 const STATE_CONFLICTS = new Set([
   "already_booked", "not_contracted", "application_not_ready", "no_payout", "payout_not_approved",
   "account_not_approved", "asset_changed", "terms_changed", "not_prepared", "start_passed",
+  "exceptions_since_approval", "product_not_asset_finance",
 ])
 
 /**

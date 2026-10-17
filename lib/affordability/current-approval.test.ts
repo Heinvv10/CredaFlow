@@ -123,9 +123,12 @@ function transactionFor(
     .mockResolvedValueOnce([{ id: "config-1" }])
   return {
     $queryRaw: queryRaw,
-    loanApplication: { findUnique: vi.fn().mockResolvedValue(application) },
     creditBureauCheck: { findFirst: vi.fn().mockResolvedValue(bureauCheck) },
     tenantConfig: { findUnique: vi.fn().mockResolvedValue(tenantConfig) },
+    // No own loans with this lender (lib/affordability/own-lender-debt.ts).
+    loan: { findMany: vi.fn().mockResolvedValue([]) },
+    loanApplication: { findUnique: vi.fn().mockResolvedValue(application), findMany: vi.fn().mockResolvedValue([]) },
+    tenant: { findUnique: vi.fn().mockResolvedValue({ name: "Acme Lending" }) },
     clientDocument: {
       findMany: vi.fn().mockResolvedValue(kyc.documents ?? verifiedCoreDocuments),
       findFirst: vi.fn().mockResolvedValue(
@@ -623,6 +626,53 @@ describe("product pricing terms are frozen at approval", () => {
     // APPROVED one. Asserting only `ok` would stay green on an implementation
     // that admitted the loan and then priced it off the repriced product.
     expect(result.ok && result.calculation).toEqual(approvedCalculation)
+  })
+
+  it("re-checks an own-lender loan on the entry the approval recorded, not a re-read", () => {
+    // Her loan with this lender was counted at approval. Paying it down (or
+    // settling it) before payout changes the live loan, not the decision.
+    const own = {
+      lenderNames: ["Acme Lending"],
+      loans: [{ id: "own-1", reference: "LN-OWN-1", status: "ACTIVE", instalmentCents: 30_000, outstandingPrincipal: 900_000, daysInArrears: 0, arrearsAmount: 0 }],
+    }
+    const application = applicationFixture("APPROVED", null, own)
+    expect(application.affordabilityResult.approval?.inputs.declaredDebtCents).toBe(50_000 + 30_000)
+
+    const result = verifyCurrentAffordabilityApproval({
+      application,
+      bureauCheck,
+      tenantConfig,
+      requirePasqAcknowledgement: false,
+    })
+
+    expect(result).toMatchObject({ ok: true })
+  })
+
+  it("fails signing and payout closed when the client owes this lender more than the approval recorded", async () => {
+    const application = repricedAfterApproval(applicationFixture("APPROVED"))
+    const tx = transactionFor(application)
+    // Another loan of the client was paid out after this approval.
+    tx.loan.findMany.mockResolvedValue([{
+      id: "loan-later", clientId: "client-1", reference: "LN-LATER", status: "ACTIVE", outstandingPrincipal: 300_000,
+      daysInArrears: 0, arrearsAmount: 0, repaymentSchedule: [{ totalDue: 110_000 }, { totalDue: 105_000 }],
+    }])
+    const result = await verifyLockedCurrentAffordabilityApproval(tx as never, { tenantId: "tenant-1", applicationId: "application-1" })
+    expect(result).toEqual({ ok: false, reason: "changed" })
+  })
+
+  it("re-checks the repeat short-term rate at payout on the rate the approval froze", async () => {
+    // R5,000 over 90 days is short-term; an earlier short-term loan this year
+    // allows at most 3% a month. Approved at 3%; the product now says 5%.
+    const application = repricedAfterApproval(applicationFixture("APPROVED"))
+    const tx = transactionFor(application)
+    tx.loan.findMany.mockImplementation(async (args: { where: { status?: unknown } }) =>
+      "status" in args.where && (args.where.status as { not?: string }).not === "CANCELLED"
+        ? [{ startDate: new Date("2026-02-01T10:00:00Z"), maturityDate: new Date("2026-03-01T10:00:00Z") }]
+        : [])
+    expect((await verifyLockedCurrentAffordabilityApproval(tx as never, { tenantId: "tenant-1", applicationId: "application-1" })).ok).toBe(true)
+    expect(tx.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { not: "CANCELLED" }, applicationId: { not: "application-1" } }),
+    }))
   })
 
   it("permits signing and payout after the product is repriced post-approval", async () => {

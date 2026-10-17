@@ -72,6 +72,9 @@ import {
   totalAffordabilityDebt,
 } from "@/lib/affordability/snapshot"
 import { hasClientBorrower } from "@/lib/borrower"
+import { ownLenderArrears, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt"
+import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
+import { OwnLenderArrearsNotice } from "@/components/applications/OwnLenderArrearsNotice"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 import { signingOtpView } from "@/lib/signing-otp/view"
 import { bureauRailAction } from "@/lib/applications/bureau-rail-action"
@@ -246,6 +249,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     cannedReplies,
     latestAvsCheck,
     latestSelfieToken,
+    ownLenderDebts,
   ] = await Promise.all([
     getDocumentMismatches(application.clientId, tenantId),
     getBureauCheck(application.id, tenantId, application.bureauReviewGeneration),
@@ -265,6 +269,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       orderBy: { createdAt: "desc" },
       select: { channel: true, sentTo: true, expiresAt: true, usedAt: true },
     }),
+    // The client's loans with this lender: counted in affordability, arrears flagged.
+    loadOwnLenderDebts(prisma, tenantId, application.clientId, application.id),
   ])
   // Masked here rather than in the component: the raw destination must not
   // cross into a client bundle at all.
@@ -406,7 +412,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
   let clientDebtEvidenceInvalid = false
   try {
     clientDebtTotal = totalAffordabilityDebt(
-      normaliseAffordabilityDebts(application.client.debtObligations),
+      normaliseAffordabilityDebts(withOwnLenderDebts(application.client.debtObligations, ownLenderDebts)),
     )
   } catch (error) {
     if (!(error instanceof InvalidAffordabilityDebtError)) throw error
@@ -588,6 +594,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         ]}
       />
       <div className="p-4 lg:p-8 space-y-6">
+        <OwnLenderArrearsNotice arrears={ownLenderArrears(ownLenderDebts)} />
         <CaseFileLayout
           context={
             <div className="space-y-4">
@@ -783,6 +790,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           monthlyExpenses={displayedMonthlyExpenses}
           existingDebts={displayedDebtRows}
           clientDebtTotal={clientDebtTotal}
+          ownLenderDebts={affordabilityLocked ? null : ownLenderDebts}
           proposedInstalment={displayedProposedInstalment}
           affordabilityNDI={application.affordabilityNDI}
           done={!!application.affordabilityNDI}

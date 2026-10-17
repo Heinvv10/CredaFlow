@@ -298,6 +298,8 @@ describe("bureauAccountType", () => {
     expect(bureauAccountType("MICRO")).toBe("M")
     expect(bureauAccountType("PERSONAL")).toBe("P")
     expect(bureauAccountType("PO_FUNDING")).toBeNull()
+    // A sole proprietor's NCA asset loan is reported as it was while asset products were typed PERSONAL.
+    expect(bureauAccountType("ASSET_FINANCE")).toBe("P")
     expect(() => mapLoan(bureauInput({ productType: "PO_FUNDING" }))).toThrow(/not reported/)
   })
 })

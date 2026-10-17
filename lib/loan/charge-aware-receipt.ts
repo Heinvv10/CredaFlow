@@ -80,7 +80,7 @@ export function projectReceiptWithReplay(replay: ChargesReplay | null, args: Rec
   // amount is known: charges re-priced by its date can leave a few cents of
   // the schedule unpaid. A writer that marked it COMPLETED on the projection
   // alone would also stop the replay accruing at the value date. A lawful
-  // early DAILY_ACCRUAL settlement (s125) is projectReceipt's own decision.
+  // early settlement (s125) is projectReceipt's own decision.
   const settled = () => {
     if (projection.appliedAmount === 0) return false
     const after = replay.replayAt(asOf, [{ id: PROBE, amount: projection.appliedAmount, receivedAt }])
@@ -88,7 +88,11 @@ export function projectReceiptWithReplay(replay: ChargesReplay | null, args: Rec
     return after.scheduleAllocated >= scheduleTotal && after.interestOutstanding + after.feesOutstanding === 0
   }
   return {
-    projection: projection.isEarlyDailySettlement ? projection : { ...projection, isCompleted: settled() },
+    // An early settlement (s125) re-prices the schedule, so the replay of the
+    // contractual one cannot judge it: projectReceipt's own decision stands.
+    projection: projection.isEarlyDailySettlement || projection.isEarlyInstalmentSettlement
+      ? projection
+      : { ...projection, isCompleted: settled() },
     chargesBackdating: projection.appliedAmount > 0
       ? chargesBackdating(replay, { amount: projection.appliedAmount, receivedAt }, asOf)
       : { rebateCents: 0, accruedAtCaptureCents: 0 },

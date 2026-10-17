@@ -64,8 +64,3 @@ export const SETTLED_STATUSES = ["COMPLETED", "CANCELLED", "WRITTEN_OFF"] as con
 export function collectibleLoanWhere(tenantId: string): Prisma.LoanWhereInput {
   return { tenantId, status: { in: [...COLLECTIBLE_STATUSES] } }
 }
-
-/** The collectible book, narrowed to accounts at or beyond `minDays` past due. */
-export function collectibleParWhere(tenantId: string, minDays: number): Prisma.LoanWhereInput {
-  return { ...collectibleLoanWhere(tenantId), daysInArrears: { gte: minDays } }
-}

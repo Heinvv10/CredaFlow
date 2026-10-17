@@ -8,6 +8,7 @@ import { computeQualification } from "@/lib/qualify"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Resolve by tenant-scoped UNIQUE product code, never by productType:
 // two products can both be productType MICRO, and type+creation-order
@@ -48,7 +49,7 @@ export default async function PortalApplyProductPage({
       include: { debtObligations: true },
     }),
     prisma.loanProduct.findFirst({
-      where: { tenantId, code: productCode, active: true },
+      where: { tenantId, code: productCode, active: true, ...CONSUMER_PRODUCT_WHERE },
     }),
     prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
   ])

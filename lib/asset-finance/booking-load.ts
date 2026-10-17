@@ -10,6 +10,8 @@ import { Prisma } from "@prisma/client"
 import type { SigningTx } from "./signing-prepare"
 import { DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { isLeaseContract } from "./lease-input"
+import { dealCreditGate } from "./deal-credit-gate"
+import type { ArrearsGrowth } from "./deal-exception-severity"
 
 export interface BookingRefusal {
   kind: "refused"
@@ -56,6 +58,8 @@ const BOOKING_SELECT = {
 type Loaded = Prisma.AssetFinanceDealGetPayload<{ select: typeof BOOKING_SELECT }>
 export type BookingDeal = Omit<Loaded, "payout"> & {
   payout: NonNullable<Loaded["payout"]>
+  /** Answered arrears exceptions whose amount grew since approval (./deal-credit-gate.ts): audited with the booking. */
+  arrearsGrownSinceApproval?: ArrearsGrowth[]
 }
 
 export type LoadResult = { kind: "not_found" } | BookingRefusal | { kind: "loaded"; deal: BookingDeal }
@@ -109,5 +113,7 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
   if (payout.supplierBankAccount.status !== "APPROVED") {
     return refuse("account_not_approved", "The payout's bank account is no longer the supplier's APPROVED account")
   }
-  return { kind: "loaded", deal: { ...deal, payout } }
+  const credit = await dealCreditGate(tx, tenantId, dealId)
+  if (credit.problem) return refuse(credit.problem.kind, credit.problem.message)
+  return { kind: "loaded", deal: { ...deal, payout, arrearsGrownSinceApproval: credit.arrearsGrown } }
 }

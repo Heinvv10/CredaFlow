@@ -89,7 +89,7 @@ export function leaseBody(fx: LeaseFixture, overrides: LeaseBody): Record<string
   }
 }
 
-type Staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => void
+export type Staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => void
 
 /** Create → submit → memo → approve. Returns the deal id. */
 export async function approveLease(fx: LeaseFixture, staff: Staff, body: Record<string, unknown>): Promise<string> {
@@ -142,8 +142,8 @@ export async function signLease(fx: LeaseFixture, db: PrismaClient, setSession: 
   expect(contracted.status, await contracted.clone().text()).toBe(200)
 }
 
-/** Confirm every required checklist item, create the payout, approve it as a second admin, book. Returns the booked loan id. */
-export async function payoutAndBook(fx: LeaseFixture, db: PrismaClient, staff: Staff, dealId: string): Promise<string> {
+/** Confirm every required checklist item with its synthetic evidence, as the credit officer. */
+export async function confirmChecklist(fx: LeaseFixture, db: PrismaClient, staff: Staff, dealId: string): Promise<void> {
   const routes = bookingRoutes(fx.host)
   const deal = await db.assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, include: { asset: true } })
   for (const item of requiredChecklistKinds(deal.contractType, deal.asset)) {
@@ -159,6 +159,11 @@ export async function payoutAndBook(fx: LeaseFixture, db: PrismaClient, staff: S
     const confirmed = await routes.confirm(dealId, item, { evidenceDocumentId, attestedSerial: deal.asset.serialNumber, note: null })
     expect(confirmed.status, `${item}: ${await confirmed.clone().text()}`).toBe(200)
   }
+}
+
+/** Create the payout and approve it as a second admin when it needs one. */
+export async function createAndApprovePayout(fx: LeaseFixture, db: PrismaClient, staff: Staff, dealId: string): Promise<void> {
+  const routes = bookingRoutes(fx.host)
   staff(fx.adminA, "LOAN_ADMIN")
   expect((await routes.createPayout(dealId)).status).toBe(201)
   const payout = await db.payout.findUniqueOrThrow({ where: { dealId } })
@@ -166,8 +171,14 @@ export async function payoutAndBook(fx: LeaseFixture, db: PrismaClient, staff: S
     staff(fx.adminB, "LOAN_ADMIN")
     expect((await routes.approve(dealId)).status).toBe(200)
   }
+}
+
+/** Confirm every required checklist item, create the payout, approve it as a second admin, book. Returns the booked loan id. */
+export async function payoutAndBook(fx: LeaseFixture, db: PrismaClient, staff: Staff, dealId: string): Promise<string> {
+  await confirmChecklist(fx, db, staff, dealId)
+  await createAndApprovePayout(fx, db, staff, dealId)
   staff(fx.adminA, "LOAN_ADMIN")
-  const booked = await routes.book(dealId)
+  const booked = await bookingRoutes(fx.host).book(dealId)
   const json = (await booked.json()) as { loanId?: string; error?: string }
   expect(booked.status, JSON.stringify(json)).toBe(201)
   return json.loanId ?? ""

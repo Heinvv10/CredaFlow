@@ -33,7 +33,8 @@ export interface PayslipFacts {
 export interface DebtFacts {
   name: string
   monthlyInstalmentCents: number
-  source: "DECLARED" | "BUREAU"
+  /** LENDER: the client's own loans and approved applications with this lender */
+  source: "DECLARED" | "BUREAU" | "LENDER"
 }
 
 export interface ApplicationFacts {

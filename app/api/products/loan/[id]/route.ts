@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
+import { loanProductUpdateCapRefusal } from "@/lib/product-config/interest-cap"
 import {
   micro30ContractIssues,
   micro30DecisionTermsChanged,
@@ -92,6 +93,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { id, tenantId: tenant.id },
       })
       if (!before) return { kind: "not_found" as const }
+      // NCA Regulation 42, on a price change or an activation only (lib/product-config/interest-cap.ts).
+      const capRefusal = await loanProductUpdateCapRefusal(tenant.id, before, data)
+      if (capRefusal) return { kind: "cap" as const, body: capRefusal }
 
       // The portal apply pages resolve their product by these exact codes
       // (app/(portal)/portal/apply/[product]/page.tsx PRODUCT_KEY_TO_CODE).
@@ -108,6 +112,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // lookup no longer finds. A stable code has exactly one permitted
         // value — pin the write to it.
         data.code = beforeCode
+      }
+      // Moving a product into or out of ASSET_FINANCE moves it between the
+      // asset-finance deal list and every consumer list
+      // (lib/product-config/product-kind.ts). A product with applications
+      // keeps its kind (they were made under it), and a portal-stable code is
+      // always consumer.
+      if (data.productType !== undefined && (before.productType === "ASSET_FINANCE") !== (data.productType === "ASSET_FINANCE")) {
+        if (PORTAL_STABLE_PRODUCT_CODES.has(beforeCode)) return { kind: "kind_locked" as const, reason: `${beforeCode} is a stable consumer product code` }
+        const applications = await tx.loanApplication.count({ where: { tenantId: tenant.id, productId: before.id } })
+        if (applications > 0) return { kind: "kind_locked" as const, reason: `${applications} application(s) were made under it` }
       }
       if (
         before.code.trim().toUpperCase() === "MICRO30"
@@ -164,9 +178,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (result.kind === "not_found") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    if (result.kind === "cap") return NextResponse.json(result.body, { status: 422 })
     if (result.kind === "stable_code") {
       return NextResponse.json(
         { error: `${result.code} is a stable product code the portal resolves against and cannot be renamed.` },
+        { status: 422 },
+      )
+    }
+    if (result.kind === "kind_locked") {
+      return NextResponse.json(
+        { error: `The product cannot move into or out of Asset finance: ${result.reason}. Create a new product instead.` },
         { status: 422 },
       )
     }

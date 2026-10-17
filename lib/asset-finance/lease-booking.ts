@@ -181,6 +181,7 @@ export async function bookLease(tx: SigningTx, actor: SigningActor, deal: Bookin
       vatRate: vat.rate, cpaApplies: deal.cpaApplies, cpaRule: deal.cpaRule,
       arrearsMarginRate: signed.arrearsMarginRate?.toString() ?? null, collectionFeeCents: signed.collectionFeeCents,
       taxInvoiceId: null, ledger: "LEASE_RENTALS",
+      ...(deal.arrearsGrownSinceApproval?.length ? { arrearsGrownSinceApproval: deal.arrearsGrownSinceApproval } : {}),
     },
   }, tx)
   await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

@@ -14,9 +14,9 @@ import {
   AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
   affordabilityExpenseEvidenceNeedsMleJustification,
   createAffordabilityExpenseEvidence,
-  createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { creditBlock } from "@/lib/clients/status"
@@ -469,7 +469,7 @@ export async function POST(
         const product = await tx.loanProduct.findUnique({
           where: { id: data.productId, tenantId: tenant.id },
         })
-        if (!product || !product.active) return { kind: "product_unavailable" as const }
+        if (!product || !product.active || product.productType === "ASSET_FINANCE") return { kind: "product_unavailable" as const }
         // A lead carries no purchase order; PO funding is applied for with it.
         if (requiresPoFundingFacts(product.productType)) return { kind: "po_funding_needs_order" as const }
         if (resolveTermDays(data.appliedTermDays, product) === null) {
@@ -584,7 +584,7 @@ export async function POST(
         const lockedProduct = await tx.loanProduct.findUnique({
           where: { id: data.productId, tenantId: tenant.id },
         })
-        if (!lockedProduct || !lockedProduct.active) {
+        if (!lockedProduct || !lockedProduct.active || lockedProduct.productType === "ASSET_FINANCE") {
           throw new Error("Selected loan product is unavailable")
         }
         const appliedTermDays = resolveTermDays(data.appliedTermDays, lockedProduct)
@@ -600,7 +600,7 @@ export async function POST(
           include: { debtObligations: true, expenseBreakdown: true },
         })
         if (!snapshotClient) throw new Error("Client disappeared before application creation")
-        const submissionSnapshot = createSubmissionAffordabilitySnapshot({
+        const submissionSnapshot = await ownAwareSubmissionSnapshot(tx, tenant.id, snapshotClient.id, {
           capturedAt: now,
           capturedById: guard.user.id ?? null,
           client: snapshotClient,

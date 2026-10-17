@@ -27,9 +27,9 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+import { overdueBandWhere as parWhere } from "@/lib/reports/book-arrears"
 import {
   getNcrReturnData,
-  parWhere,
   disbursedInQuarterWhere,
   receiptsInQuarterWhere,
   submissionSnapshot,
@@ -50,7 +50,11 @@ const NOW = new Date("2026-08-16T10:00:00Z") // in 2026-Q3, so Q2 is closed
 function stubQueries() {
   loanAggregate.mockImplementation((args: { where: Prisma.LoanWhereInput }) => {
     const w = args.where as Record<string, unknown>
-    const dpd = (w.daysInArrears as { gte?: number } | undefined)?.gte
+    // Book, arrears and PAR come from lib/reports/book-arrears.ts: a PAR band
+    // narrows the arrears population with AND [{ daysInArrears: { gte } }].
+    const band = (w.AND as Array<{ daysInArrears?: { gte?: number } }> | undefined)?.[0]?.daysInArrears?.gte
+    const inArrears = (w.daysInArrears as { gt?: number } | undefined)?.gt === 0
+    const dpd = band ?? (inArrears ? 1 : undefined)
     if (w.startDate) return { _count: 7, _sum: { principal: 700_00 } }
     // Write-offs key on the timestamp, not the status: the query deliberately
     // carries no status predicate so the line stays reproducible.
@@ -84,10 +88,10 @@ const line = (data: Awaited<ReturnType<typeof getNcrReturnData>>, key: string) =
 describe("population predicates", () => {
   it("confines every PAR band to the collectible book", () => {
     for (const days of [1, 30, 60, 90]) {
-      expect(parWhere(TENANT, days)).toEqual({
+      expect(parWhere(TENANT, days)).toMatchObject({
         tenantId: TENANT,
         status: { in: ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF", "RESTRUCTURED"] },
-        daysInArrears: { gte: days },
+        AND: [{ daysInArrears: { gte: days } }],
       })
     }
   })
@@ -126,7 +130,7 @@ describe("population predicates", () => {
   })
 
   it("uses PAR bands at or beyond the boundary, not strictly beyond", () => {
-    expect((parWhere(TENANT, 30).daysInArrears as { gte: number }).gte).toBe(30)
+    expect(parWhere(TENANT, 30).AND).toEqual([{ daysInArrears: { gte: 30 } }])
   })
 
   it("scopes period predicates to end-exclusive quarter bounds", () => {

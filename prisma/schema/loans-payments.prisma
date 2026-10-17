@@ -37,6 +37,7 @@ enum ProductType {
   MICRO
   PERSONAL
   PO_FUNDING
+  ASSET_FINANCE
 }
 
 enum InterestModel {

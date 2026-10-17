@@ -14,6 +14,7 @@ import {
 } from "@/lib/credit/debt-account-types"
 import { formatZAR } from "@/lib/utils"
 import { toast } from "@/lib/toast"
+import { OwnLenderDebtRows, ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 
 interface DebtEntry {
   sourceId?: string | null
@@ -30,6 +31,7 @@ interface Props {
   monthlyExpenses: number
   existingDebts: DebtEntry[]
   clientDebtTotal: number
+  ownLenderDebts?: import("@/lib/affordability/own-lender-debt").OwnLenderDebts | null // live only; null once locked
   proposedInstalment: number
   affordabilityNDI?: number | null
   done: boolean
@@ -52,7 +54,7 @@ interface Props {
 // from another vocabulary matched no <option>, so the select displayed its
 // FIRST entry — "Home Loan" — for every unmatched row. See lib/credit/debt-account-types.ts.
 
-export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
+export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
   const [debts, setDebts] = useState<DebtEntry[]>(initialDebts?.length > 0 ? initialDebts : [])
   // The type as STORED, before this panel rendered it canonically. Re-picking
@@ -92,7 +94,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   const applicationDebtTotal = debts.reduce(
     (sum, debt) => sum + Math.max(0, Math.round(debt.monthlyInstalment || 0)),
     0,
-  )
+  ) + ownLenderPreview(debts, ownLenderDebts).instalments // as the server adds obligations to this lender
   const calculatedAssessment = assessAffordability({
     monthlyIncomeCents: monthlyIncome,
     monthlyExpensesCents: monthlyExpenses,
@@ -271,6 +273,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
           )}
         </div>
 
+        <OwnLenderDebtRows debts={debts} own={ownLenderDebts} />
         {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 
         {canEdit ? (

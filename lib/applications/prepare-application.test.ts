@@ -7,6 +7,14 @@ const loanFindFirstMock = vi.fn()
 const insuranceProductFindFirstMock = vi.fn()
 const queryRawMock = vi.fn()
 const clientDocumentFindFirstMock = vi.fn()
+// No loans with this lender here; the obligations themselves are proven in
+// lib/affordability/own-lender-debt.integration.test.ts.
+vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
+  loadOwnLenderDebts: async () => ({ lenderNames: [], loans: [] }),
+  ownAwareSubmissionSnapshot: async (_db: unknown, _tenantId: string, _clientId: string, args: Parameters<typeof import("@/lib/affordability/snapshot").createSubmissionAffordabilitySnapshot>[0]) =>
+    (await import("@/lib/affordability/snapshot")).createSubmissionAffordabilitySnapshot(args),
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: (a: unknown) => queryRawMock(a),
@@ -149,6 +157,15 @@ describe("prepareApplicationFields — validation failure", () => {
     expect(result.body.errors?.clientId).toBeTruthy()
     expect(clientFindUniqueMock).not.toHaveBeenCalled()
     expect(loanFindFirstMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("prepareApplicationFields — consumer products only", () => {
+  it("validates against active consumer products: an asset-finance product is never offered (Fair Score E4)", async () => {
+    await prepareApplicationFields(validInput(), "t1", "u1", { action: "create" })
+    expect(loanProductFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: "t1", active: true, productType: { not: "ASSET_FINANCE" } },
+    }))
   })
 })
 

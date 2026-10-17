@@ -3,6 +3,7 @@ import { useState } from "react"
 import { ClientPicker } from "@/components/wizard/ClientPicker"
 import type { Client } from "@/components/wizard/types"
 import { INVALIDATED_AFFORDABILITY } from "./types"
+import { OwnLenderArrearsNotice } from "@/components/applications/OwnLenderArrearsNotice"
 import type { ApplicationWizardData, WizardMode } from "./types"
 import type { ValidationErrors } from "@/lib/validation/application-wizard"
 
@@ -15,9 +16,11 @@ interface StepProps {
   // staff vs portal context without a future prop-drilling refactor.
   mode: WizardMode
   clients: Client[]
+  /** "In arrears with us" for the selected client (lib/affordability/own-lender-debt.ts) */
+  selectedClientArrears?: { days: number; amountCents: number } | null
 }
 
-export function Step1ClientSelect({ data, patch, errors, clients }: StepProps) {
+export function Step1ClientSelect({ data, patch, errors, clients, selectedClientArrears = null }: StepProps) {
   const [search, setSearch] = useState("")
   return (
     <div className="space-y-4">
@@ -39,6 +42,7 @@ export function Step1ClientSelect({ data, patch, errors, clients }: StepProps) {
           ...(id !== data.clientId ? { poDocumentId: "" } : {}),
         })}
       />
+      <OwnLenderArrearsNotice arrears={selectedClientArrears} />
       {errors.clientId && (
         <p className="text-xs text-[var(--cf-danger)]" role="alert">{errors.clientId}</p>
       )}

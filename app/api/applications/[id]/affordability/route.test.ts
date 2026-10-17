@@ -8,6 +8,22 @@ const auditLogCreateMock = vi.fn()
 const queryRawMock = vi.fn()
 const transactionMock = vi.fn()
 
+// The client's own loans with this lender: none here (the real-DB behaviour is
+// lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
+const ownLenderLoansMock = vi.hoisted(() => ({ loans: [] as Array<Record<string, unknown>> }))
+vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => {
+  const { withOwnLenderDebts } = await import("@/lib/affordability/own-lender-debt")
+  const { readAffordabilityDebtInputs } = await import("@/lib/affordability/snapshot")
+  const own = () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans as never[] })
+  return {
+    ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
+    loadOwnLenderDebts: async () => own(),
+    liveOwnAwareDebtInputs: async (_db: unknown, _t: string, _id: string, source: { existingDebtObligations: unknown; client: { debtObligations: never[] } }) => ({
+      application: withOwnLenderDebts(readAffordabilityDebtInputs(source.existingDebtObligations), own()),
+      client: withOwnLenderDebts(source.client.debtObligations, own()),
+    }),
+  }
+})
 vi.mock("@/lib/auth-guards", async () => ({
   requireApiRole: () => requireApiRoleMock(),
   // The real permission check (the client-safe twin of auth-guards' canDo).
@@ -301,6 +317,18 @@ describe("PATCH /api/applications/[id]/affordability", () => {
       },
     })
     expect(findUniqueMock).not.toHaveBeenCalled()
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a declared row carrying the lender-only own-loan sourceId", async () => {
+    const response = await PATCH(request({
+      existingDebtObligations: [
+        { sourceId: "own-loan:loan-1", creditor: "Acme Lending", type: "PERSONAL_LOAN", balance: 0, monthlyInstalment: 100 },
+      ],
+    }), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toContain("counted automatically")
     expect(transactionMock).not.toHaveBeenCalled()
   })
 

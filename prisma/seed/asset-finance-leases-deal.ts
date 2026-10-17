@@ -29,15 +29,15 @@ import { confirmChecklist, payOutAndBook, signAndContract } from "./asset-financ
 import { LEASE_PRODUCT_CODE, LEASE_SOLE_PROP, type LeaseSpec } from "./asset-finance-leases-data"
 
 /**
- * The lease product: as the instalment-sale product (./asset-finance-book.ts) with a 90-day
+ * The lease product (ASSET_FINANCE): as the instalment-sale product (./asset-finance-book.ts) with a 90-day
  * minimum term, so a 5-rental lease is bookable. UNTESTED: legal — the lender's minimum lease term.
  */
 export async function ensureLeaseProduct(tenantId: string): Promise<string> {
   const product = await prisma.loanProduct.upsert({
     where: { tenantId_code: { tenantId, code: LEASE_PRODUCT_CODE } },
-    update: {},
+    update: { productType: "ASSET_FINANCE" },
     create: {
-      tenantId, code: LEASE_PRODUCT_CODE, name: "Plant & Vehicle Lease", productType: "PERSONAL",
+      tenantId, code: LEASE_PRODUCT_CODE, name: "Plant & Vehicle Lease", productType: "ASSET_FINANCE",
       minAmount: 10_000_000, maxAmount: 1_000_000_000, minTermDays: 90, maxTermDays: 3_660,
       interestRatePm: 0.01, interestModel: "REDUCING_BALANCE",
       nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02"), nonNcaCollectionFeeCents: 25_000,
