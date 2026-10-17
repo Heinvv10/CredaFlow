@@ -121,6 +121,8 @@ export function checkAnswer(text: string, results: QueryResult[], raisedFlagCode
       amountsCents: [...allowed.amountsCents, ...asked.amountsCents],
       dates: [...(allowed.dates ?? []), ...asked.dates],
       months: [...(allowed.months ?? []), ...asked.months],
+      // The officer asked about something below a figure: the answer may say so.
+      relations: { below: /\b(below|lower|less|under|within|smaller|fewer)\b/i.test(question) },
     },
     raisedFlagCodes,
   })

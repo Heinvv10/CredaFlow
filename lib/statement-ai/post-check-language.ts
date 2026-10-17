@@ -32,7 +32,7 @@ export const NEGATED_AFTER = /\b(concern\w*|issues?|problems?|risks?|signs?|anom
 
 /** Decisions belong to the officer; verdicts on a document, a client or their risk to the rules' evidence. */
 export const VERDICT = new RegExp([
-  "approv\\w*", "declin\\w*", "recommend\\w*", "reject\\w*", "accept(s|ed|ing)?", "grant\\w*", "lend\\w*", "proceed\\w*",
+  "approv\\w*", "declin\\w*", "recommend\\w*", "reject\\w*", "accept(s|ed|ing)?", "grant\\w*", "lends?", "(should|could|can|to|not) lend\\w*", "proceed\\w*",
   "turn(ed|s)? down", "den(y|ied|ies)", "refus\\w*", "(un)?creditworth\\w*", "afford\\w*", "eligib\\w*", "suitab\\w*",
   "trust(worthy|ed|s)?", "reliab\\w*", "suspicious\\w*", "fraud\\w*", "risky", "(high|low|elevated|moderate|minimal|little)[- ]risk",
   "genuine\\w*", "authentic\\w*", "unaltered", "untampered", "tamper\\w*", "forg(ed|ery|eries)", "fake\\w*", "doctored",
@@ -79,8 +79,8 @@ export function checkVocabulary(rawText: string, names: Iterable<string>, payeeN
   // "CAPITEC"). A payee's name is statement text a client can write: it matches only as given, in
   // capitals, so it reads as a name and can never lend the prose an ordinary word.
   const trusted = [...names].filter((n) => !payees.has(n))
-  const payeeWords = [...payees].flatMap((n) => [n, ...n.split(" ").filter((w) => w.length > 2)])
-  let text = stripLiterals(stripLiterals(plainLetters(rawText), trusted, "i"), payeeWords)
+  // Only the whole payee phrase: a single word of it ("ORDINARY" of "ORDINARY JOES") must not stand alone.
+  let text = stripLiterals(stripLiterals(plainLetters(rawText), trusted, "i"), payees)
   text = text.replace(/\S*\d\S*/g, " ").replace(ALLOWED_NEGATIONS, " ")
   for (const word of text.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) ?? []) {
     const w = word.toLowerCase().replace(/'s$/, "")
@@ -91,10 +91,37 @@ export function checkVocabulary(rawText: string, names: Iterable<string>, payeeN
   return OK
 }
 
-/** Every language rule: the vocabulary, then reassurance and verdicts (kept: they name the failure plainly). */
-export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = [], payees: Iterable<string> = []): CheckResult {
+/** Words that place one figure below or level with another: each a claim the facts must make, not the model. */
+const BELOW_FAMILY = /\b(below|lower|less|under|within|smaller|fewer|short of|beneath)\b/i
+const MATCH_FAMILY = /\b(match|matches|matched|matching|equal|equals|same as|in line|consistent|level with)\b/i
+/** The rules' own wording, where these words describe a rule, never a finding. */
+const RULE_PHRASES = new RegExp([
+  "within (the |a )?(\\d+(\\.\\d+)?% )?(match |amount |instalment match )?tolerance( of \\d+(\\.\\d+)?%)?",
+  "(instalment |amount )?match tolerance", "within (the )?pay[- ]date window", "within \\d+ days",
+  "checks? whether [^.;]{0,100}?\\bmatch(es)?\\b",
+].join("|"), "gi")
+
+/**
+ * The reviewer's round-3 finding: "Betting is within the policy threshold",
+ * "spend matches what was declared" contradict a raised flag in allowed words.
+ * A below-type word is allowed only when the facts themselves say something is
+ * below (`relations.below`); a match-type word only in the rules' own phrasing.
+ */
+export function checkRelations(rawText: string, allowed: Allowed): CheckResult {
+  const text = plainLetters(rawText).replace(ALLOWED_NEGATIONS, " ").replace(RULE_PHRASES, " ")
+  const match = text.match(MATCH_FAMILY)
+  if (match) return fail(`a match the facts do not state: "${match[0]}"`)
+  const below = text.match(BELOW_FAMILY)
+  if (below && !allowed.relations?.below) return fail(`a relation the facts do not state: "${below[0]}"`)
+  return OK
+}
+
+/** Every language rule: reassurance and verdicts (they name the failure plainly), relations, then the vocabulary. */
+export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = [], payees: Iterable<string> = [], allowed: Allowed = { amountsCents: [] }): CheckResult {
   const contradiction = checkNoContradiction(rawText, raisedFlagCodes)
   if (!contradiction.ok) return contradiction
+  const relations = checkRelations(stripLiterals(norm(rawText), [...names, ...payees, ...raisedFlagCodes], "i"), allowed)
+  if (!relations.ok) return relations
   return checkVocabulary(rawText, [...names, ...raisedFlagCodes], payees)
 }
 
@@ -103,7 +130,7 @@ export type Direction = "ABOVE" | "BELOW"
 
 const ABOVE_WORDS = /\b(above|more than|exceed(s|ed|ing)?|higher than|greater than|larger than|older than)\b/i
 const BELOW_WORDS = /\b(below|less than|lower than|smaller than|short of|under)\b/i
-const NEGATION = /\b(not|never|no|none|cannot|can't|unable|fails?|failed|neither|nor|appears?|seems?|may|might|could|possibly|perhaps|unlikely)\b|n't\b/i
+const NEGATION = /\b(not|never|no|none|cannot|can't|unable|fails?|failed|neither|nor|appears?|seems?|may|might|could|possibly|perhaps|unlikely|hardly|barely|rarely|seldom|scarcely|considered|said|deemed|arguably|allegedly)\b|n't\b/i
 const THRESHOLD_WORDS = /\b(threshold|tolerance|policy|limit|share|cut-?off|maximum|minimum)\b/i
 
 export interface FlagSpec {

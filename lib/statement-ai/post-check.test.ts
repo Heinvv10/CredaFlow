@@ -156,7 +156,10 @@ describe("checkVocabulary", () => {
   })
   it("reads a system name in any case, a payee only as given in capitals", () => {
     expect(checkVocabulary("Statements from Capitec.", ["CAPITEC"])).toEqual({ ok: true })
-    expect(checkVocabulary("Paid to SYNTH RENTALS and to RENTALS.", [], ["SYNTH RENTALS"])).toEqual({ ok: true })
+    expect(checkVocabulary("Paid to SYNTH RENTALS.", [], ["SYNTH RENTALS"])).toEqual({ ok: true })
+    // Only the whole phrase: one word of a payee cannot stand alone ("The debit order to ORDINARY is JOES.").
+    expect(checkVocabulary("Paid to RENTALS.", [], ["SYNTH RENTALS"]).ok).toBe(false)
+    expect(checkVocabulary("The debit order to ORDINARY is JOES.", [], ["ORDINARY JOES"]).ok).toBe(false)
     expect(checkVocabulary("Paid to Synth Rentals.", [], ["SYNTH RENTALS"]).ok).toBe(false)
     // A client-named payee cannot lend the prose its words.
     expect(checkVocabulary("The client is always punctual.", [], ["ALWAYS PUNCTUAL"]).ok).toBe(false)
@@ -205,5 +208,43 @@ describe("postCheck", () => {
   })
   it("does not read digits inside a raised flag code as figures", () => {
     expect(postCheck({ text: "S129_SENT was raised.", allowed: { amountsCents: [] }, raisedFlagCodes: ["S129_SENT"] })).toEqual({ ok: true })
+  })
+
+  it("rejects a relation or a match the facts do not state, however plain its words", () => {
+    const a = { amountsCents: [], percents: [5], names: [], relations: { below: false } }
+    for (const t of [
+      "GAMBLING was raised. Gambling spend is below the policy threshold.",
+      "GAMBLING was raised. Betting is within the policy threshold of 5%.",
+      "GAMBLING was raised. Betting spend matches what was declared.",
+    ]) expect(postCheck({ text: t, allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok, t).toBe(false)
+    // Said by the facts, or in the rules' own wording, they stand.
+    expect(postCheck({ text: "Living spend is below the declared expenses.", allowed: { ...a, relations: { below: true } }, raisedFlagCodes: [] })).toEqual({ ok: true })
+    expect(postCheck({ text: "The rule checks whether debit orders match declared instalments within a 5% tolerance.", allowed: a, raisedFlagCodes: [] })).toEqual({ ok: true })
+  })
+  it("reads lenders as a word, and lending to a client as a decision", () => {
+    expect(postCheck({ text: "Transactions with short-term lenders are listed.", allowed: { amountsCents: [] }, raisedFlagCodes: ["PAYDAY_LENDER"] })).toEqual({ ok: true })
+    expect(checkNoContradiction("The lender should lend to this client.", []).ok).toBe(false)
+  })
+  it("rejects a month's figure called a total", () => {
+    const a = { amountsCents: [900_000, 2_700_000], monthlyAmountsCents: [900_000], periodAmountsCents: [2_700_000], names: [] }
+    expect(checkFigures("R9 000.00 over the period.", a)).toMatchObject({ ok: false })
+    expect(checkFigures("Money in totals R9 000.00.", a)).toMatchObject({ ok: false })
+    expect(checkFigures("Money in totals R27 000.00, R9 000.00 a month.", a)).toEqual({ ok: true })
+  })
+
+  it("closes the breaker's round-2 figure bypasses", () => {
+    const a: Allowed = { amountsCents: [100_000, 1_000_000, 123_456], inAmountsCents: [1_000_000], outAmountsCents: [100_000], monthlyAmountsCents: [], numbers: [3], months: ["2026-01"] }
+    // The prompt's own phrases are direction cues, and each amount is read with its nearest one.
+    expect(checkFigures("Money in was R1 000.00.", a)).toMatchObject({ ok: false, reason: expect.stringMatching(/money out called money in/) })
+    expect(checkFigures("Income of R1 000.00.", a)).toMatchObject({ ok: false })
+    expect(checkFigures("The client received R1 000.00 and spent R10 000.00.", a)).toMatchObject({ ok: false })
+    expect(checkFigures("The client received R10 000.00 and spent R1 000.00.", a)).toEqual({ ok: true })
+    // "one", "first" and month abbreviations in any case.
+    for (const t of ["There was one.", "Payments numbered one.", "On the first of 2026-01.", "Paid in jan 2026.", "Paid in JAN 2026.", "Paid may 2026."]) {
+      expect(checkFigures(t, a).ok, t).toBe(false)
+    }
+    // An amount read as a percentage, and other monthly phrasings.
+    expect(checkFigures("R1 234.56% of income.", a).ok).toBe(false)
+    for (const t of ["Rent R1 000.00/month.", "Rent R1 000.00 p/m.", "Rent R1 000.00 for the month."]) expect(checkFigures(t, a).ok, t).toBe(false)
   })
 })

@@ -41,7 +41,7 @@ export function postCheck(input: PostCheckInput): CheckResult {
   const literals = [...(input.allowed.literals ?? []), ...input.raisedFlagCodes, ...(input.flag ? [input.flag.code] : [])]
   const figures = checkFigures(input.text, { ...input.allowed, literals })
   if (!figures.ok) return figures
-  const language = checkLanguage(input.text, input.raisedFlagCodes, [...(input.allowed.names ?? []), ...(input.flag ? [input.flag.code] : [])], input.allowed.payees ?? [])
+  const language = checkLanguage(input.text, input.raisedFlagCodes, [...(input.allowed.names ?? []), ...(input.flag ? [input.flag.code] : [])], input.allowed.payees ?? [], input.allowed)
   if (!language.ok) return language
   return input.flag ? checkFlagExplanation(input.text, input.flag) : OK
 }
