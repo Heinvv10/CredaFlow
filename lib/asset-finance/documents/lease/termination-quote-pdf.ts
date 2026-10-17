@@ -33,7 +33,10 @@ export async function renderLeaseTerminationQuote(data: TerminationQuoteData, le
     ["PV of the remaining rentals", formatZarPdf(data.pvCents)],
     ...(data.cpaCancellation ? [
       ["Less goods value", data.goodsValueCents == null ? "Awaiting valuation" : formatZarPdf(data.goodsValueCents)],
-      ...(data.documentedCosts ?? []).map((c) => [`Actual cost: ${c.description} (${c.evidence})`, formatZarPdf(c.amountCents)]),
+      ...(data.documentedCosts ?? []).flatMap((c) => [
+        ["Actual cost", `${c.description}: ${formatZarPdf(c.amountCents)}`],
+        ["Cost evidence", c.evidence],
+      ]),
       ["Cancellation charge (capped)", formatZarPdf(data.invoiceExclVatCents)],
     ] as [string, string][] : [["Early-termination penalty", formatZarPdf(data.penaltyCents)]] as [string, string][]),
     ["Invoiced excl. VAT", formatZarPdf(data.invoiceExclVatCents)],
