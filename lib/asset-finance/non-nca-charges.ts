@@ -190,6 +190,9 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
       rows.forEach((row, i) => { if (before[i] < row.totalDue && paid[i] >= row.totalDue) completedBy[i] = receipt.id })
       interestPaid += split.toDefaultInterest
       feesPaid += split.toFees
+      // A fixed share can be a live-era payment valued on the stop day.
+      // Forgiveness must never turn that paid share into negative debt.
+      if (day >= stopDay) { interestExact = interestPaid; feesAccrued = feesPaid }
       pool += split.toSchedule
       unallocated += split.unallocated
       splits.push({
