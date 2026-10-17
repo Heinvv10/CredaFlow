@@ -28,3 +28,23 @@ witnesses. Removing the payout trigger admits the same previously refused
 insert inside a rolled-back mutation test. Evidence cannot be changed after
 verification. `deal-signing.integration.test.ts` attacks the electronic
 signature through both the route and direct database writes.
+
+Actual cancellation acceptance (2026-10-17): a synthetic booked agreement was
+opened in the staff loan page after password and TOTP authentication. The
+cancellation form required the actual date, a staff legal document, reasons,
+and an explicit attestation before submission. The route returned 201 and
+the page displayed the permanent cancellation date and evidence.
+`commercial-cancellation-evidence-required.png` captures the form before the
+attestation; `commercial-cancellation-recorded.png` captures the recorded event.
+The local browser log is `/tmp/cf-commercial-event-browser3.log`. Reproduce the
+fixture with the browser integration suite's `booked agreement` test; its
+synthetic credentials remain outside the repository.
+
+The actual booked-agreement PostgreSQL regression independently calculates
+interest earned by 1 January, records that actual cancellation, and completes
+a later 1 March sale. Partial proceeds, later quotes, an ordinary receipt and
+its reversal preserve the fixed debt. A mutation replacing the cancellation
+cutoff with maturity fails this independent interest oracle. The separate
+sale-completion database guard also refuses a direct completion without the
+actual cancellation event. These focused proofs do not replace the final full
+CI gate.
