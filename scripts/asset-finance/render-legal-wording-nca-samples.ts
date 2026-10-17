@@ -5,7 +5,9 @@
 // and the script refuses to write if they do not agree with each other.
 // Deterministic: rerunning reproduces the committed bytes.
 //
+//   npm run gen:registries   (once; lib/registry/generated is gitignored)
 //   npx tsx scripts/asset-finance/render-legal-wording-nca-samples.ts
+//   (needs lib/registry/generated, which is gitignored: run `npm run gen:registries` first)
 import assert from "node:assert/strict"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"

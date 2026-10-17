@@ -4,7 +4,9 @@
 // PDFs. The lease page images are made from the PDFs with
 // `pdftoppm -r 60 -png <name>.pdf <name>`.
 //
+//   npm run gen:registries   (once; lib/registry/generated is gitignored)
 //   npx tsx scripts/asset-finance/render-legal-wording-deal-samples.ts
+//   (needs lib/registry/generated, which is gitignored: run `npm run gen:registries` first)
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { AnyDealDocumentData } from "@/lib/asset-finance/documents/deal-document-data"
