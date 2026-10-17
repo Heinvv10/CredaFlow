@@ -340,5 +340,5 @@ migrations/
     └─ migration.sql
   └─ 20261017090000_settlement_evidence_daily_key/
     └─ migration.sql
-      
+
 All migrations have been successfully applied.

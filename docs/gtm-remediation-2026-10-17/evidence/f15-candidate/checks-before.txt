@@ -1,4 +1,4 @@
-               conrelid                |                        conname                         
+               conrelid                |                        conname
 ---------------------------------------+--------------------------------------------------------
  -                                     | cardinal_number_domain_check
  -                                     | yes_or_no_check
@@ -222,4 +222,3 @@
  "LoanArrearsSnapshot"                 | LoanArrearsSnapshot_figures_non_negative
  "ArrearsSnapshotRun"                  | ArrearsSnapshotRun_loanCount_non_negative
 (221 rows)
-

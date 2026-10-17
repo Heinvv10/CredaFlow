@@ -10,5 +10,5 @@ The following migration(s) have been applied:
 migrations/
   └─ 20261017160000_agreement_declaration_evidence/
     └─ migration.sql
-      
+
 All migrations have been successfully applied.

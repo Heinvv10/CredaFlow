@@ -1,4 +1,4 @@
-               relname               |                          tgname                           
+               relname               |                          tgname
 -------------------------------------+-----------------------------------------------------------
  AccountingExportBatch               | AccountingExportBatch_no_truncate
  AccountingExportBatch               | guardAccountingBatch
@@ -252,4 +252,3 @@
  VatRate                             | VatRate_guard
  VatRate                             | VatRate_no_truncate
 (251 rows)
-

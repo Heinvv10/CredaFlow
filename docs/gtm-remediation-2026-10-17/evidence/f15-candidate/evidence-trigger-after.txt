@@ -1,5 +1,4 @@
-            relname             |                tgname                
+            relname             |                tgname
 --------------------------------+--------------------------------------
  AgreementDeclarationAcceptance | AgreementDeclarationAcceptance_guard
 (1 row)
-
