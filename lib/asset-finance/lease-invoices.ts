@@ -36,12 +36,13 @@ import { dbDate, isoOfDbDate } from "./dates"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 import { refreshLoan } from "./lease-charges"
 import type { SigningTx } from "./signing-prepare"
+import { replayLeaseCancellationCredit, LEASE_SUPPLY_VAT_CREDIT } from "./lease-credit-replay"
 import { cashReachedOn } from "./lease-supply-date"
 
 export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement" | "leaseEndOfTerm" | "financedAsset" | "loan" | "repaymentSchedule">
 
 export type IssueRentalResult =
-  | { kind: "issued"; invoiceId: string; invoiceNumber: string }
+  | { kind: "issued"; invoiceId: string; invoiceNumber: string; vatAdjusted?: boolean }
   | { kind: "already_invoiced"; invoiceId: string }
   | { kind: "not_found" }
   | { kind: "refused"; reason: string; error: string }
@@ -106,7 +107,10 @@ export async function issueLeaseRentalInvoice(
   }
   const bound = await tx.leaseRental.updateMany({ where: { id: rental.id, tenantId, taxInvoiceId: null }, data: { taxInvoiceId: invoice.id, ...(vatChanged ? { vatRate: vat.rate, vatCents: supplyVatCents, totalCents: supplyTotalCents } : {}) } })
   if (bound.count !== 1) throw new Error(`lease rental ${rental.id} was invoiced concurrently`)
-  if (vatChanged) await refreshLoan(tx as SigningTx, tenantId, rental.loanId, supplyTotalCents - rental.totalCents, input.createdById, "supply_date_vat_change")
+  if (vatChanged) {
+    await refreshLoan(tx as SigningTx, tenantId, rental.loanId, supplyTotalCents - rental.totalCents, input.createdById, "supply_date_vat_change")
+    await replayLeaseCancellationCredit(tx as SigningTx, { tenantId, loanId: rental.loanId, userId: input.createdById, reference: invoice.id, creditReason: LEASE_SUPPLY_VAT_CREDIT, source: "supply_date_vat_change", reconcileStatus: true })
+  }
   // A full-maintenance rental funds the maintenance fund as it is invoiced (./maintenance-fund.ts).
   if (rental.maintenanceExclVatCents > 0) {
     const fund = await tx.maintenanceFund.findFirst({ where: { tenantId, loanId: rental.loanId }, select: { id: true } })
@@ -123,7 +127,8 @@ export async function issueLeaseRentalInvoice(
       taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, totalCents: rental.totalCents,
     },
   }, tx)
-  return { kind: "issued", invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber }
+  if (vatChanged && input.source !== "receipt") await issueLeaseInvoicesOnReceipt(tx as LeaseInvoiceTx & Pick<VatTransaction, "repaymentSchedule" | "payment">, { tenantId, loanId: rental.loanId, contractType: loan.contractType, today: input.today, createdById: input.createdById })
+  return { kind: "issued", invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, ...(vatChanged ? { vatAdjusted: true } : {}) }
 }
 
 /**
@@ -148,6 +153,7 @@ export async function issueLeaseInvoicesOnReceipt(
     orderBy: { periodNo: "asc" },
     select: { id: true, dueDate: true, periodNo: true },
   })
+  const seen = new Set(rentals.map(rental => rental.id))
   for (const rental of rentals) {
     const due = isoOfDbDate(rental.dueDate)
     // The earliest day the cash reached the rental (./lease-supply-date.ts), never later than its due date.
@@ -155,12 +161,14 @@ export async function issueLeaseInvoicesOnReceipt(
     if (reached === null && due > input.today) continue // not reached and not yet due: nothing supplied
     const supplyDate = reached !== null && reached < due ? reached : due
     await tx.$executeRawUnsafe("SAVEPOINT lease_rental_invoice")
+    let allocationChanged = false
     let refusal: { reason: string; error: string } | null = null
     try {
       const result = await issueLeaseRentalInvoice(tx, {
         tenantId: input.tenantId, rentalId: rental.id, supplyDate: supplyDate > input.today ? input.today : supplyDate,
         today: input.today, createdById: input.createdById, source: "receipt",
       })
+      allocationChanged = result.kind === "issued" && result.vatAdjusted === true
       if (result.kind === "refused") refusal = { reason: result.reason, error: result.error }
     } catch (error) {
       refusal = { reason: "invoice_error", error: error instanceof Error ? error.name : "unknown" }
@@ -170,6 +178,10 @@ export async function issueLeaseInvoicesOnReceipt(
       try {
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
         await tx.$executeRawUnsafe("SET CONSTRAINTS ALL DEFERRED")
+        if (allocationChanged) {
+          const reached = await tx.leaseRental.findMany({ where: { tenantId: input.tenantId, loanId: input.loanId, taxInvoiceId: null, cancelledAt: null, schedule: { totalPaid: { gt: 0 } } }, orderBy: { periodNo: "asc" }, select: { id: true, dueDate: true, periodNo: true } })
+          for (const next of reached) if (!seen.has(next.id)) { seen.add(next.id); rentals.push(next) }
+        }
         await tx.$executeRawUnsafe("RELEASE SAVEPOINT lease_rental_invoice")
         continue
       } catch (error) {
