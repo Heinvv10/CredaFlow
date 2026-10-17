@@ -10,7 +10,9 @@ Validation: production build including TypeScript passed; full eslint passed; th
 
 Screenshots were reviewed through contact sheets and selected full images; DOM geometry covered the rendered page, including content below the first viewport. This is targeted UI acceptance, not proof of every workflow state or full WCAG conformance. See AUDIT-SCOPE.md and the explicitly bounded rows in PAGE-INVENTORY.csv.
 
-All work is local on fix/ui-spacing-navigation. Nothing was merged, deployed or published. No live demo was changed.
+The UI changes were merged in PR #166; the manual simulator cron driver and navigation-test cleanup followed in PR #167. Live demo promotion remains pending an accepted snapshot. The first full candidate completed all 917 events but correctly failed the unchanged book-health gates (20.0% PAR30 and a booked legacy draft counted as a 213-day open application).
+
+The follow-up excludes loan-linked records from actionable pipeline age and presents them as booked on the applications board/table. It also sizes the performing company excavator at R3,450,000 including VAT, with the same 10% deposit and 20% balloon. This replaces the smaller synthetic machine through the normal seed approval, signing, payout and servicing paths; recovery fixtures and the dashboard PAR definition remain intact. A fresh migrated-database regression covers the exact asset, invoice, payout, loan and unbooked-pipeline query. Acceptance thresholds remain 15% PAR30, 20% bad-loan share and 30 days of open pipeline age.
 
 Local evidence: [page inventory](uiux-2026-10-17/website-audit/PAGE-INVENTORY.csv), [findings](uiux-2026-10-17/website-audit/FINDINGS.json), [screenshot ledger](uiux-2026-10-17/website-audit/SCREENSHOT-LEDGER.json). These generated artifacts are intentionally ignored by git.
 

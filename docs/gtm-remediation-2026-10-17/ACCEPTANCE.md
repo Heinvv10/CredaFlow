@@ -1,6 +1,6 @@
 # Candidate acceptance and external gates
 
-No candidate accepted yet. All evidence must name exact commit, command/scenario, actual outcome and limitation. Unit green does not execute database enforcement. Browser capture does not prove mutation acceptance.
+Private core candidate63a96479 is accepted for the documented local scope and merged as9dfb76b9; production and F15 remain separately gated. All evidence must name exact commit, command/scenario, actual outcome and limitation. Unit green does not execute database enforcement. Browser capture does not prove mutation acceptance.
 
 ## Automated gates
 
@@ -58,3 +58,40 @@ A smallest correction: bounded sequential range retrieval from the identical pin
 ## G06-U — canonical operator-origin redirects
 
 Actual browser invitation established that an unenrolled operator on operator.localhost was redirected to canonical staff localhost by middleware constructing URLs from Auth.js's rewritten request URL. Unsetting NEXTAUTH_URL is not a valid fix: staff reset links fall back tolocalhost3300 and requireOperatorBaseUrl throws. B correction30b2c7f8 derives all four console redirects from the configured operator origin, preserving scheme/port and callback path without trusting Host/Forwarded/Origin values. Four fail-first cases,36 targeted tests, independent A review and frozen quick passed. Integrated into66c183c1; actual resulting-image invitation/mandatory TOTP/grant/revoke/host isolation acceptance remains pending. No authentication/CSRF/2FA policy relaxed.
+
+## Final core acceptance and remaining configuration gates
+
+Source `63a96479d290b215049b3a3e46977dc09305c21f` is an ancestor of merged main `9dfb76b90fa5b8b5a87fb1430d1af3ffedca5f4a`; root independently confirmed an empty tree diff. Exact local quality, all14 actual face checks, production build and335-selected real-Postgres gate passed (333files/2930tests; two accuracy tests skipped). Hosted quality/integration both passed on63a. Nine PDF fingerprints and five samples/23 original pages matched the preserved baseline. A independently verified all1842 portable checksums,28 image blobs,5272 source Git blobs and all four paired database/upload restores; no allocation mismatches occurred. This is a private synthetic Tsela/Turnstile-TEST build, not a production promotion artifact.
+
+The following status describes each gate's actual scope. External configuration remains outstanding even where a local behavior is accepted. `LOCAL-GATE-MAP.md` maps existing automated suites; final gate receipts establish execution, rather than the source inventory alone.
+
+| Gate | Final scoped outcome / concrete outstanding requirement |
+|---|---|
+| G01 | Externally blocked for real lender identity and named legal approval. Synthetic identity and fail-closed identity suites passed; no regulator verification inferred. |
+| G02 | Accepted existing pricing-rule consistency and nine browser boundaries; no approved launch prices or historical repricing invented. Lender pricing approval remains external. |
+| G03 | Externally blocked: TEST asset credit-life has zero active rate tables and zero mandatory eligibility types. Existing synthetic insurance enforcement suites passed; no insurer rates invented. |
+| G04 | Externally blocked: five copied policies lack PPR issue/acknowledgement, one lacks FAIS PDF, none records beneficiaries. Insurer applicability/disclosure/beneficiary approval required; no historical acknowledgements fabricated. |
+| G05 | Externally blocked: screening provider unset and no RMCP document. Staff FIC/configuration page and automated guards do not establish screening or submission. |
+| G06 | Accepted scoped normal staff TOTP, READONLY restrictions, operator audience/host isolation, fresh recovery wrong/valid/replay/expiry and strict transactional audit tests. Browser runtime has a fixture superuser; separate low-privilege integration evidence proves its own RLS scope. Production bootstrap remains target-specific. |
+| G07 | Synthetic bureau/KYC enforcement and14 face checks passed. Real bureau/biometric acceptance externally blocked by absent provider credentials. Selfie browser proves landing/refusal/expiry only. Separate legal clone's explicit vendor-UAT policy must be labelled simulated. |
+| G08 | Accepted actual local-SMTP operator/staff/portal delivery and recovery/refusal, plus signing-OTP database guards. Real external delivery remains blocked by absent approved configuration; legal signing browser acceptance is separate. |
+| G09 | Signed-mandate bank tuple, immutability and countersign database regressions passed. Fresh complete browser mandate and actual creditor/bank acceptance are not claimed. |
+| G10 | Accepted four AVS flag combinations, exact subject/application/audit/server binding and separation-of-duties dialog without dispatch. Overall payout readiness or bank transfer not claimed; original flags/providers restored off/unset. |
+| G11 | Non-NCA refusal and synthetic collection/database guards passed. Engine remains off; real submission/settlement/returns require provider authority and configuration. |
+| G12 | Signed callback/replay/allocation regression suites and truthful return-page UI passed. Real provider initiation, settlement and reversal remain externally blocked. |
+| G13 | Consent/unsubscribe/audit/concurrency regressions and local sink behavior passed. Real messaging configuration/delivery remains blocked; no external customer messages sent and SMS stays off. |
+| G14 | Externally blocked/unproved: VLM endpoint/key unset, two accuracy tests skipped, prior failed/stopped OCR/statement-reader accuracy gates retained. Unit/face/model-download success does not establish OCR/statement accuracy. Statement AI remains off. |
+| G15 | Accepted nine local accounting states, actual close/CSV and independent139-row Decimal debit=credit4075101.12 reconciliation. No Xero/IsaFlow destination write; approved destination/credentials required. |
+| G16 | Externally blocked for a named hosting/scheduler/monitoring target; no CRON_SECRET or running scheduler. Historical heartbeat rows are not operational evidence. |
+| G17 | Accepted actual operator invitation/set-password/replay/mandatory TOTP/verified login/both sign-outs, synthetic lender provisioning, support grant/read-only/revoke, role and host refusals. No real lender or production bootstrap certification. |
+| G18 | Accepted private pristine image/provenance and four paired database/upload restore drills plus rollback procedure. No public deployment. Production needs a named-target build without baked test inputs and its own acceptance/backup/configuration approval. |
+| G19 | Accepted19 precisely scoped formerly uncaptured routes, normal synthetic PO submission plus actual full-repayment refusal, complaint/DSAR mutations and existing signed-deal access/refusal. Existing signed/booked records do not prove new ceremonies or complete provider lifecycles. |
+| G20 | Accepted defined keyboard/mobile/short-viewport/sign-out/theme/reference contrast/media/dialog checks in Chrome. No blanket WCAG or cross-browser certification. |
+
+Additional G06-R, G06-U and G18-R corrections are accepted on the exact final core source: strict single-use recovery audit transactions; middleware and both actual operator sign-out origins; pristine bounded/retried pinned model retrieval without a cache workaround. F15 remains outside merged core until its technical acceptance and named-lender legal presentation approval.
+
+## G21 — existing provider-signature presentation (legal review)
+
+Status: externally blocked for approved legal presentation; discovered during actual F15 render acceptance, not part of the new certificate. The actual original declaration/signature page5 places the synthetic provider typed signature immediately against its preprinted representative name. Root/A visually confirmed the crowding; exact same-ceremony legacy comparison proves F15 neither introduces nor repairs it. Preserve the stored original pages and fingerprints. The named lender's legal reviewer must review this sample and approve a separately scoped future presentation remedy if required; no existing signed document may be silently rewritten. This item is explicitly included in the F15 sample/presentation sign-off decision.
+
+F15 technical preparation is now complete on separate implementation64a1fd37/image37c45525: full quality19687tests/14face/build and integration2932tests (two accuracy skips) passed, with actual client signing/SMTP/countersign/native download, restricted-role RLS, original-page preservation and restored paired artifacts. [Draft PR171](https://github.com/Heinvv10/CredaFlow/pull/171) remains unmerged and externally blocked for its six explicit named-lender legal presentation/retention decisions, including G21. This does not activate any real provider or authorize production.

@@ -1,0 +1,40 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "preservedBaseline": "candidate7 and unchanged preserved earlier baseline",
+  "fingerprintsEqual": 9,
+  "pdfSamples": 5,
+  "pages": 23,
+  "comparisons": [
+    {
+      "pdf": "agreement-60-EXECUTED-stamped.pdf",
+      "textEqual": true,
+      "rasterPixelsEqual": true,
+      "pages": 5
+    },
+    {
+      "pdf": "agreement-60-UNSIGNED.pdf",
+      "textEqual": true,
+      "rasterPixelsEqual": true,
+      "pages": 5
+    },
+    {
+      "pdf": "agreement-EXECUTED-page.pdf",
+      "textEqual": true,
+      "rasterPixelsEqual": true,
+      "pages": 5
+    },
+    {
+      "pdf": "agreement-EXECUTED-stamped.pdf",
+      "textEqual": true,
+      "rasterPixelsEqual": true,
+      "pages": 4
+    },
+    {
+      "pdf": "agreement-UNSIGNED.pdf",
+      "textEqual": true,
+      "rasterPixelsEqual": true,
+      "pages": 4
+    }
+  ],
+  "legalApproval": false
+}

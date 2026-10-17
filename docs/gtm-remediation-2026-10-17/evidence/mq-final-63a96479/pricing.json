@@ -1,0 +1,69 @@
+{
+  "identity": {
+    "id": "cmnflx6y3002xay0cdmpo26zd",
+    "role": "ADMIN",
+    "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+  },
+  "runtimeHealth": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "cases": [
+    {
+      "type": "MICRO",
+      "amount": 8000,
+      "term": 180,
+      "status": "Preview rate passes the base interest check for this transaction.\n\nIllustrative transaction only: R 8 000,00, 180 days; short-term credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "MICRO",
+      "amount": 8000.01,
+      "term": 180,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,01, 180 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "MICRO",
+      "amount": 8000,
+      "term": 181,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,00, 181 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PERSONAL",
+      "amount": 8000,
+      "term": 180,
+      "status": "Preview rate passes the base interest check for this transaction.\n\nIllustrative transaction only: R 8 000,00, 180 days; short-term credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PERSONAL",
+      "amount": 8000.01,
+      "term": 180,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,01, 180 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PERSONAL",
+      "amount": 8000,
+      "term": 181,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,00, 181 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PO_FUNDING",
+      "amount": 8000,
+      "term": 180,
+      "status": "Preview rate passes the base interest check for this transaction.\n\nIllustrative transaction only: R 8 000,00, 180 days; short-term credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PO_FUNDING",
+      "amount": 8000.01,
+      "term": 180,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,01, 180 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    },
+    {
+      "type": "PO_FUNDING",
+      "amount": 8000,
+      "term": 181,
+      "status": "60.83% per year (nominal) exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42).\n\nIllustrative transaction only: R 8 000,00, 181 days; unsecured credit transaction. Change the amount and term in the preview below to check another transaction.\n\nRate basis as at 2026-10-17: repo applied 8.25%, approved 8.25% (a newer feed cut may lower the applied rate).\n\nApproval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product."
+    }
+  ],
+  "boundary": "Unsaved new-product browser preview only; no actual product repricing or legal-cap redefinition. Exact helper/server agreement independently tested."
+}

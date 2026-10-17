@@ -145,11 +145,12 @@ const CLOSED_LOAN_STATUSES = new Set(["COMPLETED", "WRITTEN_OFF", "CANCELLED"])
 
 /**
  * The board column a card sits in, or null when it has left the pipeline: a
- * DISBURSED application whose loan is settled, written off or cancelled is a
+ * A booked application follows its loan, including legacy draft rows. A
+ * loan that is settled, written off or cancelled is a
  * closed account, not work in the Disbursed lane.
  */
 export function pipelineColumnOf(app: PipelineApplication): string | null {
-  if (app.status === "DISBURSED" && app.loan && CLOSED_LOAN_STATUSES.has(app.loan.status)) return null
+  if (app.loan) return CLOSED_LOAN_STATUSES.has(app.loan.status) ? null : "DISBURSED"
   return app.status
 }
 

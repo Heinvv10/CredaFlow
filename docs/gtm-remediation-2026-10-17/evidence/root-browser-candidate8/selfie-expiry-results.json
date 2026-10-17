@@ -1,0 +1,37 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "base": "http://localhost:37543",
+  "kind": "selfie",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "9d8400c0669e9ec5dc1c7723dae290c5162ff8a07d902c4ede799258b23f3531",
+  "results": [
+    {
+      "scenario": "fresh actual delivered token remains eligible before controlled expiry",
+      "kind": "selfie",
+      "status": 200,
+      "anonymous": true
+    },
+    {
+      "scenario": "wrong token refused without eligible document/capture surface",
+      "ok": true
+    },
+    {
+      "scenario": "actual same delivered token now expires with no document/capture surface",
+      "kind": "selfie",
+      "expiredUi": true,
+      "fixture": {
+        "fixtureDatabase": "credaflow_rc_accounting",
+        "kind": "selfie",
+        "rowIdHash": "4ff0dec7e93dd68f75928846e37c7065b20ac1216628c41466b597e95020cd9a",
+        "previousExpiry": "2026-10-18T15:55:35.599Z",
+        "fixtureExpiry": "2026-10-17T15:55:29.836Z",
+        "deliveredMessageBound": true,
+        "syntheticOnly": true
+      }
+    }
+  ],
+  "limitation": "Synthetic actual delivered token expiry only; no clock change, acknowledgement reset, biometric submission or provider operation."
+}

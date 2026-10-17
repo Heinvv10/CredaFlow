@@ -119,3 +119,8 @@ Candidate7 66c183c1 completed exact full quality, integration and pristine image
 A ecf84394c6abf7b8b25c2ed1c3f2224426208eae independently APPROVED by B (three suites/40 tests rerun PASS), root source review, and exact frozen ci:quick PASS. MQ serially integrated it as10d19e42, followed by independently reviewed A final66 evidence and root scoped evidence/specification records. Shared awaited redirect:false sign-out now navigates to the fixed same-host operator login; global authentication policy, CSRF and database schema are unchanged. Fresh main remains685c86e951c0591324446af148d30d41ddc33652.
 
 Candidate8 requires fresh exact-source full quality/integration, pristine image and affected operator/browser acceptance. Historical passes are not inherited. Image build CPUs0–3 may run alongside serialized host quality then integration CPUs4–7. PR168 remains unqueued/unmerged. F15 remains separate and legally gated; its legal-only canonical model-list test failure does not establish a core regression.
+
+
+## Candidate8 accepted core merge
+
+Final exact63a quality, integration, required hosted checks, pristine image, browser acceptance, PDF preservation and independently reviewed portable artifact/restore proof all passed within their stated synthetic scope. Root gave final queue approval; MQ admitted only PR168 through existingmq. It merged at2026-10-17T16:09:55Z as9dfb76b90fa5b8b5a87fb1430d1af3ffedca5f4a, exactcandidateancestor and identicalGit tree. Queue empty afterward. Final evidence is a separate docs follow-up; artifact remains baked63a. See FINAL-RELEASE.md. F15 remains unmerged/legal gated; no production/public demo deployment authorized or performed.

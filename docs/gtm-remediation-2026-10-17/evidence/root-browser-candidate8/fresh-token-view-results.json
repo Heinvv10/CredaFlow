@@ -1,0 +1,179 @@
+{
+  "base": "http://localhost:37543",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "at": "2026-10-17T15:55:36.781Z",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "69fb317db81f35e451190f7361f0edca26645c2ba94e37ee3fa841052725b915",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual authenticated role",
+      "role": "ADMIN",
+      "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+    },
+    {
+      "route": "/compliance",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "scope no broad Good Standing certification",
+          "ok": true
+        },
+        {
+          "label": "no broad statutory denominator",
+          "ok": true
+        },
+        {
+          "label": "tracked scope explained",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance.json"
+    },
+    {
+      "route": "/compliance/coi",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_coi.json"
+    },
+    {
+      "route": "/compliance/fic",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_fic.json"
+    },
+    {
+      "route": "/compliance/screening",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_screening.json"
+    },
+    {
+      "route": "/settings/notifications",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "implementation paths absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_notifications.json"
+    },
+    {
+      "route": "/settings/integrations",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "phase go-live copy absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_integrations.json"
+    },
+    {
+      "route": "/learn/agreement-signing",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "no missing advertised training media",
+          "ok": true
+        },
+        {
+          "label": "written learning content remains",
+          "ok": true
+        }
+      ],
+      "evidence": "_learn_agreement_signing.json"
+    },
+    {
+      "scenario": "normal exclusive PASQ generation",
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "status": 200,
+      "documentSha256": "aac5e6c49e4a8de2357d23d4c98d6d9ae77590e56483b3daa1990a937c431be2"
+    },
+    {
+      "scenario": "actual authenticated pasq EMAIL link issuance",
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "status": 200,
+      "delivery": "private local SMTP only"
+    },
+    {
+      "route": "/pasq/[token]",
+      "scenario": "fresh delivered eligible consumer token page",
+      "status": 200,
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "authenticated": false,
+      "token": "redacted",
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTSELA LENDING\n\nYour Pre-Agreement Statement & Quotation\n\nPlease read this document in full, then confirm below that you received it. We are required to give you this quotation before you sign a credit agreement.\n\nOpen the quotation in a new tab if it does not display above.\n\nI have read this Pre-Agreement Statement & Quotation, including the instalment, the total cost of credit and my credit-life choice, and I confirm I received it.\nConfirm I received this quotation\n\nConfirming does not commit you to the loan. You will still be asked to sign the credit agreement separately."
+    },
+    {
+      "scenario": "actual PASQ fresh view and bound PDF only; deliberately not acknowledged for separate expiry scenario",
+      "pdf": {
+        "status": 200,
+        "type": "application/pdf",
+        "sha256": "aac5e6c49e4a8de2357d23d4c98d6d9ae77590e56483b3daa1990a937c431be2"
+      }
+    },
+    {
+      "scenario": "actual authenticated selfie EMAIL link issuance",
+      "applicationId": "cmnflx7m0003nay0c1r3mdkps",
+      "status": 200,
+      "delivery": "private local SMTP only"
+    },
+    {
+      "route": "/selfie/[token]",
+      "scenario": "fresh delivered eligible consumer token page",
+      "status": 200,
+      "applicationId": "cmnflx7m0003nay0c1r3mdkps",
+      "authenticated": false,
+      "token": "redacted",
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\nHello Nomvula\n\nPlease take a photo of your face so we can check it against the photo on your ID document. Look straight at the camera in good light.\n\nTake a selfie\n\nYour camera will open — no file upload allowed\n\nOpen Camera\n• Face the camera directly in good lighting\n• Remove sunglasses or hats\n• Photo is used for identity verification only (POPIA)"
+    },
+    {
+      "scenario": "fresh selfie token route only",
+      "limitation": "Camera submission, biometric decision and provider acceptance not established by this page capture"
+    }
+  ],
+  "failures": []
+}

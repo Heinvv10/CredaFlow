@@ -1,0 +1,58 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "image": "sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe",
+  "files": [
+    {
+      "file": "accounting-csv-reconciliation.json",
+      "sha256": "1695c93b0bb935a3c4f21be2cc00fa61fd76bc1d4304c5d30b67947324cb8cf2"
+    },
+    {
+      "file": "accounting.json",
+      "sha256": "fa68b9e9765dc715895db582082f8b6def9f22ff8babd8444573072e3d4c5a80"
+    },
+    {
+      "file": "avs-binding.json",
+      "sha256": "1eafc1e1e7ca68af8669b8f90048f92361736b4d445114587c3b2cbc19faf4d3"
+    },
+    {
+      "file": "disbursement-warning.png",
+      "sha256": "df9b5e80a85995c46efa2d2f86680ae4b6a12940b792f651ff907f0c398bad57"
+    },
+    {
+      "file": "financial.json",
+      "sha256": "374c2690c56f9d8ab3ffe2f1e3e311a5bcaf3207f54f712ec565b1386a2c72b4"
+    },
+    {
+      "file": "hosted-checks.json",
+      "sha256": "9b2cd4002384b270df758ed1772c6b796659897ad1997aed47e16fd058773aa6"
+    },
+    {
+      "file": "integration-gap-map.json",
+      "sha256": "9b0459a777669e8e6cbb1413ac822d677508c099023bd6f427f38b9465632b55"
+    },
+    {
+      "file": "pdf-comparison.json",
+      "sha256": "2dad695829cb8c2980db8620fe06002b9f5c350f43084c9b7e6d268361484a7e"
+    },
+    {
+      "file": "pdf-fingerprints.json",
+      "sha256": "66e01e6dfc96e9b2511f55626ceae720145dde558f59d692c514da968ab6b7be"
+    },
+    {
+      "file": "po-staff.json",
+      "sha256": "9e241444854ac657f7c0091c791678da90e562c11fcd03112e01cd06a63e9be3"
+    },
+    {
+      "file": "pricing.json",
+      "sha256": "ffc3ac3e4a2005213245b9b37689cf437693cfdef44cc2a377aa3301ba332006"
+    },
+    {
+      "file": "release-manifest.json",
+      "sha256": "bf8dc429bb862e2b9559efe410eea09abb15021e2e99a222e00d0cb41cb86fd0"
+    },
+    {
+      "file": "synthetic-restore.json",
+      "sha256": "130ce10603792b3203a441d78d41ea385adba80a38cb53398dcddecccc3154b5"
+    }
+  ]
+}

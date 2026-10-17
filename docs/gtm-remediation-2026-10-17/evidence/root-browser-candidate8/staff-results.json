@@ -1,0 +1,145 @@
+{
+  "base": "http://localhost:44213",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "at": "2026-10-17T15:52:56.291Z",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "bfc4b4a05b0901619b718f177c902eedcde5b75dcd45d849fac1a48c7e9b7362",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual authenticated role",
+      "role": "ADMIN",
+      "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+    },
+    {
+      "route": "/compliance",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "scope no broad Good Standing certification",
+          "ok": true
+        },
+        {
+          "label": "no broad statutory denominator",
+          "ok": true
+        },
+        {
+          "label": "tracked scope explained",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance.json"
+    },
+    {
+      "route": "/compliance/coi",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_coi.json"
+    },
+    {
+      "route": "/compliance/fic",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_fic.json"
+    },
+    {
+      "route": "/compliance/screening",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_screening.json"
+    },
+    {
+      "route": "/settings/notifications",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "implementation paths absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_notifications.json"
+    },
+    {
+      "route": "/settings/integrations",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "phase go-live copy absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_integrations.json"
+    },
+    {
+      "route": "/learn/agreement-signing",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "no missing advertised training media",
+          "ok": true
+        },
+        {
+          "label": "written learning content remains",
+          "ok": true
+        }
+      ],
+      "evidence": "_learn_agreement_signing.json"
+    },
+    {
+      "route": "/portal/sign/deal-signers/[signerId]",
+      "scenario": "actual authorized existing signed document and wrong-client refusal",
+      "signerId": "cmnflx9ui007jay0crxbig948",
+      "status": 200,
+      "pdf": {
+        "status": 200,
+        "type": "application/pdf",
+        "sha256": "43eaf6624d931c577e9d2cb81f6c790522b72b7e16a34d6e4e67c7d07cde9e6a"
+      },
+      "wrongClientPageStatus": 404,
+      "wrongClientPdfStatus": 404,
+      "limitation": "Existing immutable signed ceremony view only; no new signing, signature verification, bank activation or legal approval implied"
+    }
+  ],
+  "failures": []
+}

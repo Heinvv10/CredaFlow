@@ -1,6 +1,14 @@
 # Synthetic candidate configuration inventory
 
-Measured against MQ's owned restored Tsela database on 17 October 2026, current application base `3a0a17e38b393d0c0707ed24e615be2b016f604e`. This is synthetic configuration presence/status, not real lender approval or provider acceptance. Private machine-readable evidence: `/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/config-inventory.json`; trigger/CHECK catalogs retained beside it.
+## Final accepted core scope
+
+Core source `63a96479d290b215049b3a3e46977dc09305c21f` merged as `9dfb76b90fa5b8b5a87fb1430d1af3ffedca5f4a`. [ACCEPTANCE.md](ACCEPTANCE.md) records the authoritative final G01–G20 outcomes; [FINAL-RELEASE.md](FINAL-RELEASE.md) records exact gates, browser scope, immutable image and four final restore drills. The table below preserves the initial measurement and its then-pending work, not current acceptance status.
+
+The final private core environment keeps provider credentials/scheduler/VLM unset, advisory Statement AI disabled, and original payout/collections flags restored after explicitly simulated AVS checks. Actual local SMTP delivery and supported synthetic Turnstile tests were exercised; no external customer messages or real provider transactions occurred. OCR/statement-reader corpus accuracy checks were explicitly skipped and remain unmeasured. The separate private F15 legal proposal environment is not included in this accepted core configuration.
+
+## Historical preparation measurement
+
+Historical preparation snapshot measured against MQ's owned restored Tsela database on 17 October 2026, application base `3a0a17e38b393d0c0707ed24e615be2b016f604e`. This is synthetic configuration presence/status, not real lender approval or provider acceptance. Private machine-readable evidence: `/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/config-inventory.json`; trigger/CHECK catalogs retained beside it.
 
 The restored fixture contains 16 active, 10 defaulted, 2 written-off and 7 completed loans. These are deliberately synthetic stress scenarios from the 16 October bake; they must not be presented as a healthy real lender book. No provider or legal setting was activated to improve this inventory.
 
@@ -19,7 +27,7 @@ The restored fixture contains 16 active, 10 defaulted, 2 written-off and 7 compl
 | G11 collections | Engine off. Real mandate submission/collection settlement/returns remain external. DB invariants pending integrated gate. |
 | G12 online payment | Stitch credentials stripped and absent from runtime allow-list. Signed synthetic callback/return fixtures pending; no real settlement claimed. |
 | G13 messaging | Zero active email configs; zero WhatsApp-enabled configurations. BulkSMS/Netcash/TransUnion/Smile dispatch disabled. SMS remains off by policy; all real messages forbidden. |
-| G14 OCR/AI | Runtime allow-list has no VLM endpoint/key. Prior statement-analysis accuracy/semantics gates remain failed/stopped per LATEST; passing unit/face-model checks cannot upgrade statement-AI accuracy. |
+| G14 OCR/AI | Runtime allow-list has no VLM endpoint/key. Prior statement-analysis accuracy/semantics gates remain failed/stopped per LATEST; passing unit/face-model checks cannot establish OCR/statement-reader accuracy; this is distinct from the newer disabled advisory Statement AI feature. |
 | G15 accounting destination | External Xero/IsaFlow credentials stripped. Local preview/close/export acceptance pending F10; destination writes require target authority. |
 | G16 scheduler | No CRON_SECRET or scheduler configured for candidate. Three restored heartbeat rows are historical fixtures, not evidence of a running scheduler. |
 | G17 operator | No operator-browser acceptance yet. Requires isolated real session and fresh eligible support/recovery fixtures. |

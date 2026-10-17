@@ -1,4 +1,19 @@
-# Portal browser acceptance — final candidate 7
+# Portal browser acceptance — final candidate 8
+
+Source: `63a96479d290b215049b3a3e46977dc09305c21f`. MQ-verified immutable image: `sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe`. Canonical private base `http://localhost:44213` and separate positive-charge fixture `http://localhost:46203`. Both browser runs independently fetched health before login, required HTTP200 and asserted its actual `commit` equals this source. Health reported build time `2026-10-17T17:47:29+02:00`; health metadata is retained in each result and index. The image digest comes from MQ's inspected runtime provenance, not a browser-visible digest claim.
+
+[Final candidate 8 evidence index](evidence/a-browser/final-63a96479/index.json) contains two actual successful runs: base 25 scenarios and charges 7 scenarios, both exited 0, with zero uncaught JavaScript exceptions, console warnings/errors or HTTP responses ≥400. All 31 screenshots are hashed; all 3 JSON records parse and contain neither seed nor current recovered credentials. Prior source66 and candidate6 evidence remains unchanged below.
+
+The final source replay independently re-established:
+
+- F06: no-loan Sipho first with current recovered credentials, borrower Dineo and eligible business trustee traversed all 10/10/11 destinations. Single Dialog, Enter/Escape/focus restoration, 390×400 scrolling/geometry, actual sign-out on the same host, protected-page refusal and linked business entry passed. Sipho's context closed and root was notified before any subsequent root recovery; all remaining contexts also closed after completion.
+- F07: actual Chrome contrast passed tenant/default ×light/dark on the base borrower, minimum heading/helper 4.761:1, reference/copy 12.635–14.474:1. Separate positive-charge borrower also passed native tenant dark/light reference checks. Default palette substitution was browser-only.
+- F12: overview, list, statement and exact detail values passed for personal charges-off, partially paid natural-person asset instalment sale and positive-charge borrower. Figures remain personal R531.43 in all four breakdown rows; asset principal R285,890.82 / remaining contractual R374,769.94 / overdue R0, requesting a lender quote without calculated settlement; positive-charge principal R10,000 / contractual R12,569.86 / overdue and dated settlement R13,601.41. Charge-mode descriptions match the displayed calculation.
+- F08 and routes: truthful PO product/intake wording and required fields passed, existing synthetic PO receipt was read on this final source, and authenticated business entry plus payment success/failure UI rendered. No duplicate application or consent ceremony was submitted. Staff assessment/refusal and provider callback/money/payment allocation/settlement remain separate evidence.
+
+A made no product edit, credential reset, runtime/configuration/database fixture change or provider activation during this replay. All data is synthetic; no external customer message was sent. MQ's final automated gates and coordinator's closure decisions remain separate. This portal replay does not establish the new operator sign-out flow: root owns that distinct actual browser acceptance.
+
+## Historical candidate 7 checkpoint
 
 Final source: `66c183c1d316b2c8d696b56aa37a42de4700445e`. Immutable image: `sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d`. Canonical private origins: `http://localhost:44213` (base) and `http://localhost:46203` (separate positive-charge fixture). Prior candidate 6 evidence is retained below and does not substitute for this final replay.
 

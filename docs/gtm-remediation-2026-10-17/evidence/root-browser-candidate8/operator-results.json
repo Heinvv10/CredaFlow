@@ -1,0 +1,208 @@
+{
+  "base": "http://operator.localhost:44213",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "at": "2026-10-17T15:52:35.427Z",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "420091ffd3f209e9144a32c1fe87d207588dbaea41515780327768bd4334a732",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "route": "/operator/login",
+      "status": 200,
+      "scenario": "actual mandatory TOTP login completed below"
+    },
+    {
+      "scenario": "actual authenticated role",
+      "role": "OPERATOR_ADMIN",
+      "tenantId": null
+    },
+    {
+      "route": "/operator",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator.json"
+    },
+    {
+      "route": "/operator/grants",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_grants.json"
+    },
+    {
+      "route": "/operator/lenders/new",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_lenders_new.json"
+    },
+    {
+      "route": "/operator/security",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_security.json"
+    },
+    {
+      "route": "/operator/usage",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_usage.json"
+    },
+    {
+      "route": "/operator/users",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_users.json"
+    },
+    {
+      "route": "/operator/lenders/cmnflx6i00000ay0c6dpcsk1l",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_lenders_cmnflx6i00000ay0c6dpcsk1l.json"
+    },
+    {
+      "route": "/operator/lenders/cmnflx6i00000ay0c6dpcsk1l/support",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "support refuses without active lender grant",
+          "ok": true
+        }
+      ],
+      "evidence": "_operator_lenders_cmnflx6i00000ay0c6dpcsk1l_support.json"
+    },
+    {
+      "scenario": "lender granted real support view",
+      "ok": true
+    },
+    {
+      "scenario": "support page remains read-only",
+      "status": 403,
+      "expected": 403
+    },
+    {
+      "scenario": "revocation closes operator support view",
+      "ok": true
+    },
+    {
+      "scenario": "actual private synthetic lender provisioning UI",
+      "status": 201,
+      "ok": true,
+      "limitation": "Syntactically valid TEST identity only; no regulator verification, lender approval, real data or deployment"
+    },
+    {
+      "scenario": "actual operator invitation issued to owned SMTP",
+      "status": 201,
+      "emailSent": true
+    },
+    {
+      "scenario": "actual delivered operator invitation password set",
+      "status": 200
+    },
+    {
+      "scenario": "actual operator invitation replay refused",
+      "status": 400
+    },
+    {
+      "scenario": "new operator held at mandatory enrollment on correct host",
+      "ok": true
+    },
+    {
+      "scenario": "actual operator TOTP enrollment UI completed",
+      "ok": true
+    },
+    {
+      "scenario": "post-enrollment sign-out lands at actual same-host login form",
+      "status": 200,
+      "origin": "http://operator.localhost:44213"
+    },
+    {
+      "scenario": "actual invited support operator signs in with TOTP",
+      "role": "OPERATOR_SUPPORT",
+      "totpVerified": true
+    },
+    {
+      "scenario": "new support operator refuses admin-only write",
+      "status": 403,
+      "expected": 403
+    },
+    {
+      "scenario": "actual operator invitation and delivered set-password",
+      "ok": true,
+      "replayStatus": 400,
+      "mandatoryTotpHold": true,
+      "enrollment": true,
+      "verifiedSignIn": true,
+      "limitation": "Local SMTP sink and synthetic operator; platform bootstrap CLI remains separate evidence"
+    },
+    {
+      "scenario": "normal operator sign-out and protected-console refusal preserve same host",
+      "status": 200,
+      "protectedReturnStatus": 200
+    },
+    {
+      "route": "operator route on lender host",
+      "status": 404,
+      "expected": 404
+    },
+    {
+      "route": "lender dashboard on operator host",
+      "status": 404,
+      "expected": 404
+    },
+    {
+      "scope": "token/provider-return lifecycle",
+      "status": "pending",
+      "reason": "Tracked separately: fresh eligible tokens and provider lifecycle evidence are required; operator route captures do not establish these."
+    }
+  ],
+  "failures": []
+}
