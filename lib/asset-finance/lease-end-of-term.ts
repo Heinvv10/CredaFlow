@@ -120,6 +120,7 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
 
 /** Either party ends a month-to-month extension: on the first rental date at least EXTENSION_NOTICE_MONTHS after the notice and after the billed period. */
 export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string; today: string }): Promise<EndResult> {
+  if (actor.clientId && input.noticeOn !== input.today) return refused("invalid_notice_date", "Client notice takes effect from the date it is received")
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied
   const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true, electedAt: true, loan: { select: { cpaApplies: true } } } })

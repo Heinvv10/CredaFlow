@@ -14,7 +14,7 @@ type Params = { params: Promise<{ loanId: string }> }
 export async function POST(req: NextRequest, { params }: Params) {
   const { loanId } = await params
   return leasePortalAction(req, loanId, "portal_end_of_term", async (tx, actor, today, body) => {
-    if (body.action === "extension-notice") return endExtension(tx, actor, { loanId, noticeOn: typeof body.noticeOn === "string" ? body.noticeOn : today, today })
+    if (body.action === "extension-notice") return endExtension(tx, actor, { loanId, noticeOn: today, today })
     const outcome = (["RETURN", "EXTEND", "PURCHASE"] as const).find((o) => o === body.outcome)
     if (!outcome) return badRequest("outcome", "outcome must be RETURN, EXTEND or PURCHASE")
     if (outcome !== "PURCHASE") return electEndOfTerm(tx, actor, { loanId, outcome, today })
