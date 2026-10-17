@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
+import { vatOnExclusive } from "@/lib/vat/amounts"
 import { Prisma, PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import { cleanupDealFixture } from "./deal.integration-fixture"
-import { backdateLease, shiftLease, payAllOwed } from "./lease-servicing.integration-fixture"
+import { backdateLease, shiftLease, testSetup, payAllOwed } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { issueLeaseRentalInvoice } from "./lease-invoices"
 import { quoteEarlyTermination, acceptEarlyTermination } from "./lease-termination-store"
@@ -33,7 +34,8 @@ suite.sequential("closed booked lease late rates preserve ex-VAT capital and mai
     ["OPERATING_LEASE",-.02,true,true,false], ["OPERATING_LEASE",.02,true,true,false], ["FULL_MAINTENANCE_LEASE",-.02,true,true,false], ["FULL_MAINTENANCE_LEASE",.02,true,true,false],
     ["OPERATING_LEASE",-.02,true,true,true], ["FULL_MAINTENANCE_LEASE",.02,true,true,true],
     ["OPERATING_LEASE",-.02,true,false,true], ["FULL_MAINTENANCE_LEASE",.02,true,false,true],
-  ] as const)("%s signed adjustment %s, active %s future-only %s cancellation %s", async (contractType, change, active, futureOnly, cancel) => {
+    ["OPERATING_LEASE",-.02,true,true,false,1600], ["FULL_MAINTENANCE_LEASE",.02,true,true,false,1600],
+  ] as const)("%s signed adjustment %s, active %s future-only %s cancellation %s booked VAT %s", async (contractType, change, active, futureOnly, cancel, bookedVat: number=1500) => {
     process.env.TRUSTED_PROXY = "1"; fx = await createLeaseFixture(db, randomUUID().replaceAll("-", "").slice(0,16)); fixtures.push(fx)
     const dealId = await approveLease(fx,staff,leaseBody(fx,{ assetId:fx.assets[0], contractType,rentalTiming:"ARREARS",entityId:fx.evidenced,preset:{kind:"MONTHLY",periods:12},escalationRate:"0" }))
     await signLease(fx,db,setSession,dealId)
@@ -45,6 +47,17 @@ suite.sequential("closed booked lease late rates preserve ex-VAT capital and mai
     } else {
       await backdateLease(db,loanId,24)
       await payAllOwed(db,fx,loanId)
+    }
+    if(bookedVat!==1500){
+      const last=await db.leaseRental.findFirstOrThrow({where:{loanId},orderBy:{periodNo:"desc"}})
+      const vat=vatOnExclusive(last.rentalExclVatCents,bookedVat)+vatOnExclusive(last.maintenanceExclVatCents,bookedVat)
+      const total=last.rentalExclVatCents+last.maintenanceExclVatCents+vat, difference=total-last.totalCents
+      // Fixture records the booking assumption before a real later supply;
+      // every VAT/rental/receipt guard remains active during actual issuance.
+      await testSetup(db,
+        ['UPDATE "LeaseRental" SET "vatRate"=$2,"vatCents"=$3,"totalCents"=$4 WHERE "id"=$1',last.id,bookedVat/10000,vat,total],
+        ['UPDATE "RepaymentSchedule" SET "principalDue"=$2,"totalDue"=$2 WHERE "id"=$1',last.scheduleId,total],
+        ['UPDATE "Loan" SET "principal"="principal"+$2,"totalRepayable"="totalRepayable"+$2,"outstandingPrincipal"="outstandingPrincipal"+$2 WHERE "id"=$1',loanId,difference])
     }
     const before = await db.loan.findUniqueOrThrow({where:{id:loanId},include:{ repaymentSchedule:{orderBy:{installmentNo:"asc"}},leaseRentals:{orderBy:{periodNo:"asc"}},contractRates:{orderBy:{effectiveDate:"asc"}},taxInvoices:true,payments:true,maintenanceFund:{include:{movements:true}} }})
     expect(before.status).toBe(active?"ACTIVE":"COMPLETED")
@@ -145,6 +158,14 @@ suite.sequential("closed booked lease late rates preserve ex-VAT capital and mai
           expect(docs[0].exclVatCents).toBe(pending.exclVatCents)
           expect(Math.abs(docs[0].vatCents)).toBe(Math.round(Math.abs(pending.exclVatCents)*invoice.vatRate.toNumber()))
           expect(event.amountCents).toBe(docs[0].inclVatCents-pending.estimatedGrossCents)
+          if(bookedVat!==1500){
+            expect(event.amountCents).not.toBe(0)
+            expect(invoice.vatRate.toNumber()).toBe(.15)
+            const rental=await db.leaseRental.findUniqueOrThrow({where:{id:last.id},include:{schedule:true}})
+            expect(rental.vatRate.toNumber()).toBe(.15)
+            expect(rental.schedule.totalPaid).toBeLessThanOrEqual(rental.schedule.totalDue)
+            expect((await db.payment.aggregate({where:{loanId,reversed:false},_sum:{amount:true}}))._sum.amount).toBe(before.totalPaid+last.totalCents)
+          }
           expect((await db.assetFinanceRateCorrection.aggregate({where:{loanId},_sum:{amountCents:true}}))._sum.amountCents).toBe(correction.amountCents+event.amountCents)
           expect((await db.$transaction(tx=>issueLeaseRentalInvoice(tx as never,{tenantId:fx.tenantId,rentalId:last.id,supplyDate:supplyDay,today:supplyDay,createdById:fx.adminA,source:"cron"}))).kind).toBe("already_invoiced")
           expect(await db.assetFinanceRateCorrection.count({where:{loanId,reason:"LEASE_SUPPLY_TAX_ADJUSTMENT"}})).toBe(1)

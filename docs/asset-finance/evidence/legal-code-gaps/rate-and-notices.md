@@ -220,3 +220,24 @@ issued/unmade cancellations that retain prior issued-supply notes. All temporary
 containers were removed. The latest 215 focused schema, dispatch, repricing and
 charge-replay checks pass (`/tmp/cf-rate-combined-c-focused.log`). These remain
 focused checks; the final full gate and independent reviews belong to root.
+
+## Integrated A/B/C/D checkpoint
+
+The D worktree includes frozen A `f2f43937`, B `5c123847` and C `646007b5`.
+The invoice and cancellation functions preserve both B's supply-date VAT/cash
+replay and D's per-supply deferred rate-tax hooks. The staff surrender and
+commercial cancellation panels and all scope sign-offs are retained.
+
+`/tmp/cf-rate-abcd-vat-pg1.log` records 18 passing real lease cases, including an
+operating-lease rate cut and FML increase where booked VAT is 16% and the actual
+supply is 15%. A real receipt triggers the original invoice, B's corrected bill
+and cash replay, then D's own-supply CN/DN and immutable actual-VAT difference.
+`/tmp/cf-rate-abcd-combined-pg.log` records 98 passing tests across 13 migrated
+PostgreSQL suites spanning the four scopes. `/tmp/cf-rate-abcd-tsc-final.log`
+records passing TypeScript and `/tmp/cf-rate-abcd-lint.log` passing focused lint.
+Temporary PostgreSQL containers are removed. Catalog evidence in
+`/tmp/cf-rate-abcd-zero-check.txt` confirms `LeaseRental_amounts` still requires
+`rentalExclVatCents > 0`. No nonnegative-rental replacement is applied.
+
+This is an integration checkpoint, not the final full gate or whole-goal
+acceptance. The zero-rental confirmation/implementation remains outstanding.
