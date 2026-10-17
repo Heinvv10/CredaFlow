@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateReference } from "@/lib/utils"
+import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
@@ -58,6 +59,7 @@ import { readBorrowerScreening } from "@/lib/screening/gate"
 import { createDisbursementPayout, sendDisbursementPayout } from "@/lib/payouts/disbursement"
 import { PayoutProviderError } from "@/lib/payouts/types"
 import { assertPayoutAvs, PayoutAvsError } from "@/lib/payouts/avs"
+import { lenderHoldsFsp } from "@/lib/insurance/require-fsp"
 
 const disbursementApplicationArgs = Prisma.validator<Prisma.LoanApplicationDefaultArgs>()({
   include: {
@@ -1322,7 +1324,8 @@ export async function POST(
         const newLoan = await tx.loan.create({
           data: {
             tenantId: tenant.id,
-            reference: lockedMandate?.evidence.collectionReference ?? generateReference("LN"),
+            reference: lockedMandate?.evidence.collectionReference ?? await unusedLoanReference(async (reference) =>
+              Boolean(await tx.loan.findFirst({ where: { reference }, select: { id: true } }))),
             applicationId: txApplication.id,
             clientId: txApplication.clientId,
             productId: txApplication.productId,
@@ -1523,6 +1526,12 @@ export async function POST(
             throw new DisbursementEvidenceChangedError(
               "credit_life_product_unavailable",
             )
+          }
+          // A lender with no FSP number issues no insurance (Fair Score audit
+          // goal §2a.2). Cover accepted before the number was cleared is not
+          // bound; the application goes back for a current election.
+          if (!(await lenderHoldsFsp(tx, tenant.id))) {
+            throw new DisbursementEvidenceChangedError("credit_life_lender_no_fsp")
           }
           const lockedOfferRows = await tx.$queryRaw<Array<{ id: string }>>(
             Prisma.sql`

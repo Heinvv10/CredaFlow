@@ -1,15 +1,18 @@
 "use client"
 
-import { useRef, useState, useEffect, useCallback } from "react"
+import { useRef, useState, useEffect, useCallback, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Camera, RotateCcw, Check, AlertCircle } from "lucide-react"
+import { CAMERA_FAILURE_MESSAGES, cameraFailure } from "./camera-error"
 
 interface Props {
   onCapture: (file: File) => void
   disabled?: boolean
+  /** Shown when the camera cannot open, e.g. a "continue on your phone" link. */
+  fallback?: ReactNode
 }
 
-export function SelfieCapture({ onCapture, disabled }: Props) {
+export function SelfieCapture({ onCapture, disabled, fallback }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -44,14 +47,7 @@ export function SelfieCapture({ onCapture, disabled }: Props) {
         }
       }, 100)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes("Permission") || msg.includes("denied")) {
-        setError("Camera access denied. Please allow camera access in your browser settings.")
-      } else if (msg.includes("NotFound") || msg.includes("Requested device not found")) {
-        setError("No camera found on this device.")
-      } else {
-        setError("Could not access camera. " + msg)
-      }
+      setError(CAMERA_FAILURE_MESSAGES[cameraFailure(err)])
       setPhase("error")
     }
   }
@@ -166,13 +162,18 @@ export function SelfieCapture({ onCapture, disabled }: Props) {
       )}
 
       {phase === "error" && (
-        <div className="border-2 border-red-200 rounded-lg p-6 text-center bg-red-50">
-          <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
-          <p className="text-sm text-red-700 font-medium">Camera unavailable</p>
-          <p className="text-xs text-red-600 mt-1">{error}</p>
-          <Button type="button" variant="outline" size="sm" onClick={reset} className="mt-3">
-            Try Again
-          </Button>
+        // Theme tokens, not light-only reds: on the dark portal the outline
+        // button's light text sat on a light panel and read as blank.
+        <div role="alert" className="rounded-lg border-2 border-[rgba(208,92,75,0.35)] bg-[rgba(208,92,75,0.08)] p-6 text-center">
+          <AlertCircle className="mx-auto mb-2 h-8 w-8 text-[var(--cf-danger)]" />
+          <p className="text-sm font-medium text-[var(--cf-text)]">Camera unavailable</p>
+          <p className="mt-1 text-sm text-[var(--cf-text-secondary)]">{error}</p>
+          <div className="mt-4 flex flex-col items-center gap-3">
+            <Button type="button" size="sm" onClick={openCamera} aria-label="Try the camera again">
+              <RotateCcw className="mr-2 h-4 w-4" /> Try again
+            </Button>
+            {fallback}
+          </div>
         </div>
       )}
 

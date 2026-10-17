@@ -15,7 +15,8 @@ import {
 import { disbursedInQuarterWhere, getNcrReturnData } from "@/lib/compliance/ncr-return"
 import { ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
 import { readSnapshotArrearsRegister } from "@/lib/reports/arrears-snapshot"
-import { inArrearsWhere, overdueWhere } from "@/lib/reports/book-arrears"
+import { overdueWhere } from "@/lib/reports/book-arrears"
+import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
@@ -32,7 +33,7 @@ import { sastParts } from "@/lib/date/sast"
 import { cashReceivedCents } from "@/lib/payments/waiver"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { chargesOwing } from "@/lib/reports/charges-owing"
-import { borrowerDisplayName } from "@/lib/borrower"
+import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
 
 type ExportRow = Record<string, string | number | boolean | null | undefined>
 
@@ -206,15 +207,16 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: `Payments — ${period.label}`, rows }])
   } else if (type === "collections") {
-    const loans = await prisma.loan.findMany({
-      where: inArrearsWhere(tenant.id, await chargesLiveForTenant(prisma, tenant.id)), // the collections work list
+    // The collections queue exactly: its population, and its client borrowers.
+    const loans = (await prisma.loan.findMany({
+      where: collectionsQueueWhere(tenant.id, await chargesLiveForTenant(prisma, tenant.id)),
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
         entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
       orderBy: { daysInArrears: "desc" },
-    })
+    })).filter(hasClientBorrower)
 
     const rows = loans.map((l) => ({
       Reference: l.reference,

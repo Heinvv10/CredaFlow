@@ -10,6 +10,7 @@ import { organizationLd, webSiteLd } from "@/lib/seo/jsonld"
 import { getWebsiteIdentity } from "@/lib/website/identity"
 import { TenantThemeProvider } from "@/components/TenantThemeProvider"
 import { getResolvedTenantId, getTenantConfig } from "@/lib/tenant"
+import { publicLenderLogoSrc } from "@/lib/config/lender-logo"
 import { I18nProvider } from "@/lib/i18n/client"
 import { clientMessages, getLocale, getTenantEnabledLocales } from "@/lib/i18n/server"
 import { WEBSITE_CLIENT_NAMESPACES } from "@/lib/i18n/surfaces"
@@ -35,10 +36,11 @@ export async function WebsiteShell({
   const identity = await getWebsiteIdentity()
   if (!identity) return <WebsiteNotConfigured />
   const tenantId = await getResolvedTenantId()
-  const [theme, locale, enabledLocales] = await Promise.all([
+  const [theme, locale, enabledLocales, logoSrc] = await Promise.all([
     getTenantConfig(tenantId),
     getLocale(),
     getTenantEnabledLocales(tenantId),
+    publicLenderLogoSrc(tenantId),
   ])
 
   return (
@@ -48,7 +50,7 @@ export async function WebsiteShell({
           <div lang={locale} className="flex min-h-screen flex-col bg-[#11141b] text-white">
             <WebsiteAnalytics />
             <JsonLd id={jsonLdId} data={[organizationLd(identity), webSiteLd(identity), ...jsonLd]} />
-            <NavBar enabledLocales={enabledLocales} />
+            <NavBar enabledLocales={enabledLocales} logoSrc={logoSrc} />
             {regulatoryBand && <RegulatoryBand identity={identity} />}
             <main className="flex-1">{children}</main>
             <Footer identity={identity} locale={locale} />

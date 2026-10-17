@@ -6,8 +6,15 @@ import { getPortalTenantId } from "@/lib/session-tenant"
 import Link from "next/link"
 import { AlertCircle, CheckCircle, Clock } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
-import type { AppStatus } from "@prisma/client"
-import { decisionKind } from "@/lib/applications/decision-kind"
+import type { DeclineCategory } from "@prisma/client"
+import { getLenderIdentity } from "@/lib/config/identity"
+import { DeclineDecisionCard } from "@/components/portal/DeclineDecisionCard"
+import { loadPortalDeclineView } from "@/lib/portal/decline-view"
+import {
+  buildApplicationTimeline,
+  portalApplicationStatus,
+  type PortalApplicationStatus,
+} from "@/lib/portal/application-view"
 import { ExecutedAgreementCard } from "@/components/portal/ExecutedAgreementCard"
 import { PasqAcknowledgementCard } from "@/components/portal/PasqAcknowledgementCard"
 import {
@@ -27,7 +34,19 @@ async function getApplicationDetail(id: string, email: string) {
 
   const application = await prisma.loanApplication.findFirst({
     where: { id, tenantId },
-    include: { product: { select: { name: true, id: true } } },
+    // An explicit select: the borrower's page never loads the staff-only
+    // declineInternalNote (or anything else it does not show).
+    select: {
+      id: true, tenantId: true, clientId: true, reference: true, status: true,
+      appliedAmount: true, appliedTermDays: true, approvedAmount: true, purpose: true,
+      createdAt: true, updatedAt: true, submittedAt: true, incomeVerifiedAt: true,
+      pasqGeneratedAt: true, pasqDocumentId: true, pasqDocumentSha256: true,
+      pasqAcknowledgedAt: true, pasqAcknowledgedSha256: true,
+      approvedAt: true, declineCategory: true, decisionReason: true,
+      agreementGeneratedAt: true, agreementSignedAt: true, agreementExecutedDocumentId: true,
+      debitMandatePreparedAt: true, debitMandateSignedAt: true, disbursedAt: true, repaymentMethod: true,
+      product: { select: { name: true, id: true } },
+    },
   })
 
   if (!application || application.clientId !== client.id) return null
@@ -42,7 +61,12 @@ async function getApplicationDetail(id: string, email: string) {
 
 type AppsT = Translator<"portalApplications">
 
-const STATUS_CONFIG: Record<AppStatus, { label: MessageKey<"portalApplications">; bg: string; color: string }> = {
+async function loadDeclineView(app: { id: string; tenantId: string; declineCategory: DeclineCategory | null; decisionReason: string | null }) {
+  const identity = await getLenderIdentity(app.tenantId)
+  return loadPortalDeclineView(prisma, app.tenantId, app, { phone: identity.publicPhone, email: identity.publicEmail })
+}
+
+const STATUS_CONFIG: Record<PortalApplicationStatus, { label: MessageKey<"portalApplications">; bg: string; color: string }> = {
   DRAFT:        { label: "appStatus_DRAFT",        bg: "#F3F4F6", color: "#6B7280" },
   SUBMITTED:    { label: "appStatus_SUBMITTED",    bg: "#DBEAFE", color: "#1E40AF" },
   UNDER_REVIEW: { label: "appStatus_UNDER_REVIEW", bg: "#FEF9C3", color: "#92400E" },
@@ -50,68 +74,10 @@ const STATUS_CONFIG: Record<AppStatus, { label: MessageKey<"portalApplications">
   DECLINED:     { label: "appStatus_DECLINED",     bg: "#FEE2E2", color: "#991B1B" },
   DISBURSED:    { label: "appStatus_DISBURSED",    bg: "#EDE9FE", color: "#5B21B6" },
   CANCELLED:    { label: "appStatus_CANCELLED",    bg: "#F3F4F6", color: "#6B7280" },
+  SETTLED:      { label: "appStatus_SETTLED",      bg: "#DBEAFE", color: "#1D4ED8" },
 }
 
-interface TimelineEvent {
-  label: MessageKey<"portalApplications">
-  date: Date
-  done: boolean
-}
-
-type AppDetail = NonNullable<Awaited<ReturnType<typeof getApplicationDetail>>>["application"]
-
-function buildTimeline(app: AppDetail): TimelineEvent[] {
-  const events: TimelineEvent[] = [
-    { label: "tlSubmitted", date: app.submittedAt ?? app.createdAt, done: true },
-  ]
-
-  if (app.incomeVerifiedAt) {
-    events.push({ label: "tlIncomeVerified", date: app.incomeVerifiedAt, done: true })
-  } else if (["UNDER_REVIEW", "APPROVED", "DECLINED", "DISBURSED"].includes(app.status)) {
-    events.push({ label: "tlUnderReview", date: app.updatedAt, done: true })
-  }
-
-  if (app.pasqGeneratedAt) {
-    events.push({ label: "tlPasqGenerated", date: app.pasqGeneratedAt, done: true })
-  }
-
-  if (app.pasqAcknowledgedAt && app.pasqAcknowledgedSha256 === app.pasqDocumentSha256) {
-    events.push({ label: "tlPasqAcknowledged", date: app.pasqAcknowledgedAt, done: true })
-  }
-
-  const kind = decisionKind(app)
-  if (app.approvedAt && kind) {
-    events.push({
-      label: kind === "declined" ? "tlDeclined" : "tlApproved",
-      date: app.approvedAt,
-      done: true,
-    })
-  }
-
-  if (app.agreementGeneratedAt) {
-    events.push({ label: "tlAgreementGenerated", date: app.agreementGeneratedAt, done: true })
-  }
-
-  if (app.agreementSignedAt) {
-    events.push({ label: "tlAgreementSigned", date: app.agreementSignedAt, done: true })
-  }
-
-  if (app.debitMandatePreparedAt) {
-    events.push({ label: "tlMandatePrepared", date: app.debitMandatePreparedAt, done: true })
-  }
-
-  if (app.debitMandateSignedAt) {
-    events.push({ label: "tlMandateSigned", date: app.debitMandateSignedAt, done: true })
-  }
-
-  if (app.disbursedAt) {
-    events.push({ label: "tlDisbursed", date: app.disbursedAt, done: true })
-  }
-
-  return events.sort((a, b) => a.date.getTime() - b.date.getTime())
-}
-
-function StatusBadge({ status, t }: { status: AppStatus; t: AppsT }) {
+function StatusBadge({ status, t }: { status: PortalApplicationStatus; t: AppsT }) {
   const cfg = STATUS_CONFIG[status]
   return (
     <span
@@ -155,10 +121,14 @@ export default async function ApplicationDetailPage({
     && app.agreementSignedAt !== null
     && app.debitMandateSignedAt === null
 
-  const timeline = buildTimeline(app)
+  const timeline = buildApplicationTimeline(app)
   const nextStep = portalApplicationNextStep(app)
   const locale = await getLocale()
   const t = createTranslator(locale, "portalApplications")
+  const status = portalApplicationStatus(app.status, loan?.status)
+  const declineView = app.status === "DECLINED"
+    ? await loadDeclineView(app)
+    : null
 
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8">
@@ -173,7 +143,7 @@ export default async function ApplicationDetailPage({
             <p className="text-xl font-bold text-gray-900">{app.reference}</p>
             <p className="text-sm text-gray-500 mt-0.5">{app.product.name}</p>
           </div>
-          <StatusBadge status={app.status} t={t} />
+          <StatusBadge status={status} t={t} />
         </div>
 
         {/* Key details grid */}
@@ -275,13 +245,8 @@ export default async function ApplicationDetailPage({
 
       <ExecutedAgreementCard agreementExecutedDocumentId={app.agreementExecutedDocumentId} locale={locale} />
 
-      {/* Declined reason: the NCA decision record, kept in English in every locale */}
-      {app.status === "DECLINED" && app.decisionReason && (
-        <div lang="en" className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-red-800 mb-1">Reason for Decision</p>
-          <p className="text-sm text-red-700">{app.decisionReason}</p>
-        </div>
-      )}
+      {/* Declined: the NCA decision record, kept in English in every locale */}
+      {declineView && <DeclineDecisionCard view={declineView} />}
 
       {/* Active loan link */}
       {loan && (
@@ -289,7 +254,7 @@ export default async function ApplicationDetailPage({
           <div className="flex items-center gap-3">
             <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
             <div>
-              <p className="font-semibold text-green-800 text-sm">{t("loanActive")}</p>
+              <p className="font-semibold text-green-800 text-sm">{t(status === "SETTLED" ? "loanSettled" : "loanActive")}</p>
               <p className="text-xs text-green-700">{t("loanReference", { reference: loan.reference })}</p>
             </div>
           </div>
@@ -312,13 +277,9 @@ export default async function ApplicationDetailPage({
               <div className="flex flex-col items-center">
                 <div
                   className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-                  style={{ backgroundColor: event.done ? "#DCFCE7" : "#F3F4F6" }}
+                  style={{ backgroundColor: "#DCFCE7" }}
                 >
-                  {event.done ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-                  ) : (
-                    <Clock className="w-3.5 h-3.5 text-gray-400" />
-                  )}
+                  <CheckCircle className="w-3.5 h-3.5 text-green-600" />
                 </div>
                 {i < timeline.length - 1 && (
                   <div className="w-px flex-1 bg-gray-200 mt-1 mb-1 min-h-[20px]" />

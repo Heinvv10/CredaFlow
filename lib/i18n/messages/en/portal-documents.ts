@@ -82,4 +82,9 @@ export const portalDocuments = {
   identityVerifiedScore: "Identity verified - {score}% match",
   checksAwaitingAdvisor: "Identity checks are awaiting advisor review.",
   verifyingIdentity: "Verifying your identity... This may take up to 60 seconds.",
+  selfieNotNeeded: "Not needed",
+  selfieInPersonDetail: "Your identity was confirmed in person by our staff, so no selfie is needed.",
+  recentStatementNeeded: "Upload a recent bank statement (the last 3 months) so we can finish assessing your application. The statement we have on file is too old.",
+  recentStatementDetail: "The statement on file is too old for your application. Upload one from the last 3 months.",
+  recentStatementPill: "Recent statement needed",
 } as const

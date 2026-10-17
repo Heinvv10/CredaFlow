@@ -75,4 +75,9 @@ export const portalDocuments: Catalog["portalDocuments"] = {
   identityVerifiedScore: "Identiteit geverifieer - {score}% ooreenstemming",
   checksAwaitingAdvisor: "Identiteitstoetse wag vir hersiening deur ’n adviseur.",
   verifyingIdentity: "Jou identiteit word geverifieer... Dit kan tot 60 sekondes neem.",
+  selfieNotNeeded: "Nie nodig nie",
+  selfieInPersonDetail: "Ons personeel het jou identiteit persoonlik bevestig, dus is geen selfie nodig nie.",
+  recentStatementNeeded: "Laai ’n onlangse bankstaat op (die afgelope 3 maande) sodat ons jou aansoek kan klaar beoordeel. Die staat wat ons op lêer het, is te oud.",
+  recentStatementDetail: "Die staat op lêer is te oud vir jou aansoek. Laai een van die afgelope 3 maande op.",
+  recentStatementPill: "Onlangse staat nodig",
 }

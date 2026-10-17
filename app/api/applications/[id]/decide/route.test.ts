@@ -35,6 +35,8 @@ const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
 const referenceRateFindFirstMock = vi.fn()
 const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: Date; maturityDate: Date }>)
+type ApprovedSibling = { appliedAmount: number; appliedTermDays: number; approvedAmount: number | null; approvedTermDays: number | null }
+const applicationFindManyMock = vi.fn(async (_a: unknown) => [] as ApprovedSibling[])
 
 // The client's own loans with this lender: none here (the real-DB behaviour is
 // lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
@@ -52,7 +54,11 @@ vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => {
     }),
   }
 })
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", async () => ({
+  requireApiRole: () => requireApiRoleMock(),
+  // The real permission check (the client-safe twin of auth-guards' canDo).
+  canDo: (await vi.importActual<typeof import("@/lib/permissions")>("@/lib/permissions")).canDo,
+}))
 // The gate's own behaviour is tested in lib/screening; here, only that the
 // route obeys it before and inside the approve transaction.
 const screeningApprovalGateMock = vi.fn()
@@ -76,6 +82,7 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: {
       findUnique: (a: unknown) => findUniqueMock(a),
       updateMany: (a: unknown) => updateManyMock(a),
+      findMany: (a: unknown) => applicationFindManyMock(a),
     },
     client: { findUnique: (a: unknown) => clientFindUniqueMock(a) },
     clientDocument: { findMany: (a: unknown) => clientDocumentFindManyMock(a) },
@@ -381,7 +388,7 @@ beforeEach(() => {
   lockedScreeningAllowsApprovalMock.mockResolvedValue(true)
   verifyStoredPasqBindingMock.mockReset()
   verifyPasqDocumentArtifactMock.mockReset()
-  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co" } })
+  requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "admin@x.co", role: "LOAN_ADMIN" } })
   updateManyMock.mockResolvedValue({ count: 1 })
   clientFindUniqueMock.mockResolvedValue({ kycStatus: "VERIFIED" })
   clientDocumentFindManyMock.mockResolvedValue([])
@@ -1042,6 +1049,17 @@ describe("Regulation 42: 3% a month on a repeat short-term loan in the calendar 
     }))
   })
 
+  it("counts an earlier short-term application approved but not yet paid out", async () => {
+    applicationFindManyMock.mockResolvedValueOnce([{ appliedAmount: 200_000, appliedTermDays: 30, approvedAmount: 200_000, approvedTermDays: 30 }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect((await res.json() as { interestRateCap: string }).interestRateCap).toBe("REPEAT_SHORT_TERM")
+    expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", status: "APPROVED", loan: null }),
+    }))
+  })
+
   it("ignores an earlier loan that was not short-term (over 6 months)", async () => {
     loanFindManyMock.mockResolvedValue([{ startDate: new Date("2026-01-05T08:00:00Z"), maturityDate: new Date("2026-12-05T08:00:00Z") }])
     findUniqueMock.mockResolvedValue(underReviewApplication)
@@ -1559,7 +1577,7 @@ it("declines an UNDER_REVIEW application (happy path)", async () => {
 it.each([
   ["missing", {}],
   ["blank", { declineCategory: "" }],
-  ["unknown", { declineCategory: "FRAUD" }],
+  ["unknown", { declineCategory: "NOT_A_CATEGORY" }],
 ])("400s a decline with a %s category and writes nothing", async (_label, extra) => {
   findUniqueMock.mockResolvedValue(underReviewApplication)
 
@@ -1569,6 +1587,59 @@ it.each([
   expect(txUpdateManyMock).not.toHaveBeenCalled()
   expect(txAuditLogCreateMock).not.toHaveBeenCalled()
   expect(triggerNotificationMock).not.toHaveBeenCalled()
+})
+
+// Fair Score audit 2026-10-16: staff typed internal notes into the one reason
+// field, and the borrower was shown them verbatim.
+it("keeps the staff internal note apart from the reason shown to the client, and audits both", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({
+    action: "decline", declineCategory: "FRAUD",
+    reason: "We could not verify the information in your application.",
+    internalNote: "Payslip employer phone number rings a residential line.",
+  }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({
+      status: "DECLINED",
+      declineCategory: "FRAUD",
+      decisionReason: "We could not verify the information in your application.",
+      declineInternalNote: "Payslip employer phone number rings a residential line.",
+    }),
+  }))
+  expect(txAuditLogCreateMock).toHaveBeenCalledWith({
+    data: expect.objectContaining({
+      newValue: expect.objectContaining({
+        reason: "We could not verify the information in your application.",
+        internalNote: "Payslip employer phone number rings a residential line.",
+      }),
+    }),
+  })
+})
+
+it("gives the client the category's reason when staff leave it blank, never the bare word Declined", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "decline", declineCategory: "BUREAU_SCORE" }), ctx)
+
+  expect(res.status).toBe(200)
+  expect(txUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+    data: expect.objectContaining({
+      decisionReason: "Your credit record at the credit bureau does not meet our lending criteria.",
+      declineInternalNote: null,
+    }),
+  }))
+})
+
+it("400s an Other decline with no reason for the client", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+
+  const res = await POST(makeReq({ action: "decline", declineCategory: "OTHER", internalNote: "see file" }), ctx)
+
+  expect(res.status).toBe(400)
+  expect(txUpdateManyMock).not.toHaveBeenCalled()
 })
 
 it("409s on decline when a concurrent decision already moved the application off UNDER_REVIEW, skips audit", async () => {

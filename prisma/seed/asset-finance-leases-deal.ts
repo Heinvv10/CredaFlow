@@ -29,15 +29,15 @@ import { confirmChecklist, payOutAndBook, signAndContract } from "./asset-financ
 import { LEASE_PRODUCT_CODE, LEASE_SOLE_PROP, type LeaseSpec } from "./asset-finance-leases-data"
 
 /**
- * The lease product: as the instalment-sale product (./asset-finance-book.ts) with a 90-day
+ * The lease product (ASSET_FINANCE): as the instalment-sale product (./asset-finance-book.ts) with a 90-day
  * minimum term, so a 5-rental lease is bookable. UNTESTED: legal — the lender's minimum lease term.
  */
 export async function ensureLeaseProduct(tenantId: string): Promise<string> {
   const product = await prisma.loanProduct.upsert({
     where: { tenantId_code: { tenantId, code: LEASE_PRODUCT_CODE } },
-    update: {},
+    update: { productType: "ASSET_FINANCE" },
     create: {
-      tenantId, code: LEASE_PRODUCT_CODE, name: "Plant & Vehicle Lease", productType: "PERSONAL",
+      tenantId, code: LEASE_PRODUCT_CODE, name: "Plant & Vehicle Lease", productType: "ASSET_FINANCE",
       minAmount: 10_000_000, maxAmount: 1_000_000_000, minTermDays: 90, maxTermDays: 3_660,
       interestRatePm: 0.01, interestModel: "REDUCING_BALANCE",
       nonNcaDefaultInterestMargin: new Prisma.Decimal("0.02"), nonNcaCollectionFeeCents: 25_000,
@@ -57,7 +57,7 @@ export interface LeaseParties {
 }
 
 /** On the demo lender's client domain, as the other synthetic clients (prisma/demo-lender.ts). */
-export const leaseClientEmail = () => `test.baker@${demoLender().clientDomain}`
+export const leaseClientEmail = () => `zanele.baker@${demoLender().clientDomain}`
 
 /** The sole proprietor lessee (a Client with an address, as a tax invoice needs). KYC stays PENDING, no portal login. */
 export async function ensureLeaseClient(tenantId: string): Promise<string> {
@@ -68,7 +68,7 @@ export async function ensureLeaseClient(tenantId: string): Promise<string> {
     data: {
       tenantId, reference: p.reference, idNumber: p.idNumber, firstName: p.firstName, lastName: p.lastName,
       dateOfBirth: new Date(p.dob), gender: p.gender, email: leaseClientEmail(), phone: p.phone, whatsapp: p.phone,
-      addressLine1: "5 Test Bakery Lane", city: "Testville", province: "Gauteng", postalCode: "0005",
+      addressLine1: "5 Demo Bakery Lane", city: "Benoni", province: "Gauteng", postalCode: "0005",
       employmentStatus: "SELF_EMPLOYED", kycStatus: "PENDING", popiaConsentGiven: true, popiaConsentAt: new Date(),
     },
     select: { id: true },
@@ -117,7 +117,7 @@ export async function originateLease(tenantId: string, staff: SeedStaff, spec: L
     if (recorded.kind !== "recorded") throw new Error(`Seed: ${spec.key} lease credit memo not recorded (${recorded.kind})`)
   }
   const decided = await prisma.$transaction((tx) => decideDeal(tx, dealActor(tenantId, staff.adminOne), dealId, {
-    decision: "APPROVE", reasons: ["Synthetic lessee cash flow comfortably covers the rental", "Lessor-owned asset, insured with the lender's interest noted and tracked"],
+    decision: "APPROVE", reasons: ["Lessee cash flow comfortably covers the rental", "Lessor-owned asset, insured with the lender's interest noted and tracked"],
   }))
   if (decided.kind !== "decided" || decided.status !== "APPROVED") throw new Error(`Seed: ${spec.key} lease approval refused (${JSON.stringify(decided)})`)
   return dealId
@@ -133,7 +133,7 @@ async function payFirstRentals(tenantId: string, officer: SeedActor, loanId: str
   for (const row of rows.filter((r) => r.totalPaid < r.totalDue)) {
     await applyManualReceipt(prisma, {
       loanId, tenantId, amount: row.totalDue - row.totalPaid, paymentMethod: "EFT", reference: loan.reference,
-      notes: `Synthetic early receipt of rental ${row.installmentNo} (demo seed)`,
+      notes: `Early receipt of rental ${row.installmentNo}`,
       capturedById: officer.id, capturedByEmail: officer.email,
       idempotencyKey: `seed-af-${loan.reference}-${row.installmentNo}`,
     })

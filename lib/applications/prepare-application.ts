@@ -1,6 +1,12 @@
 import { Prisma, type AgreementType, type AppStatus, type LoanPurposeCategory } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { ApplicationSubmissionTransaction } from "@/lib/applications/submission-lock"
+import {
+  isClientPoDocument,
+  parsePoFundingFacts,
+  requiresPoFundingFacts,
+  type PoFundingFacts,
+} from "@/lib/applications/po-funding"
 import { validateAllApplication, type ValidationErrors } from "@/lib/validation/application-wizard"
 import { toApplicationProduct } from "@/lib/applications/product-mapper"
 import { creditBlock } from "@/lib/clients/status"
@@ -15,6 +21,7 @@ import {
 } from "@/lib/affordability/snapshot"
 import { loadOwnLenderDebts, ownAwareDebtTotal, withOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 import {
+  creditLifeOfferedFor,
   CREDIT_LIFE_DISCLOSURE_VERSION,
   CREDIT_LIFE_NO_OFFER_DISCLOSURE_VERSION,
   calculateCreditLifeMonthlyPremiumCents,
@@ -27,6 +34,7 @@ import {
 } from "@/lib/insurance/credit-life-election.server"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 export type PrepareApplicationInput = Omit<ApplicationWizardData, "appliedAmount" | "appliedTermDays"> & {
   appliedAmount: number // cents (wizard coerces to cents before POST/PATCH)
@@ -77,6 +85,9 @@ export interface PreparedApplicationFields {
   creditLifeDisclosureSha256?: string
   creditLifeDisclosureAcknowledgedAt?: Date
   creditLifeDisclosureAcknowledgedBy?: string
+  poNumber: string | null
+  poBuyerName: string | null
+  poDocumentId: string | null
 }
 
 export type PrepareApplicationResult =
@@ -111,7 +122,7 @@ export async function prepareApplicationFields(
   const db = database ?? prisma
   // Load active products for server-side validation
   const activeProductRows = await db.loanProduct.findMany({
-    where: { tenantId, active: true },
+    where: { tenantId, active: true, ...CONSUMER_PRODUCT_WHERE },
     select: {
       id: true,
       name: true,
@@ -234,6 +245,22 @@ export async function prepareApplicationFields(
     }
   }
 
+  // PO funding is business credit tied to a confirmed order: the staff wizard
+  // and the lender API create through here, so it is enforced for both. The
+  // callers hold the client-evidence lock DELETE /api/documents/[id] takes.
+  let poFacts: PoFundingFacts | null = null
+  if (requiresPoFundingFacts(selectedProduct.productType)) {
+    const parsed = parsePoFundingFacts(
+      data as unknown as Record<string, unknown>,
+      (data.loanPurposeCategory || null) as LoanPurposeCategory | null,
+    )
+    if (!parsed.ok) return { ok: false, status: 422, body: { error: parsed.error } }
+    if (!(await isClientPoDocument(db, { tenantId, clientId: data.clientId, documentId: parsed.facts.poDocumentId }))) {
+      return { ok: false, status: 422, body: { error: "The purchase order document was not found for this client." } }
+    }
+    poFacts = parsed.facts
+  }
+
   // Snapshot debt obligations as JSON
   const debtSnapshot: DebtSnapshotEntry[] = client.debtObligations.map((d) => ({
     sourceId: d.id,
@@ -286,8 +313,10 @@ export async function prepareApplicationFields(
     // No active credit-life product with an active insurer means there was no
     // cover to offer, so there is nothing to decline against. Record the
     // no-offer disclosure instead of rejecting the submission — requiring an
-    // offer here is what made every application unsubmittable.
-    if (!configuredCreditLifeOffer) {
+    // offer here is what made every application unsubmittable. Cover cannot be
+    // added at or below the threshold either, so a configured product is no
+    // offer there (Fair Score audit B6).
+    if (!creditLifeOfferedFor(configuredCreditLifeOffer !== null, data.appliedAmount)) {
       if (data.creditLifeElection === "ACCEPTED") {
         return {
           ok: false,
@@ -299,7 +328,7 @@ export async function prepareApplicationFields(
       }
       // The client echoed an offer that no longer resolves. Refuse rather than
       // silently downgrade a real disclosure into a no-offer one.
-      if (data.creditLifeProductId != null || data.creditLifeInsurerId != null) {
+      if (!configuredCreditLifeOffer && (data.creditLifeProductId != null || data.creditLifeInsurerId != null)) {
         return {
           ok: false,
           status: 409,
@@ -504,6 +533,9 @@ export async function prepareApplicationFields(
       // alignment rather than introducing a new freedom.
       loanPurposeCategory: (data.loanPurposeCategory || null) as LoanPurposeCategory | null,
       agreementType: classifyAgreementType(data.appliedAmount),
+      poNumber: poFacts?.poNumber ?? null,
+      poBuyerName: poFacts?.poBuyerName ?? null,
+      poDocumentId: poFacts?.poDocumentId ?? null,
       existingDebtObligations: debtSnapshot,
       totalExistingDebt,
       netDisposableIncome,

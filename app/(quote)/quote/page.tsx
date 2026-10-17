@@ -57,6 +57,8 @@ export default async function QuotePage({ searchParams }: QuotePageProps) {
 
   const identity = await findLenderIdentity(await getResolvedTenantId())
   if (!identity) return null
+  // The quote host names the lender as the FSP: no FSP number, no quotes.
+  if (!identity.fspNumber) notFound()
   const privacyUrl = privacyPolicyUrl()
 
   const { view } = await searchParams

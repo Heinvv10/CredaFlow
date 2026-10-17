@@ -6,12 +6,13 @@ import { DataPanel } from "@/components/app-shell/DataPanel"
 import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { SectionHeader } from "@/components/app-shell/SectionHeader"
 import { StatusPill } from "@/components/app-shell/StatusPill"
-import { Upload, Eye, Trash2, CheckCircle, AlertCircle, Clock, RefreshCcw, Loader2, Camera, Fingerprint } from "lucide-react"
+import { Upload, Eye, Trash2, CheckCircle, AlertCircle, Clock, RefreshCcw, Loader2, Fingerprint } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { UploadDialog } from "@/components/documents/UploadDialog"
 import { DocumentPreviewDialog } from "@/components/documents/DocumentPreviewDialog"
 import {
   REQUIRED_DOC_TYPES,
+  SYSTEM_GENERATED_DOC_TYPES,
   formatFileSize,
   type DocumentRecord,
 } from "@/lib/document-types"
@@ -29,12 +30,20 @@ import { formatDay } from "@/lib/i18n/format"
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { docTypeLabel } from "@/lib/i18n/portal-labels"
+import { SelfieChecklistRow } from "./SelfieChecklistRow"
+import { ContinueOnPhone } from "@/components/portal/ContinueOnPhone"
 
 interface Props {
   clientId: string
   popiaConsentGiven: boolean
   initialDocs: DocumentRecord[]
   initialKycChecklist: PortalKycChecklist
+  /**
+   * Set while an undecided application has no bank statement in its credit
+   * checks' window (lib/portal/statement-needed.ts): a statement uploaded on or
+   * after this instant satisfies it.
+   */
+  recentStatementSince?: string | null
 }
 
 interface DocumentsWithKycResponse {
@@ -60,6 +69,7 @@ export function PortalDocumentsClient({
   popiaConsentGiven: _popiaConsentGiven,
   initialDocs,
   initialKycChecklist,
+  recentStatementSince = null,
 }: Props) {
   const [docs, setDocs] = useState<DocumentRecord[]>(initialDocs)
   const [kycChecklist, setKycChecklist] =
@@ -166,14 +176,16 @@ export function PortalDocumentsClient({
     return status === "missing" || status === "action_required"
   })
   const selfieVerified = kycChecklist.selfie.status === "verified"
-  const selfieExceptionAccepted =
-    kycChecklist.selfie.status === "exception_accepted"
   const selfiePending = kycChecklist.selfie.status === "pending_review"
   // Nothing is running while staff review the ID copy: no spinner.
   const selfieAwaitingIdVerification =
     selfiePending && kycChecklist.selfie.awaitingIdVerification
   const selfieFailed = kycChecklist.selfie.status === "action_required"
   const remainingChecklistItems = kycChecklist.customerActionCount
+  // KYC can be complete while the credit checks still lack a recent statement
+  // (an old one is on file): ask for it rather than say "complete".
+  const recentStatementNeeded = recentStatementSince !== null && !docs.some((d) =>
+    d.docType === "BANK_STATEMENT" && !d.deletedAt && Date.parse(d.createdAt) >= Date.parse(recentStatementSince))
 
   const coreStatusCopy = (
     status: PortalKycItemStatus,
@@ -290,6 +302,9 @@ export function PortalDocumentsClient({
       )
     }
     if (doc.extractionStatus === "failed" || doc.extractionStatus === "skipped") {
+      // We produced these ourselves; there is nothing to read, so "couldn't
+      // read" would only alarm the borrower (Fair Score audit 2026-10-16).
+      if ((SYSTEM_GENERATED_DOC_TYPES as readonly string[]).includes(doc.docType)) return null
       if (
         isLatestSelfie &&
         (
@@ -338,6 +353,8 @@ export function PortalDocumentsClient({
             <span>
               {t("manualHold")}
             </span>
+          ) : recentStatementNeeded ? (
+            <span className="font-medium text-[var(--cf-warning)]">{t("recentStatementNeeded")}</span>
           ) : kycChecklist.complete ? (
             <span className="font-medium text-[var(--cf-success)]">
               {kycChecklist.substituteKind === "in_person"
@@ -362,8 +379,11 @@ export function PortalDocumentsClient({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {REQUIRED_DOC_TYPES.map((dt) => {
             const doc = docsByType.get(dt)
-            const status = kycChecklist.coreDocuments[dt].status
-            const statusCopy = coreStatusCopy(status, Boolean(doc))
+            const statementStale = dt === "BANK_STATEMENT" && recentStatementNeeded
+            const status = statementStale ? "action_required" : kycChecklist.coreDocuments[dt].status
+            const statusCopy = statementStale
+              ? { detail: t("recentStatementDetail"), label: t("recentStatementPill"), tone: "danger" as const }
+              : coreStatusCopy(status, Boolean(doc))
             const label = docLabel(dt)
             return (
               <div
@@ -395,68 +415,13 @@ export function PortalDocumentsClient({
             )
           })}
 
-          <div className="flex flex-col gap-3 rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-4 text-sm sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              {selfieExceptionAccepted ? (
-                <AlertCircle className="h-5 w-5 shrink-0 text-[var(--cf-warning)]" />
-              ) : selfieVerified ? (
-                <Fingerprint className="h-5 w-5 shrink-0 text-[var(--cf-success)]" />
-              ) : selfieAwaitingIdVerification ? (
-                <Clock className="h-5 w-5 shrink-0 text-[var(--cf-info)]" />
-              ) : selfiePending ? (
-                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[var(--cf-info)]" />
-              ) : selfieFailed ? (
-                <AlertCircle className="h-5 w-5 shrink-0 text-[var(--cf-danger)]" />
-              ) : (
-                <Camera className="h-5 w-5 shrink-0 text-[var(--cf-warning)]" />
-              )}
-              <div className="min-w-0">
-                <p className="font-semibold text-[var(--cf-text)]">{t("selfieTitle")}</p>
-                <p className="mt-0.5 text-xs text-[var(--cf-text-muted)]">
-                  {selfieExceptionAccepted
-                    ? t("selfieExceptionDetail")
-                    : selfieVerified
-                    ? t("selfieVerifiedDetail", { score: String(selfieDoc?.biometricMatchScore) })
-                    : selfiePending
-                      ? kycChecklist.selfie.awaitingIdVerification
-                        ? t("selfieAwaitingId")
-                        : kycChecklist.selfie.reason === "document_not_verified"
-                        ? t("selfieChecksPassed")
-                        : t("selfieReceived")
-                      : selfieFailed
-                        ? selfieFailure(kycChecklist.selfie.reason)
-                        : hasIdDocument
-                          ? t("selfieTake")
-                          : t("selfieIdFirst")}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-2 sm:justify-end">
-              {selfieExceptionAccepted ? (
-                <StatusPill tone="warning">{t("seniorException")}</StatusPill>
-              ) : selfieVerified ? (
-                <StatusPill tone="success">{t("verifiedScore", { score: String(selfieDoc?.biometricMatchScore) })}</StatusPill>
-              ) : selfiePending ? (
-                <StatusPill tone="info">
-                  {kycChecklist.selfie.reason === "document_not_verified" ||
-                    kycChecklist.selfie.awaitingIdVerification
-                    ? t("pendingReview")
-                    : t("verifying")}
-                </StatusPill>
-              ) : selfieFailed ? (
-                <StatusPill tone="danger">{t("actionNeeded")}</StatusPill>
-              ) : (
-                <StatusPill tone="warning">{t("required")}</StatusPill>
-              )}
-              <Button variant={selfieVerified || selfieExceptionAccepted ? "outline" : "default"} size="sm" onClick={() => handleReplace("SELFIE")}>
-                {selfieVerified || selfieExceptionAccepted || selfieFailed
-                  ? t("retake")
-                  : selfiePending
-                    ? t("replace")
-                    : t("takeSelfie")}
-              </Button>
-            </div>
-          </div>
+          <SelfieChecklistRow
+            selfie={kycChecklist.selfie}
+            matchScore={selfieDoc?.biometricMatchScore}
+            hasIdDocument={hasIdDocument}
+            failureText={selfieFailure(kycChecklist.selfie.reason)}
+            onTake={() => handleReplace("SELFIE")}
+          />
         </div>
       </DataPanel>
 
@@ -477,6 +442,8 @@ export function PortalDocumentsClient({
           <p>{t("formats")}</p>
           {kycChecklist.manualReviewHold ? (
             <p>{t("holdNote")}</p>
+          ) : recentStatementNeeded ? (
+            <p>{t("recentStatementNeeded")}</p>
           ) : remainingChecklistItems > 0 ? (
             <p>
               {t("actionNeededList", { list: [
@@ -611,6 +578,7 @@ export function PortalDocumentsClient({
         allowedTypes={PORTAL_UPLOAD_TYPES}
         initialDocType={selectedUploadType}
         hasIdDocument={hasIdDocument}
+        selfieFallback={<ContinueOnPhone />}
       />
 
       {previewDoc && (

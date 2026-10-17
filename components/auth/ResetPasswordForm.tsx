@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, Suspense } from "react"
+import { PASSWORD_MIN_LENGTH, passwordPolicyError } from "@/lib/security/password-policy"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -43,7 +44,8 @@ function ResetForm({ brandName, loginHref = "/login", requestNewHref = "/forgot-
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (password !== confirm) { setError("Passwords do not match"); return }
-    if (password.length < 8) { setError("Password must be at least 8 characters"); return }
+    const weak = passwordPolicyError(password)
+    if (weak) { setError(weak); return }
     setLoading(true); setError("")
     try {
       const res = await fetch("/api/auth/reset-password", {
@@ -65,7 +67,7 @@ function ResetForm({ brandName, loginHref = "/login", requestNewHref = "/forgot-
   }
 
   const strength = password.length === 0 ? 0
-    : password.length < 8 ? 1
+    : password.length < PASSWORD_MIN_LENGTH ? 1
     : password.length < 12 && !/[A-Z]/.test(password) ? 2
     : password.length >= 12 && /[A-Z]/.test(password) && /[0-9]/.test(password) ? 4 : 3
 
@@ -120,7 +122,7 @@ function ResetForm({ brandName, loginHref = "/login", requestNewHref = "/forgot-
                       type={showPw ? "text" : "password"}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
-                      placeholder="Min. 8 characters"
+                      placeholder={`Min. ${PASSWORD_MIN_LENGTH} characters`}
                       required
                       disabled={loading}
                       className="pr-10 border-gray-200"

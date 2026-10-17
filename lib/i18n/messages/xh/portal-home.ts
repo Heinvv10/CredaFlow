@@ -63,4 +63,5 @@ export const portalHome: Catalog["portalHome"] = {
   noPolicies: "Akukho zipolisi zenshorensi zisebenzayo.",
   coverage: "Ukhuseleko:",
   perMonth: "/ngenyanga",
+  overdueToPay: "Hlawula i-{amount} ukuze iakhawunti yakho ihlawulwe ngokupheleleyo ukuza kuthi ga ngoku.",
 }

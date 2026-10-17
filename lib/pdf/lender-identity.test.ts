@@ -160,13 +160,22 @@ describe.each(DOCUMENTS)("$name", ({ render, prints }) => {
 })
 
 describe("documents that print more than name and NCR refuse each missing field", () => {
-  it.each(["fspNumber", "companyRegNumber", "registeredOfficeLines", "collectionsEmail", "collectionsPhone"] as const)(
+  it.each(["companyRegNumber", "registeredOfficeLines", "collectionsEmail", "collectionsPhone"] as const)(
     "Section 129 notice without %s",
     async (field) => {
       await expect(generateSection129Pdf({ lender: { ...ACME_LENDER, [field]: undefined }, client, loan: s129Loan, noticeDate: asAt }))
         .rejects.toThrow(LenderIdentityError)
     },
   )
+
+  it("FAIS disclosure for a lender with no FSP number (null)", async () => {
+    await expect(generateFaisDisclosurePdf({ lender: { ...ACME_LENDER, fspNumber: null }, ...faisRest })).rejects.toThrow(LenderIdentityError)
+  })
+
+  it("Section 129 notice with an invalid FSP number", async () => {
+    await expect(generateSection129Pdf({ lender: { ...ACME_LENDER, fspNumber: "FSP 12345" }, client, loan: s129Loan, noticeDate: asAt }))
+      .rejects.toThrow(LenderIdentityError)
+  })
 
   it("debit mandate without a registered office", async () => {
     await expect(generateDebitMandatePdf({ lender: { ...ACME_LENDER, registeredOfficeLines: [] }, ...mandateRest }))
@@ -186,6 +195,34 @@ describe("documents that print more than name and NCR refuse each missing field"
 })
 
 describe("Section 129 notice, optional identity", () => {
+  // §2a.2: the compliance strip loses only its FSP segment for a lender with
+  // no FSP number. With one, the notice is byte-identical
+  // (lib/pdf/charges-off-identity.test.ts pins its hash).
+  // #144 review (LOW): section129FspNumber treats only null/undefined as
+  // absent. A blank or whitespace FSP number is normalised to null by the
+  // identity schema, so it omits the line; handed in raw, it is refused.
+  it("omits the FSP line for a blank or whitespace FSP number, which the identity reads as null", async () => {
+    const { parseLenderIdentity } = await import("@/lib/config/identity-schema")
+    const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
+    for (const fscaNumber of ["", "   "]) {
+      const lender = parseLenderIdentity({ ...VALID_LENDER_COLUMNS, fscaNumber })
+      expect(lender.fspNumber).toBeNull()
+      const pdf = text(await generateSection129Pdf({ lender, client, loan: s129Loan, noticeDate: asAt }))
+      expect(pdf).not.toMatch(/FSP|Financial Services Provider/)
+      await expect(generateSection129Pdf({ lender: { ...ACME_LENDER, fspNumber: fscaNumber }, client, loan: s129Loan, noticeDate: asAt }))
+        .rejects.toThrow(LenderIdentityError)
+    }
+  })
+
+  it("prints the FSP segment of the compliance strip only when the lender holds an FSP number", async () => {
+    const withFsp = text(await generateSection129Pdf({ lender: ACME_LENDER, client, loan: s129Loan, noticeDate: asAt }))
+    // The extracted text loses the em dash (WinAnsi), hence the wildcard.
+    expect(withFsp).toMatch(/Registered Credit Provider .{0,2} NCR NCRCP99999 {4}· {4}Authorised Financial Services Provider .{0,2} FSP 12345 {4}· {4}Reg\. No\. 2020\/123456\/07/)
+    const without = text(await generateSection129Pdf({ lender: { ...ACME_LENDER, fspNumber: null }, client, loan: s129Loan, noticeDate: asAt }))
+    expect(without).toMatch(/Registered Credit Provider .{0,2} NCR NCRCP99999 {4}· {4}Reg\. No\. 2020\/123456\/07/)
+    expect(without).not.toMatch(/FSP|Financial Services Provider/)
+  })
+
   it("prints the second collections number and the tagline only when set", async () => {
     const without = text(await generateSection129Pdf({ lender: ACME_LENDER, client, loan: s129Loan, noticeDate: asAt }))
     expect(without).toContain("Phone:  +27 11 000 0001")
@@ -311,6 +348,15 @@ describe("Section 129 covering email", () => {
     expect(() => render({ ...data, lender: undefined as never })).toThrow(LenderIdentityError)
     expect(() => render({ ...data, lender: { ...ACME_LENDER, ncrNumber: "NCRCP99999x" } })).toThrow(LenderIdentityError)
     expect(() => render({ ...data, lender: { ...ACME_LENDER, collectionsEmail: "x" } })).toThrow(LenderIdentityError)
+  })
+
+  // §2a.2: a lender with no FSP number makes no FSP claim. Only the FSP line
+  // goes; with an FSP number the email is unchanged (covered above).
+  it.each([["html", section129Html], ["text", section129Text]] as const)("%s omits the FSP line for a lender with no FSP number", (_, render) => {
+    const body = render({ ...data, lender: { ...ACME_LENDER, fspNumber: null } })
+    expect(body).not.toMatch(/FSP|Financial Services Provider/)
+    expect(body).toContain("NCR NCRCP99999")
+    expect(() => render({ ...data, lender: { ...ACME_LENDER, fspNumber: "FSP 1" } })).toThrow(LenderIdentityError)
   })
 
   it("escapes identity values in the HTML body", () => {

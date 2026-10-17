@@ -113,6 +113,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // value — pin the write to it.
         data.code = beforeCode
       }
+      // Moving a product into or out of ASSET_FINANCE moves it between the
+      // asset-finance deal list and every consumer list
+      // (lib/product-config/product-kind.ts). A product with applications
+      // keeps its kind (they were made under it), and a portal-stable code is
+      // always consumer.
+      if (data.productType !== undefined && (before.productType === "ASSET_FINANCE") !== (data.productType === "ASSET_FINANCE")) {
+        if (PORTAL_STABLE_PRODUCT_CODES.has(beforeCode)) return { kind: "kind_locked" as const, reason: `${beforeCode} is a stable consumer product code` }
+        const applications = await tx.loanApplication.count({ where: { tenantId: tenant.id, productId: before.id } })
+        if (applications > 0) return { kind: "kind_locked" as const, reason: `${applications} application(s) were made under it` }
+      }
       if (
         before.code.trim().toUpperCase() === "MICRO30"
         && micro30DecisionTermsChanged(before, data)
@@ -172,6 +182,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (result.kind === "stable_code") {
       return NextResponse.json(
         { error: `${result.code} is a stable product code the portal resolves against and cannot be renamed.` },
+        { status: 422 },
+      )
+    }
+    if (result.kind === "kind_locked") {
+      return NextResponse.json(
+        { error: `The product cannot move into or out of Asset finance: ${result.reason}. Create a new product instead.` },
         { status: 422 },
       )
     }

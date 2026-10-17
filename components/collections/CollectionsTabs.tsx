@@ -52,6 +52,7 @@ function getProductShort(pt: string) {
   if (pt === "MICRO" || pt === "MICRO30") return "Micro"
   if (pt === "PERSONAL") return "Personal"
   if (pt === "PO_FUNDING" || pt === "POFUND") return "PO Fund"
+  if (pt === "ASSET_FINANCE") return "Asset finance"
   return pt
 }
 

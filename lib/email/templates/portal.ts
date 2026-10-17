@@ -247,7 +247,7 @@ export function paymentDueReminderEmail(
       </td></tr>
     </table>
 
-    <p style="margin:0 0 16px;color:#444;line-height:1.6;">To avoid further default interest and charges, please ensure payment is made by the due date. You can make an EFT payment to:</p>
+    <p style="margin:0 0 16px;color:#444;line-height:1.6;">Please make your payment by the due date. You can make an EFT payment to:</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f9fb;border:1px solid #e5e7eb;border-radius:6px;margin:0 0 20px;">
       <tr><td style="padding:16px 24px;">

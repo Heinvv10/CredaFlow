@@ -83,7 +83,14 @@ export type LenderIdentity = {
   legalName: string
   tradingName: string
   ncrNumber: string
-  fspNumber: string
+  /**
+   * The FSCA licence number, or null for a lender that holds none (it sells no
+   * insurance). Nothing may claim FAIS authorisation without it: every
+   * consumer renders its FSP/FAIS line only when this is set, and a document
+   * that prints it asks for it through requireLenderIdentityFields, which
+   * refuses null.
+   */
+  fspNumber: string | null
   companyRegNumber: string
   registeredOfficeLines: string[]
   publicEmail: string
@@ -168,7 +175,7 @@ export const lenderIdentityColumnsSchema = z.object({
   legalName: required(text(2, 120)),
   brandName: required(text(2, 80)),
   ncrNumber: z.preprocess(upper, z.string().regex(/^NCRCP\d{1,8}$/, "must be NCRCP followed by digits")),
-  fscaNumber: z.preprocess(clean, z.string().regex(/^\d{1,8}$/, "must be the FSP licence number (digits only)")),
+  fscaNumber: optional(z.string().regex(/^\d{1,8}$/, "must be the FSP licence number (digits only)")),
   companyRegNumber: z.preprocess(clean, z.string().regex(/^\d{4}\/\d{6}\/\d{2}$/, "must be a CIPC number like 2020/123456/07")),
   registeredOffice: z.preprocess(clean, officeLines),
   publicEmail: required(email),
@@ -218,7 +225,7 @@ export function parseLenderIdentity(raw: Partial<StoredLenderIdentityColumns> | 
     legalName: c.legalName,
     tradingName: c.brandName,
     ncrNumber: c.ncrNumber,
-    fspNumber: c.fscaNumber,
+    fspNumber: c.fscaNumber ?? null,
     companyRegNumber: c.companyRegNumber,
     registeredOfficeLines: c.registeredOffice.split("\n"),
     publicEmail: c.publicEmail,
@@ -250,7 +257,8 @@ export function parseRequiredIdentityField(
   raw: unknown,
 ): string {
   const result = lenderIdentityColumnsSchema.shape[field].safeParse(raw)
-  if (!result.success) throw new LenderIdentityError([field])
+  // fscaNumber is optional in the identity, but required wherever it is asked for.
+  if (!result.success || result.data == null) throw new LenderIdentityError([field])
   return result.data
 }
 
@@ -308,7 +316,10 @@ export function requireLenderIdentityFields<K extends PrintableIdentityField>(
       ? (Array.isArray(value) && value.every((line) => typeof line === "string" && !/[\r\n]/.test(line)) ? value.join("\n") : undefined)
       : value
     const result = lenderIdentityColumnsSchema.shape[column].safeParse(stored)
-    if (!result.success || (result.data ?? null) !== (stored ?? null)) {
+    // The FSP number is optional in the identity, but a document that prints
+    // it must have one: never "FSP null" on paper.
+    const absentFsp = field === "fspNumber" && (stored ?? null) === null
+    if (!result.success || absentFsp || (result.data ?? null) !== (stored ?? null)) {
       failed.push(column)
       continue
     }

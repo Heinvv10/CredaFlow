@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireApiRole } from "@/lib/auth-guards"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { triggerNotification } from "@/lib/notifications"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
@@ -41,7 +41,7 @@ import {
 import { verifyAppliedCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
 import { creditLifeEvidenceSurvivesReturnToReview } from "@/lib/insurance/credit-life-return-to-review"
-import { parseDeclineCategory } from "@/lib/applications/decline-category"
+import { clientDeclineReason, parseDeclineCategory } from "@/lib/applications/decline-category"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
 import { declaredExpenses, payslipStateKey, statementSnapshot } from "@/lib/credit-checks/load-facts"
 import {
@@ -76,6 +76,9 @@ export async function POST(
         )
       }
       const action = formData.get("action") as string
+      if (action === "return_to_draft" && !canDo(guard.user.role, "amend_application")) {
+        return NextResponse.json({ error: "Your role cannot amend an application." }, { status: 403 })
+      }
       const reason = formData.get("reason") as string
       const bureauOverrideReason = ((formData.get("bureauOverrideReason") as string | null) ?? "").trim() || null
       const repaymentMethodValue = formData.get("repaymentMethod")
@@ -1492,6 +1495,19 @@ export async function POST(
             { status: 400 }
           )
         }
+        // `reason` is what the CLIENT is shown (portal, decline email); the
+        // internal note is staff-only. Kept apart so a note never reaches them.
+        const clientReason = clientDeclineReason(declineCategory, reason)
+        if (!clientReason) {
+          return NextResponse.json(
+            { error: "Write the reason shown to the client." },
+            { status: 400 }
+          )
+        }
+        const internalNoteValue = formData.get("internalNote")
+        const internalNote = typeof internalNoteValue === "string" && internalNoteValue.trim()
+          ? internalNoteValue.trim()
+          : null
         // Keep the state transition and its mandatory legal decision audit in
         // one transaction. A failed audit insert must leave the application
         // UNDER_REVIEW rather than creating an unaudited decline.
@@ -1510,8 +1526,9 @@ export async function POST(
                 status: "DECLINED",
                 approvedById: guard.user.id,
                 approvedAt: decisionAt,
-                decisionReason: reason || "Declined",
+                decisionReason: clientReason,
                 declineCategory,
+                declineInternalNote: internalNote,
               },
             })
             if (changed.count === 0) return false
@@ -1525,7 +1542,7 @@ export async function POST(
                 entity: "LoanApplication",
                 entityId: id,
                 oldValue: { status: application.status },
-                newValue: { status: "DECLINED", reason: reason || "Declined", declineCategory },
+                newValue: { status: "DECLINED", reason: clientReason, declineCategory, internalNote },
               },
             })
             // The credit-life commit invariant is deferred: run it here so a

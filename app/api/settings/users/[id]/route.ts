@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import bcrypt from "bcryptjs"
 import { Prisma, type UserRole } from "@prisma/client"
 import { logAuditStrict } from "@/lib/audit"
+import { passwordPolicyError } from "@/lib/security/password-policy"
 
 const ADMIN_ROLES: UserRole[] = ["LOAN_ADMIN", "BRANCH_MANAGER", "ADMIN", "SUPER_ADMIN"]
 
@@ -105,8 +106,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (branchId !== undefined) data.branchId = branchId
 
     if (password) {
-      if (password.length < 8) {
-        return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 })
+      const weak = passwordPolicyError(password)
+      if (weak) {
+        return NextResponse.json({ error: weak }, { status: 400 })
       }
       data.password = await bcrypt.hash(password, 12)
     }

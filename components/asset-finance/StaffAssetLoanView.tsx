@@ -13,6 +13,7 @@ import { MetricCard } from "@/components/app-shell/MetricCard"
 import { SectionHeader } from "@/components/app-shell/SectionHeader"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { RepaymentScheduleTable } from "@/components/loans/RepaymentScheduleTable"
+import { SCHEDULE_DISPLAY_STATUSES } from "@/lib/loan/schedule-status"
 import { PaymentForm } from "@/components/loans/PaymentForm"
 import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { LoanNotes } from "@/components/loans/LoanNotes"
@@ -67,13 +68,15 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canAuthoriseBackdate, canManageCharges }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges }: {
   loan: StaffAssetLoan
   tenantId: string
   userId: string
   canManageLease: boolean
   canDecideLease: boolean
   canRecordPayment: boolean
+  /** capture_payment: the Record payment panel (POST /api/payments). */
+  canCapturePayment: boolean
   canAuthoriseBackdate: boolean
   canManageCharges: boolean
 }) {
@@ -159,7 +162,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
             {/* Money and dates on one line each; the table scrolls sideways in its own container. */}
             <div className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <RepaymentScheduleTable loanId={loan.id} schedule={loan.repaymentSchedule} allowAdminActions={false}
-                statusLabels={Object.fromEntries(loan.repaymentSchedule.map((s) => [s.status, statusLabel(s.status)]))} />
+                statusLabels={Object.fromEntries(SCHEDULE_DISPLAY_STATUSES.map((s) => [s, statusLabel(s)]))} />
             </div>
           </DataPanel>
         </div>
@@ -195,7 +198,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
           )}
 
           {/* Capture eligibility tracks lib/loan/apply-payment.ts (ACTIVE / DEFAULTED). */}
-          {["ACTIVE", "DEFAULTED"].includes(loan.status) && (
+          {["ACTIVE", "DEFAULTED"].includes(loan.status) && canCapturePayment && (
             <DataPanel variant="accent" density="loose">
               <SectionHeader eyebrow="Servicing" title="Record payment" description="Capture a receipt against this agreement."
                 actions={<CreditCard className="h-5 w-5 text-[var(--cf-brand)]" />} className="mb-5" />

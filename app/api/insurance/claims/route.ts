@@ -7,10 +7,13 @@ import { generateReference } from "@/lib/utils"
 import { withTenantContext } from "@/lib/tenant"
 import { requireImsEnabled } from "@/lib/insurance/require-ims-enabled"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { DECIMAL_12_2_MAX_CENTS, parseDecimalAmount } from "../decimal-input"
+import { dateField } from "@/lib/insurance/claims/claim-patch"
 
 export async function GET(req: NextRequest) {
   try {
-    const guard = await requireApiRole("READONLY")
+    // Claims carry client PII: the claims page's own gate (INSURANCE_OFFICER), not READONLY.
+    const guard = await requireApiRole("INSURANCE_OFFICER")
     if (guard.error) return guard.error
 
     return withTenantContext(req, async (tenant) => {
@@ -57,13 +60,26 @@ export async function POST(req: NextRequest) {
       if (!data.policyId) {
         return NextResponse.json({ error: "policyId is required" }, { status: 400 })
       }
+      // A numeric string is accepted as well as a number (form fields arrive as text).
+      const amountInput = typeof data.claimAmount === "string" && data.claimAmount.trim() !== "" ? Number(data.claimAmount) : data.claimAmount
+      const claimAmount = parseDecimalAmount("claimAmount", amountInput, { maxCents: DECIMAL_12_2_MAX_CENTS })
+      if (!claimAmount.ok) {
+        return NextResponse.json({ error: claimAmount.error }, { status: 400 })
+      }
       const policy = await prisma.insurancePolicy.findFirst({
         where: { id: data.policyId, tenantId: tenant.id },
-        select: { id: true },
+        select: { id: true, status: true },
       })
       if (!policy) {
         return NextResponse.json({ error: "Policy not found" }, { status: 404 })
       }
+      if (policy.status !== "ACTIVE") {
+        return NextResponse.json({ error: `A claim can only be lodged on an active policy; this one is ${policy.status}.` }, { status: 409 })
+      }
+      const incidentDate = dateField("incidentDate", data.incidentDate)
+      if (!incidentDate.ok) return NextResponse.json({ error: incidentDate.error }, { status: 400 })
+      const fnolDate = dateField("fnolDate", data.fnolDate)
+      if (!fnolDate.ok) return NextResponse.json({ error: fnolDate.error }, { status: 400 })
 
       const claim = await prisma.insuranceClaim.create({
         data: {
@@ -71,12 +87,12 @@ export async function POST(req: NextRequest) {
           policyId: data.policyId,
           claimNumber: generateReference("CLM"),
           status: "SUBMITTED",
-          claimAmount: parseFloat(data.claimAmount),
+          claimAmount: claimAmount.value,
           notes: data.notes || null,
           submittedAt: new Date(),
           claimType: data.claimType || null,
-          incidentDate: data.incidentDate ? new Date(data.incidentDate) : null,
-          fnolDate: data.fnolDate ? new Date(data.fnolDate) : null,
+          incidentDate: incidentDate.value ?? null,
+          fnolDate: fnolDate.value ?? null,
         },
       })
 

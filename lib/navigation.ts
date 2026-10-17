@@ -111,7 +111,7 @@ export const staffNavigation: NavGroup[] = [
     label: "Overview",
     items: [
       { href: "/dashboard", label: "Executive Dashboard", icon: Gauge },
-      { href: "/reports", label: "Reports", icon: BarChart3 },
+      { href: "/reports", label: "Reports", icon: BarChart3, minRole: "LOAN_ADMIN" },
       { href: "/reports/board-pack", label: "Board Pack", icon: BarChart3 },
       { href: "/learn", label: "Academy", icon: GraduationCap },
     ],
@@ -127,7 +127,7 @@ export const staffNavigation: NavGroup[] = [
     items: [
       { href: "/applications", label: "Applications", icon: FileText, badgeKey: "applications" },
       { href: "/clients", label: "Clients", icon: Users },
-      { href: "/disbursements", label: "Disbursements", icon: Banknote },
+      { href: "/disbursements", label: "Disbursements", icon: Banknote, minRole: "LOAN_ADMIN" },
     ],
   },
   {
@@ -159,7 +159,7 @@ export const staffNavigation: NavGroup[] = [
     items: [
       { href: "/crm", label: "CRM Dashboard", icon: Target },
       { href: "/crm/leads", label: "Leads", icon: Users, badgeKey: "leads" },
-      { href: "/crm/agent-hub", label: "Agent Hub", icon: Target },
+      { href: "/crm/agent-hub", label: "Agent Hub", icon: Target, minRole: "LOAN_ADMIN" },
       { href: "/contacts", label: "Contacts", icon: Contact },
       { href: "/crm/opportunities", label: "Opportunities", icon: BriefcaseBusiness, badgeKey: "opportunities" },
     ],
@@ -169,7 +169,7 @@ export const staffNavigation: NavGroup[] = [
     feature: "ims",
     items: [
       { href: "/insurance", label: "Insurance", icon: Shield },
-      { href: "/insurance/claims", label: "Claims", icon: FileCheck },
+      { href: "/insurance/claims", label: "Claims", icon: FileCheck, minRole: "INSURANCE_OFFICER" },
     ],
   },
   {
@@ -182,8 +182,8 @@ export const staffNavigation: NavGroup[] = [
     items: [
       { href: "/compliance", label: "Compliance", icon: Scale },
       { href: "/compliance/ncr-return", label: "NCR Return", icon: Landmark },
-      { href: "/compliance/complaints", label: "Complaints", icon: MessageSquare },
-      { href: "/compliance/dsar", label: "DSAR", icon: Lock },
+      { href: "/compliance/complaints", label: "Complaints", icon: MessageSquare, minRole: "LOAN_ADMIN" },
+      { href: "/compliance/dsar", label: "DSAR", icon: Lock, minRole: "ADMIN" },
       { href: "/compliance/screening", label: "Screening", icon: ShieldCheck, minRole: "BRANCH_MANAGER" },
       { href: "/compliance/fic", label: "FIC Act", icon: Landmark, minRole: "ADMIN" },
     ],

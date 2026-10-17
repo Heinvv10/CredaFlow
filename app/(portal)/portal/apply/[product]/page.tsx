@@ -1,3 +1,4 @@
+import { demoLenderNote } from "@/lib/config/demo-mode"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { redirect, notFound } from "next/navigation"
@@ -7,6 +8,7 @@ import { computeQualification } from "@/lib/qualify"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
+import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
 // Resolve by tenant-scoped UNIQUE product code, never by productType:
 // two products can both be productType MICRO, and type+creation-order
@@ -47,7 +49,7 @@ export default async function PortalApplyProductPage({
       include: { debtObligations: true },
     }),
     prisma.loanProduct.findFirst({
-      where: { tenantId, code: productCode, active: true },
+      where: { tenantId, code: productCode, active: true, ...CONSUMER_PRODUCT_WHERE },
     }),
     prisma.insuranceProduct.findFirst(creditLifeOfferFindFirstArgs(tenantId)),
   ])
@@ -69,6 +71,7 @@ export default async function PortalApplyProductPage({
       productKey={productKey}
       lenderName={identity.tradingName}
       ncrNumber={identity.ncrNumber}
+      demoLenderNote={demoLenderNote()}
       product={{
         id: product.id,
         name: product.name,
@@ -78,6 +81,7 @@ export default async function PortalApplyProductPage({
         maxAmount: product.maxAmount,
         minTermDays: product.minTermDays,
         maxTermDays: product.maxTermDays,
+        interestModel: product.interestModel,
       }}
       client={{
         firstName: client.firstName,

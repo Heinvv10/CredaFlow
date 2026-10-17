@@ -35,7 +35,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { collectibleParWhere as parWhere } from "@/lib/loan/collectible-book"
+import { overdueBandWhere as parWhere } from "@/lib/reports/book-arrears"
 import {
   getNcrReturnData,
   disbursedInQuarterWhere,
@@ -100,10 +100,10 @@ const line = (data: Awaited<ReturnType<typeof getNcrReturnData>>, key: string) =
 describe("population predicates", () => {
   it("confines every PAR band to the collectible book", () => {
     for (const days of [1, 30, 60, 90]) {
-      expect(parWhere(TENANT, days)).toEqual({
+      expect(parWhere(TENANT, days)).toMatchObject({
         tenantId: TENANT,
         status: { in: ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF", "RESTRUCTURED"] },
-        daysInArrears: { gte: days },
+        AND: [{ daysInArrears: { gte: days } }],
       })
     }
   })
@@ -142,7 +142,7 @@ describe("population predicates", () => {
   })
 
   it("uses PAR bands at or beyond the boundary, not strictly beyond", () => {
-    expect((parWhere(TENANT, 30).daysInArrears as { gte: number }).gte).toBe(30)
+    expect(parWhere(TENANT, 30).AND).toEqual([{ daysInArrears: { gte: 30 } }])
   })
 
   it("scopes period predicates to end-exclusive quarter bounds", () => {

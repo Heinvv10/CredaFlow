@@ -167,7 +167,7 @@ export default async function ClientPortalPage() {
   const firstName = session.user.name?.split(" ")[0] || t("fallbackName")
 
   const loanOverview = projectPortalLoanOverview(data?.loans ?? [])
-  const { totalOutstanding, maxArrears, primaryLoan } = loanOverview
+  const { totalOutstanding, maxArrears, overdueAmount, primaryLoan } = loanOverview
   const hasArrears = maxArrears > 0
   const totalPaid = primaryLoan ? data?.cashPaid.get(primaryLoan.id) ?? 0 : 0
   const totalRepayable = primaryLoan ? Number(primaryLoan.totalRepayable || primaryLoan.principal) : 0
@@ -229,7 +229,7 @@ export default async function ClientPortalPage() {
       )}
 
       {hasArrears ? (
-        <ArrearsHero firstName={firstName} daysOverdue={maxArrears} outstanding={portalOutstanding(totalOutstanding, data.charges)} charges={data.charges} whatsappE164={identity.publicWhatsappE164} t={t} l={l} />
+        <ArrearsHero firstName={firstName} daysOverdue={maxArrears} overdue={overdueAmount + data.charges.outstanding} outstanding={portalOutstanding(totalOutstanding, data.charges)} charges={data.charges} whatsappE164={identity.publicWhatsappE164} t={t} l={l} />
       ) : (
         <PaymentHero firstName={firstName} greeting={greeting} nextSchedule={data.nextSchedule} charges={data.charges} t={t} l={l} locale={locale} />
       )}
@@ -393,9 +393,11 @@ function PaymentHero({
   )
 }
 
-function ArrearsHero({ firstName, daysOverdue, outstanding, charges, whatsappE164, t, l }: {
+function ArrearsHero({ firstName, daysOverdue, overdue, outstanding, charges, whatsappE164, t, l }: {
   firstName: string
   daysOverdue: number
+  /** Cents overdue now, default charges included: what brings the account up to date. */
+  overdue: number
   outstanding: number
   charges: PortalCharges
   whatsappE164: string | null
@@ -411,6 +413,9 @@ function ArrearsHero({ firstName, daysOverdue, outstanding, charges, whatsappE16
       <p className="text-sm text-[var(--cf-text-secondary)]">
         {daysOverdue === 1 ? t("overdueOneDay", { name: firstName }) : t("overdueDays", { name: firstName, n: daysOverdue })}
       </p>
+      {overdue > 0 && (
+        <p className="mt-1 text-base font-semibold text-[var(--cf-danger)]">{t("overdueToPay", { amount: formatZAR(overdue) })}</p>
+      )}
       <p className="mt-2 text-3xl font-semibold text-[var(--cf-text)] md:text-4xl">{formatZAR(outstanding)}</p>
       <p className="mt-1 text-sm text-[var(--cf-text-muted)]">{t("outstandingBalance")}</p>
       <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />

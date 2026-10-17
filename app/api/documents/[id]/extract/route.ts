@@ -9,6 +9,7 @@ import { hasMinRole } from "@/lib/permissions"
 import { extractDocumentData } from "@/lib/vlm-extract"
 import { validateDocumentAgainstClient } from "@/lib/ocr/documentValidationService"
 import { getDocumentCaller } from "@/lib/document-auth"
+import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { withTenantContext } from "@/lib/tenant"
 import { refuseReadOnlyDocumentWrite } from "@/lib/documents/write-access"
 import { lockAffordabilityClientEvidence } from "@/lib/affordability/evidence-locks"
@@ -76,6 +77,11 @@ export async function POST(req: Request, { params }: RouteParams) {
   const caller = await getDocumentCaller()
   if (!caller || caller.type !== "staff") {
     return NextResponse.json({ error: "Staff only" }, { status: 403 })
+  }
+  // An extraction writes the figures a lending decision reads: not for a role
+  // without the loan book (lib/security/loan-book-scope.ts).
+  if (lacksLoanBook(caller.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
   return withTenantContext(req, async (tenant) => {

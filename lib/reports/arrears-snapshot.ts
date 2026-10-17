@@ -39,9 +39,12 @@ export function snapshotDay(instant: Date): Date {
   return new Date(`${sastCalendarDate(instant)}T00:00:00.000Z`)
 }
 
+/** A large book's day is one insert; Prisma's 5 s interactive default is too short for it. */
+export const SNAPSHOT_TX_TIMEOUT_MS = 60_000
+
 type WriterTx = Pick<typeof prisma, "loanArrearsSnapshot" | "arrearsSnapshotRun">
 type WriterDb = Pick<typeof prisma, "loan" | "tenantConfig"> & {
-  $transaction: <T>(fn: (tx: WriterTx) => Promise<T>) => Promise<T>
+  $transaction: <T>(fn: (tx: WriterTx) => Promise<T>, options?: { timeout?: number }) => Promise<T>
 }
 
 /**
@@ -85,7 +88,7 @@ export async function snapshotTenantArrears(
     const run = await tx.arrearsSnapshotRun.createMany({ data: [{ tenantId, snapshotDate, loanCount: loans.length }], skipDuplicates: true })
     if (run.count === 0) return 0
     return data.length === 0 ? 0 : (await tx.loanArrearsSnapshot.createMany({ data })).count
-  })
+  }, { timeout: SNAPSHOT_TX_TIMEOUT_MS })
   return { snapshotDate: sastCalendarDate(asOf), loans: loans.length, written }
 }
 

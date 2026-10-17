@@ -117,6 +117,31 @@ describe("portal notifications — channel-disabled rows", () => {
     expect(ids).toEqual(["old-sim"])
   })
 
+  it("hides WhatsApp legs we chose not to send: channel off, or a duplicate reminder suppressed", async () => {
+    const ids = await shownIds([
+      row({ id: "wa-off", channel: "whatsapp", status: "blocked", error: "WhatsApp channel is off" }),
+      row({ id: "wa-dup", channel: "whatsapp", status: "blocked", error: "the reminder_overdue_1d reminder stage already sends a WhatsApp at this offset" }),
+      row({ id: "kept", channel: "whatsapp", status: "blocked", error: "No WhatsApp on file" }),
+    ])
+    expect(ids).toEqual(["kept"])
+  })
+
+  // Fair Score audit 2026-10-16: every message showed the borrower "Failed" or
+  // "Review required — delivery unverified". Those are internal states.
+  it("shows the borrower Sent / Not delivered, never an internal delivery state or error", async () => {
+    notificationFindMany.mockResolvedValue([
+      row({ id: "a", status: "review_required", error: "Delivery claim has no exact Message/provider evidence linkage" }),
+      row({ id: "b", channel: "whatsapp", status: "failed", error: "WA_VARS_MISSING: outstanding" }),
+      row({ id: "c", status: "delivered" }),
+      row({ id: "d", status: "blocked", error: "Client opted out" }),
+      row({ id: "e", channel: "sms", status: "simulated" }),
+    ])
+    renderToStaticMarkup(await NotificationsPage())
+    const items = tabsProps.mock.calls.at(-1)![0].items as Array<Record<string, unknown>>
+    expect(items.map((i) => i.status)).toEqual(["pending", "not_delivered", "sent", "not_delivered", "simulated"])
+    for (const item of items) expect(item).not.toHaveProperty("error")
+  })
+
   it("still scopes the query to the signed-in client and tenant", async () => {
     await NotificationsPage()
 

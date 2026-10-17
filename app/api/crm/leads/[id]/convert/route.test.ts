@@ -953,6 +953,16 @@ describe("POST /api/crm/leads/[id]/convert term bounds", () => {
     expect(data.affordabilityResult.submission.inputs.termDays).toBe(45)
   })
 
+  it("refuses to convert into a PO-funding application: a lead carries no purchase order", async () => {
+    productFindUniqueMock.mockResolvedValue({ ...product, productType: "PO_FUNDING" })
+
+    const response = await POST(termRequest(30), context)
+
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/purchase order/i)
+    expectNothingWritten()
+  })
+
   it("refuses a term that differs from a fixed-term product's", async () => {
     productFindUniqueMock.mockResolvedValue({ ...product, minTermDays: 45, maxTermDays: 45 })
 

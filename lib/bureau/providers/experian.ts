@@ -102,6 +102,9 @@ export const experianBureau: BureauProvider = {
     implemented: true,
   },
   credentialFields: [],
+  // Consumer service line and site, for a consumer told a decline rests on this
+  // bureau. Public contact details; confirm before a lender goes live.
+  consumerContact: { phone: "0861 105 665", website: "www.experian.co.za" },
   async enquiry(request) {
     const input = buildExperianEnquiryInput({
       idNumber: request.consumer.idNumber,

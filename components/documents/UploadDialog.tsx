@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useRef } from "react"
+import { useMemo, useState, useRef, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -72,6 +72,8 @@ interface Props {
   hasIdDocument?: boolean
   selfieAlternatives?: SelfieAlternatives
   signedAgreementReturn?: SignedAgreementReturn
+  /** Shown when the camera will not open: the portal's "Continue on your phone". */
+  selfieFallback?: ReactNode
 }
 
 export function UploadDialog({
@@ -84,6 +86,7 @@ export function UploadDialog({
   hasIdDocument = false,
   selfieAlternatives,
   signedAgreementReturn,
+  selfieFallback,
 }: Props) {
   const selfiePortalUrl = selfieAlternatives?.portalUrl ?? null
   const [docType, setDocType] = useState("")
@@ -333,6 +336,7 @@ export function UploadDialog({
               <SelfieCapture
                 onCapture={(f) => setCapturedSelfie(f)}
                 disabled={!hasIdDocument}
+                fallback={selfieFallback}
               />
               {/* A greyed-out camera with no way forward is where staff give up
                   and file the photo as "Other" — which records nothing. Both

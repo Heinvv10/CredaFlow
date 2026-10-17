@@ -660,6 +660,21 @@ describe("product pricing terms are frozen at approval", () => {
     expect(result).toEqual({ ok: false, reason: "changed" })
   })
 
+  it("re-checks the repeat short-term rate at payout on the rate the approval froze", async () => {
+    // R5,000 over 90 days is short-term; an earlier short-term loan this year
+    // allows at most 3% a month. Approved at 3%; the product now says 5%.
+    const application = repricedAfterApproval(applicationFixture("APPROVED"))
+    const tx = transactionFor(application)
+    tx.loan.findMany.mockImplementation(async (args: { where: { status?: unknown } }) =>
+      "status" in args.where && (args.where.status as { not?: string }).not === "CANCELLED"
+        ? [{ startDate: new Date("2026-02-01T10:00:00Z"), maturityDate: new Date("2026-03-01T10:00:00Z") }]
+        : [])
+    expect((await verifyLockedCurrentAffordabilityApproval(tx as never, { tenantId: "tenant-1", applicationId: "application-1" })).ok).toBe(true)
+    expect(tx.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: { not: "CANCELLED" }, applicationId: { not: "application-1" } }),
+    }))
+  })
+
   it("permits signing and payout after the product is repriced post-approval", async () => {
     const application = repricedAfterApproval(applicationFixture("APPROVED"))
     const tx = transactionFor(application)

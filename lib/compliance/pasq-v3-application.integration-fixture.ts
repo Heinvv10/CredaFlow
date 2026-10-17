@@ -34,6 +34,34 @@ export type ContractInstallOptions = {
   agreementGeneratedAt?: Date
   quoteValidUntilDate?: string
   firstDueDateOffsetMs?: number
+  /** Pricing other than the default 30-day DAILY_ACCRUAL micro loan (e.g. a multi-instalment loan). */
+  pricing?: FixturePricing
+}
+
+export type FixturePricing = {
+  principal: number
+  termDays: number
+  productType: "MICRO" | "PERSONAL"
+  interestRatePm: number
+  interestModel: "DAILY_ACCRUAL" | "REDUCING_BALANCE"
+  initiationFeeModel: "FLAT_PCT" | "NCA_REG42"
+  initiationFeePct: number
+  initiationFeeMax: number
+  monthlyServiceFee: number
+  initiationFeePayment: "DEFERRED"
+}
+
+const DEFAULT_PRICING: FixturePricing = {
+  principal: 500_000,
+  termDays: 30,
+  productType: "MICRO",
+  interestRatePm: 0.05,
+  interestModel: "DAILY_ACCRUAL",
+  initiationFeeModel: "FLAT_PCT",
+  initiationFeePct: 0,
+  initiationFeeMax: 0,
+  monthlyServiceFee: 6_900,
+  initiationFeePayment: "DEFERRED",
 }
 
 function rebaseContractForDatabaseTest(
@@ -156,18 +184,7 @@ export async function createApprovedPasqV3Application(
     providerSignerEmail,
     providerSignatureSha256,
   })
-  const pricing = {
-    principal: 500_000,
-    termDays: 30,
-    productType: "MICRO",
-    interestRatePm: 0.05,
-    interestModel: "DAILY_ACCRUAL",
-    initiationFeeModel: "FLAT_PCT",
-    initiationFeePct: 0,
-    initiationFeeMax: 0,
-    monthlyServiceFee: 6_900,
-    initiationFeePayment: "DEFERRED",
-  } as const
+  const pricing = contractInstallOptions.pricing ?? DEFAULT_PRICING
   const { calculation, affordabilityResult } =
     createApplicationContractFixture({
       applicationId,
@@ -211,8 +228,9 @@ export async function createApprovedPasqV3Application(
     version: "credit-life-election-v1" as const,
     election,
     principalCents: calculation.principal,
-    termDays: 30,
-    monthlyPremiumCents: 2_250,
+    termDays: pricing.termDays,
+    // The credit-life rate the database binds (pasqCreditLifeMatchesApplication): 0.45% of principal.
+    monthlyPremiumCents: Math.round(pricing.principal * 0.0045),
     productId: `credit-life-${token}`,
     productName: "Synthetic Credit Life",
     insurerId: `insurer-${token}`,
@@ -223,7 +241,7 @@ export async function createApprovedPasqV3Application(
     applicationId,
     clientId,
     productId,
-    termDays: 30,
+    termDays: pricing.termDays,
     generatedAt: quotePresentedAt,
     calculator: affordabilityResult.approval.calculator,
     creditLife: {
@@ -274,14 +292,17 @@ export async function createApprovedPasqV3Application(
       tenantId,
       code: `PV3-${label}-${token}`,
       name: `PASQ v3 ${label}`,
-      productType: "MICRO",
+      productType: pricing.productType,
       minAmount: 100_000,
-      maxAmount: 1_000_000,
+      maxAmount: 10_000_000,
       minTermDays: 1,
-      maxTermDays: 365,
-      interestRatePm: 0.05,
-      interestModel: "DAILY_ACCRUAL",
-      monthlyServiceFee: 6_900,
+      maxTermDays: 1_800,
+      interestRatePm: pricing.interestRatePm,
+      interestModel: pricing.interestModel,
+      initiationFeeModel: pricing.initiationFeeModel,
+      initiationFeePct: pricing.initiationFeePct,
+      initiationFeeMax: pricing.initiationFeeMax,
+      monthlyServiceFee: pricing.monthlyServiceFee,
     },
   })
   await prisma.insurer.create({
@@ -366,7 +387,7 @@ export async function createApprovedPasqV3Application(
       clientId,
       productId,
       appliedAmount: calculation.principal,
-      appliedTermDays: 30,
+      appliedTermDays: pricing.termDays,
       initiationFeePayment: applicationInitiationFeePayment,
       // Deliberately absent: the same constraint forbids a method before
       // APPROVED. It is set by installApproval, on the transition itself.
@@ -427,8 +448,8 @@ export async function createApprovedPasqV3Application(
         approvedAt: new Date(approval.capturedAt),
         approvedById: approvingOfficerId,
         approvedAmount: calculation.principal,
-        approvedTermDays: 30,
-        approvedRate: 0.05,
+        approvedTermDays: pricing.termDays,
+        approvedRate: pricing.interestRatePm,
         decisionReason:
           "Synthetic approval for database authority testing",
         totalExistingDebt: approval.inputs.declaredDebtCents,
@@ -614,6 +635,7 @@ export async function createApprovedPasqV3Application(
     insuranceProductId,
     generatedAt,
     signedAt,
+    pricing,
   }
 }
 
@@ -710,9 +732,13 @@ export async function writePasqV3Disbursement(
       nextPaymentDate: agreementDueDate(
         scenario.pasqEvidence.billing.schedule[0].dueDate,
       ),
-      interestRatePm: 0.05,
-      interestModel: "DAILY_ACCRUAL",
-      monthlyServiceFee: 0,
+      interestRatePm: scenario.pricing.interestRatePm,
+      interestModel: scenario.pricing.interestModel,
+      // The default micro scenario books no agreed fee (its existing pins);
+      // another pricing books the product's.
+      monthlyServiceFee: scenario.pricing === DEFAULT_PRICING ? 0 : scenario.pricing.monthlyServiceFee,
+      ncaRegime: "NCA",
+      contractType: "LOAN",
       agreementDocId: scenario.agreementDocumentId,
     },
   })

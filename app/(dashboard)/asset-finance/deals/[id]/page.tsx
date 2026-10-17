@@ -11,12 +11,14 @@ import { dealDecisionNote } from "@/lib/asset-finance/labels"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { loadDealDetail } from "@/lib/asset-finance/deal-detail"
 import { MEMO_EDITABLE_STATUSES } from "@/lib/asset-finance/deal-financials"
-import { DEAL_STATUS_TONE, dealStatusLabel, ratePercent } from "@/lib/asset-finance/deal-labels"
+import { DEAL_STATUS_TONE, contractTypeLabel, counterpartyLabel, dealStatusLabel, ratePercent } from "@/lib/asset-finance/deal-labels"
 import { BureauTable, ClassificationPanel, DealSummaryPanel } from "./DealSummaryPanels"
+import { LeaseScheduleSection } from "./LeaseScheduleSection"
 import { CreditMemoForm } from "./CreditMemoForm"
 import { DealActionButton } from "./DealActionButton"
 import { BureauChecksButton } from "./BureauChecksButton"
 import { DecidePanel } from "./DecidePanel"
+import { DealExceptionsNotice } from "./DealExceptionsNotice"
 import { OverrideDecision } from "./OverrideDecision"
 import { NcaOverrideRequest } from "./NcaOverrideRequest"
 import { SigningPanel } from "./SigningPanel"
@@ -51,8 +53,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   return (
     <>
       <Header
-        title={`${deal.application.reference} · ${deal.entity?.legalName ?? deal.client?.name ?? "Unknown borrower"}`}
-        subtitle={`${deal.asset.description} · created ${formatDate(deal.createdAt)}`}
+        title={`${deal.application.reference} · ${deal.entity?.legalName ?? deal.client?.name ?? `Unknown ${counterpartyLabel(deal.contractType).toLowerCase()}`}`}
+        subtitle={`${contractTypeLabel(deal.contractType)} · ${deal.asset.description} · created ${formatDate(deal.createdAt)}`}
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Deals", href: "/asset-finance/deals" }, { label: deal.application.reference }]}
         actions={
           <div className="flex items-center gap-3">
@@ -71,14 +73,18 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <NcaOverrideRequest application={deal.application} pendingOverride={deal.pendingOverrideId !== null} canManage={canManage} />
         </ClassificationPanel>
 
-        <DataPanel
-          title="Schedule"
-          description={schedule.ok
-            ? `Indicative from ${formatIsoDate(schedule.startDate)} at ${ratePercent(schedule.rate.annualRate)} a year; the contract schedule is solved from the start date chosen when the documents are prepared`
-            : undefined}
-        >
-          {schedule.ok ? <ScheduleTable {...schedule.result} /> : <FormError message={`The schedule cannot be solved: ${schedule.error}`} />}
-        </DataPanel>
+        {deal.leaseSchedule ? (
+          <LeaseScheduleSection deal={deal} schedule={deal.leaseSchedule} />
+        ) : (
+          <DataPanel
+            title="Schedule"
+            description={schedule.ok
+              ? `Indicative from ${formatIsoDate(schedule.startDate)} at ${ratePercent(schedule.rate.annualRate)} a year; the contract schedule is solved from the start date chosen when the documents are prepared`
+              : undefined}
+          >
+            {schedule.ok ? <ScheduleTable {...schedule.result} /> : <FormError message={`The schedule cannot be solved: ${schedule.error}`} />}
+          </DataPanel>
+        )}
 
         <DataPanel
           title="Credit memo"
@@ -87,6 +93,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             : "DSCR = EBITDA ÷ (existing annual debt service + this deal's annualised instalments); gearing = liabilities ÷ assets"}
           density="loose"
         >
+          <DealExceptionsNotice lines={deal.exceptions.lines} />
           <CreditMemoForm dealId={id} current={financials} editable={canManage && MEMO_EDITABLE_STATUSES.includes(deal.status)} />
         </DataPanel>
 
@@ -111,7 +118,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             </div>
           )}
           {canDecide && DECIDABLE.includes(deal.status) ? (
-            <DecidePanel dealId={id} />
+            <DecidePanel dealId={id} exceptions={deal.exceptions.lines} exceptionsFingerprint={deal.exceptions.fingerprint} />
           ) : (
             (!deal.decision.decision || CLOSED_AFTER_DECISION.includes(deal.status)) && (
               <p className="text-sm text-[var(--cf-text-muted)]">{dealDecisionNote(deal.status)}</p>
@@ -124,7 +131,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             advanceStart={deal.terms.lease?.rentalTiming === "ADVANCE" ? deal.terms.firstDueDate : undefined} />
         )}
 
-        {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} />}
+        {payout && <PayoutPanel dealId={id} panel={payout} canManage={canManage} canDecide={canDecide} userId={user.id} lease={deal.terms.lease !== undefined} />}
 
         {canDecide && CANCELLABLE_DEAL_STATUSES.includes(deal.status) && (
           <DataPanel

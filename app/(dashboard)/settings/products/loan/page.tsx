@@ -4,8 +4,9 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { formatZAR } from "@/lib/utils"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
+import { PRODUCT_TYPE_LABELS } from "@/lib/product-config/product-kind"
 
-const TYPE_LABELS: Record<string, string> = { MICRO: "Micro", PERSONAL: "Personal", PO_FUNDING: "PO Funding" }
+const TYPE_LABELS: Record<string, string> = PRODUCT_TYPE_LABELS
 const MODEL_LABELS: Record<string, string> = { FLAT: "Flat", REDUCING_BALANCE: "Reducing", DAILY_ACCRUAL: "Daily" }
 
 export default async function LoanProductsPage() {

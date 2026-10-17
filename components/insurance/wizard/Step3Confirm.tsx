@@ -1,6 +1,8 @@
 import { StepBar } from "@/components/wizard/StepBar"
 import { INSURANCE_STEP_LABELS, TYPE_LABELS, formatR } from "./constants"
 import type { Advisor, Client, PolicyDraftData } from "./types"
+import { formatZAR } from "@/lib/utils"
+import { premiumCommission } from "@/lib/insurance/commission"
 
 interface Props {
   data: PolicyDraftData
@@ -41,7 +43,7 @@ export function Step3Confirm({
     ["Sum Assured", formatR(sumAssuredNum)],
     ["Monthly Premium", formatR(premiumNum)],
     ["Commission Rate", `${commissionNum}%`],
-    ["Commission Amount", formatR((sumAssuredNum * commissionNum) / 100)],
+    ["Commission Amount", `${formatZAR(Math.round(premiumCommission(premiumNum, commissionNum / 100) * 100))} a month`],
     ["Start Date", data.startDate],
     ...(data.linkedLoanRef ? ([["Linked Loan", data.linkedLoanRef]] as Array<[string, string]>) : []),
   ]

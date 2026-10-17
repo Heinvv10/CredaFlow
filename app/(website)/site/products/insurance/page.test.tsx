@@ -144,6 +144,13 @@ describe("insurance product page — lender identity", () => {
     expect(all).not.toMatch(/\/site\/(about|faq|how-it-works|pricing)|\/site\/products(?!\/insurance)|\/blog/)
   })
 
+  // §2a.2: the page is a FAIS intermediary's offer; without an FSP number it is not there.
+  it("is not found for a lender with no FSP number", async () => {
+    enable()
+    mocks.identity = { ...ACME_LENDER, fspNumber: null }
+    await expect(InsuranceProductPage()).rejects.toMatchObject({ digest: expect.stringContaining("404") })
+  })
+
   it("renders nothing while the lender identity is unconfigured", async () => {
     mocks.identity = null
     expect(await render()).toBe("")

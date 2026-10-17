@@ -40,7 +40,7 @@ export function LeaseStructureFields(props: {
         <TextField id="ratePercent" required inputMode="decimal"
           label={v.rateBasis === "FIXED" ? "Fixed rate (% a year)" : `Margin over ${RATE_BASIS_LABELS[v.rateBasis]} (%)`}
           value={v.ratePercent} onChange={set("ratePercent")} error={errors.fixedRate ?? errors.rateMargin} />
-        <TextField id="periods" label="Rentals (months)" required inputMode="numeric" value={v.periods} onChange={set("periods")}
+        <TextField id="periods" label="Rentals (months)" required inputMode="numeric" placeholder="60" value={v.periods} onChange={set("periods")}
           error={errors["preset.periods"]} />
         <TextField id="balloon" label="Residual (R)" inputMode="decimal" value={v.balloonRands} onChange={set("balloonRands")} error={errors.balloonCents} />
       </div>

@@ -27,6 +27,7 @@ import { solveNcaDealStructure } from "./nca-structure"
 import { dbDate } from "./dates"
 import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "./nca-caps"
 import { isLeaseContract } from "./lease-input"
+import { ASSET_FINANCE_PRODUCT_WHERE } from "./deal-products"
 import { cpaColumns, leaseApplicationRegime, leaseCpaScope, leaseDealColumns } from "./lease-deal"
 
 export const CLOSED_DEAL_STATUSES = ["REFUSED_NCA", "DECLINED", "CANCELLED"] as const
@@ -52,10 +53,10 @@ export async function createDeal(
   if (!supplier) return refused(422, "The supplier is not on this lender's book")
   if (!supplier.active) return refused(422, "The supplier is inactive")
   const product = await tx.loanProduct.findFirst({
-    where: { id: input.productId, tenantId, active: true },
+    where: { id: input.productId, tenantId, ...ASSET_FINANCE_PRODUCT_WHERE },
     select: { id: true, minAmount: true, maxAmount: true, minTermDays: true, maxTermDays: true },
   })
-  if (!product) return refused(422, "The product is not an active product of this lender")
+  if (!product) return refused(422, "The product is not an active asset-finance product of this lender")
 
   const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT "id" FROM "FinancedAsset" WHERE "id" = ${input.assetId} AND "tenantId" = ${tenantId} FOR UPDATE

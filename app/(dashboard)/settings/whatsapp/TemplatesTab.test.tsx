@@ -54,12 +54,12 @@ describe("TemplatesTab", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain("Your loan application")
   })
 
-  it("previews the due-today copy with default interest and charges, not late fees", () => {
+  it("previews the due-today copy without threatening charges", () => {
     render()
     act(() => { findButton("Payment Due Today").props.onClick() })
     const json = JSON.stringify(renderer.toJSON())
-    expect(json).toContain("Please pay to avoid further default interest and charges.")
-    expect(json).not.toContain("late fees")
+    expect(json).toContain("is due *today*.")
+    expect(json).not.toMatch(/avoid further|default interest|late fees/)
   })
 
   it("hides the WABA approval card when Meta has reviewed nothing", () => {

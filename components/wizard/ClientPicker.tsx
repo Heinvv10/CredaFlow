@@ -1,3 +1,4 @@
+import { matchesEveryWord } from "@/lib/list-search"
 import type { Client } from "./types"
 
 const INP =
@@ -25,14 +26,7 @@ export function ClientPicker({
     clientSearch.trim().length < 2
       ? []
       : clients
-          .filter((c) => {
-            const q = clientSearch.toLowerCase()
-            return (
-              c.email.toLowerCase().includes(q) ||
-              c.firstName.toLowerCase().includes(q) ||
-              c.lastName.toLowerCase().includes(q)
-            )
-          })
+          .filter((c) => matchesEveryWord(clientSearch, [c.firstName, c.lastName, c.email]))
           .slice(0, 8)
 
   return (

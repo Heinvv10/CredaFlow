@@ -95,9 +95,11 @@ describe("snapshotTenantArrears", () => {
 
   // Re-review of #153: the rows and the marker commit together.
   it("writes the marker and the rows in one transaction", async () => {
-    const { db, order } = writerDb()
+    const { db, order, transaction } = writerDb()
     await snapshotTenantArrears("t1", AS_OF, db)
     expect(order).toEqual(["begin", "marker", "rows", "commit"])
+    // A large book's insert outlasts Prisma's 5 s default.
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 60_000 })
   })
 
   it("adds nothing to a day that already has its marker", async () => {

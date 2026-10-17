@@ -42,8 +42,14 @@ function subscribeToDrafts(onChange: () => void) {
   }
 }
 
-export default function NavBar({ enabledLocales = [] }: { enabledLocales?: readonly Locale[] }) {
+export default function NavBar({ enabledLocales = [], logoSrc = null }: {
+  enabledLocales?: readonly Locale[]
+  /** The lender's logo (lib/config/lender-logo.ts publicLenderLogoSrc); null shows the name alone. */
+  logoSrc?: string | null
+}) {
   const identity = useWebsiteIdentity()
+  // Insurance is a FAIS intermediary's offer: no FSP number, no link to it.
+  const links = navLinks.filter((link) => link.label !== "navInsurance" || identity.fspNumber)
   const t = useT("websiteShell")
   const [open, setOpen] = useState(false)
   const [dropdown, setDropdown] = useState<string | null>(null)
@@ -87,11 +93,16 @@ export default function NavBar({ enabledLocales = [] }: { enabledLocales?: reado
       <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2 min-[1440px]:gap-2.5 flex-shrink-0">
-            <span className="text-white font-bold text-lg tracking-tight">{identity.tradingName}</span>
+            {logoSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a per-tenant API response, not a static asset
+              <img src={logoSrc} alt={identity.tradingName} className="h-9 w-auto max-w-[200px] rounded bg-white object-contain px-1.5 py-0.5" />
+            ) : (
+              <span className="text-white font-bold text-lg tracking-tight">{identity.tradingName}</span>
+            )}
           </Link>
 
           <nav aria-label={t("mainNavLabel")} className="hidden xl:flex items-center gap-0.5" ref={dropdownRef}>
-            {navLinks.map((link) =>
+            {links.map((link) =>
               link.children ? (
                 <div key={link.href} className="relative">
                   <button
@@ -157,7 +168,7 @@ export default function NavBar({ enabledLocales = [] }: { enabledLocales?: reado
       {open && (
         <div className="border-t border-white/10 bg-[#11141b] xl:hidden">
           <div className="px-4 py-3 space-y-1">
-            {navLinks.map((link) => (
+            {links.map((link) => (
               <div key={link.href}>
                 <Link href={link.href} onClick={() => setOpen(false)} className="block px-3 py-2 text-sm font-medium text-white/72 hover:text-white">
                   {t(link.label)}

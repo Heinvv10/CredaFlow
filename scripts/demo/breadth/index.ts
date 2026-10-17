@@ -6,6 +6,7 @@
  *   crm.ts         leads through the pipeline; cross-sell opportunity work
  *   referrals.ts   agents, attributed borrowers, website referrals, commissions
  *   insurance.ts   funeral catalogue, FAIS sales, claims, advisor commission
+ *                  (only for a lender with an FSP number: one without sells none)
  *   compliance.ts  complaints, DSAR, breach register, COI, fit-and-proper, TCF
  *   inbox.ts       client e-mail threads worked in the shared inbox
  *   bureau.ts      adverse-listing confirmations (the files come from the crons)
@@ -14,6 +15,7 @@
  * background persona (`originationActors`), so the applications, audit trail
  * and advisor report show more than one person at work.
  */
+import { demoLender } from "../../../prisma/demo-lender"
 import type { Persona } from "../personas"
 import type { OriginationContext } from "../scenarios/context"
 import type { Sim } from "../simulate/context"
@@ -40,7 +42,7 @@ export function scheduleBreadth(sim: Sim): Breadth {
   scheduleReferrals(b)
   scheduleCrm(b)
   scheduleOpportunityWork(b)
-  scheduleInsurance(b)
+  if (demoLender().identity.fscaNumber) scheduleInsurance(b)
   scheduleCompliance(b)
   scheduleInbox(b)
   scheduleBureau(b)

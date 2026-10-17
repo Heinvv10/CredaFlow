@@ -66,3 +66,22 @@ describe("ValidationBanner — failed extraction", () => {
     expect(html).not.toContain("Could not be read automatically")
   })
 })
+
+// #145 re-review: the validation props are absent for a viewer without the
+// loan book. The banner renders no verdict rather than misread the absence.
+describe("ValidationBanner — lending read withheld", () => {
+  it.each(["failed", "done"])("renders nothing for a %s extraction whose result was withheld", (extractionStatus) => {
+    const html = renderToStaticMarkup(
+      <ValidationBanner extractionStatus={extractionStatus} extractionError={null} docType="BANK_STATEMENT" verified={false} docId="doc-1" />,
+    )
+    expect(html).toBe("")
+  })
+
+  it("still shows that the document is being read", () => {
+    const html = renderToStaticMarkup(
+      <ValidationBanner extractionStatus="processing" extractionError={null} docType="BANK_STATEMENT" verified={false} docId="doc-1" />,
+    )
+    expect(html).toContain("Analysing document")
+  })
+})
+

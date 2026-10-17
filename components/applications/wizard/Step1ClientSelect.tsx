@@ -35,7 +35,12 @@ export function Step1ClientSelect({ data, patch, errors, clients, selectedClient
         selectedClientId={data.clientId}
         clientSearch={search}
         setClientSearch={setSearch}
-        onSelect={(id) => patch({ clientId: id, ...INVALIDATED_AFFORDABILITY })}
+        // A PO document is the previous client's: a new client starts without one.
+        onSelect={(id) => patch({
+          clientId: id,
+          ...INVALIDATED_AFFORDABILITY,
+          ...(id !== data.clientId ? { poDocumentId: "" } : {}),
+        })}
       />
       <OwnLenderArrearsNotice arrears={selectedClientArrears} />
       {errors.clientId && (

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
+import { ContractualScheduleMissingError } from "@/lib/loan/contractual-schedule"
 import { loadBookAsOf, outstandingPrincipalAsOf, type AsOfLoan, type AsOfReceipt } from "./book-as-of"
 
 const at = (iso: string) => new Date(iso)
@@ -87,5 +88,18 @@ describe("loadBookAsOf", () => {
         { writeOffAt: { gte: monthEnd } },
       ],
     })
+  })
+
+  it("refuses an s125 re-priced loan whose contractual evidence is missing rather than understate the book", async () => {
+    const settled = {
+      ...twoInstalments([receipt(320000, "2026-08-10T12:00:00Z")]),
+      id: "loan-s125", ncaRegime: "NCA", contractType: "LOAN", totalRepayable: 320000, contractualTotalRepayable: 360000,
+      repaymentSchedule: twoInstalments([]).repaymentSchedule.map((row, i) => ({ ...row, installmentNo: 2 - i, creditLifePremiumDue: 0 })),
+    }
+    const db = {
+      loan: { findMany: vi.fn().mockResolvedValue([settled]) },
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
+    }
+    await expect(loadBookAsOf(db as never, "t1", monthEnd)).rejects.toThrow(ContractualScheduleMissingError)
   })
 })

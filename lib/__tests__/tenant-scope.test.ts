@@ -123,6 +123,8 @@ describe("tenant-scope — ALS primitives", () => {
       "KycOverrideRequest",
       // Lender-granted operator support access (lib/operator/) — non-null tenantId.
       "TenantSupportGrant",
+      // Client-notified payments awaiting reconciliation (lib/payments/payment-notifications.ts) — non-null tenantId.
+      "PaymentNotification",
       // PEP / sanctions screening and FIC registers — non-null tenantId.
       "ScreeningCheck",
       "CashThresholdReport",

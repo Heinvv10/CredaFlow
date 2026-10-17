@@ -75,6 +75,7 @@ vi.mock("@/lib/compliance/ncr-return", async () => {
 })
 
 import { GET } from "./route"
+import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 
 function request(query = "type=section129-log") {
@@ -577,6 +578,33 @@ describe("GET reports export — default charges owing beside instalment arrears
       expect(cell(arrearsColumn)).toBe(2169)
     })
   }
+})
+
+describe("GET reports export — collections", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    requireApiRoleMock.mockResolvedValue({ user: { id: "readonly-1", tenantId: "tenant-1", email: "readonly@example.test", role: "READONLY" } })
+    getTenantFromRequestMock.mockResolvedValue({ id: "tenant-1" })
+    tenantConfigFindUniqueMock.mockResolvedValue(null)
+  })
+
+  it("lists the collections queue exactly: its population and its client borrowers", async () => {
+    const row = (reference: string, client: unknown) => ({
+      reference, clientId: client ? "c1" : null, client, entity: client ? null : { legalName: "Synthetic Trading (Pty) Ltd" },
+      product: { name: "Micro" }, daysInArrears: 12, arrearsAmount: 10_000, outstandingPrincipal: 50_000, status: "ACTIVE",
+    })
+    loanFindManyMock.mockResolvedValue([
+      row("LN-PERSON", { firstName: "Sipho", lastName: "Dlamini", idNumber: "9001016000087", phone: "0820000001", email: "s@example.test" }),
+      row("LN-ENTITY", null),
+    ])
+    const res = await GET(request("type=collections"))
+    expect(loanFindManyMock.mock.calls[0][0].where).toEqual(collectionsQueueWhere("tenant-1", false))
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer() as unknown as Parameters<typeof wb.xlsx.load>[0])
+    const sheet = wb.getWorksheet("Collections Queue")!
+    expect(sheet.rowCount).toBe(2)
+    expect(sheet.getRow(2).getCell(1).value).toBe("LN-PERSON")
+  })
 })
 
 describe("GET reports export — affordability register", () => {
