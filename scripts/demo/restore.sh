@@ -317,7 +317,7 @@ live_sql "$db" "$TENANT_SOD_OFF_SQL" >/dev/null \
 # calendar moves on: "27 days in arrears" on an instalment 30 days overdue.
 cron_secret="$(env_get "$SHARED_SECRETS" CRON_SECRET 2>/dev/null)"
 if [ -n "$cron_secret" ] \
-  && curl -sf -o /dev/null -H @<(printf 'x-cron-secret: %s\n' "$cron_secret") "http://$staff_addr/api/cron/dpd-update"; then
+  && curl -sf --max-time 120 -o /dev/null -H @<(printf 'x-cron-secret: %s\n' "$cron_secret") "http://$staff_addr/api/cron/dpd-update"; then
   note "arrears days refreshed for today (dpd-update)"
 else
   warn "could not refresh arrears days (dpd-update); they stay as baked"
