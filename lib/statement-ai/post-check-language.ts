@@ -10,6 +10,7 @@
  */
 import { fail, norm, OK, stripLiterals, type Allowed, type CheckResult } from "./post-check-core"
 import { checkFigures } from "./post-check-figures"
+import { ALLOWED_NEGATIONS, VOCABULARY } from "./post-check-vocabulary"
 
 /** Words that call something fine (English and Afrikaans). */
 export const REASSURANCE = new RegExp([
@@ -35,7 +36,8 @@ export const VERDICT = new RegExp([
   "turn(ed|s)? down", "den(y|ied|ies)", "refus\\w*", "(un)?creditworth\\w*", "afford\\w*", "eligib\\w*", "suitab\\w*",
   "trust(worthy|ed|s)?", "reliab\\w*", "suspicious\\w*", "fraud\\w*", "risky", "(high|low|elevated|moderate|minimal|little)[- ]risk",
   "genuine\\w*", "authentic\\w*", "unaltered", "untampered", "tamper\\w*", "forg(ed|ery|eries)", "fake\\w*", "doctored",
-  "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verified", "real",
+  "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verified (as )?(genuine|authentic|real|correct|true|clean)",
+  "(is|was|are|were|been|being|appears?|looks?) (verified|real|true|correct|clean)(?! against)",
 ].map((w) => `\\b${w}\\b`).join("|"), "i")
 
 /**
@@ -66,14 +68,40 @@ export function checkNoContradiction(rawText: string, raisedFlagCodes: readonly 
   return OK
 }
 
-export const checkLanguage = checkNoContradiction
+/**
+ * Every word must be on the advisory vocabulary (post-check-vocabulary.ts) or
+ * be a name the facts gave, as written. Figures are checked elsewhere: any
+ * token with a digit is skipped here.
+ */
+export function checkVocabulary(rawText: string, names: Iterable<string>): CheckResult {
+  // A whole name matches in any case: its words came from the facts ("Capitec" for "CAPITEC").
+  // A payee's single words match only in capitals ("BLUEGUM MILLS" of "SALARY BLUEGUM MILLS"), so a
+  // payee cannot lend the prose an ordinary word. Codes are never split: NO_PAYSLIP does not make "no" a word.
+  const words = [...names].flatMap((n) => (n.includes("_") ? [] : n.split(" ").filter((w) => w.length > 2)))
+  let text = stripLiterals(stripLiterals(plainLetters(rawText), names, "i"), words)
+  text = text.replace(/\S*\d\S*/g, " ").replace(ALLOWED_NEGATIONS, " ")
+  for (const word of text.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) ?? []) {
+    const w = word.toLowerCase().replace(/'s$/, "")
+    if (VOCABULARY.has(w)) continue
+    if (w.includes("-") && w.split("-").every((part) => VOCABULARY.has(part))) continue
+    return fail(`word outside the advisory vocabulary: "${word}"`)
+  }
+  return OK
+}
+
+/** Every language rule: the vocabulary, then reassurance and verdicts (kept: they name the failure plainly). */
+export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = []): CheckResult {
+  const contradiction = checkNoContradiction(rawText, raisedFlagCodes)
+  if (!contradiction.ok) return contradiction
+  return checkVocabulary(rawText, [...names, ...raisedFlagCodes])
+}
 
 /** Which way a flag's figure departs from what was expected; null for flags that are presence, not size. */
 export type Direction = "ABOVE" | "BELOW"
 
 const ABOVE_WORDS = /\b(above|more than|exceed(s|ed|ing)?|higher than|greater than|larger than|older than)\b/i
 const BELOW_WORDS = /\b(below|less than|lower than|smaller than|short of|under)\b/i
-const NEGATION = /\b(not|never|no|isn't|wasn't|aren't|doesn't|didn't)\b(\W+\w+){0,2}?\W*$/i
+const NEGATION = /\b(not|never|no|none|cannot|can't|unable|fails?|failed|neither|nor|appears?|seems?|may|might|could|possibly|perhaps|unlikely)\b|n't\b/i
 const THRESHOLD_WORDS = /\b(threshold|tolerance|policy|limit|share|cut-?off|maximum|minimum)\b/i
 
 export interface FlagSpec {
@@ -107,8 +135,11 @@ export function checkFlagExplanation(rawText: string, flag: FlagSpec): CheckResu
     const opposite = flag.direction === "ABOVE" ? BELOW_WORDS : ABOVE_WORDS
     const hit = body.match(want)
     if (!hit) return fail(`does not say the figure is ${flag.direction.toLowerCase()} what was expected`)
-    for (const m of body.matchAll(new RegExp(want.source, "gi"))) {
-      if (NEGATION.test(body.slice(Math.max(0, m.index - 40), m.index))) return fail(`negates the direction: "${m[0]}"`)
+    // No negation or doubt anywhere in a sentence that states the direction.
+    for (const sentence of sentences(body)) {
+      if (!want.test(sentence)) continue
+      const doubt = sentence.match(NEGATION)
+      if (doubt) return fail(`negates the direction: "${doubt[0]}"`)
     }
     const other = body.match(opposite)
     if (other) return fail(`states the opposite direction: "${other[0]}"`)
