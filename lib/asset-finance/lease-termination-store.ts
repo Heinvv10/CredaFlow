@@ -119,7 +119,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       entity: { select: { legalName: true, vatNumber: true, addressLine1: true, addressLine2: true, city: true, province: true, postalCode: true } },
       client: { select: { firstName: true, lastName: true, addressLine1: true, city: true, province: true, postalCode: true } },
       asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true } },
-      assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } }, interestRatePm: true, contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
+      assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } }, interestRatePm: true, contractRates: { orderBy: { effectiveDate: "desc" }, select: { resultingRate: true, effectiveDate: true } },
       leaseRentals: { where: { cancelledAt: null }, select: { dueDate: true, rentalExclVatCents: true } },
     } } },
   })
@@ -138,16 +138,16 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
   }
 
   const acceptanceDate = quote.cpaCancellation ? isoOfDbDate(quote.terminationDate) : input.today
+  const rate = Number(loan.contractRates.find((r) => isoOfDbDate(r.effectiveDate) <= acceptanceDate)?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12))
   // CPA rentals were cancelled at notice: retain those rows for the valuation calculation.
   const assessmentRentals = quote.cpaCancellation
     ? await tx.leaseRental.findMany({ where: { tenantId, loanId: quote.loanId, dueDate: { gt: quote.terminationDate } }, select: { dueDate: true, rentalExclVatCents: true } })
     : loan.leaseRentals
   const now = earlyTerminationAmount({
     rentals: assessmentRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
-    terminationDate: acceptanceDate, annualRate: Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12)),
+    terminationDate: acceptanceDate, annualRate: rate,
     arrearsCents: 0, penaltyRate: "0", vatRateTenThousandths: 0,
   })
-  const rate = Number(loan.contractRates[0]?.resultingRate ?? new Prisma.Decimal(loan.interestRatePm * 12))
   const vat = await loadRateOn(tx, input.today)
   const costs = input.assessment?.costs ?? []
   const cpaCharge = quote.cpaCancellation && input.assessment ? cpaCancellationCharge({
