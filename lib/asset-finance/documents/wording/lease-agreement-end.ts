@@ -58,9 +58,9 @@ function endOptions(i: LeaseWordingInput): string {
 }
 
 /** The CPA variant's cancellation charge: the lessor's reasonable loss, crediting the returned goods (s14(3)(b)(ii), Reg 5(2)). */
-export const CPA_CANCELLATION_CHARGE = "The cancellation penalty is the lessor's reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT "
+export const CPA_CANCELLATION_CHARGE = "The financial ceiling for the cancellation penalty is the lessor's reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT "
   + "and maintenance) that would have fallen due after it, discounted at the contract rate; less (b) the net amount the lessor realises, or can reasonably expect to "
-  + "realise, by selling or letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs, itemised with their evidence and evidence confirming those costs were not already deducted in the net goods valuation. A cost already deducted must not also be added to the charge. The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added, and it is determined having regard to regulation 5(2) of the CPA Regulations."
+  + "realise, by selling or letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs, itemised with their evidence and evidence confirming those costs were not already deducted in the net goods valuation. A cost already deducted must not also be added to the charge. The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added, and it is only a ceiling. The lessor must record a case-specific assessment of every applicable factor in regulation 5(2) of the CPA Regulations and a justified reasonable amount at or below that ceiling, including a reduction or waiver where appropriate. Under regulation 5(3), the charge may not negate the consumer’s right to cancel."
 
 function earlyTermination(i: LeaseWordingInput): string {
   if (i.cpa) {

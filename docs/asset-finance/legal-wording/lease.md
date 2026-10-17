@@ -123,7 +123,12 @@ Gaps between this wording and the code are listed in
 2026-10-17 legal review settled the s14 points: cancellation is unilateral,
 the charge credits the returned goods and has no penalty %, the lessee ends a
 continuation on 20 business days' notice, and juristic CPA lessees get the
-s14 terms by contract.
+s14 terms by contract. The 2026-10-18 blind review further requires a recorded
+case-specific assessment under all ten Regulation 5(2) factors and the separate
+Regulation 5(3) prohibition on negating cancellation. The agreed financial
+formula is a ceiling, not an automatic finding that the charge is reasonable.
+Staff may reduce or waive it, with reasons retained alongside the quote and audit.
+[Primary regulations, regulation 5](https://www.gov.za/sites/default/files/gcis_document/201409/34180rg9515gon293.pdf).
 
 6. **Damages on cancellation for breach (9.11).** The recovery path replaces
    unearned rentals with their discounted value, with no percentage penalty. Net

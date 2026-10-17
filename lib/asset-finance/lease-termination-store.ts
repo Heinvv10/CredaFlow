@@ -19,6 +19,7 @@ import { appendLeaseCharge, cancelFutureRentals } from "./lease-charges"
 import { cpaCancellationDate, cpaCancellationCharge, earlyTerminationAmount, type CancellationCost } from "./lease-termination"
 import type { SigningTx } from "./signing-prepare"
 import { replayLeaseCancellationCredit } from "./lease-credit-replay"
+import { assessReasonableCancellation } from "./cpa-cancellation-assessment"
 import { formatMoney } from "./format"
 import { clientLeaseRefusal } from "./lease-portal-route"
 
@@ -35,7 +36,7 @@ export const REG5_FACTORS = "CPA Regulation 5(2): the amount of the agreement, t
   + "find an alternative lessee or use for the asset, the time remaining, the lessor's reasonable loss and the nature of the goods"
 
 function basisText(cpa: boolean, penaltyRate: string, terminationDate: string): string {
-  if (cpa) return `Cancellation takes effect on ${terminationDate}, 20 South African business days after notice, without accepting a quote. The charge is the present value of remaining rentals at the contract rate, less the net realisable or re-let value of the returned goods, plus actual documented recovery, refurbishment and re-letting costs, floored at zero and capped below undiscounted remaining rentals. No percentage penalty. Arrears remain due. ${REG5_FACTORS}. Until the goods valuation and costs are recorded the cancellation charge is not yet assessed.`
+  if (cpa) return `Cancellation takes effect on ${terminationDate}, 20 South African business days after notice, without accepting a quote. The charge is the present value of remaining rentals at the contract rate, less the net realisable or re-let value of the returned goods, plus actual documented recovery, refurbishment and re-letting costs, floored at zero and capped below undiscounted remaining rentals. No percentage penalty. Arrears remain due. ${REG5_FACTORS}. This formula sets a financial ceiling only. Staff must record all applicable Regulation 5(2) factors, justify a reasonable charge at or below that ceiling and explain why it does not negate cancellation under Regulation 5(3). A reduction or full waiver is permitted. Until the goods valuation, costs and reasoned assessment are recorded the cancellation charge is not yet assessed.`
   const formula = `Present value of the rentals (ex VAT and maintenance) falling due after ${terminationDate}, discounted at the contract rate, `
     + `plus a penalty of ${(Number(penaltyRate) * 100).toFixed(2)}% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value.`
   return formula
@@ -108,7 +109,7 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
   return { kind: "quoted", quoteId: quote.id, totalCents: amount.totalCents, terminationDate, validUntil }
 }
 
-export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationActor, input: { quoteId: string; today: string; assessment?: { goodsValueCents: number; costs: CancellationCost[] } }): Promise<TerminationResult> {
+export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationActor, input: { quoteId: string; today: string; assessment?: { goodsValueCents: number; costs: CancellationCost[]; reasonableAssessment?: unknown } }): Promise<TerminationResult> {
   const { tenantId } = actor
   const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "LeaseTerminationQuote" WHERE "id" = ${input.quoteId} AND "tenantId" = ${tenantId} FOR UPDATE`)
   if (locked.length === 0) return { kind: "not_found" }
@@ -154,8 +155,13 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
     rentals: assessmentRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })),
     terminationDate: acceptanceDate, annualRate: rate, goodsValueCents: input.assessment.goodsValueCents, costs,
   }) : null
-  const priced = quote.cpaCancellation ? { pvCents: now.pvCents, penaltyCents: 0, invoiceExclVatCents: cpaCharge!.chargeCents,
-    invoiceVatCents: Math.round(cpaCharge!.chargeCents * vat.rateTenThousandths / 10000) }
+  let reasonableAssessment: ReturnType<typeof assessReasonableCancellation> | null = null
+  if (cpaCharge) {
+    try { reasonableAssessment = assessReasonableCancellation(input.assessment?.reasonableAssessment, cpaCharge.chargeCents) }
+    catch (error) { return refused("reasonable_assessment", error instanceof Error ? error.message : "A reasoned Regulation 5 assessment is required") }
+  }
+  const priced = quote.cpaCancellation ? { pvCents: now.pvCents, penaltyCents: 0, invoiceExclVatCents: reasonableAssessment!.assessedChargeCents,
+    invoiceVatCents: Math.round(reasonableAssessment!.assessedChargeCents * vat.rateTenThousandths / 10000) }
     : earlyTerminationAmount({ rentals: assessmentRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), terminationDate: acceptanceDate,
       annualRate: rate, arrearsCents: quote.arrearsCents, penaltyRate: loan.assetFinanceDeal?.earlyTerminationPenaltyRate?.toString() ?? "0", vatRateTenThousandths: vat.rateTenThousandths })
   // Commercial termination is priced at acceptance, never backdated to the quote date.
@@ -173,7 +179,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       tenantId, loanId: quote.loanId, issueDate: input.today, supplyDate: input.today, createdById: actor.userId ?? null,
       recipient: { name: loan.entity?.legalName ?? `${loan.client?.firstName ?? ""} ${loan.client?.lastName ?? ""}`.trim(), address, vatNumber: loan.entity?.vatNumber ?? null },
       lines: [
-        ...(quote.cpaCancellation ? (quote.invoiceExclVatCents > 0 ? [{ description: `CPA cancellation: PV ${formatMoney(quote.pvCents)} less goods ${formatMoney(input.assessment!.goodsValueCents)} plus documented costs ${formatMoney(cpaCharge!.costsCents)} (capped), ${what}. ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)}, evidence ${c.evidence}`).join("; ")}`, quantity: 1, unitExclVatCents: quote.invoiceExclVatCents }] : [])
+        ...(quote.cpaCancellation ? (quote.invoiceExclVatCents > 0 ? [{ description: `CPA cancellation: PV ${formatMoney(quote.pvCents)} less goods ${formatMoney(input.assessment!.goodsValueCents)} plus documented costs ${formatMoney(cpaCharge!.costsCents)} (financial ceiling ${formatMoney(cpaCharge!.chargeCents)}; assessed reasonable charge ${formatMoney(quote.invoiceExclVatCents)}), ${what}. ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)}, evidence ${c.evidence}`).join("; ")}`, quantity: 1, unitExclVatCents: quote.invoiceExclVatCents }] : [])
           : (quote.pvCents > 0 ? [{ description: `Early termination: present value of the remaining rentals, ${what}`, quantity: 1, unitExclVatCents: quote.pvCents }] : [])),
         ...(quote.penaltyCents > 0 ? [{ description: `Early-termination penalty, ${what}`, quantity: 1, unitExclVatCents: quote.penaltyCents }] : []),
       ],
@@ -186,13 +192,13 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
     scheduleId = await appendLeaseCharge(tx, { tenantId, loanId: quote.loanId, amountCents: invoice.totalInclVatCents, dueDate: isoOfDbDate(quote.terminationDate), actorUserId: actor.userId ?? null, why: "lease_early_termination" })
   }
   await tx.leaseTerminationQuote.update({ where: { id: quote.id, tenantId }, data: { ...priced, terminationDate: quote.terminationDate, totalCents: quote.totalCents,
-    ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs as unknown as Prisma.InputJsonValue, basis: basisText(true, "0", acceptanceDate) + ` Recorded goods value: ${formatMoney(input.assessment!.goodsValueCents)}; costs: ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)} (${c.evidence}; not deducted from goods valuation: ${c.valuationNoOverlapEvidence})`).join("; ") || "none"}.` } : {}),
+    ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs as unknown as Prisma.InputJsonValue, reasonableAssessment: reasonableAssessment as unknown as Prisma.InputJsonValue, basis: basisText(true, "0", acceptanceDate) + ` Reasonable charge: ${formatMoney(reasonableAssessment!.assessedChargeCents)}; financial ceiling: ${formatMoney(reasonableAssessment!.ceilingCents)}. Assessment: ${reasonableAssessment!.rationale}. Cancellation remains available: ${reasonableAssessment!.cancellationRightReason}. Recorded goods value: ${formatMoney(input.assessment!.goodsValueCents)}; costs: ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)} (${c.evidence}; not deducted from goods valuation: ${c.valuationNoOverlapEvidence})`).join("; ") || "none"}.` } : {}),
     status: "ACCEPTED", acceptedAt: new Date(), acceptedById: actor.userId ?? null, acceptedByClientId: actor.clientId ?? null, taxInvoiceId, scheduleId } })
   if (!quote.cpaCancellation) await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: quote.loanId, origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED", electedById: actor.userId ?? null, electedByClientId: actor.clientId ?? null } })
   await replayLeaseCancellationCredit(tx, { tenantId, loanId: quote.loanId, userId: actor.userId ?? null, reference: quote.id })
   await logAuditStrict({
     tenantId, userId: actor.userId, action: AuditAction.LEASE_EARLY_TERMINATION_ACCEPTED, entity: "LeaseTerminationQuote", entityId: quote.id,
-    newValue: { loanId: quote.loanId, taxInvoiceId, scheduleId, totalCents: quote.totalCents, terminationDate: isoOfDbDate(quote.terminationDate), clientId: actor.clientId ?? null, ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs } : {}) },
+    newValue: { loanId: quote.loanId, taxInvoiceId, scheduleId, totalCents: quote.totalCents, terminationDate: isoOfDbDate(quote.terminationDate), clientId: actor.clientId ?? null, ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs, reasonableAssessment } : {}) },
   }, tx)
   return { kind: "accepted", quoteId: quote.id, taxInvoiceId }
 }

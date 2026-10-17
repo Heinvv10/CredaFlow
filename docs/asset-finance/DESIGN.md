@@ -515,6 +515,13 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 
 ## Sign-off record
 
+- **Changed 2026-10-18 to comply with CPA Regulations 5(2) and 5(3):** the
+  PV less goods plus actual costs calculation is a financial ceiling. Staff must
+  record case-specific findings on all ten statutory factors, a reasoned charge
+  at or below that ceiling (including reduction or waiver), and why cancellation
+  remains available. Billing and raw database acceptance require the retained
+  assessment. Prior accepted charges are not silently backfilled or repriced.
+
 - **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
   cancellation, valuation credit and documented actual costs, automatic continuation
   despite default, and 20-business-day lessee notice during continuation. Added-cost

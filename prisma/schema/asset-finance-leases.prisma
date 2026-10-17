@@ -303,6 +303,7 @@ model LeaseTerminationQuote {
   terminationDate     DateTime               @db.Date
   validUntil          DateTime               @db.Date
   goodsValueCents     Int?
+  reasonableAssessment Json?
   documentedCosts    Json                   @default("[]")
   lessorCancellation Boolean                @default(false)
   totalLoss          Boolean                @default(false)

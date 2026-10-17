@@ -1,3 +1,4 @@
+import { CPA_CANCELLATION_FACTORS } from "./cpa-cancellation-assessment"
 /**
  * Real-Postgres proof of slice 3 C7–C8 through the real routes: a month-to-
  * month extension appends one rental at a time until notice (given after the
@@ -205,7 +206,7 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const acceptedNow = await json(await routes().portalAccept(loans.terminate, quote.id))
     expect(acceptedNow.status, JSON.stringify(acceptedNow.body)).toBe(422) // client acceptance is unnecessary; staff valuation required
     staff(fx.adminA, "LOAN_ADMIN")
-    const assessment = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.id, today: today(), assessment: { goodsValueCents: 20_000_000, costs: [{ description: "Recovery", amountCents: 50_000, evidence: "synthetic-recovery.pdf", valuationNoOverlapEvidence: "synthetic-valuation.pdf confirms recovery cost excluded" }] } }))
+    const assessment = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.id, today: today(), assessment: { reasonableAssessment: { assessedChargeCents: quote.pvCents - 20_000_000 + 50_000, factors: Object.fromEntries(CPA_CANCELLATION_FACTORS.map(([key]) => [key, "Synthetic case finding: financial history, actual notice and returned goods considered"])), rationale: "Synthetic reasoned charge based on evidenced loss and replacement opportunities", cancellationRightReason: "Consumer circumstances considered; this assessed amount preserves cancellation" }, goodsValueCents: 20_000_000, costs: [{ description: "Recovery", amountCents: 50_000, evidence: "synthetic-recovery.pdf", valuationNoOverlapEvidence: "synthetic-valuation.pdf confirms recovery cost excluded" }] } }))
     expect(assessment.kind).toBe("accepted")
     const rentals = await database().leaseRental.findMany({ where: { loanId: loans.terminate } })
     const after = rentals.filter((r) => r.dueDate.getTime() > quote.terminationDate.getTime())

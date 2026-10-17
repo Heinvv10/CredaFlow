@@ -13,6 +13,7 @@ import { fundBalance } from "./maintenance-fund"
 import { prepareLeaseRecoveryDamages } from "./lease-recovery-damages"
 import { recordLeaseTotalLoss } from "./lease-total-loss"
 import { issueLeaseRentalInvoice } from "./lease-invoices"
+import { CPA_CANCELLATION_FACTORS } from "./cpa-cancellation-assessment"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -133,14 +134,23 @@ suite.sequential("lease legal calculations applied to actual accounts", () => {
     if (quote.kind !== "quoted") return
     const rejected = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 50_000_000, costs: [{ description: "Recovery already netted", amountCents: 10_000, evidence: "synthetic-cost.pdf" }] } }))
     expect(rejected).toMatchObject({ kind: "refused", reason: "invalid_assessment" })
-    await expect(database().leaseTerminationQuote.update({ where: { id: quote.quoteId }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: fx.adminA, documentedCosts: [{ description: "Recovery already netted", amountCents: 10_000, evidence: "synthetic-cost.pdf" }] } })).rejects.toThrow(/cost_overlap_evidence/)
+    await expect(database().leaseTerminationQuote.update({ where: { id: quote.quoteId }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: fx.adminA, documentedCosts: [{ description: "Recovery already netted", amountCents: 10_000, evidence: "synthetic-cost.pdf" }], reasonableAssessment: { assessedChargeCents: 0, ceilingCents: 0, factors: Object.fromEntries(CPA_CANCELLATION_FACTORS.map(([key]) => [key, "Synthetic case considered"])), rationale: "No actual net loss", cancellationRightReason: "Zero charge preserves cancellation" }, goodsValueCents: 2_000_000_000 } })).rejects.toThrow(/cost_overlap_evidence/)
+    await ruleRefuses(database(), { fn: "guardCpaReasonableAssessment", replace: ['IF NEW."status" <>', 'IF TRUE OR NEW."status" <>'] }, /cpa_reasonable_assessment/, (tx) => tx.leaseTerminationQuote.update({ where: { id: quote.quoteId }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: fx.adminA } }))
+    const missingFactors = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 0, costs: [] } }))
+    expect(missingFactors).toMatchObject({ kind: "refused", reason: "reasonable_assessment" })
+    const reasonableAssessment = { assessedChargeCents: 500, factors: Object.fromEntries(CPA_CANCELLATION_FACTORS.map(([key]) => [key, "Synthetic actual facts considered; see synthetic valuation record"])), rationale: "Replacement lessee identified, reduce the calculated ceiling to actual remaining loss", cancellationRightReason: "Reduced charge leaves the consumer able to exercise cancellation" }
+    const excessive = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 0, costs: [], reasonableAssessment: { ...reasonableAssessment, assessedChargeCents: before.totalRepayable + 1 } } }))
+    expect(excessive).toMatchObject({ kind: "refused", reason: "reasonable_assessment" })
     const assessed = await database().$transaction(async (tx) => {
-      const result = await acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 50_000_000, costs: [] } })
+      const result = await acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 0, costs: [], reasonableAssessment } })
       await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
       return result
     })
     expect(assessed.kind).toBe("accepted")
     const priced = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: quote.quoteId } })
+    await expect(database().leaseTerminationQuote.update({ where: { id: quote.quoteId }, data: { reasonableAssessment: { ...reasonableAssessment, assessedChargeCents: 0 } } })).rejects.toThrow()
+    expect(priced.invoiceExclVatCents).toBe(500)
+    expect(priced.reasonableAssessment).toMatchObject({ assessedChargeCents: 500, rationale: reasonableAssessment.rationale })
     const after = await database().payment.findMany({ where: { loanId, reversed: false } })
     expect(after.reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable)
     expect(after.filter((p) => p.allocationStatus === "UNAPPLIED").reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable - priced.totalCents)
