@@ -40,3 +40,11 @@ All start pending verification; absent credentials/approvals are externally bloc
 | G20 accessibility/packaging | Keyboard/mobile navigation, theme contrast, missing dialog descriptions/media; no blanket WCAG claim |
 
 F15 legal presentation changes may be implemented/rendered on an unmerged review branch. Merge requires lender legal sign-off per AGENTS.md and explicit user instruction. Continue independent tasks while this gate remains outstanding.
+
+## G06-R — recovery mutation audit and single-use acceptance
+
+Source-confirmed during recovery route preparation: staff forgot/reset update User reset token/password without lib/audit; portal forgot creates ClientOtp without audit; portal reset changes password and consumes OTP using separate Promise.all writes. Runtime reproduction pending. This is an additional audit-coverage gap in explicitly requested recovery acceptance, not one of F01-F15.
+
+Assigned A separate branch fix/gtm-recovery-audit-20261017 at527291a79909b71a17e62aa225cb81fe7791fcde, own existing A worktree after clean switch. Smallest fix: logAuditStrict within same transaction as token issuance or guarded token/OTP consumption+password mutation; preserve existing rate/Turnstile/channel/tenant/token-format behavior; no secrets in audit. Single-use guarded update must ensure concurrent duplicate consumption produces exactly one successful mutation/audit, and audit failure rolls back credential/token state. Public forgot requests have anonymous actor and identified target, never assert authenticated user. No schema/migration/statutory changes assigned.
+
+Acceptance: fail-first route tests, meaningful owned-Postgres transaction rollback and concurrent replay tests, final candidate full quality/integration, actual private-browser issuance/consume/expired/replay and corresponding sanitized audit events using non-relaying local sink. External delivery remains unproven. Structural OTP schema/purpose/tenant redesign is outside this surgical change; do not claim those combinations accepted without separate evidence.
