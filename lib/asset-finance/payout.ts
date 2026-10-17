@@ -14,7 +14,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { INT4_MAX } from "@/lib/product-config/bounds"
 import { checklistLabel, needsDualApproval, payoutAmountCents, requiredChecklistKinds } from "./payout-checklist"
 import { lockDeal, type SigningActor } from "./signing-prepare"
-import { dealCreditGateProblem } from "./deal-credit-gate"
+import { dealCreditGate } from "./deal-credit-gate"
 
 export type CreatePayoutResult =
   | { kind: "not_found" }
@@ -51,8 +51,8 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
         },
       })
       if (deal.payout) return { kind: "exists" }
-      const credit = await dealCreditGateProblem(tx, tenantId, dealId)
-      if (credit) return { kind: "credit_gate", reason: credit.kind, message: credit.message }
+      const credit = await dealCreditGate(tx, tenantId, dealId)
+      if (credit.problem) return { kind: "credit_gate", reason: credit.problem.kind, message: credit.problem.message }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))
       const open = requiredChecklistKinds(deal.contractType, deal.asset).filter((kind) => !confirmed.has(kind))
       if (open.length > 0) return { kind: "checklist_open", open: open.map((kind) => checklistLabel(kind, deal.contractType)) }
@@ -85,6 +85,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
         newValue: {
           dealId, supplierBankAccountId: account.id, amountCents, status: payout.status,
           dualApprovalRequired: payout.dualApprovalRequired, thresholdCents: config?.assetPayoutDualApprovalCents ?? null,
+          ...(credit.arrearsGrown.length > 0 ? { arrearsGrownSinceApproval: credit.arrearsGrown } : {}),
         },
       }, tx)
       return { kind: "created", payoutId: payout.id, status: dual ? "PENDING_APPROVAL" : "APPROVED" }
