@@ -25,7 +25,7 @@ suite.sequential("independent final B cash conservation after fully prepaid loss
   beforeAll(async () => {
     process.env.TRUSTED_PROXY = "1"
     fx = await createLeaseFixture(database(), t)
-    for (const [i, kind] of ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].entries()) {
+    for (const [i, kind] of (["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const).entries()) {
       const id = await approveLease(fx, staff, leaseBody(fx, { assetId: fx.assets[i], contractType: kind, rentalTiming: "ARREARS", entityId: fx.evidenced }))
       await signLease(fx, database(), setSession, id)
       loans.push(await payoutAndBook(fx, database(), staff, id))
