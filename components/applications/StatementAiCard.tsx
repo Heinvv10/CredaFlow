@@ -33,6 +33,8 @@ interface Payload {
   answers: OutputView[]
   pending: number
   noStatements: boolean
+  /** The role may not see the summary and explanations (READONLY): they are not shown at all. */
+  summaryWithheld?: boolean
   modelAvailable: boolean
 }
 
@@ -213,9 +215,11 @@ export function StatementAiCard({ applicationId, canAsk = false }: { application
       {data?.noStatements && <p className="mt-3 text-sm text-[var(--cf-text-muted)]">No statement has been read yet.</p>}
       {data && !data.noStatements && (
         <div className="mt-3 space-y-4">
-          <div data-testid="statement-ai-summary">
-            <Body o={data.summary} waiting={waiting} label="summary" />
-          </div>
+          {!data.summaryWithheld && (
+            <div data-testid="statement-ai-summary">
+              <Body o={data.summary} waiting={waiting} label="summary" />
+            </div>
+          )}
           {data.explanations.length > 0 && (
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Flags explained</h3>

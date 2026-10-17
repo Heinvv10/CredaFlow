@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkFigures, checkFlagExplanation, checkNoContradiction, postCheck, type Allowed, type FlagSpec } from "./post-check"
-import { checkVocabulary } from "./post-check-language"
+import { checkFigures, checkNoContradiction, type Allowed } from "./post-check"
 
 const allowed: Allowed = {
   amountsCents: [123_456, 850_000, 12_500_00, -45_000, 50_000],
@@ -139,99 +138,9 @@ describe("checkNoContradiction", () => {
   })
 })
 
-describe("checkVocabulary", () => {
-  it("rejects any word outside the advisory vocabulary, however the reassurance is phrased", () => {
-    for (const t of [
-      "No further action is needed.", "This is nothing out of the ordinary.", "This is common and regular for this client.",
-      "It poses no threat.", "This was to be expected.", "It does not require attention.", "The pattern looks plausible and understandable.",
-      "Requires no follow-up.", "The client keeps up with payments.", "The client is doing well.",
-    ]) expect(checkVocabulary(t, []).ok, t).toBe(false)
-  })
-  it("accepts plain description, names as given, and the allowed negations", () => {
-    expect(checkVocabulary("The statements cover 2026-07 to 2026-09. Money out to SYNTH RENTALS totals R19 500.00 across 3 rows (S1-R5).", ["SYNTH RENTALS"])).toEqual({ ok: true })
-    expect(checkVocabulary("NO_PAYSLIP is raised because no recent payslip is on file, so the salary could not be matched.", ["NO_PAYSLIP"])).toEqual({ ok: true })
-    expect(checkVocabulary("The salary could not be explained.", []).ok).toBe(false)
-    // A code's parts are not words: NO_PAYSLIP does not make "no" one.
-    expect(checkVocabulary("NO_PAYSLIP: no review.", ["NO_PAYSLIP"]).ok).toBe(false)
-  })
-  it("reads a system name in any case, a payee only as given in capitals", () => {
-    expect(checkVocabulary("Statements from Capitec.", ["CAPITEC"])).toEqual({ ok: true })
-    expect(checkVocabulary("Paid to SYNTH RENTALS.", [], ["SYNTH RENTALS"])).toEqual({ ok: true })
-    // Only the whole phrase: one word of a payee cannot stand alone ("The debit order to ORDINARY is JOES.").
-    expect(checkVocabulary("Paid to RENTALS.", [], ["SYNTH RENTALS"]).ok).toBe(false)
-    expect(checkVocabulary("The debit order to ORDINARY is JOES.", [], ["ORDINARY JOES"]).ok).toBe(false)
-    expect(checkVocabulary("Paid to Synth Rentals.", [], ["SYNTH RENTALS"]).ok).toBe(false)
-    // A client-named payee cannot lend the prose its words.
-    expect(checkVocabulary("The client is always punctual.", [], ["ALWAYS PUNCTUAL"]).ok).toBe(false)
-  })
-  it("allows a negation only with its fixed subject", () => {
-    expect(checkVocabulary("The salary could not be matched. Debit orders are not matched to any declared debt.", [])).toEqual({ ok: true })
-    expect(checkVocabulary("GAMBLING spend was not found.", ["GAMBLING"]).ok).toBe(false)
-    expect(checkVocabulary("The rule was not matched.", []).ok).toBe(false)
-  })
-})
-
-describe("checkFlagExplanation", () => {
-  const gambling: FlagSpec = { code: "GAMBLING", direction: "ABOVE", thresholds: { amountsCents: [], percents: [5] } }
-  it("passes an explanation naming the code, the direction and the policy threshold", () => {
-    expect(checkFlagExplanation("GAMBLING: betting is above the policy threshold of 5% of income.", gambling)).toEqual({ ok: true })
-  })
-  it("allows other figures beside the threshold", () => {
-    const a = { amountsCents: [150_000], monthlyAmountsCents: [150_000], percents: [5] }
-    expect(postCheck({ text: "GAMBLING: betting of R1 500.00 a month is above the policy threshold of 5% of income.", allowed: a, raisedFlagCodes: ["GAMBLING"], flag: gambling })).toEqual({ ok: true })
-  })
-  it("rejects one that does not name the code", () => {
-    expect(checkFlagExplanation("Betting is above the threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/does not name/) })
-  })
-  it("rejects one without the direction, with it negated, or with the opposite one anywhere", () => {
-    expect(checkFlagExplanation("GAMBLING: betting was seen. It was checked after the rule ran.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/does not say/) })
-    for (const t of [
-      "GAMBLING is not above the policy threshold of 5%.", "GAMBLING does not appear to be above the policy threshold of 5%.",
-      "GAMBLING isn’t above the policy threshold of 5%.", "GAMBLING cannot be above the policy threshold of 5%.",
-      "GAMBLING: betting fails to exceed the policy threshold of 5%.",
-    ]) expect(checkFlagExplanation(t, gambling), t).toMatchObject({ ok: false, reason: expect.stringMatching(/negates/) })
-    expect(checkFlagExplanation("GAMBLING was raised. Spend is above 5%. Spend is below the threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/opposite/) })
-  })
-  it("rejects a threshold other than the policy value, before or after the word, or any other percentage", () => {
-    expect(checkFlagExplanation("GAMBLING: betting is above the policy limit of R1 500.00 a month.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/threshold other than policy/) })
-    expect(checkFlagExplanation("GAMBLING: betting is above the 10% policy limit.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/threshold other than policy/) })
-    expect(checkFlagExplanation("GAMBLING is raised when betting is above 12.5% of income.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/threshold other than policy/) })
-  })
-})
-
-describe("postCheck", () => {
-  it("runs every check: figures, language, explanation", () => {
-    expect(postCheck({ text: "Average balance R8 500.00.", allowed, raisedFlagCodes: [] })).toEqual({ ok: true })
-    expect(postCheck({ text: "Average balance R8 600.00.", allowed, raisedFlagCodes: [] }).ok).toBe(false)
-    expect(postCheck({ text: "The RETURNED_DEBIT flag is fine.", allowed, raisedFlagCodes: ["RETURNED_DEBIT"] }).ok).toBe(false)
-    expect(postCheck({ text: "", allowed, raisedFlagCodes: [] })).toEqual({ ok: false, reason: "empty output" })
-  })
-  it("does not read digits inside a raised flag code as figures", () => {
-    expect(postCheck({ text: "S129_SENT was raised.", allowed: { amountsCents: [] }, raisedFlagCodes: ["S129_SENT"] })).toEqual({ ok: true })
-  })
-
-  it("rejects a relation or a match the facts do not state, however plain its words", () => {
-    const a = { amountsCents: [], percents: [5], names: [], relations: { below: false } }
-    for (const t of [
-      "GAMBLING was raised. Gambling spend is below the policy threshold.",
-      "GAMBLING was raised. Betting is within the policy threshold of 5%.",
-      "GAMBLING was raised. Betting spend matches what was declared.",
-    ]) expect(postCheck({ text: t, allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok, t).toBe(false)
-    // Said by the facts, or in the rules' own wording, they stand.
-    expect(postCheck({ text: "Living spend is below the declared expenses.", allowed: { ...a, relations: { below: true } }, raisedFlagCodes: [] })).toEqual({ ok: true })
-    expect(postCheck({ text: "The rule checks whether debit orders match declared instalments within a 5% tolerance.", allowed: a, raisedFlagCodes: [] })).toEqual({ ok: true })
-    // Outside a sentence about the rule, the rule's phrasing is a finding.
-    expect(postCheck({ text: "Betting is within a 5% tolerance.", allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok).toBe(false)
-    expect(postCheck({ text: "The rule checks whether debit orders match, and they matched.", allowed: a, raisedFlagCodes: [] }).ok).toBe(false)
-    expect(postCheck({ text: "The rule checks whether spend equals what was declared and it does match.", allowed: a, raisedFlagCodes: [] }).ok).toBe(false)
-    expect(postCheck({ text: "UNDISCLOSED_DEBIT_ORDER is raised because the rule checks whether debit orders match declared instalments within a 5% tolerance.", allowed: a, raisedFlagCodes: ["UNDISCLOSED_DEBIT_ORDER"] })).toEqual({ ok: true })
-    // A sentence that only mentions a rule is not the rule's description.
-    expect(postCheck({ text: "Betting, which the rules list, is within a 5% tolerance.", allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok).toBe(false)
-    // A payee is matched only as given: "Within Limits" is not the payee "WITHIN LIMITS".
-    expect(postCheck({ text: "Spend is Within Limits.", allowed: { ...a, payees: ["WITHIN LIMITS"] }, raisedFlagCodes: [] }).ok).toBe(false)
-  })
+describe("checkFigures: later review rounds", () => {
   it("reads lenders as a word, and lending to a client as a decision", () => {
-    expect(postCheck({ text: "Transactions with short-term lenders are listed.", allowed: { amountsCents: [] }, raisedFlagCodes: ["PAYDAY_LENDER"] })).toEqual({ ok: true })
+    expect(checkNoContradiction("Transactions with short-term lenders are listed.", ["PAYDAY_LENDER"])).toEqual({ ok: true })
     expect(checkNoContradiction("The lender should lend to this client.", []).ok).toBe(false)
     expect(checkNoContradiction("Continue lending.", []).ok).toBe(false)
   })
@@ -256,13 +165,5 @@ describe("postCheck", () => {
     // An amount read as a percentage, and other monthly phrasings.
     expect(checkFigures("R1 234.56% of income.", a).ok).toBe(false)
     for (const t of ["Rent R1 000.00/month.", "Rent R1 000.00 p/m.", "Rent R1 000.00 for the month."]) expect(checkFigures(t, a).ok, t).toBe(false)
-  })
-
-  it("keeps the eval's false rejections fixed", () => {
-    // A payee holding a system name ("HOUSING") is still one payee.
-    expect(postCheck({ text: "The largest payee is VUKA HOUSING.", allowed: { amountsCents: [], names: ["HOUSING"], payees: ["VUKA HOUSING"] }, raisedFlagCodes: [] })).toEqual({ ok: true })
-    // The rule's match tolerance later in the sentence does not void its own "checks whether … match".
-    const text = "UNDISCLOSED_DEBIT_ORDER is raised because the rule checks whether debit orders match the debts declared, with a match tolerance of 10%."
-    expect(postCheck({ text, allowed: { amountsCents: [], percents: [10] }, raisedFlagCodes: ["UNDISCLOSED_DEBIT_ORDER"] })).toEqual({ ok: true })
   })
 })

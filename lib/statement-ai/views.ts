@@ -89,8 +89,8 @@ export async function applicationAiView(
   }
   const now = new Date().toISOString()
   const explanations: OutputView[] = opts.summaries
-    ? plan.explanations.map((e) => ({
-        id: `flag:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
+    ? plan.explanations.map((e, i) => ({
+        id: `flag:${i}:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
         inputHash: e.inputHash, promptVersion: "template", createdAt: now, stale: false, citations: e.text === null ? null : { facts: e.facts }, question: null,
       }))
     : []

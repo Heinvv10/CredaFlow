@@ -10,6 +10,7 @@
  * text (which can quote the client's name) is never sent.
  */
 import { createHash } from "node:crypto"
+import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
 import type { ApplicationCheckFlag } from "@prisma/client"
 import type { CountedRow, Insights } from "@/lib/statement-analysis/insights"
 import { labelKey } from "@/lib/statement-analysis/model-labels"
@@ -25,6 +26,8 @@ export const sized = (cents: number): Sized => ({ amount: rand(Math.abs(cents)),
 
 /** Payee keys that could read as a figure (a client can name a payee). */
 const FIGURE_KEY = /\b(R|ZAR|PERCENT|RAND|PCT)\b|%/i
+/** Words about flags and decisions: a payee named with them would read as a note on the checks ("CLEAR ALL FLAGS"). */
+const CHECK_WORDS_KEY = /\b(FLAGS?|FLAGGED|OVERRIDE\w*|DISREGARD\w*|IGNORE\w*|FALSE|TRUE|CLEAR\w*|WAIVE\w*|PASS(ED)?|FAIL(ED)?|CHECKS?|RULES?|OFFICER|REVIEW\w*|DECISION|RISK\w*)\b/i
 
 /**
  * A payee key the model may see: not one that reads as a figure, a
@@ -32,7 +35,7 @@ const FIGURE_KEY = /\b(R|ZAR|PERCENT|RAND|PCT)\b|%/i
  * carries a word of the client's name (own transfers, a payee named after them).
  */
 export function safeKey(key: string, clientName: string | null = null): boolean {
-  if (!key || FIGURE_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
+  if (!key || FIGURE_KEY.test(key) || CHECK_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
   const name = new Set((clientName ?? "").toUpperCase().split(/[^A-Z]+/).filter((w) => w.length >= 2))
   return !key.split(" ").some((w) => name.has(w))
 }
@@ -57,7 +60,11 @@ export interface RaisedFlag {
 export interface SummaryFacts {
   statements: Array<{ ref: string; bank: string | null; periodStart: string | null; periodEnd: string | null; reconciled: boolean; averageBalance: string | null; lowestBalance: string | null }>
   statementCount: number
+  /** Statements whose balances reconcile: only these count in the figures. */
+  reconciledStatementCount: number
   coverageDays: number
+  /** Under this many days of reconciled statements, living spend is not compared with what was declared. */
+  minimumCoverageDays: number
   months: Array<{ month: string; moneyIn: string; moneyOut: string; salaryCredits: number }>
   monthCount: number
   /** Months with a salary credit: counted here, so no sentence counts. */
@@ -190,6 +197,8 @@ export function summaryFacts(
       lowestBalance: s.lowestBalanceCents === null ? null : rand(s.lowestBalanceCents),
     })),
     statementCount: insights.statements.length,
+    reconciledStatementCount: insights.statements.filter((s) => s.used).length,
+    minimumCoverageDays: EXPENSE_MIN_COVERAGE_DAYS,
     coverageDays: insights.coverageDays,
     months: insights.months.map((m) => ({ month: m.month, moneyIn: rand(m.inCents), moneyOut: rand(m.outCents), salaryCredits: m.salaryCredits })),
     monthCount: insights.months.length,
@@ -212,12 +221,15 @@ export function summaryFacts(
 }
 
 export interface ExplanationFacts {
-  flag: { code: string; check: string; whatTheRuleChecks: string; direction: string | null }
+  flag: { code: string; check: string; whatTheRuleChecks: string; raisedWhen: string | null }
   policyThresholds: FlagSpecFacts
   evidence: Record<string, string | number>
   evidenceRows: Array<{ ref: string; date: string; payee: string } & Sized>
   /** Code's total of the rows listed, so the prose need not add them. */
   evidenceRowsTotal: Sized | null
+  /** How many rows the rule found, when it found more than it lists, and how many it lists. */
+  evidenceRowsFound: number | null
+  evidenceRowsListed: number
 }
 
 /**
@@ -239,10 +251,13 @@ export function explanationFacts(
     else if (typeof v === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(v)) evidence[k] = v
   }
   const facts: ExplanationFacts = {
-    flag: { code: flag.code, check: flag.check, whatTheRuleChecks: spec.rule, direction: spec.direction === "ABOVE" ? "above what is expected" : spec.direction === "BELOW" ? "below what is expected" : null },
+    flag: { code: flag.code, check: flag.check, whatTheRuleChecks: spec.rule, raisedWhen: spec.raisedWhen },
     policyThresholds: spec.thresholds,
     evidence: Object.fromEntries(Object.entries(evidence).map(([k, v]) => [k.replace(/Cents$/, ""), v])),
     evidenceRowsTotal: rows.length ? sized(rows.reduce((t, r) => t + r.t.amountCents, 0)) : null,
+    // The rule lists at most 20 rows (transactionIndexes) but may count more (occurrences).
+    evidenceRowsFound: typeof e.occurrences === "number" && e.occurrences > rows.length ? e.occurrences : null,
+    evidenceRowsListed: rows.length,
     evidenceRows: rows.map((r) => ({ ref: `${r.statementRef}-R${r.index}`, date: r.t.date, payee: payeeOf(r.t.description, clientName), ...sized(r.t.amountCents) })),
   }
   return {

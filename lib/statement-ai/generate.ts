@@ -57,12 +57,9 @@ export function buildPlans(
   const built = summaryFacts(insights, rows, flags, clientName)
   const summary: Planned = { kind: "SUMMARY", flagCode: "", promptVersion: SUMMARY_PROMPT_VERSION, built, prompt: summaryPrompt(built.facts), maxTokens: 200 }
   const refOf = new Map(insights.statements.map((s, i) => [s.documentId, `S${i + 1}`]))
-  const seen = new Set<string>()
   const explanations: Explanation[] = []
+  // One explanation per flag: one code can be raised several times (each counterparty, each month).
   for (const flag of flags) {
-    // One explanation per code: two flags of one code (two statements) share it.
-    if (seen.has(flag.code)) continue
-    seen.add(flag.code)
     const e = (flag.evidence ?? {}) as Record<string, unknown>
     const all = typeof e.analysisId === "string" ? txOf.get(e.analysisId) ?? [] : []
     const ref = typeof e.documentId === "string" ? refOf.get(e.documentId) ?? "S?" : "S?"
@@ -160,6 +157,7 @@ export async function produce(plan: Planned, ask: Ask): Promise<Produced> {
       continue
     }
     const text = renderSummary(parsed.data.claims, plan.built.facts)
+    if (!text) return { status: "REJECTED", text, rejectReason: "the chosen claims say nothing for these facts" }
     // Code wrote it from the facts; the figure check guards against a bug in render.ts.
     const checked = checkFigures(text, plan.built.allowed)
     if (!checked.ok) return { status: "REJECTED", text, rejectReason: `rendered summary failed its figure check: ${checked.reason}` }

@@ -8,6 +8,7 @@ import { statementAiEnabled } from "@/lib/statement-ai/enabled"
 import { planOutputs } from "@/lib/statement-ai/generate"
 import { ASK_PROMPT_VERSION, askInputHash, normaliseQuestion, QUESTION_MAX } from "@/lib/statement-ai/ask/answer"
 import { enqueueQuestion } from "@/lib/statement-ai/worker"
+import { checkNoContradiction } from "@/lib/statement-ai/post-check"
 
 /** Questions one officer may ask, and one lender, per window: each costs two model calls. */
 const ASK_LIMIT_PER_USER = { limit: 10, windowMs: 10 * 60_000 }
@@ -43,9 +44,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const inputHash = askInputHash(question, planned.rows)
     const key = { tenantId: tenant.id, applicationId: id, kind: "ANSWER" as const, flagCode: "", inputHash, promptVersion: ASK_PROMPT_VERSION }
     const row = await prisma.$transaction(async (tx) => {
-      const existing = await tx.statementAiOutput.findUnique({ where: { tenantId_applicationId_kind_flagCode_inputHash_promptVersion: key }, select: { id: true, status: true } })
+      const existing = await tx.statementAiOutput.findUnique({ where: { tenantId_applicationId_kind_flagCode_inputHash_promptVersion: key }, select: { id: true, status: true, text: true } })
       // A stored answer is returned; one that failed or was rejected is asked again.
-      if (existing && (existing.status === "OK" || existing.status === "PENDING")) return existing
+      // An OK answer the view now hides (the flags changed since) is asked again rather than stuck unavailable.
+      const hidden = existing?.status === "OK" && !checkNoContradiction(existing.text, planned.raisedFlagCodes).ok
+      if (existing && !hidden && (existing.status === "OK" || existing.status === "PENDING")) return { id: existing.id, status: existing.status }
       const saved = existing
         ? await tx.statementAiOutput.update({ where: { id: existing.id }, data: { status: "PENDING", text: "", rejectReason: null, citations: [], question, askedById: guard.user.id }, select: { id: true, status: true } })
         : await tx.statementAiOutput.create({ data: { ...key, status: "PENDING", question, askedById: guard.user.id }, select: { id: true, status: true } })

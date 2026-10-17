@@ -100,7 +100,7 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     expect(model.calls).toBe(0)
     await drained()
     const row = await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })
-    expect(row).toMatchObject({ tenantId: a.tenantId, kind: "ANSWER", status: "OK", askedById: a.userIds.CREDIT_OFFICER, text: "[q1] Total for money out to SYNTH RENTALS: R19 500.00, from 3 rows." })
+    expect(row).toMatchObject({ tenantId: a.tenantId, kind: "ANSWER", status: "OK", askedById: a.userIds.CREDIT_OFFICER, text: '[q1] Total for money out to "SYNTH RENTALS": R19 500.00, from 3 rows.' })
     expect(row.citations).toMatchObject([{ id: "q1", tool: "sum", result: { total: "R19 500.00", rowCount: 3 }, matchedRows: 3, rows: [{ ref: "S1-R5" }, { ref: "S1-R11" }, { ref: "S1-R17" }] }])
     expect(await prisma.statementAiUsage.count({ where: { tenantId: a.tenantId, kind: "ANSWER" } })).toBe(1)
     expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_QUESTION_ASKED", entityId: id } })).toBe(1)
@@ -141,7 +141,21 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     const retried = await ask(a, "LOAN_ADMIN", "How many payments to SYNTH RENTALS?")
     expect(await retried.json()).toEqual({ id, status: "PENDING" })
     await drained()
-    expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "OK", text: "[q1] Rows for all rows to SYNTH RENTALS: 3." })
+    expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "OK", text: '[q1] Rows for all rows with "SYNTH RENTALS": 3.' })
+  })
+
+  it("never overwrites an answer finished elsewhere while this one was working", async () => {
+    model.plan = '{"queries":[{"id":"q1","tool":"count","filter":{"payee":"SYNTH RENTALS"}}]}'
+    const res = await ask(a, "LOAN_ADMIN", "How many rent payments were there?")
+    const { id } = await res.json()
+    // While the worker waits on the model, the row is finished by another request (a re-ask that won).
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      await prisma.statementAiOutput.updateMany({ where: { id, tenantId: a.tenantId }, data: { status: "OK", text: "finished elsewhere" } })
+      return new Response(JSON.stringify({ choices: [{ message: { content: model.plan } }] }), { status: 200 })
+    }))
+    await drained()
+    expect(await prisma.statementAiOutput.findFirstOrThrow({ where: { id, tenantId: a.tenantId } })).toMatchObject({ status: "OK", text: "finished elsewhere" })
+    expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED", entityId: id } })).toBe(0)
   })
 
   it("rate-limits an officer's questions", async () => {

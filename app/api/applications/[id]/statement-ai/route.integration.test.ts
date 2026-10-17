@@ -100,14 +100,14 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     await drained()
     const rows = await prisma.statementAiOutput.findMany({ where: { tenantId: on.tenantId } })
     expect(rows.map((r) => [r.kind, r.status])).toEqual([["SUMMARY", "OK"]])
-    expect(rows[0].text).toMatch(/^Largest payees by money out: SYNTH RENTALS R19 500.00/)
+    expect(rows[0].text).toMatch(/^Largest payees by money out: "SYNTH RENTALS" R19 500.00/)
     expect(model.calls).toBe(2)
     expect(await prisma.statementAiUsage.count({ where: { tenantId: on.tenantId } })).toBe(2)
     expect(await prisma.auditLog.count({ where: { tenantId: on.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED" } })).toBe(1)
 
     // READONLY reads answers only: the summary and explanations restate the insights (CREDIT_OFFICER and up).
     const readonly = await (await get(on, "READONLY")).json()
-    expect(readonly).toMatchObject({ summary: null, explanations: [], answers: [] })
+    expect(readonly).toMatchObject({ summary: null, explanations: [], answers: [], summaryWithheld: true })
     const second = await (await get(on, "CREDIT_OFFICER")).json()
     expect(second.pending).toBe(0)
     expect(second.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringContaining("Flags raised by the credit checks: GAMBLING") })

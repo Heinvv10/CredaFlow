@@ -35,23 +35,30 @@ export const CLAIM_DESCRIPTIONS: Record<SummaryClaim, string> = {
 export const ClaimsSchema = z.object({ claims: z.array(z.enum(SUMMARY_CLAIMS)).min(1).max(SUMMARY_CLAIMS.length) }).strict()
 
 const list = (items: string[]) => items.join("; ")
+/** A payee's name is statement text a client can write: always quoted, so it reads as a name, never as the sentence. */
+const quoted = (payee: unknown) => `"${String(payee)}"`
 const sized = (s: Sized) => `${s.amount} ${s.direction === "in" ? "in" : "out"}`
 
 function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
   switch (claim) {
     case "coverage": {
-      const starts = f.statements.map((s) => s.periodStart).filter((d): d is string => !!d).sort()
-      const ends = f.statements.map((s) => s.periodEnd).filter((d): d is string => !!d).sort()
+      const counted = f.statements.filter((s) => s.reconciled)
+      const starts = counted.map((s) => s.periodStart).filter((d): d is string => !!d).sort()
+      const ends = counted.map((s) => s.periodEnd).filter((d): d is string => !!d).sort()
       const span = starts.length && ends.length ? ` from ${starts[0]} to ${ends[ends.length - 1]}` : ""
-      return `The statements cover ${f.coverageDays} days${span}, across ${f.statementCount} statement${f.statementCount === 1 ? "" : "s"}.`
+      const which = f.reconciledStatementCount === f.statementCount
+        ? `${f.statementCount} statement${f.statementCount === 1 ? "" : "s"}, all reconciled`
+        : `${f.statementCount} statements, of which ${f.reconciledStatementCount} reconcile and count in the figures`
+      return `The reconciled statements cover ${f.coverageDays} days${span}, across ${which}.`
     }
     case "money":
       return `Over the period, money in was ${f.moneyInWholePeriod} and money out was ${f.moneyOutWholePeriod}.`
     case "months":
       return f.months.length ? `By month: ${list(f.months.map((m) => `${m.month} money in ${m.moneyIn}, money out ${m.moneyOut}`))}.` : null
     case "balances": {
-      const rows = f.statements.filter((s) => s.averageBalance || s.lowestBalance)
-        .map((s) => `${s.ref}${s.bank ? ` (${s.bank})` : ""} average balance ${s.averageBalance ?? "unknown"}, lowest balance ${s.lowestBalance ?? "unknown"}`)
+      const rows = f.statements.map((s) => s.reconciled
+        ? `${s.ref}${s.bank ? ` (${s.bank})` : ""} average balance ${s.averageBalance ?? "unknown"}, lowest balance ${s.lowestBalance ?? "unknown"}`
+        : `${s.ref}${s.bank ? ` (${s.bank})` : ""} is not reconciled and is left out of the figures`)
       return rows.length ? `Balances: ${list(rows)}.` : null
     }
     case "salary": {
@@ -59,8 +66,9 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
       return `A salary credit was found in ${f.salaryMonthCount} of ${f.monthCount} months, on day ${[...new Set(f.salaryPayDays)].sort((a, b) => a - b).join(", ")} of the month.`
     }
     case "living":
-      if (f.declaredExpensesPerMonth === null || f.livingSpendComparedWithDeclared === null) {
-        return `Living spend is ${f.livingSpendPerMonth} a month; no monthly expenses were declared.`
+      if (f.declaredExpensesPerMonth === null) return `Living spend is ${f.livingSpendPerMonth} a month; no monthly expenses were declared.`
+      if (f.livingSpendComparedWithDeclared === null) {
+        return `Living spend is ${f.livingSpendPerMonth} a month, from ${f.coverageDays} days of reconciled statements; that is under the ${f.minimumCoverageDays} days needed, so it is not compared with the declared ${f.declaredExpensesPerMonth}.`
       }
       if (f.livingSpendComparedWithDeclared === "equal") return `Living spend is ${f.livingSpendPerMonth} a month, the same as the declared ${f.declaredExpensesPerMonth}.`
       return `Living spend is ${f.livingSpendPerMonth} a month, ${f.livingSpendDifferenceFromDeclaredPerMonth} ${f.livingSpendComparedWithDeclared} the declared ${f.declaredExpensesPerMonth} a month.`
@@ -71,7 +79,7 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
     case "uncategorised":
       return f.uncategorisedPercentOfMoneyOut === null ? null : `${f.uncategorisedPercentOfMoneyOut}% of money out has no category.`
     case "payees":
-      return f.topPayees.length ? `Largest payees by money out: ${list(f.topPayees.map((p) => `${p.payee} ${p.moneyOut} (${p.payments} payment${p.payments === 1 ? "" : "s"})`))}.` : null
+      return f.topPayees.length ? `Largest payees by money out: ${list(f.topPayees.map((p) => `${quoted(p.payee)} ${p.moneyOut} (${p.payments} payment${p.payments === 1 ? "" : "s"})`))}.` : null
     case "flags":
       return f.raisedFlags.length
         ? `Flags raised by the credit checks: ${list(f.raisedFlags.map((r) => `${r.code} (${r.check}, ${r.evidenceRows} evidence row${r.evidenceRows === 1 ? "" : "s"})`))}. An officer reviews each before a decision.`
@@ -93,7 +101,7 @@ export function renderSummary(claims: SummaryClaim[], facts: SummaryFacts): stri
 // ── Feature B: flag explanations (no model) ─────────────────────────────────
 
 const THRESHOLD_LABELS: Record<string, (v: string | number) => string> = {
-  gamblingShareOfIncomePercent: (v) => `betting above ${v}% of monthly income`,
+  gamblingShareOfIncomePercent: (v) => `betting of at least ${v}% of monthly income`,
   minimumGap: (v) => `a gap of more than ${v} a month`,
   minimumGapShareOfDeclaredPercent: (v) => `and more than ${v}% of what was declared`,
   amountTolerancePercent: (v) => `an amount tolerance of ${v}%`,
@@ -113,14 +121,15 @@ const EVIDENCE_LABELS: Record<string, string> = {
 /** One flag's explanation, written from its facts. */
 export function renderExplanation(f: ExplanationFacts): string {
   const parts = [`${f.flag.code} (${f.flag.check}): ${f.flag.whatTheRuleChecks}`]
-  if (f.flag.direction) parts.push(`The rule raises it when the figure is ${f.flag.direction.replace(" what is expected", "")} the policy threshold.`)
+  if (f.flag.raisedWhen) parts.push(f.flag.raisedWhen)
   const thresholds = Object.entries(f.policyThresholds).map(([k, v]) => THRESHOLD_LABELS[k]?.(v)).filter((s): s is string => !!s)
   if (thresholds.length) parts.push(`Policy threshold: ${thresholds.join(", ")}.`)
   const evidence = Object.entries(f.evidence).filter(([k]) => EVIDENCE_LABELS[k]).map(([k, v]) => `${EVIDENCE_LABELS[k]} ${v}`)
   if (evidence.length) parts.push(`Evidence: ${list(evidence)}.`)
   if (f.evidenceRows.length) {
-    parts.push(`Evidence rows: ${list(f.evidenceRows.map((r) => `${r.ref} ${r.date} ${r.payee} ${sized(r)}`))}.`)
-    if (f.evidenceRowsTotal && f.evidenceRows.length > 1) parts.push(`These rows total ${sized(f.evidenceRowsTotal)}.`)
+    if (f.evidenceRowsFound !== null) parts.push(`The rule found ${f.evidenceRowsFound} rows; the first ${f.evidenceRowsListed} are listed.`)
+    parts.push(`Evidence rows: ${list(f.evidenceRows.map((r) => `${r.ref} ${r.date} ${quoted(r.payee)} ${sized(r)}`))}.`)
+    if (f.evidenceRowsTotal && f.evidenceRows.length > 1) parts.push(`The listed rows total ${sized(f.evidenceRowsTotal)}.`)
   }
   parts.push("An officer reviews the flag before a decision.")
   return parts.join(" ")
@@ -131,7 +140,7 @@ export function renderExplanation(f: ExplanationFacts): string {
 function describeFilter(args: Record<string, unknown>): string {
   const f = (args.filter ?? {}) as Record<string, unknown>
   const parts = [f.direction === "in" ? "money in" : f.direction === "out" ? "money out" : "all rows"]
-  if (typeof f.payee === "string") parts.push(`${f.direction === "in" ? "from" : "to"} ${f.payee}`)
+  if (typeof f.payee === "string") parts.push(`${f.direction === "in" ? "from" : f.direction === "out" ? "to" : "with"} ${quoted(f.payee)}`)
   if (typeof f.category === "string") parts.push(`in category ${f.category}`)
   if (typeof f.from === "string" && typeof f.to === "string") parts.push(`from ${f.from} to ${f.to}`)
   else if (typeof f.from === "string") parts.push(`from ${f.from}`)
@@ -157,11 +166,15 @@ export function renderResult(q: QueryResult): string {
     case "groupByMonth":
     case "groupByPayee": {
       const key = q.tool === "groupByMonth" ? "month" : "payee"
-      const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e[key]} ${e.total !== undefined ? `${e.total} (${rowsWord(e.rowCount)})` : rowsWord(e.count)}`)
-      return items.length ? `[${q.id}] By ${key} for ${what}: ${list(items)}.` : `[${q.id}] No rows for ${what}.`
+      const entries = q.result as Array<Record<string, unknown>>
+      const items = entries.map((e) => `${key === "payee" ? quoted(e[key]) : e[key]} ${e.total !== undefined ? `${e.total} (${rowsWord(e.rowCount)})` : rowsWord(e.count)}`)
+      if (!items.length) return `[${q.id}] No rows for ${what}.`
+      const net = entries.some((e) => e.total !== undefined) && !(q.args.filter as Record<string, unknown> | undefined)?.direction ? " (net totals: a minus means more went out than came in)" : ""
+      const top = key === "payee" && entries.length === q.args.limit ? `, the largest ${q.args.limit} payees` : ""
+      return `[${q.id}] By ${key} for ${what}${top}${net}: ${list(items)}.`
     }
     case "list": {
-      const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${e.payee} ${e.amount} ${e.direction}`)
+      const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${quoted(e.payee)} ${e.amount} ${e.direction}`)
       return items.length ? `[${q.id}] Rows for ${what}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
     }
   }

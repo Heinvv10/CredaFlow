@@ -70,4 +70,10 @@ describe("StatementAiCard", () => {
     await act(async () => { await new Promise((res) => setTimeout(res, 0)) })
     expect(JSON.stringify(r!.toJSON())).toContain("statement-ai-question")
   })
+
+  it("shows nothing of a summary withheld by role, not \"unavailable\"", async () => {
+    const { html } = await render(200, { summary: null, explanations: [], answers: [], pending: 0, noStatements: false, summaryWithheld: true, modelAvailable: true })
+    expect(html).not.toContain("Summary unavailable")
+    expect(html).not.toContain("statement-ai-summary")
+  })
 })

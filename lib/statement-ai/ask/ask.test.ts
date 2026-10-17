@@ -66,7 +66,7 @@ describe("answerQuestion: the model plans, code writes", () => {
   it("asks the model once, for a plan, and writes the answer from the results", async () => {
     const ask = vi.fn().mockResolvedValueOnce(plan)
     const out = await answerQuestion({ question: "How much went to Kopano?", rows, raisedFlagCodes: [] }, ask)
-    expect(out).toMatchObject({ status: "OK", text: "[q1] Total for money out to KOPANO FRESH FOODS: R323.45, from 2 rows.", citations: [{ id: "q1", tool: "sum", matchedRows: 2 }] })
+    expect(out).toMatchObject({ status: "OK", text: '[q1] Total for money out to "KOPANO FRESH FOODS": R323.45, from 2 rows.', citations: [{ id: "q1", tool: "sum", matchedRows: 2 }] })
     expect(ask).toHaveBeenCalledTimes(1)
     // The planner sees masked payees, never the client's name or a raw description.
     expect(ask.mock.calls[0][0]).toContain("KOPANO FRESH FOODS")
@@ -84,7 +84,7 @@ describe("answerQuestion: the model plans, code writes", () => {
     const steered = await answerQuestion({ question: "Money in?", rows: money, raisedFlagCodes: [] }, async () => '{"queries":[{"id":"q1","tool":"sum","filter":{"direction":"in","minAmount":500}}]}')
     expect(steered.text).toBe("[q1] Total for money in of R500.00 or more: R10 000.00, from 1 row.")
     const net = await answerQuestion({ question: "Kopano?", rows: money, raisedFlagCodes: [] }, async () => '{"queries":[{"id":"q1","tool":"sum","filter":{"payee":"KOPANO FRESH FOODS"}}]}')
-    expect(net.text).toBe("[q1] Net total (a minus means more went out than came in) for all rows to KOPANO FRESH FOODS: -R1 000.00, from 1 row.")
+    expect(net.text).toBe('[q1] Net total (a minus means more went out than came in) for all rows with "KOPANO FRESH FOODS": -R1 000.00, from 1 row.')
   })
   it("refuses a rendered figure no result gave (a render bug guard)", () => {
     const planned = runPlan(plan, rows)
