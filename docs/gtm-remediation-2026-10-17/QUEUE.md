@@ -4,7 +4,7 @@ MQ is the sole writer of `fix/gtm-integration-20261017` in `/home/hein/Workspace
 Initial freshly fetched base: `3a0a17e38b393d0c0707ed24e615be2b016f604e`.
 Audit base: `5cb9279bc17d3c306e49c06c75b27660894eba73`.
 
-A Wave A submitted; independent review pending. No submissions admitted yet. No release gate has passed on the combined candidate.
+A Wave A independently reviewed and serially integrated. No release gate has passed on the combined candidate.
 No main merge, public-demo replacement, provider activation or production deployment has been performed.
 
 ## Admission and serialization
@@ -13,7 +13,7 @@ Each submission requires finding IDs, reproduced failure, base/submitted SHAs, e
 
 | Order | Findings | Submitted SHA | Reviewer/verdict | Integrated SHA | Candidate checks | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B review pending | — | branch quick passed; targeted 53 per submission, combined candidate pending | Submission held for review |
+| 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B APPROVE: independently re-ran 6 suites/53 tests; registry subject/role/tenant inspection; coordinator admission authorized | `a679a71c` | branch quick passed; MQ affected regressions passing, exact six-suite verification running; combined full gates/browser pending | integrated, not accepted |
 
 ## Resource and runtime ownership
 
