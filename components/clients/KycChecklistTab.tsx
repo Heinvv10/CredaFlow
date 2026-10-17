@@ -615,7 +615,7 @@ export function KycChecklistTab({
       {/* ── Reject dialog ─────────────────────────────────────────── */}
       {rejectDialog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-red-500" />
               <h3 className="font-semibold text-gray-900">
@@ -661,7 +661,7 @@ export function KycChecklistTab({
       {/* ── Identity-revocation confirmation ──────────────────────── */}
       {identityRevocation && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-orange-500" />
               <h3 className="font-semibold text-gray-900">

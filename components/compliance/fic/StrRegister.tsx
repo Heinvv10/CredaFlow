@@ -96,9 +96,9 @@ export function StrRegister({ open, decided, decidedTotal, viewerId }: { open: S
   const router = useRouter()
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
+      <CardHeader className="flex flex-col items-start gap-4 xl:flex-row xl:justify-between">
         <CardTitle>Suspicious &amp; unusual transaction register ({open.length} open, {decidedTotal} decided)</CardTitle>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("str", "csv")} download>CSV (goAML-ready draft)</a></Button>
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("str", "xml")} download>XML (goAML-ready draft)</a></Button>
         </div>

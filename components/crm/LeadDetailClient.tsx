@@ -227,7 +227,7 @@ export function LeadDetailClient({
         />
       )}
 
-      <div className="flex gap-6">
+      <div className="flex flex-col gap-6 xl:flex-row">
         {/* Main content */}
         <div className="flex-1 min-w-0 space-y-5">
           <LeadDuplicateFlag
@@ -381,7 +381,7 @@ export function LeadDetailClient({
         </div>
 
         {/* Side actions */}
-        <div className="w-56 flex-shrink-0 space-y-3">
+        <div className="w-full shrink-0 space-y-3 xl:w-56">
           <LeadOwnerSelect leadId={lead.id} assignedToId={lead.assignedToId} staff={staff} canReassign={canReassign} />
           {/* No contact ⇒ nothing to send to. Everything else (closed lead, no
               loan enquiry on file) is decided by leadOutreachEligibility and

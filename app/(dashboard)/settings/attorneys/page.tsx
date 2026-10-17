@@ -15,7 +15,7 @@ export default async function AttorneysPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Attorneys"
         subtitle="Attorney firm register"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },
