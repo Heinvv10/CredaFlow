@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { passwordResetEmailHtml } from "@/lib/email"
 import { sendEmail } from "@/lib/email/service"
 import { getLenderBrandName } from "@/lib/config/identity"
@@ -39,9 +40,19 @@ export async function POST(req: NextRequest) {
     const token = crypto.randomBytes(32).toString("hex")
     const expiry = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000)
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { resetToken: token, resetTokenExp: expiry },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { resetToken: token, resetTokenExp: expiry },
+      })
+      await logAuditStrict({
+        tenantId: user.tenantId ?? undefined,
+        action: AuditAction.USER_UPDATED,
+        entity: "User",
+        entityId: user.id,
+        newValue: { passwordResetRequested: true },
+        ipAddress: ip,
+      }, tx)
     })
 
     const baseUrl = process.env.NEXTAUTH_URL ?? process.env.AUTH_URL ?? "http://localhost:3300"
