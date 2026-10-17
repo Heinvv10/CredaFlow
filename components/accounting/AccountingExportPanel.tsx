@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
@@ -43,14 +43,14 @@ async function fetchSnapshot(period: string): Promise<Snapshot> {
 }
 
 export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected, revision = 0, settingsBusy = false, onClosed, onMutationStart, onMutationEnd }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean; revision?: number; settingsBusy?: boolean; onClosed?: () => void; onMutationStart?: () => void; onMutationEnd?: () => void }) {
-  const [period, setPeriod] = useState(initialPeriod)
+  const [selection, setSelection] = useState({ initialPeriod, value: initialPeriod })
+  const period = selection.initialPeriod === initialPeriod ? selection.value : initialPeriod
   const [loaded, setLoaded] = useState<{ key: string; preview: Preview | null } | null>(null)
   const key = `${period}:${revision}:${settingsBusy}`
   const currentKey = useRef(key)
-  currentKey.current = key
+  useLayoutEffect(() => { currentKey.current = key }, [key])
   const request = useRef(0)
   const preview = loaded?.key === key ? loaded.preview : null
-  useEffect(() => { setPeriod(initialPeriod) }, [initialPeriod])
   const [batches, setBatches] = useState<Batch[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -67,9 +67,8 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
     const id = ++request.current
     if (settingsBusy) return
     let ignore = false
-    setMessage(null)
     void fetchSnapshot(period).then((snap) => {
-      if (!ignore && id === request.current && currentKey.current === key) applySnapshot(snap, key)
+      if (!ignore && id === request.current && currentKey.current === key) { setMessage(null); applySnapshot(snap, key) }
     }).catch(() => { if (!ignore && id === request.current) setMessage("Could not load the preview. Try again.") })
     return () => { ignore = true }
   }, [period, revision, settingsBusy, key])
@@ -107,7 +106,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
         actions={
           <div className="flex items-center gap-2">
             <label htmlFor="period" className="text-xs text-[var(--cf-text-muted)]">Month</label>
-            <Input id="period" type="month" value={period} disabled={busy || settingsBusy} onChange={(e) => e.target.value && setPeriod(e.target.value)} className="w-40" />
+            <Input id="period" type="month" value={period} disabled={busy || settingsBusy} onChange={(e) => e.target.value && setSelection({ initialPeriod, value: e.target.value })} className="w-40" />
           </div>
         }
       >
