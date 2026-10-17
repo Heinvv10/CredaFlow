@@ -227,7 +227,7 @@ describe("applyManualReceipt — balance + status behaviour", () => {
     }
 
     expect(scheduleUpdate).toHaveBeenCalledWith({
-      where: { id: "sched-1" },
+      where: { id: "sched-1", tenantId: "t1" },
       data: expect.objectContaining({
         interestDue: 5_000,
         totalDue: 241_900,

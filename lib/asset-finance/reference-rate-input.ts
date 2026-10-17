@@ -20,6 +20,10 @@ const RATE = /^0(\.\d{1,6})?$/
 /** The sanity band, both ends excluded (CHECK ReferenceRate_rate_band). */
 export const REFERENCE_RATE_BAND = { above: 0, below: 0.5 } as const
 
+/** The SARB repo rate as an annual decimal: 1%–20% is the plausible band. */
+export const REPO_RATE_PLAUSIBLE = { min: 0.01, max: 0.2 } as const
+export const repoRateIsPlausible = (rate: number) => rate >= REPO_RATE_PLAUSIBLE.min && rate <= REPO_RATE_PLAUSIBLE.max
+
 export function parseReferenceRateInput(body: unknown): ReferenceRateInput | { errors: Record<string, string> } {
   const errors: Record<string, string> = {}
   const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {}
@@ -37,6 +41,12 @@ export function parseReferenceRateInput(body: unknown): ReferenceRateInput | { e
   const rate = typeof record.rate === "string" || typeof record.rate === "number" ? String(record.rate) : ""
   if (!RATE.test(rate) || !(Number(rate) > REFERENCE_RATE_BAND.above && Number(rate) < REFERENCE_RATE_BAND.below)) {
     errors.rate = "must be an annual decimal above 0 and below 0.5 with at most 6 places, e.g. 0.1175"
+  }
+
+  // The repo rate sets the NCA interest-rate cap (lib/loan/nca-interest-cap.ts):
+  // a value outside the plausible band is a typo, never a rate.
+  if (basis === "REPO" && !errors.rate && !repoRateIsPlausible(Number(rate))) {
+    errors.rate = `a repo rate must be between ${REPO_RATE_PLAUSIBLE.min * 100}% and ${REPO_RATE_PLAUSIBLE.max * 100}%`
   }
 
   if (!basis || Object.keys(errors).length > 0) return { errors }

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { withTenantContext } from "@/lib/tenant"
-import { canDo, requireApiRole } from "@/lib/auth-guards"
+import { requireApiRole } from "@/lib/auth-guards"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { parseReferenceRateInput } from "@/lib/asset-finance/reference-rate-input"
-import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { referenceRateAccess, visibleReferenceBases } from "@/lib/asset-finance/reference-rate-access"
 import { REFERENCE_RATES_PAGE_LIMIT, referenceRateView } from "./view"
 
 function pageOf(req: NextRequest): { limit: number; offset: number } | null {
@@ -29,12 +29,12 @@ export async function GET(req: NextRequest) {
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
-    const disabled = await requireAssetFinanceEnabled(tenant.id)
-    if (disabled) return disabled
+    // Without asset finance a tenant still keeps its repo rate (the NCA cap).
+    const bases = await visibleReferenceBases(tenant.id)
     const page = pageOf(req)
     if (!page) return NextResponse.json({ error: `limit must be 1-${REFERENCE_RATES_PAGE_LIMIT} and offset >= 0` }, { status: 400 })
     const rows = await prisma.referenceRate.findMany({
-      where: { tenantId: tenant.id },
+      where: { tenantId: tenant.id, ...(bases ? { basis: { in: bases } } : {}) },
       orderBy: [{ basis: "asc" }, { effectiveDate: "desc" }, { id: "asc" }],
       skip: page.offset,
       take: page.limit + 1,
@@ -60,22 +60,25 @@ export async function POST(req: NextRequest) {
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
-    const disabled = await requireAssetFinanceEnabled(tenant.id)
-    if (disabled) return disabled
-    if (!canDo(guard.user.role, "decide_asset_finance")) {
-      await auditRefusal({
-        action: AuditAction.REFERENCE_RATE_REFUSED,
-        entity: "ReferenceRate",
-        entityId: "new",
-        tenantId: tenant.id,
-        userId: guard.user.id,
-        userEmail: guard.user.email,
-        reason: "insufficient_role",
-        status: 403,
-      })
-      return NextResponse.json({ error: "Recording a reference rate needs the decide_asset_finance permission" }, { status: 403 })
-    }
     const body: unknown = await req.json().catch(() => null)
+    const basis = typeof body === "object" && body !== null && (body as { basis?: unknown }).basis === "REPO" ? "REPO" : "PRIME"
+    // REPO: manage_repo_rate, any tenant. Others: asset finance on + decide_asset_finance.
+    const access = await referenceRateAccess(tenant.id, basis, guard.user.role)
+    if (!access.ok) {
+      if (access.reason) {
+        await auditRefusal({
+          action: AuditAction.REFERENCE_RATE_REFUSED,
+          entity: "ReferenceRate",
+          entityId: "new",
+          tenantId: tenant.id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          reason: access.reason,
+          status: 403,
+        })
+      }
+      return access.response
+    }
     const input = parseReferenceRateInput(body)
     if ("errors" in input) return NextResponse.json({ error: "Invalid reference rate", fields: input.errors }, { status: 400 })
 

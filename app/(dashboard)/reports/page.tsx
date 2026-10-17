@@ -9,6 +9,7 @@ import { defaultQuarter, quarterLabel, sastMonthBounds, sastQuarterBounds } from
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 import { loadBookAsOf } from "@/lib/reports/book-as-of"
+import { getBookArrears } from "@/lib/reports/book-arrears"
 
 // The collectible book, shared with the NCR return so a PAR figure cannot mean
 // one thing here and another on the statutory return. This was ACTIVE+DEFAULTED
@@ -32,16 +33,10 @@ async function getReportData() {
     prevMonthBook,
     disbursementsThisMonth,
     disbursementsLastMonth,
-    arrearsBuckets,
-    nplLoans,
-    par30Loans,
-    par60Loans,
-    par90Loans,
+    book,
     expectedPayments,
     actualPayments,
     recentLoans,
-    riskBook,
-    parAnyLoans,
     charges,
   ] = await Promise.all([
     // The collectible book as it stood when this month began, rebuilt from
@@ -58,36 +53,8 @@ async function getReportData() {
       _sum: { principal: true },
       _count: true,
     }),
-    // Arrears buckets over the whole collectible book (the collectible book) so
-    // every band uses the same population — otherwise the 90+ DEFAULTED accounts
-    // appear in the bucket table but not in PAR90/NPL (audit N-07).
-    Promise.all([
-      prisma.loan.aggregate({ where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 1, lte: 30 } }, _count: true, _sum: { arrearsAmount: true } }),
-      prisma.loan.aggregate({ where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 31, lte: 60 } }, _count: true, _sum: { arrearsAmount: true } }),
-      prisma.loan.aggregate({ where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 61, lte: 89 } }, _count: true, _sum: { arrearsAmount: true } }),
-      // "90+ DPD" bucket = 90 or more, so the bucket count reconciles with the
-      // NPL headline (also >= 90) at the boundary (review L-2).
-      prisma.loan.aggregate({ where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 90 } }, _count: true, _sum: { arrearsAmount: true } }),
-    ]),
-    // NPL: 90+ DPD, value-weighted over the collectible book (the collectible book).
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 90 } },
-      _sum: { outstandingPrincipal: true },
-      _count: true,
-    }),
-    // PAR30/60/90 over the collectible book (the collectible book).
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 30 } },
-      _sum: { outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 60 } },
-      _sum: { outstandingPrincipal: true },
-    }),
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 90 } },
-      _sum: { outstandingPrincipal: true },
-    }),
+    // Book, ageing, NPL and PAR: the definitions every screen shares (lib/reports/book-arrears.ts).
+    getBookArrears(tenantId),
     // Collection rate
     prisma.repaymentSchedule.aggregate({
       // A reversed loan's cancelled rows (lib/payouts/reversal-effects.ts) are not due.
@@ -108,21 +75,6 @@ async function getReportData() {
     prisma.loan.findMany({
       where: { tenantId, startDate: { gte: sixMonthsAgo } },
       select: { startDate: true, principal: true },
-    }),
-    // Risk book = outstanding principal of the whole collectible book
-    // (the collectible book). This is the denominator for every PAR/NPL/arrears
-    // ratio so numerator and denominator share one population — a PAR numerator
-    // that included DEFAULTED loans over an ACTIVE-only book could read >100%
-    // (audit N-06/N-07).
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES } },
-      _sum: { outstandingPrincipal: true },
-      _count: true,
-    }),
-    // Value-weighted PAR1+ (any arrears) for the headline "arrears rate".
-    prisma.loan.aggregate({
-      where: { tenantId, status: { in: COLLECTIBLE_LOAN_STATUSES }, daysInArrears: { gte: 1 } },
-      _sum: { outstandingPrincipal: true },
     }),
     // Default charges owing, beside (never inside) the instalment arrears above.
     loadChargesOwingByBand(prisma, tenantId, COLLECTIBLE_LOAN_STATUSES),
@@ -148,34 +100,23 @@ async function getReportData() {
     _sum: { outstandingPrincipal: true },
   })
 
-  const totalArrears = arrearsBuckets.reduce((s, b) => s + Number(b._sum.arrearsAmount || 0), 0)
-  const totalLoansInArrears = arrearsBuckets.reduce((s, b) => s + (b._count || 0), 0)
-  // Ratio denominator = the whole collectible book (the collectible book), and
-  // the headline book, so it compares like-for-like with the rebuilt book at the
-  // start of the month. Ratios use it so their numerators (which include
-  // DEFAULTED accounts) can never exceed 100% (audit N-06).
-  const riskBookAmount = Number(riskBook._sum.outstandingPrincipal || 0)
-  // Value-weighted arrears rate = outstanding principal of any-arrears accounts
-  // ÷ collectible book. Bounded by construction, and consistent with PAR30/60/90.
-  const arrearsRate = riskBookAmount > 0 ? (Number(parAnyLoans._sum.outstandingPrincipal || 0) / riskBookAmount) * 100 : 0
-  // Collections rate = share of the collectible book (the collectible book) NOT in
-  // arrears. Numerator and denominator must share the same population — using an
-  // ACTIVE-only denominator while totalLoansInArrears counts DEFAULTED loans too
-  // can render a negative rate (review I-1).
-  const collectibleLoanCount = riskBook._count
-  const basicCollectionsRate = collectibleLoanCount > 0 ? ((collectibleLoanCount - totalLoansInArrears) / collectibleLoanCount) * 100 : 100
+  // The collectible book is the denominator of every ratio below, and the
+  // headline book (compared like-for-like with the book rebuilt at the start of
+  // the month). Ageing, arrears, NPL and PAR come from the same helper.
+  const riskBookAmount = book.book.value
+  const totalArrears = book.ageing.reduce((sum, band) => sum + band.arrearsAmount, 0)
+  const arrearsRate = riskBookAmount > 0 ? (book.arrears.outstandingPrincipal / riskBookAmount) * 100 : 0
+  // Share of the collectible book NOT in arrears.
+  const collectibleLoanCount = book.book.count
+  const basicCollectionsRate = collectibleLoanCount > 0 ? ((collectibleLoanCount - book.arrears.count) / collectibleLoanCount) * 100 : 100
   const avgDisbursement = disbursementsThisMonth._count > 0
     ? Number(disbursementsThisMonth._sum.principal || 0) / disbursementsThisMonth._count
     : 0
-
-  // NPL ratio
-  const nplAmount = Number(nplLoans._sum.outstandingPrincipal || 0)
-  const nplRatio = riskBookAmount > 0 ? (nplAmount / riskBookAmount) * 100 : 0
-
-  // PAR ratios
-  const par30Pct = riskBookAmount > 0 ? (Number(par30Loans._sum.outstandingPrincipal || 0) / riskBookAmount) * 100 : 0
-  const par60Pct = riskBookAmount > 0 ? (Number(par60Loans._sum.outstandingPrincipal || 0) / riskBookAmount) * 100 : 0
-  const par90Pct = riskBookAmount > 0 ? (Number(par90Loans._sum.outstandingPrincipal || 0) / riskBookAmount) * 100 : 0
+  const nplAmount = book.par90.value
+  const nplRatio = book.par90.pct
+  const par30Pct = book.par30.pct
+  const par60Pct = book.par60.pct
+  const par90Pct = book.par90.pct
 
   // Collection rate
   const expectedTotal = Number(expectedPayments._sum.totalDue || 0)
@@ -207,17 +148,14 @@ async function getReportData() {
     avgDisbursement,
     arrearsRate,
     basicCollectionsRate,
-    arrearsBuckets: [
-      { label: "1-30 DPD", accounts: arrearsBuckets[0]._count || 0, balance: Number(arrearsBuckets[0]._sum.arrearsAmount || 0), color: "#f59e0b" },
-      { label: "31-60 DPD", accounts: arrearsBuckets[1]._count || 0, balance: Number(arrearsBuckets[1]._sum.arrearsAmount || 0), color: "#e65100" },
-      { label: "61-89 DPD", accounts: arrearsBuckets[2]._count || 0, balance: Number(arrearsBuckets[2]._sum.arrearsAmount || 0), color: "#b71c1c" },
-      { label: "90+ DPD", accounts: arrearsBuckets[3]._count || 0, balance: Number(arrearsBuckets[3]._sum.arrearsAmount || 0), color: "#7b1010" },
-    ],
+    arrearsBuckets: book.ageing.map((band, i) => ({
+      label: band.label, accounts: band.count, balance: band.arrearsAmount, color: ["#f59e0b", "#e65100", "#b71c1c", "#7b1010"][i],
+    })),
     totalArrears,
     charges,
     nplRatio,
     nplAmount,
-    nplCount: nplLoans._count,
+    nplCount: book.par90.count,
     par30Pct,
     par60Pct,
     par90Pct,

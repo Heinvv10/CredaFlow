@@ -16,9 +16,9 @@ const BASES: Record<Basis, string> = {
  * Records a reference-rate value (decide_asset_finance). It is PENDING until a
  * different user approves it; only then does the repricing cron apply it.
  */
-export function ReferenceRateForm() {
+export function ReferenceRateForm({ fixedBasis }: { fixedBasis?: Basis } = {}) {
   const router = useRouter()
-  const [basis, setBasis] = useState<Basis>("PRIME")
+  const [basis, setBasis] = useState<Basis>(fixedBasis ?? "PRIME")
   const [effectiveDate, setEffectiveDate] = useState("")
   const [percent, setPercent] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +50,9 @@ export function ReferenceRateForm() {
     <div className="space-y-4">
       <FormError message={error} />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <SelectField id="basis" label="Basis" required value={basis} onChange={setBasis} options={BASES} error={fields.basis} />
+        {fixedBasis
+          ? <p className="text-sm text-[var(--cf-text-secondary)]">Basis: <strong>{BASES[fixedBasis]}</strong></p>
+          : <SelectField id="basis" label="Basis" required value={basis} onChange={setBasis} options={BASES} error={fields.basis} />}
         <TextField id="effectiveDate" label="Effective from" type="date" required value={effectiveDate} onChange={setEffectiveDate} error={fields.effectiveDate} />
         <TextField id="rate" label="Annual rate (%)" inputMode="decimal" required placeholder="11.75" value={percent} onChange={setPercent} error={fields.rate} />
       </div>

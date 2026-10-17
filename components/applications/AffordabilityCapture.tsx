@@ -13,6 +13,7 @@ import {
   preserveOriginalDebtAccountType,
   captureOriginalDebtAccountTypes,
 } from "@/lib/credit/debt-account-types"
+import { OwnLenderDebtRows, ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 
 interface DebtEntry {
   sourceId?: string | null
@@ -29,6 +30,7 @@ interface Props {
   monthlyExpenses: number
   existingDebts: DebtEntry[]
   clientDebtTotal: number
+  ownLenderDebts?: import("@/lib/affordability/own-lender-debt").OwnLenderDebts | null // live only; null once locked
   proposedInstalment: number
   affordabilityNDI?: number | null
   done: boolean
@@ -55,7 +57,7 @@ function formatZAR(cents: number) {
   return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
+export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
   const [debts, setDebts] = useState<DebtEntry[]>(initialDebts?.length > 0 ? initialDebts : [])
   // The type as STORED, before this panel rendered it canonically. Re-picking
@@ -100,6 +102,8 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
     monthlyIncomeCents: monthlyIncome,
     monthlyExpensesCents: monthlyExpenses,
     applicationDebtInstalmentsCents: debts.map((debt) => debt.monthlyInstalment),
+    // as the server adds obligations to this lender
+    ownLenderInstalmentsCents: ownLenderPreview(debts, ownLenderDebts).instalments,
     clientDebtTotalCents: clientDebtTotal,
     proposedInstalmentCents: proposedInstalment,
   })
@@ -279,6 +283,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
           )}
         </div>
 
+        <OwnLenderDebtRows debts={debts} own={ownLenderDebts} />
         {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
 
         {canEdit ? (
