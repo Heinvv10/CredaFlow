@@ -115,22 +115,30 @@ suite("demo restore: STAFF_TOTP_OFF_SQL", () => {
     expect({ before, after }).toEqual({ before: true, after: false })
   })
 
-  it("TENANT_DEMO_LENDER_SQL marks the tenant as a demo lender, and leaves a db without the column alone", async () => {
+  // Only the seeded demo slugs (prisma/demo-lender.ts) are marked: any other
+  // tenant on a demo db stays a non-demo lender (#147 follow-up).
+  it("TENANT_DEMO_LENDER_SQL marks a seeded demo lender's tenant only, and leaves a db without the column alone", async () => {
     const sql = libSql("TENANT_DEMO_LENDER_SQL")
-    let before: boolean | undefined
-    let after: boolean | undefined
-    await expect(
-      withoutTenantScope(() =>
-        prisma.$transaction(async (tx) => {
-          await tx.tenantConfig.create({ data: { tenantId } })
-          before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
-          await tx.$executeRawUnsafe(sql)
-          after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
-          throw new Rollback()
-        }),
-      ),
-    ).rejects.toBeInstanceOf(Rollback)
-    expect({ before, after }).toEqual({ before: false, after: true })
+    const marked = async (slug: string | null) => {
+      let before: boolean | undefined
+      let after: boolean | undefined
+      await expect(
+        withoutTenantScope(() =>
+          prisma.$transaction(async (tx) => {
+            if (slug) await tx.tenant.update({ where: { id: tenantId }, data: { slug } })
+            await tx.tenantConfig.create({ data: { tenantId } })
+            before = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
+            await tx.$executeRawUnsafe(sql)
+            after = (await tx.tenantConfig.findUniqueOrThrow({ where: { tenantId } })).isDemoLender
+            throw new Rollback()
+          }),
+        ),
+      ).rejects.toBeInstanceOf(Rollback)
+      return { before, after }
+    }
+    // "tsela": the one demo slug no other suite creates.
+    expect(await marked("tsela")).toEqual({ before: false, after: true })
+    expect(await marked(null)).toEqual({ before: false, after: false })
 
     // A snapshot baked before the column: the guard skips the UPDATE. The
     // transaction takes no lock before the DROP, so it can only queue, never
