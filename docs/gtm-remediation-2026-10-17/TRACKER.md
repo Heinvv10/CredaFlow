@@ -6,6 +6,12 @@ Root checkout is dirty with unrelated handoffs and the untracked audit; preserve
 
 Closure requires regression results AND real browser acceptance on the integrated candidate. Source reproduction is recorded separately from runtime reproduction. No finding is closed yet.
 
+## Current checkpoint (2026-10-17)
+
+F01–F14 are independently reviewed and integrated, with F07's pre-existing post-audit fix preserved for actual browser contrast verification. Recovery audit/single-use correction G06-R and G20 dialog description are also reviewed/integrated. Actual main now includes PR166 (`a740801a`); reviewed merge `ee15dc99` preserves its Dialog/layout and remediation permissions/copy. Final core candidate is `31339e0cc15478538ce6085fa808374cb2d08bf9`, clean and frozen by MQ. Full quality/integration are running on that exact source; no browser acceptance yet. Prior `b637a03e` full quality passed19568unit tests,14face tests and production build; its superseded integration was explicitly stopped(exit143), never counted as passed. Earlier per-finding integration paragraphs below are historical checkpoints; this paragraph and VALIDATION.md govern the current state.
+
+F15 is in technical/legal review, owned by B, separate unmerged HEAD `3da9932130b9e7f644b35456cccf6bc42534abe3` rebased onto final core31339e0c. All three reviewed patches unchanged by range comparison; full legal-branch gates wait for MQ resource release. Exact original executed pages remain unchanged; certificate proposal needs lender legal approval before merge. No closure inferred from signatures or historical boxes.
+
 ## F01 — Payouts require AVS while the AVS action is hidden/disabled by the collections flag
 
 - Priority/status/owner: P1 / integrated / A.
@@ -144,7 +150,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F15 — Executed agreement leaves declaration boxes visually empty after electronic acceptance
 
-- Priority/status/owner: P2 / pending / unassigned sequential policy wave.
+- Priority/status/owner: P2 / review / B (separate unmerged legal branch).
 - Current reproduction/root cause: Current source confirmed: five checks are UI-local; sign payload and AGREEMENT_SIGNED audit have no individual declaration record. Historical evidence cannot be inferred from a signature. Current renderer reproduced:5 PDFs, signature page visually confirms5blank boxes with signatures/dates, evidence/f15-baseline hashes retained. See POLICY-REVIEW.md.
 - Intended smallest change: Prepare legally reviewable representation preserving original document/signature hash binding.
 - Acceptance: Render before/after, signature/declaration audit binding and existing fingerprints; legal sign-off before merge. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -152,4 +158,4 @@ Closure requires regression results AND real browser acceptance on the integrate
 - Closure evidence: baseline render reproduced, no fix accepted. Separate unmerged candidate proposed: append-only declaration acceptance bound per signature ceremony with verified evidence certificate. Required legal approval remains outstanding; no historical inferred acceptance.
 
 
-No finding is accepted yet. Candidate e1d5cff9 full quality failed on three F12 locale regressions; see VALIDATION.md. Corrections/review underway; do not inherit a green result from targeted checks.
+No finding is accepted yet. The original full-suite locale regression was independently corrected; final combined-source gates and immutable-image browser acceptance remain mandatory. See the current checkpoint and VALIDATION.md.
