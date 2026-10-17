@@ -8,7 +8,7 @@ vi.mock("./charges-replay", async (importOriginal) => ({
 }))
 
 import {
-  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
+  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, isS125Priced, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
 } from "./charges-summary"
 import { currentSettlementAmount } from "./settlement"
 
@@ -175,3 +175,45 @@ describe("certificatePaidToDate", () => {
     expect(certificatePaidToDate(figures)).toBe(219_900)
   })
 })
+
+describe("the certificate's settlement block", () => {
+  const row = (id: string) => ({
+    id, dueDate: new Date("2026-09-01"), principalDue: 100_000, interestDue: 10_000, feesDue: 0, creditLifePremiumDue: 0,
+    totalDue: 110_000, totalPaid: 0,
+  })
+  const instalments = [row("r1"), row("r2")]
+  const loan = {
+    principal: 200_000, totalInterest: 20_000, totalRepayable: 220_000, totalPaid: 0, interestRatePm: 0.05,
+    interestModel: "REDUCING_BALANCE" as const, startDate: new Date("2026-08-01"), maturityDate: new Date("2026-10-01"),
+    ncaRegime: "NCA", contractType: "LOAN",
+  }
+
+  it("is s125-priced only for an NCA consumer loan of several instalments, or an NCA bullet", () => {
+    expect(isS125Priced(loan, instalments)).toBe(true)
+    expect(isS125Priced({ ...loan, interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(true)
+    expect(isS125Priced({ ...loan, contractType: "INSTALMENT_SALE" }, instalments)).toBe(false)
+    expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA" }, instalments)).toBe(false)
+    expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA", interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(false)
+    expect(isS125Priced(loan, [row("r1")])).toBe(false)
+  })
+
+  const figures = (live: boolean, s125Priced: boolean, chargeSplitsPaid = 0) => ({
+    live, s125Priced, chargeSplitsPaid, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 211_000,
+    interestAndFeesOutstanding: 11_000, arrearsIncludingCharges: 0, paymentsReceived: 9_000,
+  })
+
+  it("certifies the s125 figure with charges off, keeping Total Paid to Date on Loan.totalPaid", () => {
+    expect(certificateSettlement(figures(false, true))).toEqual({
+      paymentsReceived: undefined, interestAndFeesOutstanding: 11_000, charges: [], totalToSettle: 211_000,
+    })
+  })
+
+  it("certifies nothing new for a contractual remainder with charges off (asset finance, NON_NCA)", () => {
+    expect(certificateSettlement(figures(false, false))).toBeUndefined()
+  })
+
+  it("states cash received while charges are live", () => {
+    expect(certificateSettlement(figures(true, false))?.paymentsReceived).toBe(9_000)
+  })
+})
+

@@ -14,8 +14,8 @@ import {
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { WAIVER_METHOD } from "@/lib/payments/waiver"
-import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 // Closes a loan whose whole remaining balance is a sub-R1 residue (typically a
 // rounding cent left by a client who paid the rounded figure). ALL money is
@@ -81,26 +81,9 @@ export async function waiveSmallBalance(
       },
     })
 
-    for (const [i, after] of projection.rows.entries()) {
-      const before = loan.repaymentSchedule[i]
-      if (
-        after.totalPaid === before.totalPaid
-        && after.interestDue === before.interestDue
-        && after.totalDue === before.totalDue
-      ) continue
-      const status = scheduleRowStatus(after.totalPaid, after.totalDue)
-      const isPaid = status === "PAID"
-      await tx.repaymentSchedule.update({
-        where: { id: after.id, tenantId: input.tenantId },
-        data: {
-          totalPaid: after.totalPaid,
-          interestDue: after.interestDue,
-          totalDue: after.totalDue,
-          status,
-          paidAt: isPaid ? (before.paidAt ?? asOf) : null,
-        },
-      })
-    }
+    await writeReceiptSchedule(tx, loan.repaymentSchedule, projection.rows, {
+      tenantId: input.tenantId, paidAt: asOf, keepEarlierPaidAt: true,
+    })
 
     const balances = recomputeLoanBalances(loan.principal, projection.rows, asOf)
     await tx.loan.update({
