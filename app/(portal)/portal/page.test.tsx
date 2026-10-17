@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // stops the render once its arguments are captured.
 
 const mocks = vi.hoisted(() => ({
+  nextSchedule: vi.fn(async () => null as unknown),
   policyFindMany: vi.fn(),
   loanFindMany: vi.fn(async () => [] as unknown[]),
   stop: new Error("stop after the policy query"),
@@ -26,7 +27,7 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: { findFirst: async () => null },
     loan: { findMany: mocks.loanFindMany },
     payment: { findMany: async () => [], groupBy: async () => [] },
-    repaymentSchedule: { findFirst: async () => null },
+    repaymentSchedule: { findFirst: mocks.nextSchedule },
     clientDocument: { findMany: async () => [] },
     insurancePolicy: { findMany: mocks.policyFindMany },
   },
@@ -36,6 +37,7 @@ import ClientPortalPage from "./page"
 
 describe("portal overview page", () => {
   beforeEach(() => {
+    mocks.nextSchedule.mockResolvedValue(null)
     mocks.policyFindMany.mockReset()
     mocks.policyFindMany.mockRejectedValue(mocks.stop)
   })
@@ -84,4 +86,15 @@ describe("portal overview page", () => {
       vi.useRealTimers()
     }
   })
+  it("does not describe the next scheduled payment as all account principal", async () => {
+    mocks.policyFindMany.mockResolvedValue([])
+    mocks.loanFindMany.mockResolvedValue([loan("ACTIVE")])
+    mocks.nextSchedule.mockResolvedValue({ dueDate: new Date("2027-01-01"), totalDue: 100_000 })
+    const html = renderToStaticMarkup(await ClientPortalPage())
+    const nextPayment = html.slice(html.indexOf("Your Next Payment"), html.indexOf("</section>", html.indexOf("Your Next Payment")))
+    expect(nextPayment).toContain("1,000.00")
+    expect(nextPayment).not.toContain("Principal still owed across your open loans")
+    expect(nextPayment).not.toContain("across your open loans. Open each loan")
+  })
+
 })

@@ -371,8 +371,7 @@ function PaymentHero({
       {nextSchedule ? (
         <>
           <p className="mt-1 text-4xl font-semibold text-[var(--cf-brand-soft)] md:text-5xl">{formatZAR(nextSchedule.totalDue + charges.outstanding)}</p>
-          <p className="mt-2 text-xs text-[var(--cf-text-muted)]">{t(charges.settlementAmount === null ? "accountPrincipalDefinition" : "accountLiveDefinition")}</p>
-      <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />
+          <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />
           <p className="mt-2 text-sm text-[var(--cf-text-muted)]">
             {dueDays !== null && dueDays > 0
               ? (dueDays === 1 ? t("dueInOneDay") : t("dueInDays", { n: dueDays }))
