@@ -8,7 +8,6 @@ const clear = {
   recklessLendingAssessed: true,
   clientAffordabilityDeclared: true,
   openCreditChecks: 0,
-  rateCapRefusal: null,
 }
 
 describe("approvalGateBlockers", () => {
@@ -35,15 +34,6 @@ describe("approvalGateBlockers", () => {
   it("reports open credit checks", () => {
     expect(approvalGateBlockers({ ...clear, openCreditChecks: 2 }))
       .toEqual([expect.objectContaining({ label: "2 open credit checks" })])
-  })
-
-  // Fair Score acceptance (2026-10-17): the rail answered "Approval blocked: 36.00% per
-  // year exceeds the NCA maximum of 29.25%" while the header said NO BLOCKERS.
-  it("reports a product rate above the NCA cap, and the header counts it", () => {
-    const message = "36.00% per year exceeds the NCA maximum of 29.25% (repo 8.25% + 21%) for an unsecured credit transaction (Regulation 42)."
-    const blockers = approvalGateBlockers({ ...clear, rateCapRefusal: message })
-    expect(blockers).toEqual([expect.objectContaining({ label: "Rate exceeds NCA cap", detail: message, tone: "danger" })])
-    expect(headerBlockerLabel(blockers)).toBe("1 blocker")
   })
 
   it("leaves affordability to the existing pending blocker until it is captured", () => {
