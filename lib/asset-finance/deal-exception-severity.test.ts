@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { dpdBand, exceptionsFingerprint, recordedExceptions, worsenedSince, type RecordedException } from "./deal-exception-severity"
+import { arrearsGrowth, dpdBand, exceptionsFingerprint, recordedExceptions, worsenedSince, type RecordedException } from "./deal-exception-severity"
 
 const arrears = (over: Partial<Extract<RecordedException, { kind: "ARREARS" }>> = {}): RecordedException =>
   ({ key: "ARREARS:loan-1", kind: "ARREARS", status: "ACTIVE", daysInArrears: 10, arrearsCents: 50_000, ...over })
 
 describe("exception severity (security review of #151)", () => {
-  it("an approval answered for 10 days and R500 does not cover the loan once it defaults, moves band, or the arrears grow", () => {
+  it("an approval answered for 10 days and R500 does not cover the loan once it defaults or moves DPD band", () => {
     const answered = arrears()
     expect(worsenedSince(answered, arrears({ status: "DEFAULTED" }))).toMatch(/ACTIVE to DEFAULTED/)
     expect(worsenedSince(answered, arrears({ status: "WRITTEN_OFF" }))).toMatch(/to WRITTEN_OFF/)
     expect(worsenedSince(answered, arrears({ daysInArrears: 35 }))).toMatch(/days in arrears moved from 10 to 35/)
-    expect(worsenedSince(answered, arrears({ arrearsCents: 50_001 }))).toMatch(/amount grew/)
     expect(worsenedSince(arrears({ status: "DEFAULTED" }), arrears({ status: "PENDING_WRITE_OFF" }))).toMatch(/DEFAULTED to PENDING_WRITE_OFF/)
   })
 
@@ -19,6 +18,19 @@ describe("exception severity (security review of #151)", () => {
     expect(worsenedSince(answered, answered)).toBeNull()
     expect(worsenedSince(answered, arrears({ status: "DEFAULTED", daysInArrears: 150, arrearsCents: 100_000 }))).toBeNull() // still 90+
     expect(worsenedSince(answered, arrears({ status: "RESTRUCTURED", daysInArrears: 5, arrearsCents: 1_000 }))).toBeNull()
+  })
+
+  it("a larger amount overdue alone is not worse (policy, follow-up to #151): it is reported as growth for the audit", () => {
+    const answered = arrears()
+    // The next instalment fell due unpaid: more overdue, same status, same band.
+    const later = arrears({ daysInArrears: 25, arrearsCents: 120_000 })
+    expect(worsenedSince(answered, later)).toBeNull()
+    expect(arrearsGrowth(answered, later)).toEqual({
+      key: "ARREARS:loan-1", approvedArrearsCents: 50_000, currentArrearsCents: 120_000, approvedDaysInArrears: 10, currentDaysInArrears: 25,
+    })
+    expect(arrearsGrowth(answered, arrears({ arrearsCents: 50_000 }))).toBeNull()
+    expect(arrearsGrowth(answered, arrears({ arrearsCents: 10_000 }))).toBeNull()
+    expect(arrearsGrowth({ key: "BUREAU:c-1", kind: "BUREAU", outcome: "x" }, { key: "BUREAU:c-1", kind: "BUREAU", outcome: "x" })).toBeNull()
   })
 
   it("a bureau exception is covered only for the outcome answered", () => {

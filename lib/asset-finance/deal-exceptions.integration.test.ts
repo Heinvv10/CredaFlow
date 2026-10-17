@@ -21,8 +21,12 @@ import { cleanupDealFixture, dealFixtureTenantId, dealRoutes } from "./deal.inte
 import { addMonthsClamped } from "./dates"
 import { loadDealDetail } from "./deal-detail"
 import { loadDealExceptions } from "./deal-exceptions"
-import { dealCreditGateProblem } from "./deal-credit-gate"
-import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
+import { dealCreditGate } from "./deal-credit-gate"
+import {
+  approveLease, cleanupLeaseRows, confirmChecklist, createAndApprovePayout, createLeaseFixture, leaseBody, payoutAndBook, signLease,
+  type LeaseFixture,
+} from "./lease.integration-fixture"
+import { bookingRoutes } from "./payout-booking.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -134,20 +138,39 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
       .rejects.toThrow(/recorded exceptions are the record of what its approval answered/)
   })
 
-  it("payout and booking refuse the answered exception once it is worse than the approval recorded", async () => {
-    const gate = () => runWithTenant(fx.tenantId, () => prisma.$transaction((tx) => dealCreditGateProblem(tx, fx.tenantId, dealId)))
+  it("payout and booking refuse the answered exception once its status or DPD band is worse; amount growth alone is only noted", async () => {
+    const gate = () => runWithTenant(fx.tenantId, () => prisma.$transaction((tx) => dealCreditGate(tx, fx.tenantId, dealId)))
     const setLoan = (data: { status?: "DEFAULTED" | "WRITTEN_OFF"; daysInArrears?: number; arrearsAmount?: number }) =>
       database().loan.update({ where: { id: suretyLoanId }, data })
-    expect(await gate()).toBeNull() // as approved: DEFAULTED, 166 days, R98,123.45
+    expect(await gate()).toEqual({ problem: null, arrearsGrown: [] }) // as approved: DEFAULTED, 166 days, R98,123.45
     await setLoan({ daysInArrears: 200 })
-    expect(await gate()).toBeNull() // still in the 90+ band, same amount
+    expect((await gate()).problem).toBeNull() // still in the 90+ band
+    // The amount overdue rises at each missed due date: noted, not refused.
     await setLoan({ arrearsAmount: 9_900_000 })
-    expect(await gate()).toMatchObject({ kind: "exceptions_since_approval", message: expect.stringMatching(/worse since approval: its arrears amount grew/) })
-    await setLoan({ arrearsAmount: 9_812_345, status: "WRITTEN_OFF" })
-    expect((await gate())?.message).toMatch(/worse since approval: it moved from DEFAULTED to WRITTEN_OFF/)
-    await setLoan({ status: "DEFAULTED", daysInArrears: 166 })
-    expect(await gate()).toBeNull()
+    expect(await gate()).toEqual({
+      problem: null,
+      arrearsGrown: [{ key: `ARREARS:${suretyLoanId}`, approvedArrearsCents: 9_812_345, currentArrearsCents: 9_900_000, approvedDaysInArrears: 166, currentDaysInArrears: 200 }],
+    })
+    await setLoan({ status: "WRITTEN_OFF" })
+    expect((await gate()).problem?.message).toMatch(/worse since approval: it moved from DEFAULTED to WRITTEN_OFF/)
+    await setLoan({ status: "DEFAULTED" })
+    expect((await gate()).problem).toBeNull()
   })
+
+  it("the payout and the booking go ahead with the grown amount and record it in their audit rows", async () => {
+    await signLease(fx, database(), setSession, dealId)
+    await confirmChecklist(fx, database(), staff, dealId)
+    await createAndApprovePayout(fx, database(), staff, dealId)
+    const payout = await database().payout.findUniqueOrThrow({ where: { dealId } })
+    const grown = [expect.objectContaining({ key: `ARREARS:${suretyLoanId}`, approvedArrearsCents: 9_812_345, currentArrearsCents: 9_900_000 })]
+    const created = await database().auditLog.findFirstOrThrow({ where: { entityId: payout.id, action: "ASSET_PAYOUT_CREATED" } })
+    expect(created.newValue).toMatchObject({ arrearsGrownSinceApproval: grown })
+    staff(fx.adminA, "LOAN_ADMIN")
+    const booked = await bookingRoutes(fx.host).book(dealId)
+    expect(booked.status, await booked.clone().text()).toBe(201)
+    const bookedAudit = await database().auditLog.findFirstOrThrow({ where: { entityId: dealId, action: "ASSET_DEAL_BOOKED" } })
+    expect(bookedAudit.newValue).toMatchObject({ arrearsGrownSinceApproval: grown })
+  }, 180_000)
 
   it("cross-checks the borrower's own loans and a party's arrears, not only defaults", async () => {
     const exceptions = (deal: { entityId: string | null; clientId: string | null }) =>
