@@ -111,6 +111,10 @@ it("does not resurrect contractual interest blocked before the permanent stop", 
   Object.assign(loan.tenant.config, { defaultChargesEnabled: false, defaultChargesStoppedAt: d("2022-01-01") })
   const after = await loadChargesReplay(tx as never, ref, d("2022-01-02"))
   expect(after!.result.lawfulSchedule![1].interestDue).toBe(lawful[1].interestDue)
+  expect(after!.result.interestOutstanding).toBe(0)
+  const later = await loadChargesReplay(tx as never, ref, d("2030-01-01"))
+  expect(later!.result.lawfulSchedule).toEqual(after!.result.lawfulSchedule)
+  expect(later!.result.postings).toEqual(after!.result.postings)
 })
 
 describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {

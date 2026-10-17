@@ -67,6 +67,7 @@ export type NonNcaChargeInput = Omit<DefaultChargeInput, "adminCharges" | "month
   /** Effective-dated contract rates; the booked Loan rate is the legacy fallback. */
   startDate?: Date
   contractRateHistory?: ContractRatePeriod[]
+  stoppedCharges?: { at: Date; receipts: Array<{ id: string; defaultInterestAllocated: number; chargeFeesAllocated: number }> }
 }
 
 export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeResult {
@@ -80,7 +81,9 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   const endDay = sastCalendarDay(input.asOf)
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
-  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay, input.pauses)
+  const stopDay = input.stoppedCharges ? sastCalendarDay(input.stoppedCharges.at) : Infinity
+  const fixedShares = new Map(input.stoppedCharges?.receipts.map((receipt) => [receipt.id, receipt]))
+  const chargeable = withoutPausedDays((day) => day >= accrueFromDay && day < untilDay && day < stopDay, input.pauses)
   const rates = (input.contractRateHistory ?? [])
     .map((rate) => ({ day: sastCalendarDay(rate.effectiveDate), annualRate: rate.annualRate }))
     .sort((a, b) => a.day - b.day)
@@ -120,7 +123,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
 
   /** Outside the freeze, no cap (NON_NCA), and never on a loan the day's receipts settled: a closed loan is not re-opened. */
   function postRecoveryCost(day: number, amount: number, sourceId: string) {
-    if (day < accrueFromDay || day >= untilDay || amount <= 0) return
+    if (day < accrueFromDay || day >= untilDay || day >= stopDay || amount <= 0) return
     if (pool >= scheduleTotal() && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
     feesAccrued += amount
     postings.push({ type: "RECOVERY_COST", day: isoDay(day), amount, sourceId })
@@ -140,6 +143,9 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   let next = 0
   let nextCost = 0
   for (let day = firstDay; day <= endDay; day++) {
+    // The permanent stop forgives unpaid charges, retaining past competition
+    // and actual paid shares. Blocked contractual interest is never revived.
+    if (day === stopDay) { interestExact = interestPaid; feesAccrued = feesPaid }
     const inDefault = rows.some((row, i) => row.dueDay < day && paid[i] < row.totalDue) || interestExact > interestPaid
     if (inDefault) {
       const capital = rows.reduce((sum, row, i) => sum + Math.min(row.principalDue, Math.max(0, row.totalDue - paid[i])), 0)
@@ -175,10 +181,12 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     for (; next < receipts.length && receipts[next].day === day; next++) {
       const receipt = receipts[next]
       const before = [...paid]
+      const fixed = fixedShares.get(receipt.id)
       const split = allocateReceipt({
-        amount: receipt.amount, day, rows, paid, s126: day >= accrueFromDay,
-        defaultInterestOwed: Math.round(interestExact) - interestPaid, chargesOwed: feesAccrued - feesPaid,
+        amount: receipt.amount - (fixed?.defaultInterestAllocated ?? 0) - (fixed?.chargeFeesAllocated ?? 0), day, rows, paid, s126: day >= accrueFromDay,
+        defaultInterestOwed: fixed ? 0 : Math.round(interestExact) - interestPaid, chargesOwed: fixed ? 0 : feesAccrued - feesPaid,
       })
+      if (fixed) { split.toDefaultInterest = fixed.defaultInterestAllocated; split.toFees = fixed.chargeFeesAllocated }
       rows.forEach((row, i) => { if (before[i] < row.totalDue && paid[i] >= row.totalDue) completedBy[i] = receipt.id })
       interestPaid += split.toDefaultInterest
       feesPaid += split.toFees
