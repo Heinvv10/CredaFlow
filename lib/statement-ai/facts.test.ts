@@ -98,6 +98,8 @@ describe("review round 5: payees", () => {
     expect(safeKey("RENE MOTORS", "René Tester")).toBe(false)
     expect(safeKey("TEST", "Thabo Testerson")).toBe(false)
     expect(safeKey("SYNTH RENTALS", "René Tester")).toBe(true)
+    expect(["FIVE THOUSAND", "TWICE MONTHLY", "TWELFTH AVE", "MAY", "LAST MONTH", "ONE STOP SHOP"].filter((k) => safeKey(k))).toEqual([])
+    expect(safeKey("FIRST NATIONAL BANK")).toBe(true)
   })
   it("ranks withheld payees as one bucket, so the largest are the largest", () => {
     const out = read.transactions.find((t) => t.amountCents < 0)!

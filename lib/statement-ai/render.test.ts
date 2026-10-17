@@ -119,11 +119,13 @@ describe("review round 5", () => {
     expect(renderResult(runQuery(ask, { id: "q1", tool: "average", filter: {} }))).toMatch(/^\[q1\] Net average amount \(money in less money out, per row; a minus means more went out than came in\) for all rows: /)
     expect(renderResult(runQuery(ask, { id: "q2", tool: "average", filter: { direction: "out" } }))).toMatch(/^\[q2\] Average amount for money out: /)
   })
-  it("figure-checks a payee named with a direction or number word as a name", () => {
+  it("figure-checks a payee named with a direction word as a name, but not one named with a figure word", () => {
     const out = read.transactions.find((t) => t.amountCents < 0)!
-    const salaryCo = askRows([{ ref: "S1", transactions: [{ index: 0, t: { ...out, description: "SALARY ADVANCE CO" } }, { index: 1, t: { ...out, description: "ONE STOP SHOP" } }] }], "T TESTER")
+    const salaryCo = askRows([{ ref: "S1", transactions: [{ index: 0, t: { ...out, description: "SALARY ADVANCE CO" } }, { index: 1, t: { ...out, description: "SPAR WESTVILLE" } }] }], "T TESTER")
     for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5 }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 5 })]) {
       expect(checkAnswer(renderResult(q), [q])).toEqual({ ok: true })
     }
+    expect(checkFigures('Rows for all rows with "SALARY ADVANCE CO".', { amountsCents: [] })).toEqual({ ok: true })
+    expect(checkFigures('Rows for all rows with "FIVE THOUSAND".', { amountsCents: [] })).toMatchObject({ ok: false })
   })
 })

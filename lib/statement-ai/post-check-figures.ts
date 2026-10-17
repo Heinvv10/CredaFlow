@@ -19,6 +19,15 @@ const NUMBER_WORDS: Record<string, number> = {
 }
 const isNumberWord = (w: string | undefined) => w !== undefined && Object.prototype.hasOwnProperty.call(NUMBER_WORDS, w)
 
+/** A word that states a figure, an order or a date ("FIVE THOUSAND", "TWELFTH", "MAY"), or null. */
+export function figureWord(text: string): string | null {
+  for (const re of [QUANTITY_WORDS, ORDINAL_WORDS, WEEKDAYS, RELATIVE_DATES]) {
+    const m = text.match(re)
+    if (m) return m[0]
+  }
+  return text.toLowerCase().match(/[a-z]+/g)?.find((w) => MONTHS.includes(w) || isNumberWord(w)) ?? null
+}
+
 /** Words after an amount that make it a month's figure. */
 const MONTHLY = /^(?:[^.;:!?,()]{0,12}?\b|[ ,(/]{0,3})(monthly|per month|a month|each month|every month|for the month|in a month|month|mth|p\.?m\.?|p\/m)(\b|$)/i
 const OTHER_PERIOD = /^(?:[^.;:!?,()]{0,8}?\b|[ ,(]{0,3})(weekly|daily|yearly|annually|fortnightly|a (week|day|year|fortnight)|per (week|day|year|annum|fortnight)|each (week|day|year|fortnight)|every (week|day|year|fortnight))\b/i
@@ -58,9 +67,9 @@ function tokens(allowed: Allowed) {
  * that is not allowed, or not written as given, as the reason.
  */
 export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
-  // A quoted payee (render.ts) is a name, never a figure or a direction: "SALARY ADVANCE CO" names who was paid.
-  // Payee keys hold only A-Z, & and spaces (labelKey), so a quote cannot be smuggled inside one.
-  let text = stripLiterals(norm(rawText).replace(/"[A-Z&][A-Z& ]*"/g, '"payee"'), allowed.literals ?? [])
+  // A quoted payee (render.ts) is a name, not a direction: "SALARY ADVANCE CO" names who was paid. Payee keys hold
+  // only A-Z, & and spaces (labelKey), so a quote cannot be smuggled inside one. One with a figure word is still read.
+  let text = stripLiterals(norm(rawText).replace(/"([A-Z&][A-Z& ]*)"/g, (m, key: string) => (figureWord(key) ? m : '"payee"')), allowed.literals ?? [])
   if (/(?![0-9])\p{Nd}/u.test(text)) return fail("figure in a non-ASCII script")
   if (/[⁄‰‱]/.test(text)) return fail("fraction or per-mille sign")
   // "R8 500.00k", "R2 bn": a scale written after a figure, even a given one.

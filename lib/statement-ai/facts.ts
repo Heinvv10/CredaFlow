@@ -17,6 +17,7 @@ import { labelKey } from "@/lib/statement-analysis/model-labels"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
 import type { Allowed } from "./post-check"
 import { NEGATED_AFTER, NEGATED_FINDING, REASSURANCE, VERDICT } from "./post-check-language"
+import { figureWord } from "./post-check-figures"
 import { flagSpec, type FlagSpecFacts } from "./flag-specs"
 import { pct, rand } from "./format"
 
@@ -35,12 +36,12 @@ const OUTCOME_WORDS_KEY = /\b(MATCH\w*|CONFIRM\w*|QUALIF\w*|COMPLIAN\w*|PAID|FUL
 const plain = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toUpperCase()
 
 /**
- * A payee key the model may see: not one that reads as a figure, a
+ * A payee key the model may see: not one that reads as a figure (or a number word, ordinal or date), a
  * reassurance or a verdict (the post-check's own lists), and not one that
  * carries a word of the client's name (own transfers, a payee named after them).
  */
 export function safeKey(key: string, clientName: string | null = null): boolean {
-  if (!key || FIGURE_KEY.test(key) || CHECK_WORDS_KEY.test(key) || OUTCOME_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
+  if (!key || FIGURE_KEY.test(key) || figureWord(key) || CHECK_WORDS_KEY.test(key) || OUTCOME_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
   const name = plain(clientName ?? "").split(/[^A-Z]+/).filter((w) => w.length >= 2)
   // A key word is the name's when equal, or (three letters or more) the start of a name word: a statement may drop
   // an accented letter ("René" read as "REN") or shorten a name.
