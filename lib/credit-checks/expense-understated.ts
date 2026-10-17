@@ -16,8 +16,9 @@
  * refers; it never declines.
  */
 import { CATEGORISER_VERSION } from "@/lib/statement-analysis/categorise"
-import { computeInsights, understated } from "@/lib/statement-analysis/insights"
+import { computeInsights } from "@/lib/statement-analysis/insights"
 import { formatCents } from "@/lib/statement-analysis/money"
+import { understated } from "./policy"
 import { statementKey, type ApplicationFacts, type FlagCandidate } from "./types"
 
 export { understated }

@@ -11,16 +11,11 @@
  * statements of one account that overlap count each day once.
  */
 import { createHash } from "node:crypto"
-import { EXPENSE_GAP_MIN_CENTS, EXPENSE_GAP_MIN_SHARE, EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
+import { EXPENSE_MIN_COVERAGE_DAYS, understated } from "@/lib/credit-checks/policy"
 import { MONTH_DAYS } from "./categories"
 import { categorise, CATEGORISER_VERSION, isLiving, type Category, type LivingCategory } from "./categorise"
 import type { StatementRead, StatementTransaction } from "./types"
 
-/** Both must hold: more than R1,500 a month above declared, and more than 25% of declared. */
-export function understated(livingMonthlyCents: number, declaredCents: number): boolean {
-  const gap = livingMonthlyCents - declaredCents
-  return gap > EXPENSE_GAP_MIN_CENTS && gap > declaredCents * EXPENSE_GAP_MIN_SHARE
-}
 
 export interface InsightStatement {
   documentId: string

@@ -148,4 +148,3 @@ describe("aboveDeclared: a hint, not a flag", () => {
     expect(at(2_000_000, 300_000, { periodEnd: "2026-07-20" })).toBe(false)
   })
 })
-
