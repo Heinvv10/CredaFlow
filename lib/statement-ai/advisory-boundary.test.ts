@@ -17,7 +17,7 @@ const DECISION_ENTRY_POINTS = [
   "app/api/applications/[id]/decide/route.ts",
 ]
 
-const IMPORT = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|require\(\s*["']([^"']+)["']\s*\)/g
+const IMPORT = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?["']([^"']+)["']|import\(\s*["'`]([^"'`$]+)["'`]\s*\)|require\(\s*["'`]([^"'`$]+)["'`]\s*\)/g
 
 function resolve(from: string, spec: string): string | null {
   let base: string

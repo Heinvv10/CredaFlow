@@ -18,7 +18,7 @@ const ASK_LIMIT_PER_TENANT = { limit: 100, windowMs: 60 * 60_000 }
  * the question for the background worker and returns at once (202); the
  * answer is polled through GET /api/applications/[id]/statement-ai. Never
  * calls the model. CREDIT_OFFICER and up: READONLY reads answers, never asks.
- * The same question on the same rows returns the stored answer, unless it failed.
+ * The same question on the same rows returns the stored answer, unless it failed or was rejected.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("CREDIT_OFFICER")
@@ -44,7 +44,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const key = { tenantId: tenant.id, applicationId: id, kind: "ANSWER" as const, flagCode: "", inputHash, promptVersion: ASK_PROMPT_VERSION }
     const row = await prisma.$transaction(async (tx) => {
       const existing = await tx.statementAiOutput.findUnique({ where: { tenantId_applicationId_kind_flagCode_inputHash_promptVersion: key }, select: { id: true, status: true } })
-      if (existing && existing.status !== "FAILED") return existing
+      // A stored answer is returned; one that failed or was rejected is asked again.
+      if (existing && (existing.status === "OK" || existing.status === "PENDING")) return existing
       const saved = existing
         ? await tx.statementAiOutput.update({ where: { id: existing.id }, data: { status: "PENDING", text: "", rejectReason: null, citations: [], question, askedById: guard.user.id }, select: { id: true, status: true } })
         : await tx.statementAiOutput.create({ data: { ...key, status: "PENDING", question, askedById: guard.user.id }, select: { id: true, status: true } })

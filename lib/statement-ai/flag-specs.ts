@@ -48,7 +48,7 @@ const SPECS: Record<string, Spec> = {
   RETURNED_DEBIT: { rule: "Debits the bank returned unpaid or could not collect are listed.", direction: null, thresholds: {} },
   PAYDAY_LENDER: { rule: "Transactions with short-term lenders are listed.", direction: null, thresholds: {} },
   STALE_STATEMENT: { rule: "The statement's end date is compared with the application date.", direction: "ABOVE", thresholds: { maximumAgeDays: STALE_STATEMENT_DAYS } },
-  MODIFIED_AFTER_CREATION: { rule: "The PDF's modification time is compared with its creation time.", direction: "ABOVE", thresholds: { toleranceSeconds: MODIFIED_AFTER_CREATION_TOLERANCE_MS / 1000 } },
+  MODIFIED_AFTER_CREATION: { rule: "The PDF's modification time is compared with its creation time.", direction: null, thresholds: { toleranceSeconds: MODIFIED_AFTER_CREATION_TOLERANCE_MS / 1000 } },
   BALANCE_MISMATCH: { rule: "Opening balance plus every transaction is compared with the printed closing balance.", direction: null, thresholds: {} },
   RUNNING_BALANCE_BREAK: { rule: "Each printed running balance is compared with the previous balance plus the row's amount.", direction: null, thresholds: {} },
   INCREMENTAL_UPDATE: { rule: "The PDF's structure is checked for saves made after it was first written.", direction: null, thresholds: {} },

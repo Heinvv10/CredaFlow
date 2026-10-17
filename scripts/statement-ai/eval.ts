@@ -172,7 +172,7 @@ async function main() {
       const insights = computeInsights([{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read }], { clientName: app.clientName, declaredExpensesCents: app.declaredExpensesCents })
       const flags = runChecks(factsOf({ applicationDate: `${app.months[2]}-${lastDay(app.months[2])}`, clientName: app.clientName, monthlyIncomeCents: app.rows.find((t) => t.description.includes("SALARY"))!.amountCents, declaredExpensesCents: app.declaredExpensesCents, statements: [st] }))
       const counted = distinctRows([{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read }])
-      const plans = buildPlans(insights, counted, flags as unknown as Parameters<typeof buildPlans>[2], new Map([["an-1", read.transactions]]))
+      const plans = buildPlans(insights, counted, flags as unknown as Parameters<typeof buildPlans>[2], new Map([["an-1", read.transactions]]), app.clientName)
       for (const plan of plans) {
         const res = await produce(plan, asker(plan.kind))
         if (plan.kind === "SUMMARY") { ab.summaries++; if (res.status === "OK") ab.summariesOk++ } else { ab.explanations++; if (res.status === "OK") ab.explanationsOk++ }

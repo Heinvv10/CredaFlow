@@ -15,13 +15,34 @@ import type { CountedRow, Insights } from "@/lib/statement-analysis/insights"
 import { labelKey } from "@/lib/statement-analysis/model-labels"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
 import type { Allowed } from "./post-check"
+import { NEGATED_AFTER, NEGATED_FINDING, REASSURANCE, VERDICT } from "./post-check-language"
 import { flagSpec, type FlagSpecFacts } from "./flag-specs"
 import { pct, rand } from "./format"
 
-/** Payee keys that could read as a figure or a judgement are not sent (a client can name a payee). */
-const UNSAFE_KEY = /\b(R|ZAR|PERCENT|RAND|FINE|OK|OKAY|NORMAL|RESOLVED|CLEARED|SAFE|IGNORE|APPROVE\w*|DECLINE\w*|GENUINE|FLAGS?)\b|%/i
-export function safeKey(key: string): boolean {
-  return key.length > 0 && !UNSAFE_KEY.test(key)
+/** An amount as a size and the way it moved: the sign is a word the prose must use, not a minus it may drop. */
+export type Sized = { amount: string; direction: "in" | "out" }
+export const sized = (cents: number): Sized => ({ amount: rand(Math.abs(cents)), direction: cents < 0 ? "out" : "in" })
+
+/** Payee keys that could read as a figure (a client can name a payee). */
+const FIGURE_KEY = /\b(R|ZAR|PERCENT|RAND|PCT)\b|%/i
+
+/**
+ * A payee key the model may see: not one that reads as a figure, a
+ * reassurance or a verdict (the post-check's own lists), and not one that
+ * carries a word of the client's name (own transfers, a payee named after them).
+ */
+export function safeKey(key: string, clientName: string | null = null): boolean {
+  if (!key || FIGURE_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
+  const name = new Set((clientName ?? "").toUpperCase().split(/[^A-Z]+/).filter((w) => w.length >= 2))
+  return !key.split(" ").some((w) => name.has(w))
+}
+
+export const WITHHELD = "(payee withheld)"
+
+/** The masked payee of a row as the model may see it, or WITHHELD. */
+export function payeeOf(description: string, clientName: string | null): string {
+  const key = labelKey(description)
+  return safeKey(key, clientName) ? key : WITHHELD
 }
 
 export const TOP_PAYEES = 5
@@ -75,20 +96,28 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   const months: string[] = []
   const literals: string[] = [...extraLiterals]
   const monthly: number[] = []
-  // A figure is a month's when its key says so, or it sits in a per-month entry (an object with a month).
-  const visit = (v: unknown, key: string, perMonth: boolean) => {
+  const ins: number[] = []
+  const outs: number[] = []
+  type Ctx = { perMonth: boolean; direction: "in" | "out" | null }
+  // An amount is a month's when its key says so or it sits in a per-month entry
+  // (an object with a month); money in or out when its entry says which way, or its key does.
+  const visit = (v: unknown, key: string, ctx: Ctx) => {
     if (v === null || v === undefined) return
-    if (Array.isArray(v)) return v.forEach((x) => visit(x, key, perMonth || key === "months"))
+    if (Array.isArray(v)) return v.forEach((x) => visit(x, key, { ...ctx, perMonth: ctx.perMonth || key === "months" }))
     if (typeof v === "object") {
       const o = v as Record<string, unknown>
-      return Object.entries(o).forEach(([k, x]) => visit(x, k, perMonth || typeof o.month === "string"))
+      const direction = o.direction === "in" || o.direction === "out" ? o.direction : ctx.direction
+      return Object.entries(o).forEach(([k, x]) => visit(x, k, { perMonth: ctx.perMonth || typeof o.month === "string", direction }))
     }
     if (typeof v === "number") return void (/percent/i.test(key) ? percents : numbers).push(v)
     if (typeof v !== "string") return
-    const amount = v.match(/^-?R([\d ]+)\.(\d{2})$/)
+    const amount = v.match(/^(-?)R([\d ]+)\.(\d{2})$/)
     if (amount) {
-      const cents = Number(amount[1].replace(/ /g, "")) * 100 + Number(amount[2])
-      if (perMonth || /monthly|permonth/i.test(key)) monthly.push(cents)
+      const cents = (amount[1] ? -1 : 1) * (Number(amount[2].replace(/ /g, "")) * 100 + Number(amount[3]))
+      if (ctx.perMonth || /monthly|permonth/i.test(key)) monthly.push(cents)
+      const way = /moneyIn|income|salary/i.test(key) ? "in" : /moneyOut|spend|payments?To/i.test(key) ? "out" : ctx.direction
+      if (way === "in") ins.push(cents)
+      if (way === "out") outs.push(cents)
       return void amounts.push(cents)
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return void dates.push(v)
@@ -96,18 +125,18 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     // Any other string with a digit (a row reference, a code) may be copied whole, never read as a figure.
     if (/\d/.test(v)) literals.push(v)
   }
-  visit(facts, "", false)
-  return { amountsCents: amounts, monthlyAmountsCents: monthly, percents, numbers, dates, months, literals }
+  visit(facts, "", { perMonth: false, direction: null })
+  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals }
 }
 
 type PayeeRow = Pick<CountedRow, "t">
 
-function topPayees(rows: PayeeRow[]): SummaryFacts["topPayees"] {
+function topPayees(rows: PayeeRow[], clientName: string | null): SummaryFacts["topPayees"] {
   const by = new Map<string, { cents: number; n: number }>()
   for (const { t } of rows) {
     if (t.amountCents >= 0 || t.nonPosting) continue
-    const key = labelKey(t.description)
-    if (!safeKey(key)) continue
+    const key = payeeOf(t.description, clientName)
+    if (key === WITHHELD) continue
     const e = by.get(key) ?? { cents: 0, n: 0 }
     e.cents -= t.amountCents
     e.n++
@@ -132,6 +161,7 @@ export function summaryFacts(
   insights: Insights,
   rows: PayeeRow[],
   flags: Array<Pick<ApplicationCheckFlag, "code" | "check" | "evidence">>,
+  clientName: string | null,
 ): Built<SummaryFacts> {
   const raised = [...flags].sort((a, b) => a.code.localeCompare(b.code)).map((f) => ({ code: f.code, check: f.check, evidenceRows: evidenceRows(f) }))
   const facts: SummaryFacts = {
@@ -157,7 +187,7 @@ export function summaryFacts(
     declaredExpensesPerMonth: insights.declaredCents === null ? null : rand(insights.declaredCents),
     livingSpendComparedWithDeclared: insights.gapCents === null ? null : insights.gapCents > 0 ? "above" : insights.gapCents < 0 ? "below" : "equal",
     livingSpendDifferenceFromDeclaredPerMonth: insights.gapCents === null ? null : rand(Math.abs(insights.gapCents)),
-    topPayees: topPayees(rows),
+    topPayees: topPayees(rows, clientName),
     raisedFlags: raised,
     raisedFlagCount: raised.length,
   }
@@ -169,9 +199,9 @@ export interface ExplanationFacts {
   flag: { code: string; check: string; whatTheRuleChecks: string; direction: string | null }
   policyThresholds: FlagSpecFacts
   evidence: Record<string, string | number>
-  evidenceRows: Array<{ ref: string; date: string; payee: string; amount: string }>
+  evidenceRows: Array<{ ref: string; date: string; payee: string } & Sized>
   /** Code's total of the rows listed, so the prose need not add them. */
-  evidenceRowsTotal: string | null
+  evidenceRowsTotal: Sized | null
 }
 
 /**
@@ -183,6 +213,7 @@ export function explanationFacts(
   flag: Pick<ApplicationCheckFlag, "code" | "check" | "evidence">,
   rows: Array<{ statementRef: string; index: number; t: StatementTransaction }>,
   raisedFlagCodes: string[],
+  clientName: string | null,
 ): Built<ExplanationFacts> {
   const spec = flagSpec(flag.code, flag.evidence)
   const e = (flag.evidence ?? {}) as Record<string, unknown>
@@ -195,8 +226,8 @@ export function explanationFacts(
     flag: { code: flag.code, check: flag.check, whatTheRuleChecks: spec.rule, direction: spec.direction === "ABOVE" ? "above what is expected" : spec.direction === "BELOW" ? "below what is expected" : null },
     policyThresholds: spec.thresholds,
     evidence: Object.fromEntries(Object.entries(evidence).map(([k, v]) => [k.replace(/Cents$/, ""), v])),
-    evidenceRowsTotal: rows.length ? rand(rows.reduce((t, r) => t + r.t.amountCents, 0)) : null,
-    evidenceRows: rows.map((r) => ({ ref: `${r.statementRef}-R${r.index}`, date: r.t.date, payee: safeKey(labelKey(r.t.description)) ? labelKey(r.t.description) : "(payee withheld)", amount: rand(r.t.amountCents) })),
+    evidenceRowsTotal: rows.length ? sized(rows.reduce((t, r) => t + r.t.amountCents, 0)) : null,
+    evidenceRows: rows.map((r) => ({ ref: `${r.statementRef}-R${r.index}`, date: r.t.date, payee: payeeOf(r.t.description, clientName), ...sized(r.t.amountCents) })),
   }
   return {
     facts,

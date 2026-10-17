@@ -9,9 +9,8 @@
 import { z } from "zod"
 import { categorise } from "@/lib/statement-analysis/categorise"
 import { LIVING_CATEGORIES, OTHER_CATEGORIES, type Category } from "@/lib/statement-analysis/categories"
-import { labelKey } from "@/lib/statement-analysis/model-labels"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
-import { safeKey } from "../facts"
+import { payeeOf, sized, type Sized } from "../facts"
 import { rand } from "../format"
 
 export const CATEGORY_NAMES = [...LIVING_CATEGORIES, ...OTHER_CATEGORIES] as [Category, ...Category[]]
@@ -56,13 +55,15 @@ export interface AskRow {
 export const ROWS_CITED = 20
 
 export type MatchedRow = { ref: string; date: string; payee: string; amount: string }
+/** A row as the model sees it: its amount a size, and which way it moved. */
+export type ListedRow = { ref: string; date: string; payee: string } & Sized
 
 export interface QueryResult {
   id: string
   tool: Query["tool"]
   /** The arguments as validated, amounts written as rand strings. */
   args: Record<string, unknown>
-  /** The figures, formatted as the answer must copy them. */
+  /** The figures, formatted as the answer must copy them: the only figures it may state. */
   result: Record<string, unknown> | Array<Record<string, unknown>>
   matchedRows: number
   rows: MatchedRow[]
@@ -74,11 +75,10 @@ export function askRows(
   clientName: string | null,
 ): AskRow[] {
   return statements.flatMap((s) => s.transactions.map(({ index, t }) => {
-    const key = labelKey(t.description)
     return {
       ref: `${s.ref}-R${index}`,
       date: t.date,
-      payee: safeKey(key) ? key : "(payee withheld)",
+      payee: payeeOf(t.description, clientName),
       amountCents: t.amountCents,
       category: categorise(t, { clientName, modelLabels: s.modelLabels }).category,
     }
@@ -129,13 +129,15 @@ const cite = (rows: AskRow[]): MatchedRow[] => rows.slice(0, ROWS_CITED).map((r)
 export function runQuery(rows: AskRow[], q: Query): QueryResult {
   const hit = rows.filter((r) => matches(r, q.filter))
   const base = { id: q.id, tool: q.tool, args: shownArgs(q), matchedRows: hit.length, rows: cite(hit) }
+  // With a direction the figure is a size of money in or out, and says so; without one it is net, signed.
+  const way = q.filter.direction ? { direction: q.filter.direction } : {}
   switch (q.tool) {
     case "sum":
-      return { ...base, result: { total: rand(total(hit, q.filter)), rowCount: hit.length } }
+      return { ...base, result: { total: rand(total(hit, q.filter)), rowCount: hit.length, ...way } }
     case "count":
       return { ...base, result: { count: hit.length } }
     case "average":
-      return { ...base, result: { average: hit.length ? rand(Math.round(total(hit, q.filter) / hit.length)) : null, rowCount: hit.length } }
+      return { ...base, result: { average: hit.length ? rand(Math.round(total(hit, q.filter) / hit.length)) : null, rowCount: hit.length, ...way } }
     case "groupByMonth":
     case "groupByPayee": {
       const keyOf = (r: AskRow) => (q.tool === "groupByMonth" ? r.date.slice(0, 7) : r.payee)
@@ -148,9 +150,9 @@ export function runQuery(rows: AskRow[], q: Query): QueryResult {
         entries = entries.slice(0, q.limit)
       }
       const name = q.tool === "groupByMonth" ? "month" : "payee"
-      return { ...base, result: entries.map((e) => (q.measure === "sum" ? { [name]: e.k, total: rand(e.sum), rowCount: e.count } : { [name]: e.k, count: e.count })) }
+      return { ...base, result: entries.map((e) => (q.measure === "sum" ? { [name]: e.k, total: rand(e.sum), rowCount: e.count, ...way } : { [name]: e.k, count: e.count })) }
     }
     case "list":
-      return { ...base, result: cite(hit.slice(0, q.limit)) }
+      return { ...base, result: hit.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
   }
 }

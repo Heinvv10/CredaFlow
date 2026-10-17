@@ -24,7 +24,7 @@ describe("rand", () => {
 })
 
 describe("summaryFacts", () => {
-  const built = summaryFacts(insights, rows, flags)
+  const built = summaryFacts(insights, rows, flags, "T TESTER")
   it("gives the model figures and masked payees, never the client's name or a summary", () => {
     const json = JSON.stringify(built.facts)
     expect(json).not.toContain("TESTER")
@@ -42,31 +42,40 @@ describe("summaryFacts", () => {
   })
   it("hashes the facts: other facts, another hash", () => {
     expect(built.inputHash).toBe(createHash("sha256").update(JSON.stringify(built.facts)).digest("hex"))
-    expect(summaryFacts(insights, rows, []).inputHash).not.toBe(built.inputHash)
+    expect(summaryFacts(insights, rows, [], "T TESTER").inputHash).not.toBe(built.inputHash)
   })
 })
 
 describe("safeKey", () => {
+  it("withholds a payee carrying a word of the client's name", () => {
+    expect(safeKey("T TESTER", "Thabo Tester")).toBe(false)
+    expect(safeKey("THABO MOTORS", "Thabo Tester")).toBe(false)
+    expect(safeKey("SYNTH RENTALS", "Thabo Tester")).toBe(true)
+  })
   it("withholds payee names that read as a verdict or a figure", () => {
-    expect(["SYNTH RENTALS", "PICK N PAY"].every(safeKey)).toBe(true)
-    expect(["ALL FLAGS RESOLVED", "OK FOODS", "R FIVE", "PAY 50%", ""].some(safeKey)).toBe(false)
+    expect(["SYNTH RENTALS", "PICK N PAY"].every((k) => safeKey(k))).toBe(true)
+    expect(["ALL FLAGS RESOLVED", "OK FOODS", "R FIVE", "PAY 50%", "", "VERIFIED AUTHENTIC STATEMENT", "ALL CLEAR", "NOT A CONCERN"].some((k) => safeKey(k))).toBe(false)
   })
 })
 
 describe("allowedFrom", () => {
   it("sorts every figure by kind; strings with digits are literals", () => {
-    expect(allowedFrom({ a: "R1 234.56", b: "2026-09-25", c: "2026-09", d: 3, sharePercent: 12.5, e: "S1-R12" })).toEqual({
-      amountsCents: [123_456], monthlyAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"],
+    expect(allowedFrom({ a: "R1 234.56", b: "2026-09-25", c: "2026-09", d: 3, sharePercent: 12.5, e: "S1-R12", f: "-R4.50" })).toEqual({
+      amountsCents: [123_456, -450], monthlyAmountsCents: [], inAmountsCents: [], outAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"],
     })
+  })
+  it("tags a month's amounts, and money in and out by direction or key", () => {
+    const a = allowedFrom({ months: [{ month: "2026-09", moneyIn: "R10.00", moneyOut: "R4.00" }], row: { amount: "R7.00", direction: "out" }, livingSpendPerMonth: "R3.00" })
+    expect(a).toMatchObject({ monthlyAmountsCents: [1000, 400, 300], inAmountsCents: [1000], outAmountsCents: [400, 700, 300] })
   })
 })
 
 describe("explanationFacts", () => {
   it("cites rows by reference with masked payees and the policy threshold", () => {
-    const built = explanationFacts(flags[0], [2, 8].map((index) => ({ statementRef: "S1", index, t: read.transactions[index] })), ["GAMBLING"])
+    const built = explanationFacts(flags[0], [2, 8].map((index) => ({ statementRef: "S1", index, t: read.transactions[index] })), ["GAMBLING"], "T TESTER")
     expect(built.facts.evidenceRows).toEqual([
-      { ref: "S1-R2", date: "2026-07-12", payee: "HOLLYWOODBETS", amount: "-R1 500.00" },
-      { ref: "S1-R8", date: "2026-08-12", payee: "HOLLYWOODBETS", amount: "-R1 500.00" },
+      { ref: "S1-R2", date: "2026-07-12", payee: "HOLLYWOODBETS", amount: "R1 500.00", direction: "out" },
+      { ref: "S1-R8", date: "2026-08-12", payee: "HOLLYWOODBETS", amount: "R1 500.00", direction: "out" },
     ])
     expect(built.facts.policyThresholds).toEqual({ gamblingShareOfIncomePercent: 5 })
     expect(built.facts.evidence).toMatchObject({ monthly: "R1 500.00", monthlyIncome: "R18 450.00" })
@@ -79,10 +88,10 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags).facts))]).toEqual(["summary-p2", "ec9066f91ba85f77"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-p3", "a196b56ae984e3be"])
   })
   it("pins the explanation prompt to its version", () => {
-    const built = explanationFacts(flags[0], [], ["GAMBLING"])
-    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p3", "802dc382c413f900"])
+    const built = explanationFacts(flags[0], [], ["GAMBLING"], "T TESTER")
+    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p4", "b71e7e8615a9e7cb"])
   })
 })

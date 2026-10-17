@@ -7,6 +7,7 @@
 import type { StatementAiOutput } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { Planned } from "./generate"
+import { checkNoContradiction } from "./post-check"
 import { askInputHash } from "./ask/answer"
 import type { AskRow } from "./ask/tools"
 
@@ -28,13 +29,18 @@ export interface OutputView {
   question: string | null
 }
 
-export function toView(o: StatementAiOutput, currentHash: string | null): OutputView {
-  const ok = o.status === "OK"
+/**
+ * `raisedFlagCodes` are the flags raised now: an output checked when fewer
+ * were raised ("spend looks normal" with none) is shown only if it would pass
+ * the language check today.
+ */
+export function toView(o: StatementAiOutput, currentHash: string | null, raisedFlagCodes: readonly string[]): OutputView {
+  const ok = o.status === "OK" && checkNoContradiction(o.text, raisedFlagCodes).ok
   return {
     id: o.id,
     kind: o.kind,
     flagCode: o.flagCode || null,
-    status: o.status,
+    status: ok || o.status !== "OK" ? o.status : "REJECTED",
     text: ok ? o.text : null,
     inputHash: o.inputHash,
     promptVersion: o.promptVersion,
@@ -60,7 +66,13 @@ export interface ApplicationAiView {
  */
 export const ANSWERS_SHOWN = 10
 
-export async function applicationAiView(tenantId: string, applicationId: string, plans: Planned[], askRows: AskRow[]): Promise<ApplicationAiView> {
+export async function applicationAiView(
+  tenantId: string,
+  applicationId: string,
+  plan: { plans: Planned[]; rows: AskRow[]; raisedFlagCodes: string[] },
+  opts: { summaries: boolean },
+): Promise<ApplicationAiView> {
+  const { plans, rows: askRows, raisedFlagCodes } = plan
   const rows = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: { in: ["SUMMARY", "FLAG_EXPLANATION"] } },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -69,20 +81,21 @@ export async function applicationAiView(tenantId: string, applicationId: string,
   const pick = (plan: Planned): OutputView | null => {
     const mine = rows.filter((r) => r.kind === plan.kind && r.flagCode === plan.flagCode)
     const current = mine.find((r) => r.inputHash === plan.built.inputHash && r.promptVersion === plan.promptVersion)
-    if (current) return toView(current, plan.built.inputHash)
+    if (current) return toView(current, plan.built.inputHash, raisedFlagCodes)
     pending++
     const older = mine.find((r) => r.status === "OK")
-    return older ? toView(older, plan.built.inputHash) : null
+    return older ? toView(older, plan.built.inputHash, raisedFlagCodes) : null
   }
-  const summaryPlan = plans.find((p) => p.kind === "SUMMARY")
+  // The summary and explanations restate the statement insights: shown only to those who see those (CREDIT_OFFICER and up).
+  const summaryPlan = opts.summaries ? plans.find((p) => p.kind === "SUMMARY") : undefined
   const summary = summaryPlan ? pick(summaryPlan) : null
-  const explanations = plans.filter((p) => p.kind === "FLAG_EXPLANATION").map(pick).filter((v): v is OutputView => v !== null)
+  const explanations = opts.summaries ? plans.filter((p) => p.kind === "FLAG_EXPLANATION").map(pick).filter((v): v is OutputView => v !== null) : []
   const asked = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: "ANSWER" },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: ANSWERS_SHOWN,
   })
-  const answers = asked.map((a) => toView(a, askInputHash(a.question ?? "", askRows)))
+  const answers = asked.map((a) => toView(a, askInputHash(a.question ?? "", askRows), raisedFlagCodes))
   pending += answers.filter((a) => a.status === "PENDING").length
   return { summary, explanations, answers, pending }
 }

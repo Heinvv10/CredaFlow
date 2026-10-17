@@ -44,8 +44,9 @@ export function buildPlans(
   rows: CountedRow[],
   flags: Array<Pick<ApplicationCheckFlag, "code" | "check" | "evidence">>,
   txOf: Map<string, StatementTransaction[]>,
+  clientName: string | null,
 ): Planned[] {
-  const summary = summaryFacts(insights, rows, flags)
+  const summary = summaryFacts(insights, rows, flags, clientName)
   const plans: Planned[] = [{
     kind: "SUMMARY", flagCode: "", promptVersion: SUMMARY_PROMPT_VERSION, built: summary,
     prompt: summaryPrompt(summary.facts), maxTokens: 600,
@@ -61,7 +62,7 @@ export function buildPlans(
     const ref = typeof e.documentId === "string" ? refOf.get(e.documentId) ?? "S?" : "S?"
     const indexes = Array.isArray(e.transactionIndexes) ? (e.transactionIndexes as unknown[]).filter((i): i is number => typeof i === "number") : []
     const evidenceRows = indexes.flatMap((index) => (all[index] ? [{ statementRef: ref, index, t: all[index] }] : []))
-    const built = explanationFacts(flag, evidenceRows, summary.raisedFlagCodes)
+    const built = explanationFacts(flag, evidenceRows, summary.raisedFlagCodes, clientName)
     const spec = flagSpec(flag.code, flag.evidence)
     plans.push({
       kind: "FLAG_EXPLANATION", flagCode: flag.code, promptVersion: EXPLANATION_PROMPT_VERSION, built,
@@ -97,7 +98,7 @@ export async function planOutputs(tenantId: string, applicationId: string): Prom
   })
   const statements = loaded.read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read!, modelLabels: s.modelLabels }))
   const counted = distinctRows(statements.filter((s) => s.balanceCheck === "PASS"))
-  const plans = buildPlans(loaded.insights, counted, flags, await evidenceTransactions(tenantId, flags))
+  const plans = buildPlans(loaded.insights, counted, flags, await evidenceTransactions(tenantId, flags), loaded.facts.clientName)
   return {
     plans,
     documentIds: loaded.read.map((s) => s.documentId),
