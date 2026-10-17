@@ -141,6 +141,15 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       const request = () => new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: "2026-01-01", evidenceDocumentId: evidence.id, basis: "TEST verified written cancellation effective January 1", cancellationConfirmed: true }) })
       expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
       session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const authorizedSession = session.current
+      session.current = null
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(401)
+      session.current = { user: { ...authorizedSession!.user, tenantId: fx.tenantId } }
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
+      session.current = { user: { ...authorizedSession!.user, totpEnrolmentRequired: true } } as typeof session.current
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
+      expect(await db!.commercialCancellation.count({ where: { loanId: second.loanId } })).toBe(0)
+      session.current = authorizedSession
       const recorded = await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })
       expect(recorded.status, await recorded.text()).toBe(201)
       const cancelled = await load()
