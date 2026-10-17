@@ -43,12 +43,12 @@ suite("NCA asset settlement and standalone surrender proceeds",()=>{
   // suppress every default-interest day while its statutory freeze is open.
   const replayDate=new Date(`${day(60)}T10:00:00Z`)
   const replayOptions={preview:{startedAt:new Date(`${day(-45)}T10:00:00Z`),letterCents:0}}
-  const paused=await loadChargesReplay(database(),{tenantId:fx.tenantId,loanId:loan.loanId},replayDate,replayOptions)
+  const paused=await loadChargesReplay(database() as unknown as Parameters<typeof loadChargesReplay>[0],{tenantId:fx.tenantId,loanId:loan.loanId},replayDate,replayOptions)
   expect(paused?.result.interestAccrued).toBe(0)
   // Mutation control: remove only the stored surrender pause, with all money,
   // schedules and receipt history unchanged; charges must then accrue.
   await testSetup(database(),[`UPDATE "SurrenderRequest" SET "chargesFrozenFrom"=NULL WHERE "id"=$1`,id])
-  const unpaused=await loadChargesReplay(database(),{tenantId:fx.tenantId,loanId:loan.loanId},replayDate,replayOptions)
+  const unpaused=await loadChargesReplay(database() as unknown as Parameters<typeof loadChargesReplay>[0],{tenantId:fx.tenantId,loanId:loan.loanId},replayDate,replayOptions)
   expect(unpaused!.result.interestAccrued).toBeGreaterThan(0)
   await testSetup(database(),[`UPDATE "SurrenderRequest" SET "chargesFrozenFrom"=$2::date WHERE "id"=$1`,id,request.chargesFrozenFrom])
   await applyManualReceipt(database() as unknown as PaymentDb,{tenantId:fx.tenantId,loanId:loan.loanId,amount:settlement-100000,capturedById:fx.officer,paymentMethod:"EFT",reference:"SYNTHETIC-S125-SETTLEMENT"})
