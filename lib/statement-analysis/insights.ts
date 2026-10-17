@@ -11,7 +11,7 @@
  * statements of one account that overlap count each day once.
  */
 import { createHash } from "node:crypto"
-import { EXPENSE_MIN_COVERAGE_DAYS } from "@/lib/credit-checks/policy"
+import { EXPENSE_MIN_COVERAGE_DAYS, understated } from "@/lib/credit-checks/policy"
 import { MONTH_DAYS } from "./categories"
 import { categorise, CATEGORISER_VERSION, isLiving, type Category, type LivingCategory } from "./categorise"
 import type { StatementRead, StatementTransaction } from "./types"
@@ -78,6 +78,12 @@ export interface Insights {
   }
   declaredCents: number | null
   gapCents: number | null
+  /**
+   * Living spend is above the declaration by EXPENSE_UNDERSTATED's margins: a
+   * hint shown to the officer, never a flag. It blocks nothing, because the
+   * categoriser has not passed the accuracy gate a blocking flag needs (policy.ts).
+   */
+  aboveDeclared: boolean
   /** What the model, not a rule, categorised, over the counted rows. */
   modelAssigned: {
     debitCents: number
@@ -222,6 +228,7 @@ export function computeInsights(
     declaredCents: declared,
     // Under four weeks there is no month to compare: no gap.
     gapCents: declared === null || coverageDays < EXPENSE_MIN_COVERAGE_DAYS ? null : living.monthlyCents - declared,
+    aboveDeclared: declared !== null && coverageDays >= EXPENSE_MIN_COVERAGE_DAYS && understated(living.monthlyCents, declared),
     modelAssigned,
   }
 }
