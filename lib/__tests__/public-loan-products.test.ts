@@ -42,10 +42,10 @@ import type { LivePricing, PublicLoanProduct } from "../public-loan-products"
 // update PRODUCT_PRICING and these expectations together (see product-pricing.ts).
 
 describe("PRODUCT_PRICING mirrors the live LoanProduct config", () => {
-  it("personal loan: 16.5% init capped at R1,080, R69 service, 3%/mo reducing balance", () => {
+  it("personal loan: 16.5% init capped at R1,080, R69 service, 2.25%/mo reducing balance (NCA cap)", () => {
     expect(PRODUCT_PRICING.personal).toEqual({
       productType: "PERSONAL",
-      interestRatePm: 0.03,
+      interestRatePm: 0.0225,
       interestModel: "REDUCING_BALANCE",
       initiationFeeModel: "NCA_REG42",
       initiationFeePct: 0.165,
@@ -54,9 +54,9 @@ describe("PRODUCT_PRICING mirrors the live LoanProduct config", () => {
     })
   })
 
-  it("purchase-order funding: 2% init uncapped, no service, 5%/mo daily accrual", () => {
+  it("purchase-order funding: 2% init uncapped, no service, 2.25%/mo daily accrual (NCA cap)", () => {
     expect(PRODUCT_PRICING["purchase-order"]).toEqual({
-      interestRatePm: 0.05,
+      interestRatePm: 0.0225,
       interestModel: "DAILY_ACCRUAL",
       initiationFeeModel: "FLAT_PCT",
       initiationFeePct: 0.02,
@@ -102,10 +102,10 @@ describe("public marketing quote == the loan the customer is actually charged", 
 
   it("PO funding R500,000 / 4mo (120d): initiation R10,000 (2%, uncapped), NOT the old ~R8,792 under-quote", () => {
     // the stale 15%-cap-R1,207.50 table under-quoted initiation. PO is now
-    // month-unit: 4 months = 120 days → interest R50,000 + init R10,000.
+    // month-unit: 4 months = 120 days → interest R45,000 + init R10,000.
     const quote = calculatePublicLoanQuote(getPublicLoanProduct("purchase-order"), 50000000, 4)
     expect(quote.initiationFee).toBe(1000000) // R10,000 (2%, uncapped) — the point
-    expect(quote.totalRepayable).toBe(61000000) // R610,000 (R500k + R100k interest @5%/mo over 4mo + R10k init)
+    expect(quote.totalRepayable).toBe(55500000) // R555,000 (R500k + R45k interest @2.25%/mo over 4mo + R10k init)
   })
 
   it("short-term R2,000 / 30d: R69 service fee (R60+VAT), 15% init, total R2,469", () => {
@@ -481,8 +481,8 @@ describe("marketing-copy formatters", () => {
 
   it("formatInterestLabel: shared interest wording per model (fee table + qualify wizard)", () => {
     expect(formatInterestLabel(getPublicLoanProduct("short-term"))).toBe("5%/mo daily accrual")
-    expect(formatInterestLabel(getPublicLoanProduct("personal"))).toBe("3%/mo reducing")
-    expect(formatInterestLabel(getPublicLoanProduct("purchase-order"))).toBe("5%/mo daily accrual")
+    expect(formatInterestLabel(getPublicLoanProduct("personal"))).toBe("2.25%/mo reducing")
+    expect(formatInterestLabel(getPublicLoanProduct("purchase-order"))).toBe("2.25%/mo daily accrual")
   })
 
   it("short-term calculator-card model label matches the DAILY_ACCRUAL row wording", () => {

@@ -208,6 +208,8 @@ export const staffNavigation: NavGroup[] = [
       // The page requires ADMIN (app/(dashboard)/settings/support-access/page.tsx).
       { href: "/settings/support-access", label: "Support access", icon: ShieldCheck, minRole: "ADMIN" },
       { href: "/settings/users", label: "Users", icon: Users, minRole: "BRANCH_MANAGER" },
+      // The NCA interest-rate cap reads it (lib/loan/nca-interest-cap.ts): every lender, asset finance or not.
+      { href: "/settings/repo-rate", label: "Repo rate", icon: Percent, minRole: "LOAN_ADMIN" },
       { href: "/settings/audit-log", label: "Audit Trail", icon: History, minRole: "LOAN_ADMIN" },
       { href: "/settings/login-log", label: "Login Activity", icon: Activity, minRole: "LOAN_ADMIN" },
     ],

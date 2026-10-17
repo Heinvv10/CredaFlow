@@ -25,6 +25,7 @@ import {
 import { APPLICATION_WIZARD_STORAGE_KEY } from "./constants"
 import { buildStepUrl } from "./step-url"
 import { Step1ClientSelect } from "./Step1ClientSelect"
+import { useOwnLenderDebts } from "./useOwnLenderDebts"
 import { Step2LoanParams } from "./Step2LoanParams"
 import { Step3Affordability } from "./Step3Affordability"
 import { Step4Review } from "./Step4Review"
@@ -248,7 +249,7 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
   // Stable identity for the Step 3 useEffect dep array. Without useMemo, a
   // fresh object literal on every wizard render → effect re-fires → patch →
   // re-render → "Maximum update depth exceeded".
-  const selectedClientForStep3 = useMemo(() => {
+  const declaredClient = useMemo(() => {
     const c = clients.find((c) => c.id === data.clientId)
     return c
       ? {
@@ -258,13 +259,14 @@ export function ApplicationWizard({ mode, clients, products, applicationId, init
         }
       : null
   }, [clients, data.clientId])
+  const selectedClientForStep3 = useOwnLenderDebts(declaredClient, data.clientId) // + obligations to this lender
 
   return (
     <div className="max-w-3xl mx-auto p-6">
       <StepBar step={step} labels={APPLICATION_WIZARD_STEP_LABELS} />
 
       {step === 1 && (
-        <Step1ClientSelect data={data} patch={patch} errors={errors} mode={mode} clients={clients} />
+        <Step1ClientSelect data={data} patch={patch} errors={errors} mode={mode} clients={clients} selectedClientArrears={selectedClientForStep3?.ownLenderArrears} />
       )}
       {step === 2 && (
         <Step2LoanParams data={data} patch={patch} errors={errors} mode={mode} products={products} />

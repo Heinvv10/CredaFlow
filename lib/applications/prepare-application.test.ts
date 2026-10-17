@@ -7,6 +7,14 @@ const loanFindFirstMock = vi.fn()
 const insuranceProductFindFirstMock = vi.fn()
 const queryRawMock = vi.fn()
 const clientDocumentFindFirstMock = vi.fn()
+// No loans with this lender here; the obligations themselves are proven in
+// lib/affordability/own-lender-debt.integration.test.ts.
+vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
+  loadOwnLenderDebts: async () => ({ lenderNames: [], loans: [] }),
+  ownAwareSubmissionSnapshot: async (_db: unknown, _tenantId: string, _clientId: string, args: Parameters<typeof import("@/lib/affordability/snapshot").createSubmissionAffordabilitySnapshot>[0]) =>
+    (await import("@/lib/affordability/snapshot")).createSubmissionAffordabilitySnapshot(args),
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $queryRaw: (a: unknown) => queryRawMock(a),

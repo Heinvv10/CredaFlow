@@ -9,7 +9,8 @@ import Link from "next/link"
 import { BulkSection129Button } from "@/components/collections/BulkSection129Button"
 import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
 import { getStaffTenantId } from "@/lib/session-tenant"
-import { getPortfolioPar } from "@/lib/reports/par"
+import { BOOK_DEFINITIONS, getBookArrears } from "@/lib/reports/book-arrears"
+import { BookDefinitions } from "@/components/reports/BookDefinitions"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
 import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
 
@@ -112,19 +113,23 @@ async function getStageBreakdown(tenantId: string, chargesLive: boolean) {
 export default async function CollectionsPage() {
   const tenantId = await getStaffTenantId()
   const chargesLive = await chargesLiveForTenant(prisma, tenantId)
-  const [loans, s129DueCount, par, stageBreakdown, pendingWriteOffs] = await Promise.all([
+  const [loans, s129DueCount, book, stageBreakdown, pendingWriteOffs] = await Promise.all([
     getCollectionsData(tenantId, chargesLive),
     getSection129DueCount(tenantId),
-    getPortfolioPar(tenantId),
+    getBookArrears(tenantId),
     getStageBreakdown(tenantId, chargesLive),
     getPendingWriteOffs(tenantId),
   ])
 
-  const totalArrears = loans.reduce((sum, l) => sum + Number(l.arrearsAmount), 0)
+  const queueArrears = loans.reduce((sum, l) => sum + Number(l.arrearsAmount), 0)
 
-  // PAR30: value-weighted on the collectible book — single definition shared with the
-  // dashboard, reports and NCR return (lib/reports/par).
-  const par30Pct = par.par30.pct.toFixed(1)
+  // The KPI cards are the book's figures, from the helper the dashboard, the
+  // sidebar badge and the NCR return read (lib/reports/book-arrears.ts). The
+  // queue below is the work list: it leaves out pending write-offs (their own
+  // panel) and entity borrowers (worked from Asset finance), so it can be
+  // shorter, and the page says by how much.
+  const par30Pct = book.par30.pct.toFixed(1)
+  const notInQueue = book.arrears.count + book.chargesOnly.count - loans.length
 
   const soft = loans.filter((l) => l.daysInArrears >= 1 && l.daysInArrears <= 29).length
   const hard = loans.filter((l) => l.daysInArrears >= 30 && l.daysInArrears <= 59).length
@@ -147,8 +152,8 @@ export default async function CollectionsPage() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { label: "Overdue Accounts", value: String(loans.length), color: "text-red-600" },
-          { label: "Total Arrears", value: formatZAR(totalArrears), color: "text-red-600" },
+          { label: "Accounts in Arrears", value: `${book.arrears.count}${book.chargesOnly.count > 0 ? ` + ${book.chargesOnly.count} charges only` : ""}`, color: "text-red-600" },
+          { label: "Total Arrears", value: formatZAR(book.arrears.amount), color: "text-red-600" },
           { label: "PAR30", value: `${par30Pct}%`, color: Number(par30Pct) > 10 ? "text-red-600" : "text-green-600" },
           { label: "S129 Due", value: String(s129DueCount), color: s129DueCount > 0 ? "text-orange-500" : "text-green-600" },
         ].map((s) => (
@@ -157,6 +162,10 @@ export default async function CollectionsPage() {
             <p className={`whitespace-nowrap text-xl font-bold ${s.color}`}>{s.value}</p>
           </div>
         ))}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm px-5 pb-4 mb-6 -mt-2">
+        <BookDefinitions scope={BOOK_DEFINITIONS.scopeAll} chargesLive={book.chargesLive} />
       </div>
 
       {/* Stage breakdown */}
@@ -196,8 +205,13 @@ export default async function CollectionsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Collections Queue</h1>
           <p className="text-sm text-gray-400 mt-1">
-            {loans.length} account{loans.length !== 1 ? "s" : ""} in arrears · Total exposure {formatZAR(totalArrears)}
+            {loans.length} account{loans.length !== 1 ? "s" : ""} in this queue · Arrears {formatZAR(queueArrears)}
           </p>
+          {notInQueue > 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              {notInQueue} more account{notInQueue !== 1 ? "s" : ""} in arrears {notInQueue !== 1 ? "are" : "is"} worked elsewhere: pending write-offs (below) and asset-finance borrowers (Asset finance).
+            </p>
+          )}
         </div>
         <BulkSection129Button count90Plus={s129DueCount} />
       </div>

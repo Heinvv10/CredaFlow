@@ -12,13 +12,14 @@ import {
   quarterLabel,
   sastMonthBounds,
 } from "@/lib/compliance/quarters"
-import { disbursedInQuarterWhere, getNcrReturnData, parWhere } from "@/lib/compliance/ncr-return"
+import { disbursedInQuarterWhere, getNcrReturnData } from "@/lib/compliance/ncr-return"
+import { overdueWhere } from "@/lib/reports/book-arrears"
+import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { section129LogRow } from "@/lib/collections/section129-reporting"
 import { arrearsBucket } from "@/lib/reports/arrears-buckets"
 import { periodFilter, resolvePeriod } from "@/lib/date/sast-period"
-import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import {
   documentAccessTimelineEntries,
   mergeAuditTimeline,
@@ -30,7 +31,7 @@ import { sastParts } from "@/lib/date/sast"
 import { cashReceivedCents } from "@/lib/payments/waiver"
 import { chargesLiveForTenant } from "@/lib/loan/charges-replay"
 import { chargesOwing } from "@/lib/reports/charges-owing"
-import { borrowerDisplayName } from "@/lib/borrower"
+import { borrowerDisplayName, hasClientBorrower } from "@/lib/borrower"
 
 type ExportRow = Record<string, string | number | boolean | null | undefined>
 
@@ -121,7 +122,7 @@ export async function GET(req: NextRequest) {
   } else if (type === "par") {
     const chargesLive = await chargesLiveForTenant(prisma, tenant.id)
     const loans = await prisma.loan.findMany({
-      where: { tenantId: tenant.id, status: { in: [...COLLECTIBLE_STATUSES] }, daysInArrears: { gt: 0 } },
+      where: overdueWhere(tenant.id), // the book's "in arrears" (lib/reports/book-arrears.ts)
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true } },
         entity: { select: { legalName: true } },
@@ -204,15 +205,16 @@ export async function GET(req: NextRequest) {
 
     wb = createWorkbook([{ name: `Payments — ${period.label}`, rows }])
   } else if (type === "collections") {
-    const loans = await prisma.loan.findMany({
-      where: { tenantId: tenant.id, daysInArrears: { gt: 0 }, status: { in: [...COLLECTIBLE_STATUSES] } },
+    // The collections queue exactly: its population, and its client borrowers.
+    const loans = (await prisma.loan.findMany({
+      where: collectionsQueueWhere(tenant.id, await chargesLiveForTenant(prisma, tenant.id)),
       include: {
         client: { select: { firstName: true, lastName: true, idNumber: true, phone: true, email: true } },
         entity: { select: { legalName: true } },
         product: { select: { name: true } },
       },
       orderBy: { daysInArrears: "desc" },
-    })
+    })).filter(hasClientBorrower)
 
     const rows = loans.map((l) => ({
       Reference: l.reference,
@@ -298,7 +300,7 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.loan.findMany({
-        where: { ...parWhere(tenant.id, 1), ncaRegime: "NCA" },
+        where: overdueWhere(tenant.id, "NCA"), // the return's arrears line (lib/reports/book-arrears.ts)
         include: {
           client: { select: { idNumber: true, firstName: true, lastName: true } },
           entity: { select: { legalName: true } },

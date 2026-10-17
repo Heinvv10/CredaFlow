@@ -1,4 +1,4 @@
-import { it, expect, vi, beforeEach } from "vitest"
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 import {
   createCreditLifeDisclosureSha256,
@@ -33,7 +33,27 @@ const txDocumentCountMock = vi.fn()
 const txAnalysisCountMock = vi.fn()
 const txPayslipFindManyMock = vi.fn()
 const txClientFindFirstMock = vi.fn()
+const referenceRateFindFirstMock = vi.fn()
+const loanFindManyMock = vi.fn(async (_a: unknown) => [] as Array<{ startDate: Date; maturityDate: Date }>)
+type ApprovedSibling = { appliedAmount: number; appliedTermDays: number; approvedAmount: number | null; approvedTermDays: number | null }
+const applicationFindManyMock = vi.fn(async (_a: unknown) => [] as ApprovedSibling[])
 
+// The client's own loans with this lender: none here (the real-DB behaviour is
+// lib/affordability/own-lender-debt.integration.test.ts). The list merge stays real.
+const ownLenderLoansMock = vi.hoisted(() => ({ loans: [] as Array<Record<string, unknown>> }))
+vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => {
+  const { withOwnLenderDebts } = await import("@/lib/affordability/own-lender-debt")
+  const { readAffordabilityDebtInputs } = await import("@/lib/affordability/snapshot")
+  const own = () => ({ lenderNames: ["Acme Lending"], loans: ownLenderLoansMock.loans as never[] })
+  return {
+    ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
+    loadOwnLenderDebts: async () => own(),
+    liveOwnAwareDebtInputs: async (_db: unknown, _t: string, _id: string, source: { existingDebtObligations: unknown; client: { debtObligations: never[] } }) => ({
+      application: withOwnLenderDebts(readAffordabilityDebtInputs(source.existingDebtObligations), own()),
+      client: withOwnLenderDebts(source.client.debtObligations, own()),
+    }),
+  }
+})
 vi.mock("@/lib/auth-guards", async () => ({
   requireApiRole: () => requireApiRoleMock(),
   // The real permission check (the client-safe twin of auth-guards' canDo).
@@ -62,11 +82,14 @@ vi.mock("@/lib/prisma", () => ({
     loanApplication: {
       findUnique: (a: unknown) => findUniqueMock(a),
       updateMany: (a: unknown) => updateManyMock(a),
+      findMany: (a: unknown) => applicationFindManyMock(a),
     },
     client: { findUnique: (a: unknown) => clientFindUniqueMock(a) },
     clientDocument: { findMany: (a: unknown) => clientDocumentFindManyMock(a) },
     creditBureauCheck: { findFirst: (a: unknown) => creditBureauCheckFindFirstMock(a) },
     tenantConfig: { findFirst: (a: unknown) => tenantConfigFindFirstMock(a) },
+    referenceRate: { findFirst: (a: unknown) => referenceRateFindFirstMock(a), findMany: async () => [] },
+    loan: { findMany: (a: unknown) => loanFindManyMock(a) },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => transactionMock(cb),
   },
 }))
@@ -973,6 +996,124 @@ it("approves an UNDER_REVIEW application (happy path)", async () => {
         creditLifePremiumCents: 0,
       }),
     }),
+  })
+})
+
+describe("the client's own loans with this lender count in affordability", () => {
+  const ownLoan = (instalmentCents: number) => ({
+    id: "own-loan-1", reference: "LN-OWN-0001", status: "ACTIVE", instalmentCents,
+    outstandingPrincipal: 2_713_391, daysInArrears: 27, arrearsAmount: 84_330,
+  })
+  afterEach(() => { ownLenderLoansMock.loans = [] })
+
+  it("hands the affordability gate the declared debts plus the own loan's instalment", async () => {
+    ownLenderLoansMock.loans = [ownLoan(480_000)]
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(evaluateAffordabilityGateMock).toHaveBeenCalledWith(expect.objectContaining({
+      applicationDebtCents: 25_000 + 480_000,
+      clientDebtCents: 25_000 + 480_000,
+      declaredDebtCents: 25_000 + 480_000,
+    }))
+  })
+
+  it("records the own loan in both debt lists of the approval evidence", async () => {
+    ownLenderLoansMock.loans = [ownLoan(10_000)]
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(200)
+    const data = txUpdateManyMock.mock.calls.find(([a]) => (a as { data: { status?: string } }).data.status === "APPROVED")![0].data
+    const approval = data.affordabilityResult.approval
+    expect(approval.inputs).toMatchObject({ applicationDebtCents: 35_000, clientDebtCents: 35_000, declaredDebtCents: 35_000 })
+    for (const list of [approval.debts.application, approval.debts.client]) {
+      expect(list).toContainEqual(expect.objectContaining({ sourceId: "own-loan:own-loan-1", monthlyInstalmentCents: 10_000, provider: "Acme Lending" }))
+    }
+  })
+})
+
+describe("Regulation 42: 3% a month on a repeat short-term loan in the calendar year", () => {
+  afterEach(() => { loanFindManyMock.mockResolvedValue([]) })
+
+  it("refuses the client's second short-term loan this year at 5% a month, without re-pricing it", async () => {
+    // A 30-day R2,000 loan earlier this year.
+    loanFindManyMock.mockResolvedValue([{ startDate: new Date("2026-03-01T08:00:00Z"), maturityDate: new Date("2026-03-31T08:00:00Z") }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    const json = await res.json() as { error: string; interestRateCap: string }
+    expect(json.interestRateCap).toBe("REPEAT_SHORT_TERM")
+    expect(json.error).toContain("at most 3.00% per month")
+    expect(transactionMock).not.toHaveBeenCalled()
+    expect(loanFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", principal: { lte: 800_000 } }),
+    }))
+  })
+
+  it("counts an earlier short-term application approved but not yet paid out", async () => {
+    applicationFindManyMock.mockResolvedValueOnce([{ appliedAmount: 200_000, appliedTermDays: 30, approvedAmount: 200_000, approvedTermDays: 30 }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect((await res.json() as { interestRateCap: string }).interestRateCap).toBe("REPEAT_SHORT_TERM")
+    expect(applicationFindManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", clientId: "client-1", status: "APPROVED", loan: null }),
+    }))
+  })
+
+  it("ignores an earlier loan that was not short-term (over 6 months)", async () => {
+    loanFindManyMock.mockResolvedValue([{ startDate: new Date("2026-01-05T08:00:00Z"), maturityDate: new Date("2026-12-05T08:00:00Z") }])
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    expect((await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)).status).toBe(200)
+  })
+})
+
+describe("NCA interest-rate cap at approval (Regulation 42)", () => {
+  // R30,000 over 18 months: an unsecured credit transaction, capped at repo + 21%.
+  const unsecured = (interestRatePm: number) => ({
+    ...underReviewApplication,
+    appliedAmount: 3_000_000,
+    appliedTermDays: 540,
+    creditLifeDisclosureSha256: createCreditLifeDisclosureSha256({
+      version: "credit-life-election-v1",
+      election: "DECLINED",
+      principalCents: 3_000_000,
+      termDays: 540,
+      monthlyPremiumCents: 2250,
+      productId: "credit-life-1",
+      productName: "Acme Credit Life",
+      insurerId: "insurer-1",
+      insurerName: "Test Life",
+    }),
+    product: { ...underReviewApplication.product, interestRatePm, interestModel: "REDUCING_BALANCE" },
+  })
+  const repo = (rate: number) => ({ effectiveDate: new Date("2026-01-01T00:00:00Z"), rate: { toNumber: () => rate } })
+
+  it("refuses the demo Personal Loan's 3% a month at a 7% repo, before the approve transaction", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(repo(0.07))
+    findUniqueMock.mockResolvedValue(unsecured(0.03))
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    const json = await res.json() as { error: string; interestRateCap: string }
+    expect(json.interestRateCap).toBe("ABOVE_CAP")
+    expect(json.error).toContain("exceeds the NCA maximum of 28.00%")
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses an unsecured approval when no repo rate is recorded", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(null)
+    findUniqueMock.mockResolvedValue(unsecured(0.02))
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect((await res.json() as { interestRateCap: string }).interestRateCap).toBe("NO_REPO_RATE")
+  })
+
+  it("reads the repo rate in effect on the decision day, for this tenant", async () => {
+    referenceRateFindFirstMock.mockResolvedValue(repo(0.07))
+    findUniqueMock.mockResolvedValue(unsecured(0.03))
+    await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(referenceRateFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t1", basis: "REPO", status: "APPROVED" }),
+    }))
   })
 })
 
