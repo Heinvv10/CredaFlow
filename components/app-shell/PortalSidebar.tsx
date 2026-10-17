@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { LogOut } from "lucide-react"
+import { LogOut, Menu } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { buildPortalNavigation, type NavItem } from "@/lib/navigation"
@@ -138,6 +138,35 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
           </button>
         </div>
       </aside>
+
+      <details
+        className="fixed bottom-20 left-4 z-50 md:hidden"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.currentTarget.removeAttribute("open")
+            event.currentTarget.querySelector("summary")?.focus()
+          }
+        }}
+      >
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 text-sm font-semibold text-[var(--cf-text)] shadow-lg">
+          <Menu className="h-4 w-4" aria-hidden="true" />{t("menu")}
+        </summary>
+        <nav aria-label={t("clientPortal")} className="absolute bottom-full left-0 mb-2 max-h-[60dvh] w-64 overflow-y-auto rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] p-2 shadow-xl">
+          {portalNavigation.map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              {...(item.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}
+              aria-current={!item.external && isActive(pathname, item.href) ? "page" : undefined}
+              className="block rounded-md px-3 py-3 text-sm text-[var(--cf-text)] hover:bg-[var(--cf-surface-hover)]"
+            >{label(item)}</Link>
+          ))}
+          <button onClick={() => signOut({ redirectTo: "/portal/login" })} className="flex w-full items-center gap-3 border-t border-[var(--cf-border-subtle)] px-3 py-3 text-sm text-[var(--cf-text)]">
+            <LogOut className="h-4 w-4" aria-hidden="true" />{t("signOut")}
+          </button>
+        </nav>
+      </details>
 
       <nav className={cn(
         "fixed inset-x-0 bottom-0 z-50 grid h-16 border-t border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:hidden",

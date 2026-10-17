@@ -1,0 +1,19 @@
+# Implementer A Wave B submission
+
+Base: `22edb02c` (Wave A `cb35643d`, independent B review record). Branch/worktree unchanged.
+
+F06 present at base: mobile bottom navigation exposes only five/six destinations; desktop sidebar and sign-out are hidden below md. Add a mobile native disclosure with every permitted desktop destination and sign-out, preserving business eligibility. The menu scrolls at 60dvh, closes when choosing a destination, supports Escape with summary focus restored, and sits at bottom-left to avoid the bottom-right support launcher. Existing bottom shortcuts unchanged.
+
+F07 already corrected on current main by `88cc30207a478ff2dd4fa035a45c0dc11d15ee6d` after audited source: reference panel uses theme-aware color-mix background. Preserve fix. Existing rendered page test validates actual card tokens; add numerical contrast acceptance using the real resolver/palette for default, Fairscore and Tsela primary colours. Dark reference 12.70–12.92:1, helper 4.79–4.87:1; light reference 14.07–14.44:1, helper 4.88–5.01:1. All exceed 4.5:1. Browser computed-colour check still pending.
+
+F12 present: portalOutstanding returns principal with charges off and settlement/contractual amount when live. Merely changing its label to principal would be wrong. Preserve calculation and label overview as Current account amount with explicit conditional definition. Loan detail explains its hero's actual basis, adds outstanding principal, overdue including default charges, unpaid contractual instalments, and a dated calculated settlement only if existing isS125Priced supports the loan. Asset-finance instalment sales and NON_NCA loans instead request a lender quote: existing settlement helper explicitly says their totalToSettle includes unearned interest and is not certified early settlement. List/statement labels that directly show outstandingPrincipal now say Outstanding principal. No PDF, fingerprint, financial formula or regulatory interpretation changed.
+
+New financial explanatory keys remain English across the four catalogues (money/legal terminology); translated menu labels added to all catalogues. Changed draft catalogues invalidate their existing native-speaker review hashes by design; real lender language activation not performed.
+
+Verification: targeted portal detail/payment/shared ledger suites 3 files /31 tests PASS, including partial asset loan live/off, ordinary priced settlement, NON_NCA no-settlement assertion and real panel contrast. Portal overview/list/statement, catalogue, sidebar suite 7 files /210 tests PASS. Navigation sign-out callback, eligible full destination set and scrollability covered. Node22, <=2 workers. ci:quick PASS: TypeScript app/demo, full ESLint, docs/mirrors, date gates and four timezone date runs.
+
+No schema/migration/provider activation/data changes. Independent review and integrated full gates/browser acceptance pending.
+
+Browser scenarios: 390x844 and short-height mobile consumer and entity-representative sessions; menu keyboard/touch opens, scroll to all links, Escape returns focus, each route navigates, sign-out returns portal login and protected route refuses. Confirm no support launcher collision. Dark/light reference card computed colours meet AA, actual reference readable/copyable. Compare partly paid asset loan principal/contractual/current-overdue amounts with staff servicing; confirm no calculated settlement promised for asset/NON_NCA. For priced consumer loan, dated settlement matches existing staff/certificate formula; live default charges clearly separated and included only in their stated amounts. Overview calculation stays identical while meaning is explicit. No external sends or money movements.
+
+Rollback: revert Wave B submission; no DB rollback. No browser closure claim before shared candidate exercise.

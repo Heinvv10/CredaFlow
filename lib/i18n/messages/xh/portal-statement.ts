@@ -16,7 +16,7 @@ export const portalStatement: Catalog["portalStatement"] = {
   print: "Printa",
   paymentReference: "Isalathiso sentlawulo",
   quoteReference: "Sebenzisa esi salathiso kuzo zonke iintlawulo okanye iidiphozithi ukuze yabelwe kule mali-mboleko.",
-  outstanding: "Eseleyo",
+  outstanding: "Outstanding principal",
   totalPaid: "Ehlawuliweyo iyonke",
   totalRepayable: "Eza kubuyiswa iyonke",
   noPaymentsTitle: "Akukho ntlawulo zibhalisiweyo okwangoku",
