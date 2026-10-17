@@ -1,4 +1,20 @@
-# Portal browser acceptance — candidate 6
+# Portal browser acceptance — final candidate 7
+
+Final source: `66c183c1d316b2c8d696b56aa37a42de4700445e`. Immutable image: `sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d`. Canonical private origins: `http://localhost:44213` (base) and `http://localhost:46203` (separate positive-charge fixture). Prior candidate 6 evidence is retained below and does not substitute for this final replay.
+
+[Final evidence index](evidence/a-browser/final-66c183c1/index.json): full base run 25 scenarios and separate charges run 7 scenarios both exited 0 with **zero uncaught JavaScript exceptions, console warnings/errors and HTTP responses ≥400**. Result JSON records exact source/image, timestamps and driver hashes; screenshot hashes are indexed. All data is synthetic. Credentials/cookies/tokens remain private and are absent from artifacts.
+
+- F06: recovered no-loan Sipho ran first, then borrower Dineo and eligible business trustee. Every eligible destination was actually traversed (10/10/11 respectively), including linked business entity entry. Keyboard Enter/Escape and focus restoration, actual sign-out and protected-page refusal passed. At 390×400 each Dialog spans x16–374/y16–384; its 366px client area scrolls 577px (no-loan/consumer) or 621px (business), making remaining links and sign-out reachable. No duplicate disclosure menu.
+- F07: actual Chrome composited heading/reference/helper/copy contrasts passed all tenant/default × dark/light combinations. Minimum normal-text ratio 4.761:1. Default substitution remains browser-only; stored branding was untouched. Reference/copy ratios 12.635–14.474:1.
+- F12: final overview/list/statement/detail checks passed for personal, partially paid natural-person instalment-sale asset and positive-charge borrower. Personal principal/overdue/remaining/dated settlement each R531.43. Asset principal R285,890.82, remaining contractual instalments R374,769.94, overdue R0; lender settlement-quote request is shown and no calculated settlement is presented. Positive-charge principal R10,000, remaining contractual R12,569.86, overdue/dated settlement R13,601.41. Each matches MQ helper-derived expected figures; charges-on/off definitions are accurate. This does not certify a real lender settlement quote.
+- F08: truthful PO card/intake and required fields passed again; the existing submitted R10,000 synthetic PO application receipt was opened on final source. No duplicate application or new legal consent was submitted. The original actual intake belongs to candidate 6 evidence below; MQ's independent staff assessment/refusal remains its own acceptance record.
+- Additional route evidence: authenticated business entry and payment success/failure presentation passed. Return pages do not prove provider callback, money movement, receipt allocation or settlement.
+
+Sipho used the current private recovery credentials, not the stale initial file; A notified root immediately after sign-out and closed that context before any further root recovery actions. Asset/business credentials had previously been repaired through MQ's supported audited recovery APIs. No password reset, provider activation, fixture/database/configuration edit or external message was performed by A in this final tranche. All browser contexts closed after completion.
+
+MQ's final quality/integration/image ledger governs those separate checks. Overall finding closure and release approval remain with the coordinator; provider, legal/language and production boundaries are unchanged.
+
+## Historical candidate 6 checkpoint
 
 Source: `aeacfc065b9b8234261c2158dd98271938671ad7`. Immutable image: `sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb`. All actors, documents and amounts below belong to MQ's private disposable synthetic environments. No real provider or customer operation occurred. MQ's separate ledger governs final automated gates; this record establishes the browser scenarios stated below.
 

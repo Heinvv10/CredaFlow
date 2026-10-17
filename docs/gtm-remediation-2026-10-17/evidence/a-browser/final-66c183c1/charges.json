@@ -1,0 +1,93 @@
+{
+  "candidate": "66c183c1d316b2c8d696b56aa37a42de4700445e",
+  "baseUrl": "http://localhost:46203",
+  "immutableImage": "sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d",
+  "startedAt": "2026-10-17T15:27:58.844Z",
+  "driverSha256": "66440add98507fa8260d8c0d873a23f0c88501e70efb6869f97c23ac32ec4b09",
+  "scenarios": [
+    {
+      "finding": "F12",
+      "account": "charges",
+      "view": "overview",
+      "text": "Account in Arrears\n\nThandi, your account is 178 days overdue\n\nPay R 13,601.41 to bring your account up to date.\n\nR 13,601.41\n\nCurrent account amount\n\nIncludes current calculated settlement or contractual amounts and default charges across your open loans. Open each loan for its principal, scheduled amounts and settlement basis.\n\nIncludes: Default interest R 962.55 \u00b7 Service fee after due date R 69.00\n\nMake Payment\n\nCURRENT ACCOUNT AMOUNT\n\nR 13,601.41\n\nIncludes current calculated settlement or contractual amounts and default charges across your open loans. Open each loan for its principal, scheduled amounts and settlement basis.\n\n0%\n\nPAID TO DATE\n\nR 0.00\n\nLOAN REFERENCE\n\nLN-SEED-0001\n\nPersonal Loan\n\nACCOUNT STATUS\n\nDefaulted\n\nAction needed\nQuick Actions\n\nSecure shortcuts for the next client task.\n\nMake Payment\nView Schedule\nDownload Statement\nUpload Document\nTrack Application\nRecent Activity\nView all\nNo recent activity\nMy Documents\nManage documents\nUploaded: 0\nVerified: 0\nMissing required documents: ID Copy, Payslip, Bank Statement, Proof of Address\nMy Insurance\nNo active insurance policies."
+    },
+    {
+      "finding": "F12",
+      "account": "charges",
+      "view": "/portal/loans",
+      "text": "CLIENT PORTAL\n\nMy Loans\n\nReview active and historical loan accounts, balances and repayment schedules.\n\nLN-SEED-0001\n\nPersonal Loan / Started 22 Mar 2026\n\nDEFAULTED\n\nOUTSTANDING PRINCIPAL\n\nR 10,000.00\n\nTOTAL PAID\n\nR 0.00\n\nTOTAL REPAYABLE\n\nR 12,569.86\n\nNEXT PAYMENT\n\n22 Apr 2026\n\nView Schedule"
+    },
+    {
+      "finding": "F12",
+      "account": "charges",
+      "view": "/portal/statement",
+      "text": "YOUR ACCOUNT\n\nPayment History & Statements\n\nView active loan balances, download official statements and track recorded repayments.\n\nLN-SEED-0001\n\nPersonal Loan / DEFAULTED\n\nPDF\nPrint\n\nPAYMENT REFERENCE\n\nLN-SEED-0001\n\nQuote this reference on every payment or deposit so it is allocated to this loan.\n\nOUTSTANDING PRINCIPAL\n\nR 10,000.00\n\nTOTAL PAID\n\nR 0.00\n\nTOTAL REPAYABLE\n\nR 12,569.86\n\nNo payments recorded yet\n\nPayment history will appear here once a repayment is captured or confirmed.\n\nMake Payment"
+    },
+    {
+      "finding": "F12",
+      "account": "charges",
+      "loanId": "cmnflx7ms003uay0caxs3m5iv",
+      "breakdown": {
+        "Outstanding principal": "R 10,000.00",
+        "Overdue now, including default charges": "R 13,601.41",
+        "Remaining contractual instalments": "R 12,569.86",
+        "Calculated settlement as of 17 Oct 2026": "R 13,601.41"
+      },
+      "expected": {
+        "outstandingPrincipal": 1000000,
+        "totalRepayable": 1256986,
+        "totalPaid": 0,
+        "currentAccountAmount": 1360141,
+        "chargesOutstanding": 103155,
+        "chargeLines": [
+          {
+            "label": "Default interest",
+            "amount": 96255
+          },
+          {
+            "label": "Service fee after due date",
+            "amount": 6900
+          }
+        ],
+        "chargesLive": true,
+        "totalToSettle": 1360141,
+        "isS125Priced": true,
+        "overdueNow": 1360141,
+        "remainingContractual": 1256986
+      },
+      "text": "Back to Loans\n\nLN-SEED-0001\n\nPersonal Loan\n\n178 days overdue\nDEFAULTED\n\nR 13,601.41\n\nCurrent account amount\n\nToday\u2019s calculated settlement amount, including any default charges shown below.\n\nIncludes: Default interest R 962.55 \u00b7 Service fee after due date R 69.00\n\nPRINCIPAL\n\nR 10,000.00\n\nTOTAL REPAYABLE\n\nR 12,569.86\n\nTOTAL PAID\n\nR 0.00\n\nMONTHLY INSTALMENT\n\nR 1,914.98\n\nNEXT PAYMENT DATE\n\n22 Apr 2026\n\nNEXT PAYMENT AMOUNT\n\nR 4,026.53\n\nIncludes: Default interest R 962.55 \u00b7 Service fee after due date R 69.00\n\nOutstanding principal\nR 10,000.00\nOverdue now, including default charges\nR 13,601.41\nRemaining contractual instalments\nR 12,569.86\nCalculated settlement as of 17 Oct 2026\nR 13,601.41\n\nUnpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.\n\nCalculated for this date using the same settlement rules as staff servicing and the certificate of balance. Later payments or charges can change it.\n\nYou have paid 0% of your loan\n0%\nPaid: R 0.00\nTotal: R 12,569.86\nDownload Statement\nMake a Payment\nRepayment Schedule\nNO.\tDUE DATE\tAMOUNT\tSTATUS\n1\t22 Apr 2026\tR 2,994.98\tOVERDUE\n2\t22 May 2026\tR 1,914.98\tOVERDUE\n3\t22 Jun 2026\tR 1,914.98\tOVERDUE\n4\t22 Jul 2026\tR 1,914.98\tOVERDUE\n5\t22 Aug 2026\tR 1,914.98\tOVERDUE\n6\t22 Sept 2026\tR 1,914.96\tOVERDUE\nPayment History\nDownload Statement\nDATE\tAMOUNT\tMETHOD\tREFERENCE\nNo payments recorded yet"
+    },
+    {
+      "finding": "F07",
+      "account": "charges",
+      "theme": "dark",
+      "background": "color(srgb 0.134965 0.156031 0.194573)",
+      "reference": "rgb(236, 238, 243)",
+      "helper": "rgb(140, 147, 163)",
+      "referenceRatio": 12.761510696124795,
+      "helperRatio": 4.809177477596605,
+      "text": "LN-SEED-0001"
+    },
+    {
+      "finding": "F07",
+      "account": "charges",
+      "theme": "light",
+      "background": "color(srgb 0.911686 0.930039 0.947137)",
+      "reference": "rgb(27, 29, 36)",
+      "helper": "rgb(95, 101, 115)",
+      "referenceRatio": 14.286476029600523,
+      "helperRatio": 4.9579863152949795,
+      "text": "LN-SEED-0001"
+    },
+    {
+      "finding": "F08",
+      "account": "charges",
+      "intakeCopy": "Back to Apply\n\nPURCHASE ORDER FUNDING\n\nApply for Purchase Order Funding\n\nWe already have your profile on file. Just tell us how much you need and what for.\n\nAPPLYING AS\nUpdate profile\n\nNAME\n\nThandi Mthembu\n\nSA ID NUMBER\n\n*********0082\n\nPHONE\n\n+27831234504\n\nEMAIL\n\nthandi.mthembu@tsela-lending.invalid\n\nMONTHLY INCOME\n\nR 21,000.00\n\nMONTHLY EXPENSES\n\nR 8,500.00\n\nAMOUNT (R) \u2014 BETWEEN R 10,000.00 AND R 500,000.00\nTERM (DAYS) \u2014 BETWEEN 30 AND 120\nWHAT IS THE LOAN FOR?\nBusiness\n\nFor a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.\n\nPURCHASE ORDER NUMBER\nBUYER (WHO ISSUED THE PURCHASE ORDER)\nPURCHASE ORDER DOCUMENT (PDF, JPEG OR PNG)\nDESCRIBE THE PURPOSE (required, 3\u2013500 chars)\n\nCredit life election\n\nEnter an amount to see your credit-life cover options.\n\nI confirm the income, expenses and debt obligations on my profile are accurate. I understand Tsela Lending will use this information to assess affordability under the National Credit Act.\nI understand I will receive a Pre-Agreement Statement & Quotation (PASQ) for review in this portal. I must open and acknowledge that exact document before approval; this checkbox is not the PASQ acknowledgement. This submission does not create a binding loan.\nCancel\nSubmit application\n\nRegistered credit provider (NCR Reg: NCRCP99999). Demo lender: registration numbers are fictional. Product reference: PO."
+    }
+  ],
+  "errors": [],
+  "browserErrors": [],
+  "consoleMessages": [],
+  "httpFailures": [],
+  "endedAt": "2026-10-17T15:28:07.612Z"
+}
