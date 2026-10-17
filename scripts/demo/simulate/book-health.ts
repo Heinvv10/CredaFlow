@@ -7,7 +7,7 @@
  * two new-client personas not yet in the book. plan.test.ts holds the scripted
  * storylines to the same limits.
  */
-import type { Prisma } from "@prisma/client"
+import { UNBOOKED_PIPELINE_FILTER } from "../../../lib/applications/pipeline-query"
 import { demoLender } from "../../../prisma/demo-lender"
 import { getPersona } from "../personas"
 import { simEnv } from "../sim/env"
@@ -18,12 +18,6 @@ export const PAR30_LIMIT = 0.15
 /** Loans DEFAULTED, PENDING_WRITE_OFF or WRITTEN_OFF, as a share of all loans. */
 export const BAD_SHARE_LIMIT = 0.2
 export const PIPELINE_MAX_DAYS = 30
-
-/** Booked legacy applications are servicing records, even if their stored stage is DRAFT. */
-export const UNBOOKED_PIPELINE_FILTER = {
-  status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED"] },
-  loan: null,
-} satisfies Prisma.LoanApplicationWhereInput
 
 export interface BookFacts {
   /** Outstanding principal (cents) of the collectible book. */

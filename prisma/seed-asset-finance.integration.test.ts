@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { PORTAL_AUTHORITY_ROLES } from "@/lib/asset-finance/portal-access"
 import { sastCalendarDate } from "@/lib/date/sast"
 
-import { UNBOOKED_PIPELINE_FILTER } from "../scripts/demo/simulate/book-health"
+import { UNBOOKED_PIPELINE_FILTER } from "../lib/applications/pipeline-query"
 
 const RUN = process.env.RUN_SEED_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
