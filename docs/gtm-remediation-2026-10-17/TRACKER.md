@@ -63,7 +63,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 ## F07 — Payment-reference card has very low contrast in dark mode
 
 - Priority/status/owner: P2 / pending / A.
-- Current reproduction/root cause: Payment card mixes hardcoded pale brand background and theme text. Current-source and runtime verification pending.
+- Current reproduction/root cause: Current source already fixed after audit in 88cc3020: theme bg-raised mix and token foreground. Actual computed contrast/browser proof pending.
 - Intended smallest change: Use existing contrast-tested surface/text tokens.
 - Acceptance: Both palettes/themes/mobile; measure actual computed color contrast. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
@@ -108,7 +108,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 ## F12 — Customer “Outstanding Balance” needs a clearer financial definition
 
 - Priority/status/owner: P2 / pending / A.
-- Current reproduction/root cause: Portal balance terminology lacks principal/charges/contractual/settlement distinctions. Current-source and runtime verification pending.
+- Current reproduction/root cause: Current source confirmed: portalOutstanding is principal with charges off and totalToSettle with charges on. Conditional labels required; browser remains pending.
 - Intended smallest change: Explain existing ledger amounts without changing financial calculations or legal documents.
 - Acceptance: Part-paid asset and live default charges; staff/portal amount definitions and dated settlement distinction. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.

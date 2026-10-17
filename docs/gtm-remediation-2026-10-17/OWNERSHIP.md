@@ -14,3 +14,9 @@ No agent may edit another owner's paths. New shared-file needs require transfer 
 Use Node 22.23.1 at /home/hein/.nvm/versions/node/v22.23.1/bin; each worktree npm ci --legacy-peer-deps. Targeted tests at most two workers. Heavy quality/integration/build suites serialize with coordinator resource lock. MQ alone owns shared candidate DB/runtime; A/B use unique disposable DB containers. Never run a development server and tests starting a development server in the same worktree.
 
 2026-10-17 initial ownership approved through agent messages. Heavy lock initially reserved for MQ integrated candidate; no full suite currently running under this session.
+
+## Wave B ownership approved (implementation starts after A/B Wave A commits)
+
+A same branch/worktree, F06/F07/F12: components/app-shell/PortalSidebar.tsx, PortalSidebar.test.ts, PortalSidebar.mobile.test.tsx; app/(portal)/portal/payment/{page.tsx,page.test.tsx}; app/(portal)/portal/{page.tsx,loans/[id]/page.tsx,loans/[id]/page.test.tsx,statement/page.tsx,statement/page.test.tsx}; lib/i18n/messages/{en,af,zu,xh}/{portal-home.ts,portal-loans.ts,portal-statement.ts,portal-shell.ts}; lib/portal/loan-charges.test.ts; docs/gtm-remediation-2026-10-17/A-WAVE-B.md. PortalShell.tsx unassigned and not required by native disclosure menu approach.
+
+F07 appears already fixed after audit by 88cc3020, current main uses color-mix brand8%+cf-bg-raised with theme text. Do not overwrite; actual computed contrast/browser evidence still required. F12 portalOutstanding is principal when charges disabled and totalToSettle when enabled: unconditional principal relabel is incorrect. Preserve calculations, use conditional precise terminology.
