@@ -13,6 +13,8 @@ import {
   sastMonthBounds,
 } from "@/lib/compliance/quarters"
 import { disbursedInQuarterWhere, getNcrReturnData } from "@/lib/compliance/ncr-return"
+import { ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
+import { readSnapshotArrearsRegister } from "@/lib/reports/arrears-snapshot"
 import { overdueWhere } from "@/lib/reports/book-arrears"
 import { collectionsQueueWhere } from "@/lib/collections/queue"
 import { logAuditStrict } from "@/lib/audit"
@@ -323,7 +325,7 @@ export async function GET(req: NextRequest) {
       Line: l.label,
       Basis: l.basis === "PERIOD"
         ? "In-quarter"
-        : asFiled ? "Position as filed" : "Position at export",
+        : asFiled ? "Position as filed" : ncr.positionSource === "SNAPSHOT" ? "Position at quarter end" : "Position at export",
       Count: l.count ?? "",
       "Value (R)": l.value === null ? "" : l.value / 100,
       "% of book": l.percentOfBook === undefined ? "" : Number(l.percentOfBook.toFixed(1)),
@@ -347,11 +349,7 @@ export async function GET(req: NextRequest) {
       },
       {
         Field: "Position Basis",
-        Value: asFiled
-          ? "Position lines are the figures frozen at submission"
-          : ncr.positionIsStale
-            ? "Position lines reflect the book today, NOT the quarter end"
-            : "Position lines reflect the book at generation",
+        Value: ncrPositionBasis(ncr, asFiled, (d) => d.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE })),
       },
     ]
 
@@ -366,16 +364,34 @@ export async function GET(req: NextRequest) {
       "Disbursement Date": l.startDate.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE }),
     }))
 
-    // Sheet 3: Arrears register
-    const arrearsRows = arrears.map((l) => ({
-      Reference: l.reference,
-      "Client ID Number": l.client?.idNumber ?? "",
-      "Client Name": borrowerDisplayName(l),
-      "Days in Arrears": l.daysInArrears,
-      "Arrears Amount (R)": l.arrearsAmount / 100,
-      "Outstanding Principal (R)": l.outstandingPrincipal / 100,
-      "Original Principal (R)": l.principal / 100,
-    }))
+    // Sheet 3: Arrears register — the same source as the summary's position
+    // lines: the quarter's last day of arrears history when the return reads
+    // it, otherwise today's book (stated on the Return Info sheet).
+    const arrearsRows = ncr.positionSource === "SNAPSHOT" && ncr.positionAsOf
+      ? (await readSnapshotArrearsRegister(tenant.id, ncr.positionAsOf)).map((r) => ({
+          Reference: r.loan.reference,
+          "Client ID Number": r.loan.client?.idNumber ?? "",
+          "Client Name": borrowerDisplayName(r.loan),
+          "Days in Arrears": r.daysInArrears,
+          "Arrears Amount (R)": r.arrearsCents / 100,
+          "Outstanding Principal (R)": r.outstandingPrincipalCents / 100,
+          "Original Principal (R)": r.loan.principal / 100,
+        }))
+      : arrears.map((l) => ({
+          Reference: l.reference,
+          "Client ID Number": l.client?.idNumber ?? "",
+          "Client Name": borrowerDisplayName(l),
+          "Days in Arrears": l.daysInArrears,
+          "Arrears Amount (R)": l.arrearsAmount / 100,
+          "Outstanding Principal (R)": l.outstandingPrincipal / 100,
+          "Original Principal (R)": l.principal / 100,
+        }))
+    infoRows.push({
+      Field: "Arrears Register Basis",
+      Value: ncr.positionSource === "SNAPSHOT" && ncr.positionAsOf
+        ? `Accounts in arrears at quarter end (${ncr.positionAsOf.toLocaleDateString("en-ZA", { timeZone: "UTC" })}), from the daily arrears history`
+        : `Accounts in arrears today (${now.toLocaleDateString("en-ZA", { timeZone: SAST_TIME_ZONE })}), NOT at quarter end`,
+    })
 
     wb = createWorkbook([
       { name: "Return Info", rows: infoRows },

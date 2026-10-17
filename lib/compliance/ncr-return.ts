@@ -38,6 +38,7 @@ import { section129SentInPeriodWhere } from "@/lib/collections/section129-report
 import { quarterBounds, isQuarterOpen } from "@/lib/compliance/quarters"
 import { collectibleLoanWhere } from "@/lib/loan/collectible-book"
 import { getBookArrears } from "@/lib/reports/book-arrears"
+import { bookArrearsFromSnapshot, firstSnapshotDay, readSnapshotDay, snapshotDay } from "@/lib/reports/arrears-snapshot"
 
 // The collectible book is a property of the loan book, not of this module —
 // see lib/loan/collectible-book.ts for the full rationale and the known
@@ -97,6 +98,16 @@ export type NcrReturnData = {
    * the page claim both "Submitted" and "no return was filed for it".
    */
   filedSnapshotUnreadable: boolean
+  /**
+   * Where the POSITION lines come from: the live book (an open quarter, or a
+   * closed one with no history for its last day), or the daily arrears
+   * history for the quarter's last day (lib/reports/arrears-snapshot.ts).
+   */
+  positionSource: "LIVE" | "SNAPSHOT"
+  /** The SAST day the position describes when it comes from the history. */
+  positionAsOf: Date | null
+  /** The first day of arrears history, or null before the first run. History is never backfilled. */
+  historyStartsOn: Date | null
 }
 
 const collectibleWhere = collectibleLoanWhere
@@ -147,6 +158,8 @@ export async function getNcrReturnData(
 ): Promise<NcrReturnData> {
   const { start, end } = quarterBounds(quarter)
   const quarterOpen = isQuarterOpen(quarter, now)
+  // The quarter's last SAST day: the day its POSITION lines describe.
+  const quarterEndDay = snapshotDay(new Date(end.getTime() - 1))
 
   const [
     tenantConfig,
@@ -159,6 +172,8 @@ export async function getNcrReturnData(
     defaulted,
     attorneyReferrals,
     submittedRecords,
+    quarterEndRows,
+    historyStartsOn,
   ] = await Promise.all([
     prisma.tenantConfig.findUnique({ where: { tenantId }, select: { ncrNumber: true } }),
     // Book, arrears and PAR: the helper the dashboard, collections and the
@@ -217,10 +232,21 @@ export async function getNcrReturnData(
       orderBy: { completedAt: "desc" },
       take: 10,
     }),
+    // A closed quarter's position, as recorded on its last day, when the
+    // daily history reaches back that far.
+    quarterOpen ? Promise.resolve(null) : readSnapshotDay(tenantId, quarterEndDay),
+    firstSnapshotDay(tenantId),
   ])
 
-  const { book, arrears, par30, par60, par90 } = bookArrears
+  // A day the snapshot ran with an empty book is an (empty) position, not missing history.
+  const snapshot = quarterEndRows ? bookArrearsFromSnapshot(quarterEndRows, "NCA") : null
+  const position = snapshot ?? bookArrears
+  const { book, arrears, par30, par60, par90 } = position
   const bookValue = book.value
+  const defaultedPosition = snapshot
+    ? snapshot.defaulted
+    : { count: defaulted._count, value: Number(defaulted._sum.outstandingPrincipal ?? 0) }
+  const attorneyPosition = snapshot ? snapshot.attorneyReferred : attorneyReferrals
 
   const lines: NcrReturnLine[] = [
     {
@@ -281,12 +307,12 @@ export async function getNcrReturnData(
       note: "1+ days past due. Value is the arrears balance (default charges owed on these accounts included while charges are live); the percentage is exposure at risk.",
     },
     // Not days past due, so never in the line above; stated beside it.
-    ...(bookArrears.chargesLive
+    ...(position.chargesLive
       ? [{
           key: "chargesOnly",
           label: "— accounts owing default charges only (0 days past due)",
-          count: bookArrears.chargesOnly.count,
-          value: bookArrears.chargesOnly.amount,
+          count: position.chargesOnly.count,
+          value: position.chargesOnly.amount,
           basis: "POSITION" as const,
           note: "Instalments paid; default charges still owed.",
         }]
@@ -318,15 +344,15 @@ export async function getNcrReturnData(
     {
       key: "defaulted",
       label: "Accounts in default",
-      count: defaulted._count,
-      value: Number(defaulted._sum.outstandingPrincipal ?? 0),
+      count: defaultedPosition.count,
+      value: defaultedPosition.value,
       basis: "POSITION",
       note: "Outstanding principal, consistent with the book above.",
     },
     {
       key: "attorney",
       label: "Matters referred to attorney",
-      count: attorneyReferrals,
+      count: attorneyPosition,
       value: null,
       basis: "POSITION",
     },
@@ -365,8 +391,12 @@ export async function getNcrReturnData(
     filed,
     // Only meaningful with nothing filed: once `filed` is present the UI shows
     // the figures as filed, which are by definition right for the quarter.
-    positionIsStale: !quarterOpen && filed === null,
+    // A closed quarter read from its last day's history is not stale.
+    positionIsStale: !quarterOpen && filed === null && snapshot === null,
     filedSnapshotUnreadable: submittedRecord !== null && filed === null,
+    positionSource: snapshot ? "SNAPSHOT" : "LIVE",
+    positionAsOf: snapshot ? quarterEndDay : null,
+    historyStartsOn,
   }
 }
 
@@ -442,6 +472,10 @@ export function submissionSnapshot(data: NcrReturnData) {
     periodStart: data.periodStart.toISOString(),
     periodEnd: data.periodEnd.toISOString(),
     ncrNumber: data.ncrNumber,
+    // Where the position lines came from when filed: the quarter's last day
+    // of arrears history, or the live book on the day of filing.
+    positionSource: data.positionSource,
+    positionAsOf: data.positionAsOf?.toISOString().slice(0, 10) ?? null,
     collectibleBook: data.collectibleBook,
     lines: data.lines.map((l) => ({
       key: l.key,

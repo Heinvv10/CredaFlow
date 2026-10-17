@@ -34,6 +34,9 @@ function data(over: Partial<NcrReturnData> = {}): NcrReturnData {
     filed: null,
     positionIsStale: false,
     filedSnapshotUnreadable: false,
+    positionSource: "LIVE",
+    positionAsOf: null,
+    historyStartsOn: null,
     ...over,
   }
 }
@@ -183,3 +186,14 @@ describe("ncrBasisLabel", () => {
     expect(ncrBasisLabel(line({ basis: "PERIOD" }), true)).toBe("In-quarter")
   })
 })
+
+describe("NCR CSV position basis from the arrears history", () => {
+  it("states the history day the position lines describe", () => {
+    const csv = buildNcrCsv({
+      data: data({ positionSource: "SNAPSHOT", positionAsOf: new Date("2026-06-30T00:00:00Z") }),
+      quarterLabel: "Q2 2026", generatedAt: GENERATED, formatDate: fmtDate, formatDateTime: fmtDateTime,
+    })
+    expect(csv).toContain("Position at quarter end: the book as at 2026-06-30, from the daily arrears history")
+  })
+})
+
