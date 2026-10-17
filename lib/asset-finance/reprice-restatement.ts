@@ -17,14 +17,16 @@ interface RestatementInput {
   oldPath: RatePoint[]
   newPath: RatePoint[]
   effectiveDate: string
+  lawfulInterestCents?: number[]
 }
 export interface RateRestatement {
   rows: ScheduleRow[]
+  contractualInterestByIndex?: Record<number, number>
   closingBalanceCents: number
   /** Signed correction to the balance: negative is a credit to the borrower. */
   adjustmentCents: number
 }
-const capitalCash = (row: StoredScheduleRow) => row.totalDue - row.feesDue
+const capitalCash = (row: StoredScheduleRow) => (row.collectibleTotalDue ?? row.totalDue) - row.feesDue
 
 export function restateSettledSchedule(input: RestatementInput): RateRestatement {
   const { stored, paidThroughIndex: paid, originalClosingBalanceCents: original } = input
@@ -54,14 +56,18 @@ export function restateSettledSchedule(input: RestatementInput): RateRestatement
   } else { opening = snapshot }
   if (!Number.isSafeInteger(opening) || opening < 0) throw new Error("Invalid historical opening capital")
   const rows: ScheduleRow[] = []
+  const contractualInterestByIndex: Record<number, number> = {}
   for (let i = first; i <= paid; i++) {
-    const interest = periodInterest(Math.max(0, opening), rateDaySum(newSegments, periodStart(i), days[i]))
+    const contractualInterest = periodInterest(Math.max(0, opening), rateDaySum(newSegments, periodStart(i), days[i]))
     const payment = capitalCash(stored[i])
+    const billedInterest = Math.min(contractualInterest, payment)
+    contractualInterestByIndex[i] = billedInterest
+    const interest = contractualInterest - (billedInterest - (input.lawfulInterestCents?.[i] ?? billedInterest))
     const closing = opening + interest - payment
     rows.push({ index: i, dueDate: sastCalendarDate(stored[i].dueDate), weight: 0, openingBalanceCents: opening,
       interestCents: interest, principalCents: payment - interest, feesCents: 0, balloonCents: 0,
       totalCents: payment, closingBalanceCents: closing })
     opening = closing
   }
-  return { rows, closingBalanceCents: opening, adjustmentCents: opening - original }
+  return { rows, contractualInterestByIndex, closingBalanceCents: opening, adjustmentCents: opening - original }
 }

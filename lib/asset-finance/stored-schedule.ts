@@ -64,7 +64,7 @@ export interface StoredSchedule {
 }
 
 /** A pending row: PENDING and nothing paid against it. Every other row is settled history. */
-const isPending = (row: StoredScheduleRow): boolean => row.status === "PENDING" && row.totalPaid === 0
+const isPending = (row: StoredScheduleRow): boolean => (row.status === "PENDING" || row.totalDue === 0) && row.totalPaid === 0
 
 /** The opening balance x with x + interest(x) = target, or null when no integer has it. */
 function openingBefore(target: number, rateDays: number): number | null {

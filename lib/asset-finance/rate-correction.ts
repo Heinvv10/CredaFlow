@@ -1,5 +1,8 @@
 /** Late closed-book correction. Replays original cash at its value dates;
  * no receipt, signed schedule, or executed refund is invented. */
+import type { DefaultChargeInput } from "@/lib/loan/default-charges"
+import { loadChargesReplay } from "@/lib/loan/charges-replay"
+import { lawfulRateCorrection } from "./lawful-rate-correction"
 import type { RepriceTx } from "./reprice-loan"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { allocateReceipts } from "@/lib/loan/balances"
@@ -43,7 +46,7 @@ interface CorrectionEvidence {
 
 /** Receipt reversals change the basis of an unexecuted correction. Append the
  * difference immediately, keeping both the old statement and immutable cash. */
-export async function reconcileRateCorrections(tx: Pick<RepriceTx, "assetFinanceRateCorrection" | "payment">, tenantId: string, loanId: string, cause: string) {
+export async function reconcileRateCorrections(tx: Pick<RepriceTx, "assetFinanceRateCorrection" | "payment" | "loan" | "complianceRecord" | "loanCharge" | "repaymentSchedule" | "auditLog">, tenantId: string, loanId: string, cause: string, sourceRows?: DefaultChargeInput["schedule"]) {
   if (await tx.assetFinanceRateCorrection.findUnique({ where: { cause } })) return
   const ledger = await tx.assetFinanceRateCorrection.findMany({ where: { tenantId, loanId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
   const latest = ledger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE"].includes(row.reason)).at(-1)
@@ -51,7 +54,9 @@ export async function reconcileRateCorrections(tx: Pick<RepriceTx, "assetFinance
   const evidence = latest.contractualRows as unknown as CorrectionEvidence
   const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })
   const events = correctionCashEvents(evidence.rows, receipts)
-  const target = correctionBalance(evidence.principalCents, evidence.startDate, evidence.correctedPath, events) - correctionBalance(evidence.principalCents, evidence.startDate, evidence.billedPath, events)
+  let target = correctionBalance(evidence.principalCents, evidence.startDate, evidence.correctedPath, events) - correctionBalance(evidence.principalCents, evidence.startDate, evidence.billedPath, events)
+  const replay = await loadChargesReplay(tx, { tenantId, loanId }, new Date(), { decidingStatus: true })
+  if (replay?.loan.ncaRegime === "NON_NCA") target = lawfulRateCorrection(replay, sourceRows ?? replay.loan.repaymentSchedule, evidence.startDate, evidence.billedPath, evidence.correctedPath, new Date())
   const previous = ledger.reduce((sum, row) => sum + row.amountCents, 0)
   await tx.assetFinanceRateCorrection.create({ data: { tenantId, loanId, contractRateId: latest.contractRateId, cause, amountCents: target - previous, cumulativeAmountCents: target, reason: "RECEIPT_RECONCILIATION", contractualRows: { ...evidence, events } as never } })
 }

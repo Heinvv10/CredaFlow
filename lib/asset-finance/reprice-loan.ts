@@ -63,17 +63,20 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import { contractRatePath, referenceRateOn } from "./rates-store"
-import { noticeKeptThroughIndex, repriceTail } from "./reprice"
+import { noticeKeptThroughIndex, repriceTail, REPRICE_NOTICE_DAYS } from "./reprice"
 import { queueRepriceNotice } from "./reprice-notice"
 import { storedScheduleForReprice, type StoredScheduleError } from "./stored-schedule"
 import { maxAssetFinanceAnnualRate } from "./nca-caps"
 import { isLeaseContract } from "./lease-input"
 import { leaseCapitalRows, writeLeaseRepricedRows } from "./lease-reprice"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
-import { dueDateInstant } from "./schedule-records"
+import { dueDateInstant, toScheduleRecord } from "./schedule-records"
 import { assetRateRepriceBaseline } from "./reprice-baseline"
+import { lawfulRateCorrection } from "./lawful-rate-correction"
 import { correctionCashEvents, correctionBalance } from "./rate-correction"
 import { commonLawContractualRows } from "./common-law-interest"
+import { loadSettlementEvidence } from "@/lib/loan/contractual-schedule"
+import { loadChargesReplay } from "@/lib/loan/charges-replay"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { restateSettledSchedule } from "./reprice-restatement"
 import { writeRestatedRows, writeRepricedRows } from "./reprice-writes"
@@ -81,7 +84,7 @@ import { writeRestatedRows, writeRepricedRows } from "./reprice-writes"
 export type RepriceTx = Pick<
   typeof prisma,
   "$queryRaw" | "$executeRawUnsafe" | "loan" | "repaymentSchedule" | "contractRate" | "referenceRate" | "auditLog" | "entityRelationship" | "user" | "notification"
-  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge" | "assetFinanceRateCorrection"
+  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge" | "assetFinanceRateCorrection" | "bankTransaction"
 >
 
 export interface RepriceRequest {
@@ -208,7 +211,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const billedHistory = history.filter((point) => !ledgerOnlyDates.has(point.effectiveDate))
   const monthlyServiceFee = loan.ncaRegime === "NCA" ? loan.monthlyServiceFee ?? 0 : 0
   const pendingCashRows = rawStored.filter((row) => row.totalDue > row.totalPaid)
-  const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + 14)
+  const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + REPRICE_NOTICE_DAYS)
   if (loan.status === "COMPLETED" || fixedFinalWindow) {
     const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
     const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })
@@ -223,7 +226,11 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     const billedPath = billedHistory
     const oldBalance = correctionBalance(loan.principal, startDate, billedPath, events)
     const corrected = correctionBalance(loan.principal, startDate, newPath, events)
-    const cumulativeAmountCents = corrected - oldBalance
+    const closedReplay = loan.ncaRegime === "NON_NCA" ? await loadChargesReplay(tx, { tenantId, loanId }, loan.closedAt ?? dueDateInstant(request.runDate), { decidingStatus: true }) : null
+    if (loan.ncaRegime === "NON_NCA" && !closedReplay) throw new Error("Closed rate correction needs its common-law replay")
+    const settlementEvidence = closedReplay ? (await loadSettlementEvidence(tx, tenantId, [loanId])).get(loanId) : null
+    const legalSourceRows = settlementEvidence ? rawStored.map((row) => ({ ...row, ...settlementEvidence.rows.find((saved) => saved.id === row.id)! })) : rawStored
+    const cumulativeAmountCents = closedReplay ? lawfulRateCorrection(closedReplay, legalSourceRows, startDate, billedPath, newPath, loan.closedAt ?? dueDateInstant(request.runDate)) : corrected - oldBalance
     const previousAmount = previous.reduce((sum, row) => sum + row.amountCents, 0)
     const amountCents = cumulativeAmountCents - previousAmount
     const created = await tx.contractRate.create({ data: { tenantId, loanId, effectiveDate: dbDate(effectiveDate), basis, margin: prior.margin, resultingRate, newInstalmentCents: 0 } })
@@ -241,13 +248,13 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
 
   const paid = schedule.paidThroughIndex
   const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
-  const restatement = restateSettledSchedule({
+  let restatement = restateSettledSchedule({
     stored: lease ? lease.rows : stored, paidThroughIndex: paid, originalClosingBalanceCents: schedule.capitalOutstandingCents,
     startDate, oldPath: billedHistory, newPath, effectiveDate: [...ledgerOnlyDates, effectiveDate].sort()[0],
   })
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
   if (kept >= schedule.rows.length - 1) return notEligible("within_notice_period")
-  const solved = repriceTail({
+  let solved = repriceTail({
     rows: schedule.rows,
     paidThroughIndex: paid,
     keptThroughIndex: kept,
@@ -257,6 +264,30 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     balloonCents,
     firstDueOnAccrualStart: lease !== null && lease.advance && paid === -1,
   })
+
+  if (loan.ncaRegime === "NON_NCA" && !lease) {
+    const replay = await loadChargesReplay(tx, { tenantId, loanId }, dueDateInstant(request.runDate), { decidingStatus: true })
+    if (!replay) throw new Error("Rate correction needs its common-law replay")
+    let stable = false
+    for (let attempt = 0; attempt <= stored.length + 1; attempt++) {
+      const proposed = stored.map((row) => ({ ...row }))
+      for (const row of [...restatement.rows, ...solved.rows]) {
+        const original = proposed[row.index]
+        const billed = toScheduleRecord(row)
+        const fullInterest = restatement.contractualInterestByIndex?.[row.index] ?? billed.interestDue
+        proposed[row.index] = { ...original, principalDue: billed.principalDue, interestDue: fullInterest,
+          commonLawContractualInterestDue: fullInterest, totalDue: billed.totalDue + original.feesDue + fullInterest - billed.interestDue }
+      }
+      const projected = replay.replayAt(dueDateInstant(request.runDate), [], { schedule: proposed, contractRateHistory: newPath.map((point) => ({ effectiveDate: dbDate(point.effectiveDate), annualRate: point.annualRate })) })
+      const lawful = projected.lawfulSchedule!.map((row) => row.interestDue)
+      const next = restateSettledSchedule({ stored, paidThroughIndex: paid, originalClosingBalanceCents: schedule.capitalOutstandingCents, startDate, oldPath: billedHistory, newPath, effectiveDate: [...ledgerOnlyDates, effectiveDate].sort()[0], lawfulInterestCents: lawful })
+      stable = next.closingBalanceCents === restatement.closingBalanceCents && next.rows.every((row, i) => row.interestCents === restatement.rows[i]?.interestCents)
+      restatement = next
+      solved = repriceTail({ rows: schedule.rows, paidThroughIndex: paid, keptThroughIndex: kept, balanceAtRepriceCents: restatement.closingBalanceCents, repriceDate: paid >= 0 ? schedule.rows[paid].dueDate : startDate, ratePath: newPath, balloonCents })
+      if (stable) break
+    }
+    if (!stable) throw new Error("Proposed common-law rate correction did not reconcile")
+  }
 
   // The first write: on a lost race the unique index refuses it before
   // anything else has changed.
@@ -275,7 +306,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     throw error
   }
 
-  const restated = await writeRestatedRows(tx, tenantId, loanId, stored, restatement.rows, lease !== null)
+  const restated = await writeRestatedRows(tx, tenantId, loanId, stored, restatement.rows, lease !== null, restatement.contractualInterestByIndex)
   if (restatement.rows.length > 0) {
     await logAuditStrict({
       tenantId, userId: request.actorUserId, action: AuditAction.LOAN_RATE_RESTATED, entity: "Loan", entityId: loanId,
@@ -292,7 +323,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     ? await writeRepricedRows(tx, tenantId, loanId, stored, solved.rows)
     : { principal: leaseChange, interest: 0, total: leaseChange }
   const finalRows = await tx.repaymentSchedule.findMany({ where: { tenantId, loanId }, orderBy: { installmentNo: "asc" },
-    select: { id: true, installmentNo: true, principalDue: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true, dueDate: true, assetFinanceOpeningBalanceCents: true } })
+    select: { id: true, installmentNo: true, principalDue: true, interestDue: true, feesDue: true, creditLifePremiumDue: true, totalDue: true, totalPaid: true, dueDate: true, assetFinanceOpeningBalanceCents: true, commonLawContractualInterestDue: true } })
   const newPrincipal = finalRows.reduce((sum, row) => sum + row.principalDue, 0)
   const balances = recomputeLoanBalances(newPrincipal, finalRows, dueDateInstant(request.runDate))
   const loanUpdated = await tx.loan.updateMany({
@@ -305,8 +336,8 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
       outstandingPrincipal: balances.outstandingPrincipal,
       totalInterest: finalRows.reduce((sum, row) => sum + row.interestDue, 0),
       totalRepayable: finalRows.reduce((sum, row) => sum + row.totalDue, 0),
-      ...(loan.contractualTotalInterest === null ? {} : { contractualTotalInterest: { increment: change.interest + restated.interest } }),
-      ...(loan.contractualTotalRepayable === null ? {} : { contractualTotalRepayable: { increment: change.total } }),
+      ...(loan.contractualTotalInterest === null ? {} : { contractualTotalInterest: finalRows.reduce((sum, row) => sum + (row.commonLawContractualInterestDue ?? row.interestDue), 0) }),
+      ...(loan.contractualTotalRepayable === null ? {} : { contractualTotalRepayable: finalRows.reduce((sum, row) => sum + row.totalDue + (row.commonLawContractualInterestDue ?? row.interestDue) - row.interestDue, 0) }),
       interestRatePm: resultingRate.div(12).toNumber(),
     },
   })

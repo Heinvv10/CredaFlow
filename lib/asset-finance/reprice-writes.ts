@@ -28,7 +28,7 @@ export async function writeRepricedRows(
     const after = { ...capital, feesDue: before.feesDue, creditLifePremiumDue: before.creditLifePremiumDue,
       totalDue: capital.totalDue + before.feesDue }
     const updated = await tx.repaymentSchedule.updateMany({
-      where: { id: before.id, tenantId, loanId, status: "PENDING", totalPaid: 0 },
+      where: { id: before.id, tenantId, loanId, status: before.totalDue === 0 ? before.status as ScheduleStatus : "PENDING", totalPaid: 0 },
       data: {
         principalDue: after.principalDue,
         interestDue: after.interestDue,
@@ -53,6 +53,7 @@ export async function writeRestatedRows(
   stored: StoredScheduleRow[],
   rows: ScheduleRow[],
   lease: boolean,
+  contractualInterestByIndex?: Record<number, number>,
 ): Promise<ScheduleChange> {
   const change = { principal: 0, interest: 0, total: 0 }
   for (const row of rows) {
@@ -60,7 +61,7 @@ export async function writeRestatedRows(
     const capital = toScheduleRecord(row)
     const data = lease
       ? { assetFinanceOpeningBalanceCents: row.openingBalanceCents }
-      : { principalDue: capital.principalDue, interestDue: capital.interestDue, ...(before.commonLawContractualInterestDue == null ? {} : { commonLawContractualInterestDue: capital.interestDue }), assetFinanceOpeningBalanceCents: row.openingBalanceCents }
+      : { principalDue: capital.principalDue, interestDue: capital.interestDue, ...(before.commonLawContractualInterestDue == null && contractualInterestByIndex?.[row.index] === capital.interestDue ? {} : { commonLawContractualInterestDue: contractualInterestByIndex?.[row.index] ?? capital.interestDue }), assetFinanceOpeningBalanceCents: row.openingBalanceCents }
     const updated = await tx.repaymentSchedule.updateMany({
       where: { tenantId, loanId, id: before.id, status: before.status as ScheduleStatus, totalPaid: before.totalPaid, totalDue: before.collectibleTotalDue ?? before.totalDue }, data,
     })

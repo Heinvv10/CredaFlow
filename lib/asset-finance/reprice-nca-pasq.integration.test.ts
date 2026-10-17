@@ -59,9 +59,8 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
         const row = evidence.billing.schedule[i]
         await tx.repaymentSchedule.update({ where: { id: rows[i].id }, data: { feesDue: row.feesDueCents, creditLifePremiumDue: row.creditLifePremiumDueCents, totalDue: row.totalDueCents, totalPaid: i < PAID_ROWS ? row.totalDueCents : 0 } })
       }
-      for (let i = 0; i < PAID_ROWS; i++) {
-        await tx.payment.create({ data: { tenantId: tenant.tenantId, loanId, amount: evidence.billing.schedule[i].totalDueCents, receivedAt: rows[i].dueDate, capturedBy: tenant.adminId } })
-      }
+      const receipts = await tx.payment.findMany({ where: { loanId }, orderBy: { receivedAt: "asc" } })
+      for (let i = 0; i < PAID_ROWS; i++) await tx.payment.update({ where: { id: receipts[i].id }, data: { amount: evidence.billing.schedule[i].totalDueCents } })
       const firstRate = await tx.contractRate.findFirstOrThrow({ where: { loanId } })
       await tx.contractRate.update({ where: { id: firstRate.id }, data: { newInstalmentCents: BOOKED.baseInstalmentCents + service } })
     })
@@ -102,6 +101,25 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     const corrected = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: lateDate, runDate: BOOKED.rows[PAID_ROWS].dueDate }))
     expect(corrected.kind).toBe("repriced")
     const correction = await db.assetFinanceRateCorrection.findFirstOrThrow({ where: { loanId } })
+    const proof = correction.contractualRows as unknown as { events: Array<{ day: string; capitalCashCents: number }>; billedPath: Array<{ effectiveDate: string; annualRate: number }>; correctedPath: Array<{ effectiveDate: string; annualRate: number }> }
+    const actualPaidRows = await db.repaymentSchedule.findMany({ where: { loanId } })
+    const actualCash = await db.payment.aggregate({ where: { loanId, reversed: false, allocationStatus: "ALLOCATED" }, _sum: { amount: true } })
+    expect(proof.events.reduce((sum, row) => sum + row.capitalCashCents, 0)).toBe(actualCash._sum.amount! - actualPaidRows.reduce((sum, row) => sum + row.feesDue, 0))
+    const dailyOracle = (path: typeof proof.billedPath, events = proof.events) => {
+      let balance = changed.principal, previousDay = Math.round(new Date(DEAL.startDate + "T00:00:00Z").getTime() / 86400000)
+      for (const event of events) {
+        const day = Math.round(new Date(event.day + "T00:00:00Z").getTime() / 86400000)
+        let rateDays = 0
+        for (let cursor = previousDay + 1; cursor <= day; cursor++) {
+          const iso = new Date(cursor * 86400000).toISOString().slice(0, 10)
+          rateDays += path.filter((point) => point.effectiveDate <= iso).at(-1)!.annualRate
+        }
+        balance += Math.round(Math.max(0, balance) * rateDays / 365) - event.capitalCashCents
+        previousDay = day
+      }
+      return balance
+    }
+    expect(correction.amountCents).toBe(dailyOracle(proof.correctedPath) - dailyOracle(proof.billedPath))
     expect(correction.amountCents).toBeLessThan(0)
     expect(correction.status).toBe("PENDING_MANUAL_EXECUTION")
     expect((await db.assetFinanceRateNotice.findUniqueOrThrow({ where: { contractRateId: correction.contractRateId } })).correctionPendingManual).toBe(true)
@@ -111,6 +129,8 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     const response = await reversePayment(new NextRequest("http://localhost/api/payments/synthetic/reverse", { method: "PATCH", body: JSON.stringify({ reason: "Synthetic bank return" }) }), { params: Promise.resolve({ id: receipt.payment.id }) })
     expect(response.status).toBe(200)
     const ledgerAfterReverse = await db.assetFinanceRateCorrection.findMany({ where: { loanId } })
+    const reverseEvents = proof.events.slice(0, -1)
+    expect(ledgerAfterReverse.reduce((sum, row) => sum + row.amountCents, 0)).toBe(dailyOracle(proof.correctedPath, reverseEvents) - dailyOracle(proof.billedPath, reverseEvents))
     expect(ledgerAfterReverse).toHaveLength(2)
     expect(ledgerAfterReverse.reduce((sum, row) => sum + row.amountCents, 0)).not.toBe(correction.amountCents)
     const retryResponse = await reversePayment(new NextRequest("http://localhost/api/payments/synthetic/reverse", { method: "PATCH", body: JSON.stringify({ reason: "Synthetic retry" }) }), { params: Promise.resolve({ id: receipt.payment.id }) })

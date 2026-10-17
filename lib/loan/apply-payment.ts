@@ -399,7 +399,7 @@ export async function applyManualReceiptInTx(tx: PaymentTx, input: ManualReceipt
   // Deferred PASQ/ledger guards can fail at COMMIT after PostgreSQL has
   // already returned the created receipt row. Force them inside the callback
   // so Prisma cannot surface a rolled-back payment as an HTTP 200.
-  if (["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(loan.contractType)) await reconcileRateCorrections(tx, input.tenantId, input.loanId, `RECEIPT:${payment.id}`)
+  if (["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(loan.contractType)) await reconcileRateCorrections(tx, input.tenantId, input.loanId, `RECEIPT:${newPayment.id}`)
   await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
 
   // The replay rewrote this receipt's charge split; hand back that row.

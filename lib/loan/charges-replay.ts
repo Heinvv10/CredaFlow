@@ -3,6 +3,7 @@ import { allocateReceipts } from "@/lib/loan/balances"
 import { sastCalendarDay } from "@/lib/loan/settlement"
 import {
   computeDefaultCharges,
+  type DefaultChargeInput,
   type DefaultChargeReceipt,
   type DefaultChargeResult,
 } from "@/lib/loan/default-charges"
@@ -266,9 +267,9 @@ export async function loadChargesReplay(
   const accrueFrom = accrueFromWith([])
 
   /** Re-run the replay, optionally with a receipt not yet written. */
-  const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = []) => {
+  const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = [], proposed?: { schedule: DefaultChargeInput["schedule"]; contractRateHistory?: Array<{ effectiveDate: Date; annualRate: number }> }) => {
     const common = {
-      schedule: loan.repaymentSchedule,
+      schedule: proposed?.schedule ?? loan.repaymentSchedule,
       receipts: [...receipts.map((receipt) => stoppedHistory ? { ...receipt, amount: receipt.amount - receipt.defaultInterestAllocated - receipt.chargeFeesAllocated } : receipt), ...extraReceipts],
       interestRatePm: loan.interestRatePm,
       maturityDate: loan.maturityDate,
@@ -287,7 +288,7 @@ export async function loadChargesReplay(
         startDate: loan.startDate,
         defaultInterestMargin: !defaultChargesLive || margin === null ? null : margin.toNumber(),
         collectionFeeCents: defaultChargesLive ? terms.nonNcaCollectionFeeCents : null,
-        contractRateHistory: loan.contractRates.map((rate) => ({
+        contractRateHistory: proposed?.contractRateHistory ?? loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),
         })),

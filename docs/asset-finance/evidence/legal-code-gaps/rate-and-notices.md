@@ -1,6 +1,6 @@
 # Rate changes and written notices — items 24 and 26
 
-2026-10-17, branch `fix/asset-finance-legal-rate`, based on `a740801a`.
+2026-10-17, branch `fix/asset-finance-legal-rate`, merged with main `0acd1bdf` (integration merge `0996b08c`).
 All database fixtures are synthetic and run on disposable PostgreSQL 16.
 No real message, deployment, tenant flag, demo/Fairscore stack or paid service
 was changed.
@@ -58,8 +58,7 @@ The tests prove:
 
 Both Postgres catalogs were inspected: `pg_trigger` and CHECK constraints in
 `pg_constraint`. Existing ReferenceRate lifecycle/four-eyes/source guards and
-ContractRate basis/result guards remain in force. The migration adds only a
-new outbox table, indexes and its tenant/loan/contract-rate foreign key.
+ContractRate basis/result guards remain in force. The changes add tenant-scoped outbox/correction ledgers and narrowly revise the NCA asset PASQ validator. Ordinary consumer LOAN validation and signed PASQ evidence are unchanged.
 
 Email is the implemented delivery channel. NCA s104 notices use the statutory
 email template; commercial contractual notices use the SERVICE lane and
@@ -91,4 +90,42 @@ Its extracted text includes "each published change applies from its benchmark
 effective date" and contains no 0.25-point threshold. No consumer NCA pin was
 changed.
 
-Full quality/integration gate results are recorded below after completion.
+## Historical cash and legal-cap acceptance
+
+A late effective date restates already-paid principal/interest allocations without
+changing the cash, payment dates, fees or premiums. Future capital starts from
+the corrected closing balance. A genuine acknowledged NCA asset PASQ with service
+fees, deferred initiation fee and credit-life premiums is repriced under migrated
+guards; its original PASQ stays intact. `applyManualReceipt` settles at the revised
+s125 amount and the real reversal route restores the revised contractual rows.
+Arbitrary schedule/Loan monetary changes still fail the database guard.
+
+On a fully paid book the correction is an append-only signed ledger liability,
+not an invented receipt. It is visible to staff and in the borrower notice as
+pending manual execution. No bank action is performed. Effective-dated actual
+cash replay determines the NCA credit/debit; independent daily arithmetic checks
+the exact signed amount. A retry adds no second correction. Reversing the settling
+receipt appends the new difference immediately; a repeated reversal adds nothing.
+Normal repricing of a reopened account consumes that pending adjustment and
+incorporates its true historical rate path once.
+
+Common-law cap projection uses the proposed contractual interest separately from
+collectible cash and interest. The real-booked 120-month commercial regression
+ages the account nine years, applies the cap with default charges OFF, receives
+actual cash, and reprices a paid capped period. Zero lawful interest stays zero,
+principal does not acquire a phantom residual, and the new full contractual
+interest survives separately. A late increase on the completed account cannot
+revive a debit for the already-blocked period. Closed commercial corrections use
+the same chronological combined cap, including actual receipts.
+
+Recent local evidence (all PostgreSQL 16 containers removed after the checks):
+
+- `/tmp/cf-rate-closed3.log`: real NCA revision, settlement, late closed-book credit,
+  reversal/retry, independent signed arithmetic and reopened repricing.
+- `/tmp/cf-rate-cap2.log`: real booked paid-capped and closed-capped acceptance.
+- `/tmp/cf-rate-domain-final.log`: 1,360 domain tests passed (integration skipped).
+- `/tmp/cf-rate-law-tsc.log`: regenerated-client TypeScript check passed.
+
+These focused checks are not a claim that the final full gate or independent
+review has passed. Root owns the final exact-candidate `ci:full`, review and fixes.
+

@@ -154,7 +154,7 @@ export async function PATCH(
           totalPaid: perRowPaid[i],
         }))
 
-        if (["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(loan.contractType)) await reconcileRateCorrections(tx, tenant.id, loan.id, `REVERSAL:${id}`)
+        if (["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(loan.contractType)) await reconcileRateCorrections(tx, tenant.id, loan.id, `REVERSAL:${id}`, contractualRows)
         await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, {
           tenantId: tenant.id, paidAt: asOf, keepEarlierPaidAt: true, pendingWhenNothingPaid: true,
         })

@@ -96,7 +96,7 @@ describe("runRepriceBatch", () => {
     expect(fakes.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         tenantId: "t1",
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
         contractType: { not: "LOAN" },
         contractRates: { some: { basis: "PRIME", effectiveDate: { lt: effectiveDate } }, none: { effectiveDate } },
       },
