@@ -5,6 +5,8 @@
  * the books must agree with an oracle that reads the raw tables (BANK, VAT, the repossession's cash).
  */
 import { randomUUID } from "node:crypto"
+import { NextRequest } from "next/server"
+import { POST as recordCancellation } from "@/app/api/asset-finance/loans/[loanId]/commercial-cancellation/route"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PrismaClient } from "@prisma/client"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -121,11 +123,23 @@ suite.sequential("real booked instalment sale: receipts, recovery, write-off thr
     as(fx.adminA, "LOAN_ADMIN")
     expect((await e.decideCost(id, towing.body.id as string, "APPROVED")).status).toBe(200)
     expect((await e.decideCost(id, legal.body.id as string, "APPROVED")).status).toBe(200)
+    // Actual cancellation is a separate evidenced legal event; repossession
+    // alone does not end the signed agreement or establish its effective date.
+    const loan = await db.loan.findUniqueOrThrow({ where: { id: fx.loanId } })
+    const evidence = await db.entityDocument.create({ data: { tenantId: fx.tenantId, entityId: loan.entityId, dealId: fx.dealId,
+      docType: "LEGAL_DOCUMENT", fileName: "TEST-written-cancellation.pdf", mimeType: "application/pdf", fileSize: 1,
+      storagePath: "/nonexistent/TEST-written-cancellation.pdf", contentSha256: "c".repeat(64), uploadedByType: "staff", uploadedById: fx.adminA } })
+    const cancellation = await readJson(await recordCancellation(new NextRequest(`http://${fx.host}/api/asset-finance/loans/${fx.loanId}/commercial-cancellation`, {
+      method: "POST", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: today(), evidenceDocumentId: evidence.id,
+        basis: "TEST written cancellation effective today, separately verified before sale", cancellationConfirmed: true }),
+    }), { params: Promise.resolve({ loanId: fx.loanId }) }))
+    expect(cancellation.status, JSON.stringify(cancellation.body)).toBe(201)
     const valuationId = (await db.recovery.findUniqueOrThrow({ where: { id } })).valuationId as string
     const sale = await readJson(await sr.propose(id, saleBody(valuationId, 120_000_000)))
     expect(sale.status, JSON.stringify(sale.body)).toBe(201)
     if (sale.body.approvalRequired) { as(fx.adminB, "LOAN_ADMIN"); expect((await readJson(await sr.approveSale(id, sale.body.id as string))).status).toBe(200); as(fx.adminA, "LOAN_ADMIN") }
-    expect((await readJson(await sr.completeSale(id, sale.body.id as string))).status).toBe(200)
+    const completed = await readJson(await sr.completeSale(id, sale.body.id as string))
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200)
     as(fx.officer, "CREDIT_OFFICER")
     const proceeds = await readJson(await sr.proceeds(id))
     expect(proceeds.status, JSON.stringify(proceeds.body)).toBe(200)
