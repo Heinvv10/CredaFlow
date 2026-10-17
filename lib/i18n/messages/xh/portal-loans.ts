@@ -2,6 +2,17 @@
 import type { Catalog } from "../../catalog"
 
 export const portalLoans: Catalog["portalLoans"] = {
+  principalOutstanding: "Eseleyo kwimali eyintloko",
+  currentAccountAmount: "Current account amount",
+  accountPrincipalDefinition: "Principal still owed. This excludes future interest, fees and premiums and is not a settlement quote.",
+  accountSettlementDefinition: "Today’s calculated settlement amount, including any default charges shown below.",
+  accountContractDefinition: "Remaining contractual amount, including default charges. This is not an early-settlement quote.",
+  overdueNow: "Overdue now, including default charges",
+  remainingContractual: "Remaining contractual instalments",
+  remainingDefinition: "Unpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.",
+  settlementAsOf: "Calculated settlement as of {date}",
+  settlementQuoteRequired: "Ask your lender for a dated settlement quote for this contract.",
+  settlementDefinition: "Calculated for this date using the same settlement rules as staff servicing and the certificate of balance. Later payments or charges can change it.",
   noClientRecord: "Akukho rekhodi yomthengi ifunyenweyo",
   notLinked: "Olu ngeno lwephotali aluka qhagamshelwa kwi-akhawunti yomthengi.",
   backToOverview: "Buyela kwisishwankathelo",
@@ -11,7 +22,7 @@ export const portalLoans: Catalog["portalLoans"] = {
   noLoansDesc: "Iimali-mboleko ezivunyiweyo nezikhutshiweyo ziya kuvela apha kunye neeshedyuli zokubuyisa neengxelo.",
   startApplication: "Qalisa isicelo",
   loanCardDesc: "{product} / Iqale ngo-{date}",
-  outstanding: "Eseleyo",
+  outstanding: "Eseleyo kwimali eyintloko",
   totalPaid: "Ehlawuliweyo iyonke",
   totalRepayable: "Eza kubuyiswa iyonke",
   nextPayment: "Intlawulo elandelayo",

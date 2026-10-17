@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
@@ -87,16 +88,31 @@ export async function POST(req: NextRequest) {
 
     const hashed = await bcrypt.hash(password, 12)
 
-    await Promise.all([
-      prisma.client.update({
-        where: { id: client.id },
-        data: { portalPassword: hashed },
-      }),
-      prisma.clientOtp.update({
-        where: { id: otpRecord.id },
+    const consumed = await prisma.$transaction(async (tx) => {
+      // Claim the still-valid code once; a parallel reset cannot consume it again.
+      const claimed = await tx.clientOtp.updateMany({
+        where: { id: otpRecord.id, otp: otp.trim(), used: false, expiresAt: { gt: new Date() } },
         data: { used: true },
-      }),
-    ])
+      })
+      if (claimed.count !== 1) return false
+      await tx.client.update({
+        where: { id: client.id, tenantId },
+        data: { portalPassword: hashed },
+      })
+      await logAuditStrict({
+        tenantId,
+        userEmail: normalised,
+        action: AuditAction.CLIENT_UPDATED,
+        entity: "Client",
+        entityId: client.id,
+        newValue: { passwordChanged: true, resetCodeConsumed: true, recoveryMethod: "portal_reset_code" },
+        ipAddress: ip,
+      }, tx)
+      return true
+    })
+    if (!consumed) {
+      return NextResponse.json({ error: "Invalid or expired reset code." }, { status: 400 })
+    }
 
     return NextResponse.json({ success: true })
   })

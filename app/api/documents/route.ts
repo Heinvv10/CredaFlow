@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { deleteFile, saveFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { enqueueClientApplications } from "@/lib/statement-ai/worker"
 import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
 import { lacksLoanBook } from "@/lib/security/loan-book-scope"
 import { countIncrementalUpdates } from "@/lib/statement-analysis/pdf-tools"
@@ -310,7 +311,13 @@ export async function POST(req: NextRequest) {
       // checks (lib/statement-analysis), under the same consent gate.
       if (shouldExtract && docType === "BANK_STATEMENT") {
         // Its findings are raised as soon as it is read, before anyone opens the application.
-        readStatementInBackground(tenant.id, doc.id, { onRead: () => recomputeClientApplications(tenant.id, clientId) })
+        // Statement AI (if the lender has it) is queued after the flags it explains.
+        readStatementInBackground(tenant.id, doc.id, {
+          onRead: async () => {
+            await recomputeClientApplications(tenant.id, clientId)
+            await enqueueClientApplications(tenant.id, clientId)
+          },
+        })
       }
 
       // Fire-and-forget VLM extraction + validation

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { signOut } from "next-auth/react"
+import { OperatorSignOut } from "./OperatorSignOut"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
@@ -49,7 +49,7 @@ export function OperatorTotpEnrol({ email }: { email: string }) {
         <p className="text-sm text-[var(--cf-text)]">
           Two-factor authentication is on. Sign in again with the next code from your authenticator app — the one you just used won&apos;t work twice.
         </p>
-        <Button size="sm" onClick={() => signOut({ callbackUrl: "/operator/login" })}>Sign in again</Button>
+        <OperatorSignOut label="Sign in again" variant="default" />
       </div>
     )
   }

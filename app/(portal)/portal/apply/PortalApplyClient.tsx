@@ -134,19 +134,19 @@ function RecentDeclineNotice({ decline }: { decline: RecentDecline }) {
 
 // `qual` is null when there is nothing to recommend: no profile income, or a
 // recent decline (an affordability estimate is not an offer to someone just
-// declined). PO funding is never sized on salary: it is repaid from the
-// buyer's payment on a confirmed purchase order, so it always shows its range.
+// declined). PO funding shows its configured range, not the qualification
+// helper's interest-only proxy: review assesses the full scheduled repayment.
 function ProductCards({ qual, productRanges }: { qual: QualificationResult | null; productRanges: Record<ProductKey, string> }) {
   const t = useT("portalApply")
   const amounts = {
     micro: qual?.microLoan.maxAmount ?? 0,
     personal: qual?.personalLoan.maxAmount ?? 0,
-    po: qual?.poFunding.maxAmount ?? 0,
+    po: 0,
   }
   const payments = {
     micro: qual?.microLoan.totalRepayable ?? 0,
     personal: qual?.personalLoan.monthlyInstalment ?? 0,
-    po: qual?.poFunding.monthlyInterest ?? 0,
+    po: 0,
   }
 
   return (

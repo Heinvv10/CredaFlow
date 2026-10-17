@@ -16,6 +16,7 @@ interface LoanRow {
   id: string
   reference: string
   clientId: string
+  ncaRegime: "NCA" | "NON_NCA"
   daysInArrears: number
   arrearsAmount: number
   client: { firstName: string; lastName: string; phone: string; whatsapp?: string | null }
@@ -209,7 +210,9 @@ export function CollectionsTable({ loans, activeTab }: Props) {
                     <td className="px-4 py-3.5 text-[13px] text-gray-400">{lastContact}</td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1">
-                        {loan.daysInArrears >= 90 ? (
+                        {loan.ncaRegime === "NON_NCA" && loan.daysInArrears >= 90 ? (
+                            <span className="text-xs text-[var(--cf-text-muted)]">Non-NCA — Section 129 does not apply</span>
+                          ) : loan.daysInArrears >= 90 ? (
                           <Section129Button loanId={loan.id} loanRef={loan.reference} clientName={`${loan.client.firstName} ${loan.client.lastName}`} />
                         ) : loan.daysInArrears >= 30 ? (
                           <LogContactButton loanId={loan.id} clientName={`${loan.client.firstName} ${loan.client.lastName}`} />

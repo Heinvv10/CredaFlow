@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 
 const clientOtpFindFirstMock = vi.fn()
 const clientOtpUpdateMock = vi.fn()
+const auditCreateMock = vi.fn()
 const clientFindFirstMock = vi.fn()
 const clientUpdateMock = vi.fn()
 const checkRateLimitMock = vi.fn()
@@ -13,6 +14,7 @@ const portalConfig = vi.hoisted(() => ({ row: null as null | Record<string, unkn
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb({ clientOtp: { updateMany: clientOtpUpdateMock }, client: { update: clientUpdateMock }, auditLog: { create: auditCreateMock } }),
     clientOtp: {
       findFirst: (a: unknown) => clientOtpFindFirstMock(a),
       update: (a: unknown) => clientOtpUpdateMock(a),
@@ -57,7 +59,8 @@ beforeEach(() => {
   withTenantContextMock.mockImplementation(async (_req, cb) => cb({ id: "tenant_acme" }))
   bcryptHashMock.mockResolvedValue("hashed-pw")
   clientOtpFindFirstMock.mockResolvedValue({ id: "otp_a", otp: "123456", used: false })
-  clientOtpUpdateMock.mockResolvedValue({ id: "otp_a" })
+  clientOtpUpdateMock.mockResolvedValue({ count: 1 })
+  auditCreateMock.mockResolvedValue({ id: "audit-synthetic" })
   clientFindFirstMock.mockResolvedValue({ id: "cl_a", email: "user@example.com", tenantId: "tenant_acme" })
   clientUpdateMock.mockResolvedValue({ id: "cl_a" })
   portalConfig.row = null
@@ -150,4 +153,25 @@ describe("POST /api/portal/reset-password", () => {
     const res = await POST(buildReq({ ...validBody, confirmPassword: "different1" }))
     expect(res.status).toBe(400)
   })
+})
+
+
+it("audits portal recovery without storing password or code", async () => {
+  expect((await POST(buildReq(validBody))).status).toBe(200)
+  expect(auditCreateMock).toHaveBeenCalledOnce()
+  const record = auditCreateMock.mock.calls[0][0].data
+  expect(record).toMatchObject({ action: "CLIENT_UPDATED", tenantId: "tenant_acme", entityId: "cl_a", newValue: { passwordChanged: true, resetCodeConsumed: true } })
+  expect(JSON.stringify(record)).not.toContain(validBody.password)
+  expect(JSON.stringify(record)).not.toContain(validBody.otp)
+  expect(JSON.stringify(record)).not.toContain("hashed-pw")
+})
+it("fails closed on audit failure", async () => {
+  auditCreateMock.mockRejectedValue(new Error("audit unavailable"))
+  await expect(POST(buildReq(validBody))).rejects.toThrow("audit unavailable")
+})
+it("a consumed code cannot write a password or audit again", async () => {
+  clientOtpUpdateMock.mockResolvedValue({ count: 0 })
+  expect((await POST(buildReq(validBody))).status).toBe(400)
+  expect(clientUpdateMock).not.toHaveBeenCalled()
+  expect(auditCreateMock).not.toHaveBeenCalled()
 })

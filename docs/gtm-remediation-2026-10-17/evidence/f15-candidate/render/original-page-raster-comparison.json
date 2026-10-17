@@ -1,0 +1,60 @@
+{
+  "3": [
+    {
+      "page": 1,
+      "beforeRasterSha256": "4dc47bcc8c99586a820226a09fea8af55dcad5f972b9f405643c0dd574321834",
+      "candidateRasterSha256": "4dc47bcc8c99586a820226a09fea8af55dcad5f972b9f405643c0dd574321834",
+      "identical": true
+    },
+    {
+      "page": 2,
+      "beforeRasterSha256": "2600ec424515f136ffbc9f28e6b3ced066de3f231349da0b6a6dd6becab4577e",
+      "candidateRasterSha256": "2600ec424515f136ffbc9f28e6b3ced066de3f231349da0b6a6dd6becab4577e",
+      "identical": true
+    },
+    {
+      "page": 3,
+      "beforeRasterSha256": "3afbfdedaec25dafbf9a8d7d9c281d519b80edfe3ed40dd5334d6090c6c88200",
+      "candidateRasterSha256": "3afbfdedaec25dafbf9a8d7d9c281d519b80edfe3ed40dd5334d6090c6c88200",
+      "identical": true
+    },
+    {
+      "page": 4,
+      "beforeRasterSha256": "59277941a4824fdb3c547b8ed29c1bb979b4955a7ebe6034a12e642a012a5f4d",
+      "candidateRasterSha256": "59277941a4824fdb3c547b8ed29c1bb979b4955a7ebe6034a12e642a012a5f4d",
+      "identical": true
+    }
+  ],
+  "60": [
+    {
+      "page": 1,
+      "beforeRasterSha256": "eaa016d6838cf865a7c1d5d4a7b72752bb02284f77331fa0a5fec9f70574faba",
+      "candidateRasterSha256": "eaa016d6838cf865a7c1d5d4a7b72752bb02284f77331fa0a5fec9f70574faba",
+      "identical": true
+    },
+    {
+      "page": 2,
+      "beforeRasterSha256": "31a7f09411340b3d9417085655aa57c1b08f427b90541f57a73632ea8b851080",
+      "candidateRasterSha256": "31a7f09411340b3d9417085655aa57c1b08f427b90541f57a73632ea8b851080",
+      "identical": true
+    },
+    {
+      "page": 3,
+      "beforeRasterSha256": "6070d62f5facf8c5bc23831c557ea26c937ff9a252d81cba5df8c206d568006d",
+      "candidateRasterSha256": "6070d62f5facf8c5bc23831c557ea26c937ff9a252d81cba5df8c206d568006d",
+      "identical": true
+    },
+    {
+      "page": 4,
+      "beforeRasterSha256": "c31d1ce9d3d9a584b8c1d62894b6ec2fa351c476ec951bf05289734cbaebb7e5",
+      "candidateRasterSha256": "c31d1ce9d3d9a584b8c1d62894b6ec2fa351c476ec951bf05289734cbaebb7e5",
+      "identical": true
+    },
+    {
+      "page": 5,
+      "beforeRasterSha256": "f659f7b06390224db7b9ec5a8bdd75c7d8860b2a76cd2cb016f598fe358e1ba9",
+      "candidateRasterSha256": "f659f7b06390224db7b9ec5a8bdd75c7d8860b2a76cd2cb016f598fe358e1ba9",
+      "identical": true
+    }
+  ]
+}

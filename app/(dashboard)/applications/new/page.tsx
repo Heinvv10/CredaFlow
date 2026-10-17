@@ -1,3 +1,5 @@
+import Link from "next/link"
+import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import { Header } from "@/components/layout/Header"
@@ -143,6 +145,10 @@ interface PageProps {
 }
 
 export default async function NewApplicationPage({ searchParams }: PageProps) {
+  const user = await requireMinRole("READONLY")
+  if (!hasMinRole(user.role, "CREDIT_OFFICER")) {
+    return <div className="p-6 space-y-3"><h1 className="text-xl font-semibold">Applications are read-only for your role</h1><p>Creating or editing an application requires a credit officer or a role with higher permissions.</p><Link href="/applications" className="underline">Return to applications</Link></div>
+  }
   const { id } = await searchParams
   const tenantId = await getStaffTenantId()
   const [{ clients, products, creditLifeOffer }, draft] = await Promise.all([

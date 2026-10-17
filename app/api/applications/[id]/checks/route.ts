@@ -4,6 +4,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { logDocumentContentAccess } from "@/lib/document-auth"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
 import { flagViews } from "@/lib/credit-checks/evidence"
+import { enqueueApplication } from "@/lib/statement-ai/worker"
 import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
 
 /**
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params
     const result = await recomputeApplicationFlags(tenant.id, id, { userId: guard.user.id, email: guard.user.email })
     if (!result) return NextResponse.json({ error: "Application not found" }, { status: 404 })
+    // The flag set may have changed: Statement AI (if the lender has it) explains the new one, in the background.
+    enqueueApplication(tenant.id, id)
 
     const { flags, documentIds } = await flagViews(tenant.id, result.flags)
     await logDocumentContentAccess({ documentIds, staffUserId: guard.user.id, action: "credit_check_evidence", req })

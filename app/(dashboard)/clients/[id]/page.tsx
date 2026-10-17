@@ -1,3 +1,4 @@
+import { ClientRecordActions } from "@/components/clients/ClientRecordActions"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
@@ -15,7 +16,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Edit, Plus, FileText, Wallet, Shield, FolderOpen, TrendingUp, MessageSquare } from "lucide-react"
+import { FileText, Wallet, Shield, FolderOpen, TrendingUp, MessageSquare } from "lucide-react"
 import { DocumentsPanel } from "@/components/documents/DocumentsPanel"
 import { portalContinueUrl, portalUrlOrNull } from "@/lib/portal-urls"
 import { inPersonKycVerificationOffered } from "@/lib/kyc/in-person-verification"
@@ -332,8 +333,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
                 clientName={`${client.firstName} ${client.lastName}`}
                 cannedReplies={cannedRepliesSafe}
               />
-              {showLoanBook && <Link href={`/applications/new?clientId=${client.id}`}><Button><Plus className="h-4 w-4 mr-2" />New Application</Button></Link>}
-              {showLoanBook && <Link href={`/clients/${client.id}/edit`}><Button variant="outline"><Edit className="h-4 w-4 mr-2" />Edit</Button></Link>}
+              {showLoanBook && <ClientRecordActions role={staffRole} clientId={client.id} />}
             </div>
           </div>
           {/* Gated to match the API guard on PATCH /api/clients/[id]/status.

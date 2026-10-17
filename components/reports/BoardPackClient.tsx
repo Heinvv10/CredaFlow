@@ -112,6 +112,7 @@ export function BoardPackClient({ lenderName, ncrNumber, book, bookLoans, client
       {/* 2. Product Mix */}
       <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
         <h2 className="text-lg font-bold text-[#1b1d24] mb-4">2. Portfolio Composition</h2>
+        <p className="mb-4 text-sm text-gray-500">Collectible outstanding principal, including defaulted accounts and entity loans; the same scope as Loan Book.</p>
         <div className="space-y-3">
           {productMix.map(p => (
             <div key={p.name}>
@@ -125,7 +126,8 @@ export function BoardPackClient({ lenderName, ncrNumber, book, bookLoans, client
               </div>
             </div>
           ))}
-          {productMix.length === 0 && <p className="text-gray-400 text-sm">No active loans</p>}
+          <p className="text-sm font-medium text-[#1b1d24]">Composition total: {productMix.reduce((sum, p) => sum + p.count, 0)} loans — {formatZAR(productMix.reduce((sum, p) => sum + p.value, 0))}</p>
+          {productMix.length === 0 && <p className="text-gray-400 text-sm">No loans in the collectible book</p>}
         </div>
       </div>
 

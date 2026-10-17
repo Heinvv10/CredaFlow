@@ -1,9 +1,11 @@
+import { declarationEvidenceData, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest, NextResponse } from "next/server"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 
 const {
+  declarationsMock,
   requireApiRoleMock,
   applicationFindUniqueMock,
   transactionMock,
@@ -29,6 +31,7 @@ const {
   canBeDisbursedMock,
   sodRequiredMock,
 } = vi.hoisted(() => ({
+  declarationsMock: vi.fn(async () => null as Record<string, unknown> | null),
   requireApiRoleMock: vi.fn(),
   applicationFindUniqueMock: vi.fn(),
   transactionMock: vi.fn(),
@@ -68,6 +71,7 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: (...args: unknown[]) => applicationFindUniqueMock(...args),
       findFirst: (...args: unknown[]) => applicationFindFirstMock(...args),
     },
+    agreementDeclarationAcceptance: { findFirst: declarationsMock },
     user: { findFirst: (...args: unknown[]) => userFindFirstMock(...args) },
     tenant: { findUnique: (...args: unknown[]) => tenantFindUniqueMock(...args) },
     client: { findFirst: (...args: unknown[]) => clientFindFirstMock(...args) },
@@ -158,6 +162,7 @@ const current = {
   agreementGeneratedAt: generatedAt,
   agreementDocumentId: "agreement-doc-1",
   agreementDocumentSha256: agreementSha256,
+  pasqDocumentSha256: "d".repeat(64),
   agreementSignedAt: signedAt,
   agreementSignedMethod: "portal",
   agreementSignedByUserId: null,
@@ -166,6 +171,8 @@ const current = {
 }
 const preflight = {
   id: current.id,
+  clientId: current.clientId,
+  pasqDocumentSha256: "d".repeat(64),
   status: current.status,
   updatedAt,
   agreementGeneratedAt: generatedAt,
@@ -199,6 +206,7 @@ function request(body: unknown) {
 }
 
 beforeEach(() => {
+  declarationsMock.mockResolvedValue(null)
   vi.clearAllMocks()
   vi.stubEnv("TRUSTED_PROXY", "1")
   verifyPasqArtifactMock.mockReset()
@@ -301,6 +309,20 @@ afterEach(() => {
 })
 
 describe("provider agreement countersign", () => {
+  it("passes only exact immutable declaration evidence to the executed artifact", async () => {
+    const record = { id: "acceptance-1", ...declarationEvidenceData({ tenantId: "tenant-1", applicationId: "app-1", clientId: "client-1", signerId: "client-1", method: "portal", signedAt, agreementDocumentSha256: agreementSha256, pasqDocumentSha256: "d".repeat(64), signatureSha256: signatureDigest("Synthetic Customer") }) }
+    declarationsMock.mockResolvedValue(record)
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+    expect(response.status).toBe(200)
+    expect(stampMock).toHaveBeenCalledWith(expect.objectContaining({ declarations: record }))
+  })
+  it("refuses present declaration evidence bound to different signature bytes", async () => {
+    declarationsMock.mockResolvedValue({ id: "acceptance-1", ...declarationEvidenceData({ tenantId: "tenant-1", applicationId: "app-1", clientId: "client-1", signerId: "client-1", method: "portal", signedAt, agreementDocumentSha256: agreementSha256, pasqDocumentSha256: "d".repeat(64), signatureSha256: "a".repeat(64) }) })
+    const response = await POST(request({ signature: "Jane Provider", attestation: true }), context)
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ countersignEvidence: "agreement_declarations_changed" })
+    expect(stampMock).not.toHaveBeenCalled()
+  })
   it("rejects an authenticated staff principal assigned to another tenant", async () => {
     requireApiRoleMock.mockResolvedValue({
       user: {

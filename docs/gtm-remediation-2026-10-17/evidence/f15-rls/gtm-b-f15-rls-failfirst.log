@@ -1,0 +1,40 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+ ❯ lib/compliance/agreement-declarations.server.integration.test.ts (2 tests | 1 failed) 303ms
+     × isolates actual receipts with FORCE RLS under a non-bypass role 113ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/compliance/agreement-declarations.server.integration.test.ts > declaration evidence binding in PostgreSQL > isolates actual receipts with FORCE RLS under a non-bypass role
+AssertionError: expected [ { id: 'cmvcly1of000x8pz3rha8fd2h' } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "id": "cmvcly1of000x8pz3rha8fd2h",
++   },
++ ]
+
+ ❯ lib/compliance/agreement-declarations.server.integration.test.ts:49:23
+     47|       expect(own).toEqual([{ id: record.id }])
+     48|       const foreign = await asTenant("synthetic-other-tenant", tx => t…
+     49|       expect(foreign).toEqual([])
+       |                       ^
+     50|       const validBody = JSON.stringify({ ...record, id: randomUUID() })
+     51|       // BEFORE INSERT hides the foreign application and refuses bindi…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  18:25:15
+   Duration  1.19s (transform 107ms, setup 0ms, import 172ms, tests 303ms, environment 0ms)
+

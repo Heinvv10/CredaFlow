@@ -1,0 +1,10 @@
+{
+  "rows": 139,
+  "debitCents": 407510112,
+  "creditCents": 407510112,
+  "balanced": true,
+  "matchesPreview": true,
+  "batchId": "dd7c0199-7786-49b9-95d5-a4489846153c",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "method": "Python stdlib CSV parser and exact Decimal sums independent of product formatter"
+}

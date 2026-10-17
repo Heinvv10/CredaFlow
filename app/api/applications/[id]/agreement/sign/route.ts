@@ -1,3 +1,5 @@
+import { validAgreementDeclarations } from "@/lib/signing/agreement-declaration-set"
+import { declarationEvidenceData, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { Prisma, type UserRole } from "@prisma/client"
@@ -112,6 +114,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     const { id } = await params
 
     const body = await req.json() as {
+      declarations?: unknown
       method?: string
       signature?: string
       attestation?: boolean
@@ -339,6 +342,9 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     }
     if (!isClientSession && method !== "branch") {
       return NextResponse.json({ error: "Staff may only record branch signing" }, { status: 400 })
+    }
+    if (method === "portal" && !validAgreementDeclarations(body.declarations)) {
+      return NextResponse.json({ error: "Accept all five current consumer declarations before signing.", declarations: "required" }, { status: 422 })
     }
     const recordsReturnedPacket =
       !isClientSession && method === "branch" && hasCompleteSignedPacketFields
@@ -876,6 +882,14 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
           throw new AgreementSigningRaceError("application_changed")
         }
 
+        const declarationAcceptance = method === "portal"
+          ? await tx.agreementDeclarationAcceptance.create({ data: declarationEvidenceData({
+              tenantId: tenant.id, applicationId: id, clientId: application.clientId, signerId: session.user.id,
+              method, signedAt, agreementDocumentSha256, pasqDocumentSha256: pasqBinding.documentSha256,
+              signatureSha256: signatureDigest(signatureData!),
+            }) })
+          : null
+
         if (!pasqWasAcknowledged) {
           const pasqDocumentChanged = await tx.clientDocument.updateMany({
             where: {
@@ -1005,6 +1019,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               pasqDocumentSha256: pasqBinding.documentSha256,
               pasqEvidenceSha256: pasqBinding.evidence.evidenceSha256,
               signatureSha256: signatureData ? sha256Text(signatureData) : null,
+              ...(declarationAcceptance ? { declarationAcceptanceId: declarationAcceptance.id } : {}),
               ...(signingOtp ? { signingOtp } : {}),
               ...(recordsReturnedPacket
                 ? {

@@ -1,0 +1,27 @@
+{
+  "candidate": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "health": {
+    "status": "ok",
+    "mode": "all",
+    "commit": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+    "builtAt": "2026-10-17T16:27:02Z",
+    "checkedAt": "2026-10-17T16:33:08.907Z"
+  },
+  "results": [
+    {
+      "scenario": "actualstaffsession",
+      "role": "ADMIN",
+      "totpVerified": true
+    },
+    {
+      "scenario": "normal countersign control",
+      "available": true
+    },
+    {
+      "scenario": "actual normal staff countersign response",
+      "status": 200,
+      "error": null
+    }
+  ],
+  "limitation": "Actual staff TOTP/control/countersign200 only. Original first harness fetched unsigned route and is not used as executed artifact proof; correct stored executed bytes and consumer native attachment are independent."
+}

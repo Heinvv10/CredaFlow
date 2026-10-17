@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 
 const clientFindFirstMock = vi.fn()
 const clientOtpCreateMock = vi.fn()
+const auditCreateMock = vi.fn()
 const messageTemplateFindFirstMock = vi.fn()
 const sendEmailMock = vi.fn()
 const sendMessageMock = vi.fn()
@@ -20,6 +21,7 @@ const lenderRows = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb({ clientOtp: { create: clientOtpCreateMock }, auditLog: { create: auditCreateMock } }),
     client: { findFirst: (a: unknown) => clientFindFirstMock(a) },
     clientOtp: { create: (a: unknown) => clientOtpCreateMock(a) },
     messageTemplate: { findFirst: (a: unknown) => messageTemplateFindFirstMock(a) },
@@ -76,6 +78,7 @@ beforeEach(() => {
     tenantId: "tenant_acme",
   })
   clientOtpCreateMock.mockResolvedValue({ id: "otp_a" })
+  auditCreateMock.mockResolvedValue({ id: "audit-synthetic" })
   findLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
@@ -362,4 +365,13 @@ describe("POST /api/portal/forgot-password — DEMO_MODE reset code reveal", () 
     const data = await (await POST(buildReq({ email: "nobody@acme-lending.invalid" }))).json()
     expect(data).toEqual({ success: true })
   })
+})
+
+
+it("does not dispatch any reset code when its transactional audit fails", async () => {
+  auditCreateMock.mockRejectedValue(new Error("audit unavailable"))
+  await expect(POST(buildReq({ email: "user@example.com", turnstileToken: "synthetic" }))).rejects.toThrow("audit unavailable")
+  expect(sendEmailMock).not.toHaveBeenCalled()
+  expect(sendMessageMock).not.toHaveBeenCalled()
+  expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
 })
