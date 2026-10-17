@@ -5,7 +5,7 @@
 //  shortfall / surplus = the gap either way between net and owed
 // Charged costs stay on the recovery (the shortfall includes them); they are
 // never part of the payment. Mirrors the Recovery guard: net = gross − deducted.
-// The cost treatment and the order of application are signed off by the lender's legal team, 2026-10-17.
+// The cost treatment and the order of application are signed off (see DESIGN.md sign-off record 2026-10-17).
 
 export interface RecoveryOutcomeInput {
   settlementDueCents: number

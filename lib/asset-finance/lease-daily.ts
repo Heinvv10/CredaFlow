@@ -13,12 +13,12 @@
  * EXPIRY NOTICES (C7, CPA s14). A CPA lessee's lease whose term expires in
  * 40–80 business days (./lease-expiry.ts) gets its expiry notice once
  * (LeaseExpiryNotice, unique per loan).
- * // PARTIAL: queued, not sent. The messaging pipeline has no deferred
+ * PARTIAL: queued, not sent. The messaging pipeline has no deferred
  * outbox and borrower copy needs the lender's sign-off before it exists
  * (the same position as ./reprice-notice.ts), so the notice is recorded and a
  * bell item asks the loan admins to send the rendered notice
  * (documents/lease/expiry-notice-pdf.ts). Nothing reaches a borrower.
- * // Notice window signed off by the lender's legal team, 2026-10-17.
+ * Notice window signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"

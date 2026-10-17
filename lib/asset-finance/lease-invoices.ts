@@ -9,7 +9,7 @@
  *     issueLeaseInvoicesOnReceipt, which invoices a rental money has reached
  *     before its due date, supply date = the day the cash first reached it
  *     (./lease-supply-date.ts).
- * // Signed off by the lender's tax adviser, 2026-10-17 (DESIGN D7): the
+ * Signed off (DESIGN D7; see DESIGN.md sign-off record 2026-10-17): the
  * time-of-supply rule for rentals (VAT Act s9(3)(a) as we read it: the earlier
  * of the payment becoming due and its receipt).
  *
@@ -22,7 +22,7 @@
  * waits and then finds the invoice (already_invoiced). The unique index on
  * LeaseRental.taxInvoiceId is the backstop.
  *
- * // PARTIAL: a VAT-rate change between booking and the supply date is not
+ * PARTIAL: a VAT-rate change between booking and the supply date is not
  * re-priced: such a rental is refused (vat_rate_changed) for staff to resolve.
  */
 import { Prisma, type ContractType } from "@prisma/client"

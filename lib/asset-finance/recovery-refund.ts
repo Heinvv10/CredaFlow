@@ -16,7 +16,7 @@ export type RefundDone = { kind: "done"; id: string; amountCents: number }
 // a LOAN_ADMIN. The database repeats the amount, the two-person rule and the
 // SURPLUS_HELD -> CLOSED step (guardRecoveryRefund). The account number is
 // never written to the audit log or returned in a response.
-// Refunding the surplus to the debtor is signed off by the lender's legal team, 2026-10-17.
+// Refunding the surplus to the debtor is signed off (see DESIGN.md sign-off record 2026-10-17).
 
 /**
  * A refund moves only while the proceeds stand: the proceeds receipt is not reversed

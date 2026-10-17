@@ -6,12 +6,12 @@
  * business days after it (CPA s14). Valid TenantConfig.leaseTerminationQuoteValidDays.
  * The basis printed with it explains the formula and, for a CPA lessee, the
  * Reg 5(2) factors a "reasonable cancellation penalty" must weigh.
- * // The formula and the penalty: signed off by the lender's legal team, 2026-10-17.
+ * The formula and the penalty: signed off (see DESIGN.md sign-off record 2026-10-17).
  *
  * ACCEPT (within validity, once per lease; guardLeaseTerminationQuote and a
  * partial unique index): the uninvoiced rentals after the termination date
  * are cancelled (./lease-charges.ts); the PV and the penalty are invoiced, a
- * line each (VAT treatment signed off by the lender's tax adviser, 2026-10-17), and the invoice becomes a schedule row;
+ * line each (VAT treatment signed off, see DESIGN.md sign-off record 2026-10-17), and the invoice becomes a schedule row;
  * a RETURN end of term (origin EARLY_TERMINATION) is opened for the
  * inspection (./lease-end-of-term.ts). The loan closes once paid
  * (./lease-end-invoice.ts completeEndOfTermIfSettled, after the return).

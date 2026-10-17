@@ -6,7 +6,7 @@ import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 //  - NCA: the debtor has 10 business days from the final notice (s127(8)).
 //  - NON_NCA: the lender's contractual demand period, in calendar days from
 //    the proceeds date (TenantConfig.nonNcaDemandPeriodDays).
-// The s127(8) reading and the freeze start are signed off by the lender's legal team, 2026-10-17.
+// The s127(8) reading and the freeze start are signed off (see DESIGN.md sign-off record 2026-10-17).
 
 const NCA_FINAL_NOTICE_BUSINESS_DAYS = 10
 

@@ -60,7 +60,7 @@ export async function renderSurrenderFinalNotice(data: SurrenderNoticeData): Pro
   return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
 }
 
-// The recovery's sale and account lines: signed off by the lender's legal team, 2026-10-17.
+// The recovery's sale and account lines: signed off (see DESIGN.md sign-off record 2026-10-17).
 function recoveryOutcomeLines(w: DealDocumentWriter, o: NonNullable<SurrenderNoticeData["recoveryOutcome"]>, approved: boolean): void {
   w.labelValues([
     ["Settlement due at sale", formatZarPdf(o.settlementDueCents)],
@@ -75,7 +75,7 @@ function recoveryOutcomeLines(w: DealDocumentWriter, o: NonNullable<SurrenderNot
   if (!approved) w.paragraph("Sale and account lines: DRAFT — require lender legal approval", w.italic)
 }
 
-// Which costs an NCA lender may show against the account: signed off by the lender's legal team, 2026-10-17.
+// Which costs an NCA lender may show against the account: signed off (see DESIGN.md sign-off record 2026-10-17).
 function recoveryCosts(w: DealDocumentWriter, costs: NonNullable<SurrenderNoticeData["costs"]>, approved: boolean): void {
   w.table("RECOVERY COSTS", COST_COLUMNS, costs.map((c) => [
     c.label, c.treatment === "DEDUCT_FROM_PROCEEDS" ? "Deducted from proceeds" : "Charged to account", formatZarPdf(c.grossCents),

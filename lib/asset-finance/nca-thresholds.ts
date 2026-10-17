@@ -8,7 +8,7 @@
 //  - Large-agreement threshold (s9(4)(b)): a credit transaction whose principal
 //    debt is at or above R250 000 is a large agreement; with a juristic
 //    consumer below the R1m threshold it is outside the Act (s4(1)(b)).
-// Signed off by the lender's legal team, 2026-10-17
+// Signed off (see DESIGN.md sign-off record 2026-10-17)
 export const NCA_JURISTIC_THRESHOLD_CENTS = 100_000_000
 export const NCA_LARGE_AGREEMENT_THRESHOLD_CENTS = 25_000_000
 
@@ -16,5 +16,5 @@ export const NCA_LARGE_AGREEMENT_THRESHOLD_CENTS = 25_000_000
 // more individual trustees, or whose trustee is itself a juristic person. So a
 // trust with fewer than this many trustees, ALL natural persons, is not a
 // juristic person and the NCA applies to it in full.
-// Signed off by the lender's legal team, 2026-10-17
+// Signed off (see DESIGN.md sign-off record 2026-10-17)
 export const NCA_TRUST_MIN_TRUSTEES_FOR_JURISTIC = 3

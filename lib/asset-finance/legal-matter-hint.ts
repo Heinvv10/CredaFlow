@@ -36,7 +36,7 @@ export function effectiveSteps(steps: readonly HintStep[]): HintStep[] {
  * or withdrawn). The summons date is the earliest section 129 date plus 10 SA
  * business days (NCA) or the letter of demand's date (NON_NCA), the same
  * dates the database guard admits a summons on.
- * The s129(1)/s130(1)(a) reading is signed off by the lender's legal team, 2026-10-17.
+ * The s129(1)/s130(1)(a) reading is signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 export function nextLegalStepHint(regime: LegalRegime, steps: readonly HintStep[]): LegalStepHint | null {
   const live = effectiveSteps(steps)

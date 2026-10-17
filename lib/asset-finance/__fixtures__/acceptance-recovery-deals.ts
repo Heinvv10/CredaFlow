@@ -20,7 +20,7 @@
  *   resale invoice  vat = round(price × 1500 / 11500); excl = price − vat
  *
  * The legal (cost treatment) and tax (s8(10)/s10(10)) rules were signed off
- * by the lender's legal team and tax adviser, 2026-10-17.
+ * (see DESIGN.md sign-off record 2026-10-17).
  */
 export type RecoveryRouteName = "NCA_S127_SURRENDER" | "NCA_S131_ATTACHMENT" | "NON_NCA_VOLUNTARY" | "NON_NCA_COURT_ORDER"
 export type RecoveryContractType = "INSTALMENT_SALE" | "FINANCE_LEASE" | "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE"

@@ -68,7 +68,7 @@ export interface CostAllowLists { ncaDeductible: RecoveryCostType[]; nonNcaCharg
  * The treatments a cost type may take on a route: an NCA recovery deducts the
  * tenant's deductible types from the proceeds and charges only taxed legal
  * costs to the account; a non-NCA one allows either for its chargeable types.
- * Signed off by the lender's legal team, 2026-10-17 (the allow-lists are TenantConfig columns).
+ * Signed off; the allow-lists are TenantConfig columns (see DESIGN.md sign-off record 2026-10-17).
  */
 export function costTreatments(route: RecoveryRoute, type: RecoveryCostType, lists: CostAllowLists): RecoveryCostTreatment[] {
   if (isNcaRoute(route)) {

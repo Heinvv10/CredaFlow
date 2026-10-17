@@ -3,8 +3,8 @@
 Build spec for slice 4a. The goal file is
 `.claude/handoffs/2026-10-15-asset-finance-slice4-goal.md` (in the main
 checkout); the product decisions there (§2a) are fixed. 4b (journals, IsaFlow)
-waits for PR #89. Every legal or tax rule below was signed off by the lender's legal team
-and tax adviser on 2026-10-17 (the document wording is drafted and awaits legal approval).
+waits for PR #89. Every legal or tax rule below was signed off
+(see DESIGN.md sign-off record 2026-10-17); the document wording is drafted and awaits legal approval.
 
 ## Data (one additive migration)
 
@@ -134,7 +134,7 @@ go on a new deal (extend `guardAssetDealUnreleasedAsset` and `deal-create.ts`).
   types in `TenantConfig.recoveryNonNcaChargeableCostTypes`. Allow-lists are
   `RecoveryCostType[]` columns with defaults (NCA deductible: TOWING, STORAGE,
   VALUATION, REPAIRS, ADVERTISING, AUCTION_COMMISSION, SHERIFF, INSURANCE;
-  NON_NCA: all), signed off by the lender's legal team, 2026-10-17.
+  NON_NCA: all), signed off (see DESIGN.md sign-off record 2026-10-17).
 
 ### RemarketingSale
 
@@ -184,7 +184,7 @@ go on a new deal (extend `guardAssetDealUnreleasedAsset` and `deal-create.ts`).
   `debtorVatVendor` bool, `debtorVatNumber?`, `deemedSupplyValueCents`,
   `inputTaxClaimCents`, `outputTaxCents`, `vatRateTenThousandths`, `basis`
   text, `recordedById`. UPDATE/DELETE/TRUNCATE refused.
-- Pure function `lib/asset-finance/recovery-vat.ts`, signed off by the lender's tax adviser, 2026-10-17:
+- Pure function `lib/asset-finance/recovery-vat.ts`, signed off (see DESIGN.md sign-off record 2026-10-17):
   - Instalment sale / finance lease: s8(10) deemed supply by the debtor to the
     lender at repossession; value per s10(10) = the unpaid balance of the
     cash price (excl. finance charges) at repossession, capped at the

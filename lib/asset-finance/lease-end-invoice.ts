@@ -16,7 +16,7 @@
  * The invoice total becomes a schedule row (./lease-charges.ts), due in
  * END_OF_TERM_PAYMENT_DAYS, so receipts collect it. A returned asset is
  * RETURNED_TO_STOCK (ready for slice-4 remarketing). Nothing to bill: no invoice.
- * // VAT on excess usage, damage and the fund deficit: signed off by the lender's tax adviser, 2026-10-17.
+ * VAT on excess usage, damage and the fund deficit: signed off (see DESIGN.md sign-off record 2026-10-17).
  *
  * completeEndOfTermIfSettled — once nothing is owed (and a purchased
  * registered vehicle's eNaTIS change is confirmed) the end of term is

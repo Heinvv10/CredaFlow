@@ -5,7 +5,7 @@
 
 /** Months before the last rental that the end-of-term choice opens. */
 export const ELECTION_WINDOW_MONTHS = 6
-/** A month-to-month extension ends this many months after notice. // Notice period signed off by the lender's legal team, 2026-10-17. */
+/** A month-to-month extension ends this many months after notice. Notice period signed off (see DESIGN.md sign-off record 2026-10-17). */
 export const EXTENSION_NOTICE_MONTHS = 1
 /** Days after its issue that an end-of-term, purchase or sale invoice falls due. */
 export const END_OF_TERM_PAYMENT_DAYS = 7
