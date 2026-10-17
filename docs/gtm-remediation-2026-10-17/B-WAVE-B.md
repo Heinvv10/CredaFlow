@@ -11,7 +11,7 @@ Status: implemented; independent review, integrated full gates and browser accep
 ## Verification and acceptance boundary
 
 Node22.23.1; dependencies installed in this worktree. Targeted tests limited to two workers. Initial fail-first F09/F11: 2 tests failed, 21 passed, log `/tmp/gtm-b-waveb-red.log`.
-Targeted suite set covers server-page refusal before read, actual action/link rendering, permission passed from server role, exact compliance scope, notification operational copy, real DOM collection tab selection, text-only player, and packaged-media discovery. Final targeted result: 12 files / 57 tests PASS (`/tmp/gtm-b-waveb-final2.log`). Initial broad quick gate passed before the final new-client affordance additions; full quick rerun requested on final submission.
+Targeted suite set covers server-page refusal before read, actual action/link rendering, permission passed from server role, exact compliance scope, notification operational copy, real DOM collection tab selection, text-only player, and packaged-media discovery. Final targeted result: 12 files / 57 tests PASS (`/tmp/gtm-b-waveb-final2.log`). Initial broad quick gate passed before the final new-client affordance additions; final quick rerun passed exit 0 on 81d92ef2 after all source/test additions: app/demo TypeScript, ESLint, docs/mirrors, date gates and 44 date tests in each of four timezones. A independently approved source/test, re-running 11 files / 55 tests (review record 40d851c2).
 
 No schema/migration, calculation, mandated document wording, provider activation or persisted compliance change. Component tests do not prove actual authenticated READONLY behavior; no browser closure claimed. No cloud/public demo/production touched.
 
