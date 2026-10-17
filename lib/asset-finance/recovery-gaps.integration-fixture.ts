@@ -13,7 +13,7 @@ import type { DealFixture } from "./deal.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { advance, recordDecidedCost } from "./recovery-path.integration-fixture"
 import { disburseApplication } from "./recovery-sale.integration-fixture"
-import { alignRecoveryFixtureSchedule, courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
+import { recordFixtureCommercialCancellation, alignRecoveryFixtureSchedule, courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
 
 export interface GapDealRecovery {
   loan: RecoveryLoan
@@ -59,8 +59,15 @@ export async function listedGapDeal(db: PrismaClient, fx: DealFixture, deal: Acc
     [`UPDATE "FinancedAsset" SET "cashPriceExclVatCents" = $1, "vatCents" = $2 WHERE "id" = $3`, exclCash, (deal.cashPriceInclVatCents || 115_000_000) - exclCash, loan.assetId],
   )
   await setDebtorVat(db, fx, loan, deal.debtorVatVendor)
+  // The acceptance's settlement includes already earned interest; its unpaid
+  // goods capital is the separate VAT basis, not an inconsistent balance field.
+  if (loan.regime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && deal.unpaidCashPriceCents > 0 && deal.settlementDueCents >= deal.unpaidCashPriceCents) {
+    await testSetup(db, [`UPDATE "Loan" SET "principal" = $2, "totalInterest" = $3, "outstandingPrincipal" = $2,
+      "startDate" = CURRENT_TIMESTAMP - INTERVAL '365 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE "id" = $1`, loan.loanId, deal.unpaidCashPriceCents, deal.settlementDueCents - deal.unpaidCashPriceCents])
+  }
   await disburseApplication(db, fx, loan)
   await alignRecoveryFixtureSchedule(db, loan.loanId)
+  await recordFixtureCommercialCancellation(db, fx, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true, legalMatterId: true, surrenderRequestId: true } })
   const judgment = rec.legalMatterId ? await db.legalMatterStep.findFirst({ where: { matterId: rec.legalMatterId, kind: "JUDGMENT" }, select: { id: true } }) : null
   for (const cost of deal.costs) {

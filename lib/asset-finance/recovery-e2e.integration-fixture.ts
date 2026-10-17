@@ -13,7 +13,7 @@ import { POST as surrenderRequestRoute } from "@/app/api/asset-finance/loans/[lo
 import { PATCH as writeOffRoute } from "@/app/api/loans/[id]/write-off/route"
 import type { DealFixture } from "./deal.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
-import { alignRecoveryFixtureSchedule, newLoan, type RecoveryLoan } from "./recovery.integration-fixture"
+import { recordFixtureCommercialCancellation, alignRecoveryFixtureSchedule, newLoan, type RecoveryLoan } from "./recovery.integration-fixture"
 import { cleanupLegalFixture } from "./legal-matter.integration-fixture"
 import { disburseApplication } from "./recovery-sale.integration-fixture"
 
@@ -42,6 +42,7 @@ export async function bookE2eLoan(
   await testSetup(db, [`UPDATE "Loan" SET "principal" = $1, "totalInterest" = 0, "totalRepayable" = $1, "outstandingPrincipal" = 100000000 WHERE "id" = $2`, settlementCents, loan.loanId])
   await disburseApplication(db, fx, loan)
   await alignRecoveryFixtureSchedule(db, loan.loanId)
+  await recordFixtureCommercialCancellation(db, fx, loan.loanId)
   return loan
 }
 

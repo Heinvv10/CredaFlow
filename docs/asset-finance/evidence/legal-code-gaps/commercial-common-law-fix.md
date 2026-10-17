@@ -80,23 +80,29 @@ the optional charge switch while reporting `chargesLive` from the actual switch.
 SuretyConsent Prisma referential actions now explicitly match the migration's
 NO ACTION defaults; migrated PostgreSQL reports `No difference detected`.
 
-Law-review cancellation correction: ordinary partial receipts do not terminate
-an agreement. A completed recovery sale does: its actual invoice supply date
-now fixes the NON_NCA instalment-sale contractual-interest cutoff, before any
-proceeds are applied. Loan.commercialCancelledAt and its unique source sale
-remain bound to the tenant, loan, completed sale and invoice date by PostgreSQL.
-The original signed schedule is retained in row snapshots and in the existing
-sale-completed audit. Future contractual interest cannot revive through later
-quotes, receipts, receipt reversal or a schedule write. Default interest on the
-remaining debt still follows the contractual terms, recovery demand grace and
-common-law ceiling; cancellation does not silently switch default charges off.
+Actual-cancellation correction: cancellation is independently evidenced and can
+precede repossession and sale. An authorised staff verifier records the actual
+effective date, a live legal document of the borrower/agreement, a factual basis
+and explicit actual-cancellation confirmation. This is permanent, audited,
+tenant-bound and enforced in PostgreSQL. Possession, voluntary return and a sale
+never supply an inferred cancellation date. A NON_NCA instalment-sale asset
+cannot be sold before the cancellation event is recorded; a later sale links to
+that existing event without moving its effective date. The staff loan page has
+the evidence/date/confirmation form and the recorded cancellation read model.
 
-The review's 100000 capital / 20000 future-interest / 60000 partial-proceeds
-example failed first, then retained a 40000 contractual shortfall through later
-maturity. Pure grace/default-cap tests pass. The real PostgreSQL test books an
-agreement through approval/signing/payout, completes a dated sale through the
-real route, applies partial proceeds, verifies the 2035 quote, records another
-cash receipt and reverses it through the real staff route. The fixed shortfall
-survives; PostgreSQL rejects revival of contractual interest. Actual source
-sales remain completed when ordinary receipts reverse; sale-proceeds receipts
-remain subject to their existing reversal prohibition.
+The contractual-interest cutoff follows the actual cancellation date even if
+proceeds are insufficient. Original signed terms survive in row snapshots and
+the cancellation audit. Later quotes, receipts, receipt reversal and repricing
+cannot revive future contractual interest. Contractual default interest on the
+remaining debt continues to obey demand grace and the common-law ceiling.
+
+The actual-booked PostgreSQL scenario independently calculates interest earned
+by January 1 (1549310 cents on 155250000 capital; original interest32970583),
+records possession February 1 and sale March 1, and proves March interest would
+be higher. The loan stays at the January contractual debt156799310 before and
+after the later sale, partial proceeds, future2035 quotes, another cash receipt
+and its real staff-route reversal. Missing evidence refuses sale; an officer
+cannot record cancellation. Direct forged cutoff, event edit/delete and evidence
+soft deletion are rejected by PostgreSQL. Repricing answers contract_cancelled
+without a new rate row. Replacing the actual cutoff with maturity failed the
+real PostgreSQL oracle (188220583 versus156799310), then source was restored.

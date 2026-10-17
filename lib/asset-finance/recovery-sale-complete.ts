@@ -1,7 +1,6 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
-import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { prisma } from "@/lib/prisma"
 import { describeAsset, issueTaxInvoice, VatNotConfiguredError } from "@/lib/vat/tax-invoice"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
@@ -48,7 +47,7 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     await lockRecovery(tx, head.recoveryId)
     const sale = await tx.remarketingSale.findFirst({
       where: { id: saleId, tenantId: actor.tenantId },
-      include: { recovery: { include: { asset: true, loan: { select: { ncaRegime: true, contractType: true, outstandingPrincipal: true, entity: { select: { vatNumber: true } } } } } } },
+      include: { recovery: { include: { asset: true, loan: { select: { ncaRegime: true, commercialCancellationEvent: { select: { id: true, cancelledOn: true } }, contractType: true, outstandingPrincipal: true, entity: { select: { vatNumber: true } } } } } } },
     })
     if (!sale) return { kind: "not_found" }
     const { recovery } = sale
@@ -58,6 +57,10 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     const today = sastCalendarDate(new Date())
     if (toDayNumber(input.completedOn) > toDayNumber(today)) throw new RecoveryRefusal("The sale cannot be completed on a future date")
     if (toDayNumber(input.completedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The sale cannot be dated before the recovery")
+    const cancellation = recovery.loan.commercialCancellationEvent
+    const commercialSale = recovery.loan.ncaRegime === "NON_NCA" && recovery.loan.contractType === "INSTALMENT_SALE"
+    if (commercialSale && !cancellation) throw new RecoveryRefusal("Record the actual cancellation date with its legal evidence before selling this agreement's asset")
+    if (commercialSale && cancellation && isoOfDbDate(cancellation.cancelledOn) > input.completedOn) throw new RecoveryRefusal("The sale cannot precede the actual cancellation date")
     const { selfValued } = await valuationFacts(tx, actor.tenantId, recovery.assetId, sale.valuationId, today, sale.createdById)
     // Not self-valued when recorded but self-valued now (the proposer has since recorded a tying valuation): it must be re-recorded, not approved.
     if (selfValued && !sale.selfValued) throw new RecoveryRefusal(SELF_VALUED_RERECORD)
@@ -98,19 +101,7 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
       where: { id: sale.id, tenantId: actor.tenantId },
       data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: invoice.id },
     })
-    let commercialCancellation = null
-    if (recovery.loan.ncaRegime === "NON_NCA" && contractType === "INSTALMENT_SALE") {
-      const before = await tx.loan.findUniqueOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
-      await tx.loan.update({ where: { id: recovery.loanId, tenantId: actor.tenantId }, data: {
-        commercialCancelledAt: new Date(`${input.completedOn}T00:00:00+02:00`), commercialCancellationSaleId: sale.id,
-      } })
-      await syncLoanCharges(tx, { tenantId: actor.tenantId, loanId: recovery.loanId }, new Date(), { source: "commercial_sale_cancellation", userId: actor.userId, userEmail: actor.userEmail })
-      commercialCancellation = { loanId: recovery.loanId, cancelledOn: input.completedOn,
-        originalTotalInterest: before.contractualTotalInterest ?? before.totalInterest,
-        originalTotalRepayable: before.contractualTotalRepayable ?? before.totalRepayable,
-        originalRows: before.repaymentSchedule.map((row) => ({ id: row.id, installmentNo: row.installmentNo, dueDate: row.dueDate.toISOString(), principalDue: row.principalDue,
-          interestDue: row.commonLawContractualInterestDue ?? row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue - row.interestDue + (row.commonLawContractualInterestDue ?? row.interestDue) })) }
-    }
+    if (commercialSale) await tx.loan.update({ where: { id: recovery.loanId, tenantId: actor.tenantId }, data: { commercialCancellationSaleId: sale.id } })
     await advance(tx, actor, recovery.id, "LISTED", { status: "SOLD" })
     const event = await tx.recoveryVatEvent.create({ data: {
       tenantId: actor.tenantId, recoveryId: recovery.id, kind: vat.kind, eventDate: dbDate(eventDate), dealContractType: contractType,
@@ -121,7 +112,7 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     const audit = { tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined }
     await logAuditStrict({
       ...audit, action: AuditAction.ASSET_REMARKETING_SALE_COMPLETED, entity: "RemarketingSale", entityId: sale.id,
-      newValue: { recoveryId: recovery.id, taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, priceInclVatCents: sale.priceInclVatCents, completedOn: input.completedOn, commercialCancellation },
+      newValue: { recoveryId: recovery.id, taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, priceInclVatCents: sale.priceInclVatCents, completedOn: input.completedOn, commercialCancellation: cancellation ? { id: cancellation.id, cancelledOn: isoOfDbDate(cancellation.cancelledOn) } : null },
     }, tx)
     await logAuditStrict({
       ...audit, action: AuditAction.ASSET_RECOVERY_VAT_EVENT_RECORDED, entity: "Recovery", entityId: recovery.id,

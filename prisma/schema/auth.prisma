@@ -58,6 +58,7 @@ model User {
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
   coiDeclarations              CoiDeclaration[]
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
+  commercialCancellations       CommercialCancellation[]
   contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
   // Phase 9 audit-pointer relations. Restrict on each (declared on the
   // child-side relation) — User hard-delete is already non-normal (we
