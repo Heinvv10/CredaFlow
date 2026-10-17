@@ -1,0 +1,97 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "baseUrl": "http://localhost:44213",
+  "immutableImage": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "startedAt": "2026-10-17T15:05:33.582Z",
+  "driverSha256": "2fa979b8ef70853959aaf7c1ef51789c088fefe43c8d34fda881336e17dc8f7a",
+  "scenarios": [
+    {
+      "route": "/portal/business",
+      "finalPath": "/portal/business/cmnflx9j1005iay0ch7zfcvgd",
+      "evidence": "authenticated eligible representative entry UI only",
+      "text": "TEST Family Farming Trust\n\nTrust \u00b7 IT 000001/2099\n\nYou can see this business's applications and finance agreements and send us its documents.\n\nDocuments to sign\n\nYour own signatures on this business's finance documents\n\nAsset finance agreement\n\nagreement AF-MNFLX9M6-0ERM\n\nE-SIGNED\n\nResolution\n\nagreement AF-MNFLX9M6-0ERM\n\nE-SIGNED\n\nAsset finance agreement\n\nagreement AF-MNFLXC05-U5CA\n\nE-SIGNED\n\nResolution\n\nagreement AF-MNFLXC05-U5CA\n\nE-SIGNED\nNCA deal actions\n\nCredit-life disclosure and quotation acknowledgement\n\nNo NCA actions are waiting.\n\nDocuments\n\nEvery time a file is opened, the access is logged.\n\nDocument type\nChoose\u2026\nCIPC registration (CoR)\nTrust deed\nLetters of Authority\nResolution\nAnnual financial statements\nManagement accounts\nBank statement\nOther\nFile (PDF, JPEG, PNG or WebP, up to 10 MB)\nUpload\nTYPE\tFILE\tUPLOADED\tSTATUS\tACTIONS\nDelivery and acceptance\tdelivery_acceptance-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nTracker certificate\ttracker_certificate-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nInsurance noting\tinsurance_noting-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nBank statement\tbank_statement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSupplier invoice\tsupplier_invoice-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned resolution\tsigned_resolution-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned agreement\tsigned_agreement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nDelivery and acceptance\tdelivery_acceptance-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nTracker certificate\ttracker_certificate-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nInsurance noting\tinsurance_noting-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nBank statement\tbank_statement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSupplier invoice\tsupplier_invoice-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned resolution\tsigned_resolution-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned agreement\tsigned_agreement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nOther\tasset-pasq-AF-MNFLX9M6-0ERM.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nLetters of Authority\tletters_of_authority-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tVERIFIED\tViewDownload\nTrust deed\ttrust_deed-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nApplications\n\nScroll the table sideways to see every column.\n\nREFERENCE\tSTATUS\tNCA REGIME\tAMOUNT\tCAPTURED\nAF-MNFLXC05-U5CA\tDISBURSED\tNot regulated by the NCA\tR\u00a0200,000.00\t01 Apr 2026\nAF-MNFLX9M6-0ERM\tDISBURSED\tRegulated by the NCA\tR\u00a0310,500.00\t01 Apr 2026\nDeals\n\nScroll the table sideways to see every column.\n\nAPPLICATION\tASSET\tCONTRACT\tSTATUS\tCAPTURED\nAF-MNFLXC05-U5CA\t2025 TEST FL-35 Synthetic\tFull maintenance lease\tBOOKED\t01 Apr 2026\nAF-MNFLX9M6-0ERM\t2025 TEST TR-90 Synthetic\tFinance lease\tBOOKED\t01 Apr 2026\nLoans\n\nPrincipal is the capital the schedule repays: the amount financed plus any interest capitalised in lower- or no-payment months, so it can be more than the amount financed. Outstanding principal is what is left of it.\n\nScroll the table sideways to see every column.\n\nREFERENCE\tSTATUS\tPRINCIPAL\tOUTSTANDING PRINCIPAL\tSTARTED\nLN-MNFLXCB3-0NW9\tDEFAULTED\tR\u00a0138,443.95\tR\u00a0110,755.17\t31 Mar 2026\nLN-MNFLXA4Q-7C92\tDEFAULTED\tR\u00a0310,500.00\tR\u00a0304,930.05\t31 Mar 2026"
+    },
+    {
+      "finding": "F06",
+      "account": "business",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/business",
+          "label": "Business"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 621,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    }
+  ],
+  "errors": [],
+  "browserErrors": [],
+  "consoleMessages": [
+    {
+      "path": "/portal/login",
+      "type": "error",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "httpFailures": [
+    {
+      "path": "/portal/login",
+      "status": 404,
+      "method": "GET",
+      "resourceType": "document",
+      "prefetch": null
+    }
+  ],
+  "endedAt": "2026-10-17T15:05:43.741Z",
+  "runLabel": "business-canonical",
+  "privateAttemptId": "1792249533469"
+}

@@ -51,13 +51,16 @@ describe("PortalApplyClient", () => {
     expect(html).toContain("You qualify for up to")
   })
 
-  it("never offers PO funding on salary: it shows the range and who it is for", () => {
+  it("shows a PO range subject to full borrower-affordability assessment", () => {
     const html = render()
     const po = html.slice(html.indexOf("PO Funding</h3>"))
     const card = po.slice(0, po.indexOf("Apply for"))
     expect(card).not.toContain("You qualify for up to")
     expect(card).toContain("R10,000 – R500,000")
     expect(card).toContain("confirmed purchase order")
+    expect(card).toContain("income, expenses and existing debts")
+    expect(card).toContain("full scheduled repayment")
+    expect(card).not.toContain("not sized on your salary")
   })
 
   it("shows the scenario panel's NDI and max instalment to the cent, matching the top panel", () => {

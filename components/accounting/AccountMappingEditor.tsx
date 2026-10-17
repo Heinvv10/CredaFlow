@@ -19,7 +19,7 @@ interface Mapping {
 }
 
 /** The chart-of-accounts mapping. Editable by ADMIN; applies to months closed after a change. */
-export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
+export function AccountMappingEditor({ canEdit, mutationPending = false, onMutationStart, onMutationEnd }: { canEdit: boolean; mutationPending?: boolean; onMutationStart?: () => void; onMutationEnd?: () => void }) {
   const [rows, setRows] = useState<Mapping[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -35,6 +35,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
 
   async function save() {
     setBusy(true)
+    onMutationStart?.()
     setMessage(null)
     try {
       const res = await fetch("/api/accounting/mappings", {
@@ -53,6 +54,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
       setMessage("Network error; nothing was saved by this page.")
     } finally {
       setBusy(false)
+      onMutationEnd?.()
     }
   }
 
@@ -60,7 +62,7 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
     <DataPanel
       title="Chart of accounts"
       description="Where each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account."
-      actions={canEdit ? <Button size="sm" disabled={busy || rows.length === 0} onClick={save}>Save mapping</Button> : undefined}
+      actions={canEdit ? <Button size="sm" disabled={busy || mutationPending || rows.length === 0} onClick={save}>Save mapping</Button> : undefined}
     >
       <Table>
         <TableHeader>
@@ -89,17 +91,17 @@ export function AccountMappingEditor({ canEdit }: { canEdit: boolean }) {
                 <p className="text-[11px] text-[var(--cf-text-muted)]">{r.description}</p>
               </TableCell>
               <TableCell>
-                <Input aria-label={`${r.role} account code`} value={r.code} disabled={!canEdit} onChange={(e) => update(r.role, { code: e.target.value })} className="w-28" />
+                <Input aria-label={`${r.role} account code`} value={r.code} disabled={!canEdit || mutationPending} onChange={(e) => update(r.role, { code: e.target.value })} className="w-28" />
               </TableCell>
               <TableCell>
-                <Input aria-label={`${r.role} account name`} value={r.name} disabled={!canEdit} onChange={(e) => update(r.role, { name: e.target.value })} />
+                <Input aria-label={`${r.role} account name`} value={r.name} disabled={!canEdit || mutationPending} onChange={(e) => update(r.role, { name: e.target.value })} />
               </TableCell>
               <TableCell>
-                <Input aria-label={`${r.role} tax code`} value={r.taxCode ?? ""} disabled={!canEdit || ASSET_FINANCE_ROLES.includes(r.role as never)} placeholder="none" onChange={(e) => update(r.role, { taxCode: e.target.value || null })} className="w-28" />
+                <Input aria-label={`${r.role} tax code`} value={r.taxCode ?? ""} disabled={!canEdit || mutationPending || ASSET_FINANCE_ROLES.includes(r.role as never)} placeholder="none" onChange={(e) => update(r.role, { taxCode: e.target.value || null })} className="w-28" />
               </TableCell>
               <TableCell>
                 {(r.role === "FEE_INCOME" || r.role === "DEFAULT_FEE_INCOME") && (
-                  <input type="checkbox" aria-label={`${r.role} amounts include VAT`} checked={r.vatInclusive} disabled={!canEdit} onChange={(e) => update(r.role, { vatInclusive: e.target.checked })} />
+                  <input type="checkbox" aria-label={`${r.role} amounts include VAT`} checked={r.vatInclusive} disabled={!canEdit || mutationPending} onChange={(e) => update(r.role, { vatInclusive: e.target.checked })} />
                 )}
               </TableCell>
             </TableRow>

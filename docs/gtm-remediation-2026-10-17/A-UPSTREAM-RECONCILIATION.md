@@ -1,0 +1,13 @@
+# Upstream UI reconciliation and G20 dialog description
+
+Local merge branch `fix/gtm-upstream-ui-reconcile-20261017` starts at remediation candidate `b637a03eabd1dbd2362fba10cd48d7cafb442274` and merges fetched actual `origin/main=a740801a68ccdb4117b3d7b7ddd357f2f98a1b9a`. PR166 actually merged at13:42:05UTC; unmerged PR head was not treated as main. Prior A recovery/implementation branches preserved. MQ alone will advance the shared integration branch after independent review.
+
+The only textual merge conflict was `components/app-shell/PortalSidebar.tsx`. Keep the upstream Dialog-based full mobile navigation, its automatic focus containment/Escape restoration, shared Dialog viewport scroll behavior, PortalShell trigger spacing and desktop accessibility improvements. Remove the redundant native details menu by using the upstream Sidebar implementation, with the existing translated Menu key naming its one trigger. Existing bottom shortcuts, business eligibility, all links and portal sign-out retained. Rewrote the native-disclosure test against the actual Radix Dialog: exactly one trigger/no details duplicate, all eligible destinations, active link, navigation closes, sign-out targets portal login.
+
+Auto-merged client-detail layout preserves upstream responsive wrapping AND remediation ClientRecordActions permissions. Auto-merged IntegrationsTab preserves upstream spacing/credential label binding AND the provider/mandate setup wording from F13. No substantive conflict guessed; no other files manually resolved. All other upstream committed changes are preserved as merged, including its global CSS, shared Dialog, navigation grouping and demo-seed corrections.
+
+G20: wrap the existing irreversible-disbursement warning in DialogDescription and add its unit-test mock export. Exact warning text, payout logic, financial calculations and confirmation gates unchanged. Actual browser must verify aria-describedby references readable warning and no missing-description console warning.
+
+Verification: six targeted suites26tests PASS (actual portal Dialog, bottom navigation/logo, DisburseForm, client action permission floor, integrations copy). Changed-file ESLint and app TypeScript PASS. No schema/migration/provider activation or real data changes. Full combined quality/integration and immutable-image browser acceptance remain MQ gates; pre166 results are historical evidence only.
+
+Browser driver updated to actual Dialog role/one Menu trigger, keyboard Enter/Escape focus restoration,390x844 and390x400 bounds/scrollability, all feature links and sign-out. Eligible single-business entry allows its intended redirect to entity detail. No old/native-menu or superseded-image browser acceptance is claimed.

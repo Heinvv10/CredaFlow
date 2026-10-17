@@ -2,6 +2,9 @@
 import type { Catalog } from "../../catalog"
 
 export const portalHome: Catalog["portalHome"] = {
+  currentAccountAmount: "Current account amount",
+  accountPrincipalDefinition: "Principal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.",
+  accountLiveDefinition: "Includes current calculated settlement or contractual amounts and default charges across your open loans. Open each loan for its principal, scheduled amounts and settlement basis.",
   noClientAccount: "Ayikho i-akhawunti yekhasimende etholakele kuleli kheli le-imeyili.",
   contactToStart: "Xhumana no-{email} ukuze uqale.",
   agreementAwaiting: "Isivumelwano sesikweletu silinde ukusayina kwakho",

@@ -29,7 +29,7 @@ export const portalApply = {
   recentDeclineTitle: "Your recent application was declined",
   recentDeclineBody: "We declined application {reference} on {date}. The figures below are estimates from your profile, not an offer. A new application is assessed again in full, including a credit check.",
   recentDeclineLink: "See the reason and your next steps →",
-  poBusinessOnly: "For a business funding a confirmed purchase order. It is repaid from your buyer's payment, so it is not sized on your salary.",
+  poBusinessOnly: "For a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.",
   amountOutOfRange: "Enter an amount between {min} and {max}.",
   poNumberLabel: "Purchase order number",
   poBuyerLabel: "Buyer (who issued the purchase order)",

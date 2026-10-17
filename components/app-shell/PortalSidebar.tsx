@@ -88,7 +88,7 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
         <DialogTrigger asChild>
           <button
             type="button"
-            aria-label={t("clientPortal")}
+            aria-label={t("menu")}
             className="fixed left-3 top-[calc(0.75rem+var(--cf-demo-banner-h))] z-40 flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] md:hidden"
           >
             <Menu className="h-4 w-4" />

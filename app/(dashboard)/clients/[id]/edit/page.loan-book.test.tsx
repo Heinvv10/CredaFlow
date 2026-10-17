@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 
 // #145 breaker review (HIGH): the client edit form sent the affordability
@@ -24,11 +25,12 @@ describe("client edit page", () => {
     expect(findUnique).not.toHaveBeenCalled()
   })
 
-  it("opens for a role that reads the loan book", async () => {
+  it("explains read-only access before reading or rendering the editable client", async () => {
     session.role = "READONLY"
-    findUnique.mockResolvedValue(null)
-    // Past the gate: it reads the client (none here, so not found).
-    await expect(EditClientPage({ params: Promise.resolve({ id: "c1" }) })).rejects.toThrow("NOT_FOUND")
-    expect(findUnique).toHaveBeenCalled()
+    findUnique.mockClear()
+    const html = renderToStaticMarkup(await EditClientPage({ params: Promise.resolve({ id: "c1" }) }))
+    expect(html).toContain("read-only")
+    expect(html).not.toContain("<form")
+    expect(findUnique).not.toHaveBeenCalled()
   })
 })

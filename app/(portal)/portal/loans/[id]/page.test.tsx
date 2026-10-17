@@ -139,4 +139,39 @@ describe("portal loan page", () => {
       vi.useRealTimers()
     }
   })
+  it.each([null, 172_900])("distinguishes an asset loan's principal from contractual amounts with live amount %s", async (liveAmount) => {
+    const base = defaultedLoan()
+    loanFindFirst.mockResolvedValue({ ...base, contractType: "INSTALMENT_SALE", ncaRegime: "NCA", outstandingPrincipal: 100_000, totalRepayable: 250_000, totalPaid: 100_000 })
+    portalLoanCharges.mockResolvedValue({ outstanding: liveAmount === null ? 0 : 3_000, lines: [], settlementAmount: liveAmount, totalToSettle: 172_900 })
+    const html = await render()
+    expect(html).toContain("Outstanding principal")
+    expect(html).toContain("Remaining contractual instalments")
+    expect(html).toContain("1,000.00")
+    expect(html).toContain("1,500.00")
+    expect(html).toContain("Ask your lender for a dated settlement quote")
+    expect(html).not.toContain("Calculated settlement as of")
+    expect(html).toContain(liveAmount === null ? "Principal still owed." : "Remaining contractual amount, including default charges.")
+  })
+
+  it("shows a dated settlement only when the shared settlement model prices this loan", async () => {
+    const base = defaultedLoan()
+    loanFindFirst.mockResolvedValue({ ...base, contractType: "LOAN", ncaRegime: "NCA", interestModel: "REDUCING_BALANCE", repaymentSchedule: [
+      { ...base.repaymentSchedule[0], creditLifePremiumDue: 0 },
+      { ...base.repaymentSchedule[0], id: "r2", installmentNo: 2, creditLifePremiumDue: 0 },
+    ] })
+    portalLoanCharges.mockResolvedValue({ outstanding: 3_000, lines: [], settlementAmount: 172_900, totalToSettle: 172_900 })
+    const html = await render()
+    expect(html).toContain("Calculated settlement as of")
+    expect(html).toContain("same settlement rules as staff servicing and the certificate of balance")
+    expect(html).not.toContain("Ask your lender for a dated settlement quote")
+  })
+
+  it("never labels a non-NCA contractual amount as a calculated settlement", async () => {
+    loanFindFirst.mockResolvedValue({ ...defaultedLoan(), ncaRegime: "NON_NCA", contractType: "LOAN" })
+    portalLoanCharges.mockResolvedValue({ outstanding: 3_000, lines: [], settlementAmount: 172_900, totalToSettle: 172_900 })
+    const html = await render()
+    expect(html).not.toContain("Calculated settlement as of")
+    expect(html).toContain("This is not an early-settlement quote.")
+  })
+
 })

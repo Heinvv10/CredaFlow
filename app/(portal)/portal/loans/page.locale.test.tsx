@@ -35,10 +35,10 @@ const render = async (l: Locale) => {
 
 describe("portal loans page per locale", () => {
   it.each([
-    ["en", "My Loans", "Outstanding", "ACTIVE", "Oct 2026"],
-    ["af", "My lenings", "Uitstaande", "AKTIEF", "Okt. 2026"],
-    ["zu", "Imalimboleko yami", "Okusele", "IYASEBENZA", "2026"],
-    ["xh", "Iimali-mboleko zam", "Eseleyo", "IYASEBENZA", "2026"],
+    ["en", "My Loans", "Outstanding principal", "ACTIVE", "Oct 2026"],
+    ["af", "My lenings", "Uitstaande hoofsom", "AKTIEF", "Okt. 2026"],
+    ["zu", "Imalimboleko yami", "Okusele emalini eyinhloko", "IYASEBENZA", "2026"],
+    ["xh", "Iimali-mboleko zam", "Eseleyo kwimali eyintloko", "IYASEBENZA", "2026"],
   ] as const)("%s", async (l, title, metric, status, date) => {
     const html = await render(l)
     expect(html).toContain(title)

@@ -31,15 +31,14 @@ export async function POST(
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
 
-      // Phase 7 AVS gate — dark behind TenantConfig.collectionsEngineEnabled.
-      // Merge-day (flag-off) behavior must refuse before runAvsCheck ever runs.
+      // Payouts and collections both require bank-account verification.
       const tenantConfig = await prisma.tenantConfig.findUnique({
         where: { tenantId: tenant.id },
-        select: { collectionsEngineEnabled: true },
+        select: { collectionsEngineEnabled: true, payoutsEngineEnabled: true },
       })
-      if (!tenantConfig?.collectionsEngineEnabled) {
+      if (!tenantConfig?.collectionsEngineEnabled && !tenantConfig?.payoutsEngineEnabled) {
         return NextResponse.json(
-          { error: "Collection engine is not enabled for this tenant" },
+          { error: "Neither collections nor payouts is enabled for this tenant" },
           { status: 409 }
         )
       }

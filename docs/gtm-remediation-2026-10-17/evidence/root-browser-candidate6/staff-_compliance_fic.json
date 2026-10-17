@@ -1,0 +1,194 @@
+{
+  "route": "/compliance/fic",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/compliance/fic",
+    "title": "Client and staff workspace",
+    "headings": [
+      "FIC Act registers"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nCompliance\nFIC Act\nFIC Act registers\n\nDo not tell the client, or anyone who does not need to know, that this report exists or may be made. Tipping off is an offence under the FIC Act. Do not note it on the client's file, in messages or in loan notes. Views of this page are logged.\n\nCash threshold register (0 unfiled)\nCSV (goAML-ready draft)\nXML (goAML-ready draft)\n\nCash receipts at or above the configured threshold. The threshold figure must be confirmed by your compliance officer against the current FIC regulations before relying on this register. Exports contain every row.\n\nNo unfiled cash receipts at or above the threshold.\n\nSuspicious & unusual transaction register (0 open, 0 decided)\nCSV (goAML-ready draft)\nXML (goAML-ready draft)\n\nNo cases have been raised.\n\nRisk Management and Compliance Programme (RMCP)\n\nUpload the lender's own RMCP as approved by its compliance function. CredaFlow stores and dates it; it does not write it.\n\nNo RMCP has been uploaded.\n\nTitle\nReview by\nPDF\nUpload new version",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "CSV (goAML-ready draft)",
+        "href": "/api/compliance/fic/export?register=ctr&format=csv"
+      },
+      {
+        "text": "XML (goAML-ready draft)",
+        "href": "/api/compliance/fic/export?register=ctr&format=xml"
+      },
+      {
+        "text": "CSV (goAML-ready draft)",
+        "href": "/api/compliance/fic/export?register=str&format=csv"
+      },
+      {
+        "text": "XML (goAML-ready draft)",
+        "href": "/api/compliance/fic/export?register=str&format=xml"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": []
+}

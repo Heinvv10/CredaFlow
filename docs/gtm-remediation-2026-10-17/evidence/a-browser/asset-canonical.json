@@ -1,0 +1,97 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "baseUrl": "http://localhost:44213",
+  "immutableImage": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "startedAt": "2026-10-17T15:05:01.361Z",
+  "driverSha256": "af3a11454755d8028a8fd67ee42e1f388aeada349c7c266ec400e817977a1660",
+  "scenarios": [
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "overview",
+      "text": "Good evening, TEST\n\nYOUR NEXT PAYMENT\n\nR 15,957.11\n\nDue in 562 days / 1 May 2028\n\nPay Now\nView Schedule\n\nCURRENT ACCOUNT AMOUNT\n\nR 285,890.82\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\n51%\n\nPAID TO DATE\n\nR 393,500.00\n\nLOAN REFERENCE\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale\n\nACCOUNT STATUS\n\nGood Standing\n\nClear\nQuick Actions\n\nSecure shortcuts for the next client task.\n\nMake Payment\nView Schedule\nDownload Statement\nUpload Document\nTrack Application\nRecent Activity\nView all\n\nPayment allocated\n\nEFT\n\nR 393,500.00\n\n01 Apr\n\nMy Documents\nManage documents\nUploaded: 2\nVerified: 1\nMissing required documents: ID Copy, Payslip, Bank Statement, Proof of Address\nMy Insurance\n\nCL-MNFLXAM1-DJ69\n\nCoverage: R 517,500.00\n\nACTIVE\n\nR 2,328.75/mo"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "/portal/loans",
+      "text": "CLIENT PORTAL\n\nMy Loans\n\nReview active and historical loan accounts, balances and repayment schedules.\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale / Started 01 Apr 2026\n\nACTIVE\n\nOUTSTANDING PRINCIPAL\n\nR 285,890.82\n\nTOTAL PAID\n\nR 393,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nNEXT PAYMENT\n\n01 May 2028\n\nView Schedule"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "/portal/statement",
+      "text": "YOUR ACCOUNT\n\nPayment History & Statements\n\nView active loan balances, download official statements and track recorded repayments.\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale / ACTIVE\n\nPDF\nPrint\n\nPAYMENT REFERENCE\n\nLN-MNFLXALV-2C47\n\nQuote this reference on every payment or deposit so it is allocated to this loan.\n\nOUTSTANDING PRINCIPAL\n\nR 285,890.82\n\nTOTAL PAID\n\nR 393,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n01 Apr 2026\tR 393,500.00\tEFT\tREC-cmnflxcgw017eay0c82sbls8w"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "loanId": "cmnflxalw00f7ay0cigs9nmpv",
+      "breakdown": {
+        "Outstanding principal": "R 285,890.82",
+        "Overdue now, including default charges": "R 0.00",
+        "Remaining contractual instalments": "R 374,769.94",
+        "Valuation": "R\u00a0450,000.00",
+        "Notices issued": "Valuation notice, Final notice",
+        "Sale proceeds": "R\u00a0400,000.00",
+        "Costs deducted from the proceeds": "R\u00a06,500.00",
+        "Net proceeds": "R\u00a0393,500.00",
+        "Costs charged to the account": "R\u00a00.00",
+        "Shortfall you owe": "R\u00a0374,769.94"
+      },
+      "expected": {
+        "loanId": "cmnflxalw00f7ay0cigs9nmpv",
+        "status": "ACTIVE",
+        "ncaRegime": "NCA",
+        "contractType": "INSTALMENT_SALE",
+        "outstandingPrincipal": 28589082,
+        "totalRepayable": 76826994,
+        "totalPaid": 39350000,
+        "currentAccountAmount": 28589082,
+        "chargesOutstanding": 0,
+        "chargeLines": [],
+        "chargesLive": false,
+        "totalToSettle": 37476994,
+        "isS125Priced": false,
+        "overdueNow": 0,
+        "daysOverdue": 0,
+        "remainingContractual": 37476994
+      },
+      "text": "Back to Loans\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale\n\nACTIVE\n\nR 285,890.82\n\nOutstanding principal\n\nPrincipal still owed. This excludes future interest, fees and premiums and is not a settlement quote.\n\nPRINCIPAL\n\nR 517,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nTOTAL PAID\n\nR 393,500.00\n\nMONTHLY INSTALMENT\n\nR 15,957.11\n\nNEXT PAYMENT DATE\n\n01 May 2028\n\nNEXT PAYMENT AMOUNT\n\nR 7,756.50\n\nOutstanding principal\nR 285,890.82\nOverdue now, including default charges\nR 0.00\nRemaining contractual instalments\nR 374,769.94\n\nUnpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.\n\nAsk your lender for a dated settlement quote for this contract.\n\nYou have paid 51% of your loan\n51%\nPaid: R 393,500.00\nTotal: R 768,269.94\nDownload Statement\nMake a Payment\nRepayment Schedule\nNO.\tDUE DATE\tAMOUNT\tSTATUS\n1\t01 May 2026\tR 18,285.86\tPAID\n2\t01 Jun 2026\tR 15,957.11\tPAID\n3\t01 Jul 2026\tR 15,957.11\tPAID\n4\t01 Aug 2026\tR 15,957.11\tPAID\n5\t01 Sept 2026\tR 15,957.11\tPAID\n6\t01 Oct 2026\tR 15,957.11\tPAID\n7\t01 Nov 2026\tR 15,957.11\tPAID\n8\t01 Dec 2026\tR 15,957.11\tPAID\n9\t01 Jan 2027\tR 15,957.11\tPAID\n10\t01 Feb 2027\tR 15,957.11\tPAID\n11\t01 Mar 2027\tR 15,957.11\tPAID\n12\t01 Apr 2027\tR 15,957.11\tPAID\n13\t01 May 2027\tR 15,957.11\tPAID\n14\t01 Jun 2027\tR 15,957.11\tPAID\n15\t01 Jul 2027\tR 15,957.11\tPAID\n16\t01 Aug 2027\tR 15,957.11\tPAID\n17\t01 Sept 2027\tR 15,957.11\tPAID\n18\t01 Oct 2027\tR 15,957.11\tPAID\n19\t01 Nov 2027\tR 15,957.11\tPAID\n20\t01 Dec 2027\tR 15,957.11\tPAID\n21\t01 Jan 2028\tR 15,957.11\tPAID\n22\t01 Feb 2028\tR 15,957.11\tPAID\n23\t01 Mar 2028\tR 15,957.11\tPAID\n24\t01 Apr 2028\tR 15,957.11\tPAID\n25\t01 May 2028\tR 15,957.11\tPARTIAL\u2190 NEXT\n26\t01 Jun 2028\tR 15,957.11\tUPCOMING\n27\t01 Jul 2028\tR 15,957.11\tUPCOMING\n28\t01 Aug 2028\tR 15,957.11\tUPCOMING\n29\t01 Sept 2028\tR 15,957.11\tUPCOMING\n30\t01 Oct 2028\tR 15,957.11\tUPCOMING\n31\t01 Nov 2028\tR 15,957.11\tUPCOMING\n32\t01 Dec 2028\tR 15,957.11\tUPCOMING\n33\t01 Jan 2029\tR 15,957.11\tUPCOMING\n34\t01 Feb 2029\tR 15,957.11\tUPCOMING\n35\t01 Mar 2029\tR 15,957.11\tUPCOMING\n36\t01 Apr 2029\tR 15,957.11\tUPCOMING\n37\t01 May 2029\tR 15,957.11\tUPCOMING\n38\t01 Jun 2029\tR 15,957.11\tUPCOMING\n39\t01 Jul 2029\tR 15,957.11\tUPCOMING\n40\t01 Aug 2029\tR 15,957.11\tUPCOMING\n41\t01 Sept 2029\tR 15,957.11\tUPCOMING\n42\t01 Oct 2029\tR 15,957.11\tUPCOMING\n43\t01 Nov 2029\tR 15,957.11\tUPCOMING\n44\t01 Dec 2029\tR 15,957.11\tUPCOMING\n45\t01 Jan 2030\tR 15,957.11\tUPCOMING\n46\t01 Feb 2030\tR 15,957.11\tUPCOMING\n47\t01 Mar 2030\tR 15,957.11\tUPCOMING\n48\t01 Apr 2030\tR 15,957.02\tUPCOMING\nPayment History\nDownload Statement\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n01 Apr 2026\tR 393,500.00\tEFT\tREC-cmnflxcgw017eay0c82sbls8w\nRecovery of your asset\n\n2025 TEST TLB-4x4 Synthetic, recovered on 29 Mar 2026\n\nSHORTFALL OPEN\nValuation\nR\u00a0450,000.00\nNotices issued\nValuation notice, Final notice\nSale proceeds\nR\u00a0400,000.00\nCosts deducted from the proceeds\nR\u00a06,500.00\nNet proceeds\nR\u00a0393,500.00\nCosts charged to the account\nR\u00a00.00\nShortfall you owe\nR\u00a0374,769.94\n\nNo further charges accrue on the account until 17 Apr 2026.\n\nRECOVERY COSTS\n\nStorage\nDeducted from the proceeds\nR\u00a06,500.00"
+    },
+    {
+      "finding": "F07",
+      "account": "asset",
+      "theme": "dark",
+      "background": "color(srgb 0.134965 0.156031 0.194573)",
+      "reference": "rgb(236, 238, 243)",
+      "helper": "rgb(140, 147, 163)",
+      "referenceRatio": 12.761510696124795,
+      "helperRatio": 4.809177477596605,
+      "text": "LN-MNFLXALV-2C47"
+    },
+    {
+      "finding": "F07",
+      "account": "asset",
+      "theme": "light",
+      "background": "color(srgb 0.911686 0.930039 0.947137)",
+      "reference": "rgb(27, 29, 36)",
+      "helper": "rgb(95, 101, 115)",
+      "referenceRatio": 14.286476029600523,
+      "helperRatio": 4.9579863152949795,
+      "text": "LN-MNFLXALV-2C47"
+    },
+    {
+      "finding": "F08",
+      "account": "asset",
+      "intakeCopy": "Back to Apply\n\nPURCHASE ORDER FUNDING\n\nApply for Purchase Order Funding\n\nWe already have your profile on file. Just tell us how much you need and what for.\n\nAPPLYING AS\nUpdate profile\n\nNAME\n\nTEST Director One\n\nSA ID NUMBER\n\n*********0080\n\nPHONE\n\n+27700000103\n\nEMAIL\n\ntest.director.one@tsela-lending.invalid\n\nMONTHLY INCOME\n\nR 120,000.00\n\nMONTHLY EXPENSES\n\nR 30,000.00\n\nAMOUNT (R) \u2014 BETWEEN R 10,000.00 AND R 500,000.00\nTERM (DAYS) \u2014 BETWEEN 30 AND 120\nWHAT IS THE LOAN FOR?\nBusiness\n\nFor a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.\n\nPURCHASE ORDER NUMBER\nBUYER (WHO ISSUED THE PURCHASE ORDER)\nPURCHASE ORDER DOCUMENT (PDF, JPEG OR PNG)\nDESCRIBE THE PURPOSE (required, 3\u2013500 chars)\n\nCredit life election\n\nEnter an amount to see your credit-life cover options.\n\nI confirm the income, expenses and debt obligations on my profile are accurate. I understand Tsela Lending will use this information to assess affordability under the National Credit Act.\nI understand I will receive a Pre-Agreement Statement & Quotation (PASQ) for review in this portal. I must open and acknowledge that exact document before approval; this checkbox is not the PASQ acknowledgement. This submission does not create a binding loan.\nCancel\nSubmit application\n\nRegistered credit provider (NCR Reg: NCRCP99999). Demo lender: registration numbers are fictional. Product reference: PO."
+    }
+  ],
+  "errors": [],
+  "browserErrors": [],
+  "consoleMessages": [],
+  "httpFailures": [],
+  "endedAt": "2026-10-17T15:05:09.382Z",
+  "runLabel": "asset-canonical",
+  "privateAttemptId": "1792249501248"
+}

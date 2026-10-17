@@ -17,23 +17,26 @@ interface Settings {
 }
 
 /** Go-live month, VAT registration and the mapping confirmation: what must be settled before the first close. */
-export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean; locked: boolean }) {
+export function AccountingSettingsPanel({ canEdit, locked, revision = 0, mutationPending = false, onMutationStart, onMutationEnd, onSaved }: { canEdit: boolean; locked: boolean; revision?: number; mutationPending?: boolean; onMutationStart?: () => void; onMutationEnd?: () => void; onSaved?: (goLiveMonth?: string) => void }) {
   const [s, setS] = useState<Settings | null>(null)
   const [goLive, setGoLive] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
+    if (mutationPending) return
+    let ignore = false
     void fetch("/api/accounting/settings").then(async (res) => {
-      if (!res.ok) return setMessage(`Could not load the settings (${res.status})`)
+      if (!res.ok) { if (!ignore) setMessage(`Could not load the settings (${res.status})`); return }
       const json = (await res.json()) as Settings
-      setS(json)
-      setGoLive(json.goLiveMonth ?? "")
-    })
-  }, [])
+      if (!ignore) { setS(json); setGoLive(json.goLiveMonth ?? "") }
+    }).catch(() => { if (!ignore) setMessage("Could not load the settings. Try again.") })
+    return () => { ignore = true }
+  }, [revision, mutationPending])
 
   async function send(method: "PUT" | "POST", body: Record<string, unknown>, done: string) {
     setBusy(true)
+    onMutationStart?.()
     setMessage(null)
     try {
       const res = await fetch("/api/accounting/settings", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
@@ -41,11 +44,13 @@ export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean;
       if (res.ok) {
         setS(json)
         setMessage(done)
+        onSaved?.(typeof body.goLiveMonth === "string" ? json.goLiveMonth ?? undefined : undefined)
       } else setMessage(json.error ?? `Failed (${res.status})`)
     } catch {
       setMessage("Network error; nothing was saved by this page.")
     } finally {
       setBusy(false)
+      onMutationEnd?.()
     }
   }
 
@@ -60,17 +65,17 @@ export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean;
           <div className="flex flex-wrap items-end gap-3">
             <label className="space-y-1">
               <span className="block text-xs text-[var(--cf-text-muted)]">Go-live month</span>
-              <Input id="go-live" type="month" value={goLive} disabled={!canEdit || locked} onChange={(e) => setGoLive(e.target.value)} className="w-44" />
+              <Input id="go-live" type="month" value={goLive} disabled={!canEdit || locked || mutationPending} onChange={(e) => setGoLive(e.target.value)} className="w-44" />
             </label>
             {canEdit && !locked && (
-              <Button size="sm" variant="outline" disabled={busy || !goLive} onClick={() => send("PUT", { goLiveMonth: goLive }, "Go-live month saved.")}>Save go-live month</Button>
+              <Button size="sm" variant="outline" disabled={busy || mutationPending || !goLive} onClick={() => send("PUT", { goLiveMonth: goLive }, "Go-live month saved.")}>Save go-live month</Button>
             )}
             {locked && <span className="text-xs text-[var(--cf-text-muted)]">Fixed: a month has closed.</span>}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-[var(--cf-text)]">VAT-registered: {s.vatRegistered ? `yes, ${s.vatRateBps / 100}%` : "no"}</span>
             {canEdit && (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => send("PUT", { vatRegistered: !s.vatRegistered, vatRateBps: 1500 }, s.vatRegistered ? "VAT split off." : "VAT-registered: fees marked VAT-inclusive split 15% to VAT output.")}>
+              <Button size="sm" variant="outline" disabled={busy || mutationPending} onClick={() => send("PUT", { vatRegistered: !s.vatRegistered, vatRateBps: 1500 }, s.vatRegistered ? "VAT split off." : "VAT-registered: fees marked VAT-inclusive split 15% to VAT output.")}>
                 {s.vatRegistered ? "Turn VAT split off" : "Lender is VAT-registered"}
               </Button>
             )}
@@ -82,7 +87,7 @@ export function AccountingSettingsPanel({ canEdit, locked }: { canEdit: boolean;
           {s.mappingConfirmedAt && <p className="text-[var(--cf-text)]">Mapping confirmed {new Date(s.mappingConfirmedAt).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })}.</p>}
           <ConfirmedRoles confirmed={s.mappingConfirmedRoles ?? []} mappingConfirmed={s.mappingConfirmedAt !== null} />
           {canEdit && (
-            <Button size="sm" disabled={busy} onClick={() => send("POST", { action: "confirm_mapping" }, "Mapping confirmed.")}>
+            <Button size="sm" disabled={busy || mutationPending} onClick={() => send("POST", { action: "confirm_mapping" }, "Mapping confirmed.")}>
               I have reviewed the mapping: confirm it
             </Button>
           )}

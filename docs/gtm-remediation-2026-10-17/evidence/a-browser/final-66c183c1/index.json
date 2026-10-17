@@ -1,0 +1,198 @@
+{
+  "candidate": "66c183c1d316b2c8d696b56aa37a42de4700445e",
+  "immutableImage": "sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d",
+  "syntheticOnly": true,
+  "runs": [
+    {
+      "label": "base",
+      "privateAttemptId": "1792250869905",
+      "resultFile": "base.json",
+      "scenarioCount": 25,
+      "baseUrl": "http://localhost:44213",
+      "startedAt": "2026-10-17T15:27:50.016Z",
+      "endedAt": "2026-10-17T15:28:39.954Z",
+      "driverSha256": "66440add98507fa8260d8c0d873a23f0c88501e70efb6869f97c23ac32ec4b09",
+      "errors": 0,
+      "browserErrors": 0,
+      "consoleWarningsErrors": 0,
+      "httpFailures": 0
+    },
+    {
+      "label": "charges",
+      "privateAttemptId": "1792250878736",
+      "resultFile": "charges.json",
+      "scenarioCount": 7,
+      "baseUrl": "http://localhost:46203",
+      "startedAt": "2026-10-17T15:27:58.844Z",
+      "endedAt": "2026-10-17T15:28:07.612Z",
+      "driverSha256": "66440add98507fa8260d8c0d873a23f0c88501e70efb6869f97c23ac32ec4b09",
+      "errors": 0,
+      "browserErrors": 0,
+      "consoleWarningsErrors": 0,
+      "httpFailures": 0
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "asset-loan.png",
+      "sha256": "e5c2bce8c9eb8ede8db5dade797add3e03c3976d75315c1cdfdcff4f30c685f9",
+      "run": "base"
+    },
+    {
+      "file": "asset-loans.png",
+      "sha256": "77ac571dc4e8dec40d49937143f95f0ad4287a9f9a6dae8524e461a902bbcb55",
+      "run": "base"
+    },
+    {
+      "file": "asset-overview.png",
+      "sha256": "9b20e8f8415d05a7d4439c3fd3ba7bd7237dd52385318ea13e7c0b4e04f3c891",
+      "run": "base"
+    },
+    {
+      "file": "asset-payment-dark.png",
+      "sha256": "6db9bd694f00624c06c45f02344938202d9bbd568fe20e21adef43b8a6a6cc29",
+      "run": "base"
+    },
+    {
+      "file": "asset-payment-light.png",
+      "sha256": "588f2c7ef032bed666525e7d5ffd3e266d77e60c1a3797796b55c18afc37c59d",
+      "run": "base"
+    },
+    {
+      "file": "asset-po-intake.png",
+      "sha256": "29e341051fea159fca0eb700a3523de93fffb86137723b71e9560b96e6ba170f",
+      "run": "base"
+    },
+    {
+      "file": "asset-statement.png",
+      "sha256": "e724b3ca0e192549d88c0b8cc369d2f782aad80f44478cccbb66a508be066f3b",
+      "run": "base"
+    },
+    {
+      "file": "business-entry.png",
+      "sha256": "ad8314a1ca04655301ee33da6e76215c06c69b27285602a3b094206e7b886bf2",
+      "run": "base"
+    },
+    {
+      "file": "business-menu-390.png",
+      "sha256": "3f9175271b6dcc13d6f62534987eaf741a8e564e85be1fd50b3e7944eb00b968",
+      "run": "base"
+    },
+    {
+      "file": "business-menu-short.png",
+      "sha256": "752d0d813ced8eb961037f74682faa91bba50ace58e76386945d0810b02c58d5",
+      "run": "base"
+    },
+    {
+      "file": "consumer-loan.png",
+      "sha256": "e3a38eb9013b89e833e275ac7af2659e1db4c5d8e5a664e58ea5a4d5ec63a86c",
+      "run": "base"
+    },
+    {
+      "file": "consumer-loans.png",
+      "sha256": "846b2a653cb78ba5cc7503c4c23de02815c653861360d780d7c72f04e6bead6e",
+      "run": "base"
+    },
+    {
+      "file": "consumer-menu-390.png",
+      "sha256": "f2805b401b56904af022124717bd0338d222e1884bdab4cde9715168b12ff98a",
+      "run": "base"
+    },
+    {
+      "file": "consumer-menu-short.png",
+      "sha256": "af92466d75b05f167ac1568e0937f5b7bf44798e12f6a99e737eebd68a02e4a5",
+      "run": "base"
+    },
+    {
+      "file": "consumer-overview.png",
+      "sha256": "30ba110bd46dd4336b902560218a4d8c194a967814369b1cbed361ad8289b89d",
+      "run": "base"
+    },
+    {
+      "file": "consumer-payment-dark.png",
+      "sha256": "8e8e30a75471863f822ea6bbff71867b95efaeb9e0d74d12e90766efd6363286",
+      "run": "base"
+    },
+    {
+      "file": "consumer-payment-light.png",
+      "sha256": "87690991f9d0320843557f97644c2eda6f78d15585dc17597387f72afd602214",
+      "run": "base"
+    },
+    {
+      "file": "consumer-po-intake.png",
+      "sha256": "6d809513188b5295e8acb4580381607c836dae888902f4d58f0610fac4d45259",
+      "run": "base"
+    },
+    {
+      "file": "consumer-statement.png",
+      "sha256": "1d2a64cc998c84122ea60097605ec227735518e209f1e62527f8606d4710e74c",
+      "run": "base"
+    },
+    {
+      "file": "existing-po-receipt.png",
+      "sha256": "f0c192fb2692f339459bdadca038ce14b6f39c78ccf37a4f2566ca2df8d3fce1",
+      "run": "base"
+    },
+    {
+      "file": "no-loan-menu-390.png",
+      "sha256": "2000296418495a55bfe538e6afd5ca7663140195be5b56490b83ec33b3ac44cc",
+      "run": "base"
+    },
+    {
+      "file": "no-loan-menu-short.png",
+      "sha256": "1f0db349b66bbe676b7ae7e88fece114d2adbde0dec63e980391f540123be6e5",
+      "run": "base"
+    },
+    {
+      "file": "payment-failure-ui.png",
+      "sha256": "d5b0d08be6683c124ac4e8d57a6085ef8dde01a57175d8b8630f770b03253538",
+      "run": "base"
+    },
+    {
+      "file": "payment-success-ui.png",
+      "sha256": "fd80db14598b389c0f3c915bb904ccde2bdc07e14c6835f5709de1f0ce25de52",
+      "run": "base"
+    },
+    {
+      "file": "charges-loan.png",
+      "sha256": "e21049257b9f32ab1ff09bb01ed3bf146a5ef18e2b35b84a2c88028c6a5ec6e7",
+      "run": "charges"
+    },
+    {
+      "file": "charges-loans.png",
+      "sha256": "6293667e44d1f4aefdb499b61a5c72f053e2cd235a5eec73084bc18c7b19b512",
+      "run": "charges"
+    },
+    {
+      "file": "charges-overview.png",
+      "sha256": "1d0c5f3cedd4599be96db62142c36de100fbc51d1478a5f0d6f6e194f2bd1801",
+      "run": "charges"
+    },
+    {
+      "file": "charges-payment-dark.png",
+      "sha256": "8e0c3b4a712b62e08f1c2b731588a02cd572193750e11459e02a0ac26e9493cf",
+      "run": "charges"
+    },
+    {
+      "file": "charges-payment-light.png",
+      "sha256": "2903159a2dd666603572bd66a2fe5ceef9adaf35a4881d6c0ef1905aabd6f0a5",
+      "run": "charges"
+    },
+    {
+      "file": "charges-po-intake.png",
+      "sha256": "1e8f125c5d7e6a1617bbefb47c78908433e2143c7979f47561c8269203307526",
+      "run": "charges"
+    },
+    {
+      "file": "charges-statement.png",
+      "sha256": "92abb4ae355cb83e11deb13c67675a51bc6f060d79eb4d1e5e57a2c26b555faf",
+      "run": "charges"
+    }
+  ],
+  "limits": [
+    "Provider callback, movement, allocation and settlement not exercised by return-page UI.",
+    "No duplicate PO submitted; original synthetic submission is separately scoped to candidate6, existing receipt/intake checked on finalcandidate7.",
+    "Charges use a separate owned fixture; product activation acceptance is not inferred.",
+    "MQ final automated gate ledger and coordinator determine overall release acceptance."
+  ]
+}

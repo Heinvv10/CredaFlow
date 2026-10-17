@@ -66,7 +66,7 @@ function formatDate(d?: Date | null) {
  * `loanBook` false (a role without view_loan_book): no loan, application,
  * repayment or income figure is shown; the page also sends none.
  */
-export function ClientsPageClient({ clients, loanBook = true }: { clients: Client[]; loanBook?: boolean }) {
+export function ClientsPageClient({ clients, loanBook = true, canCreate = false }: { clients: Client[]; loanBook?: boolean; canCreate?: boolean }) {
   const [selected, setSelected] = useState<Client | null>(null)
   const [search, setSearch] = useState("")
 
@@ -106,7 +106,7 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
                 className="w-full rounded-md border border-gray-200 bg-white py-2 pl-9 pr-4 text-sm text-gray-700 focus:outline-none sm:w-64"
               />
             </div>
-            <Link href="/clients/new">
+            {canCreate && <Link href="/clients/new">
               <button
                 className="flex items-center gap-2 px-4 py-2 rounded-md text-white text-sm font-medium transition-colors"
                 style={{ backgroundColor: "#4338CA" }}
@@ -114,7 +114,7 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
                 <Plus className="h-4 w-4" />
                 + New Client
               </button>
-            </Link>
+            </Link>}
           </div>
         </div>
 
@@ -207,8 +207,8 @@ export function ClientsPageClient({ clients, loanBook = true }: { clients: Clien
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center">
                       <p className="text-gray-400 text-sm">No clients yet</p>
-                      <p className="text-gray-300 text-xs mt-1">Add your first client to get started</p>
-                      <Link href="/clients/new" className="inline-block mt-3 px-4 py-2 bg-[#4F46E5] text-white text-xs font-semibold rounded-lg hover:bg-[#4338CA]">New Client</Link>
+                      {canCreate && <p className="text-gray-300 text-xs mt-1">Add your first client to get started</p>}
+                      {canCreate && <Link href="/clients/new" className="inline-block mt-3 px-4 py-2 bg-[#4F46E5] text-white text-xs font-semibold rounded-lg hover:bg-[#4338CA]">New Client</Link>}
                     </td>
                   </tr>
                 )}

@@ -96,3 +96,70 @@ model ApplicationCheckFlag {
   @@unique([applicationId, fingerprint])
   @@index([tenantId, applicationId, status])
 }
+
+// ── Statement AI (lib/statement-ai) ──────────────────────────────────────────
+// Advisory text from the self-hosted model beside the statement insights: a
+// summary, a plain-language explanation per raised flag, and answers to an
+// officer's question. Never read by the checks, the recompute or the decide
+// route; a post-check rejects any output with a figure it was not given.
+
+enum StatementAiKind {
+  SUMMARY
+  FLAG_EXPLANATION
+  ANSWER
+}
+
+enum StatementAiStatus {
+  /// An asked question waiting for the background worker.
+  PENDING
+  OK
+  REJECTED
+  FAILED
+}
+
+/// One model output for one application, keyed by what it was made from.
+model StatementAiOutput {
+  id            String            @id @default(cuid())
+  tenantId      String
+  tenant        Tenant            @relation(fields: [tenantId], references: [id])
+  applicationId String
+  application   LoanApplication   @relation(fields: [tenantId, applicationId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind          StatementAiKind
+  /// The flag explained ("" for a summary or an answer: Postgres treats NULLs
+  /// as distinct, so a nullable column would not hold the unique key).
+  flagCode      String            @default("")
+  /// sha256 of the facts (and question) the model was given.
+  inputHash     String
+  promptVersion String
+  status        StatementAiStatus
+  rejectReason  String?
+  /// Shown only when status is OK.
+  text          String            @default("")
+  /// Tool calls and their results (ANSWER), or the facts cited (SUMMARY, FLAG_EXPLANATION).
+  citations     Json              @default("[]")
+  /// ANSWER only: the officer's question and who asked it.
+  question      String?
+  askedById     String?
+  askedBy       User?             @relation("StatementAiAskedBy", fields: [tenantId, askedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([tenantId, applicationId, kind, flagCode, inputHash, promptVersion])
+  @@index([tenantId, applicationId, kind, createdAt])
+}
+
+/// One call to the model, for per-statement pricing. Metering only: it never blocks a call.
+model StatementAiUsage {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  applicationId String
+  kind          StatementAiKind
+  /// What the model server reported; null when it reported none.
+  tokensIn      Int?
+  tokensOut     Int?
+  latencyMs     Int
+  createdAt     DateTime        @default(now())
+
+  @@index([tenantId, createdAt])
+}
