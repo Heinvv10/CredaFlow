@@ -103,7 +103,13 @@ describe("checkFlagExplanation", () => {
     expect(checkFlagExplanation("GAMBLING: betting was seen.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/does not say/) })
     expect(checkFlagExplanation("GAMBLING is above 5% here. GAMBLING spend is below the threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/opposite/) })
   })
+  it("allows other figures beside the threshold", () => {
+    const allowed = { amountsCents: [150_000], percents: [5] }
+    const text = "GAMBLING: betting of R1 500.00 a month is above the policy threshold of 5% of income."
+    expect(postCheck({ text, allowed, raisedFlagCodes: ["GAMBLING"], flag: gambling })).toEqual({ ok: true })
+  })
   it("rejects a threshold other than the policy value", () => {
+    expect(checkFlagExplanation("GAMBLING: betting is above the policy limit of R1 500.00 a month.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/threshold other than policy/) })
     expect(checkFlagExplanation("GAMBLING: betting is above the policy threshold of 10% of income.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/threshold other than policy/) })
   })
 })

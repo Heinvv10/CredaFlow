@@ -233,10 +233,14 @@ export function checkFlagExplanation(rawText: string, flag: FlagSpec): CheckResu
       if (s.includes(flag.code) && opposite.test(s)) return fail(`states the opposite direction: "${s.match(opposite)![0]}"`)
     }
   }
-  for (const s of sentences(text)) {
-    if (!THRESHOLD_WORDS.test(s)) continue
-    const r = checkFigures(s, { ...flag.thresholds, literals: [flag.code] })
-    if (!r.ok) return fail(`threshold other than policy: ${r.reason}`)
+  // The figure a threshold word introduces ("the policy threshold of 5%") must be the policy's.
+  for (const s of sentences(strip(text, [flag.code]))) {
+    for (const word of s.matchAll(new RegExp(THRESHOLD_WORDS.source, "gi"))) {
+      const next = new RegExp(FIGURE.source, "i").exec(s.slice(word.index + word[0].length))
+      if (!next) continue
+      const r = checkFigures(next[0], flag.thresholds)
+      if (!r.ok) return fail(`threshold other than policy: ${r.reason}`)
+    }
   }
   return OK
 }
