@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 import { POST as cancellationRoute } from "@/app/api/asset-finance/loans/[loanId]/commercial-cancellation/route"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "./dates"
-import { newValuation } from "./recovery.integration-fixture"
+import { newValuation, saleInvoice } from "./recovery.integration-fixture"
 import { PATCH as reverseReceipt } from "@/app/api/payments/[id]/reverse/route"
 import { newRecovery, cleanupRecoveryFixture, today, type RecoveryLoan } from "./recovery.integration-fixture"
 import { repriceLoanForReference } from "./reprice-loan"
@@ -133,6 +133,8 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       const missing = await readJson(await routes.completeSale(recoveryId, saleId, { completedOn: "2026-03-01" }))
       expect(missing.status).toBe(409)
       expect((await load()).commercialCancelledAt).toBeNull()
+      const rawInvoice = await saleInvoice(db!, second, proceeds)
+      await expect(db!.remarketingSale.update({ where: { id: saleId }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: rawInvoice } })).rejects.toThrow(/evidenced actual cancellation/)
       await expect(db!.loan.update({ where: { id: second.loanId }, data: { commercialCancelledAt: new Date("2026-01-01T00:00:00+02:00") } })).rejects.toThrow(/independently evidenced/)
       const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: original.entityId, dealId: second.dealId,
         docType: "LEGAL_DOCUMENT", fileName: "TEST-effective-cancellation-2026-01-01.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-cancellation.pdf", contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })

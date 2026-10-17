@@ -228,6 +228,9 @@ export async function alignRecoveryFixtureSchedule(db: PrismaClient, loanId: str
 export async function recordFixtureCommercialCancellation(db: PrismaClient, fx: DealFixture, loanId: string, cancelledOn = today()): Promise<void> {
   const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, include: { assetFinanceDeal: { select: { id: true } }, commercialCancellationEvent: true } })
   if (loan.ncaRegime !== "NON_NCA" || loan.contractType !== "INSTALMENT_SALE" || loan.commercialCancellationEvent) return
+  if (await db.repaymentSchedule.count({ where: { loanId } }) === 0) await alignRecoveryFixtureSchedule(db, loanId)
+  await testSetup(db, [`UPDATE "LoanApplication" SET "status" = 'DISBURSED', "approvedAt" = CURRENT_TIMESTAMP, "approvedById" = $2,
+    "disbursedAt" = CURRENT_TIMESTAMP, "repaymentMethod" = 'EFT' WHERE "id" = $1`, loan.applicationId, fx.adminA])
   const evidence = await db.entityDocument.create({ data: { tenantId: fx.tenantId, entityId: loan.entityId, dealId: loan.assetFinanceDeal?.id,
     docType: "LEGAL_DOCUMENT", fileName: "TEST-cancellation-evidence.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-cancellation.pdf",
     contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: fx.adminA } })
