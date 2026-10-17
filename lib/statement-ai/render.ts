@@ -56,7 +56,7 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
     }
     case "salary": {
       if (f.salaryMonthCount === 0) return "No salary credit was found on the statements."
-      return `A salary credit was found in ${f.salaryMonthCount} of ${f.monthCount} months, on day ${f.salaryPayDays.join(", ")} of the month.`
+      return `A salary credit was found in ${f.salaryMonthCount} of ${f.monthCount} months, on day ${[...new Set(f.salaryPayDays)].sort((a, b) => a - b).join(", ")} of the month.`
     }
     case "living":
       if (f.declaredExpensesPerMonth === null || f.livingSpendComparedWithDeclared === null) {

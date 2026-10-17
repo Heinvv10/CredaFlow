@@ -22,6 +22,8 @@ describe("renderSummary", () => {
     expect(text).toContain("Over the period, money in was R55 350.00 and money out was R32 086.50.")
     expect(text).toContain("Living spend is R7 886.77 a month, R3 886.77 above the declared R4 000.00 a month.")
     expect(text).not.toContain("TESTER")
+    // Each pay day once.
+    expect(text).toMatch(/on day 25 of the month/)
   })
   it("always says which flags were raised, even if the model left them out", () => {
     const text = renderSummary(["money"], summary.built.facts)
