@@ -22,7 +22,7 @@ function setup() {
     messageTemplate: { findFirst: vi.fn(async () => ({ id: "template-1", tenantId: "tenant-1", statutoryOverride: false, channel: "EMAIL" })) },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
   }
-  return { db: db as never, update, loan: db.loan, client: db.client, template: db.messageTemplate }
+  return { db: db as never, notices: db.assetFinanceRateNotice, update, loan: db.loan, client: db.client, template: db.messageTemplate }
 }
 describe("written repricing notices", () => {
   it("states the new annual rate, effective date, amount and first changed due date", () => {
@@ -44,6 +44,18 @@ describe("written repricing notices", () => {
     expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toMatchObject({ completed: 1, pending: 0 })
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ channel: "EMAIL", contactId: "contact-1", loanId: "loan-1", idempotencyKey: "rate-notice:rate-1:client-1:EMAIL" }))
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: expect.any(Date) }) }))
+  })
+  it("sends a new written revision when the actual supply creates its pending tax document", async () => {
+    const { db, notices } = setup()
+    notices.findMany.mockResolvedValue([{ ...row, taxAdjustmentRevision: 1 }] as never)
+    const send = vi.fn(async () => ({ id: "message-tax", status: "SENT" }))
+    expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toEqual({completed:1,pending:0})
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({idempotencyKey:"rate-notice:rate-1:client-1:EMAIL:tax:1"}))
+  })
+  it("states that VAT for an unmade supply is provisional and has no issued adjustment document", () => {
+    const vars=rateNoticeVars({...row,taxAdjustmentPending:true} as never,recipient)
+    expect(vars.text).toContain("provisional booked VAT")
+    expect(vars.text).toContain("No VAT adjustment document has been issued for that portion")
   })
   it("uses statutory override only for an NCA borrower", async () => {
     const { db, loan, template } = setup()

@@ -905,6 +905,8 @@ model AssetFinanceRateNotice {
   historicalBalanceAdjustmentCents Int @default(0)
   correctionPendingManual Boolean @default(false)
   taxDocuments Json?
+  taxAdjustmentPending Boolean @default(false)
+  taxAdjustmentRevision Int @default(0)
   totalInterestCents      Int
   monthlyInterestCents    Int
   recipientClientIds      String[]

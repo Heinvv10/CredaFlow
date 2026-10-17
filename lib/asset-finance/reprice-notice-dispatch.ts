@@ -28,6 +28,7 @@ export function rateNoticeVars(notice: AssetFinanceRateNotice, recipient: Recipi
     ...(notice.historicalBalanceAdjustmentCents ? [`Prior-period balance correction: ${notice.historicalBalanceAdjustmentCents < 0 ? "credit" : "debit"} R${(Math.abs(notice.historicalBalanceAdjustmentCents) / 100).toFixed(2)}. Your recorded cash payments are preserved in total; ${notice.correctionPendingManual ? "this separate correction is pending manual execution. Any credit is recorded separately for reconciliation; no refund or debit has been executed" : "this correction is included in the recalculated balance"}.`] : []),
     ...(statutory ? [`The total interest payable under the agreement is R${(notice.totalInterestCents / 100).toFixed(2)}; interest payable in the first changed monthly scheduled period is R${(notice.monthlyInterestCents / 100).toFixed(2)}, assuming the reference rate does not change again and payments are made as scheduled.`] : []),
     "This is the scheduled payment including fees, maintenance charges and VAT, where applicable. Please refer to the updated schedule for any irregular payments or final balloon amount.",
+    ...(notice.taxAdjustmentPending ? ["The portion relating to an unmade rental supply is awaiting its actual supply and original invoice. Its gross amount uses provisional booked VAT. No VAT adjustment document has been issued for that portion; the actual supply-date VAT and its written document will follow."] : []),
     ...rateTaxDocuments(notice.taxDocuments).map(rateTaxDocumentText),
     "Please contact your lender if you need an updated schedule or have a question about this change.",
   ]
@@ -66,7 +67,7 @@ export async function dispatchRepriceNotices(db: RateNoticeDb, tenantId: string,
           contactId: contact.id, channel: "EMAIL", template, toValue: email,
           toName: `${recipient.firstName} ${recipient.lastName}`, vars: rateNoticeVars(notice, recipient, statutory),
           loanId: notice.loanId, category: "asset_finance_rate_notice",
-          idempotencyKey: `rate-notice:${notice.contractRateId}:${recipient.id}:EMAIL`,
+          idempotencyKey: `rate-notice:${notice.contractRateId}:${recipient.id}:EMAIL${notice.taxAdjustmentRevision ? `:tax:${notice.taxAdjustmentRevision}` : ""}`,
         })
         outcomes.push({ ...leg, status: message.status, messageId: message.id })
       } catch (error) {

@@ -179,9 +179,9 @@ launched for this changing source.
 An ACTIVE lease whose final unpaid rental is inside the notice window now uses
 the same ex-VAT rental-only capital and retained-residual correction as a closed
 lease. It cannot enter the generic gross-loan/receipt correction. The final
-scheduled payment remains fixed; affected already-issued rental supplies receive
-original-rate credit/debit notes. An uninvoiced rental is not treated as an
-already-issued VAT supply. No zero-rental CHECK is changed by this fix.
+scheduled payment remains fixed; each affected already-issued rental supply
+receives its own original-rate credit/debit note. The share of an uninvoiced
+rental is durably deferred until its actual original supply and invoice. No zero-rental CHECK is changed by this fix.
 
 Four new real signed/booked cases (operating/FML, each +/-2 percentage points,
 11 actual paid periods and a final uninvoiced rental due in seven days) failed
@@ -192,8 +192,22 @@ notice and retry. `/tmp/cf-rate-final-window-red.log` records the four failures;
 `/tmp/cf-rate-final-window-green1.log` records all eight closed/active cases
 passing. `/tmp/cf-rate-final-window-unit.log` records 23 focused checks passing.
 
-A separate boundary is identified for follow-up: where the effective date is
-only after every previously invoiced affected rental, there is no affected
-original issued supply to adjust yet. Such an adjustment must be deferred until
-its actual original invoice, rather than attached to an unrelated earlier
-invoice. This checkpoint does not claim that pending-supply case is complete.
+The future-supply boundary is now implemented. Each rental's independent
+capital-prefix difference assigns its own share of the rate correction; the
+shares telescope to the independent full-term oracle. An issued supply receives
+its own s21 note. An unmade supply records its ex-VAT share and provisional booked
+VAT without inventing an invoice. The actual original invoice event consumes the
+pending share once, at that original invoice's actual VAT rate; an append-only
+event reconciles the provisional gross liability. The outbox queues revised
+written particulars with a new revision idempotency key. Cancelling the unmade
+rental cancels only its pending share; no rental tax supply or adjustment note is
+invented and prior issued-supply documents survive.
+
+`/tmp/cf-rate-deferred-pg2.log` proves all 14 real PostgreSQL cases: four closed,
+four active mixed issued/future, four active future-only, and two actual
+cancellations before supply. A real receipt, the earlier supply event under
+s9(3)(a), triggers the invoice and document delivery outbox; no database clock is
+changed. `/tmp/cf-rate-deferred-mutation-red.log` proves that removing this actual
+invoice hook makes eight cases fail; source was restored. The 206 focused
+schema/notice/unit checks pass (`/tmp/cf-rate-deferred-units.log`). The existing
+zero-rental CHECK remains unchanged and its separate confirmation remains pending.

@@ -38,7 +38,7 @@ function toInvoice(row: InvoiceRow, assetSaleExclVatCents = 0, fundBilledExclVat
 }
 
 const LOAN_SELECT = {
-  contractRates: { select: { rateCorrections: { where: { reason: "LATE_CLOSED_LEASE_RATE" }, select: { contractualRows: true } } } },
+  contractRates: { select: { rateCorrections: { where: { reason: { in: ["LATE_CLOSED_LEASE_RATE", "LEASE_SUPPLY_TAX_ADJUSTMENT"] } }, select: { contractualRows: true } } } },
   id: true, reference: true, principal: true, initiationFee: true, startDate: true, status: true, writeOffAt: true, closedAt: true, contractType: true,
   repaymentSchedule: {
     orderBy: { installmentNo: "asc" },

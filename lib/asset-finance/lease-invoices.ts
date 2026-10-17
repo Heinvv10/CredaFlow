@@ -33,6 +33,8 @@ import type { VatTransaction } from "@/lib/vat/db"
 import { recipientAddress } from "./booking-load"
 import { completeEndOfTermIfSettled } from "./lease-end-invoice"
 import { dbDate, isoOfDbDate } from "./dates"
+import { consumeDeferredLeaseRateTax } from "./lease-rate-tax-adjustment"
+import type { RepriceTx } from "./reprice-loan"
 import { cashReachedOn } from "./lease-supply-date"
 
 export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "leaseRental" | "auditLog" | "maintenanceFund" | "maintenanceFundMovement" | "leaseEndOfTerm" | "financedAsset" | "loan">
@@ -114,6 +116,7 @@ export async function issueLeaseRentalInvoice(
       taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, totalCents: rental.totalCents,
     },
   }, tx)
+  await consumeDeferredLeaseRateTax(tx as unknown as RepriceTx, { tenantId, loanId: rental.loanId, rentalIds: [rental.id], invoiceId: invoice.id, today: input.today, actorUserId: input.createdById })
   return { kind: "issued", invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber }
 }
 

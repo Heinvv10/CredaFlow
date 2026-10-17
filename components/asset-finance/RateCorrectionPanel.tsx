@@ -8,10 +8,12 @@ export async function RateCorrectionPanel({ tenantId, loanId, status }: { tenant
   const amount = corrections.reduce((sum, row) => sum + row.amountCents, 0)
   if (amount === 0) return null
   const documents = corrections.flatMap(row => { const value = row.contractualRows; return value && typeof value === "object" && !Array.isArray(value) ? rateTaxDocuments(value.taxDocuments) : [] })
+  const pendingTax = await prisma.assetFinanceRateNotice.count({ where: { tenantId, loanId, taxAdjustmentPending: true } })
   return <section className="rounded-lg border p-4" aria-label="Pending rate correction">
     <h2 className="font-semibold">Rate correction pending manual execution</h2>
     <p>{amount < 0 ? status === "COMPLETED" ? "Refund due to borrower" : "Credit to borrower" : "Additional amount due from borrower"}: {formatMoney(Math.abs(amount))}</p>
     <p>Recorded cash payments are preserved in total. No refund or debit has been executed. Reconcile this separate adjustment before collecting or releasing money.</p>
+    {pendingTax > 0 && <p>Part of this correction awaits the actual rental supply and original invoice. VAT for that part is provisional; no tax adjustment document has been issued for an unmade supply.</p>}
     {documents.map(doc => <p key={doc.id}><a className="underline" href={`/api/asset-finance/${doc.kind === "CREDIT_NOTE" ? "credit-notes" : "tax-invoices"}/${doc.id}`}>{doc.kind === "CREDIT_NOTE" ? "Credit note" : "Debit note"} {doc.number}</a></p>)}
   </section>
 }

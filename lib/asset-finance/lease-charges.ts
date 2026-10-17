@@ -17,6 +17,8 @@
  *                     credaflow.lease_terminate flag only).
  * The loan is locked first (lib/loan/lock.ts), so receipts serialise with these.
  */
+import { consumeDeferredLeaseRateTax } from "./lease-rate-tax-adjustment"
+import type { RepriceTx } from "./reprice-loan"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { nextPaymentDueDate, recomputeLoanBalances } from "@/lib/loan/balances"
@@ -127,6 +129,7 @@ export async function cancelFutureRentals(
   }
   await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_terminate', 'off', true)")
   const totalCents = rentals.reduce((sum, r) => sum + r.totalCents, 0)
+  if (rentals.length > 0) await consumeDeferredLeaseRateTax(tx as unknown as RepriceTx, { tenantId: input.tenantId, loanId: input.loanId, rentalIds: rentals.map(rental => rental.id), today: input.terminationDate, actorUserId: input.actorUserId })
   if (rentals.length > 0) await refreshLoan(tx, input.tenantId, input.loanId, -totalCents, input.actorUserId, "lease_early_termination")
   return { cancelled: rentals.length, totalCents }
 }
