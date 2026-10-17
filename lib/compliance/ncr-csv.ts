@@ -8,6 +8,7 @@
  * by a factor of 100, or missing a caveat, with nothing to notice it.
  */
 
+import { ncrPositionBasis } from "./ncr-position-basis"
 import type { NcrReturnData, NcrReturnLine } from "@/lib/compliance/ncr-return"
 
 /** RFC 4180 quoting: wrap in quotes and double any embedded quote. */
@@ -50,9 +51,7 @@ export function buildNcrCsv(options: {
 
   const positionBasis = asFiled
     ? `Figures as filed${data.submittedAt ? ` on ${formatDate(data.submittedAt)}` : ""}`
-    : data.positionIsStale
-      ? "Position lines reflect the book today, NOT the quarter end"
-      : "Position lines reflect the book at generation"
+    : ncrPositionBasis(data, false, formatDate)
 
   const footer = [
     "",

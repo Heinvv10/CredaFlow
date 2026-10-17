@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { formatZAR, formatDate, formatDateTime } from "@/lib/utils"
+import { ncrHistoryNote, ncrPositionBasis } from "@/lib/compliance/ncr-position-basis"
 import { Download, CheckCircle, AlertTriangle } from "lucide-react"
 import type { NcrReturnData, NcrReturnLine } from "@/lib/compliance/ncr-return"
 import { quarterLabel } from "@/lib/compliance/quarters"
@@ -250,8 +251,10 @@ export function NcrReturnClient({
           <h2 className="font-semibold text-[#1b1d24]">Portfolio position</h2>
           <p className="mt-0.5 text-xs text-gray-400">
             {asFiled
-              ? `As filed. Arrears, ageing and status carry no history, so these are the values frozen at submission — not the book today.`
-              : `Arrears, ageing and status are current-state fields with no history, so these read as at ${formatDate(new Date())}.`}
+              ? `As filed. These are the values frozen at submission — not the book today.`
+              : data.positionSource === "SNAPSHOT"
+                ? `${ncrPositionBasis(data, false, formatDate)}.`
+                : `Read from the loans' current state, as at ${formatDate(new Date())}.${data.quarterOpen ? "" : ` ${ncrHistoryNote(data.historyStartsOn, data.periodEnd, formatDate)}`}`}
           </p>
         </div>
         {data.filedSnapshotUnreadable && (
@@ -270,8 +273,8 @@ export function NcrReturnClient({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               {label} has closed and no return was filed for it. The figures below are
-              today&apos;s book, not the book as it stood on {formatDate(data.periodEnd)} — the
-              system keeps no history of arrears ageing. Filing now records what you see here.
+              today&apos;s book, not the book as it stood on {formatDate(data.periodEnd)}.{" "}
+              {ncrHistoryNote(data.historyStartsOn, data.periodEnd, formatDate)} Filing now records what you see here.
             </span>
           </p>
         )}
