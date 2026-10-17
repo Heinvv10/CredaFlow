@@ -113,6 +113,7 @@ async function signAndContract(fx: SigningFixture, dealId: string, setSession: S
 
 /** The product's arrears terms while deal A's documents are prepared (copied onto it); cleared before deal B's. */
 export interface BookingFixtureOptions {
+  dealAStructure?: { periods: number; rateMargin: string }
   dealAArrears?: { margin: string; feeCents: number }
 }
 
@@ -121,7 +122,7 @@ export async function createBookingFixture(
 ): Promise<BookingFixture> {
   const tenantId = dealFixtureTenantId(t)
   const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId })
-  const fx = await createSigningFixture(db, t, (id, role) => staff(id, role))
+  const fx = await createSigningFixture(db, t, (id, role) => staff(id, role), options.dealAStructure)
   await db.tenantConfig.update({ where: { tenantId }, data: SYNTHETIC_IDENTITY })
   await db.vatConfig.create({ data: { tenantId, vatNumber: "4000000001", registeredName: SYNTHETIC_IDENTITY.legalName, address: "1 Test Street, Testville, 0001" } })
   await db.businessEntity.update({ where: { id: fx.evidenced }, data: { addressLine1: "9 Test Yard", city: "Testville", postalCode: "0002", vatNumber: "4000000002" } })

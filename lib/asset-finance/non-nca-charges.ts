@@ -65,12 +65,16 @@ export interface ContractRatePeriod {
 /** The NCA input without the NCA-only charges (Section 129 letters, post-maturity service fee). */
 export type NonNcaChargeInput = Omit<DefaultChargeInput, "adminCharges" | "monthlyServiceFee"> & NonNcaArrearsTerms & {
   /** Effective-dated contract rates; the booked Loan rate is the legacy fallback. */
+  startDate?: Date
   contractRateHistory?: ContractRatePeriod[]
 }
 
 export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeResult {
   const rows = input.schedule
-    .map((row, index) => ({ ...row, index, dueDay: sastCalendarDay(row.dueDate) }))
+    .map((row, index) => {
+      const original = row.commonLawContractualInterestDue ?? row.interestDue
+      return { ...row, interestDue: original, totalDue: row.principalDue + original + row.feesDue, originalInterest: original, index, dueDay: sastCalendarDay(row.dueDate) }
+    })
     .sort((a, b) => a.dueDay - b.dueDay)
   if (rows.length === 0) return emptyResult(input.receipts)
   const endDay = sastCalendarDay(input.asOf)
@@ -100,7 +104,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     .map((cost, index) => ({ ...cost, index, day: sastCalendarDay(cost.date) }))
     .filter((cost) => cost.day <= endDay)
     .sort((a, b) => a.day - b.day || a.index - b.index)
-  const scheduleTotal = rows.reduce((sum, row) => sum + row.totalDue, 0)
+  const scheduleTotal = () => rows.reduce((sum, row) => sum + row.totalDue, 0)
 
   const postings: ChargePosting[] = []
   const splits: ReceiptSplit[] = []
@@ -117,7 +121,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   /** Outside the freeze, no cap (NON_NCA), and never on a loan the day's receipts settled: a closed loan is not re-opened. */
   function postRecoveryCost(day: number, amount: number, sourceId: string) {
     if (day < accrueFromDay || day >= untilDay || amount <= 0) return
-    if (pool >= scheduleTotal && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
+    if (pool >= scheduleTotal() && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
     feesAccrued += amount
     postings.push({ type: "RECOVERY_COST", day: isoDay(day), amount, sourceId })
   }
@@ -129,10 +133,44 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     postings.push({ type: "DEFAULT_INTEREST", day: isoDay(day), amount })
   }
 
-  const firstDay = Math.min(rows[0].dueDay, ...receipts.map((receipt) => receipt.day), ...costs.map((cost) => cost.day))
+  const startDay = input.startDate ? sastCalendarDay(input.startDate) : rows[0].dueDay
+  const contractualEarned = rows.map(() => 0)
+  const contractualTarget = rows.map(() => 0)
+  const firstDay = Math.min(startDay, rows[0].dueDay, ...receipts.map((receipt) => receipt.day), ...costs.map((cost) => cost.day))
   let next = 0
   let nextCost = 0
   for (let day = firstDay; day <= endDay; day++) {
+    const inDefault = rows.some((row, i) => row.dueDay < day && paid[i] < row.totalDue) || interestExact > interestPaid
+    if (inDefault) {
+      const capital = rows.reduce((sum, row, i) => sum + Math.min(row.principalDue, Math.max(0, row.totalDue - paid[i])), 0)
+      let excess = Math.max(0, contractualEarned.reduce((sum, earned, i) => sum + Math.max(0, earned - Math.min(paid[i], rows[i].interestDue)), 0) + interestExact - interestPaid - capital)
+      for (let i = rows.length - 1; i >= 0 && excess > 0; i--) {
+        const reduction = Math.min(excess, Math.max(0, contractualEarned[i] - Math.min(paid[i], rows[i].interestDue)))
+        contractualEarned[i] -= reduction; rows[i].interestDue -= reduction; rows[i].totalDue -= reduction; excess -= reduction
+      }
+    }
+    // Contractual interest earns across its period, under the SAME ceiling
+    // as default interest. Interest blocked on a day never accrues later.
+    // Original signed/rate-adjusted amounts remain as replay inputs.
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const periodStart = i === 0 ? startDay : rows[i - 1].dueDay
+      const target = row.dueDay <= periodStart
+        ? (day >= row.dueDay ? row.originalInterest : 0)
+        : Math.round(row.originalInterest * Math.max(0, Math.min(1, (day - periodStart) / (row.dueDay - periodStart))))
+      const increment = target - contractualTarget[i]
+      contractualTarget[i] = target
+      if (increment <= 0) continue
+      const capital = rows.reduce((sum, r, j) => sum + Math.min(r.principalDue, Math.max(0, r.totalDue - paid[j])), 0)
+      const unpaid = rows.reduce((sum, r, j) => sum + Math.max(0, contractualEarned[j] - Math.min(paid[j], r.interestDue)), 0)
+      const headroom = Math.max(0, capital - unpaid - (interestExact - interestPaid))
+      const prepaid = Math.max(0, Math.min(paid[i], row.interestDue) - contractualEarned[i])
+      const earned = inDefault ? Math.min(increment, Math.floor(headroom + 1e-8) + prepaid) : increment
+      contractualEarned[i] += earned
+      const blocked = increment - earned
+      row.interestDue -= blocked
+      row.totalDue -= blocked
+    }
     // 1. The day's receipts, in time order.
     for (; next < receipts.length && receipts[next].day === day; next++) {
       const receipt = receipts[next]
@@ -173,26 +211,12 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     // cannot grow past the unpaid capital. Payments reopen only the headroom
     // they actually create; fees are outside this interest-only ceiling.
     let unpaidCapital = 0
-    let unpaidDueInterest = 0
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
       unpaidCapital += Math.min(row.principalDue, Math.max(0, row.totalDue - paid[i]))
-      if (row.dueDay < day) unpaidDueInterest += Math.max(0, row.interestDue - paid[i])
     }
-    // A newly due contractual-interest row can consume headroom already
-    // occupied by default interest. Reconcile the replay's derived default
-    // postings too, so the total unpaid interest never crosses the ceiling.
-    interestExact = Math.min(interestExact, interestPaid + Math.max(0, unpaidCapital - unpaidDueInterest))
-    let reversePosted = Math.max(0, interestPosted - Math.round(interestExact))
-    for (let i = postings.length - 1; i >= 0 && reversePosted > 0; i--) {
-      if (postings[i].type !== "DEFAULT_INTEREST") continue
-      const reduction = Math.min(reversePosted, postings[i].amount)
-      postings[i].amount -= reduction
-      interestPosted -= reduction
-      reversePosted -= reduction
-      if (postings[i].amount === 0) postings.splice(i, 1)
-    }
-    const headroom = Math.max(0, unpaidCapital - unpaidDueInterest - (interestExact - interestPaid))
+    const unpaidEarnedInterest = rows.reduce((sum, row, i) => sum + Math.max(0, contractualEarned[i] - Math.min(paid[i], row.interestDue)), 0)
+    const headroom = Math.max(0, unpaidCapital - unpaidEarnedInterest - (interestExact - interestPaid))
     if (chargeable(day)) interestExact += Math.min(overdueBase * dailyRate, headroom)
     if (isLastDayOfMonth(day) && day < untilDay) postInterestTo(day)
   }
@@ -201,6 +225,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
 
   const interestAccrued = Math.round(interestExact)
   return {
+    lawfulSchedule: input.schedule.map((_, index) => { const row = rows.find((r) => r.index === index)!; return { interestDue: row.interestDue, totalDue: row.totalDue, contractualInterestDue: row.originalInterest } }),
     postings,
     interestAccrued,
     interestPaid,

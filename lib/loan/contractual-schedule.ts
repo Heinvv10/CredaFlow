@@ -65,6 +65,7 @@ export function readContractualRows(value: unknown): ContractualRow[] | null {
       id: r.id, installmentNo: isInt(r.installmentNo) ? r.installmentNo : null,
       principalDue: r.principalDue, interestDue: r.interestDue, feesDue: r.feesDue,
       creditLifePremiumDue: r.creditLifePremiumDue, totalDue: r.totalDue,
+      ...(isInt(r.commonLawContractualInterestDue) ? { commonLawContractualInterestDue: r.commonLawContractualInterestDue } : {}),
     })
   }
   return rows
@@ -72,7 +73,7 @@ export function readContractualRows(value: unknown): ContractualRow[] | null {
 
 /** An instalment loan whose rows an early settlement re-priced. */
 export function isRepricedInstalmentLoan(loan: SettlementLoanLike, schedule: SettlementScheduleRow[]): boolean {
-  return isS125InstalmentLoan(loan, schedule)
+  return (isS125InstalmentLoan(loan, schedule) || (loan.ncaRegime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && loan.status === "COMPLETED"))
     && loan.contractualTotalRepayable != null
     && loan.totalRepayable < loan.contractualTotalRepayable
 }
@@ -97,6 +98,7 @@ export function restoreContractualSchedule<T extends SettlementScheduleRow>(args
     return {
       ...row,
       interestDue: recorded.interestDue,
+      commonLawContractualInterestDue: recorded.commonLawContractualInterestDue ?? null,
       feesDue: recorded.feesDue,
       creditLifePremiumDue: recorded.creditLifePremiumDue,
       totalDue: recorded.totalDue,

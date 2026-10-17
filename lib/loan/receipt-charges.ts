@@ -23,13 +23,13 @@ export async function scheduleShareOfReceipts(tx: Pick<ChargesTx, "payment">, lo
 /** Re-derive the loan's charges after a write, when they are live for its tenant. */
 export async function resyncChargesIfLive(
   tx: ChargesTx,
-  loan: Parameters<typeof chargesEnabled>[0],
+  loan: Parameters<typeof chargesEnabled>[0] & { ncaRegime?: string },
   ref: LoanRef,
   asOf: Date,
   actor: SyncActor,
   mode: SyncMode = "normal",
 ) {
-  return chargesEnabled(loan) ? await syncLoanCharges(tx, ref, asOf, actor, { mode }) : null
+  return loan.ncaRegime === "NON_NCA" || chargesEnabled(loan) ? await syncLoanCharges(tx, ref, asOf, actor, { mode }) : null
 }
 
 /**

@@ -44,6 +44,7 @@ export async function createSigningFixture(
   db: PrismaClient,
   t: string,
   signIn: (userId: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => void,
+  structure?: { periods: number; rateMargin: string },
 ): Promise<SigningFixture> {
   const fx = await createDealFixture(db, t)
   const client = async (label: string, n: number) =>
@@ -59,12 +60,13 @@ export async function createSigningFixture(
     await db.entityRelationship.create({ data: { tenantId: fx.tenantId, entityId: fx.evidenced, clientId, role } })
   }
 
+  if (structure) await db.loanProduct.update({ where: { id: fx.product }, data: { maxTermDays: structure.periods * 32 } })
   const routes = dealRoutes(fx.host)
   signIn(fx.officer, "CREDIT_OFFICER")
   const created = await routes.create({
     assetId: fx.assets[0], depositCents: 17_250_000, balloonCents: 20_000_000,
     firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), 1),
-    preset: { kind: "MONTHLY", periods: 36 }, rateBasis: "PRIME", rateMargin: "0.0100",
+    preset: { kind: "MONTHLY", periods: structure?.periods ?? 36 }, rateBasis: "PRIME", rateMargin: structure?.rateMargin ?? "0.0100",
     entityId: fx.evidenced, supplierId: fx.supplier, productId: fx.product,
   })
   expect(created.status).toBe(201)

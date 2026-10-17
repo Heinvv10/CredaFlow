@@ -1,3 +1,4 @@
+import { commonLawReplayRows } from "@/lib/asset-finance/common-law-interest"
 import type { LoanStatus } from "@prisma/client"
 import { AuditAction } from "@/lib/audit"
 import { nextPaymentDueDate, recomputeLoanBalances } from "@/lib/loan/balances"
@@ -38,7 +39,8 @@ const chargeKeys = (charges: Array<{ type: string; day: Date; amount: number; so
  * Re-derive and persist a loan's charges, the charge split of every live
  * receipt, and everything that follows from the schedule share: Loan.totalPaid,
  * the schedule rows, balances and status. Returns null (and writes nothing)
- * while the tenant's flag is off.
+ * for NCA loans while the tenant's flag is off. NON_NCA contractual interest
+ * is always replayed to enforce the common-law ceiling.
  */
 export interface SyncActor {
   /** the writer or job, e.g. "manual_capture", "stitch_webhook", "cron:default-charges" */
@@ -125,19 +127,21 @@ export async function syncLoanCharges(
   // The replay's per-instalment shares. A paid row is dated by the live
   // receipt whose schedule share completed it, re-dated when that changes
   // (the receipt that completed it was reversed) though its totalPaid did not.
-  const rows = loan.repaymentSchedule
+  const rows = commonLawReplayRows(loan.repaymentSchedule, result)
   const postRows = rows.map((row, i) => ({ ...row, totalPaid: result.scheduleRows[i].paid }))
   let rowsChanged = false
   for (const [i, row] of postRows.entries()) {
     const isPaid = row.totalPaid >= row.totalDue
     const completing = result.scheduleRows[i].completedBy
     const paidAt = !isPaid ? null : completing ? receiptDate.get(completing)! : rows[i].paidAt ?? asOf
-    if (row.totalPaid === rows[i].totalPaid && paidAt?.valueOf() === rows[i].paidAt?.valueOf()) continue
+    const original = loan.repaymentSchedule[i]
+    if (row.totalPaid === original.totalPaid && row.interestDue === original.interestDue && row.commonLawContractualInterestDue === original.commonLawContractualInterestDue && paidAt?.valueOf() === original.paidAt?.valueOf()) continue
     rowsChanged = true
     await tx.repaymentSchedule.update({
       where: { id: row.id, tenantId: ref.tenantId },
       data: {
         totalPaid: row.totalPaid,
+        ...(result.lawfulSchedule ? { interestDue: row.interestDue, totalDue: row.totalDue, commonLawContractualInterestDue: row.commonLawContractualInterestDue } : {}),
         status: isPaid ? "PAID" : row.totalPaid > 0 ? "PARTIAL" : "PENDING",
         paidAt,
       },
@@ -161,7 +165,11 @@ export async function syncLoanCharges(
   }
 
   const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
+  const capped = loan.ncaRegime === "NON_NCA" && rows.some((r, i) => r.interestDue !== loan.repaymentSchedule[i].interestDue)
   const next = {
+    ...(capped ? { totalInterest: rows.reduce((sum, r) => sum + r.interestDue, 0), totalRepayable: rows.reduce((sum, r) => sum + r.totalDue, 0),
+      contractualTotalInterest: loan.contractualTotalInterest ?? loan.totalInterest,
+      contractualTotalRepayable: loan.contractualTotalRepayable ?? loan.totalRepayable } : {}),
     totalPaid: result.scheduleAllocated,
     outstandingPrincipal: balances.outstandingPrincipal,
     arrearsAmount: balances.arrearsAmount,
@@ -214,6 +222,7 @@ export async function syncLoanCharges(
           chargesAccrued,
           chargesOutstanding,
           defaultInterestAccrued: result.interestAccrued,
+          ...(result.lawfulSchedule ? { commonLawRows: result.lawfulSchedule } : {}),
           feesAccrued: result.feesAccrued,
           monthlyServiceFee: replay.monthlyServiceFee,
           totalPaid: result.scheduleAllocated,
