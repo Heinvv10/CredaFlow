@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireApiRole } from "@/lib/auth-guards"
+import { hasMinRole, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logDocumentContentAccess } from "@/lib/document-auth"
 import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
@@ -29,8 +29,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params
     const planned = await planOutputs(tenant.id, id)
     if (!planned) return NextResponse.json({ error: "Application not found" }, { status: 404 })
-    const view = await applicationAiView(tenant.id, id, planned.plans)
-    if (view.pending > 0) enqueueApplication(tenant.id, id)
+    // The summary and explanations restate the statement insights, which need
+    // CREDIT_OFFICER (statement-insights route); READONLY gets nothing until answers (goal §5) exist.
+    const summaries = hasMinRole(guard.user.role, "CREDIT_OFFICER")
+    const view = await applicationAiView(tenant.id, id, planned, { summaries })
+    if (summaries && view.pending > 0) enqueueApplication(tenant.id, id)
     await logDocumentContentAccess({ documentIds: planned.documentIds, staffUserId: guard.user.id, action: "statement_ai", req })
     return NextResponse.json({ ...view, noStatements: planned.plans.length === 0, modelAvailable: modelAvailable() })
   })

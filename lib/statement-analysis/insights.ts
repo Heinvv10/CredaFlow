@@ -133,10 +133,10 @@ function unionDays(periods: Array<[string, string]>): number {
   return total
 }
 
-interface CountedRow { t: StatementTransaction; s: InsightStatement }
+export interface CountedRow { t: StatementTransaction; s: InsightStatement }
 
 /** The used statements' rows, each account's days counted once (a later statement adds only days after the earlier). */
-function distinctRows(used: InsightStatement[]): CountedRow[] {
+export function distinctRows(used: InsightStatement[]): CountedRow[] {
   const coveredTo = new Map<string, string>()
   const rows: CountedRow[] = []
   for (const s of [...used].sort((a, b) => (period(a.read)?.[0] ?? "").localeCompare(period(b.read)?.[0] ?? ""))) {

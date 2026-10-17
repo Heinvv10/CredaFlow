@@ -102,13 +102,16 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     expect(await prisma.statementAiUsage.count({ where: { tenantId: on.tenantId } })).toBe(3)
     expect(await prisma.auditLog.count({ where: { tenantId: on.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED" } })).toBe(2)
 
-    const second = await (await get(on, "READONLY")).json()
+    // READONLY does not read the summary or explanations: they restate the insights (CREDIT_OFFICER and up).
+    const readonly = await (await get(on, "READONLY")).json()
+    expect(readonly).toMatchObject({ summary: null, explanations: [] })
+    const second = await (await get(on, "CREDIT_OFFICER")).json()
     expect(second.pending).toBe(0)
     expect(second.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringContaining("R19 500.00") })
     expect(second.explanations).toEqual([expect.objectContaining({ flagCode: "GAMBLING", status: "REJECTED", text: null, citations: null })])
     expect(JSON.stringify(second)).not.toContain("policy threshold of R1 500.00")
     // Viewed outputs cite the statement: each GET logs the access.
-    expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "statement_ai" } })).toBe(2)
+    expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "statement_ai" } })).toBe(3)
     await drained()
     expect(model.calls).toBe(3)
   })
