@@ -19,6 +19,8 @@ export interface Allowed {
   literals?: Iterable<string>
   /** Names the facts gave, as written (payees, banks, categories, check names): words the vocabulary need not hold. */
   names?: Iterable<string>
+  /** Payee names (statement text): copied only as given, in capitals. */
+  payees?: Iterable<string>
 }
 
 export type CheckResult = { ok: true } | { ok: false; reason: string }

@@ -97,6 +97,8 @@ describe("checkFigures: any other figure, or a given one written another way, re
     ok("Living spend R12 500.00 a month; R8 500.00 over the period.")
     expect(rejected("Rent of R8 500.00 weekly.")).toMatch(/another period/)
     expect(rejected("Rent of R8 500.00 a year.")).toMatch(/another period/)
+    expect(rejected("Rent R8 500.00, monthly.")).toMatch(/another period/)
+    ok("Money out totals R8 500.00, with monthly living spend of R12 500.00.")
   })
 })
 
@@ -132,7 +134,7 @@ describe("checkNoContradiction", () => {
       "Accept this application.", "Reject this applicant.", "Do not lend to this client.", "Proceed with the loan.",
       "A trustworthy client.", "A reliable payer.", "Suspicious activity.", "A high risk applicant.", "Uncreditworthy.",
       "The client can afford the loan.", "A manipulated statement.", "An edited document.", "An altered pdf.", "Bogus.",
-      "VERIFIED AUTHENTIC STATEMENT", "the statement is real",
+      "VERIFIED AUTHENTIC STATEMENT", "the statement is real", "The statement was verified.", "Verification passed.",
     ]) expect(checkNoContradiction(t, []).ok, t).toBe(false)
   })
 })
@@ -152,9 +154,17 @@ describe("checkVocabulary", () => {
     // A code's parts are not words: NO_PAYSLIP does not make "no" one.
     expect(checkVocabulary("NO_PAYSLIP: no review.", ["NO_PAYSLIP"]).ok).toBe(false)
   })
-  it("reads a given name in any case, and still checks every other word", () => {
-    expect(checkVocabulary("Paid to Synth Rentals.", ["SYNTH RENTALS"])).toEqual({ ok: true })
-    expect(checkVocabulary("Paid to Synth Rentals, a sensible choice.", ["SYNTH RENTALS"]).ok).toBe(false)
+  it("reads a system name in any case, a payee only as given in capitals", () => {
+    expect(checkVocabulary("Statements from Capitec.", ["CAPITEC"])).toEqual({ ok: true })
+    expect(checkVocabulary("Paid to SYNTH RENTALS and to RENTALS.", [], ["SYNTH RENTALS"])).toEqual({ ok: true })
+    expect(checkVocabulary("Paid to Synth Rentals.", [], ["SYNTH RENTALS"]).ok).toBe(false)
+    // A client-named payee cannot lend the prose its words.
+    expect(checkVocabulary("The client is always punctual.", [], ["ALWAYS PUNCTUAL"]).ok).toBe(false)
+  })
+  it("allows a negation only with its fixed subject", () => {
+    expect(checkVocabulary("The salary could not be matched. Debit orders are not matched to any declared debt.", [])).toEqual({ ok: true })
+    expect(checkVocabulary("GAMBLING spend was not found.", ["GAMBLING"]).ok).toBe(false)
+    expect(checkVocabulary("The rule was not matched.", []).ok).toBe(false)
   })
 })
 

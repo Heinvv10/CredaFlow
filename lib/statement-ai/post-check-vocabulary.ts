@@ -58,7 +58,7 @@ question questions answer answers query queries result results computed calculat
 appear appears appeared
 whether because so if then
 came come comes went go goes going made make makes individual individually separate separately
-verify verifies verified verification against indicate indicates indicated indicating resulting result
+against indicate indicates indicated indicating resulting result
 undisclosed disclosed recent recently whole part parts process processes showing entire full overall period's whose presence present absence absent available on
 `
 
@@ -66,9 +66,16 @@ undisclosed disclosed recent recently whole part parts process processes showing
 export const VOCABULARY: ReadonlySet<string> = new Set(WORDS.split(/\s+/).filter(Boolean))
 
 /**
- * The only negations allowed: a rule that could not check something, or a
- * document that is missing. "Not", "never", "nothing" and the like are
- * otherwise outside the vocabulary: a negated finding ("is not a concern",
- * "requires no follow-up") is how reassurance hides.
+ * The only negations allowed, each with a fixed subject: a rule that could
+ * not check something, a document that is missing, or the flag's own finding
+ * (a debit order matched to no declared debt). "Not", "never", "nothing" and
+ * the like are otherwise outside the vocabulary: a negated finding ("is not a
+ * concern", "requires no follow-up") is how reassurance hides.
  */
-export const ALLOWED_NEGATIONS = /\b(could not be|cannot be|was not|were not|is not|are not) (matched|checked|read|dated|found|reconciled|compared)\b|\bno (recent )?(payslip|statement|salary credit|opening balance|closing balance|running balance|producer|creator|matching|declared)\b/gi
+export const ALLOWED_NEGATIONS = new RegExp([
+  "\\b(salary|salary credit|net pay|income|credit) (could not be|cannot be|was not|is not) (matched|checked|verified against a payslip)\\b",
+  "\\b(statement|document|row|rows|first row|last row|transaction|transactions|balance|balances|period) (could not be|cannot be|was not|were not|is not|are not) (read|checked|dated|reconciled|matched)\\b",
+  "\\b(debit order|debit orders|instalment|instalments|payment|payments) (is|are|was|were) not matched\\b",
+  "\\bno (recent )?(payslip|statement|opening balance|closing balance|running balance|producer|creator)\\b",
+  "\\b(could|can) be verified against a payslip\\b",
+].join("|"), "gi")

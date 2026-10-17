@@ -108,12 +108,16 @@ export function checkAnswer(text: string, results: QueryResult[], raisedFlagCode
   // The officer's own question may be echoed: its dates, months and amounts are theirs, not the model's.
   const asked = questionFigures(question)
   // A filter's names (its payee, its category) may be named; its figures may not. So may a name the question used.
-  const names = [...(allowed.names ?? []), ...(allowedFrom(results.map(({ args }) => args)).names ?? []), ...asked.names]
+  const fromArgs = allowedFrom(results.map(({ args }) => args))
+  const names = [...(allowed.names ?? []), ...(fromArgs.names ?? [])]
+  // The question's capitalised words are the officer's, but may name a payee: copied as given only.
+  const payees = [...(allowed.payees ?? []), ...(fromArgs.payees ?? []), ...asked.names]
   return postCheck({
     text,
     allowed: {
       ...allowed,
       names,
+      payees,
       amountsCents: [...allowed.amountsCents, ...asked.amountsCents],
       dates: [...(allowed.dates ?? []), ...asked.dates],
       months: [...(allowed.months ?? []), ...asked.months],
