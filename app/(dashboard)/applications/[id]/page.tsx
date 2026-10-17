@@ -24,6 +24,7 @@ import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
+import { StatementAiCard } from "@/components/applications/StatementAiCard"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { canCancelApplication, showDebtEvidenceBlocker } from "@/lib/applications/decision-kind"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
@@ -926,6 +927,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         )}
 
         {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
+
+        {/* Statement AI: renders nothing while the lender has it off (its API 404s). READONLY reads it too. */}
+        <StatementAiCard applicationId={application.id} canAsk={canReadChecks} />
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (

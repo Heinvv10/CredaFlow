@@ -197,6 +197,7 @@ model LoanApplication {
   ncaRegimeOverrides        NcaRegimeOverride[]
   pasqAcknowledgementTokens PasqAcknowledgementToken[]
   selfieCaptureTokens       SelfieCaptureToken[]
+  statementAiOutputs        StatementAiOutput[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, id, clientId])
