@@ -104,7 +104,7 @@ export interface LoanChargesView extends ChargesSummary {
 /** The live charges view of one loan, or null while charges are off for its tenant. */
 export async function loadLoanCharges(db: ChargesTx, ref: LoanRef, asOf: Date): Promise<LoanChargesView | null> {
   const replay = await loadChargesReplay(db, ref, asOf)
-  if (!replay) return null
+  if (!replay || replay.defaultChargesLive === false) return null
   return {
     ...summariseCharges(replay.result),
     goLive: replay.goLive,

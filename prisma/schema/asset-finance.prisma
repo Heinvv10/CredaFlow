@@ -881,10 +881,10 @@ model Payout {
 // Per-deed verification of marital regime and wet-ink spouse consent.
 model SuretyConsent {
   id String @id @default(cuid())
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tenantId String
   signerId String @unique
-  signer DealSigner @relation(fields: [signerId], references: [id], onDelete: Restrict)
+  signer DealSigner @relation(fields: [signerId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   maritalRegime String @default("UNKNOWN")
   spouseName String?
   witnessOne String?
@@ -892,6 +892,6 @@ model SuretyConsent {
   evidenceDocumentId String?
   evidenceDocument EntityDocument? @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   verifiedById String
-  verifiedBy User @relation(fields: [verifiedById], references: [id])
+  verifiedBy User @relation(fields: [verifiedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   verifiedAt DateTime @default(now())
 }

@@ -313,6 +313,7 @@ export async function loadChargesReplay(
   return {
     loan,
     receipts,
+    defaultChargesLive,
     result: replayAt(asOf),
     replayAt,
     monthlyServiceFee,
