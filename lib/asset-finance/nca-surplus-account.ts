@@ -36,6 +36,13 @@ export async function approveSurplusAccount(actor: RecoveryActor, loanId: string
     if (row.createdById === actor.userId || (action === "authorise" && row.approvedById === actor.userId)) throw new RecoveryRefusal("Verification and release need staff other than the account preparer and each other")
     if (action === "approve" ? Boolean(row.approvedById) : !row.approvedById || Boolean(row.releaseAuthorisedById)) throw new RecoveryRefusal("The account is not ready for this approval step")
     await tx.ncaSurplusAccount.update({ where: { id: row.id, tenantId: actor.tenantId }, data: action === "approve" ? { approvedById: actor.userId } : { releaseAuthorisedById: actor.userId } })
+    if (action === "authorise") {
+      const held = await tx.ncaSurplusRemittance.findFirst({ where: { tenantId: actor.tenantId, status: "HELD_NO_VERIFIED_ACCOUNT", surrender: { loanId, status: "FINAL_NOTICE_ISSUED", recovery: null } } })
+      if (held) {
+        await tx.ncaSurplusRemittance.update({ where: { id: held.id, tenantId: actor.tenantId }, data: { status: "INSTRUCTED", accountId: row.id, releasedAt: new Date(), releasedById: actor.userId } })
+        await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: "ASSET_SURPLUS_REMITTED", entity: "NcaSurplusRemittance", entityId: held.id, oldValue: { status: held.status, exceptionReason: held.exceptionReason }, newValue: { status: "INSTRUCTED", amountCents: held.amountCents, accountId: row.id, previousExceptionRetained: true } }, tx)
+      }
+    }
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action: "ASSET_SURPLUS_ACCOUNT_APPROVED", entity: "NcaSurplusAccount", entityId: row.id, newValue: { loanId, step: action } }, tx)
     return { kind: "done" as const, id: row.id }
   }))

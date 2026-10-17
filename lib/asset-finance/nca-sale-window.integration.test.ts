@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { createRecoveryFixture, cleanupRecoveryFixture, newLoan, newSurrender, newRecovery, newValuation, recoveryFixtureTenantId, type RecoveryFixture } from "./recovery.integration-fixture"
+import { createRecoveryFixture, cleanupRecoveryFixture, newLoan, newSurrender, newRecovery, newValuation, day, recoveryFixtureTenantId, type RecoveryFixture } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { recordValuationReceipt, withdrawSurrender } from "./surrender-lifecycle"
 import { rules, raiseOff } from "./recovery-rules.integration-fixture"
@@ -57,6 +57,23 @@ suite("NCA sale waits for the valuation notice receipt window", () => {
     const loan=await newLoan(database(),fx,"NCA")
     const id=await newSurrender(database(),fx,loan)
     await refuses({table:"Payment",trigger:"Payment_surrender_window"},/Surrender proceeds receipt waits/,(tx)=>tx.payment.create({data:{tenantId:fx.tenantId,loanId:loan.loanId,amount:100,capturedBy:fx.officer,idempotencyKey:`asset-surrender:${id}:proceeds`}}))
+  })
+  it.each([["surrender","VALUATION_NOTICE_ISSUED"],["recovery","VALUATION_NOTICE_ISSUED"],["recovery","LISTED"],["recovery","SOLD"]] as const)("records historic issue evidence for a pre-migration %s %s notice once",async(kind,status)=>{
+    const loan=await newLoan(database(),fx,"NCA")
+    const surrenderId=await newSurrender(database(),fx,loan)
+    const valuationId=await newValuation(database(),fx,loan.assetId)
+    await database().surrenderRequest.update({where:{id:surrenderId},data:{status:"VALUED",valuationId}})
+    await database().surrenderRequest.update({where:{id:surrenderId},data:{status:"VALUATION_NOTICE_ISSUED",valuationNoticePath:"/synthetic/legacy.pdf",valuationNoticeSha256:"a".repeat(64)}})
+    let id=surrenderId
+    if(kind==="recovery"){
+      id=await newRecovery(database(),fx,loan,"NCA_S127_SURRENDER",{surrenderRequestId:surrenderId})
+      await testSetup(database(),[`UPDATE "Recovery" SET "route"='NCA_S131_ATTACHMENT',"surrenderRequestId"=NULL,"status"='VALUATION_NOTICE_ISSUED',"valuationId"=$2,"valuationNoticePath"='/synthetic/legacy.pdf',"valuationNoticeSha256"=$3 WHERE "id"=$1`,id,valuationId,"a".repeat(64)])
+    }
+    await testSetup(database(),[`UPDATE "${kind==="surrender"?"SurrenderRequest":"Recovery"}" SET "valuationNoticeIssuedOn"=NULL WHERE "id"=$1`,id])
+    if(kind==="recovery") await testSetup(database(),[`UPDATE "Recovery" SET "status"=$2::"RecoveryStatus" WHERE "id"=$1`,id,status])
+    const input={receivedOn:day(-29),reference:"Synthetic historical notice and delivery evidence",issuedOn:day(-30)}
+    expect(await recordValuationReceipt({tenantId:fx.tenantId,userId:fx.officer},id,kind,input)).toMatchObject({kind:"done"})
+    expect(await recordValuationReceipt({tenantId:fx.tenantId,userId:fx.officer},id,kind,input)).toMatchObject({kind:"not_ready"})
   })
   it("permits a withdrawn request to be followed by a new surrender on the same loan", async () => {
     const loan = await newLoan(database(), fx, "NCA")

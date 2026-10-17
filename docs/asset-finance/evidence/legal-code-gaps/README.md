@@ -48,3 +48,16 @@ Validation while preparing the NCA candidate: the full unit phase passed
 1,521 suites / 19,695 tests; real-PG new-guard suites passed 12 tests; real-PG
 standalone surrender receipt and freeze mutation passed for both NCA asset
 contract types. Final PR evidence records the complete gate and review outcome.
+
+## Independent NCA code-review fixes
+
+The missing-account exception now has a supported later release: separate bank
+verification and authorisation changes the held instruction once, retaining
+its original exception, issuer and creation time, with an additional release
+actor and timestamp. Issued instructions remain immutable. This only serves
+standalone surrenders; linked recoveries retain their existing refund workflow.
+Pre-migration issued/listed/sold notices can record historical issue and actual
+receipt together with supporting evidence. Existing issue/receipt dates cannot
+be rewritten. The new real-PG repros failed before these fixes and now pass;
+the combined new-guard suite passes 17 tests, including immutable-release
+mutation and four historical-status cases.

@@ -23,15 +23,18 @@ export async function requireNcaSaleWindow(tx: SigningTx, tenantId: string, id: 
 }
 
 /** Staff attest actual receipt; issuing a notice does not start the statutory window. */
-export async function recordValuationReceipt(actor: RecoveryActor, id: string, kind: "surrender" | "recovery", input: { receivedOn: string; reference: string }) {
+export async function recordValuationReceipt(actor: RecoveryActor, id: string, kind: "surrender" | "recovery", input: { receivedOn: string; reference: string; issuedOn?: string }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.receivedOn) || input.reference.trim().length < 10 || input.reference.length > 1000) return { kind: "not_ready" as const, reason: "Provide the receipt date and delivery evidence reference (10 to 1000 characters)" }
+  try { dbDate(input.receivedOn); if (input.issuedOn) dbDate(input.issuedOn) } catch { return { kind: "not_ready" as const, reason: "Provide valid calendar dates for notice issue and receipt" } }
   return refusable(() => prisma.$transaction(async (tx) => {
     const row = kind === "surrender"
       ? await tx.surrenderRequest.findFirst({ where: { id, tenantId: actor.tenantId } })
       : await tx.recovery.findFirst({ where: { id, tenantId: actor.tenantId } })
     if (!row) return { kind: "not_found" as const }
-    if (row.status !== "VALUATION_NOTICE_ISSUED" || row.valuationNoticeReceivedOn) throw new RecoveryRefusal("Receipt is recorded once after the valuation notice issues")
-    const data = { valuationNoticeReceivedOn: dbDate(input.receivedOn), valuationReceiptReference: input.reference.trim() }
+    if (!(kind === "surrender" ? ["VALUATION_NOTICE_ISSUED", "PROCEEDS_CREDITED"] : ["VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED"]).includes(row.status) || !row.valuationNoticePath || row.valuationNoticeReceivedOn) throw new RecoveryRefusal("Receipt is recorded once after the valuation notice issues")
+    if (!row.valuationNoticeIssuedOn && (!input.issuedOn || !/^\d{4}-\d{2}-\d{2}$/.test(input.issuedOn))) throw new RecoveryRefusal("Record the historical notice issue date with its issue and delivery evidence")
+    if (input.issuedOn && row.valuationNoticeIssuedOn) throw new RecoveryRefusal("The recorded notice issue date cannot be changed")
+    const data = { valuationNoticeReceivedOn: dbDate(input.receivedOn), valuationReceiptReference: input.reference.trim(), ...(!row.valuationNoticeIssuedOn && input.issuedOn ? { valuationNoticeIssuedOn: dbDate(input.issuedOn) } : {}) }
     if (kind === "surrender") await tx.surrenderRequest.update({ where: { id, tenantId: actor.tenantId }, data })
     else {
       const recovery = row as Awaited<ReturnType<typeof tx.recovery.findFirstOrThrow>>
@@ -40,7 +43,7 @@ export async function recordValuationReceipt(actor: RecoveryActor, id: string, k
     }
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
       action: "ASSET_VALUATION_NOTICE_RECEIPT_RECORDED", entity: kind === "surrender" ? "SurrenderRequest" : "Recovery", entityId: id,
-      newValue: { receivedOn: input.receivedOn, deliveryEvidenceReference: input.reference.trim() },
+      newValue: { historicalIssuedOn: input.issuedOn ?? null, receivedOn: input.receivedOn, deliveryEvidenceReference: input.reference.trim() },
     }, tx)
     return { kind: "done" as const, id }
   }))

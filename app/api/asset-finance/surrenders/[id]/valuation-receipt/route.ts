@@ -12,9 +12,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (disabled) return disabled
     if (!canDo(guard.user.role, "manage_asset_finance")) return NextResponse.json({ error: "Issuing a surrender notice needs manage_asset_finance" }, { status: 403 })
     const { id } = await params
-    const body = await req.json().catch(() => null) as { receivedOn?: unknown; reference?: unknown } | null
+    const body = await req.json().catch(() => null) as { receivedOn?: unknown; reference?: unknown; issuedOn?: unknown } | null
     if (typeof body?.receivedOn !== "string" || typeof body?.reference !== "string") return NextResponse.json({ error: "Provide receivedOn and delivery evidence reference" }, { status: 400 })
-    const result = await recordValuationReceipt({ tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, id, "surrender", { receivedOn: body.receivedOn, reference: body.reference })
+    const result = await recordValuationReceipt({ tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, id, "surrender", { receivedOn: body.receivedOn, reference: body.reference, issuedOn: typeof body.issuedOn === "string" ? body.issuedOn : undefined })
     if (result.kind === "not_found") return NextResponse.json({ error: "Surrender not found" }, { status: 404 })
     if (result.kind === "not_ready") return NextResponse.json({ error: result.reason }, { status: 409 })
     return NextResponse.json(result)

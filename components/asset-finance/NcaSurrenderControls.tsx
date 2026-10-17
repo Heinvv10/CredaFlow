@@ -23,10 +23,10 @@ export function NcaSurrenderControls({ loanId, surrenders, recovery, accountStat
   const active = surrenders.find((s) => !["WITHDRAWN", "FINAL_NOTICE_ISSUED"].includes(s.status))
   const base = `/api/asset-finance/surrenders/${active?.id}`
   const accountBase = `/api/asset-finance/loans/${loanId}/surplus-account`
-  const receiptForm = (path: string) => <form className="flex flex-wrap gap-2" onSubmit={(e) => { const f = form(e); void post(path, { receivedOn: f.get("receivedOn"), reference: f.get("reference") }) }}>
+  const receiptForm = (path: string) => <form className="flex flex-wrap gap-2" onSubmit={(e) => { const f = form(e); void post(path, { receivedOn: f.get("receivedOn"), reference: f.get("reference"), issuedOn: f.get("issuedOn") || undefined }) }}>
     <label>Notice received on <input className={field} type="date" name="receivedOn" required /></label>
     <label>Delivery evidence reference <input className={field} name="reference" required minLength={10} maxLength={1000} /></label>
-    <button className={button} disabled={busy}>Record valuation notice receipt</button>
+    <label>Historical notice issue date (imported notices only) <input className={field} name="issuedOn" type="date" /></label><button className={button} disabled={busy}>Record valuation notice receipt</button>
   </form>
   return <section id="nca-surrender" className="space-y-4 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
     <h2 className="font-semibold">NCA surrender and surplus</h2>
@@ -37,7 +37,7 @@ export function NcaSurrenderControls({ loanId, surrenders, recovery, accountStat
         <label>Valuation date <input className={field} name="valuedOn" type="date" required /></label><label>Assessor <input className={field} name="valuerName" required /></label><label>Valuation (R) <input className={field} name="amount" type="number" min="0.01" step="0.01" required /></label><button className={button} disabled={busy}>Record surrender valuation</button>
       </form>}
       {canManage && active.status === "VALUED" && <button className={button} disabled={busy} onClick={() => void post(`${base}/valuation-notice`)}>Issue surrender valuation notice</button>}
-      {canManage && active.status === "VALUATION_NOTICE_ISSUED" && !active.receivedOn && receiptForm(`${base}/valuation-receipt`)}
+      {canManage && ["VALUATION_NOTICE_ISSUED", "PROCEEDS_CREDITED"].includes(active.status) && !active.receivedOn && receiptForm(`${base}/valuation-receipt`)}
       {active.receivedOn && <p>Valuation notice received: {active.receivedOn}. Sale is refused until the ten-business-day window has ended.</p>}
       {canManage && active.status === "VALUATION_NOTICE_ISSUED" && <form className="flex flex-wrap gap-2" onSubmit={(e) => { const f = form(e); void post(`${base}/withdraw`, { goodsReturnReference: f.get("reference") }) }}>
         <label>Signed goods-return reference <input className={field} name="reference" minLength={10} required /></label><button className={button} disabled={busy}>Record withdrawal and return of goods</button>

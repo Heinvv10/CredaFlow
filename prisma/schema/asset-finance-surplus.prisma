@@ -38,6 +38,9 @@ model NcaSurplusRemittance {
   amountCents Int
   status String
   exceptionReason String?
+  releasedAt DateTime?
+  releasedById String?
+  releasedBy User? @relation("NcaSurplusReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   issuedById String
   issuedBy User @relation("NcaSurplusIssuedBy", fields: [tenantId, issuedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime @default(now())

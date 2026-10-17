@@ -7,7 +7,7 @@ export async function NcaSurrenderStaffPanel({ tenantId, loanId, canManage, canD
   const [surrenders, account, recovery, instructions] = await Promise.all([
     prisma.surrenderRequest.findMany({ where: { tenantId, loanId }, orderBy: { createdAt: "desc" }, select: { id: true, status: true, valuationNoticeReceivedOn: true } }),
     prisma.ncaSurplusAccount.findFirst({ where: { tenantId, loanId }, select: { approvedById: true, releaseAuthorisedById: true } }),
-    prisma.recovery.findFirst({ where: { tenantId, loanId, route: "NCA_S131_ATTACHMENT", status: "VALUATION_NOTICE_ISSUED" }, select: { id: true, valuationNoticeReceivedOn: true } }),
+    prisma.recovery.findFirst({ where: { tenantId, loanId, route: "NCA_S131_ATTACHMENT", status: { in: ["VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED"] } }, select: { id: true, valuationNoticeReceivedOn: true } }),
     prisma.ncaSurplusRemittance.findMany({ where: { tenantId, OR: [{ surrender: { loanId } }, { recovery: { loanId } }] }, select: { id: true, status: true, amountCents: true } }),
   ])
   return <NcaSurrenderControls canRequest={["ACTIVE", "DEFAULTED"].includes(loan.status)} instructions={instructions} loanId={loanId} canManage={canManage} canDecide={canDecide} canRecordPayment={canRecordPayment}

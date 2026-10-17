@@ -26,6 +26,8 @@ CREATE TABLE "NcaSurplusRemittance" (
     "amountCents" INTEGER NOT NULL,
     "status" TEXT NOT NULL,
     "exceptionReason" TEXT,
+    "releasedAt" TIMESTAMP(3),
+    "releasedById" TEXT,
     "issuedById" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -79,8 +81,8 @@ ALTER TABLE "NcaSurplusAccount" ADD CONSTRAINT "NcaSurplusAccount_bank_check" CH
  length(btrim("accountHolder")) >= 2 AND length(btrim("bankName")) >= 2 AND "branchCode" ~ '^[0-9]{6}$' AND "accountNumber" ~ '^[0-9]{6,16}$');
 ALTER TABLE "NcaSurplusRemittance" ADD CONSTRAINT "NcaSurplusRemittance_result_check" CHECK (
  num_nonnulls("surrenderId","recoveryId")=1 AND "amountCents">0 AND (
- ("status"='INSTRUCTED' AND "accountId" IS NOT NULL AND "exceptionReason" IS NULL) OR
- ("status"='HELD_NO_VERIFIED_ACCOUNT' AND "accountId" IS NULL AND length(btrim("exceptionReason"))>=10)));
+ ("status"='INSTRUCTED' AND "accountId" IS NOT NULL AND (("exceptionReason" IS NULL AND "releasedAt" IS NULL AND "releasedById" IS NULL) OR (length(btrim("exceptionReason"))>=10 AND "releasedAt" IS NOT NULL AND "releasedById" IS NOT NULL))) OR
+ ("status"='HELD_NO_VERIFIED_ACCOUNT' AND "accountId" IS NULL AND "releasedAt" IS NULL AND "releasedById" IS NULL AND length(btrim("exceptionReason"))>=10)));
 CREATE OR REPLACE FUNCTION public."guardNcaSurplusAccount"() RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE borrower RECORD;
 BEGIN
@@ -115,7 +117,18 @@ CREATE TRIGGER "NcaSurplusAccount_no_truncate" BEFORE TRUNCATE ON "NcaSurplusAcc
 CREATE OR REPLACE FUNCTION public."guardNcaSurplusRemittance"() RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE parent RECORD; account RECORD;
 BEGIN
- IF TG_OP<>'INSERT' THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Surplus payment instructions are immutable'; END IF;
+ IF TG_OP<>'INSERT' THEN
+  IF TG_OP<>'UPDATE' THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Surplus payment instructions are immutable'; END IF;
+  IF OLD."status"<>'HELD_NO_VERIFIED_ACCOUNT' OR NEW."status"<>'INSTRUCTED'
+    OR OLD."releasedAt" IS NOT NULL OR NEW."releasedAt" IS NULL OR NEW."releasedById" IS NULL
+    OR (to_jsonb(NEW)-ARRAY['status','accountId','releasedAt','releasedById']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','accountId','releasedAt','releasedById'])
+    OR NOT EXISTS (SELECT 1 FROM "SurrenderRequest" s WHERE s."id"=NEW."surrenderId" AND s."tenantId"=NEW."tenantId" AND s."status"='FINAL_NOTICE_ISSUED' AND s."finalNoticePath" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM "Recovery" r WHERE r."surrenderRequestId"=s."id")) THEN
+   RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Only a held standalone surplus may issue once after bank authorisation';
+  END IF;
+  NEW."releasedAt" := now();
+ ELSIF NEW."releasedAt" IS NOT NULL OR NEW."releasedById" IS NOT NULL THEN
+  RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='A surplus release follows its recorded exception';
+ END IF;
  IF NEW."surrenderId" IS NOT NULL THEN
   SELECT "loanId", "status"::TEXT AS status,"refundCents" AS surplus INTO parent FROM "SurrenderRequest" WHERE "id"=NEW."surrenderId" AND "tenantId"=NEW."tenantId" FOR SHARE;
  ELSE
@@ -281,7 +294,7 @@ BEGIN
   -- freeze dates once written, because each is written by exactly one step.
   step := OLD."status"::TEXT || '>' || NEW."status"::TEXT;
   IF OLD."status" = NEW."status" THEN
-    allowed := ARRAY['location', 'condition', 'meterReadingId', 'valuationNoticeReceivedOn', 'valuationReceiptReference'];
+    allowed := ARRAY['location', 'condition', 'meterReadingId', 'valuationNoticeIssuedOn', 'valuationNoticeReceivedOn', 'valuationReceiptReference'];
     -- once the proceeds are applied, the costs the ledger could not carry are recorded: NULL to a value, in this status only
     IF OLD."status" = 'PROCEEDS_APPLIED' AND OLD."unrecoverableCostsCents" IS NULL THEN
       allowed := allowed || ARRAY['unrecoverableCostsCents'];
@@ -308,6 +321,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM unnest(changed) AS k WHERE k <> ALL (allowed)) THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = format('A recovery''s figures, payment, notices and freeze dates are write-once: %s may change only %s', step, array_to_string(allowed, ', '));
+  END IF;
+  IF NEW."valuationNoticeIssuedOn" IS DISTINCT FROM OLD."valuationNoticeIssuedOn"
+      AND NOT (OLD."status"='VALUED' AND NEW."status"='VALUATION_NOTICE_ISSUED')
+      AND NOT (OLD."status"=NEW."status" AND OLD."status"::text IN ('VALUATION_NOTICE_ISSUED','PROCEEDS_CREDITED','LISTED','SOLD','PROCEEDS_APPLIED') AND OLD."valuationNoticePath" IS NOT NULL
+        AND OLD."valuationNoticeIssuedOn" IS NULL AND OLD."valuationNoticeReceivedOn" IS NULL
+        AND NEW."valuationNoticeIssuedOn" IS NOT NULL AND NEW."valuationNoticeReceivedOn" IS NOT NULL
+        AND length(btrim(COALESCE(NEW."valuationReceiptReference",'')))>=10) THEN
+    RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Notice issue date is immutable except once with historical issue and receipt evidence';
   END IF;
   IF NEW."valuationNoticeReceivedOn" IS NOT NULL AND (NEW."valuationNoticeIssuedOn" IS NULL
       OR NEW."valuationNoticeReceivedOn" < NEW."valuationNoticeIssuedOn" OR NEW."valuationNoticeReceivedOn" > today
@@ -468,3 +489,5 @@ ALTER TABLE "NcaSurplusAccount" ADD CONSTRAINT "NcaSurplusAccount_tenantId_creat
 ALTER TABLE "NcaSurplusAccount" ADD CONSTRAINT "NcaSurplusAccount_tenantId_approvedById_fkey" FOREIGN KEY ("tenantId","approvedById") REFERENCES "User"("tenantId","id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "NcaSurplusAccount" ADD CONSTRAINT "NcaSurplusAccount_tenantId_releaseAuthorisedById_fkey" FOREIGN KEY ("tenantId","releaseAuthorisedById") REFERENCES "User"("tenantId","id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "NcaSurplusRemittance" ADD CONSTRAINT "NcaSurplusRemittance_tenantId_issuedById_fkey" FOREIGN KEY ("tenantId","issuedById") REFERENCES "User"("tenantId","id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+ALTER TABLE "NcaSurplusRemittance" ADD CONSTRAINT "NcaSurplusRemittance_releasedBy_fkey" FOREIGN KEY ("tenantId","releasedById") REFERENCES "User"("tenantId","id") ON DELETE RESTRICT ON UPDATE RESTRICT;

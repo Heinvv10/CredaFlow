@@ -44,7 +44,7 @@ BEGIN
   IF NEW."status" = 'WITHDRAWN' THEN
     IF loan_row."status"='DEFAULTED' OR loan_row."arrearsAmount">0 OR EXISTS(
         SELECT 1 FROM "RepaymentSchedule" r WHERE r."loanId"=NEW."loanId" AND r."totalDue">r."totalPaid" AND (r."dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date<today)
-      OR OLD."status" <> 'VALUATION_NOTICE_ISSUED' OR OLD."valuationNoticeReceivedOn" IS NULL
+      OR OLD."status" NOT IN ('VALUATION_NOTICE_ISSUED','PROCEEDS_CREDITED') OR OLD."valuationNoticeReceivedOn" IS NULL
       OR today > public."recoveryAddBusinessDays"(OLD."valuationNoticeReceivedOn",10)
       OR NEW."goodsReturnedOn" IS DISTINCT FROM today OR length(btrim(COALESCE(NEW."goodsReturnReference",''))) < 10
       OR EXISTS (SELECT 1 FROM "Recovery" r JOIN "RemarketingSale" s ON s."recoveryId"=r."id"
@@ -57,8 +57,8 @@ BEGIN
     RETURN NEW;
   END IF;
   IF OLD."status" = NEW."status" THEN
-    IF OLD."status" <> 'VALUATION_NOTICE_ISSUED' OR OLD."valuationNoticeReceivedOn" IS NOT NULL
-      OR EXISTS (SELECT 1 FROM unnest(changed) k WHERE k NOT IN ('valuationNoticeReceivedOn','valuationReceiptReference')) THEN
+    IF OLD."status" NOT IN ('VALUATION_NOTICE_ISSUED','PROCEEDS_CREDITED') OR OLD."valuationNoticeReceivedOn" IS NOT NULL
+      OR EXISTS (SELECT 1 FROM unnest(changed) k WHERE k NOT IN ('valuationNoticeIssuedOn','valuationNoticeReceivedOn','valuationReceiptReference')) THEN
       RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Only valuation receipt evidence may be recorded once without a surrender step';
     END IF;
   ELSIF (OLD."status",NEW."status") NOT IN (
@@ -76,6 +76,14 @@ BEGIN
     END IF;
   END IF;
   IF NEW."status" = 'VALUATION_NOTICE_ISSUED' AND OLD."status" = 'VALUED' THEN NEW."valuationNoticeIssuedOn" := today; END IF;
+  IF NEW."valuationNoticeIssuedOn" IS DISTINCT FROM OLD."valuationNoticeIssuedOn"
+      AND NOT (OLD."status"='VALUED' AND NEW."status"='VALUATION_NOTICE_ISSUED')
+      AND NOT (OLD."status"=NEW."status" AND OLD."status"::text IN ('VALUATION_NOTICE_ISSUED','PROCEEDS_CREDITED','LISTED','SOLD','PROCEEDS_APPLIED') AND OLD."valuationNoticePath" IS NOT NULL
+        AND OLD."valuationNoticeIssuedOn" IS NULL AND OLD."valuationNoticeReceivedOn" IS NULL
+        AND NEW."valuationNoticeIssuedOn" IS NOT NULL AND NEW."valuationNoticeReceivedOn" IS NOT NULL
+        AND length(btrim(COALESCE(NEW."valuationReceiptReference",'')))>=10) THEN
+    RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Notice issue date is immutable except once with historical issue and receipt evidence';
+  END IF;
   IF NEW."valuationNoticeReceivedOn" IS NOT NULL AND (NEW."valuationNoticeIssuedOn" IS NULL
     OR NEW."valuationNoticeReceivedOn" < NEW."valuationNoticeIssuedOn" OR NEW."valuationNoticeReceivedOn" > today
     OR length(btrim(COALESCE(NEW."valuationReceiptReference",''))) < 10) THEN
@@ -213,7 +221,7 @@ BEGIN
   -- freeze dates once written, because each is written by exactly one step.
   step := OLD."status"::TEXT || '>' || NEW."status"::TEXT;
   IF OLD."status" = NEW."status" THEN
-    allowed := ARRAY['location', 'condition', 'meterReadingId', 'valuationNoticeReceivedOn', 'valuationReceiptReference'];
+    allowed := ARRAY['location', 'condition', 'meterReadingId', 'valuationNoticeIssuedOn', 'valuationNoticeReceivedOn', 'valuationReceiptReference'];
     -- once the proceeds are applied, the costs the ledger could not carry are recorded: NULL to a value, in this status only
     IF OLD."status" = 'PROCEEDS_APPLIED' AND OLD."unrecoverableCostsCents" IS NULL THEN
       allowed := allowed || ARRAY['unrecoverableCostsCents'];
@@ -240,6 +248,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM unnest(changed) AS k WHERE k <> ALL (allowed)) THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
       MESSAGE = format('A recovery''s figures, payment, notices and freeze dates are write-once: %s may change only %s', step, array_to_string(allowed, ', '));
+  END IF;
+  IF NEW."valuationNoticeIssuedOn" IS DISTINCT FROM OLD."valuationNoticeIssuedOn"
+      AND NOT (OLD."status"='VALUED' AND NEW."status"='VALUATION_NOTICE_ISSUED')
+      AND NOT (OLD."status"=NEW."status" AND OLD."status"::text IN ('VALUATION_NOTICE_ISSUED','PROCEEDS_CREDITED','LISTED','SOLD','PROCEEDS_APPLIED') AND OLD."valuationNoticePath" IS NOT NULL
+        AND OLD."valuationNoticeIssuedOn" IS NULL AND OLD."valuationNoticeReceivedOn" IS NULL
+        AND NEW."valuationNoticeIssuedOn" IS NOT NULL AND NEW."valuationNoticeReceivedOn" IS NOT NULL
+        AND length(btrim(COALESCE(NEW."valuationReceiptReference",'')))>=10) THEN
+    RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Notice issue date is immutable except once with historical issue and receipt evidence';
   END IF;
   IF NEW."valuationNoticeReceivedOn" IS NOT NULL AND (NEW."valuationNoticeIssuedOn" IS NULL
       OR NEW."valuationNoticeReceivedOn" < NEW."valuationNoticeIssuedOn" OR NEW."valuationNoticeReceivedOn" > today
