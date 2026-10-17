@@ -1,3 +1,4 @@
+import { RateCorrectionPanel } from "@/components/asset-finance/RateCorrectionPanel"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"

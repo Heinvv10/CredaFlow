@@ -1,3 +1,17 @@
+-- Ledger-only rates adjust a closed account separately until an active
+-- schedule restatement consumes the pending correction without double credit.
+CREATE FUNCTION public."assetRateIsLedgerOnly"(p_rate_id TEXT) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM "AssetFinanceRateCorrection" correction JOIN "ContractRate" rate ON rate."id" = correction."contractRateId"
+    WHERE correction."contractRateId" = p_rate_id AND correction."reason" IN ('LATE_CLOSED_BOOK_RATE','FIXED_NOTICE_WINDOW_RATE')
+      AND NOT EXISTS (SELECT 1 FROM "AssetFinanceRateCorrection" applied JOIN "ContractRate" applied_rate ON applied_rate."id" = applied."contractRateId"
+        WHERE applied."tenantId" = correction."tenantId" AND applied."loanId" = correction."loanId"
+          AND applied."reason" = 'APPLIED_TO_SCHEDULE' AND applied_rate."effectiveDate" > rate."effectiveDate")
+  );
+END;
+$$;
+
 -- Authenticate a revised asset-finance contractual baseline without editing
 -- the signed PASQ. Ordinary consumer LOAN contracts never enter this path.
 CREATE OR REPLACE FUNCTION public."assetRateRepriceBaseline"(p_loan_id TEXT, p_original JSONB)
@@ -25,11 +39,11 @@ BEGIN
   IF NOT FOUND OR booked."ncaRegime" <> 'NCA' OR booked."contractType" NOT IN ('INSTALMENT_SALE', 'FINANCE_LEASE') THEN
     RETURN NULL;
   END IF;
-  IF (SELECT COUNT(*) FROM "ContractRate" c WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId") < 2 THEN
+  IF (SELECT COUNT(*) FROM "ContractRate" c WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId" AND NOT public."assetRateIsLedgerOnly"(c."id")) < 2 THEN
     RETURN NULL;
   END IF;
   SELECT c.* INTO latest FROM "ContractRate" c
-  WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId"
+  WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId" AND NOT public."assetRateIsLedgerOnly"(c."id")
   ORDER BY c."effectiveDate" DESC LIMIT 1;
   SELECT a."newValue" -> 'assetRateRepriceEvidence' INTO baseline FROM "AuditLog" a
   WHERE a."tenantId" = booked."tenantId" AND a."entity" = 'Loan' AND a."entityId" = p_loan_id
@@ -90,7 +104,7 @@ BEGIN
       LEAST(COALESCE(path.next_day - 1, due_day), due_day) - GREATEST(path."effectiveDate", previous_day + 1) + 1)), 0)
     INTO rate_days FROM (
       SELECT c."effectiveDate", c."resultingRate", LEAD(c."effectiveDate") OVER (ORDER BY c."effectiveDate") AS next_day
-      FROM "ContractRate" c WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId"
+      FROM "ContractRate" c WHERE c."loanId" = p_loan_id AND c."tenantId" = booked."tenantId" AND NOT public."assetRateIsLedgerOnly"(c."id")
     ) path;
     expected_interest := ROUND(opening * rate_days / 365)::BIGINT;
     IF (expected ->> 'interestDueCents')::BIGINT <> expected_interest THEN

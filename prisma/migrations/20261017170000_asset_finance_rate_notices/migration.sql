@@ -11,6 +11,7 @@ CREATE TABLE "AssetFinanceRateNotice" (
   "oldInstalmentCents" INTEGER NOT NULL,
   "newInstalmentCents" INTEGER NOT NULL,
   "historicalBalanceAdjustmentCents" INTEGER NOT NULL DEFAULT 0,
+  "correctionPendingManual" BOOLEAN NOT NULL DEFAULT false,
   "totalInterestCents" INTEGER NOT NULL,
   "monthlyInterestCents" INTEGER NOT NULL,
   "recipientClientIds" TEXT[],

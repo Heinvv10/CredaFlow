@@ -28,6 +28,7 @@ export interface RepriceNotice {
   resultingRate: string
   effectiveDate: string
   firstChangedPaymentDate: string
+  correctionPendingManual?: boolean
   historicalBalanceAdjustmentCents?: number
   totalInterestCents: number
   monthlyInterestCents: number
@@ -68,6 +69,7 @@ export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): P
     effectiveDate: dbDate(notice.effectiveDate), firstChangedPaymentDate: dbDate(notice.firstChangedPaymentDate),
     oldInstalmentCents: notice.oldInstalmentCents, newInstalmentCents: notice.newInstalmentCents,
     historicalBalanceAdjustmentCents: notice.historicalBalanceAdjustmentCents ?? 0,
+    correctionPendingManual: notice.correctionPendingManual ?? false,
     recipientClientIds, totalInterestCents: notice.totalInterestCents, monthlyInterestCents: notice.monthlyInterestCents,
   } })
 

@@ -45,7 +45,7 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
     const loans = await db.loan.findMany({
       where: {
         tenantId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
         contractType: { not: "LOAN" },
         contractRates: {
           some: { basis: reference.basis, effectiveDate: { lt: reference.effectiveDate } },

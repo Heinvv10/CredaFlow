@@ -1,6 +1,6 @@
 /** Late closed-book correction. Replays original cash at its value dates;
  * no receipt, signed schedule, or executed refund is invented. */
-import { Prisma } from "@prisma/client"
+import type { RepriceTx } from "./reprice-loan"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { allocateReceipts } from "@/lib/loan/balances"
 import { periodInterest } from "./amortise"
@@ -33,4 +33,25 @@ export function correctionBalance(principalCents: number, startDate: string, pat
   return balance
 }
 
-export const correctionDecimal = (value: string) => new Prisma.Decimal(value)
+interface CorrectionEvidence {
+  rows: Array<{ totalDue: number; interestDue: number; feesDue: number }>
+  principalCents: number
+  startDate: string
+  billedPath: RatePoint[]
+  correctedPath: RatePoint[]
+}
+
+/** Receipt reversals change the basis of an unexecuted correction. Append the
+ * difference immediately, keeping both the old statement and immutable cash. */
+export async function reconcileRateCorrections(tx: Pick<RepriceTx, "assetFinanceRateCorrection" | "payment">, tenantId: string, loanId: string, cause: string) {
+  if (await tx.assetFinanceRateCorrection.findUnique({ where: { cause } })) return
+  const ledger = await tx.assetFinanceRateCorrection.findMany({ where: { tenantId, loanId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
+  const latest = ledger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE"].includes(row.reason)).at(-1)
+  if (!latest || ledger.some((row) => row.reason === "APPLIED_TO_SCHEDULE" && row.createdAt >= latest.createdAt)) return
+  const evidence = latest.contractualRows as unknown as CorrectionEvidence
+  const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })
+  const events = correctionCashEvents(evidence.rows, receipts)
+  const target = correctionBalance(evidence.principalCents, evidence.startDate, evidence.correctedPath, events) - correctionBalance(evidence.principalCents, evidence.startDate, evidence.billedPath, events)
+  const previous = ledger.reduce((sum, row) => sum + row.amountCents, 0)
+  await tx.assetFinanceRateCorrection.create({ data: { tenantId, loanId, contractRateId: latest.contractRateId, cause, amountCents: target - previous, cumulativeAmountCents: target, reason: "RECEIPT_RECONCILIATION", contractualRows: { ...evidence, events } as never } })
+}

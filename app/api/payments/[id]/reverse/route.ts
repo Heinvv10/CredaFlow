@@ -1,3 +1,4 @@
+import { reconcileRateCorrections } from "@/lib/asset-finance/rate-correction"
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
@@ -153,6 +154,7 @@ export async function PATCH(
           totalPaid: perRowPaid[i],
         }))
 
+        if (["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(loan.contractType)) await reconcileRateCorrections(tx, tenant.id, loan.id, `REVERSAL:${id}`)
         await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, {
           tenantId: tenant.id, paidAt: asOf, keepEarlierPaidAt: true, pendingWhenNothingPaid: true,
         })

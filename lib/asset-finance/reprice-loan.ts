@@ -72,6 +72,7 @@ import { leaseCapitalRows, writeLeaseRepricedRows } from "./lease-reprice"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { dueDateInstant } from "./schedule-records"
 import { assetRateRepriceBaseline } from "./reprice-baseline"
+import { correctionCashEvents, correctionBalance } from "./rate-correction"
 import { commonLawContractualRows } from "./common-law-interest"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { restateSettledSchedule } from "./reprice-restatement"
@@ -80,7 +81,7 @@ import { writeRestatedRows, writeRepricedRows } from "./reprice-writes"
 export type RepriceTx = Pick<
   typeof prisma,
   "$queryRaw" | "$executeRawUnsafe" | "loan" | "repaymentSchedule" | "contractRate" | "referenceRate" | "auditLog" | "entityRelationship" | "user" | "notification"
-  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge"
+  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge" | "assetFinanceRateCorrection"
 >
 
 export interface RepriceRequest {
@@ -135,7 +136,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
       id: true, reference: true, status: true, contractType: true, ncaRegime: true,
       entityId: true, balloonAmount: true, startDate: true, interestRatePm: true,
       assetFinanceWeights: true, application: { select: { pasqEvidence: true } },
-      contractualTotalInterest: true, contractualTotalRepayable: true, totalInterest: true, monthlyServiceFee: true,
+      contractualTotalInterest: true, contractualTotalRepayable: true, totalInterest: true, monthlyServiceFee: true, principal: true, closedAt: true,
     },
   })
   if (!loan) return notEligible("loan_not_found")
@@ -145,7 +146,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   })
   if (existing) return { kind: "already_repriced" }
 
-  if (loan.status !== "ACTIVE") return notEligible("not_active")
+  if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED") return notEligible("not_active")
   if (loan.contractType === "LOAN") return notEligible("not_asset_finance")
   if (loan.ncaRegime !== "NON_NCA" && loan.ncaRegime !== "NCA") return notEligible("nca_regime")
 
@@ -183,7 +184,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   }
 
   const recordedBase = await tx.contractRate.findFirst({
-    where: { tenantId, loanId, effectiveDate: { lt: dbDate(effectiveDate) }, newInstalmentCents: { not: null } },
+    where: { tenantId, loanId, effectiveDate: { lt: dbDate(effectiveDate) }, newInstalmentCents: { gt: 0 } },
     orderBy: { effectiveDate: "desc" },
     select: { newInstalmentCents: true },
   })
@@ -201,9 +202,39 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const balloonCents = lease ? lease.residualCents : loan.balloonAmount ?? 0
   const startDate = sastCalendarDate(loan.startDate)
   const history = await contractRatePath(tx, tenantId, loanId) // all before effectiveDate: none later, none on it
+  const correctionLedger = await tx.assetFinanceRateCorrection.findMany({ where: { tenantId, loanId }, include: { contractRate: { select: { effectiveDate: true } } } })
+  const appliedDates = correctionLedger.filter((row) => row.reason === "APPLIED_TO_SCHEDULE").map((row) => isoOfDbDate(row.contractRate.effectiveDate))
+  const ledgerOnlyDates = new Set(correctionLedger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE"].includes(row.reason) && !appliedDates.some((day) => day > isoOfDbDate(row.contractRate.effectiveDate))).map((row) => isoOfDbDate(row.contractRate.effectiveDate)))
+  const billedHistory = history.filter((point) => !ledgerOnlyDates.has(point.effectiveDate))
   const monthlyServiceFee = loan.ncaRegime === "NCA" ? loan.monthlyServiceFee ?? 0 : 0
+  const pendingCashRows = rawStored.filter((row) => row.totalDue > row.totalPaid)
+  const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + 14)
+  if (loan.status === "COMPLETED" || fixedFinalWindow) {
+    const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
+    const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })
+    const events = correctionCashEvents(rawStored, receipts)
+    if (loan.status !== "COMPLETED") for (const row of pendingCashRows) {
+      const feesPaid = Math.min(row.feesDue, Math.max(0, row.totalPaid - row.interestDue))
+      events.push({ day: [sastCalendarDate(row.dueDate), request.runDate].sort().at(-1)!, capitalCashCents: row.totalDue - row.totalPaid - row.feesDue + feesPaid })
+    }
+    // Remove earlier ledger-only points to recover the immutable billed path;
+    // all correction events together form the actual effective path.
+    const previous = await tx.assetFinanceRateCorrection.findMany({ where: { tenantId, loanId }, include: { contractRate: { select: { effectiveDate: true } } } })
+    const billedPath = billedHistory
+    const oldBalance = correctionBalance(loan.principal, startDate, billedPath, events)
+    const corrected = correctionBalance(loan.principal, startDate, newPath, events)
+    const cumulativeAmountCents = corrected - oldBalance
+    const previousAmount = previous.reduce((sum, row) => sum + row.amountCents, 0)
+    const amountCents = cumulativeAmountCents - previousAmount
+    const created = await tx.contractRate.create({ data: { tenantId, loanId, effectiveDate: dbDate(effectiveDate), basis, margin: prior.margin, resultingRate, newInstalmentCents: 0 } })
+    await tx.assetFinanceRateCorrection.create({ data: { tenantId, loanId, contractRateId: created.id, cause: `RATE:${created.id}`, amountCents, cumulativeAmountCents, reason: loan.status === "COMPLETED" ? "LATE_CLOSED_BOOK_RATE" : "FIXED_NOTICE_WINDOW_RATE", contractualRows: { events, rows: rawStored.map((row) => ({ totalDue: row.totalDue, interestDue: row.interestDue, feesDue: row.feesDue })), principalCents: loan.principal, startDate, billedPath, correctedPath: newPath, oldBalance, correctedBalance: corrected } } })
+    const recipients = await queueRepriceNotice(tx, { tenantId, loanId, entityId: loan.entityId, loanReference: loan.reference, contractRateId: created.id, resultingRate: resultingRate.toString(), effectiveDate, firstChangedPaymentDate: request.runDate, oldInstalmentCents: 0, newInstalmentCents: 0, historicalBalanceAdjustmentCents: amountCents, correctionPendingManual: true, totalInterestCents: loan.totalInterest + cumulativeAmountCents, monthlyInterestCents: 0 })
+    await logAuditStrict({ tenantId, userId: request.actorUserId, action: AuditAction.LOAN_REPRICED, entity: "Loan", entityId: loanId, newValue: { contractRateId: created.id, effectiveDate, amountCents, cumulativeAmountCents, correctionPendingManual: true, source: "late_closed_book_rate" } }, tx)
+    await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+    return { kind: "repriced", contractRateId: created.id, resultingRate: resultingRate.toString(), oldInstalmentCents: 0, newInstalmentCents: 0, rowsRepriced: 0, noticeRecipientClientIds: recipients }
+  }
   const schedule = storedScheduleForReprice({
-    stored: lease ? lease.rows : stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents == null ? null : recordedBase.newInstalmentCents - monthlyServiceFee, ratePath: history, startDate,
+    stored: lease ? lease.rows : stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents == null ? null : recordedBase.newInstalmentCents - monthlyServiceFee, ratePath: billedHistory, startDate,
     contractualWeights: loan.assetFinanceWeights,
   })
   if ("error" in schedule) return notEligible(schedule.error)
@@ -212,7 +243,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
   const restatement = restateSettledSchedule({
     stored: lease ? lease.rows : stored, paidThroughIndex: paid, originalClosingBalanceCents: schedule.capitalOutstandingCents,
-    startDate, oldPath: history, newPath, effectiveDate,
+    startDate, oldPath: billedHistory, newPath, effectiveDate: [...ledgerOnlyDates, effectiveDate].sort()[0],
   })
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
   if (kept >= schedule.rows.length - 1) return notEligible("within_notice_period")
@@ -281,6 +312,10 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   })
   if (loanUpdated.count !== 1) throw new Error(`reprice: loan ${loanId} changed underneath the repricing`)
 
+  if (ledgerOnlyDates.size) {
+    const pending = correctionLedger.reduce((sum, row) => sum + row.amountCents, 0)
+    await tx.assetFinanceRateCorrection.create({ data: { tenantId, loanId, contractRateId, cause: `SCHEDULE:${contractRateId}`, amountCents: -pending, cumulativeAmountCents: 0, reason: "APPLIED_TO_SCHEDULE", contractualRows: { appliedRateDates: [...ledgerOnlyDates], pendingAmountCents: pending } } })
+  }
   const firstChangedPayment = await tx.repaymentSchedule.findFirstOrThrow({
     where: { tenantId, loanId, id: stored[kept + 1].id }, select: { totalDue: true, interestDue: true },
   })

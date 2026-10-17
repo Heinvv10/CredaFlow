@@ -224,7 +224,7 @@ model ContractRate {
   createdById        String?
   createdAt          DateTime           @default(now())
 
-  rateCorrection AssetFinanceRateCorrection?
+  rateCorrections AssetFinanceRateCorrection[]
   rateNotice AssetFinanceRateNotice?
 
   @@unique([tenantId, loanId, id])
@@ -897,6 +897,7 @@ model AssetFinanceRateNotice {
   oldInstalmentCents       Int
   newInstalmentCents       Int
   historicalBalanceAdjustmentCents Int @default(0)
+  correctionPendingManual Boolean @default(false)
   totalInterestCents      Int
   monthlyInterestCents    Int
   recipientClientIds      String[]
@@ -916,7 +917,8 @@ model AssetFinanceRateCorrection {
   id String @id @default(cuid())
   tenantId String
   loanId String
-  contractRateId String @unique
+  contractRateId String
+  cause String @unique
   contractRate ContractRate @relation(fields: [tenantId, loanId, contractRateId], references: [tenantId, loanId, id], onDelete: Restrict, onUpdate: Restrict)
   amountCents Int
   cumulativeAmountCents Int
@@ -925,7 +927,6 @@ model AssetFinanceRateCorrection {
   status String @default("PENDING_MANUAL_EXECUTION")
   createdAt DateTime @default(now())
 
-  @@unique([tenantId, loanId, contractRateId])
   @@index([tenantId, loanId, createdAt])
 }
 
