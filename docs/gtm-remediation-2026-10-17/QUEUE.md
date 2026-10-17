@@ -44,4 +44,6 @@ For any eventual named target: retain its previous exact image/config and pre-mi
 
 ## Wave A second admission
 
-B final submission `9891a0efb2f30726cbdc056c20b8a94d8824a8a0`, base `3a0a17e38b393d0c0707ed24e615be2b016f604e`, comprises `aea9f3b4` then `9891a0ef`. A independently APPROVED exact final SHA (6 suites/28 tests), conditional quick now confirmed PASS by B; root admitted. MQ cherry-picked serially without conflicts as `3a337585` then `f7c72d67`. Findings F02/F03/F10 integrated, not accepted. Combined Wave A 13-suite targeted command and ci:quick running; full quality/database/image/browser deferred until experience/F08 integration. No schema or migration changes.
+B final submission `9891a0efb2f30726cbdc056c20b8a94d8824a8a0`, base `3a0a17e38b393d0c0707ed24e615be2b016f604e`, comprises `aea9f3b4` then `9891a0ef`. A independently APPROVED exact final SHA (6 suites/28 tests), conditional quick now confirmed PASS by B; root admitted. MQ cherry-picked serially without conflicts as `3a337585` then `f7c72d67`. Findings F02/F03/F10 integrated, not accepted. Combined Wave A 13 files / 83 targeted tests PASS (3.51s) and uninterrupted ci:quick PASS exit0 (Node22); full quality/database/image/browser deferred until experience/F08 integration. No schema or migration changes.
+
+Coordinator approved final full quality invocation under `taskset -c 0-3` (host allowed CPUs 0-31), preserving every quality step/test while bounding workers. Record Node22 availableParallelism=4 in evidence. No heavy run yet; wait reviewed experience/F08 candidate.
