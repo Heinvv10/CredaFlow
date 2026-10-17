@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
+import { loanSettlementFigures } from "@/lib/loan/charges-summary"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import type { ChargesTx } from "@/lib/loan/charges-replay"
 import { createBookedContractFixture, cleanupBookedContractFixture, type BookedContractFixture } from "./portal-contract.integration-fixture"
@@ -30,4 +32,19 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
     expect(charges.reduce((sum, row) => sum + row.amount, 0)).toBe(expectedDefaultInterest)
     expect(await db!.loan.findUniqueOrThrow({ where: { id: fx.loanId } })).toMatchObject({ chargesOutstanding: expectedDefaultInterest })
   })
+  it("a real commercial early-settlement receipt removes future interest and closes the booked loan", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    try {
+      const loan = await db!.loan.findUniqueOrThrow({ where: { id: second.loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+      const quote = await loanSettlementFigures(db! as unknown as ChargesTx, loan, new Date())
+      expect(quote.totalToSettle).toBe(loan.principal)
+      expect(quote.totalToSettle).toBeLessThan(loan.totalRepayable)
+      await applyManualReceipt(db! as unknown as PaymentDb, { tenantId: second.tenantId, loanId: second.loanId,
+        amount: quote.totalToSettle, paymentMethod: "EFT", reference: loan.reference, capturedById: second.adminA })
+      expect(await db!.loan.findUniqueOrThrow({ where: { id: second.loanId } })).toMatchObject({ status: "COMPLETED", totalRepayable: loan.principal, totalInterest: 0 })
+      const audit = await db!.auditLog.findFirst({ where: { tenantId: second.tenantId, action: "PAYMENT_RECORDED" }, orderBy: { createdAt: "desc" } })
+      expect(audit?.newValue).toMatchObject({ earlyInstalmentSettlement: true })
+    } finally { await cleanupBookedContractFixture(db!, second) }
+  }, 120000)
+
 })
