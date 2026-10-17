@@ -24,7 +24,7 @@ describe("StatementAiCard", () => {
   })
 
   it("shows an OK summary with its input hash, and marks a stale one", async () => {
-    const { html } = await render(200, { summary: output({ stale: true }), explanations: [], pending: 1, noStatements: false, modelAvailable: true })
+    const { html } = await render(200, { summary: output({ stale: true }), explanations: [], answers: [], pending: 1, noStatements: false, modelAvailable: true })
     expect(html).toContain("GAMBLING was raised.")
     expect(html).toContain("abcdef01")
     expect(html).toContain("stale: the statement facts changed since")
@@ -35,7 +35,7 @@ describe("StatementAiCard", () => {
     const { html } = await render(200, {
       summary: output({ status: "REJECTED", text: null }),
       explanations: [output({ id: "o2", kind: "FLAG_EXPLANATION", flagCode: "GAMBLING", status: "REJECTED", text: null })],
-      pending: 0, noStatements: false, modelAvailable: true,
+      answers: [], pending: 0, noStatements: false, modelAvailable: true,
     })
     expect(html).toContain("Summary unavailable.")
     expect(html).toContain("Explanation unavailable.")
@@ -46,9 +46,28 @@ describe("StatementAiCard", () => {
     const { html } = await render(200, {
       summary: output({}),
       explanations: [output({ id: "o2", kind: "FLAG_EXPLANATION", flagCode: "GAMBLING", text: "GAMBLING: see S1-R2.", citations: { facts: { evidenceRows: rows } } })],
-      pending: 0, noStatements: false, modelAvailable: true,
+      answers: [], pending: 0, noStatements: false, modelAvailable: true,
     })
     expect(html).toContain("S1-R2")
     expect(html).toContain("HOLLYWOODBETS")
+  })
+
+  it("shows an answer with how it was computed, and the ask box only to those who may ask", async () => {
+    const answer = output({
+      id: "o3", kind: "ANSWER", question: "How much went to SYNTH RENTALS?", text: "R19 500.00 [q1].",
+      citations: [{ id: "q1", tool: "sum", args: { filter: { direction: "out", payee: "SYNTH RENTALS" } }, result: { total: "R19 500.00", rowCount: 3 }, matchedRows: 3, rows: [{ ref: "S1-R5", date: "2026-07-27", payee: "SYNTH RENTALS", amount: "-R6 500.00" }] }],
+    })
+    const payload = { summary: output({}), explanations: [], answers: [answer, output({ id: "o4", kind: "ANSWER", question: "Pending?", status: "PENDING", text: null, citations: null })], pending: 0, noStatements: false, modelAvailable: true }
+    const { html } = await render(200, payload)
+    expect(html).toContain("How much went to SYNTH RENTALS?")
+    expect(html).toContain("How this was computed")
+    expect(html).toContain("S1-R5")
+    expect(html).toContain("Working it out…")
+    expect(html).not.toContain("statement-ai-question")
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })))
+    let r: ReactTestRenderer | undefined
+    await act(async () => { r = create(<StatementAiCard applicationId="app-1" canAsk />) })
+    await act(async () => { await new Promise((res) => setTimeout(res, 0)) })
+    expect(JSON.stringify(r!.toJSON())).toContain("statement-ai-question")
   })
 })

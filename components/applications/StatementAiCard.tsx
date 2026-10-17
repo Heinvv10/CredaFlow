@@ -5,6 +5,15 @@ import { Badge } from "@/components/ui/badge"
 
 interface EvidenceRow { ref: string; date: string; payee: string; amount: string }
 
+interface QueryCitation {
+  id: string
+  tool: string
+  args: { filter?: Record<string, unknown>; measure?: string; limit?: number }
+  result: unknown
+  matchedRows: number
+  rows: EvidenceRow[]
+}
+
 interface OutputView {
   id: string
   kind: "SUMMARY" | "FLAG_EXPLANATION" | "ANSWER"
@@ -14,12 +23,14 @@ interface OutputView {
   inputHash: string
   createdAt: string
   stale: boolean
-  citations: { facts?: { evidenceRows?: EvidenceRow[] } } | null
+  citations: ({ facts?: { evidenceRows?: EvidenceRow[] } } & QueryCitation[]) | null
+  question: string | null
 }
 
 interface Payload {
   summary: OutputView | null
   explanations: OutputView[]
+  answers: OutputView[]
   pending: number
   noStatements: boolean
   modelAvailable: boolean
@@ -56,7 +67,93 @@ function Body({ o, waiting, label }: { o: OutputView | null; waiting: boolean; l
   )
 }
 
-export function StatementAiCard({ applicationId }: { applicationId: string }) {
+function RowsTable({ rows }: { rows: EvidenceRow[] }) {
+  return (
+    <div className="mt-1 overflow-x-auto">
+      <table className="w-full min-w-[320px]">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.ref} className="border-t border-[var(--cf-border-subtle)]">
+              <td className="py-1 pr-2 font-mono">{r.ref}</td>
+              <td className="py-1 pr-2 whitespace-nowrap">{r.date}</td>
+              <td className="py-1 pr-2">{r.payee}</td>
+              <td className="py-1 text-right whitespace-nowrap">{r.amount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const describeFilter = (f: Record<string, unknown> = {}) =>
+  Object.entries(f).map(([k, v]) => `${k} ${String(v)}`).join(", ") || "all rows"
+
+/** "How this was computed": each query the answer used, its result and the rows it matched. */
+function HowComputed({ queries }: { queries: QueryCitation[] }) {
+  return (
+    <details className="mt-2 text-xs text-[var(--cf-text-secondary)]">
+      <summary className="cursor-pointer text-[var(--cf-brand)]">How this was computed</summary>
+      <ul className="mt-1 space-y-2">
+        {queries.map((q) => (
+          <li key={q.id} data-testid="statement-ai-query">
+            <p>
+              <span className="font-mono font-semibold">[{q.id}]</span> {q.tool}
+              {q.args.measure ? ` (${q.args.measure})` : ""} of {describeFilter(q.args.filter)}: {q.matchedRows} row{q.matchedRows === 1 ? "" : "s"} matched
+            </p>
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(q.result)}</pre>
+            {q.rows.length > 0 && <RowsTable rows={q.rows} />}
+            {q.matchedRows > q.rows.length && <p className="mt-1">First {q.rows.length} of {q.matchedRows} rows shown.</p>}
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+function Ask({ applicationId, onAsked }: { applicationId: string; onAsked: () => void }) {
+  const [question, setQuestion] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setMessage(null)
+    try {
+      const res = await fetch(`/api/applications/${applicationId}/statement-ai/ask`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }),
+      })
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      if (res.ok) {
+        setQuestion("")
+        onAsked()
+      } else setMessage(body.error ?? "Could not ask the question.")
+    } catch {
+      setMessage("Network error. Could not ask the question.")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
+      <label htmlFor="statement-ai-question" className="sr-only">Ask the statement</label>
+      <input
+        id="statement-ai-question"
+        value={question}
+        maxLength={300}
+        onChange={(e) => setQuestion(e.target.value)}
+        placeholder="e.g. How much was paid to the landlord in total?"
+        className="min-w-0 flex-1 rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-surface)] px-3 py-2 text-sm text-[var(--cf-text)]"
+      />
+      <button type="submit" disabled={busy || question.trim().length < 3} className="rounded-md bg-[var(--cf-brand)] px-3 py-2 text-sm font-medium text-[var(--cf-on-brand)] disabled:opacity-50">
+        {busy ? "Asking…" : "Ask"}
+      </button>
+      {message && <p role="alert" className="text-sm text-[var(--cf-danger)]">{message}</p>}
+    </form>
+  )
+}
+
+export function StatementAiCard({ applicationId, canAsk = false }: { applicationId: string; canAsk?: boolean }) {
   const [data, setData] = useState<Payload | null>(null)
   const [off, setOff] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -83,6 +180,8 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
     }
   }, [applicationId])
 
+  const [askedAt, setAskedAt] = useState(0)
+
   useEffect(() => {
     let live = true
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -98,7 +197,7 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
       live = false
       if (timer) clearTimeout(timer)
     }
-  }, [load])
+  }, [load, askedAt])
 
   if (off) return null
   const waiting = !!data && data.pending > 0 && data.modelAvailable && !gaveUp
@@ -128,20 +227,7 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
                     {o.status === "OK" && (o.citations?.facts?.evidenceRows?.length ?? 0) > 0 && (
                       <details className="mt-2 text-xs text-[var(--cf-text-secondary)]">
                         <summary className="cursor-pointer text-[var(--cf-brand)]">Rows cited</summary>
-                        <div className="mt-1 overflow-x-auto">
-                          <table className="w-full min-w-[320px]">
-                            <tbody>
-                              {o.citations!.facts!.evidenceRows!.map((r) => (
-                                <tr key={r.ref} className="border-t border-[var(--cf-border-subtle)]">
-                                  <td className="py-1 pr-2 font-mono">{r.ref}</td>
-                                  <td className="py-1 pr-2 whitespace-nowrap">{r.date}</td>
-                                  <td className="py-1 pr-2">{r.payee}</td>
-                                  <td className="py-1 text-right whitespace-nowrap">{r.amount}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <RowsTable rows={o.citations!.facts!.evidenceRows!} />
                       </details>
                     )}
                   </li>
@@ -149,6 +235,24 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
               </ul>
             </div>
           )}
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Ask the statement</h3>
+            {canAsk && <div className="mt-2"><Ask applicationId={applicationId} onAsked={() => { setGaveUp(false); setAskedAt(Date.now()) }} /></div>}
+            {data.answers.length === 0 && <p className="mt-2 text-sm text-[var(--cf-text-muted)]">No questions asked yet.</p>}
+            <ul className="mt-2 space-y-3">
+              {data.answers.map((o) => (
+                <li key={o.id} data-testid="statement-ai-answer" className="rounded-md border border-[var(--cf-border-subtle)] p-3">
+                  <p className="text-sm font-medium text-[var(--cf-text)]">{o.question}</p>
+                  <div className="mt-1">
+                    {o.status === "PENDING"
+                      ? <p className="text-sm text-[var(--cf-text-muted)]">Working it out…</p>
+                      : <Body o={o} waiting={false} label="answer" />}
+                  </div>
+                  {o.status === "OK" && Array.isArray(o.citations) && <HowComputed queries={o.citations} />}
+                </li>
+              ))}
+            </ul>
+          </div>
           {!data.modelAvailable && data.pending > 0 && <p className="text-xs text-[var(--cf-text-muted)]">The model is not available right now; outputs will be generated when it is.</p>}
         </div>
       )}
