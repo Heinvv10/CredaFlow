@@ -122,7 +122,7 @@ describe("review round 5", () => {
   it("figure-checks a payee named with a direction or number word as a name", () => {
     const out = read.transactions.find((t) => t.amountCents < 0)!
     const salaryCo = askRows([{ ref: "S1", transactions: [{ index: 0, t: { ...out, description: "SALARY ADVANCE CO" } }, { index: 1, t: { ...out, description: "ONE STOP SHOP" } }] }], "T TESTER")
-    for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5 }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum" })]) {
+    for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5 }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 5 })]) {
       expect(checkAnswer(renderResult(q), [q])).toEqual({ ok: true })
     }
   })

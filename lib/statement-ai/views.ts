@@ -41,7 +41,8 @@ export function toView(o: StatementAiOutput, currentHash: string | null, raisedF
     id: o.id,
     kind: o.kind,
     flagCode: o.flagCode || null,
-    status: ok || o.status !== "OK" ? o.status : "REJECTED",
+    // Missing a flag means the facts changed since: the current summary is on its way.
+    status: ok || o.status !== "OK" ? o.status : namesFlags ? "REJECTED" : "PENDING",
     text: ok ? o.text : null,
     inputHash: o.inputHash,
     promptVersion: o.promptVersion,

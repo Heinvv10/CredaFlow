@@ -52,7 +52,7 @@ function Meta({ o }: { o: OutputView }) {
 }
 
 function Body({ o, waiting, label }: { o: OutputView | null; waiting: boolean; label: string }) {
-  if (!o) return <p className="text-sm text-[var(--cf-text-muted)]">{waiting ? `Generating ${label}…` : `${label[0].toUpperCase()}${label.slice(1)} unavailable.`}</p>
+  if (!o || (o.status === "PENDING" && o.text === null)) return <p className="text-sm text-[var(--cf-text-muted)]">{waiting ? `Generating ${label}…` : `${label[0].toUpperCase()}${label.slice(1)} unavailable.`}</p>
   if (o.status !== "OK" || o.text === null) {
     return (
       <>

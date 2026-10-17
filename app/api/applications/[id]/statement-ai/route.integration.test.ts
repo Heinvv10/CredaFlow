@@ -126,7 +126,8 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     })
     model.summary = '{"claims": ["flags"]}'
     const body = await (await get(on, "CREDIT_OFFICER")).json()
-    expect(body.summary).toMatchObject({ status: "OK", stale: true })
+    // The stored summary does not name the new flag: not shown, the new one on its way.
+    expect(body.summary).toMatchObject({ status: "PENDING", text: null, stale: true })
     expect(body.pending).toBe(1)
     expect(body.explanations.map((e: { flagCode: string }) => e.flagCode)).toEqual(["GAMBLING", "RETURNED_DEBIT"])
     await drained()
