@@ -42,8 +42,8 @@ export function seedBookReceipts(loan: Pick<LoanView, "reference" | "rows">, win
 export async function scheduleSeedBook(sim: Sim): Promise<void> {
   const seededBy = sastInstant(sim.window.start, "08:00")
   const apps = await readDb().loanApplication.findMany({
-    // Asset-finance deals keep the stage the seed gave them: that is their story.
-    where: { status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] }, createdAt: { lte: seededBy }, assetFinanceDeal: null },
+    // Booked loans and asset-finance deals keep the stage the seed gave them.
+    where: { status: { in: ["DRAFT", "SUBMITTED", "UNDER_REVIEW"] }, createdAt: { lte: seededBy }, assetFinanceDeal: null, loan: null },
     select: { id: true, reference: true },
   })
   const withdrawDay = shiftBusinessDays(nextBusinessDay(sim.window.start), 5)
