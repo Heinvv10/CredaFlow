@@ -193,6 +193,41 @@ describe("AffordabilityCapture save feedback", () => {
   })
 })
 
+describe("AffordabilityCapture own-lender loans", () => {
+  const own = {
+    lenderNames: ["Fair Score"],
+    loans: [{ id: "loan-1", reference: "LN-ELIZE-1", status: "ACTIVE", instalmentCents: 254_100, outstandingPrincipal: 2_713_391, daysInArrears: 27, arrearsAmount: 84_330 }],
+  }
+  const render = (existingDebts: Parameters<typeof AffordabilityCapture>[0]["existingDebts"]) =>
+    renderToStaticMarkup(
+      <AffordabilityCapture
+        applicationId="application-1"
+        monthlyIncome={1_500_000}
+        monthlyExpenses={800_000}
+        existingDebts={existingDebts}
+        clientDebtTotal={87_000 + 254_100}
+        ownLenderDebts={own}
+        proposedInstalment={200_000}
+        done={false}
+      />,
+    ).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+
+  it("lists the own loan and counts it in the preview's existing debt", () => {
+    const text = render([{ sourceId: "d1", creditor: "Store account", type: "RETAIL", monthlyInstalment: 87_000, balance: 400_000 }])
+    expect(text).toContain("Loans with us (counted automatically) LN-ELIZE-1 with this lender, counted automatically R 2,541.00 / month")
+    expect(text).toMatch(/Existing Debt - R 3[ ,]411[.,]00/)
+  })
+
+  it("does not count it twice when the application already declares it against the lender", () => {
+    const text = render([
+      { sourceId: "d1", creditor: "Store account", type: "RETAIL", monthlyInstalment: 87_000, balance: 400_000 },
+      { sourceId: "d2", creditor: "Fair Score", type: "PERSONAL_LOAN", monthlyInstalment: 254_100, balance: 2_713_391 },
+    ])
+    expect(text).not.toContain("Loans with us")
+    expect(text).toMatch(/Existing Debt - R 3[ ,]411[.,]00/)
+  })
+})
+
 // Fair Score audit (2026-10-16): an INSURANCE_OFFICER was offered "Update
 // affordability". The API refuses that role (edit_affordability); the panel
 // must not offer what the API will refuse.

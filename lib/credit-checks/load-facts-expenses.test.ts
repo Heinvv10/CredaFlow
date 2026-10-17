@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const appFind = vi.fn()
 
+const ownLenderDebtsMock = vi.hoisted(() => ({ value: { lenderNames: [] as string[], loans: [] as Array<{ instalmentCents: number }> } }))
+vi.mock("@/lib/affordability/own-lender-debt-load", () => ({ loadOwnLenderDebts: async () => ownLenderDebtsMock.value }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: (a: unknown) => appFind(a), findMany: async () => [] },

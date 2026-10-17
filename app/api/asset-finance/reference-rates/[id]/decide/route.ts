@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { canDo, requireApiRole } from "@/lib/auth-guards"
+import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { sastCalendarDate } from "@/lib/date/sast"
-import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { referenceRateAccess } from "@/lib/asset-finance/reference-rate-access"
 import { decideReferenceRate, type ReferenceRateDecision } from "@/lib/asset-finance/reference-rate-decision"
 import { referenceRateView } from "../../view"
 
@@ -31,10 +31,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
-    const disabled = await requireAssetFinanceEnabled(tenant.id)
-    if (disabled) return disabled
-
     const { id } = await params
+    const target = await prisma.referenceRate.findFirst({ where: { id, tenantId: tenant.id }, select: { basis: true } })
+    if (!target) return NextResponse.json({ error: "Reference rate not found" }, { status: 404 })
     const refuse = async (reason: string, error: string) => {
       await auditRefusal({
         action: AuditAction.REFERENCE_RATE_REFUSED,
@@ -49,8 +48,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error }, { status: 403 })
     }
 
-    if (!canDo(guard.user.role, "decide_asset_finance")) {
-      return refuse("insufficient_role", "Deciding a reference rate needs the decide_asset_finance permission")
+    // REPO: manage_repo_rate, any tenant. Others: asset finance on + decide_asset_finance.
+    const access = await referenceRateAccess(tenant.id, target.basis, guard.user.role)
+    if (!access.ok) {
+      return access.reason
+        ? refuse(access.reason, `Deciding this reference rate needs the ${access.permission} permission`)
+        : access.response
     }
     const decision = parseDecision(await req.json().catch(() => null))
     if (!decision) return NextResponse.json({ error: "decision must be APPROVE or REJECT" }, { status: 400 })

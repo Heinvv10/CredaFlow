@@ -14,6 +14,11 @@ import type { LedgerHistory } from "./population"
 
 type Db = Pick<typeof prisma, "loan" | "bureauAdverseConfirmation"> & ChargesTx
 
+// KNOWN: no ncaRegime or contractType here, so the balance reported for an NCA
+// instalment loan is the contractual remainder, not the s125 settlement figure
+// the documents and portal state (lib/loan/settlement.ts isS125InstalmentLoan).
+// Which one SACRRA's current balance means is a bureau-definition question;
+// switching changes every such balance on a credit profile, so it waits for it.
 const LOAN_SELECT = {
   id: true,
   tenantId: true,

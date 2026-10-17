@@ -10,6 +10,8 @@ import { evaluateBureauGate, nonOverridableBlock } from "@/lib/decision/bureau-g
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
 import { calculateLoan } from "@/lib/loan-calculator"
+import { approvalInterestCapRefusal } from "@/lib/loan/nca-interest-cap.server"
+import { liveOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
 import {
   APPROVAL_AFFORDABILITY_POLICY_VERSION,
@@ -22,7 +24,6 @@ import {
   createAffordabilityExpenseEvidence,
   createAffordabilitySnapshot,
   normaliseAffordabilityDebts,
-  readAffordabilityDebtInputs,
   readAffordabilitySnapshotStore,
   returnAffordabilityToDraft,
   returnAffordabilityToReview,
@@ -683,6 +684,8 @@ export async function POST(
             { status: 400 },
           )
         }
+        const rateCapRefusal = await approvalInterestCapRefusal(prisma, tenant.id, application) // NCA Regulation 42
+        if (rateCapRefusal) return rateCapRefusal
         // An OTHER account cannot carry a debit order: the Netcash AVS wire has
         // only "Current" and "Savings" to send, so `requireDebitMandateBankDetails`
         // refuses it and no mandate can ever be prepared.
@@ -999,10 +1002,9 @@ export async function POST(
         let applicationDebtCents: number
         let clientDebtCents: number
         try {
-          applicationDebts = normaliseAffordabilityDebts(
-            readAffordabilityDebtInputs(application.existingDebtObligations),
-          )
-          clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+          const debts = await liveOwnAwareDebtInputs(prisma, tenant.id, application.id, application) // + obligations to this lender
+          applicationDebts = normaliseAffordabilityDebts(debts.application)
+          clientDebts = normaliseAffordabilityDebts(debts.client)
           applicationDebtCents = totalAffordabilityDebt(applicationDebts)
           clientDebtCents = totalAffordabilityDebt(clientDebts)
         } catch (error) {

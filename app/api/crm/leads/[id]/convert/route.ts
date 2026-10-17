@@ -14,9 +14,9 @@ import {
   AFFORDABILITY_SNAPSHOT_SCHEMA_VERSION,
   affordabilityExpenseEvidenceNeedsMleJustification,
   createAffordabilityExpenseEvidence,
-  createSubmissionAffordabilitySnapshot,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-load"
 import { Prisma } from "@prisma/client"
 import { lockNewApplicationSubmissionEvidence } from "@/lib/applications/submission-lock"
 import { creditBlock } from "@/lib/clients/status"
@@ -600,7 +600,7 @@ export async function POST(
           include: { debtObligations: true, expenseBreakdown: true },
         })
         if (!snapshotClient) throw new Error("Client disappeared before application creation")
-        const submissionSnapshot = createSubmissionAffordabilitySnapshot({
+        const submissionSnapshot = await ownAwareSubmissionSnapshot(tx, tenant.id, snapshotClient.id, {
           capturedAt: now,
           capturedById: guard.user.id ?? null,
           client: snapshotClient,

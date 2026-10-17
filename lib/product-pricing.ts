@@ -56,21 +56,22 @@ export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
     monthlyServiceFee: 6900,
   },
   // "Personal Loan" — 16.5% init capped at R1,080,
-  // R69 service, 3%/month reducing balance.
+  // R69 service, 2.25%/month reducing balance (27% a year: inside the NCA
+  // unsecured cap of repo + 21%, lib/loan/nca-interest-cap.ts).
   personal: {
     productType: "PERSONAL",
-    interestRatePm: 0.03,
+    interestRatePm: 0.0225,
     interestModel: "REDUCING_BALANCE",
     initiationFeeModel: "NCA_REG42",
     initiationFeePct: 0.165,
     initiationFeeMax: 108000,
     monthlyServiceFee: 6900,
   },
-  // "Purchase Order Funding" — 2% init (uncapped), no service, 5%/month
-  // daily accrual to maturity.
+  // "Purchase Order Funding" — 2% init (uncapped), no service, 2.25%/month
+  // daily accrual to maturity (27.4% a year: inside the NCA unsecured cap).
   "purchase-order": {
     productType: "PO_FUNDING",
-    interestRatePm: 0.05,
+    interestRatePm: 0.0225,
     interestModel: "DAILY_ACCRUAL",
     initiationFeeModel: "FLAT_PCT",
     initiationFeePct: 0.02,
@@ -82,7 +83,7 @@ export const PRODUCT_PRICING: Record<PublicPricingCode, ProductPricing> = {
   // its nearest real product (PO funding) so the estimate is not misleading.
   "invoice-discounting": {
     productType: "PO_FUNDING",
-    interestRatePm: 0.05,
+    interestRatePm: 0.0225,
     interestModel: "DAILY_ACCRUAL",
     initiationFeeModel: "FLAT_PCT",
     initiationFeePct: 0.02,

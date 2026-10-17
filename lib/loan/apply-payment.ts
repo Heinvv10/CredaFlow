@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
 import { recomputeLoanBalances, nextPaymentDueDate } from "@/lib/loan/balances"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { projectChargeAwareReceipt } from "@/lib/loan/charge-aware-receipt"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
@@ -27,7 +28,6 @@ import {
   receiptContractualTotalsUpdate,
   settlementAuditEvidence,
 } from "@/lib/loan/settlement"
-import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 export type PaymentErrorCode =
   | "NOT_FOUND"
@@ -204,7 +204,7 @@ export async function applyManualReceiptInTx(tx: PaymentTx, input: ManualReceipt
   // Only the portion the DATE created, not the lawful early-settlement rebate
   // any client earns by paying before maturity.
   const backdating = backdatingInterestRebate({
-    loan, schedule: loan.repaymentSchedule, asOf, receivedAt,
+    loan, schedule: loan.repaymentSchedule, asOf, receivedAt, settles: projection.isCompleted,
   })
   // Default charges erased by the date count too (rejectUnauthorisedBackdating).
   const rebateRejection = rejectUnauthorisedBackdating({
@@ -262,34 +262,15 @@ export async function applyManualReceiptInTx(tx: PaymentTx, input: ManualReceipt
       })
     : null
 
-  // For DAILY_ACCRUAL, a full early settlement reduces only unearned interest
-  // and rewrites the bullet row to the lawful settlement total.
+  // An early settlement (s125) re-prices the rows to what they earned: the
+  // DAILY_ACCRUAL bullet to its accrued interest, an instalment loan's rows
+  // not yet due (lib/loan/s125-settlement.ts).
   const postRows = projection.rows
   const isCompleted = projection.isCompleted
   let closedAt = loan.closedAt
 
   if (!fullyUnapplied) {
-    for (let i = 0; i < postRows.length; i++) {
-      const before = loan.repaymentSchedule[i]
-      const after = postRows[i]
-      if (
-        after.totalPaid === before.totalPaid
-        && after.interestDue === before.interestDue
-        && after.totalDue === before.totalDue
-      ) continue
-      const status = scheduleRowStatus(after.totalPaid, after.totalDue)
-      const isPaid = status === "PAID"
-      await tx.repaymentSchedule.update({
-        where: { id: after.id },
-        data: {
-          totalPaid: after.totalPaid,
-          interestDue: after.interestDue,
-          totalDue: after.totalDue,
-          status,
-          paidAt: isPaid ? receivedAt : null,
-        },
-      })
-    }
+    await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, { tenantId: input.tenantId, paidAt: receivedAt })
     // A receipt dated before one already on the loan changes which receipt
     // completed rows the loop skipped: re-date every row from the replay.
     if (!chargesOn) {

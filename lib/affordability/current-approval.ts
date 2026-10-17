@@ -43,7 +43,6 @@ import {
   createBureauDecisionEvidence,
   frozenApprovedTerms,
   normaliseAffordabilityDebts,
-  readAffordabilityDebtInputs,
   readAffordabilitySnapshotStore,
   totalAffordabilityDebt,
   type AffordabilityDecisionSnapshot,
@@ -53,6 +52,8 @@ import {
 } from "@/lib/affordability/snapshot"
 import { simulatedBureauBlock } from "@/lib/decision/bureau-simulated"
 import { verifySubmissionAffordabilitySnapshot } from "@/lib/affordability/submission-snapshot"
+import { liveOwnAwareDebtInputs, ownLenderDebtIncreasedSinceApproval, recordedOwnAwareDebtInputs } from "@/lib/affordability/own-lender-debt-load"
+import { checkRepeatShortTermFor } from "@/lib/loan/nca-interest-cap.server"
 import {
   requireClientBorrowerId,
   requireClientBorrowerRow,
@@ -325,6 +326,12 @@ async function hasCurrentCompositeKyc(
   return grade === "payout" ? composite.ok : composite.okForOrigination
 }
 
+/** The application at the rate its approval froze: the loan is booked on it, whatever the product says now. */
+function approvedTerms(application: LockedApprovalApplication) {
+  const frozen = readAffordabilitySnapshotStore(application.affordabilityResult).approval?.inputs.interestRatePm
+  return { ...application, product: { ...application.product, interestRatePm: frozen ?? application.product.interestRatePm } }
+}
+
 export async function verifyLockedCurrentAffordabilityApproval(
   tx: ApprovalEvidenceTransaction,
   args: {
@@ -353,7 +360,12 @@ export async function verifyLockedCurrentAffordabilityApproval(
     requirePasqAcknowledgement: args.requirePasqAcknowledgement,
   })
   if (!verified.ok) return verified
-  return { ...verified, application: context.application }
+  // The approval no longer describes the client when another obligation to
+  // this lender, or an earlier short-term loan this year (Regulation 42's
+  // repeat rate), has appeared since.
+  const raised = await ownLenderDebtIncreasedSinceApproval(tx, args.tenantId, args.applicationId, context.application)
+    || !(await checkRepeatShortTermFor(tx, args.tenantId, approvedTerms(context.application), new Date())).ok
+  return raised ? { ok: false, reason: "changed" } : { ...verified, application: context.application }
 }
 
 export type LockedApprovalCandidateResult =
@@ -535,10 +547,9 @@ export async function verifyLockedApprovalCandidate(
   let applicationDebtCents: number
   let clientDebtCents: number
   try {
-    applicationDebts = normaliseAffordabilityDebts(
-      readAffordabilityDebtInputs(application.existingDebtObligations),
-    )
-    clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+    const debts = await liveOwnAwareDebtInputs(tx, args.tenantId, args.applicationId, application) // under the same locks
+    applicationDebts = normaliseAffordabilityDebts(debts.application)
+    clientDebts = normaliseAffordabilityDebts(debts.client)
     applicationDebtCents = totalAffordabilityDebt(applicationDebts)
     clientDebtCents = totalAffordabilityDebt(clientDebts)
   } catch (error) {
@@ -696,10 +707,9 @@ export function verifyCurrentAffordabilityApproval(args: {
   let applicationDebtCents: number
   let clientDebtCents: number
   try {
-    applicationDebts = normaliseAffordabilityDebts(
-      readAffordabilityDebtInputs(application.existingDebtObligations),
-    )
-    clientDebts = normaliseAffordabilityDebts(application.client.debtObligations)
+    const debts = recordedOwnAwareDebtInputs(application) // obligations to this lender as approved; re-read under locks
+    applicationDebts = normaliseAffordabilityDebts(debts.application)
+    clientDebts = normaliseAffordabilityDebts(debts.client)
     applicationDebtCents = totalAffordabilityDebt(applicationDebts)
     clientDebtCents = totalAffordabilityDebt(clientDebts)
   } catch (error) {

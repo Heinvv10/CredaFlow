@@ -5,6 +5,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction } from "@/lib/audit"
 import { loanProductBoundsIssues } from "@/lib/product-config/bounds"
+import { loanProductUpdateCapRefusal } from "@/lib/product-config/interest-cap"
 import {
   micro30ContractIssues,
   micro30DecisionTermsChanged,
@@ -92,6 +93,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { id, tenantId: tenant.id },
       })
       if (!before) return { kind: "not_found" as const }
+      // NCA Regulation 42, on a price change or an activation only (lib/product-config/interest-cap.ts).
+      const capRefusal = await loanProductUpdateCapRefusal(tenant.id, before, data)
+      if (capRefusal) return { kind: "cap" as const, body: capRefusal }
 
       // The portal apply pages resolve their product by these exact codes
       // (app/(portal)/portal/apply/[product]/page.tsx PRODUCT_KEY_TO_CODE).
@@ -174,6 +178,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (result.kind === "not_found") {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    if (result.kind === "cap") return NextResponse.json(result.body, { status: 422 })
     if (result.kind === "stable_code") {
       return NextResponse.json(
         { error: `${result.code} is a stable product code the portal resolves against and cannot be renamed.` },

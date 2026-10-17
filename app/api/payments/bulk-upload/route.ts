@@ -13,9 +13,9 @@ import { ChargesError } from "@/lib/loan/charges-error"
 import { recordHeldReceipt } from "@/lib/payments/held-receipt"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
 import type { PaymentMethod } from "@prisma/client"
-import { receiptContractualTotalsUpdate, settlementAuditEvidence } from "@/lib/loan/settlement"
+import { receiptContractualTotalsUpdate, S125_LOAN_SELECT, S125_SCHEDULE_SELECT, settlementAuditEvidence } from "@/lib/loan/settlement"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { OVERPAYMENT_REASON } from "@/lib/loan/receipt-rules"
-import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 interface CsvRow {
   reference: string    // loan reference e.g. LN-20260224-0010
@@ -131,12 +131,13 @@ export async function POST(req: NextRequest) {
               startDate: true,
               maturityDate: true,
               closedAt: true,
+              ...S125_LOAN_SELECT,
               tenant: CHARGES_FLAG_INCLUDE,
               repaymentSchedule: {
                 // Full schedule (incl. PAID), earliest due first — balances are
                 // recomputed from it, so we need every row + the split columns.
                 orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }],
-                select: { id: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, totalDue: true, totalPaid: true },
+                select: { id: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, totalDue: true, totalPaid: true, ...S125_SCHEDULE_SELECT },
               },
             },
           })
@@ -221,24 +222,13 @@ export async function POST(req: NextRequest) {
               // Allocate the receipt across unpaid instalments (earliest first),
               // mutating the in-memory (locked) schedule so multiple payments to the
               // same loan compound correctly.
-              for (let i = 0; i < projection.rows.length; i++) {
-                const sched = loan.repaymentSchedule[i]
-                const projected = projection.rows[i]
-                const status = scheduleRowStatus(projected.totalPaid, projected.totalDue)
-                const isPaid = status === "PAID"
-                await tx.repaymentSchedule.update({
-                  where: { id: sched.id },
-                  data: {
-                    totalPaid: projected.totalPaid,
-                    interestDue: projected.interestDue,
-                    totalDue: projected.totalDue,
-                    status,
-                    paidAt: isPaid ? asOf : null,
-                  },
+              await writeReceiptSchedule(tx, loan.repaymentSchedule, projection.rows, {
+                tenantId: tenant.id, paidAt: asOf, writeUnchanged: true,
+              })
+              for (const [i, projected] of projection.rows.entries()) {
+                Object.assign(loan.repaymentSchedule[i], {
+                  totalPaid: projected.totalPaid, interestDue: projected.interestDue, feesDue: projected.feesDue, totalDue: projected.totalDue,
                 })
-                sched.totalPaid = projected.totalPaid
-                sched.interestDue = projected.interestDue
-                sched.totalDue = projected.totalDue
               }
               // The loop above dates every paid row by this upload, including
               // rows earlier receipts paid: re-date every row from the replay.
@@ -304,7 +294,7 @@ export async function POST(req: NextRequest) {
               loan.totalPaid = newTotalPaid
               loan.totalInterest = projection.totalInterest
               loan.totalRepayable = projection.totalRepayable
-              if (projection.isEarlyDailySettlement) {
+              if (projection.isEarlyDailySettlement || projection.isEarlyInstalmentSettlement) {
                 loan.contractualTotalInterest = projection.contractualTotalInterest
                 loan.contractualTotalRepayable = projection.contractualTotalRepayable
               }

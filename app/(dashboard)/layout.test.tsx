@@ -36,6 +36,8 @@ vi.mock("@/lib/prisma", () => ({
     loan: { count: loanCountMock },
     crossSellOpportunity: { count: opportunityCountMock },
     lead: { count: leadCountMock },
+    // Charges off: the arrears badge reads the tenant's default-charges switch.
+    tenantConfig: { findUnique: vi.fn(async () => null) },
     $queryRaw: queryRawMock,
   },
 }))
@@ -45,6 +47,7 @@ vi.mock("@/lib/tenant", () => ({
 }))
 
 import DashboardLayout from "./layout"
+import { inArrearsWhere } from "@/lib/reports/book-arrears"
 import { EnrolmentShell } from "@/components/app-shell/EnrolmentShell"
 
 describe("dashboard tenant authority", () => {
@@ -116,6 +119,15 @@ describe("dashboard tenant authority", () => {
     expect(params).toContain("tenant-authoritative")
     expect(getTenantConfigMock).toHaveBeenCalledWith("tenant-authoritative")
   })
+
+  it("counts the arrears badge by the dashboard's and collections page's definition", async () => {
+    authMock.mockResolvedValue({
+      user: { id: "staff-1", email: "staff@example.invalid", name: "Staff", role: "LOAN_ADMIN", tenantId: "tenant-authoritative" },
+    })
+    await DashboardLayout({ children: null })
+    expect(loanCountMock).toHaveBeenCalledWith({ where: inArrearsWhere("tenant-authoritative", false) })
+  })
+
   // #145 breaker review: a role without the loan book is not sent its counts.
   it("computes no loan-book badge counts for INSURANCE_OFFICER, only its inbox", async () => {
     authMock.mockResolvedValue({

@@ -8,6 +8,8 @@ const bureauFind = vi.fn()
 const ensure = vi.fn()
 const queueRead = vi.fn()
 
+const ownLenderDebtsMock = vi.hoisted(() => ({ value: { lenderNames: [] as string[], loans: [] as Array<{ instalmentCents: number }> } }))
+vi.mock("@/lib/affordability/own-lender-debt-load", () => ({ loadOwnLenderDebts: async () => ownLenderDebtsMock.value }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loanApplication: { findFirst: (a: unknown) => appFind(a), findMany: (a: unknown) => appFindMany(a) },
@@ -52,6 +54,13 @@ beforeEach(() => {
 })
 
 describe("loadApplicationFacts", () => {
+  it("states the client's loans with this lender as known debts, so its own debit order is not undisclosed", async () => {
+    ownLenderDebtsMock.value = { lenderNames: ["Fair Score"], loans: [{ instalmentCents: 254_100 }] }
+    const facts = (await loadApplicationFacts("t1", "app-1"))!.facts
+    ownLenderDebtsMock.value = { lenderNames: [], loans: [] }
+    expect(facts.debts).toContainEqual({ name: "Fair Score", monthlyInstalmentCents: 254_100, source: "LENDER" })
+  })
+
   it("takes the lower of the payslip's net pay and the declared income", async () => {
     documents({ payslips: [{ id: "slip-1", extractionStatus: "done", extractionResult: slipFields(2_500_000), validationMismatch: false }] })
     expect((await loadApplicationFacts("t1", "app-1"))!.facts.monthlyIncomeCents).toBe(1_800_000)

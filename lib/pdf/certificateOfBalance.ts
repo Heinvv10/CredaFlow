@@ -37,8 +37,8 @@ interface CobOpts {
    * certificate renders as before.
    */
   settlement?: {
-    /** cash received on the loan, excluding reversals and waivers */
-    paymentsReceived: number
+    /** cash received on the loan, excluding reversals and waivers; absent: Loan.totalPaid */
+    paymentsReceived?: number
     /** contractual interest and fees within the settlement */
     interestAndFeesOutstanding: number
     /** default charges owed, one line per type */

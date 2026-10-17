@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
+import { overdueBandWhere, overdueWhere } from "@/lib/reports/book-arrears"
 
 // Every Prisma call is recorded; reads answer empty unless a test says otherwise.
 const { calls, answers } = vi.hoisted(() => ({
@@ -74,8 +75,9 @@ describe("Board pack", () => {
       JSON.stringify((args.where as { status?: unknown }).status) === JSON.stringify({ in: [...COLLECTIBLE_STATUSES] })
         ? { _count: 5, _sum: { outstandingPrincipal: 1_000_000 } }
         : undefined)
+    // The accounts in arrears as every screen counts them (lib/reports/book-arrears.ts).
     answers.set("loan.findMany", (args: Record<string, unknown>) =>
-      JSON.stringify((args.where as { daysInArrears?: unknown }).daysInArrears) === JSON.stringify({ gt: 0 })
+      JSON.stringify(args.where) === JSON.stringify(overdueWhere("tenant-1"))
         ? [
             { daysInArrears: 5, arrearsAmount: 130_000, outstandingPrincipal: 100_000 },
             { daysInArrears: 12, arrearsAmount: 130_000, outstandingPrincipal: 100_000 },
@@ -83,6 +85,12 @@ describe("Board pack", () => {
         : undefined)
     const html = text(renderToStaticMarkup(await BoardPackPage()))
     expect(html).toContain("Arrears Rate 20.0% Principal of accounts in arrears ÷ collectible book; R 2,600.00 unpaid instalments")
+  })
+
+  it("lists the top delinquent accounts from the book's 30+ days in arrears", async () => {
+    await BoardPackPage()
+    const top = calls.find((c) => c.op === "loan.findMany" && c.args.take === 5)
+    expect(top?.args.where).toEqual(overdueBandWhere("tenant-1", 30))
   })
 
   it("offers no month to pick and dates itself as at today, because every figure is live", async () => {
