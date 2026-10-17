@@ -36,13 +36,13 @@ export async function issueRecoveryValuationNotice(actor: RecoveryActor, id: str
       const surrender = await tx.surrenderRequest.findFirst({ where: { id: row.surrenderRequestId ?? "", tenantId: actor.tenantId }, select: { status: true } })
       if (surrender?.status !== "VALUATION_NOTICE_ISSUED") throw new RecoveryRefusal("Issue the surrender's valuation notice first: an s127 recovery follows it")
       await advance(tx, actor, id, "VALUED", { status: "VALUATION_NOTICE_ISSUED" })
-      await auditNotice(tx, actor, id, AuditAction.ASSET_RECOVERY_VALUATION_NOTICE_ISSUED, { surrenderRequestId: row.surrenderRequestId })
+      await auditNotice(tx, actor, id, AuditAction.ASSET_RECOVERY_VALUATION_NOTICE_ISSUED, { surrenderRequestId: row.surrenderRequestId, draftLegalWording: !data.legalWordingApproved })
       return { kind: "done", id }
     }))
   }
   const bytes = await renderRecoveryValuationNotice(data)
   return storeAndAdvance(actor, id, bytes, "VALUED", (stored, sha256) => ({ status: "VALUATION_NOTICE_ISSUED", valuationNoticePath: stored, valuationNoticeSha256: sha256 }),
-    AuditAction.ASSET_RECOVERY_VALUATION_NOTICE_ISSUED)
+    AuditAction.ASSET_RECOVERY_VALUATION_NOTICE_ISSUED, { draftLegalWording: !data.legalWordingApproved })
 }
 
 /**
@@ -50,7 +50,7 @@ export async function issueRecoveryValuationNotice(actor: RecoveryActor, id: str
  * end of the charge freeze (10 SA business days later). s127 issues the
  * surrender's final notice (with the recovery's cost table); s131 renders its
  * own. NON_NCA has no NCA notice. The notice wording is drafted 2026-10-17 and awaits legal
- * approval (TenantConfig.assetFinanceLegalWordingApproved); the freeze is signed off by the lender's legal team, 2026-10-17.
+ * approval (TenantConfig.assetFinanceLegalWordingApproved); the freeze is signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 export async function issueRecoveryFinalNotice(actor: RecoveryActor, id: string): Promise<RecoveryResult> {
   const loaded = await loadRecoveryNoticeData(actor.tenantId, id, new Date())
@@ -72,7 +72,7 @@ export async function issueRecoveryFinalNotice(actor: RecoveryActor, id: string)
     }
     return refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
       await advance(tx, actor, id, "PROCEEDS_APPLIED", step)
-      await auditNotice(tx, actor, id, AuditAction.ASSET_RECOVERY_FINAL_NOTICE_ISSUED, { ...audit, surrenderRequestId: row.surrenderRequestId })
+      await auditNotice(tx, actor, id, AuditAction.ASSET_RECOVERY_FINAL_NOTICE_ISSUED, { ...audit, surrenderRequestId: row.surrenderRequestId, draftLegalWording: !data.legalWordingApproved })
       return { kind: "done", id }
     }))
   }
@@ -109,7 +109,7 @@ export async function readRecoveryDocument(tenantId: string, id: string, kind: R
 
 async function auditNotice(tx: SigningTx, actor: RecoveryActor, id: string, action: string, newValue: Record<string, unknown>): Promise<void> {
   await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
-    action, entity: "Recovery", entityId: id, newValue: { ...newValue, draftLegalWording: true },
+    action, entity: "Recovery", entityId: id, newValue,
   }, tx)
 }
 

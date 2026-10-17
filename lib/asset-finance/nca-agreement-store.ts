@@ -88,7 +88,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
           documentId, documentSha256: sha256, storagePath: stored.storagePath,
           fileName: `credit-agreement-${app.id}.pdf`, fileSize: stored.fileSize,
           creditLifeAutoBundleEligible: evidence.creditLife.election === "ACCEPTED",
-          assetFinanceDealId: dealId, draftLegalWording: true,
+          assetFinanceDealId: dealId, draftLegalWording: !approved,
         },
       } })
       const changed = await tx.loanApplication.updateMany({ where: { id: app.id, tenantId: actor.tenantId, status: "APPROVED", agreementGeneratedAt: null }, data: { agreementGeneratedAt: generatedAt, agreementDocumentId: documentId, agreementDocumentSha256: sha256 } })
@@ -103,7 +103,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
         signedArrearsMarginRate: null, signedCollectionFeeCents: 0,
         preparedSigners: [{ clientId, document: "AGREEMENT" }],
       } })
-      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording: true } }, tx)
+      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording: !approved } }, tx)
     })
   } catch (error) {
     await deleteFile(stored.storagePath)

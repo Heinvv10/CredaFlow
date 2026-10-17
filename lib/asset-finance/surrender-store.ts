@@ -42,7 +42,7 @@ export async function requestSurrender(actor: Actor, loanId: string, assetCondit
   }
   const assetId = loan.assetId
   const requestedOn = sastCalendarDate(new Date())
-  // The s127 statutory valuation window and citation are signed off by the lender's legal team, 2026-10-17.
+  // The s127 statutory valuation window and citation are signed off (see DESIGN.md sign-off record 2026-10-17).
   const valuationDueOn = addSouthAfricanBusinessDays(requestedOn, 10)
   const row = await prisma.$transaction(async (tx) => {
     const created = await tx.surrenderRequest.create({ data: {
@@ -99,7 +99,7 @@ export async function issueSurrenderNotice(actor: Actor, id: string, kind: "valu
         : { status: "FINAL_NOTICE_ISSUED", finalNoticePath: stored.storagePath, finalNoticeSha256: sha256 } })
       await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
         action: kind === "valuation" ? AuditAction.ASSET_SURRENDER_VALUATION_NOTICE_ISSUED : AuditAction.ASSET_SURRENDER_FINAL_NOTICE_ISSUED,
-        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, draftLegalWording: true },
+        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, draftLegalWording: !data.legalWordingApproved },
       }, tx)
     })
   } catch (error) {

@@ -50,7 +50,6 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
   if (!authorityData) return { kind: "not_found" }
   const ncaAuthorityData = {
     ...authorityData,
-    ncaApplies: true,
     pricing: {
       ...authorityData.pricing,
       financedFeesCents: evidence.calculator.initiationFeeCents,
@@ -138,7 +137,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       } })
       await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
         action: AuditAction.ASSET_DEAL_DOCUMENTS_PREPARED, entity: "AssetFinanceDeal", entityId: dealId,
-        newValue: { ncaRegime: "NCA", representativeClientId: representative, signers: now.length, agreementSha256: representativeSigner.sha256, draftLegalWording: true },
+        newValue: { ncaRegime: "NCA", representativeClientId: representative, signers: now.length, agreementSha256: representativeSigner.sha256, draftLegalWording: !authorityData.legalWordingApproved },
       }, tx)
       return { result: { kind: "prepared", signers: now.length } as const, released: existing.map((r) => r.documentStoragePath).filter((p): p is string => !!p) }
     })

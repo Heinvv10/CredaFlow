@@ -34,6 +34,7 @@ export function syntheticDealDocumentData(overrides: Partial<DealDocumentData> =
   ]
   return {
     legalWordingApproved: false,
+    ncaApplies: false,
     documentDate: new Date("2026-10-13T08:00:00.000Z"),
     reference: "AF-TEST-0001",
     lender: {
