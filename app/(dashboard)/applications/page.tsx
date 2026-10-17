@@ -61,6 +61,8 @@ async function getApplications() {
 
   const pipeline: PipelineApplication[] = applications.map((app) => ({
     ...app,
+    // Legacy seed rows can retain DRAFT after booking; the loan is authoritative.
+    status: app.loan ? "DISBURSED" : app.status,
     payoutRefusal: refusalByApplication.get(app.id) ?? null,
     readiness: readiness.get(app.id) ?? null,
   }))
