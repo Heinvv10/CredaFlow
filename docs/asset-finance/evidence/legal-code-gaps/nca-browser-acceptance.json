@@ -6,42 +6,47 @@
       "step": "password_and_totp_signin",
       "role": "CREDIT_OFFICER",
       "totpVerified": true,
-      "userId": "cmvctvi59000590b17bu0udln"
+      "userId": "cmvcvv63b000538axnmurabhd"
     },
     {
-      "step": "resume request after browser harness retry",
-      "id": "cmvctwrp20004dxf4n4r1los4"
+      "step": "Record surrender request",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surrender",
+      "status": 201,
+      "body": {
+        "kind": "done",
+        "id": "cmvcvzldq0004ze2u7sfelppe"
+      }
     },
     {
       "step": "Record surrender valuation",
-      "path": "/api/asset-finance/surrenders/cmvctwrp20004dxf4n4r1los4/valuation",
+      "path": "/api/asset-finance/surrenders/cmvcvzldq0004ze2u7sfelppe/valuation",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvctwrp20004dxf4n4r1los4"
+        "id": "cmvcvzldq0004ze2u7sfelppe"
       }
     },
     {
       "step": "Issue surrender valuation notice",
-      "path": "/api/asset-finance/surrenders/cmvctwrp20004dxf4n4r1los4/valuation-notice",
+      "path": "/api/asset-finance/surrenders/cmvcvzldq0004ze2u7sfelppe/valuation-notice",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvctwrp20004dxf4n4r1los4"
+        "id": "cmvcvzldq0004ze2u7sfelppe"
       }
     },
     {
       "step": "Record valuation notice receipt",
-      "path": "/api/asset-finance/surrenders/cmvctwrp20004dxf4n4r1los4/valuation-receipt",
+      "path": "/api/asset-finance/surrenders/cmvcvzldq0004ze2u7sfelppe/valuation-receipt",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvctwrp20004dxf4n4r1los4"
+        "id": "cmvcvzldq0004ze2u7sfelppe"
       }
     },
     {
       "step": "Credit surrender sale proceeds",
-      "path": "/api/asset-finance/surrenders/cmvctwrp20004dxf4n4r1los4/proceeds",
+      "path": "/api/asset-finance/surrenders/cmvcvzldq0004ze2u7sfelppe/proceeds",
       "status": 409,
       "body": {
         "error": "NCA sale waits until ten business days after valuation notice receipt"
@@ -49,116 +54,119 @@
     },
     {
       "step": "Record withdrawal and return of goods",
-      "path": "/api/asset-finance/surrenders/cmvctwrp20004dxf4n4r1los4/withdraw",
+      "path": "/api/asset-finance/surrenders/cmvcvzldq0004ze2u7sfelppe/withdraw",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvctwrp20004dxf4n4r1los4"
+        "id": "cmvcvzldq0004ze2u7sfelppe"
       }
     },
     {
       "step": "Record surrender request",
-      "path": "/api/asset-finance/loans/loan_rcv_a09091ccf71f/surrender",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surrender",
       "status": 201,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
       "step": "Record surrender valuation",
-      "path": "/api/asset-finance/surrenders/cmvcu19kf000sdxf4llusdq5h/valuation",
+      "path": "/api/asset-finance/surrenders/cmvcvzqxg000oze2uevm19uvy/valuation",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
       "step": "Issue surrender valuation notice",
-      "path": "/api/asset-finance/surrenders/cmvcu19kf000sdxf4llusdq5h/valuation-notice",
+      "path": "/api/asset-finance/surrenders/cmvcvzqxg000oze2uevm19uvy/valuation-notice",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
       "step": "Record valuation notice receipt",
-      "path": "/api/asset-finance/surrenders/cmvcu19kf000sdxf4llusdq5h/valuation-receipt",
+      "path": "/api/asset-finance/surrenders/cmvcvzqxg000oze2uevm19uvy/valuation-receipt",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
       "step": "Record bank account and proof",
-      "path": "/api/asset-finance/loans/loan_rcv_a09091ccf71f/surplus-account/record",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surplus-account/record",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu1c31001adxf47v4ukfif"
+        "id": "cmvcvztfx0016ze2u62v17gkh"
       }
     },
     {
       "step": "password_and_totp_signin",
       "role": "LOAN_ADMIN",
       "totpVerified": true,
-      "userId": "cmvctvi5d000790b1gxynm1sr"
+      "userId": "cmvcvv63f000738axzoz614x5"
     },
     {
       "step": "Verify consumer bank account",
-      "path": "/api/asset-finance/loans/loan_rcv_a09091ccf71f/surplus-account/approve",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surplus-account/approve",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu1c31001adxf47v4ukfif"
+        "id": "cmvcvztfx0016ze2u62v17gkh"
       }
     },
     {
       "step": "password_and_totp_signin",
       "role": "LOAN_ADMIN",
       "totpVerified": true,
-      "userId": "cmvctvi5i000990b1gw47y14t"
+      "userId": "cmvcvv63l000938axte8055f5"
     },
     {
       "step": "Authorise surplus release",
-      "path": "/api/asset-finance/loans/loan_rcv_a09091ccf71f/surplus-account/authorise",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surplus-account/authorise",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu1c31001adxf47v4ukfif"
+        "id": "cmvcvztfx0016ze2u62v17gkh"
       }
     },
     {
       "step": "advance_owned_fixture_notice_clock",
       "days": 30,
-      "surrenderId": "cmvcu19kf000sdxf4llusdq5h"
+      "surrenderId": "cmvcvzqxg000oze2uevm19uvy"
     },
     {
       "step": "Credit surrender sale proceeds",
-      "path": "/api/asset-finance/surrenders/cmvcu19kf000sdxf4llusdq5h/proceeds",
+      "path": "/api/asset-finance/surrenders/cmvcvzqxg000oze2uevm19uvy/proceeds",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
       "step": "Issue final notice and surplus payment instruction",
-      "path": "/api/asset-finance/surrenders/cmvcu19kf000sdxf4llusdq5h/final-notice",
+      "path": "/api/asset-finance/surrenders/cmvcvzqxg000oze2uevm19uvy/final-notice",
       "status": 200,
       "body": {
         "kind": "done",
-        "id": "cmvcu19kf000sdxf4llusdq5h"
+        "id": "cmvcvzqxg000oze2uevm19uvy"
       }
     },
     {
-      "step": "password_and_totp_signin",
-      "role": "CREDIT_OFFICER",
-      "totpVerified": true,
-      "userId": "cmvctvi59000590b17bu0udln"
+      "step": "Record bank execution evidence",
+      "path": "/api/asset-finance/loans/loan_rcv_caa7550fcbc1/surplus-instructions/cmvcw00z8001yze2ui8jdat29/execution",
+      "status": 200,
+      "body": {
+        "kind": "done",
+        "id": "cmvcw00z8001yze2ui8jdat29"
+      }
     }
   ],
   "loan": {
@@ -173,14 +181,22 @@
     "chargesFrozenUntil": "2026-10-30T00:00:00.000Z"
   },
   "instruction": {
-    "id": "cmvcu1jtf0022dxf4mwf69urp",
+    "id": "cmvcw00z8001yze2ui8jdat29",
     "status": "INSTRUCTED",
     "amountCents": 94000
   },
   "bankRelease": {
-    "createdById": "cmvctvi59000590b17bu0udln",
-    "approvedById": "cmvctvi5d000790b1gxynm1sr",
-    "releaseAuthorisedById": "cmvctvi5i000990b1gw47y14t"
+    "createdById": "cmvcvv63b000538axnmurabhd",
+    "approvedById": "cmvcvv63f000738axzoz614x5",
+    "releaseAuthorisedById": "cmvcvv63l000938axte8055f5"
+  },
+  "bankExecutionEvidence": {
+    "synthetic": true,
+    "executedOn": "2026-10-17T00:00:00.000Z",
+    "recordedById": "cmvcvv63b000538axnmurabhd",
+    "proofDocumentId": "cmvcw05ac0027ze2ulr6biom3",
+    "paymentCountBefore": 2,
+    "paymentCountAfter": 2
   },
   "bankSettlementConfirmed": false
 }

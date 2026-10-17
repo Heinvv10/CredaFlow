@@ -14,7 +14,7 @@ account and authorised release.
 The fixture uses existing legacy NCA schedules, not a new origination. Its seed
 is `lib/asset-finance/nca-browser-seed.test.ts` (opt-in with
 `NCA_LEGAL_BROWSER_SEED=1` on an owned disposable PostgreSQL database).
-The first request was resumed after a harness retry. After recording receipt,
+After recording receipt,
 the browser received HTTP 409 attempting sale inside the statutory window,
 withdrew the request with recorded return of goods, and made a new request.
 Only notice/valuation fixture dates were advanced thirty days in the owned DB
@@ -25,6 +25,7 @@ to exercise expiry of the wait; the loan clock stayed unchanged.
 - `nca-withdrawn-goods-returned.png`: withdrawal with goods-return evidence.
 - `nca-sale-after-window.png`: proceeds recorded after the wait.
 - `nca-final-notice-surplus-instructed.png`: final notice and R940 surplus instruction.
+- `nca-surplus-bank-execution-evidenced.png`: recorded synthetic execution proof, with audited document access and no additional receipt.
 - `nca-early-settlement-s125-rebate.png`: R3,060 settlement against R3,150 contractual total.
 
 The final action stored `FINAL_NOTICE_ISSUED` and an `INSTRUCTED` remittance for
@@ -34,9 +35,15 @@ settlement. `nca-surplus-final-notice.pdf` is the matching DRAFT notice. The
 application has no bank-transfer provider for this instruction. Real-bank
 execution remains an operator action outside this local acceptance.
 
-The original browser final-notice PDF above predates the law-review correction:
-see `nca-execution-review/` for the corrected pending-payment text and execution
-proof regression evidence. Final browser acceptance must refresh that fixture.
+The fresh browser run uses implementation `f169bc2d`; `259a19d8` adds independent
+concurrency tests only. It then records a synthetic bank transaction reference,
+exact amount, execution date and retained PDF through the actual UI. The UI
+shows bank execution evidenced, the evidence download succeeds, and the payment
+count remains two. This proves the application evidence workflow, not a real
+bank transfer. The final notice now correctly states payment is outstanding
+until execution is evidenced. Earlier browser artifacts are retained under
+`nca-browser-before-execution-fix/`; code-review evidence is under
+`nca-execution-review/`.
 
 ## NCA render comparison
 
