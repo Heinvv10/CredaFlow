@@ -220,10 +220,16 @@ describe("postCheck", () => {
     // Said by the facts, or in the rules' own wording, they stand.
     expect(postCheck({ text: "Living spend is below the declared expenses.", allowed: { ...a, relations: { below: true } }, raisedFlagCodes: [] })).toEqual({ ok: true })
     expect(postCheck({ text: "The rule checks whether debit orders match declared instalments within a 5% tolerance.", allowed: a, raisedFlagCodes: [] })).toEqual({ ok: true })
+    // Outside a sentence about the rule, the rule's phrasing is a finding.
+    expect(postCheck({ text: "Betting is within a 5% tolerance.", allowed: a, raisedFlagCodes: ["GAMBLING"] }).ok).toBe(false)
+    expect(postCheck({ text: "The rule checks whether debit orders match, and they matched.", allowed: a, raisedFlagCodes: [] }).ok).toBe(false)
+    // A payee is matched only as given: "Within Limits" is not the payee "WITHIN LIMITS".
+    expect(postCheck({ text: "Spend is Within Limits.", allowed: { ...a, payees: ["WITHIN LIMITS"] }, raisedFlagCodes: [] }).ok).toBe(false)
   })
   it("reads lenders as a word, and lending to a client as a decision", () => {
     expect(postCheck({ text: "Transactions with short-term lenders are listed.", allowed: { amountsCents: [] }, raisedFlagCodes: ["PAYDAY_LENDER"] })).toEqual({ ok: true })
     expect(checkNoContradiction("The lender should lend to this client.", []).ok).toBe(false)
+    expect(checkNoContradiction("Continue lending.", []).ok).toBe(false)
   })
   it("rejects a month's figure called a total", () => {
     const a = { amountsCents: [900_000, 2_700_000], monthlyAmountsCents: [900_000], periodAmountsCents: [2_700_000], names: [] }

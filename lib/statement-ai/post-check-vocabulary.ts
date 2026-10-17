@@ -36,7 +36,7 @@ category categories categorised uncategorised categorized uncategorized living
 food transport housing rent education insurance clothing entertainment medical utilities telecom
 fees fee charges charge cash savings investment investments
 gambling betting bet bets lottery
-loan loans lender lenders lending provider providers finance short term short-term debt debts
+loan loans lender lenders provider providers finance short term short-term debt debts
 declared declaration declare reported report reports bureau
 expense expenses cost costs
 difference differs differ compared compares compare comparing comparison against relative

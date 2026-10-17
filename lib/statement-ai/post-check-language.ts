@@ -32,7 +32,7 @@ export const NEGATED_AFTER = /\b(concern\w*|issues?|problems?|risks?|signs?|anom
 
 /** Decisions belong to the officer; verdicts on a document, a client or their risk to the rules' evidence. */
 export const VERDICT = new RegExp([
-  "approv\\w*", "declin\\w*", "recommend\\w*", "reject\\w*", "accept(s|ed|ing)?", "grant\\w*", "lends?", "(should|could|can|to|not) lend\\w*", "proceed\\w*",
+  "approv\\w*", "declin\\w*", "recommend\\w*", "reject\\w*", "accept(s|ed|ing)?", "grant\\w*", "lend(s|ing|ed)?", "(should|could|can|to|not) lend\\w*", "proceed\\w*",
   "turn(ed|s)? down", "den(y|ied|ies)", "refus\\w*", "(un)?creditworth\\w*", "afford\\w*", "eligib\\w*", "suitab\\w*",
   "trust(worthy|ed|s)?", "reliab\\w*", "suspicious\\w*", "fraud\\w*", "risky", "(high|low|elevated|moderate|minimal|little)[- ]risk",
   "genuine\\w*", "authentic\\w*", "unaltered", "untampered", "tamper\\w*", "forg(ed|ery|eries)", "fake\\w*", "doctored",
@@ -98,7 +98,7 @@ const MATCH_FAMILY = /\b(match|matches|matched|matching|equal|equals|same as|in 
 const RULE_PHRASES = new RegExp([
   "within (the |a )?(\\d+(\\.\\d+)?% )?(match |amount |instalment match )?tolerance( of \\d+(\\.\\d+)?%)?",
   "(instalment |amount )?match tolerance", "within (the )?pay[- ]date window", "within \\d+ days",
-  "checks? whether [^.;]{0,100}?\\bmatch(es)?\\b",
+  "checks? whether [^.;]{0,100}?\\bmatch(es)?\\b(?![^.;]*\\b(match|matches|matched)\\b)",
 ].join("|"), "gi")
 
 /**
@@ -108,7 +108,9 @@ const RULE_PHRASES = new RegExp([
  * below (`relations.below`); a match-type word only in the rules' own phrasing.
  */
 export function checkRelations(rawText: string, allowed: Allowed): CheckResult {
-  const text = plainLetters(rawText).replace(ALLOWED_NEGATIONS, " ").replace(RULE_PHRASES, " ")
+  // The rules' phrasing is exempt only in a sentence about the rule ("the rule checks whether … within a 10% tolerance").
+  const text = plainLetters(rawText).replace(ALLOWED_NEGATIONS, " ").split(/(?<=[.!?;])\s+/)
+    .map((s) => (/\b(rule|rules|checks?|checked)\b/i.test(s) ? s.replace(RULE_PHRASES, " ") : s)).join(" ")
   const match = text.match(MATCH_FAMILY)
   if (match) return fail(`a match the facts do not state: "${match[0]}"`)
   const below = text.match(BELOW_FAMILY)
@@ -120,7 +122,8 @@ export function checkRelations(rawText: string, allowed: Allowed): CheckResult {
 export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = [], payees: Iterable<string> = [], allowed: Allowed = { amountsCents: [] }): CheckResult {
   const contradiction = checkNoContradiction(rawText, raisedFlagCodes)
   if (!contradiction.ok) return contradiction
-  const relations = checkRelations(stripLiterals(norm(rawText), [...names, ...payees, ...raisedFlagCodes], "i"), allowed)
+  // Payees (client text) only as given, like the vocabulary; system names and codes in any case.
+  const relations = checkRelations(stripLiterals(stripLiterals(norm(rawText), [...names, ...raisedFlagCodes], "i"), payees), allowed)
   if (!relations.ok) return relations
   return checkVocabulary(rawText, [...names, ...raisedFlagCodes], payees)
 }
