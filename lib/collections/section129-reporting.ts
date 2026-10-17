@@ -48,12 +48,29 @@ function formattedSnapshotDate(
 
 function attemptOutcome(status: string, lifecycle: string): string {
   if (status === "COMPLETED" && lifecycle === "ISSUED") return "ISSUED"
+  if (status === "COMPLETED" && lifecycle === "SIMULATED") return "SIMULATED_NOT_SENT"
   if (lifecycle === "RECONCILIATION_REQUIRED") return "DELIVERY_UNCERTAIN"
   if (lifecycle === "FAILED") return "KNOWN_NOT_SENT"
   if (["STAGING", "READY", "DISPATCHING"].includes(lifecycle)) return "IN_PROGRESS"
   return "LEGACY_UNCLASSIFIED"
 }
 
+/**
+ * A notice the collections flow may build on: issued, or (a demo stack only)
+ * simulated. The attorney referral and the asset-finance legal matter accept
+ * both, so a demo can be walked through; the loan pages label a simulated one
+ * "simulated (not sent)". The NCR return (section129SentInPeriodWhere) and the
+ * default-charges replay count ISSUED only: a simulated letter was not sent
+ * and carries no admin charge.
+ */
+export const SECTION129_ON_RECORD_WHERE = {
+  OR: [
+    { data: { path: ["lifecycle"], equals: "ISSUED" } },
+    { data: { path: ["lifecycle"], equals: "SIMULATED" } },
+  ],
+}
+
+/** Statutory notices sent in the period: ISSUED only, never a simulated one. */
 export function section129SentInPeriodWhere(
   tenantId: string,
   start: Date,
@@ -107,6 +124,9 @@ export function section129LogRow(
     "Record Status": record.status,
     Lifecycle: lifecycle || "LEGACY_UNCLASSIFIED",
     "Attempt Outcome": attemptOutcome(record.status, lifecycle),
+    Delivery: lifecycle === "SIMULATED"
+      ? "Simulated (not sent): demo mailbox"
+      : lifecycle === "ISSUED" ? "Accepted by the email provider" : "",
     "Snapshot Source": redacted
       ? "REDACTED_KNOWN_NOT_SENT"
       : hasImmutableSnapshot

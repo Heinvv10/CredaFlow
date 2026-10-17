@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { Evidence } from "./CreditChecksPanel"
+import { CLEAR_REASON_PLACEHOLDER, Evidence } from "./CreditChecksPanel"
+import { CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
 
 const flag = {
   id: "f1", check: "MANUAL_REVIEW" as const, code: "FIRST_ROW_UNVERIFIED", status: "OPEN" as const, summary: "First row.",
@@ -30,5 +31,12 @@ describe("CreditChecksPanel evidence", () => {
 
   it("says nothing about agreement when no adjacent statement agrees", () => {
     expect(renderToStaticMarkup(<Evidence flag={flag} />)).not.toContain("Agrees with")
+  })
+})
+
+describe("credit-check clear reason minimum", () => {
+  // Fair Score audit 2026-10-16: placeholder said 15, the counter another number.
+  it("states the policy minimum in the placeholder, as the counter does", () => {
+    expect(CLEAR_REASON_PLACEHOLDER).toContain(`at least ${CLEAR_REASON_MIN_LENGTH} characters`)
   })
 })

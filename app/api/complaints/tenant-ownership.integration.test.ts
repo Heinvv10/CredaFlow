@@ -255,9 +255,25 @@ suite.sequential("complaint, DSAR and branch routes across two tenants (real Pos
 
       const updates = await db.auditLog.findMany({ where: { tenantId: a.tenantId, action: "COMPLAINT_UPDATED" }, orderBy: { createdAt: "asc" } })
       expect(updates.map((row) => [row.oldValue, row.newValue])).toEqual([
-        [{ status: "OPEN", resolvedAt: null }, { status: "RESOLVED", resolvedAt: first!.toISOString() }],
-        [{ status: "RESOLVED", resolvedAt: first!.toISOString(), acknowledgedAt: null }, { status: "UNDER_INVESTIGATION", resolvedAt: null, acknowledgedAt: expect.any(String) }],
+        // Resolving an open complaint answers it, so it is acknowledged then.
+        [{ status: "OPEN", resolvedAt: null, acknowledgedAt: null }, { status: "RESOLVED", resolvedAt: first!.toISOString(), acknowledgedAt: expect.any(String) }],
+        [{ status: "RESOLVED", resolvedAt: first!.toISOString() }, { status: "UNDER_INVESTIGATION", resolvedAt: null }],
         [{ status: "UNDER_INVESTIGATION", resolvedAt: null }, { status: "RESOLVED", resolvedAt: second!.toISOString() }],
+      ])
+    })
+
+    it("acknowledges an open complaint without moving it, once, audited", async () => {
+      const a = await site()
+      signIn(a)
+      const own = await (await postComplaint(a, complaintBody(a.clientId))).json()
+      expect((await patchComplaint(a, own.id, { acknowledge: true })).status).toBe(200)
+      const stored = await db.complaint.findUniqueOrThrow({ where: { id: own.id } })
+      expect(stored).toMatchObject({ status: "OPEN", acknowledgedAt: expect.any(Date) })
+      expect((await patchComplaint(a, own.id, { acknowledge: true })).status).toBe(200)
+      expect((await db.complaint.findUniqueOrThrow({ where: { id: own.id } })).acknowledgedAt).toEqual(stored.acknowledgedAt)
+      const updates = await db.auditLog.findMany({ where: { tenantId: a.tenantId, action: "COMPLAINT_UPDATED" } })
+      expect(updates.map((row) => [row.oldValue, row.newValue])).toEqual([
+        [{ acknowledgedAt: null }, { acknowledgedAt: stored.acknowledgedAt!.toISOString() }],
       ])
     })
 

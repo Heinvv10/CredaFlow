@@ -3,6 +3,7 @@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { formatRands } from "@/lib/utils"
 
 interface ExpenseBreakdownData {
   housing: number
@@ -65,7 +66,7 @@ export function ExpenseBreakdownSection({ data, onChange }: ExpenseBreakdownSect
       </div>
       <div className="mt-4 p-3 bg-gray-50 rounded-lg">
         <p className="text-sm font-semibold text-gray-900">
-          Total Monthly Expenses: R {total.toLocaleString("en-ZA")}
+          Total Monthly Expenses: {formatRands(total)}
         </p>
       </div>
       <div className="mt-4">

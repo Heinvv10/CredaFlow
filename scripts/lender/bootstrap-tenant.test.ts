@@ -87,6 +87,18 @@ describe("bootstrapTenant", () => {
     expect(seed).not.toHaveBeenCalled()
   })
 
+  // #147 review: a real lender is never provisioned onto a seeded demo tenant,
+  // whose marker would let its Section 129 notices be simulated.
+  it("refuses an existing tenant marked as a demo lender, even when the file matches it", async () => {
+    const f = createFakeDb()
+    await run(f, config())
+    f.tables.tenantConfigs[0].isDemoLender = true
+    const seed = vi.fn(async () => {})
+    expect(await refusal(run(f, config(), false, seed))).toBe("DEMO_LENDER")
+    expect(await refusal(run(f, config(), true, seed))).toBe("DEMO_LENDER")
+    expect(seed).not.toHaveBeenCalled()
+  })
+
   it("refuses an existing tenant that has no config row at all", async () => {
     const f = createFakeDb({ tenants: [{ id: "t1", slug: "staging-lender", name: "Staging Lender (Pty) Ltd", status: "ACTIVE", domain: null }] })
     expect(await refusal(run(f, config()))).toBe("TENANT_DIFFERS")

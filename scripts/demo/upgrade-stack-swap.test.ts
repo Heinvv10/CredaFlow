@@ -35,6 +35,17 @@ describe('upgrade-stack.sh swap', () => {
     expect(worktrees()).toEqual([`worktree ${repo}`])
   })
 
+  // #147 review: the migration adding TenantConfig.isDemoLender leaves it false
+  // on the demo tenant, and the demo's simulated Section 129 email needs it.
+  it('marks the demo db tenants as demo lenders right after migrate deploy, before the pin', () => {
+    const r = run([commits.c2!])
+    expect(r.status).toBe(0)
+    const marker = idx(r.calls, 'UPDATE "TenantConfig" SET "isDemoLender" = true')
+    expect(marker).toBeGreaterThan(idx(r.calls, 'prisma migrate deploy'))
+    expect(marker).toBeLessThan(idx(r.calls, ' up -d'))
+    expect(r.calls[marker]).toMatch(/exec -e DB=\S+ -e SQL=/)
+  })
+
   it('builds from the temp worktree at the commit, with the live stack build args', () => {
     const r = run([commits.c2!])
     const build = r.calls.find((c) => c.startsWith('docker build'))!

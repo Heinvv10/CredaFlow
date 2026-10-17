@@ -95,6 +95,14 @@ SQL
 # Tested by staff-totp-off.integration.test.ts.
 TENANT_TOTP_POLICY_OFF_SQL='UPDATE "TenantConfig" SET "requireStaffTotp" = false'
 
+# Marks every tenant of the demo db as a synthetic demo lender (TenantConfig.
+# isDemoLender), the marker that lets a DEMO_MODE stack simulate a Section 129
+# email to an undeliverable mailbox (lib/collections/section129-email.ts). The
+# seed sets it, but the column arrives false on rows that existed before it,
+# which no restore or in-place upgrade re-seeds. A snapshot from before the
+# column exists is left alone. Tested by staff-totp-off.integration.test.ts.
+TENANT_DEMO_LENDER_SQL='DO $demo$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '"'TenantConfig'"' AND column_name = '"'isDemoLender'"') THEN UPDATE "TenantConfig" SET "isDemoLender" = true; END IF; END $demo$'
+
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 note() { echo "[${0##*/} $(date -u +%H:%M:%S)] $*" >&2; }
 

@@ -2,6 +2,7 @@ import type {
   ApplicationProduct,
   ApplicationWizardData,
 } from "@/components/applications/wizard/types"
+import { AFFORDABILITY_FAIL_REVIEW_REQUIRED } from "@/lib/applications/wizard-copy"
 import { PO_FUNDING_PURPOSE, requiresPoFundingFacts } from "@/lib/applications/po-funding"
 
 /**
@@ -79,7 +80,7 @@ export function validateStep3Affordability(
     return errs
   }
   if (d.affordabilityFlag === "FAIL" && !d.recklessLendingConfirmed) {
-    errs.recklessLendingConfirmed = "Acknowledge reckless-lending risk to proceed"
+    errs.recklessLendingConfirmed = AFFORDABILITY_FAIL_REVIEW_REQUIRED
   }
   return errs
 }

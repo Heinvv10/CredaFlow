@@ -6,8 +6,7 @@ import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { BoardPackClient } from "@/components/reports/BoardPackClient"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { findLenderIdentity, getLenderBrandName } from "@/lib/config/identity"
-import { getPortfolioPar } from "@/lib/reports/par"
-import { overdueBandWhere, overdueWhere } from "@/lib/reports/book-arrears"
+import { getBookArrears, overdueBandWhere, overdueWhere } from "@/lib/reports/book-arrears"
 import { computeCollectionsRate, computeArrearsRate } from "@/lib/reports/collections-rate"
 import { chargesOwing, loadChargesOwingByBand } from "@/lib/reports/charges-owing"
 import { boardPackChargesSummary, loadDefaultChargesReport } from "@/lib/reports/default-charges-loader"
@@ -23,16 +22,13 @@ export default async function BoardPackPage() {
   // from both the expected and the received side of the collection figures.
   const { start: monthStart, end: monthEndExclusive } = sastMonthBounds(now)
 
-  const [loans, collectibleBook, clients, arrears, insurance, topLoans, disbursements, expectedPayments, actualPayments, topDelinquent, par, charges, chargesSettled] = await Promise.all([
-    // ACTIVE-only — feeds the "Loan Book" headline card only (book,
-    // activeLoans below). Not the Collections/Arrears Rate denominator; see
-    // collectibleBook.
-    prisma.loan.aggregate({ where: { tenantId, status: "ACTIVE" }, _count: true, _sum: { outstandingPrincipal: true } }),
-    // The collectible book (lib/loan/collectible-book.ts) — the denominator for
-    // Collections Rate / Arrears Rate below, and for PAR. It must share its
+  const [bookArrears, clients, arrears, insurance, topLoans, disbursements, expectedPayments, actualPayments, topDelinquent, charges, chargesSettled] = await Promise.all([
+    // The collectible book and PAR as every screen states them
+    // (lib/reports/book-arrears.ts): the "Loan Book" headline, the denominator
+    // for Collections Rate / Arrears Rate below, and PAR. It shares its
     // population with `arrears` just below; see lib/reports/collections-rate.ts
     // for what mixing them produced last time (-175% collections rate).
-    prisma.loan.aggregate({ where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] } }, _count: true, _sum: { outstandingPrincipal: true } }),
+    getBookArrears(tenantId),
     prisma.client.count({ where: { tenantId, loans: { some: { status: "ACTIVE" } } } }),
     // Same collectible-book population as `collectibleBook` above and as
     // topDelinquent below, so an account that shows up in "Top Delinquent
@@ -76,7 +72,6 @@ export default async function BoardPackPage() {
       take: 5,
       include: { client: { select: { firstName: true, lastName: true } }, entity: { select: { legalName: true } } },
     }),
-    getPortfolioPar(tenantId),
     // Default charges owing: beside the instalment arrears, never inside them.
     loadChargesOwingByBand(prisma, tenantId, [...COLLECTIBLE_STATUSES]),
     prisma.loan.aggregate({ where: { tenantId, status: { in: [...SETTLED_STATUSES] } }, _sum: { chargesOutstanding: true } }),
@@ -94,24 +89,23 @@ export default async function BoardPackPage() {
   const products = await prisma.loanProduct.findMany({ where: { tenantId }, select: { id: true, name: true, productType: true } })
 
   const arrearsLoans = arrears.length
-  const collectibleLoanCount = collectibleBook._count
-  const collectibleBookAmount = Number(collectibleBook._sum.outstandingPrincipal || 0)
-  const collectionsRate = computeCollectionsRate(collectibleLoanCount, arrearsLoans)
-  const book = Number(loans._sum.outstandingPrincipal || 0)
+  const { book: collectible, par30: p30, par60: p60, par90: p90 } = bookArrears
+  const collectionsRate = computeCollectionsRate(collectible.count, arrearsLoans)
+  const book = collectible.value
   const totalArrears = arrears.reduce((s, l) => s + l.arrearsAmount, 0)
   // Principal over principal, the reports overview's at-risk book %. Arrears
   // amounts carry interest and fees, so dividing them by a principal book
   // mixed two bases.
   const atRiskPrincipal = arrears.reduce((s, l) => s + l.outstandingPrincipal, 0)
-  const arrearsRate = computeArrearsRate(atRiskPrincipal, collectibleBookAmount)
+  const arrearsRate = computeArrearsRate(atRiskPrincipal, book)
 
-  // NPL + PAR — value-weighted on the collectible book (lib/reports/par), the single
+  // NPL + PAR — value-weighted on the collectible book (lib/reports/book-arrears), the single
   // definition shared with the dashboard, collections, reports and NCR return.
-  const nplAmount = par.par90.value
-  const nplRatio = par.par90.pct.toFixed(1)
-  const par30 = par.par30.pct.toFixed(1)
-  const par60 = par.par60.pct.toFixed(1)
-  const par90 = par.par90.pct.toFixed(1)
+  const nplAmount = p90.value
+  const nplRatio = p90.pct.toFixed(1)
+  const par30 = p30.pct.toFixed(1)
+  const par60 = p60.pct.toFixed(1)
+  const par90 = p90.pct.toFixed(1)
 
   // Collection rate
   const expectedTotal = Number(expectedPayments._sum.totalDue || 0)
@@ -162,7 +156,7 @@ export default async function BoardPackPage() {
       />
       <BoardPackClient
         lenderName={lenderName} ncrNumber={lender?.ncrNumber ?? null}
-        book={book} activeLoans={loans._count} clients={clients}
+        book={book} bookLoans={collectible.count} clients={clients}
         collectionsRate={collectionsRate} arrearsRate={arrearsRate}
         totalArrears={totalArrears} buckets={buckets} nonNcaArrears={nonNcaArrears}
         topLoans={topLoans} productMix={productMix}

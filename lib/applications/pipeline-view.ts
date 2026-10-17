@@ -59,6 +59,8 @@ export interface PipelineApplication {
    * yes; see `lib/applications/readiness.ts`.
    */
   readiness: ApplicationReadiness | null
+  /** The booked loan, for a DISBURSED application: a closed one leaves the board. */
+  loan?: { status: string } | null
 }
 
 /**
@@ -137,6 +139,18 @@ export function statusEnteredAt(app: PipelineApplication): Date {
     default:
       return app.createdAt
   }
+}
+
+const CLOSED_LOAN_STATUSES = new Set(["COMPLETED", "WRITTEN_OFF", "CANCELLED"])
+
+/**
+ * The board column a card sits in, or null when it has left the pipeline: a
+ * DISBURSED application whose loan is settled, written off or cancelled is a
+ * closed account, not work in the Disbursed lane.
+ */
+export function pipelineColumnOf(app: PipelineApplication): string | null {
+  if (app.status === "DISBURSED" && app.loan && CLOSED_LOAN_STATUSES.has(app.loan.status)) return null
+  return app.status
 }
 
 export function ageInDays(app: PipelineApplication, now: Date): number {

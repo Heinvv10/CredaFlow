@@ -1,3 +1,4 @@
+import { bankLabel } from "@/lib/banks"
 import type { ClientWizardData, WizardMode } from "./types"
 import { accountTypeLabel, type ClientWizardErrors } from "@/lib/validation/client-wizard"
 import { sumExpenseBreakdown } from "@/lib/affordability/sum-expense-breakdown"
@@ -147,7 +148,7 @@ export function Step4Review({ data, patch, errors, editJump }: StepProps) {
                 )}`
           }
         />
-        <Row label="Bank" value={data.bankName} />
+        <Row label="Bank" value={bankLabel(data.bankName)} />
         <Row label="Branch code" value={data.bankBranchCode} />
         <Row label="Account no." value={data.bankAccountNumber} />
         <Row label="Account type" value={accountTypeLabel(data.accountType)} />

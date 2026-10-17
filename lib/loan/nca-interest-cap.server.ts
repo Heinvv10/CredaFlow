@@ -36,7 +36,10 @@ export async function capRepoRate(db: RepoDb, tenantId: string, day: string): Pr
     select: { rate: true },
   })
   const approvedRate = approved.rate.toNumber()
-  return { rate: Math.min(approvedRate, ...fed.map((row) => row.rate.toNumber())), approved: approvedRate }
+  // A fed value outside the plausible band is a broken feed, not a cut: it must
+  // not silently lower the cap (an approved one that implausible is refused).
+  const plausible = fed.map((row) => row.rate.toNumber()).filter(repoRateIsPlausible)
+  return { rate: Math.min(approvedRate, ...plausible), approved: approvedRate }
 }
 
 /** checkNcaInterestRate against the tenant's repo rate in effect on `on` (SAST day). */

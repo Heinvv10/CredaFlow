@@ -41,6 +41,9 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     loan: { findMany: (args: unknown) => loanFindManyMock(args) },
     messageTemplate: { findFirst: (args: unknown) => messageTemplateFindFirstMock(args) },
+    emailConfig: { findUnique: async () => null },
+    // A seeded demo lender (TenantConfig.isDemoLender): the demo transport's second gate.
+    tenantConfig: { findUnique: async () => ({ isDemoLender: true }) },
   },
 }))
 vi.mock("@/lib/email/service", () => ({
@@ -134,7 +137,11 @@ beforeEach(() => {
   sendEmailMock.mockResolvedValue({ ok: true, messageId: "mail-1", providerOutcome: "ACCEPTED", acceptedAt: providerAcceptedAt })
   sendMessageMock.mockResolvedValue({ id: "msg-1", providerMessageId: "provider-1", sentAt: providerAcceptedAt })
   lookupContactMock.mockResolvedValue({ id: "contact-1" })
-  reserveIssuanceMock.mockImplementation((args: { loanId: string }) => Promise.resolve(reservation(args.loanId)))
+  // As the real one: a simulated send is recorded on the reservation.
+  reserveIssuanceMock.mockImplementation((args: { loanId: string; simulated?: boolean }) => {
+    const reserved = reservation(args.loanId)
+    return Promise.resolve(args.simulated ? { ...reserved, recordData: { ...reserved.recordData, simulated: true } } : reserved)
+  })
   dispatchUnderLockMock.mockImplementation(async (args: { dispatch: (mark: () => void) => Promise<unknown> }) => {
     let providerInvoked = false
     const mark = () => { providerInvoked = true }
@@ -153,6 +160,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MESSAGING_NEW_SEND_S129
+  vi.unstubAllEnvs()
 })
 
 describe("POST /api/loans/section129/bulk", () => {
@@ -181,6 +189,16 @@ describe("POST /api/loans/section129/bulk", () => {
       issuedAt: providerAcceptedAt,
     }))
     expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("records each .invalid mailbox's notice as simulated (not sent) on a demo stack", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
+    loanFindManyMock.mockResolvedValue([{ ...sampleLoan, client: { ...sampleLoan.client, email: "kabelo@fairscore.invalid" } }])
+    const body = await (await POST(request())).json()
+    expect(body).toMatchObject({ ok: true, sent: 1, results: [expect.objectContaining({ outcome: "SENT", simulated: true })] })
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
+    expect(finaliseIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: true }))
   })
 
   it("locks a provider failure for reconciliation and continues the batch", async () => {
