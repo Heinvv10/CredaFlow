@@ -4,19 +4,19 @@ Audit base: `5cb9279bc17d3c306e49c06c75b27660894eba73`. Fetched implementation b
 
 Root checkout is dirty with unrelated handoffs and the untracked audit; preserved. Four active agents only: coordinator, MQ, A, B. No public runtime, real data, providers, spending or deployment authorized.
 
-Closure requires regression results AND real browser acceptance on the integrated candidate. Source reproduction is recorded separately from runtime reproduction. No finding is closed yet.
+Closure requires regression results AND real browser acceptance on the integrated candidate. Source reproduction is recorded separately from runtime reproduction. F01–F14 are accepted on the exact tested core source; F15 remains separate and legal-gated. Historical initial reproduction entries are superseded by the final closure ledger below.
 
 ## Current checkpoint (2026-10-17)
 
-F01–F14 are independently reviewed and integrated. Current frozen candidate8 is `63a96479d290b215049b3a3e46977dc09305c21f`, preserving fetched main `685c86e951c0591324446af148d30d41ddc33652`. It includes both reviewed operator-origin corrections: middleware `30b2c7f8` and actual post-enrolment/header sign-out `ecf84394`. The latter passed 40 targeted tests, independent review and the frozen quick gate. Exact candidate8 full quality passed (1519 files/19675 tests, 14 actual face checks and production build); pristine image `sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe` passed pinned model/license/native-load verification. Final browser scopes passed and were independently reviewed; real PostgreSQL integration and final artifact/queue checks remain pending. No predecessor pass is inherited.
+F01–F14 are independently reviewed and integrated. Current frozen candidate8 is `63a96479d290b215049b3a3e46977dc09305c21f`, preserving fetched main `685c86e951c0591324446af148d30d41ddc33652`. It includes both reviewed operator-origin corrections: middleware `30b2c7f8` and actual post-enrolment/header sign-out `ecf84394`. The latter passed 40 targeted tests, independent review and the frozen quick gate. Exact candidate8 full quality passed (1519 files/19675 tests, 14 actual face checks and production build); pristine image `sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe` passed pinned model/license/native-load verification. Final browser scopes passed and were independently reviewed; real PostgreSQL integration passed (333 files/2930 tests; two accuracy tests explicitly skipped from335 selected). Both required hosted checks passed on63a. Independent portable-artifact/restore review passed, and PR168 merged via the existing queue as `9dfb76b90fa5b8b5a87fb1430d1af3ffedca5f4a`; root independently verified63a ancestry and an empty tree diff. No predecessor pass is inherited.
 
 Predecessor candidate7 `66c183c1d316b2c8d696b56aa37a42de4700445e` passed full quality (1517 files, 19671 tests, 14 face checks, production build), real integration (333 files, 2930 tests; two accuracy tests explicitly skipped), hosted checks and pristine image `sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d`. Nine NCA fingerprints and five rendered samples/23 pages matched the preserved baseline. Its financial, mobile, pricing, accounting, recovery and token evidence is retained with exact provenance. Overall acceptance was held because actual sign-out returned the canonical staff origin and a 404; candidate8 must prove the correction through both real navigation paths.
 
-F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf49c2455973951db4bc139a9f7080949f8a` is rebased onto candidate8; all eight patches were preserved, including the exact tenant-model expectation correction. Schema/registry generation and five targeted suites/20 tests passed. Full quality, integration, private image and signing browser acceptance await MQ's host-suite release. Named-lender legal approval is required before merging the changed executed-artifact presentation.
+F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf49c2455973951db4bc139a9f7080949f8a` is rebased onto candidate8; all eight patches were preserved, including the exact tenant-model expectation correction. Schema/registry generation and five targeted suites/20 tests passed. Pristine legal image built normally. Full quality is now running after core host-suite release; integration follows only on success. Actual signing acceptance runs in its separate synthetic database with the existing Experian vendor-UAT policy, never a real provider or changed guard. Named-lender legal approval is required before merging the changed executed-artifact presentation.
 
 ## F01 — Payouts require AVS while the AVS action is hidden/disabled by the collections flag
 
-- Priority/status/owner: P1 / integrated / A.
+- Priority/status/owner: P1 / accepted / A.
 - Current reproduction/root cause: AVS is gated only by collections, while payouts require it. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Allow AVS when payout OR collection engine requires it; retain permissions and account binding.
 - Acceptance: Four flag combinations, API refusal/authorization, browser ready-to-payout journey. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -25,7 +25,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F02 — Product editor claims rates are within NCA caps when the server's own rule rejects them
 
-- Priority/status/owner: P1 / integrated / B.
+- Priority/status/owner: P1 / accepted / B.
 - Current reproduction/root cause: Product form has fixed proxy caps; current server cap helper was subsequently changed. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Share implemented cap semantics with explicit rate/date/classification assumptions; no contract repricing.
 - Acceptance: Boundary amounts/terms, monthly/daily annualization, changed repo rate, editor browser. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -34,7 +34,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F03 — Board-pack portfolio composition does not cover the headline collectible book
 
-- Priority/status/owner: P1 / integrated / B.
+- Priority/status/owner: P1 / accepted / B.
 - Current reproduction/root cause: Composition groups ACTIVE only versus broader collectible headline. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Common collectible scope and explicit description.
 - Acceptance: Product rows sum to headline including defaulted and entity loans; browser reconcile. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -43,7 +43,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F04 — Sole-proprietor asset deals render the consumer application workflow and misleading blockers
 
-- Priority/status/owner: P2 / integrated / A.
+- Priority/status/owner: P2 / accepted / A.
 - Current reproduction/root cause: Application view branches on borrower shape instead of linked asset deal. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Deal-aware presentation for entity and natural-person deals; stored contractual term and decision evidence.
 - Acceptance: Both natural-person contract types and completed deal pages without misleading prebooking blockers. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -52,7 +52,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F05 — Non-NCA leases are offered a Section 129 action that the backend correctly refuses
 
-- Priority/status/owner: P2 / integrated / A.
+- Priority/status/owner: P2 / accepted / A.
 - Current reproduction/root cause: Collections action eligibility uses arrears without NCA regime. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Explain regime and suppress unavailable statutory action; retain backend refusal.
 - Acceptance: Non-NCA lease, NCA asset and ordinary loan row/browser + refused direct request. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -61,7 +61,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F06 — Mobile portal loses global access to several features and sign-out
 
-- Priority/status/owner: P2 / integrated / A.
+- Priority/status/owner: P2 / accepted / A.
 - Current reproduction/root cause: Mobile hides desktop navigation and lacks complete global session controls. Current-source and runtime verification pending.
 - Intended smallest change: Accessible mobile navigation from same enabled/authorized links.
 - Acceptance: 390px borrower without/with loan and business rep; keyboard, touch, sign-out. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -79,7 +79,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F08 — PO-funding promise and the displayed affordability process conflict
 
-- Priority/status/owner: P2 / integrated / A.
+- Priority/status/owner: P2 / accepted / A.
 - Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Current portal card already shows configured range only, so preserve it; false translated intake promise remains. Runtime verification pending.
 - Intended smallest change: Truthful intake and repayment/assessment explanation; preserve affordability enforcement.
 - Acceptance: PO submission, review, affordable/declined scenarios; no new underwriting model. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -90,7 +90,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F09 — READONLY users receive editable client forms whose writes are forbidden
 
-- Priority/status/owner: P2 / integrated / B.
+- Priority/status/owner: P2 / accepted / B.
 - Current reproduction/root cause: Source confirmed: client detail gates edits/New Application on showLoanBook; edit page only requires loan-book viewing. Actual READONLY browser pending.
 - Intended smallest change: Render action permissions consistently; explanatory direct-link read-only state.
 - Acceptance: Actual READONLY session controls/direct URL/PATCH 403; eligible staff retained. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -101,7 +101,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F10 — Accounting preview stays stale after configuration is saved
 
-- Priority/status/owner: P2 / integrated / B.
+- Priority/status/owner: P2 / accepted / B.
 - Current reproduction/root cause: Settings changes do not invalidate sibling accounting preview. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Shared invalidation and race-safe response handling; updated initial period.
 - Acceptance: Confirm mappings/edit/go-live/VAT then close without reload; stale response regression. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -110,7 +110,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F11 — “100% / Good Standing” implies broader compliance coverage than measured
 
-- Priority/status/owner: P2 / integrated / B.
+- Priority/status/owner: P2 / accepted / B.
 - Current reproduction/root cause: Source confirmed: Good Standing and statutory obligations complete headline represent stored subset. Browser/configuration scope verification pending.
 - Intended smallest change: Name tracked scope and clarify excluded/unconfigured/not-due/unverified areas.
 - Acceptance: Partial and complete tracked rows, absent config and browser labels. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -121,7 +121,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F12 — Customer “Outstanding Balance” needs a clearer financial definition
 
-- Priority/status/owner: P2 / integrated / A.
+- Priority/status/owner: P2 / accepted / A.
 - Current reproduction/root cause: Current source confirmed: portalOutstanding is principal with charges off and totalToSettle with charges on. Conditional labels required; browser remains pending.
 - Intended smallest change: Explain existing ledger amounts without changing financial calculations or legal documents.
 - Acceptance: Part-paid asset and live default charges; staff/portal amount definitions and dated settlement distinction. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -130,7 +130,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F13 — Customer-facing operator screens expose internal paths and development-phase copy
 
-- Priority/status/owner: P3 / integrated / B.
+- Priority/status/owner: P3 / accepted / B.
 - Current reproduction/root cause: Source confirmed internal buildTemplate/lib paths/migration instructions in notification client and Phase 7 go-live in IntegrationsTab. Browser pending.
 - Intended smallest change: Replace internal implementation instructions with operational meaning.
 - Acceptance: Settings browser copy retains prerequisites and simulation warnings. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -141,7 +141,7 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 
 ## F14 — Academy lesson references missing video and poster assets
 
-- Priority/status/owner: P3 / integrated / B.
+- Priority/status/owner: P3 / accepted / B.
 - Current reproduction/root cause: Source confirmed lessonAssets constructs all video/poster paths and lesson page unconditionally renders LessonPlayer. Clean-build/browser request proof pending.
 - Intended smallest change: Deliberate text-only lessons unless packaged media exists.
 - Acceptance: Clean-build all declared lesson assets no missing requests; browser text-only state. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -160,8 +160,32 @@ F15 remains separate, unmerged and legal-gated. Frozen legal review SHA `369adf4
 - Closure evidence: baseline render reproduced, no fix accepted. Separate unmerged candidate proposed: append-only declaration acceptance bound per signature ceremony with verified evidence certificate. Required legal approval remains outstanding; no historical inferred acceptance.
 
 
-No finding is accepted yet. The original full-suite locale regression was independently corrected; final combined-source gates and immutable-image browser acceptance remain mandatory. See the current checkpoint and VALIDATION.md.
+Historical pre-acceptance checkpoint: the original full-suite locale regression was independently corrected; the final combined-source gates and immutable-image browser acceptance were subsequently completed as recorded above and in the final closure ledger.
 
 ## Final candidate8 browser checkpoint
 
-The route inventory's accepted status applies to its explicitly described browser scope, not an unrestricted product launch. A's32 mobile/contrast/balance/intake cases, MQ's pricing9/financial14/accounting9 states plus independent139-row balanced CSV, and coordinator operator/READONLY/staff/recovery/PASQ/selfie cases passed on actual63a96479. B independently reviewed those scoped results. Exact root evidence and SHA256 manifest are in `evidence/root-browser-candidate8/`; A evidence is submitted as `fbcd118d`, held outside the frozen artifact source. Operator G06-U both sign-out paths now actually reach the correct host's login form. Supported private `connection_limit=5` resolves four-app test-database exhaustion; failed partials are preserved. Final release acceptance remains pending full integrated PostgreSQL and release/queue checks. Earlier per-finding 'runtime pending' entries describe the initial reproduction checkpoint and are superseded only within these documented final scopes.
+The route inventory's accepted status applies to its explicitly described browser scope, not an unrestricted product launch. A's32 mobile/contrast/balance/intake cases, MQ's pricing9/financial14/accounting9 states plus independent139-row balanced CSV, and coordinator operator/READONLY/staff/recovery/PASQ/selfie cases passed on actual63a96479. B independently reviewed those scoped results. Exact root evidence and SHA256 manifest are in `evidence/root-browser-candidate8/`; A evidence is submitted as `fbcd118d`, held outside the frozen artifact source. Operator G06-U both sign-out paths now actually reach the correct host's login form. Supported private `connection_limit=5` resolves four-app test-database exhaustion; failed partials are preserved. Exact integrated PostgreSQL subsequently passed333files/2930tests, with two accuracy tests explicitly skipped from335 selected; both hosted gates and the existing merge queue subsequently passed; see the final closure ledger. Earlier per-finding 'runtime pending' entries describe the initial reproduction checkpoint and are superseded only within these documented final scopes.
+
+## Final closure ledger — core accepted, F15 separate
+
+All accepted rows below bind to exact source `63a96479d290b215049b3a3e46977dc09305c21f`, private image `sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe` and tree-identical merged main `9dfb76b90fa5b8b5a87fb1430d1af3ffedca5f4a`. Targeted fail-first and independent source reviews are retained in each submission; combined `ci:quality`, `ci:integration`, hosted quality/integration, PDF and model gates passed. Acceptance is for the stated behavior, not production activation.
+
+| Finding | Status | Actual final browser/closure evidence |
+|---|---|---|
+| F01 | accepted | MQ14-case financial run: all four flags, subject/account/application/audit/server predicate, both-off409/three enabled200; flags restored. Overall payout readiness/dispatch not inferred. |
+| F02 | accepted | MQ9 pricing boundaries match existing server guidance/caps, without saving/repricing products. |
+| F03 | accepted | MQ board-pack SQL/UI reconcile26 collectible loans/3543918.83 including defaulted/entity scope. |
+| F04 | accepted | MQ six asset application routes reach correct deal-aware presentation for natural/entity cases. |
+| F05 | accepted | MQ non-NCA UI and notice dispatch422 refuse correctly; immutable missing-artifact PDF409 distinguished. |
+| F06 | accepted | A32-case final run covers all10/10/11 links, keyboard/Escape/focus,390x400 bounds/scroll, actual sign-out and protected return. |
+| F07 | accepted | Existing token fix preserved and measured across four palette/theme combinations: minimum4.761 normal text, reference/copy12.635+. |
+| F08 | accepted supported presentation | Truthful product/intake wording, normal synthetic PO submission, actual full-single-repayment10450 versusNDI2470.46 yieldsNOTAFFORDABLE; no buyer-only underwriting or waiver invented. |
+| F09 | accepted | Actual READONLY four page checks and three write403 probes, with targeted direct-page role gates. |
+| F10 | accepted | MQ9 actual setup/preview/edit/reconfirm/close states and independently balanced139-row CSV; deferred race regressions passed. No destination export claimed. |
+| F11 | accepted | Actual ADMIN compliance page shows precise tracked subset/exclusions rather than broad good-standing certification. |
+| F12 | accepted | A personal/asset/positive-charge cases display principal/current/overdue/contractual/dated-settlement distinctions; non-S125 asset asks lender for quote. No calculations changed. |
+| F13 | accepted | Actual settings/compliance pages retain actionable setup warnings without internal path/phase copy. |
+| F14 | accepted | Actual training route renders written fallback when packaged media is absent; no broken advertised media. |
+| F15 | review; merge externally blocked | Separate proposed receipt/certificate source369adf49; named-lender legal approval required. Its full gates and actual normal synthetic signing acceptance are tracked separately; never included in PR168. |
+
+A's final evidence commit `fbcd118d` and root evidence commit `9389e21a` are documentation produced after artifact freeze, intentionally separate from its baked source. MQ's private release directory is `/home/hein/credaflow-release-candidates/gtm-20261017-63a96479d290`; all1842 checksums/28 image blobs/5272 Git blobs and four database/upload restore drills passed independent A review. B independently approved the browser scopes. No public deployment, real provider activation, external customer message or real money movement occurred. The test-input image requires target-specific rebuild/acceptance before any production promotion. Remaining configuration gates are explicit in ACCEPTANCE.md.
