@@ -398,3 +398,11 @@ zero-status write lint passed (`/tmp/cf-rate-floor-exact-lint.log`,
 suites. `git diff --check` passed. No migration source was changed by this
 zero-floor checkpoint. All PostgreSQL cases named above remain explicitly
 unrun pending approval.
+
+Zero-rental end-of-term follow-up: the pending-invoice query also needed to
+exclude rows with neither rental nor maintenance consideration. The new
+`lease-floor-billing.test.ts` failed first, then all four affected suites passed
+(13 tests); TypeScript and touched-source lint passed. Positive rental and
+maintenance-only supplies still require invoices. The prepared OL PostgreSQL
+floor cases now assert this same billing boundary, but remain unrun under §8.
+Logs: `/tmp/cf-rate-floor-billing-{red,green,types,lint}.log`.

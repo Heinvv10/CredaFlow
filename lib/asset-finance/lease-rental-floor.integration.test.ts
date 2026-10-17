@@ -17,6 +17,7 @@ import {
 import { cleanupDealFixture } from "./deal.integration-fixture"
 import { shiftLease, testSetup } from "./lease-servicing.integration-fixture"
 import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
+import { billingRefusal } from "./lease-end-billing"
 import { issueLeaseRentalInvoice } from "./lease-invoices"
 import { repriceLoanForReference } from "./reprice-loan"
 import type { SessionUser } from "./payout-booking.integration-fixture"
@@ -226,6 +227,12 @@ suite.sequential("large late lease cut floors future rent and retains the lessor
           })
         )
         expect(issued.kind).toBe("no_charge")
+        // Real ORM boundary: zero consideration needs no invoice and cannot
+        // permanently block a later honest end-of-term billing action.
+        expect(await db.$transaction((tx) => billingRefusal(tx as never, {
+          tenantId: fx.tenantId, loanId, today, actorUserId: fx.adminA,
+          row: { outcome: "RETURN", assetId: fx.assets[0], purchaseValuationId: null, inspectedById: null, damageItems: [] },
+        }))).toBeNull()
         expect(await db.taxInvoice.count({ where: { loanId } })).toBe(before.taxInvoices.length)
       } else {
         await receipt(last.totalCents)
