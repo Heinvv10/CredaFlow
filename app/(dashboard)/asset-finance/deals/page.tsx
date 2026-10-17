@@ -10,7 +10,7 @@ import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { loadDealList } from "@/lib/asset-finance/deal-detail"
-import { DEAL_STATUS_TONE, dealStatusLabel } from "@/lib/asset-finance/deal-labels"
+import { DEAL_STATUS_TONE, contractTypeLabel, dealStatusLabel } from "@/lib/asset-finance/deal-labels"
 
 export default async function DealsPage() {
   const { tenantId, canManage } = await requireAssetFinanceStaffPage()
@@ -29,7 +29,7 @@ export default async function DealsPage() {
     <>
       <Header
         title="Deals"
-        subtitle="Instalment-sale deals for business entities"
+        subtitle="Instalment sales, finance leases, operating and full-maintenance leases for business entities and sole proprietors"
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Deals" }]}
         actions={newButton}
       />
@@ -38,7 +38,7 @@ export default async function DealsPage() {
           <EmptyState
             icon={FileText}
             title="No deals yet"
-            description="Structure a deal on a registered asset for an onboarded entity."
+            description="Structure a deal on a registered asset for an onboarded entity or sole proprietor."
             action={canManage ? { label: "New deal", href: "/asset-finance/deals/new" } : undefined}
           />
         ) : (
@@ -47,10 +47,11 @@ export default async function DealsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Reference</TableHead>
-                  <TableHead>Entity</TableHead>
+                  <TableHead>Agreement</TableHead>
+                  <TableHead>Borrower / lessee</TableHead>
                   <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Financed</TableHead>
-                  <TableHead className="text-right">Instalment</TableHead>
+                  <TableHead className="text-right">Financed / capital</TableHead>
+                  <TableHead className="text-right">Instalment / rental</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
@@ -63,6 +64,7 @@ export default async function DealsPage() {
                         {d.applicationReference}
                       </Link>
                     </TableCell>
+                    <TableCell>{contractTypeLabel(d.contractType)}</TableCell>
                     <TableCell>{d.entityName}</TableCell>
                     <TableCell>{d.assetDescription}</TableCell>
                     <TableCell className="text-right">{formatMoney(d.financedAmountCents)}</TableCell>

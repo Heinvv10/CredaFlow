@@ -16,8 +16,8 @@ const EVIDENCE_TYPES = [...new Set(CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVID
 const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success", CANCELLED: "neutral" } as const
 
 /** The deal page's "Payout" panel (goal §4.10): checklist, payout, booking. */
-export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; canManage: boolean; canDecide: boolean; userId: string }) {
-  const { dealId, panel, canManage, canDecide, userId } = props
+export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; canManage: boolean; canDecide: boolean; userId: string; lease?: boolean }) {
+  const { dealId, panel, canManage, canDecide, userId, lease } = props
   const contracted = panel.dealStatus === "CONTRACTED"
   const open = panel.checklist.filter((c) => c.required && !c.confirmedAt)
   const { payout } = panel
@@ -26,7 +26,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
   return (
     <DataPanel
       title="Payout"
-      description={`The supplier is owed ${formatMoney(panel.payoutAmountCents)} (cash price incl. VAT less deposit and trade-in)`
+      description={`The supplier is owed ${formatMoney(panel.payoutAmountCents)} ${lease ? "(the cash price incl. VAT)" : "(cash price incl. VAT less deposit and trade-in)"}`
         + (panel.approvedAccount
           ? `, paid to ${panel.approvedAccount.accountHolder}, ${panel.approvedAccount.bankName} …${panel.approvedAccount.accountNumberTail}.`
           : "; the supplier has no approved bank account yet.")}

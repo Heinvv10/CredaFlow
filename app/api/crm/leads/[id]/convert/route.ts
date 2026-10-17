@@ -469,7 +469,7 @@ export async function POST(
         const product = await tx.loanProduct.findUnique({
           where: { id: data.productId, tenantId: tenant.id },
         })
-        if (!product || !product.active) return { kind: "product_unavailable" as const }
+        if (!product || !product.active || product.productType === "ASSET_FINANCE") return { kind: "product_unavailable" as const }
         // A lead carries no purchase order; PO funding is applied for with it.
         if (requiresPoFundingFacts(product.productType)) return { kind: "po_funding_needs_order" as const }
         if (resolveTermDays(data.appliedTermDays, product) === null) {
@@ -584,7 +584,7 @@ export async function POST(
         const lockedProduct = await tx.loanProduct.findUnique({
           where: { id: data.productId, tenantId: tenant.id },
         })
-        if (!lockedProduct || !lockedProduct.active) {
+        if (!lockedProduct || !lockedProduct.active || lockedProduct.productType === "ASSET_FINANCE") {
           throw new Error("Selected loan product is unavailable")
         }
         const appliedTermDays = resolveTermDays(data.appliedTermDays, lockedProduct)

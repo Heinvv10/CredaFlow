@@ -9,7 +9,7 @@ import { NonNcaArrearsFields } from "./NonNcaArrearsFields"
 import { nonNcaArrearsBody, type NonNcaArrearsValues } from "@/lib/product-config/non-nca-arrears-form"
 
 type InterestModel = "FLAT" | "REDUCING_BALANCE" | "DAILY_ACCRUAL"
-type ProductType = "MICRO" | "PERSONAL" | "PO_FUNDING"
+type ProductType = "MICRO" | "PERSONAL" | "PO_FUNDING" | "ASSET_FINANCE"
 
 type LoanProduct = {
   id?: string
@@ -44,21 +44,27 @@ const EMPTY: LoanProduct = {
 // or reducing micro at 5% must not false-flag). PERSONAL (unsecured) stays a
 // conservative 3%/month proxy for its repo-linked annual cap. These figures are
 // guidance only; confirm the current statutory limits with legal.
+// An asset-finance deal carries its own contract rate, and an NCA deal is
+// capped per deal (lib/asset-finance/nca-caps.ts): no per-product guidance.
+const ASSET_FINANCE_CAP = { cap: Number.POSITIVE_INFINITY, label: "Rate set per deal", unit: "% per month" }
 const NCA_CAPS: Record<InterestModel, Record<ProductType, { cap: number; label: string; unit: string }>> = {
   FLAT: {
     MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
     PERSONAL: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
     PO_FUNDING: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
+    ASSET_FINANCE: ASSET_FINANCE_CAP,
   },
   REDUCING_BALANCE: {
     MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
     PERSONAL: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
     PO_FUNDING: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
+    ASSET_FINANCE: ASSET_FINANCE_CAP,
   },
   DAILY_ACCRUAL: {
     MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
     PERSONAL: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
     PO_FUNDING: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
+    ASSET_FINANCE: ASSET_FINANCE_CAP,
   },
 }
 
@@ -266,6 +272,7 @@ export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProd
               <option value="MICRO">Micro Loan</option>
               <option value="PERSONAL">Personal Loan</option>
               <option value="PO_FUNDING">PO Funding</option>
+              <option value="ASSET_FINANCE">Asset finance (deals only)</option>
             </select>
           </div>
         </div>
@@ -326,7 +333,7 @@ export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProd
             <div className="flex items-center justify-between mb-1">
               <label className={lbl}>Interest Rate ({displayRateLabel})</label>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isOverCap ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600"}`}>
-                {isOverCap ? `⚠️ Exceeds NCA cap` : `✓ Within NCA cap`} — {ncaCap.label}
+                {Number.isFinite(ncaCap.cap) && <>{isOverCap ? `⚠️ Exceeds NCA cap` : `✓ Within NCA cap`} — </>}{ncaCap.label}
               </span>
             </div>
 

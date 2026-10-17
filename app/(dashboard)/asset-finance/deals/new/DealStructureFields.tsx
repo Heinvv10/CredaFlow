@@ -36,7 +36,7 @@ export function DealStructureFields(props: { values: DealFormValues; set: Setter
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <SelectField<StructurePresetName> id="preset" label="Structure" required value={v.preset}
           onChange={set("preset")} options={PRESET_LABELS} error={presetError} />
-        <TextField id="periods" label="Months" required inputMode="numeric" value={v.periods} onChange={set("periods")}
+        <TextField id="periods" label="Months" required inputMode="numeric" placeholder="60" value={v.periods} onChange={set("periods")}
           error={errors["preset.periods"]} />
         {v.preset === "SKIP_N" && (
           <TextField id="skipFirst" label="Months with no payment" inputMode="numeric" value={v.skipFirst} onChange={set("skipFirst")} />

@@ -34,9 +34,12 @@ function attemptWithoutCheck(value: unknown): { clientId: string; outcome: strin
   }
 }
 
-export async function loadDealBureauResults(tenantId: string, applicationId: string): Promise<DealBureauResult[]> {
+/** The models read: the app client, or a transaction (the decision re-reads them under its lock). */
+export type BureauResultsDb = Pick<typeof prisma, "creditBureauCheck" | "complianceRecord" | "client">
+
+export async function loadDealBureauResults(tenantId: string, applicationId: string, db: BureauResultsDb = prisma): Promise<DealBureauResult[]> {
   const [checks, attempts] = await Promise.all([
-    prisma.creditBureauCheck.findMany({
+    db.creditBureauCheck.findMany({
       where: { tenantId, applicationId },
       orderBy: { createdAt: "desc" },
       select: {
@@ -45,7 +48,7 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
         client: { select: { id: true, idNumber: true, firstName: true, lastName: true, gender: true, dateOfBirth: true } },
       },
     }),
-    prisma.complianceRecord.findMany({
+    db.complianceRecord.findMany({
       where: { tenantId, type: "CREDIT_BUREAU_CHECK", referenceId: applicationId },
       orderBy: { createdAt: "desc" },
       select: { data: true, createdAt: true },
@@ -74,7 +77,7 @@ export async function loadDealBureauResults(tenantId: string, applicationId: str
     .filter((a) => a.data !== null)
   if (without.length > 0) {
     const ids = [...new Set(without.map((a) => a.data?.clientId ?? ""))]
-    const clients = await prisma.client.findMany({
+    const clients = await db.client.findMany({
       where: { tenantId, id: { in: ids } },
       select: { id: true, firstName: true, lastName: true },
     })

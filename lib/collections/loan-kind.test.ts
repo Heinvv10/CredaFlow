@@ -14,5 +14,6 @@ describe("collectionsLoanKind", () => {
     expect(collectionsLoanKind({ contractType: "LOAN", product: { productType: "PERSONAL" } })).toBe("Personal")
     expect(collectionsLoanKind({ contractType: "LOAN", product: { productType: "MICRO" } })).toBe("Micro")
     expect(collectionsLoanKind({ product: { productType: "PO_FUNDING" } })).toBe("PO Fund")
+    expect(collectionsLoanKind({ product: { productType: "ASSET_FINANCE" } })).toBe("Asset finance")
   })
 })
