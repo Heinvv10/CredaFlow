@@ -117,7 +117,7 @@ describe("tenant-scope — ALS primitives", () => {
       // Deal signing and payout (lib/asset-finance/signing-*.ts, payout*.ts).
       // Non-null tenantId, passed explicitly on every query; the seed runs
       // inside runWithTenant (prisma/seed/asset-finance.ts).
-      "DealSigner",
+      "DealSigner", "SuretyConsent",
       "PayoutChecklistItem",
       "Payout",
       // Dual-approval KYC override requests — non-null tenantId.

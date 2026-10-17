@@ -47,6 +47,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
         select: {
           contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
           asset: { select: { cashPriceExclVatCents: true, vatCents: true, registrationNumber: true } },
+          signers: { where: { document: "SURETYSHIP" }, select: { client: { select: { firstName: true, lastName: true } }, suretyConsent: { select: { maritalRegime: true, evidenceDocumentId: true } } } },
           checklist: { select: { item: true, confirmedAt: true } },
           payout: { select: { id: true } },
         },
@@ -54,6 +55,8 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       if (deal.payout) return { kind: "exists" }
       const credit = await dealCreditGate(tx, tenantId, dealId)
       if (credit.problem) return { kind: "credit_gate", reason: credit.problem.kind, message: credit.problem.message }
+      const missingConsent = (deal.signers ?? []).filter((s) => !s.suretyConsent || s.suretyConsent.maritalRegime === "UNKNOWN" || (s.suretyConsent.maritalRegime === "IN_COMMUNITY" && !s.suretyConsent.evidenceDocumentId))
+      if (missingConsent.length) return { kind: "checklist_open", open: missingConsent.map((s) => `Surety ${s.client.firstName} ${s.client.lastName}: confirm marital regime and witnessed spouse consent before payout`) }
       const confirmed = new Set(deal.checklist.filter((c) => c.confirmedAt).map((c) => c.item))
       const open = requiredChecklistKinds(deal.contractType, deal.asset).filter((kind) => !confirmed.has(kind))
       if (open.length > 0) return { kind: "checklist_open", open: open.map((kind) => checklistLabel(kind, deal.contractType)) }

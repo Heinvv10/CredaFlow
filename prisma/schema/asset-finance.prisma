@@ -384,6 +384,7 @@ model EntityDocument {
   meterReadings     AssetMeterReading[]
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")
+  suretyConsents SuretyConsent[]
 
   @@unique([tenantId, id])
   @@index([tenantId, entityId])
@@ -612,6 +613,9 @@ enum CreditDecision {
 // present (CHECK AssetFinanceDeal_borrower_xor).
 // (DESIGN D6) and the origination state; booking creates the Loan.
 model AssetFinanceDeal {
+  isaCpaApplies Boolean?
+  isaCpaRule String?
+
   id                             String                @id @default(cuid())
   tenantId                       String
   tenant                         Tenant                @relation(fields: [tenantId], references: [id])
@@ -769,6 +773,8 @@ enum SignatureMethod {
 // bytes. Signing also re-renders it and refuses if the deal has changed since.
 // Hand-written guards: guardDealSigner, guardAssetDealContract.
 model DealSigner {
+  suretyConsent SuretyConsent?
+
   id                  String           @id @default(cuid())
   tenantId            String
   dealId              String
@@ -921,4 +927,22 @@ model AssetFinanceRateCorrection {
 
   @@unique([tenantId, loanId, contractRateId])
   @@index([tenantId, loanId, createdAt])
+}
+
+// Per-deed verification of marital regime and wet-ink spouse consent.
+model SuretyConsent {
+  id String @id @default(cuid())
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenantId String
+  signerId String @unique
+  signer DealSigner @relation(fields: [signerId], references: [id], onDelete: Restrict)
+  maritalRegime String @default("UNKNOWN")
+  spouseName String?
+  witnessOne String?
+  witnessTwo String?
+  evidenceDocumentId String?
+  evidenceDocument EntityDocument? @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  verifiedById String
+  verifiedBy User @relation(fields: [verifiedById], references: [id])
+  verifiedAt DateTime @default(now())
 }

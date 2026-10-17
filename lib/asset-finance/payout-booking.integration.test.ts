@@ -17,6 +17,8 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { ruleRefuses } from "./lease-servicing.integration-fixture"
+import { recordSuretyConsent } from "./surety-consent"
 import { dealFixtureTenantId } from "./deal.integration-fixture"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "./dates"
@@ -80,6 +82,11 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     await db.$disconnect()
   })
 
+  it("snapshots the instalment sale CPA scope and refuses changes after approval in the database", async () => {
+    expect(await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId } })).toMatchObject({ isaCpaApplies: false, isaCpaRule: "CPA_JURISTIC_OVER_THRESHOLD" })
+    await ruleRefuses(database(), { table: "AssetFinanceDeal", trigger: "AssetFinanceDeal_isa_cpa_snapshot" }, /Approved instalment sale CPA scope is fixed/, (tx) => tx.assetFinanceDeal.update({ where: { id: fx.dealId }, data: { isaCpaApplies: true, isaCpaRule: "CPA_FINANCIALS_UNPROVEN" } }))
+  })
+
   it("contracting created the checklist: eNaTIS required only for the registered asset", async () => {
     const rows = await database().payoutChecklistItem.findMany({ where: { tenantId: fx.tenantId } })
     expect(rows).toHaveLength(18)
@@ -133,6 +140,27 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     })
     expect(await sqlError(() => rawPayout(fx.dealId, pending.id))).toContain("APPROVED bank account")
     expect(await sqlError(() => rawPayout(fx.dealId, fx.accountId, 155_250_001))).toContain("cash price incl. VAT less the deposit and the trade-in")
+  })
+
+  it("MPA: unknown regime or missing witnessed spouse consent blocks payout in the database and real route", async () => {
+    const signer = await database().dealSigner.findFirstOrThrow({ where: { dealId: fx.dealId, document: "SURETYSHIP" } })
+    const consent = await database().suretyConsent.findUniqueOrThrow({ where: { signerId: signer.id } })
+    await database().suretyConsent.delete({ where: { id: consent.id } })
+    expect(await sqlError(() => rawPayout(fx.dealId, fx.accountId))).toContain("every surety marital regime")
+    await ruleRefuses(database(), { table: "Payout", trigger: "Payout_surety_consent" }, /every surety marital regime/, (tx) => tx.payout.create({ data: { tenantId: fx.tenantId, dealId: fx.dealId, supplierBankAccountId: fx.accountId, amountCents: 155_250_000, createdById: fx.adminA } }))
+    staff(fx.adminA, "LOAN_ADMIN")
+    expect((await routes().createPayout(fx.dealId)).status).toBe(409)
+    const actor = { tenantId: fx.tenantId, userId: fx.officer }
+    await recordSuretyConsent(actor, fx.dealId, signer.id, { maritalRegime: "UNKNOWN", spouseName: null, witnessOne: null, witnessTwo: null, evidenceDocumentId: null })
+    expect(await sqlError(() => rawPayout(fx.dealId, fx.accountId))).toContain("every surety marital regime")
+    await database().suretyConsent.update({ where: { signerId: signer.id }, data: { maritalRegime: "IN_COMMUNITY" } })
+    expect(await sqlError(() => rawPayout(fx.dealId, fx.accountId))).toContain("every surety marital regime")
+    const evidenceDocumentId = await dealDocument(database(), fx, fx.dealId, "LEGAL_DOCUMENT")
+    const input = { maritalRegime: "IN_COMMUNITY" as const, spouseName: "TEST Spouse", witnessOne: "TEST Witness One", witnessTwo: "TEST Witness Two", evidenceDocumentId }
+    staff(fx.officer, "CREDIT_OFFICER")
+    expect((await routes().consent(fx.dealId, signer.id, input)).status).toBe(200)
+    expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "ASSET_SURETY_CONSENT_VERIFIED" } })).toBe(2)
+    expect(await sqlError(() => database().entityDocument.update({ where: { id: evidenceDocumentId }, data: { deletedAt: new Date() } }))).toContain("verified spouse consent document is immutable")
   })
 
   it("at or above the threshold: PENDING_APPROVAL; the creator cannot approve (route 403, CHECK); a second user can", async () => {

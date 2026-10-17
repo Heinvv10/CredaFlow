@@ -9,10 +9,11 @@ import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-
 import { statusLabel } from "@/lib/asset-finance/labels"
 import { ChecklistConfirm } from "./ChecklistConfirm"
 import { DealActionButton } from "./DealActionButton"
+import { SuretyConsentForm } from "./SuretyConsentForm"
 import { EvidenceUpload } from "./EvidenceUpload"
 
 const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
-const EVIDENCE_TYPES = [...new Set(CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVIDENCE_TYPES[k]))] as EntityDocumentType[]
+const EVIDENCE_TYPES = [...new Set(["LEGAL_DOCUMENT" as EntityDocumentType, ...CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVIDENCE_TYPES[k])])] as EntityDocumentType[]
 const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success", CANCELLED: "neutral" } as const
 
 /** The deal page's "Payout" panel (goal §4.10): checklist, payout, booking. */
@@ -32,6 +33,10 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
           : "; the supplier has no approved bank account yet.")}
       density="loose"
     >
+      {(panel.sureties ?? []).map((s) => <div key={s.signerId} className="mb-4 border-b border-[var(--cf-border-subtle)] pb-3">
+        <p className="text-sm font-medium">Surety: {s.name} · {s.maritalRegime.replaceAll("_", " ")}</p>
+        {canManage && contracted && !payout && <SuretyConsentForm dealId={dealId} signerId={s.signerId} maritalRegime={s.maritalRegime} documents={panel.documents} />}
+      </div>)}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

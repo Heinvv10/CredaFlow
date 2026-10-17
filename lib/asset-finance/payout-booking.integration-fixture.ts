@@ -20,6 +20,7 @@ import { ASSET_ONE_REGISTRATION, dealFixtureTenantId, dealRoutes } from "./deal.
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "./deal-signing.integration-fixture"
 import { POST as confirmRoute } from "@/app/api/asset-finance/deals/[id]/checklist/[item]/route"
 import { GET as panelRoute, POST as payoutRoute } from "@/app/api/asset-finance/deals/[id]/payout/route"
+import { POST as suretyConsentRoute } from "@/app/api/asset-finance/deals/[id]/sureties/[signerId]/consent/route"
 import { POST as approveRoute } from "@/app/api/asset-finance/deals/[id]/payout/approve/route"
 import { POST as bookRoute } from "@/app/api/asset-finance/deals/[id]/book/route"
 import { GET as invoiceRoute } from "@/app/api/asset-finance/tax-invoices/[id]/route"
@@ -74,14 +75,15 @@ export async function approveDeal(
  * client.
  */
 export async function prepareAndSign(
-  fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, wetInkSureties: string[] = [], plannedStartDate?: string,
+  fx: SigningFixture, dealId: string, setSession: SetSession, db: PrismaClient, _wetInkSureties: string[] = [], plannedStartDate?: string,
 ) {
   const routes = signingRoutes(fx.host)
   const staff = (id: string, role: string) => setSession({ id, email: `${id}@booking-it.test`, role, tenantId: fx.tenantId })
   staff(fx.officer, "CREDIT_OFFICER")
   expect((await routes.prepare(dealId, plannedStartDate ? { plannedStartDate } : undefined)).status).toBe(200)
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
-    if (row.document === "SURETYSHIP" && wetInkSureties.includes(row.clientId)) {
+    if (row.document === "SURETYSHIP") {
+      await db.suretyConsent.create({ data: { tenantId: fx.tenantId, signerId: row.id, maritalRegime: "UNMARRIED", verifiedById: fx.officer } })
       staff(fx.officer, "CREDIT_OFFICER")
       expect((await routes.wetInk(dealId, row.id, "SIGNED_SURETYSHIP")).status).toBe(201)
       const uploaded = await db.dealSigner.findUniqueOrThrow({ where: { id: row.id }, select: { scanDocumentId: true } })
@@ -153,7 +155,7 @@ export async function createBookingFixture(
 }
 
 /** A staff-uploaded document filed on the deal (no bytes are read by the checklist). */
-export async function dealDocument(db: PrismaClient, fx: BookingFixture, dealId: string, docType: "SUPPLIER_INVOICE" | "BANK_STATEMENT" | "INSURANCE_NOTING" | "TRACKER_CERTIFICATE" | "DELIVERY_ACCEPTANCE" | "NATIS_DOCUMENT") {
+export async function dealDocument(db: PrismaClient, fx: BookingFixture, dealId: string, docType: "LEGAL_DOCUMENT" | "SUPPLIER_INVOICE" | "BANK_STATEMENT" | "INSURANCE_NOTING" | "TRACKER_CERTIFICATE" | "DELIVERY_ACCEPTANCE" | "NATIS_DOCUMENT") {
   return (await db.entityDocument.create({
     data: {
       tenantId: fx.tenantId, entityId: fx.evidenced, dealId, docType, fileName: `${docType.toLowerCase()}.pdf`, mimeType: "application/pdf",
@@ -197,6 +199,7 @@ export function bookingRoutes(host: string) {
     panel: (id: string) => panelRoute(request(`${base(id)}/payout`, "GET"), deal(id)),
     confirm: (id: string, item: string, body: unknown) =>
       confirmRoute(request(`${base(id)}/checklist/${item}`, "POST", body), { params: Promise.resolve({ id, item }) }),
+    consent: (id: string, signerId: string, body: unknown) => suretyConsentRoute(request(`${base(id)}/sureties/${signerId}/consent`, "POST", body), { params: Promise.resolve({ id, signerId }) }),
     createPayout: (id: string) => payoutRoute(request(`${base(id)}/payout`, "POST", {}), deal(id)),
     approve: (id: string) => approveRoute(request(`${base(id)}/payout/approve`, "POST", {}), deal(id)),
     book: (id: string) => bookRoute(request(`${base(id)}/book`, "POST", {}), deal(id)),

@@ -33,6 +33,7 @@ export function syntheticDealDocumentData(overrides: Partial<DealDocumentData> =
     { clientId: "client-surety", role: "SURETY" as const, active: true },
   ]
   return {
+    isaCpaApplies: false,
     legalWordingApproved: false,
     ncaApplies: false,
     documentDate: new Date("2026-10-13T08:00:00.000Z"),
@@ -89,7 +90,7 @@ export function syntheticDealDocumentData(overrides: Partial<DealDocumentData> =
     signatories: [{ clientId: "client-director", name: "TEST Director", idNumber: "0000000000001" }],
     sureties: [
       { clientId: "client-director", name: "TEST Director", idNumber: "0000000000001" },
-      { clientId: "client-surety", name: "TEST Surety", idNumber: "0000000000002" },
+      { clientId: "client-surety", name: "TEST Surety", idNumber: "0000000000002", addressLines: ["3 Test Surety Road", "Testville", "0003"] },
     ],
     requiredSigners: deriveRequiredSigners("COMPANY", relationships),
     ...overrides,

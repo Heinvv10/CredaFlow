@@ -68,10 +68,10 @@ function certificate(nca: boolean): WordingClause {
   }
 }
 
-function notices(data: DealDocumentData): WordingClause {
+function notices(data: DealDocumentData, surety: DocumentPerson): WordingClause {
   return {
     heading: "Domicilium and notices",
-    text: `The Creditor chooses its registered office at ${data.lender.registeredOfficeLines.join(", ")} as its domicilium citandi et executandi, where notices and legal process may be delivered. The Surety chooses as its domicilium the residential address the Surety last notified to the Creditor in writing. Either may change its domicilium to another physical address in the Republic of South Africa by written notice to the other.
+    text: `The Creditor chooses its registered office at ${data.lender.registeredOfficeLines.join(", ")} as its domicilium citandi et executandi, where notices and legal process may be delivered. The Surety chooses as its domicilium ${surety.addressLines?.join(", ") || "the physical address to be recorded in section 1 before execution"}. Either may change its domicilium to another physical address in the Republic of South Africa by written notice to the other.
 
 A notice under this deed must be in writing. A notice delivered by hand to a domicilium is received on delivery, and one sent by prepaid registered post to it is received on the 7th business day after posting. A notice actually received is effective even if it was not delivered in one of these ways.`,
   }
@@ -107,7 +107,7 @@ export function suretyshipClauses(data: DealDocumentData, surety: DocumentPerson
     renunciation(nca),
     continuing(nca),
     certificate(nca),
-    notices(data),
+    notices(data, surety),
     spouse(),
     general(nca),
   ]

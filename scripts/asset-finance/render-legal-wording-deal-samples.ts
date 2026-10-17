@@ -55,6 +55,7 @@ async function main(): Promise<void> {
   const trust = syntheticDealDocumentData({ entity: { ...d.entity, type: "TRUST", legalName: "TEST Family Trust", registrationNumber: "IT0000/2099", mastersReference: "IT0000/2099" } })
   writeFileSync(join(COMMERCIAL, "instalment-sale-agreement.pdf"), await renderInstalmentSaleAgreement(d))
   writeFileSync(join(COMMERCIAL, "instalment-sale-agreement-zaronia.pdf"), await renderInstalmentSaleAgreement({ ...d, pricing: { ...d.pricing, rateBasis: "ZARONIA" } }))
+  writeFileSync(join(COMMERCIAL, "instalment-sale-agreement-cpa.pdf"), await renderInstalmentSaleAgreement({ ...d, isaCpaApplies: true }))
   writeFileSync(join(COMMERCIAL, "suretyship.pdf"), await renderSuretyship(d, "client-surety"))
   writeFileSync(join(COMMERCIAL, "suretyship-nca-principal.pdf"), await renderSuretyship({ ...d, ncaApplies: true }, "client-surety"))
   writeFileSync(join(COMMERCIAL, "resolution-company.pdf"), await renderResolution(d))

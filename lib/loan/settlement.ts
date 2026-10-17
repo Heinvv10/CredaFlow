@@ -213,7 +213,10 @@ function settlementTerms(args: {
   const contractualTotalRepayable =
     loan.contractualTotalRepayable ?? loan.totalRepayable
 
-  if (isS125InstalmentLoan(loan, schedule)) {
+  // A commercial instalment sale owes accrued interest only (Conventional
+  // Penalties Act), with the same earned-period repricing and audit evidence.
+  const commercialSale = loan.ncaRegime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && schedule.length > 0
+  if (isS125InstalmentLoan(loan, schedule) || commercialSale) {
     const instalment = s125InstalmentSettlement(loan, byDueDate(schedule), asOf)
     if (instalment.rebate > 0) {
       return {

@@ -85,6 +85,10 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData): Pro
     ]),
   )
 
+  if (data.isaCpaApplies !== false) {
+    w.section("CPA NOTICE — READ BEFORE SIGNING")
+    w.paragraph("The Consumer Protection Act applies to the supply of these goods. Clause 7.2 draws your attention to the transfer of risk and indemnity. Read and understand these terms before signing. They do not exclude your statutory rights or liability for the seller's gross negligence.")
+  }
   w.section("7. TERMS AND CONDITIONS")
   instalmentSaleClauses(data).forEach((c, i) => w.clause(`7.${i + 1}`, c.heading, c.text))
 

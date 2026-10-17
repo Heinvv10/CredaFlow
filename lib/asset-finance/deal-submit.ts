@@ -103,7 +103,7 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
   }
 
   const lease = isLeaseContract(deal.contractType)
-  const cpa = lease ? await leaseCpaScope(tx, tenantId, deal) : null
+  const cpa = (lease || deal.contractType === "INSTALMENT_SALE") ? await leaseCpaScope(tx, tenantId, deal) : null
   if (lease && !cpa) return { kind: "not_found" }
   const classified = deal.application.clientId || lease
     ? null
@@ -142,6 +142,6 @@ export async function submitDeal(tx: RegimeTx, actor: DealActor, dealId: string)
     where: { id: applicationId, tenantId },
     data: { status: "SUBMITTED", submittedAt },
   })
-  await tx.assetFinanceDeal.update({ where: { id: deal.id, tenantId }, data: { status: "SUBMITTED", ...(cpa ? cpaColumns(cpa) : {}) } })
+  await tx.assetFinanceDeal.update({ where: { id: deal.id, tenantId }, data: { status: "SUBMITTED", ...(lease && cpa ? cpaColumns(cpa) : {}), ...(deal.contractType === "INSTALMENT_SALE" && cpa ? { isaCpaApplies: cpa.applies, isaCpaRule: cpa.rule } : {}) } })
   return { kind: "submitted", awaitingRegimeApproval, regime, rule }
 }

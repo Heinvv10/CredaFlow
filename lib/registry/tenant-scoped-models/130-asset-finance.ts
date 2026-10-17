@@ -27,6 +27,7 @@ export default defineTenantScopedModels([
   // Non-null tenantId, passed explicitly on every query; the seed runs
   // inside runWithTenant (prisma/seed/asset-finance.ts).
   "DealSigner",
+  "SuretyConsent",
   "PayoutChecklistItem",
   "Payout",
   "KycOverrideRequest",

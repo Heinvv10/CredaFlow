@@ -17,6 +17,7 @@ export interface ChecklistItemView {
 }
 
 export interface PayoutPanel {
+  sureties: { signerId: string; name: string; maritalRegime: string; verifiedAt: string | null }[]
   dealStatus: AssetDealStatus
   entityId: string | null
   checklist: ChecklistItemView[]
@@ -47,6 +48,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
     select: {
       status: true, entityId: true, contractType: true, supplierId: true, depositCents: true, tradeInCents: true,
       asset: { select: { cashPriceExclVatCents: true, vatCents: true, registrationNumber: true } },
+      signers: { where: { document: "SURETYSHIP" }, select: { id: true, client: { select: { firstName: true, lastName: true } }, suretyConsent: { select: { maritalRegime: true, verifiedAt: true } } } },
       checklist: {
         select: {
           item: true, confirmedAt: true, note: true,
@@ -97,6 +99,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
   })
   const { payout, loan } = deal
   return {
+    sureties: (deal.signers ?? []).map((s) => ({ signerId: s.id, name: `${s.client.firstName} ${s.client.lastName}`, maritalRegime: s.suretyConsent?.maritalRegime ?? "UNKNOWN", verifiedAt: s.suretyConsent?.verifiedAt.toISOString() ?? null })),
     dealStatus: deal.status,
     entityId: deal.entityId,
     checklist,

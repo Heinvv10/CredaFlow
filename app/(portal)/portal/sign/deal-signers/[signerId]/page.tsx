@@ -33,7 +33,7 @@ export default async function DealSignerPage({ params }: { params: Promise<{ sig
   const label = DEAL_DOCUMENT_LABELS[signer.document]
   const state = signerState(signer)
   const documentUrl = `/api/portal/asset-finance/deal-signers/${signer.id}/document`
-  const canSign = signer.deal.status === "APPROVED" && signer.method === null
+  const canSign = signer.document !== "SURETYSHIP" && signer.deal.status === "APPROVED" && signer.method === null
   const recipient = canSign
     ? await prisma.client.findFirst({ where: { id: clientId, tenantId }, select: { firstName: true, lastName: true, email: true, whatsapp: true } })
     : null
@@ -54,6 +54,7 @@ export default async function DealSignerPage({ params }: { params: Promise<{ sig
           <iframe src={documentUrl} title={label} className="h-full w-full" />
         </div>
       </DataPanel>
+      {signer.document === "SURETYSHIP" && <p className="text-sm text-[var(--cf-text-secondary)]">Suretyships require wet ink. Sign the printed deed and return it to the lender for staff verification. Electronic signing is unavailable.</p>}
       {canSign ? (
         <DealSignClient signerId={signer.id} documentSha256={signer.documentSha256} documentLabel={label} signingOtp={signingOtp} />
       ) : (
