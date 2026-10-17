@@ -132,8 +132,9 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
   if (quote.cpaCancellation && (!actor.userId || !input.assessment)) return refused("valuation", "Staff must record the goods' net realisable or re-let value and documented actual costs; cancellation already stands")
   if (quote.cpaCancellation && input.assessment && (!Number.isSafeInteger(input.assessment.goodsValueCents) || input.assessment.goodsValueCents < 0
     || !Array.isArray(input.assessment.costs) || input.assessment.costs.some((c) => !c || !Number.isSafeInteger(c.amountCents) || c.amountCents < 0
+      || typeof c.valuationNoOverlapEvidence !== "string" || !c.valuationNoOverlapEvidence.trim()
       || typeof c.description !== "string" || !c.description.trim() || typeof c.evidence !== "string" || !c.evidence.trim()))) {
-    return refused("invalid_assessment", "Record a non-negative goods value and each actual cost with its description, amount and evidence")
+    return refused("invalid_assessment", "Record a non-negative goods value and each actual cost with its description, amount, evidence and evidence confirming it was not deducted from the net goods valuation")
   }
 
   const acceptanceDate = quote.cpaCancellation ? isoOfDbDate(quote.terminationDate) : input.today
@@ -185,13 +186,13 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
     scheduleId = await appendLeaseCharge(tx, { tenantId, loanId: quote.loanId, amountCents: invoice.totalInclVatCents, dueDate: isoOfDbDate(quote.terminationDate), actorUserId: actor.userId ?? null, why: "lease_early_termination" })
   }
   await tx.leaseTerminationQuote.update({ where: { id: quote.id, tenantId }, data: { ...priced, terminationDate: quote.terminationDate, totalCents: quote.totalCents,
-    ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs as unknown as Prisma.InputJsonValue, basis: basisText(true, "0", acceptanceDate) + ` Recorded goods value: ${formatMoney(input.assessment!.goodsValueCents)}; costs: ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)} (${c.evidence})`).join("; ") || "none"}.` } : {}),
+    ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs as unknown as Prisma.InputJsonValue, basis: basisText(true, "0", acceptanceDate) + ` Recorded goods value: ${formatMoney(input.assessment!.goodsValueCents)}; costs: ${costs.map((c) => `${c.description}: ${formatMoney(c.amountCents)} (${c.evidence}; not deducted from goods valuation: ${c.valuationNoOverlapEvidence})`).join("; ") || "none"}.` } : {}),
     status: "ACCEPTED", acceptedAt: new Date(), acceptedById: actor.userId ?? null, acceptedByClientId: actor.clientId ?? null, taxInvoiceId, scheduleId } })
   if (!quote.cpaCancellation) await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: quote.loanId, origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED", electedById: actor.userId ?? null, electedByClientId: actor.clientId ?? null } })
   await replayLeaseCancellationCredit(tx, { tenantId, loanId: quote.loanId, userId: actor.userId ?? null, reference: quote.id })
   await logAuditStrict({
     tenantId, userId: actor.userId, action: AuditAction.LEASE_EARLY_TERMINATION_ACCEPTED, entity: "LeaseTerminationQuote", entityId: quote.id,
-    newValue: { loanId: quote.loanId, taxInvoiceId, scheduleId, totalCents: quote.totalCents, terminationDate: isoOfDbDate(quote.terminationDate), clientId: actor.clientId ?? null },
+    newValue: { loanId: quote.loanId, taxInvoiceId, scheduleId, totalCents: quote.totalCents, terminationDate: isoOfDbDate(quote.terminationDate), clientId: actor.clientId ?? null, ...(quote.cpaCancellation ? { goodsValueCents: input.assessment!.goodsValueCents, documentedCosts: costs } : {}) },
   }, tx)
   return { kind: "accepted", quoteId: quote.id, taxInvoiceId }
 }

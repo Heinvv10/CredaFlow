@@ -205,7 +205,7 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const acceptedNow = await json(await routes().portalAccept(loans.terminate, quote.id))
     expect(acceptedNow.status, JSON.stringify(acceptedNow.body)).toBe(422) // client acceptance is unnecessary; staff valuation required
     staff(fx.adminA, "LOAN_ADMIN")
-    const assessment = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.id, today: today(), assessment: { goodsValueCents: 20_000_000, costs: [{ description: "Recovery", amountCents: 50_000, evidence: "synthetic-recovery.pdf" }] } }))
+    const assessment = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.id, today: today(), assessment: { goodsValueCents: 20_000_000, costs: [{ description: "Recovery", amountCents: 50_000, evidence: "synthetic-recovery.pdf", valuationNoOverlapEvidence: "synthetic-valuation.pdf confirms recovery cost excluded" }] } }))
     expect(assessment.kind).toBe("accepted")
     const rentals = await database().leaseRental.findMany({ where: { loanId: loans.terminate } })
     const after = rentals.filter((r) => r.dueDate.getTime() > quote.terminationDate.getTime())

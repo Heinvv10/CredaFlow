@@ -131,6 +131,9 @@ suite.sequential("lease legal calculations applied to actual accounts", () => {
     expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable)
     expect(payments.filter((p) => p.allocationStatus === "UNAPPLIED").reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable)
     if (quote.kind !== "quoted") return
+    const rejected = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 50_000_000, costs: [{ description: "Recovery already netted", amountCents: 10_000, evidence: "synthetic-cost.pdf" }] } }))
+    expect(rejected).toMatchObject({ kind: "refused", reason: "invalid_assessment" })
+    await expect(database().leaseTerminationQuote.update({ where: { id: quote.quoteId }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: fx.adminA, documentedCosts: [{ description: "Recovery already netted", amountCents: 10_000, evidence: "synthetic-cost.pdf" }] } })).rejects.toThrow(/cost_overlap_evidence/)
     const assessed = await database().$transaction(async (tx) => {
       const result = await acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.quoteId, today: today(), assessment: { goodsValueCents: 50_000_000, costs: [] } })
       await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

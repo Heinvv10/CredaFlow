@@ -11,3 +11,11 @@ TDD evidence includes red-to-green charge arithmetic, cancellation completion bl
 The preceding full gate passed types, lint and documentation checks, then stopped at one outdated transaction mock: 19,510 unit tests passed and one failed (`/tmp/lease-full3.log`). That mock was corrected and its targeted suite passed. A new complete gate and independent review are required before merge; the parent agent records their final results and exact commit.
 
 Temporary runner outputs are local evidence pointers, not repository artifacts. Browser metadata contains only synthetic fixture credentials and is intentionally excluded.
+
+## Legal review corrections
+
+The goods credit remains NET value under the approved formula. Every separately added cancellation cost now requires an evidence reference confirming it was not deducted from that valuation. The evidence is retained in the quote JSON and audit, enforced by server validation and `LeaseTerminationQuote_cost_overlap_evidence`. The new CHECK is NOT VALID for historical immutable rows, while PostgreSQL enforces all subsequent inserts/updates. Tests reject missing evidence through both the service and a direct accepted-quote write, and accept evidenced costs.
+
+The agreements now identify the evidenced write-off/confirmed unrecovered theft loss as the termination and PV valuation event, independently of insurer settlement or physical return/inspection. Later actual insurer receipts remain credits, with excess reconciled/refundable to the entitled party. Commercial acceptance recalculates at the acceptance date and credits superseded/prepaid supplies instead of lapsing upon invoicing. No approval flag was changed.
+
+Wording tests: 25 passed (`/tmp/lease-law-wording.log`). Sample renderer completed (`/tmp/lease-law-render.log`); `pdftotext` of both agreements confirms the operative changes (`/tmp/lease-law-commercial.txt`, `/tmp/lease-law-cpa.txt`). Real PostgreSQL tests after the final migration reset are recorded by the parent from `/tmp/lease-overlap-pg-final2.log`.

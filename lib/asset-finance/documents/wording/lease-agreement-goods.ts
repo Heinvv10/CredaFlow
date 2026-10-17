@@ -90,9 +90,9 @@ function insurance(i: LeaseWordingInput): string {
     + "and gives the lessor proof of cover on request. If the lessee does not insure the goods, the lessor may insure them and recover the premium from the lessee on demand.",
     "The lessee reports any loss or damage to the lessor and the insurer within 24 hours, and a theft or hijacking also to the South African Police Service, and does nothing that "
     + "could void the cover. Insurance proceeds for repairable damage are used to repair the goods.",
-    "If the goods are stolen and not recovered, or written off, the lease ends on the day the insurer settles the claim. The lessee then pays the lessor the arrears and the "
+    "If the goods are stolen and not recovered, or written off, the lease ends on the date the theft is confirmed as an unrecovered total loss or the goods are written off, recorded with supporting evidence. The lessee then pays the lessor the arrears and the "
     + "present value on that day of the rentals (excl. VAT and maintenance) that would have fallen due after it, discounted at the contract rate, without any penalty, and the "
-    + "insurance proceeds the lessor receives are credited against that amount. The lessee has no claim to any part of the proceeds above that amount.",
+    + "insurance proceeds actually received, including later receipts, are credited through the receipt ledger against that amount; any excess is recorded for reconciliation and refund to the entitled party. Termination and the valuation date do not depend on insurer settlement or a physical return or inspection of stolen or destroyed goods.",
   )
 }
 

@@ -104,6 +104,8 @@ export interface CancellationCost {
   amountCents: number
   /** File/document reference for the actual recovery, refurbishment or re-letting cost. */
   evidence: string
+  /** Evidence confirming this cost was not deducted in the net goods valuation. */
+  valuationNoOverlapEvidence?: string
 }
 
 function nonNegativeCents(value: number, field: string): void {

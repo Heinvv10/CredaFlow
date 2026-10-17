@@ -517,10 +517,15 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 
 - **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
   cancellation, valuation credit and documented actual costs, automatic continuation
-  despite default, and 20-business-day lessee notice during continuation.
+  despite default, and 20-business-day lessee notice during continuation. Added-cost
+  assessments require recorded evidence that the cost was not already deducted
+  from the net goods valuation, enforced in the server and database.
 - **Changed 2026-10-17 to comply with the Conventional Penalties Act and lease
   clauses 9.5/9.11:** cancellation damages discount unearned rentals at the contract
-  rate; total loss records the write-off and actual insurer receipt without a penalty.
+  rate; total loss ends the lease on the evidenced write-off or confirmed unrecovered
+  theft-loss date, values PV on that date, and credits actual insurer receipts, including
+  later receipts, without a penalty or physical-return condition. Commercial acceptance
+  recalculates the amount at the acceptance date even if rentals were invoiced/prepaid.
 - **Changed 2026-10-17 to comply with VAT Act s67:** rentals use supply-date VAT,
   adjusting the rental and schedule ledger in the same transaction as their invoice.
 
