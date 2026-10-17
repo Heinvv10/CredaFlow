@@ -1,5 +1,11 @@
 # File ownership and resource registry
 
+## Resumed demo-only F15 integration
+
+User approval: “This is still only demo data, so Im approving it. Resume the goal”. MQ solely owns integration/runtime/artifacts on `fix/gtm-f15-demo-integration-20261017`, worktree `CredaFlow-gtm-mq`, main base `37c85a18` plus proposal `1ddf3ef2`, combined source `44792079`. Existing migrations must remain byte-identical. Root solely owns TRACKER.md, OWNERSHIP.md, ACCEPTANCE.md, F15-TECHNICAL-REVIEW.md and FINAL-RELEASE.md in this directory on `docs/gtm-demo-approval-20261017`, worktree `CredaFlow-gtm-coordinator`, base `37c85a18`. A reviews source/artifacts read-only. B owns only private browser harnesses in its existing isolated worktree/private temporary directory, with MQ controlling runtime and fixture allocation. No concurrent product-file edits are assigned.
+
+Dependencies: root scope record → MQ exact freeze → serialized host quality/integration (CPUs4–7), pristine build (CPUs0–3) → B browser ceremony and A independent source/artifact review → required hosted checks → existing merge queue. No public deployment or real-lender legal approval is implied.
+
 Base for all branches: `3a0a17e38b393d0c0707ed24e615be2b016f604e`.
 
 | Owner | Branch | Worktree | Findings | Exact writable paths |

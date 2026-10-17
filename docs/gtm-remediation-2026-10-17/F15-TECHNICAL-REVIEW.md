@@ -1,5 +1,9 @@
 # F15 independent technical review — no legal approval
 
+## Later demo-only authorization
+
+Hein approved continuation explicitly because all data is synthetic demo data. This authorizes reviewed F15 integration and private combined acceptance, superseding historical pre-merge legal-block statements below for that scope. It does not establish real-lender legal approval, approve the unchanged provider-signature crowding for real use, or authorize public deployment. Original statutory wording/pages/fingerprints and immutable prior receipts remain preserved. Current-main integration and fresh combined gates/browser/artifacts are required before final acceptance.
+
 Reviewer: coordinator/root; implementation author B. Reviewed source commit b80a529015aaad111b5bce4d03707331927cdeff, subsequent docs-only e74d175a/8b17dfda. Proposal remains on fix/gtm-f15-legal-20261017, outside core software candidate.
 
 Source verdict: APPROVE technical direction subject to final-base full gates and lender legal approval. Shared five prior UI statements remain exact, including PASQ-read versus printed-received distinction. New payload/row bind exact text-set digest/version/IDs, tenant/application/client/signer/time and agreement/PASQ/signature hashes. Server recomputes text digest; schema maps match actual SQL names; composite FK plus insert validation and immutable update/delete guards enforce evidence integrity. Signature capture and acceptance insert share transaction. Counter-signing verifies present bound evidence and appends only verified certificate to stored bytes; no record means no certificate, never inferred old acceptance. Branch/paper behavior is retained. No statutory text or historical fingerprint was repinned.

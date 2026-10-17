@@ -1,5 +1,7 @@
 "use client"
 
+import { AGREEMENT_DECLARATIONS, AGREEMENT_DECLARATION_PAYLOAD } from "@/lib/signing/agreement-declaration-set"
+
 import { useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckCircle, Loader2, PenLine, Keyboard, RotateCcw } from "lucide-react"
@@ -184,6 +186,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           method: "portal",
+          declarations: AGREEMENT_DECLARATION_PAYLOAD,
           signature: signatureData,
           agreementDocumentSha256,
           pasqDocumentSha256,
@@ -218,13 +221,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
     )
   }
 
-  const labels = [
-    "I have read and understood this Pre-Agreement Statement and Quotation",
-    "I have read and understood the Repayment Schedule",
-    "I have been informed of my right to settle this agreement in full at any time (NCA Section 125)",
-    "I accept the terms and conditions of this credit agreement",
-    "The information I have provided is true and correct",
-  ]
+  const labels = AGREEMENT_DECLARATIONS.map(d => d.text)
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
