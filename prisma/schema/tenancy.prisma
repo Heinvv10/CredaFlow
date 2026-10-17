@@ -167,6 +167,8 @@ model Tenant {
   selfieCaptureTokens        SelfieCaptureToken[]
   signingOtpChallenges       SigningOtpChallenge[]
   statementAnalyses          StatementAnalysis[]
+  statementAiOutputs         StatementAiOutput[]
+  statementAiUsages          StatementAiUsage[]
   suppliers                  Supplier[]
   supportGrants              TenantSupportGrant[]
   surrenderRequests          SurrenderRequest[]
@@ -213,6 +215,10 @@ model TenantConfig {
   featureReports                    Boolean @default(true)
   // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
   featureAssetFinance               Boolean @default(false)
+  // Statement AI (lib/statement-ai): advisory summaries, flag explanations and
+  // answers from the self-hosted model. Priced per statement; only a
+  // SUPER_ADMIN switches it (app/api/settings/statement-ai), audited.
+  featureStatementAi                Boolean @default(false)
   // Asset-finance payouts at or above this amount (cents) need a second,
   // different approver (DESIGN D8). Default R1m.
   assetPayoutDualApprovalCents      Int     @default(100000000)

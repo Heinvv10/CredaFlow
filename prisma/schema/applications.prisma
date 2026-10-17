@@ -191,6 +191,7 @@ model LoanApplication {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   assetFinanceDeal          AssetFinanceDeal?
   checkFlags                ApplicationCheckFlag[]
+  statementAiOutputs        StatementAiOutput[]
   conversations             Conversation[]
   convertedLead             Lead?                      @relation("LeadConvertedApplication")
   loan                      Loan?

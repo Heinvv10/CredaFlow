@@ -1,0 +1,39 @@
+<!-- GENERATED — do not edit. Canonical source: ./.claude.md -->
+<!-- Regenerate: npm run agents:mirror   ·   Verify: npm run agents:check -->
+<!-- You are reading the AGENTS.md view of the Claude-facing docs. Prose
+     below may refer to ".claude.md" when describing the canonical side;
+     that is accurate — only PATH references are rewritten to AGENTS.md. -->
+# Module: statement-ai
+<!-- summary: Advisory model text beside statement insights: post-checked figures, never a decision input -->
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+Advisory text from the self-hosted model beside the statement insights, sold
+per lender (`TenantConfig.featureStatementAi`, SUPER_ADMIN only, audited):
+a summary, an explanation per raised flag, and answers to an officer's
+question. Goal: `.claude/handoffs/2026-10-17-statement-ai-goal.md`.
+
+## Critical Rules
+- **Advisory only.** Output is stored, audited and shown beside the rules'
+  panel. It never sets, clears, softens or re-orders a flag, and nothing the
+  decision runs on imports this module (`advisory-boundary.test.ts` walks the
+  import graph from run-checks, recompute, load-facts and the decide route).
+- **The model never does arithmetic.** It writes prose around figures it is
+  given; for questions it picks typed queries and code computes them.
+- **Every output passes `postCheck` before anyone sees it** (`post-check.ts`):
+  each amount, percentage, count and date must equal a supplied figure, and
+  anything it cannot read exactly ("R1.2k", words, "12/09", "last month")
+  rejects. With a flag raised, reassurance ("fine", "normal", "resolved")
+  rejects; a decision or authenticity verdict always rejects. A rejected or
+  failed output is stored with its reason and the officer sees "unavailable".
+  Loosening a rule needs a test showing the wrong figure it could let through.
+- **The model sees masked keys only** (`labelKey()`: digits → 9, first three
+  words), never a client name, ID, account or reference number, nor a flag's
+  summary text (it can quote the client's name).
+- **Never call the model inside a request.** Routes enqueue; the in-process
+  worker (one call at a time) generates; the UI polls.
+- **Only the model at `VLM_API_URL`.** No third-party API, no new outbound host.
+- **Metering never blocks**: `recordUsage` logs a failed write and carries on.
+- Dev runs and evaluations against the shared model: after 17:00 SAST on
+  weekdays or at weekends, with no demo bake running. Unit tests mock fetch.
+- Synthetic fixtures only; the statement corpus is never used here.
