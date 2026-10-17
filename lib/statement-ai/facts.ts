@@ -96,6 +96,7 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   const months: string[] = []
   const literals: string[] = [...extraLiterals]
   const monthly: number[] = []
+  const names: string[] = []
   const ins: number[] = []
   const outs: number[] = []
   type Ctx = { perMonth: boolean; direction: "in" | "out" | null }
@@ -107,7 +108,11 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     if (typeof v === "object") {
       const o = v as Record<string, unknown>
       const direction = o.direction === "in" || o.direction === "out" ? o.direction : ctx.direction
-      return Object.entries(o).forEach(([k, x]) => visit(x, k, { perMonth: ctx.perMonth || typeof o.month === "string", direction }))
+      return Object.entries(o).forEach(([k, x]) => {
+        // A key in capitals is a name too (a category: "FOOD").
+        if (/^[A-Z][A-Z_]+$/.test(k)) names.push(k)
+        visit(x, k, { perMonth: ctx.perMonth || typeof o.month === "string", direction })
+      })
     }
     if (typeof v === "number") return void (/percent/i.test(key) ? percents : numbers).push(v)
     if (typeof v !== "string") return
@@ -123,10 +128,12 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return void dates.push(v)
     if (/^\d{4}-\d{2}$/.test(v)) return void months.push(v)
     // Any other string with a digit (a row reference, a code) may be copied whole, never read as a figure.
-    if (/\d/.test(v)) literals.push(v)
+    if (/\d/.test(v)) return void literals.push(v)
+    // A name in capitals (a payee, a bank, a category, a check) may be copied as written.
+    if (/^[A-Z][A-Z0-9_&' -]*$/.test(v)) names.push(v)
   }
   visit(facts, "", { perMonth: false, direction: null })
-  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals }
+  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals, names }
 }
 
 type PayeeRow = Pick<CountedRow, "t">
