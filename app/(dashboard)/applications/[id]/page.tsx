@@ -853,6 +853,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           clientDebtTotal={clientDebtTotal}
           ownLenderDebts={affordabilityLocked ? null : ownLenderDebts}
           proposedInstalment={displayedProposedInstalment}
+          proposedPaymentLabel={application.product.productType === "PO_FUNDING" && loanCalc.schedule.length === 1 ? "Single scheduled repayment" : undefined}
+          proposedPaymentNote={application.product.productType === "PO_FUNDING" ? `${loanCalc.schedule.length === 1 ? "This assessment compares the full single repayment" : "This assessment compares the scheduled instalment"} with the borrower's disposable income. Purchase-order evidence does not replace borrower affordability or establish a buyer-funded repayment arrangement.` : undefined}
           affordabilityNDI={application.affordabilityNDI}
           done={!!application.affordabilityNDI}
           readOnly={affordabilityLocked}
