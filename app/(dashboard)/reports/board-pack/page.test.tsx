@@ -26,12 +26,17 @@ vi.mock("@/lib/config/identity", () => ({
   getLenderBrandName: vi.fn(async () => "Acme Lending"),
   findLenderIdentity: vi.fn(async () => ({ ncrNumber: "NCRCP99999" })),
 }))
-vi.mock("@/lib/reports/par", () => ({
-  getPortfolioPar: vi.fn(async () => {
-    const zero = { value: 0, pct: 0, count: 0 }
-    return { book: 0, par30: zero, par60: zero, par90: zero }
-  }),
+// The book and PAR as every screen states them; the where-builders stay real.
+const { getBookArrears } = vi.hoisted(() => ({ getBookArrears: vi.fn() }))
+vi.mock("@/lib/reports/book-arrears", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/reports/book-arrears")>()),
+  getBookArrears,
 }))
+const zero = { value: 0, pct: 0, count: 0 }
+const bookOf = (count: number, value: number) => ({
+  scope: "ALL", chargesLive: false, book: { count, value }, arrears: { count: 0, amount: 0, outstandingPrincipal: 0 },
+  chargesOnly: { count: 0, amount: 0 }, ageing: [], par30: zero, par60: zero, par90: zero,
+})
 vi.mock("@/lib/reports/charges-owing", () => ({
   chargesOwing: () => 0,
   loadChargesOwingByBand: vi.fn(async () => ({ chargesLive: false, byBand: {}, notInArrears: { count: 0, amount: 0 }, total: 0 })),
@@ -45,6 +50,16 @@ describe("Board pack", () => {
   beforeEach(() => {
     calls.length = 0
     answers.clear()
+    getBookArrears.mockResolvedValue(bookOf(0, 0))
+  })
+
+  it("states the collectible book from the shared helper as the Loan Book, with no aggregate of its own", async () => {
+    getBookArrears.mockResolvedValue(bookOf(7, 2_620_000_00))
+    const html = text(renderToStaticMarkup(await BoardPackPage()))
+    expect(getBookArrears).toHaveBeenCalledWith("tenant-1")
+    expect(html).toContain("Loan Book R 2,620,000.00 7 loans in the collectible book")
+    const bookAggregates = calls.filter((c) => c.op === "loan.aggregate" && "outstandingPrincipal" in ((c.args._sum ?? {}) as object))
+    expect(bookAggregates).toEqual([])
   })
 
   it("leaves a reversed loan's CANCELLED instalments out of the collection-rate denominator", async () => {
@@ -71,10 +86,7 @@ describe("Board pack", () => {
   it("rates arrears as principal in arrears over the collectible book, never arrears amounts over principal", async () => {
     // Book R10,000; two accounts in arrears with R2,000 principal between them,
     // owing R2,600 of instalments (interest and fees included).
-    answers.set("loan.aggregate", (args: Record<string, unknown>) =>
-      JSON.stringify((args.where as { status?: unknown }).status) === JSON.stringify({ in: [...COLLECTIBLE_STATUSES] })
-        ? { _count: 5, _sum: { outstandingPrincipal: 1_000_000 } }
-        : undefined)
+    getBookArrears.mockResolvedValue(bookOf(5, 1_000_000))
     // The accounts in arrears as every screen counts them (lib/reports/book-arrears.ts).
     answers.set("loan.findMany", (args: Record<string, unknown>) =>
       JSON.stringify(args.where) === JSON.stringify(overdueWhere("tenant-1"))

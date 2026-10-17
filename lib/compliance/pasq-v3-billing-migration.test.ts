@@ -194,7 +194,10 @@ describe("PASQ v3 billing database migration", () => {
     expect(billing).toContain(`ON own."id" = recorded ->> 'id'`)
     expect(billing).toContain(`<= settle_day`)
     expect(billing).toContain(`actual."creditLifePremiumDue" <> 0`)
-    expect(baselineConstraintSql("AuditLog_settlement_evidence_receipts_only")).toContain(`"newValue" -> 'earlyInstalmentSettlement' IS NULL`)
+    // Re-added by 20261017090000_settlement_evidence_daily_key with the DAILY_ACCRUAL key.
+    const evidence = baselineConstraintSql("AuditLog_settlement_evidence_receipts_only")
+    expect(evidence).toContain(`"newValue" -> 'earlyInstalmentSettlement' IS NULL`)
+    expect(evidence).toContain(`"newValue" -> 'earlyDailySettlement' IS NULL`)
     expect(billing).toContain(`Early instalment settlement does not preserve PASQ v3 contractual and ledger evidence`)
     // The DAILY_ACCRUAL rebate and the full PASQ comparison are kept as they were.
     expect(billing).toContain(`audit."newValue" ->> 'earlyDailySettlement' = 'true'`)

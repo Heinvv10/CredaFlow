@@ -27,6 +27,11 @@ describe("the repo rate the NCA cap uses", () => {
     expect(await checkNcaInterestRateFor(db("0.0725", ["0.0675"]), "t1", unsecured, on)).toMatchObject({ ok: false, reason: "ABOVE_CAP" })
   })
 
+  it("ignores a fed value outside the plausible 1%–20% band rather than lower the cap on it", async () => {
+    expect(await capRepoRate(db("0.0725", ["0.002", "0.07"]), "t1", "2026-11-25")).toEqual({ rate: 0.07, approved: 0.0725 })
+    expect(await capRepoRate(db("0.0725", ["0.002"]), "t1", "2026-11-25")).toEqual({ rate: 0.0725, approved: 0.0725 })
+  })
+
   it("ignores a newer fed value that is higher until a person approves it", async () => {
     expect(await capRepoRate(db("0.07", ["0.0775"]), "t1", "2026-11-25")).toEqual({ rate: 0.07, approved: 0.07 })
   })
