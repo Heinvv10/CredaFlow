@@ -24,8 +24,8 @@ type Lessee = Pick<LeaseWordingInput, "naturalPerson">
 /** What a s14 term rests on: the statute for a natural-person lessee, this agreement for a juristic one (s14(1) excludes it). */
 export const s14Source = (i: Lessee, subsection: string): string => (i.naturalPerson ? `section 14(${subsection}) of the CPA` : "this agreement")
 /** For a juristic lessee, the sentence that says why the agreement gives the s14 term; nothing for a natural person. */
-export const s14Note = (i: Lessee, subsection: string, who: string): string => (i.naturalPerson ? ""
-  : ` Section 14(${subsection}) of the CPA does not apply to a juristic lessee, but this agreement gives ${who} the same terms as it gives a natural-person consumer.`)
+export const s14Note = (i: Lessee, subsection: string, who: string, what = "the same terms as the CPA gives a natural-person consumer"): string => (i.naturalPerson ? ""
+  : ` Section 14(${subsection}) of the CPA does not apply to a juristic lessee, but this agreement gives ${who} ${what}.`)
 
 function endOptions(i: LeaseWordingInput): string {
   const maintenance = i.fml ? " and maintenance" : ""
@@ -92,7 +92,7 @@ function breach(i: LeaseWordingInput): string {
   const events = i.cpa
     ? `If the lessee fails to pay any amount on its due date or materially breaches this agreement, the lessor may give the lessee written notice of the breach. If the lessee `
       + `has not remedied it within ${CPA_DAYS} of the notice, the lessor may cancel this agreement, as ${s14Source(i, "2)(b)(ii")} provides, or exercise its other remedies `
-      + `below.${s14Note(i, "2)(b)(ii", "the lessor")}`
+      + `below.${s14Note(i, "2)(b)(ii", "the lessor", "the same right of cancellation as section 14(2)(b)(ii) gives a supplier")}`
     : "The lessee is in default if it: fails to pay any amount on its due date; breaches any other term and does not remedy the breach within "
       + `${COMMERCIAL_REMEDY_DAYS} days of the lessor's written notice; is placed under provisional or final sequestration, liquidation or deregistration, commits an act of `
       + "insolvency, or offers a compromise to its creditors; allows a judgment against it to stay unsatisfied for 7 days; allows the goods to be attached; or gave materially "

@@ -138,11 +138,12 @@ describe("lease agreements (C9)", () => {
     const text = await expectEveryClause(juristic, 17)
     // Whole sentences: the juristic form reads as English at every s14 site (9.9, 9.10, 9.11).
     expect(text).toContain("the lease continues month to month under (b), as this agreement provides, until it is ended as (b) provides. Section 14(2)(d) of "
-      + "the CPA does not apply to a juristic lessee, but this agreement gives the lessee the same terms as it gives a natural-person consumer.")
+      + "the CPA does not apply to a juristic lessee, but this agreement gives the lessee the same terms as the CPA gives a natural-person consumer.")
     expect(text).toContain("20 business days' written notice, as this agreement allows. Section 14(2)(b)(i)(bb) of the CPA does not apply to a juristic lessee, "
-      + "but this agreement gives the lessee the same terms as it gives a natural-person consumer. The cancellation takes effect")
+      + "but this agreement gives the lessee the same terms as the CPA gives a natural-person consumer. The cancellation takes effect")
     expect(text).toContain("the lessor may charge only a reasonable cancellation penalty, as this agreement provides.")
-    expect(text).toContain("the lessor may cancel this agreement, as this agreement provides, or exercise its other remedies below. Section 14(2)(b)(ii) of the CPA")
+    expect(text).toContain("the lessor may cancel this agreement, as this agreement provides, or exercise its other remedies below. Section 14(2)(b)(ii) of the CPA "
+      + "does not apply to a juristic lessee, but this agreement gives the lessor the same right of cancellation as section 14(2)(b)(ii) gives a supplier.")
     expect(text).not.toMatch(/on the terms section 14|this agreement, on the terms/)
     expect(text).toContain("Section 14 does not apply between juristic persons, but this agreement gives the lessee the same rights")
     expect(text).not.toMatch(/as section 14\(2\)\(d\) of the CPA provides|Its fixed-term rules \(section 14\) apply/)

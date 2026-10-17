@@ -55,7 +55,7 @@ describe("CPA expiry notice", () => {
     expect(clauses.map((c) => c.heading)).toEqual(["Consequences of taking no action before the expiry date", "How to tell us your choice"])
     const text = await expectClauses(await renderLeaseExpiryNotice(NOTICE, LENDER), 4, clauses)
     expect(text).toContain("If you have not told us your choice by 30 June 2027, your lease does not simply end. As this agreement provides, it then continues "
-      + "month to month after the expiry date. Section 14(2)(d) of the CPA does not apply to a juristic lessee, but this agreement gives you the same terms as it "
+      + "month to month after the expiry date. Section 14(2)(d) of the CPA does not apply to a juristic lessee, but this agreement gives you the same terms as the CPA "
       + "gives a natural-person consumer. It continues on the same terms")
     expect(text).toContain("You may end the month-to-month lease at any time by giving us at least 20 business days' written notice")
     expect(text).toContain("We may end it by giving you one month's written notice")
@@ -94,7 +94,7 @@ describe("early-termination quote", () => {
     expect(clauses.map((c) => c.heading)).toEqual(["Your cancellation", "The cancellation charge", "If you disagree with the charge"])
     const text = await expectClauses(await renderLeaseTerminationQuote(QUOTE, LENDER), 5, clauses)
     expect(text).toContain("You gave us notice on 23 February 2027 to cancel your lease, as this agreement allows on 20 business days' notice. Section "
-      + "14(2)(b)(i)(bb) of the CPA does not apply to a juristic lessee, but this agreement gives you the same terms as it gives a natural-person consumer. Your lease")
+      + "14(2)(b)(i)(bb) of the CPA does not apply to a juristic lessee, but this agreement gives you the same terms as the CPA gives a natural-person consumer. Your lease")
     expect(text).toContain("the lessor may charge only a reasonable cancellation penalty, as this agreement provides. This quote states that charge.")
     expect(text).not.toMatch(/on the terms section 14/)
     expect(text).toContain("Your lease therefore ends on 15 March 2027, whether or not you accept or pay this quote. The 14 rentals that would fall due after that date are cancelled.")
