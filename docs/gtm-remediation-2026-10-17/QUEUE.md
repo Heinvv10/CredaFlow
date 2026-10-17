@@ -13,7 +13,7 @@ Each submission requires finding IDs, reproduced failure, base/submitted SHAs, e
 
 | Order | Findings | Submitted SHA | Reviewer/verdict | Integrated SHA | Candidate checks | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B APPROVE: independently re-ran 6 suites/53 tests; registry subject/role/tenant inspection; coordinator admission authorized | `a679a71c` | branch quick passed; MQ affected regressions passing, exact six-suite verification running; combined full gates/browser pending | integrated, not accepted |
+| 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B APPROVE: independently re-ran 6 suites/53 tests; registry subject/role/tenant inspection; coordinator admission authorized | `a679a71c` | branch quick passed; MQ exact 6 suites/53 tests PASS exit0; combined full gates/browser pending | integrated, not accepted |
 
 ## Resource and runtime ownership
 
@@ -41,3 +41,7 @@ Each submission requires finding IDs, reproduced failure, base/submitted SHAs, e
 Before requesting a deployment target approval, record immutable candidate SHA/image ID, migration ordering and compatibility, synthetic acceptance evidence and explicit unverified provider/legal scope. There is currently no selected production hosting target.
 
 For any eventual named target: retain its previous exact image/config and pre-migration database plus uploads backup; verify backup restore into an isolated DB first. Additive nullable migrations may precede code only when proven compatible; enforcement migrations and their compatible code ship together. A rollback that cannot safely run old code against the migrated schema restores the verified DB/uploads backup and matching prior image as a unit, with approved downtime/data-loss boundary. Never reverse shared DDL by hand or promote `latest`.
+
+## Wave A second admission
+
+B final submission `9891a0efb2f30726cbdc056c20b8a94d8824a8a0`, base `3a0a17e38b393d0c0707ed24e615be2b016f604e`, comprises `aea9f3b4` then `9891a0ef`. A independently APPROVED exact final SHA (6 suites/28 tests), conditional quick now confirmed PASS by B; root admitted. MQ cherry-picked serially without conflicts as `3a337585` then `f7c72d67`. Findings F02/F03/F10 integrated, not accepted. Combined Wave A 13-suite targeted command and ci:quick running; full quality/database/image/browser deferred until experience/F08 integration. No schema or migration changes.
