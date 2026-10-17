@@ -12,7 +12,10 @@ record 2026-10-17); the wording is not.
 - [`commercial.md`](commercial.md): the commercial instalment sale, suretyship
   and resolution.
 
-Rendered samples: `docs/asset-finance/evidence/legal-wording/`.
+Rendered samples: `docs/asset-finance/evidence/legal-wording/`, produced by
+`scripts/asset-finance/render-legal-wording-nca-samples.ts` and
+`scripts/asset-finance/render-legal-wording-deal-samples.ts` (both
+deterministic: a rerun reproduces the committed PDFs).
 
 ## Code changes required before approval
 

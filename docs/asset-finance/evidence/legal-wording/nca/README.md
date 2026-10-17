@@ -21,9 +21,12 @@ that did not reach the principal). These are produced by the real solver:
 `solveNcaDealStructure` (R1,000,000 + VAT, R150,000 deposit, R200,000 balloon,
 36 monthly payments from 31 January 2027, Prime 10.50% + 1.25% = 11.75%,
 initiation fee R1,207.50, service fee R60) and `createAssetPasqEvidence`,
-mapped as `nca-agreement-store.ts` maps them. The render script checks that the
-capital rows sum to the principal, that principal = cash price - deposit, and
-that each row's capital, interest and fees add up to its total.
+mapped as `nca-agreement-store.ts` maps them. The render script,
+[`scripts/asset-finance/render-legal-wording-nca-samples.ts`](../../../../../scripts/asset-finance/render-legal-wording-nca-samples.ts)
+(`npx tsx scripts/asset-finance/render-legal-wording-nca-samples.ts`), refuses
+to write unless the capital rows sum to the principal, principal = cash price -
+deposit, and each row's capital, interest and fees add up to its total. It
+renders all six PDFs here; rerunning it reproduces the committed bytes.
 
 One departure from the store: the schedule rows are the solver's rows, not the
 PASQ billing records, because `toScheduleRecord` folds an NCA row's fees into
