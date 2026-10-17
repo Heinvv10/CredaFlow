@@ -227,4 +227,26 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
     } finally { await cleanupRecoveryFixture(db!, second.tenantId) }
   }, 120000)
 
+  it("independent code review: concurrent evidence deletion cannot invalidate committed cancellation", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let updated!: () => void
+    const ready = new Promise<void>((resolve) => { updated = resolve })
+    let deletion: Promise<unknown> | undefined
+    try {
+      const loan = await db!.loan.findUniqueOrThrow({ where: { id: second.loanId } })
+      const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: loan.entityId, dealId: second.dealId, docType: "LEGAL_DOCUMENT", fileName: "TEST-review-concurrent.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-review.pdf", contentSha256: "c".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
+      deletion = db!.$transaction(async (tx) => { await tx.entityDocument.update({ where: { id: evidence.id }, data: { deletedAt: new Date() } }); updated(); await held }, { timeout: 30000 })
+      await ready
+      session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const response = await cancellationRoute(new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: sastCalendarDate(loan.startDate), evidenceDocumentId: evidence.id, basis: "TEST concurrent deletion of actual cancellation evidence", cancellationConfirmed: true }) }), { params: Promise.resolve({ loanId: second.loanId }) })
+      release()
+      await deletion
+      const event = await db!.commercialCancellation.findUnique({ where: { loanId: second.loanId } })
+      const retained = await db!.entityDocument.findUniqueOrThrow({ where: { id: evidence.id } })
+      expect({ status: response.status, eventExists: !!event, deleted: retained.deletedAt !== null }).not.toEqual({ status: 201, eventExists: true, deleted: true })
+    } finally { release(); if (deletion) await deletion.catch(() => {}); await cleanupRecoveryFixture(db!, second.tenantId) }
+  }, 120000)
+
 })
