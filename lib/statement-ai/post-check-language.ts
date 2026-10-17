@@ -38,17 +38,25 @@ export const VERDICT = new RegExp([
   "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verified", "real",
 ].map((w) => `\\b${w}\\b`).join("|"), "i")
 
-/** Only Latin-script letters: a look-alike letter from another script ("fіne") would hide a word from the lists. */
+/**
+ * Letters as the lists read them: accents and other combining marks removed
+ * (NFKD), so "finé" is "fine". Then any letter outside A-Z rejects the output:
+ * a look-alike from another script ("fіne") or an unfolded letter could hide a word.
+ */
+export function plainLetters(text: string): string {
+  return norm(text).normalize("NFKD").replace(/\p{M}/gu, "")
+}
+
 export function foreignLetter(text: string): string | null {
-  return norm(text).match(/(?!\p{Script=Latin})\p{L}/u)?.[0] ?? null
+  return plainLetters(text).match(/(?![A-Za-z])\p{L}/u)?.[0] ?? null
 }
 
 /** Reassurance with a flag raised, a verdict at any time. Exported for the stale-output re-check (views.ts). */
 export function checkNoContradiction(rawText: string, raisedFlagCodes: readonly string[]): CheckResult {
   const letter = foreignLetter(rawText)
-  if (letter) return fail(`letter outside the Latin script: "${letter}"`)
+  if (letter) return fail(`letter outside A-Z: "${letter}"`)
   // Flag codes are names, not words ("RISK_BEHAVIOUR"); payee names are not stripped: a client can name a payee.
-  const text = stripLiterals(norm(rawText), raisedFlagCodes)
+  const text = stripLiterals(plainLetters(rawText), raisedFlagCodes)
   const verdict = text.match(VERDICT)
   if (verdict) return fail(`verdict language: "${verdict[0]}"`)
   if (raisedFlagCodes.length > 0) {
