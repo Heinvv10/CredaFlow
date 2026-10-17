@@ -36,3 +36,5 @@ A F08 additions: components/applications/AffordabilityCapture.{tsx,test.tsx} and
 Coordinator owns docs/gtm-remediation-2026-10-17/evidence/f15-baseline/* for unchanged-current-render reproduction artifacts and digest manifest (synthetic source fixture). A owns app/(portal)/portal/page.test.tsx for PaymentHero regression. B F09 additions approved: app/(dashboard)/clients/{page.tsx,page.test.tsx,new/page.tsx,new/page.test.tsx}; components/clients/ClientsPageClient.{tsx,test.tsx}; only actual create affordance/direct-access alignment with existing POST role floor.
 
 Coordinator owns ROUTE-ACCEPTANCE.csv for the19previously uncaptured routes and their fresh browser evidence/status.
+
+A owns A-REVIEW-B-WAVE-B.md; B proposed F15 append-only AgreementDeclarationAcceptance evidence model approved in principle only, exact writable paths still pending. No F15 merge/queue authorization without lender legal approval.

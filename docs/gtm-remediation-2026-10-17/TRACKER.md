@@ -53,12 +53,12 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F06 — Mobile portal loses global access to several features and sign-out
 
-- Priority/status/owner: P2 / implementing / A.
+- Priority/status/owner: P2 / integrated / A.
 - Current reproduction/root cause: Mobile hides desktop navigation and lacks complete global session controls. Current-source and runtime verification pending.
 - Intended smallest change: Accessible mobile navigation from same enabled/authorized links.
 - Acceptance: 390px borrower without/with loan and business rep; keyboard, touch, sign-out. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission/integration:314a9321 +34040560 ->0803b838 +87516c0f. B independent APPROVE,34 affected tests independently rerun; initial quick and corrected rendered regression pass. Root caught a false next-payment definition; correction removes it with fail-first rendered coverage. Full combined/database/browser pending.
 
 ## F07 — Payment-reference card has very low contrast in dark mode
 
@@ -71,21 +71,21 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F08 — PO-funding promise and the displayed affordability process conflict
 
-- Priority/status/owner: P2 / implementing / A.
+- Priority/status/owner: P2 / review / A.
 - Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Current portal card already shows configured range only, so preserve it; false translated intake promise remains. Runtime verification pending.
 - Intended smallest change: Truthful intake and repayment/assessment explanation; preserve affordability enforcement.
 - Acceptance: PO submission, review, affordable/declined scenarios; no new underwriting model. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission:9f2ba03ec0ac8454de4c41da1ee75eaaa801687c,7 targeted suites239 tests PASS and ci:quick PASS. B independent review pending; runtime approval/refusal acceptance pending.
 
 ## F09 — READONLY users receive editable client forms whose writes are forbidden
 
-- Priority/status/owner: P2 / implementing / B.
+- Priority/status/owner: P2 / review / B.
 - Current reproduction/root cause: Source confirmed: client detail gates edits/New Application on showLoanBook; edit page only requires loan-book viewing. Actual READONLY browser pending.
 - Intended smallest change: Render action permissions consistently; explanatory direct-link read-only state.
 - Acceptance: Actual READONLY session controls/direct URL/PATCH 403; eligible staff retained. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
 
 ## F10 — Accounting preview stays stale after configuration is saved
 
@@ -98,46 +98,46 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F11 — “100% / Good Standing” implies broader compliance coverage than measured
 
-- Priority/status/owner: P2 / implementing / B.
+- Priority/status/owner: P2 / review / B.
 - Current reproduction/root cause: Source confirmed: Good Standing and statutory obligations complete headline represent stored subset. Browser/configuration scope verification pending.
 - Intended smallest change: Name tracked scope and clarify excluded/unconfigured/not-due/unverified areas.
 - Acceptance: Partial and complete tracked rows, absent config and browser labels. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
 
 ## F12 — Customer “Outstanding Balance” needs a clearer financial definition
 
-- Priority/status/owner: P2 / implementing / A.
+- Priority/status/owner: P2 / integrated / A.
 - Current reproduction/root cause: Current source confirmed: portalOutstanding is principal with charges off and totalToSettle with charges on. Conditional labels required; browser remains pending.
 - Intended smallest change: Explain existing ledger amounts without changing financial calculations or legal documents.
 - Acceptance: Part-paid asset and live default charges; staff/portal amount definitions and dated settlement distinction. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission/integration:314a9321 +34040560 ->0803b838 +87516c0f. B independent APPROVE,34 affected tests independently rerun; initial quick and corrected rendered regression pass. Root caught a false next-payment definition; correction removes it with fail-first rendered coverage. Full combined/database/browser pending.
 
 ## F13 — Customer-facing operator screens expose internal paths and development-phase copy
 
-- Priority/status/owner: P3 / implementing / B.
+- Priority/status/owner: P3 / review / B.
 - Current reproduction/root cause: Source confirmed internal buildTemplate/lib paths/migration instructions in notification client and Phase 7 go-live in IntegrationsTab. Browser pending.
 - Intended smallest change: Replace internal implementation instructions with operational meaning.
 - Acceptance: Settings browser copy retains prerequisites and simulation warnings. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
 
 ## F14 — Academy lesson references missing video and poster assets
 
-- Priority/status/owner: P3 / implementing / B.
+- Priority/status/owner: P3 / review / B.
 - Current reproduction/root cause: Source confirmed lessonAssets constructs all video/poster paths and lesson page unconditionally renders LessonPlayer. Clean-build/browser request proof pending.
 - Intended smallest change: Deliberate text-only lessons unless packaged media exists.
 - Acceptance: Clean-build all declared lesson assets no missing requests; browser text-only state. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
 
 ## F15 — Executed agreement leaves declaration boxes visually empty after electronic acceptance
 
 - Priority/status/owner: P2 / pending / unassigned sequential policy wave.
-- Current reproduction/root cause: Current source confirmed: five checks are UI-local; sign payload and AGREEMENT_SIGNED audit have no individual declaration record. Historical evidence cannot be inferred from a signature. Runtime/render verification pending; see POLICY-REVIEW.md.
+- Current reproduction/root cause: Current source confirmed: five checks are UI-local; sign payload and AGREEMENT_SIGNED audit have no individual declaration record. Historical evidence cannot be inferred from a signature. Current renderer reproduced:5 PDFs, signature page visually confirms5blank boxes with signatures/dates, evidence/f15-baseline hashes retained. See POLICY-REVIEW.md.
 - Intended smallest change: Prepare legally reviewable representation preserving original document/signature hash binding.
 - Acceptance: Render before/after, signature/declaration audit binding and existing fingerprints; legal sign-off before merge. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Closure evidence: baseline render reproduced, no fix accepted. Separate unmerged candidate proposed: append-only declaration acceptance bound per signature ceremony with verified evidence certificate. Required legal approval remains outstanding; no historical inferred acceptance.
 
