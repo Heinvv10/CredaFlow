@@ -1,8 +1,8 @@
 // The operating-lease and full-maintenance-lease agreements (slice 3, C9).
 // Parties, goods, supplier, rental terms, the rental schedule and (FML) the
-// maintenance-and-usage annexure are the deal's real data; every clause is a
-// marked placeholder until the lender's legal team supplies the wording
-// (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
+// maintenance-and-usage annexure are the deal's real data; the terms and
+// conditions are the drafted wording in ../wording/lease-agreement.ts, for the
+// lender's legal team to approve (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
 // every page carries the DRAFT — NOT FOR EXECUTION watermark. Deterministic:
 // the same data renders the same bytes, so the sha256 binds what was signed.
 // No NCA content: a lease is not a credit agreement (lib/asset-finance/lease-deal.ts).
@@ -12,26 +12,8 @@ import type { AnyDealDocumentData } from "../deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
 import { assetRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "../document-parts"
 import { ENTITY_TYPE_LABELS } from "../../labels"
+import { leaseAgreementClauses } from "../wording/lease-agreement"
 import type { LeaseDocumentTerms } from "./lease-document-data"
-
-const COMMON_CLAUSES = [
-  "Lease of the goods; ownership remains with the lessor",
-  "Delivery, acceptance and risk",
-  "Rentals, escalation and changes to the contract rate",
-  "Tax invoices and VAT",
-  "Insurance of the goods",
-  "Use, care and location of the goods",
-  "Contracted usage and excess-usage charges",
-  "Return of the goods and the end-of-term inspection",
-  "End-of-term options: return, extension or purchase at market value",
-  "Early termination",
-  "Breach and remedies",
-  "Default interest and collection costs",
-  "Cession and assignment",
-  "Domicilium and notices",
-  "General",
-]
-const FML_CLAUSES = ["Maintenance by the lessor and the maintenance fund", "Maintenance claims and approved providers"]
 
 const SCHEDULE_COLUMNS: TableColumn[] = [
   { header: "No.", x: MARGIN + 4, width: 22 },
@@ -92,7 +74,7 @@ function rentalRows(data: AnyDealDocumentData, lease: LeaseDocumentTerms): [stri
     ...(lease.contractType === "FULL_MAINTENANCE_LEASE" ? [["Total maintenance excl. VAT", formatZarPdf(s.totalMaintenanceExclVatCents)] as [string, string]] : []),
     ["Total VAT", formatZarPdf(s.totalVatCents)],
     ["Total payable incl. VAT", formatZarPdf(s.totalCents)],
-    ["Early-termination penalty", `${percentPdf(t.earlyTerminationPenaltyRate)} of the rentals outstanding (see clause on early termination)`],
+    ["Early-termination penalty", `${percentPdf(t.earlyTerminationPenaltyRate)} of the present value of the rentals outstanding (clause 9.10)`],
     ["Default interest on arrears", arrearsText(p.arrearsMarginRate)],
     ["Collection fee per missed rental", p.collectionFeeCents > 0 ? formatZarPdf(p.collectionFeeCents) : "None"],
   ]
@@ -164,7 +146,10 @@ export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<B
   w.section("8. CONSUMER PROTECTION ACT")
   w.paragraph(cpaText(lease))
   w.section("9. TERMS AND CONDITIONS")
-  ;[...COMMON_CLAUSES, ...(fml ? FML_CLAUSES : [])].forEach((heading, i) => w.placeholderClause(`9.${i + 1}`, heading))
+  leaseAgreementClauses({
+    lessorName: data.lender.legalName, lesseeName: lesseeName(data), fml, cpa: lease.cpaApplies, terms: lease.terms,
+    pricing: data.pricing, startDate: data.pricing.startDate, endDate: lease.endDate,
+  }).forEach((c, i) => w.clause(`9.${i + 1}`, c.heading, c.text))
 
   w.section("10. SIGNATURES")
   w.signatures([

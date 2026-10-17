@@ -34,8 +34,9 @@ import { fundBalance, fundSettlement } from "./maintenance-fund"
 import type { SigningTx } from "./signing-prepare"
 import type { EndResult } from "./lease-end-of-term"
 import { billingRefusal } from "./lease-end-billing"
+import { END_OF_TERM_PAYMENT_DAYS } from "./lease-periods"
 
-export const END_OF_TERM_PAYMENT_DAYS = 7
+export { END_OF_TERM_PAYMENT_DAYS }
 
 const refused = (reason: string, error: string): EndResult => ({ kind: "refused", reason, error })
 

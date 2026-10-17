@@ -2,10 +2,12 @@
 // LeaseTerminationQuote row holds (quoted on, termination date, validity, the
 // remaining rentals, their present value, the penalty, VAT on both, the
 // arrears and the total) and its `basis` text verbatim: the formula and, for
-// a CPA lessee, the CPA Reg 5(2) wording. Deterministic; DRAFT watermark.
+// a CPA lessee, the CPA Reg 5(2) wording; then the terms of the quote
+// (../wording/lease-servicing.ts). Deterministic; DRAFT watermark.
 // UNTESTED: legal — the formula, the penalty and the wording of the basis.
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { formatIsoDatePdf } from "../pdf-layout"
+import { terminationQuoteClauses } from "../wording/lease-servicing"
 import { contactRows, finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
 import type { LeaseDocLender, TerminationQuoteData } from "./lease-docs-types"
 
@@ -36,7 +38,9 @@ export async function renderLeaseTerminationQuote(data: TerminationQuoteData, le
   ])
   w.section("4. BASIS OF THE QUOTE")
   w.paragraph(data.basis)
-  w.section("5. HOW TO ACCEPT")
+  w.section("5. TERMS OF THIS QUOTE")
+  terminationQuoteClauses(data).forEach((c, i) => w.clause(`5.${i + 1}`, c.heading, c.text))
+  w.section("6. HOW TO ACCEPT")
   w.paragraph(`Accept this quote on or before ${formatIsoDatePdf(data.validUntil)} through the lessor's portal or by contacting the lessor. After that date the quote lapses and a new quote is needed.`)
   w.labelValues(contactRows(lender))
   return finishLeaseDocument(w, data)
