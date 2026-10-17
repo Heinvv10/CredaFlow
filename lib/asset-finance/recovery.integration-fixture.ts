@@ -70,13 +70,13 @@ export async function newLoan(
     clientId = (await db.client.create({
       data: {
         tenantId: fx.tenantId, firstName: "TEST", lastName: `Debtor${token}`, email: `debtor-${token}@client.invalid`, phone: `0003${token.slice(0, 6)}`,
-        idNumber: borrowerKey, popiaConsentGiven: true,
+        idNumber: borrowerKey, popiaConsentGiven: true, addressLine1: "9 Synthetic Recovery Road", city: "Johannesburg", postalCode: "2001",
       },
     })).id
   } else {
     borrowerKey = `2099/${token.slice(0, 6)}/05`
     entityId = (await db.businessEntity.create({
-      data: { tenantId: fx.tenantId, type: "COMPANY", legalName: `TEST Hauliers ${token} (Pty) Ltd`, registrationNumber: borrowerKey },
+      data: { tenantId: fx.tenantId, type: "COMPANY", legalName: `TEST Hauliers ${token} (Pty) Ltd`, registrationNumber: borrowerKey, addressLine1: "9 Synthetic Recovery Road", city: "Johannesburg", postalCode: "2001" },
     })).id
     await db.entityRelationship.create({ data: { tenantId: fx.tenantId, entityId, clientId: fx.director, role: "DIRECTOR" } })
   }

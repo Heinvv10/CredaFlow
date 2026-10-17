@@ -33,7 +33,7 @@ async function setDebtorVat(db: PrismaClient, fx: DealFixture, loan: RecoveryLoa
   if (!vendor) return
   const token = randomUUID().replaceAll("-", "").slice(0, 8)
   const entity = await db.businessEntity.create({
-    data: { tenantId: fx.tenantId, type: "COMPANY", legalName: `TEST Vendor ${token} (Pty) Ltd`, registrationNumber: `2099/${token.slice(0, 6)}/07`, vatNumber: VENDOR_VAT_NUMBER },
+    data: { tenantId: fx.tenantId, type: "COMPANY", legalName: `TEST Vendor ${token} (Pty) Ltd`, registrationNumber: `2099/${token.slice(0, 6)}/07`, vatNumber: VENDOR_VAT_NUMBER, addressLine1: "9 Synthetic Recovery Road", city: "Johannesburg", postalCode: "2001" },
   })
   await testSetup(db, [`UPDATE "Loan" SET "entityId" = $1, "clientId" = NULL WHERE "id" = $2`, entity.id, loan.loanId])
 }
