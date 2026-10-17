@@ -72,6 +72,19 @@ function makeTx(loan: ReturnType<typeof makeLoan>) {
   }
 }
 
+it("preserves historical NON_NCA charges and live-era receipt splits after the permanent stop", async () => {
+  const loan = makeLoan("NON_NCA")
+  Object.assign(loan.tenant.config, { defaultChargesEnabled: false, defaultChargesStoppedAt: d("2026-09-20") })
+  const tx = makeTx(loan)
+  tx.loanCharge.findMany.mockResolvedValue([{ type: "DEFAULT_INTEREST", day: d("2026-09-10"), amount: 1000, sourceId: null }] as never)
+  tx.payment.findMany.mockResolvedValue([{ id: "live-era-receipt", amount: 5000, receivedAt: d("2026-09-10"), defaultInterestAllocated: 1000, chargeFeesAllocated: 0 }] as never)
+  // The permanent stop leaves stored charge history and paid splits unchanged.
+  const result = await syncLoanCharges(tx as never, ref, d("2026-09-26"), { source: "test" })
+  expect(result).toMatchObject({ totalPaid: 4000, chargesAccrued: 1000, chargesOutstanding: 0 })
+  expect.soft(tx.loanCharge.deleteMany).not.toHaveBeenCalled()
+  expect.soft(tx.payment.update).not.toHaveBeenCalled()
+})
+
 async function sync(ncaRegime: "NCA" | "NON_NCA") {
   engines.nca.mockClear()
   engines.nonNca.mockClear()
@@ -167,8 +180,8 @@ describe("syncLoanCharges dispatches by Loan.ncaRegime", () => {
     loan.tenant.config.defaultChargesEnabled = false
     const tx = makeTx(loan)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })).toBeNull()
+    expect(await syncLoanCharges(tx as any, ref, d("2026-09-11"), { source: "test" })).toMatchObject({ chargesAccrued: 0, chargesOutstanding: 0 })
     expect(tx.loanCharge.createMany).not.toHaveBeenCalled()
-    expect(tx.loan.update).not.toHaveBeenCalled()
+    // Contractual interest remains subject to common-law replay while optional charges are off.
   })
 })

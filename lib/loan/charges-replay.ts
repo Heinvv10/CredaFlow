@@ -217,6 +217,11 @@ export async function loadChargesReplay(
       chargeFeesAllocated: true,
     },
   })
+  // Permanent stop freezes paid charge splits and posting history. Only the
+  // remaining schedule cash participates in contractual-interest replay.
+  const stoppedHistory = config.defaultChargesStoppedAt && loan.ncaRegime === "NON_NCA"
+    ? await tx.loanCharge.findMany({ where: { tenantId: ref.tenantId, loanId: ref.loanId }, orderBy: [{ day: "asc" }, { createdAt: "asc" }], select: { type: true, day: true, amount: true, sourceId: true } })
+    : null
   // Only notices the provider confirmed, dated when they were issued — the
   // same predicate the attorney-referral gate and the S129 register use.
   const letters = await tx.complianceRecord.findMany({
@@ -264,7 +269,7 @@ export async function loadChargesReplay(
   const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = []) => {
     const common = {
       schedule: loan.repaymentSchedule,
-      receipts: [...receipts, ...extraReceipts],
+      receipts: [...receipts.map((receipt) => stoppedHistory ? { ...receipt, amount: receipt.amount - receipt.defaultInterestAllocated - receipt.chargeFeesAllocated } : receipt), ...extraReceipts],
       interestRatePm: loan.interestRatePm,
       maturityDate: loan.maturityDate,
       asOf: at,
@@ -277,7 +282,7 @@ export async function loadChargesReplay(
     if (loan.ncaRegime === "NON_NCA") {
       const terms = nonNcaArrearsTerms(loan)
       const margin = terms.nonNcaDefaultInterestMargin
-      return computeNonNcaCharges({
+      const result = computeNonNcaCharges({
         ...common,
         startDate: loan.startDate,
         defaultInterestMargin: !defaultChargesLive || margin === null ? null : margin.toNumber(),
@@ -287,6 +292,20 @@ export async function loadChargesReplay(
           annualRate: rate.resultingRate.toNumber(),
         })),
       })
+      if (!stoppedHistory) return result
+      const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]))
+      return { ...result,
+        postings: stoppedHistory.map((posting) => ({ ...posting, day: posting.day.toISOString().slice(0, 10), sourceId: posting.sourceId ?? undefined })),
+        interestAccrued: stoppedHistory.filter((posting) => posting.type === "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
+        feesAccrued: stoppedHistory.filter((posting) => posting.type !== "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
+        interestOutstanding: 0, feesOutstanding: 0,
+        interestPaid: receipts.reduce((sum, receipt) => sum + receipt.defaultInterestAllocated, 0),
+        feesPaid: receipts.reduce((sum, receipt) => sum + receipt.chargeFeesAllocated, 0),
+        receiptSplits: result.receiptSplits.map((split) => ({ ...split,
+          toDefaultInterest: byId.get(split.receiptId)?.defaultInterestAllocated ?? 0,
+          toFees: byId.get(split.receiptId)?.chargeFeesAllocated ?? 0,
+        })),
+      }
     }
     return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })
   }
