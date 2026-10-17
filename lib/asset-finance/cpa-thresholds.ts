@@ -6,5 +6,5 @@
 // turnover, at the time of the transaction, equals or exceeds the threshold
 // the Minister determines. The determination: R2 000 000, General Notice 294
 // in Government Gazette No. 34181 of 1 April 2011.
-// UNTESTED: citation to confirm with legal
+// Signed off (see DESIGN.md sign-off record 2026-10-17).
 export const CPA_JURISTIC_THRESHOLD_CENTS = 200_000_000

@@ -1,12 +1,13 @@
 // The entity's resolution to enter into the deal (goal §4.9): a board
 // resolution for a company, a trustees' resolution for a trust (members for
 // a CC, partners for a partnership). It names the deal and the people
-// authorised to sign; the resolution text itself is a marked placeholder
-// until the lender's legal team supplies it, with the DRAFT watermark.
+// authorised to sign; the resolution text (./wording/resolution.ts) is
+// drafted wording awaiting the lender's legal team, with the DRAFT watermark.
 import type { BusinessEntityType } from "@prisma/client"
 import { formatDatePdf } from "@/lib/pdf/helpers"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter } from "./pdf-layout"
+import { resolutionClauses } from "./wording/resolution"
 import { debtSummary, entityRows, lenderLetterhead } from "./document-parts"
 
 const BODY: Record<BusinessEntityType, { title: string; signedAs: string }> = {
@@ -15,12 +16,6 @@ const BODY: Record<BusinessEntityType, { title: string; signedAs: string }> = {
   CC: { title: "RESOLUTION OF THE MEMBERS", signedAs: "Member / authorised signatory" },
   PARTNERSHIP: { title: "RESOLUTION OF THE PARTNERS", signedAs: "Partner / authorised signatory" },
 }
-
-const CLAUSES = [
-  "Approval of the transaction",
-  "Authority to sign",
-  "Ratification",
-]
 
 export async function renderResolution(data: DealDocumentData): Promise<Buffer> {
   const body = BODY[data.entity.type]
@@ -38,7 +33,7 @@ export async function renderResolution(data: DealDocumentData): Promise<Buffer> 
   w.labelValues(data.signatories.map((s, i) => [`${i + 1}.`, s.name]))
 
   w.section("4. RESOLUTIONS")
-  CLAUSES.forEach((heading, i) => w.placeholderClause(`4.${i + 1}`, heading))
+  resolutionClauses(data).forEach((c, i) => w.clause(`4.${i + 1}`, c.heading, c.text))
 
   w.section("5. SIGNATURES")
   w.signatures(data.signatories.map((s) => ({ caption: data.entity.legalName, name: s.name, detail: body.signedAs })))

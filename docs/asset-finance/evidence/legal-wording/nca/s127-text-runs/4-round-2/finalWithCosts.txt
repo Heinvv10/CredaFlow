@@ -1,0 +1,61 @@
+TEST Credit Provider
+NCR NCRCP00000
+1 Test Road
+VOLUNTARY SURRENDER FINAL ACCOUNT NOTICE
+Loan AF-NCA-S127-TEST · prepared 13 October 2026
+DRAFT legal wording — statutory wording requires lender legal approval
+CONSUMER AND ASSET
+Consumer
+TEST Borrower
+Identity / registration
+0000000000000
+Consumer address
+2 Synthetic Street
+Asset
+2026 TEST TLB · TEST-SERIAL-127
+Recorded condition
+Synthetic working condition
+Surrender requested
+2026-10-13
+Valuation due
+2026-10-27
+SALE PROCEEDS AND ACCOUNT RESULT
+Valuation
+R 1,250.00
+Sale proceeds credited
+R 1,000.00
+Shortfall
+R 250.00
+Refund due
+R 0.00
+RECOVERY COSTS
+Cost
+Treatment
+Amount
+Towing and transport
+Deducted from proceeds
+R 50.00
+Legal costs (taxed)
+Charged to account
+R 20.00
+Costs deducted from proceeds
+R 50.00
+Costs charged to account
+R 20.00
+Cost lines: DRAFT — require lender legal approval
+1 Consumer rights following disposal and account reconciliation
+1.1 In this notice "the Act" means the National Credit Act 34 of 2005, "you" means TEST Borrower and "we" means TEST
+Credit Provider, registered credit provider NCRCP00000. This is our notice under section 127(5) of the Act after the sale of the
+asset you surrendered under agreement AF-NCA-S127-TEST. The figures above show the result of the sale and how it was
+applied to your account.
+1.2 The net proceeds were less than the settlement value. Under section 127 of the Act we demand payment of the shortfall of
+R 250.00. If you do not pay it within 10 business days after you receive this notice, we may begin legal proceedings against
+you for it. Contact us if you cannot pay it in full.
+1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days
+after the date of this notice.
+1.4 The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale
+price or any cost shown is wrong, tell us in writing; section 128 of the Act also allows you to apply to the National Consumer
+Tribunal to review the sale.
+Page 1 of 1
+Ref AF-NCA-S127-TEST
+DRAFT — NOT FOR EXECUTION

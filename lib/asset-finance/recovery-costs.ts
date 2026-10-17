@@ -34,7 +34,7 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
  * database's (guardRecoveryCost); VAT is checked here against the rate in force
  * on the incurred date for a VAT-vendor supplier, and must be nil for any other
  * supplier.
- * UNTESTED: legal|tax sign-off on the cost treatment and the input-tax position.
+ * The cost treatment and the input-tax position are signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 export async function recordRecoveryCost(actor: RecoveryActor, recoveryId: string, input: RecoveryCostInput): Promise<RecoveryResult> {
   const ref = input.supplierInvoiceRef.trim()

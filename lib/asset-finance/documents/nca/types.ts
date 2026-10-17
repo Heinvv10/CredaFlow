@@ -1,3 +1,4 @@
+import type { ReferenceRateBasis } from "@prisma/client"
 import type { NcaAssetContractType } from "../../nca-caps"
 
 export interface NcaAssetScheduleRow {
@@ -11,6 +12,8 @@ export interface NcaAssetScheduleRow {
 }
 
 export interface NcaAssetDocumentData {
+  /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark and subtitle. */
+  legalWordingApproved: boolean
   reference: string
   documentDate: Date
   contractType: NcaAssetContractType
@@ -22,6 +25,10 @@ export interface NcaAssetDocumentData {
     depositCents: number
     principalCents: number
     annualRate: string
+    /** How the rate is set: FIXED, or a reference rate plus `rateMargin`, resolved to `reference` on the start date. */
+    rateBasis: ReferenceRateBasis
+    rateMargin: string | null
+    reference: { effectiveDate: string; rate: string } | null
     initiationFeeCents: number
     monthlyServiceFeeCents: number
     creditLifePremiumCents: number

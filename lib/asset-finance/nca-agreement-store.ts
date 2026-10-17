@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
+import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { dbDate } from "./dates"
 import { createPayoutChecklist } from "./payout-checklist-store"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError } from "@/lib/signing-otp/challenge"
@@ -48,16 +49,17 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     basis: deal.rateBasis, margin: deal.rateMargin?.toString() ?? null, fixedRate: deal.fixedRate?.toString() ?? null,
   }, startDate)
   if ("error" in rate) return { kind: "not_ready", reason: rate.error }
-  const lender = await getLenderIdentity(actor.tenantId)
+  const [lender, approved] = await Promise.all([getLenderIdentity(actor.tenantId), legalWordingApproved(prisma, actor.tenantId)])
   const generatedAt = new Date(evidence.calculator.startDate)
   const bytes = await renderNcaAssetAgreement({
-    reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
+    legalWordingApproved: approved, reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,
+      rateBasis: deal.rateBasis, rateMargin: deal.rateMargin?.toString() ?? null, reference: rate.reference,
       initiationFeeCents: evidence.calculator.initiationFeeCents,
       monthlyServiceFeeCents: Math.round(evidence.calculator.serviceFeesCents / evidence.calculator.schedule.length),
       creditLifePremiumCents: evidence.creditLife.monthlyPremiumCents, instalmentCents: evidence.billing.recurringPaymentCents,
@@ -86,7 +88,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
           documentId, documentSha256: sha256, storagePath: stored.storagePath,
           fileName: `credit-agreement-${app.id}.pdf`, fileSize: stored.fileSize,
           creditLifeAutoBundleEligible: evidence.creditLife.election === "ACCEPTED",
-          assetFinanceDealId: dealId, draftLegalWording: true,
+          assetFinanceDealId: dealId, draftLegalWording: !approved,
         },
       } })
       const changed = await tx.loanApplication.updateMany({ where: { id: app.id, tenantId: actor.tenantId, status: "APPROVED", agreementGeneratedAt: null }, data: { agreementGeneratedAt: generatedAt, agreementDocumentId: documentId, agreementDocumentSha256: sha256 } })
@@ -101,7 +103,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
         signedArrearsMarginRate: null, signedCollectionFeeCents: 0,
         preparedSigners: [{ clientId, document: "AGREEMENT" }],
       } })
-      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording: true } }, tx)
+      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording: !approved } }, tx)
     })
   } catch (error) {
     await deleteFile(stored.storagePath)

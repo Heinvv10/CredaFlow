@@ -18,6 +18,7 @@ export const BASE: LeaseDocBase = {
   lessee: "TEST Lessee Holdings (2020/000001/07)",
   asset: "2025 Testmake Loader 9000, serial SN-TEST-001",
   draft: true,
+  naturalPerson: false,
 }
 
 export const BASIS = "Present value of the rentals (ex VAT and maintenance) falling due after 2027-03-15, discounted at the contract rate, "

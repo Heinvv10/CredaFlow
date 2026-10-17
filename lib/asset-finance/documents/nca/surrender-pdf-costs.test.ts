@@ -10,6 +10,7 @@ const texts = async (bytes: Buffer) => (await pdfPageContents(bytes)).flatMap((c
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
 
 const data: SurrenderNoticeData = {
+  legalWordingApproved: false,
   reference: "AF-NCA-S127-TEST", documentDate: new Date("2026-10-13T08:00:00.000Z"),
   lender: { legalName: "TEST Credit Provider", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] },
   borrower: { name: "TEST Borrower", identityNumber: "0000000000000", addressLines: ["2 Synthetic Street"] },
@@ -23,16 +24,20 @@ const costs = [
   { type: "LEGAL_TAXED", label: "Legal costs (taxed)", grossCents: 2_000, treatment: "CHARGE_TO_ACCOUNT" as const },
 ]
 
-// The renders of the notices before the cost table existed (sha-256 at the commit that added it).
-// A surrender with no recovery costs must keep printing exactly these bytes.
+// The renders of the notices with the drafted clause wording
+// (docs/asset-finance/legal-wording/nca.md). Each re-pin has a text-run proof
+// in docs/asset-finance/evidence/legal-wording/nca/s127-text-runs/ (1-to-2.diff:
+// the placeholder replaced; 2-to-3.diff: the review fixes, which add only the
+// valuation notice's clause 1.6 and the shortfall freeze 1.3 on every final
+// notice; 3-to-4.diff: one sentence appended to the valuation notice's 1.6). A surrender with no recovery costs must keep printing these bytes.
 const PINNED = {
-  valuation: "edcaedb44f63467ae0ae234aa3762467dfb91deb08effa8fd655cbf8526a3bbb",
-  final: "6ccbbe4d0c06fae3b3462b07e4d5171c83d1262a684109ab506223406db0670a",
-  finalWithCosts: "9274b32e7ea83f50e78fe66cbbe6384dc6be377716b4fae27c7f30601248b250",
-  // The same notice with the linked recovery's sale and account lines added (new, no earlier pin).
-  finalWithRecovery: "73bba831e204f3f125377d10e9c780768e1eb19388193d3af3811097aa6bc297",
+  valuation: "9b9c3045da0c1241d1fed6ad94e5bc0059e03ef37ddcb428015a7d4882e7873d",
+  final: "dafdda483a14fef90fa0851dddbb40705d687fff2d304033837a663a1d0c61e4",
+  finalWithCosts: "90e34ac52bb974f069c930fda62f9878779510b3edffe90bc754659e3a4e495b",
+  // The same notice with the linked recovery's sale and account lines added.
+  finalWithRecovery: "aef7544437b1bca34d613f78c19eacb624763cf3400c96ae771a52f31258a9cd",
   // With a charged cost the account cannot carry (R 100.00 of the R 370.00 shortfall): the new line, and the shortfall net of it.
-  finalWithUnrecoverable: "3828d90e85876454611f51c984b4d967451ec8162e2ac7beaf4a418b2c514c76",
+  finalWithUnrecoverable: "b6edeb7f31876d98c8369843f7768ed4165b5484d89d19d610ef713c061b53a6",
 }
 const recoveryOutcome = {
   settlementDueCents: 150_000, grossProceedsCents: 120_000, deductedCostsCents: 5_000, netProceedsCents: 115_000,
@@ -40,13 +45,13 @@ const recoveryOutcome = {
 }
 
 describe("s127 final notice recovery costs", () => {
-  it("renders the notices without costs byte-identically to before the table existed", async () => {
+  it("renders the notices without costs byte-identically to the pinned wording render", async () => {
     expect(sha(await renderSurrenderValuationNotice(data))).toBe(PINNED.valuation)
     expect(sha(await renderSurrenderFinalNotice(data))).toBe(PINNED.final)
     expect(sha(await renderSurrenderFinalNotice({ ...data, costs: [] }))).toBe(PINNED.final)
   })
 
-  it("pins the render with costs (the table and its draft note are new, with no earlier pin)", async () => {
+  it("pins the render with costs (the table and its draft note)", async () => {
     expect(sha(await renderSurrenderFinalNotice({ ...data, costs }))).toBe(PINNED.finalWithCosts)
   })
 

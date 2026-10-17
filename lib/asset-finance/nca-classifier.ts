@@ -137,7 +137,7 @@ export function classifyNcaRegime(input: NcaClassifierInput): NcaClassification 
   // Boundaries: the Act is excluded when asset value or turnover "equals or
   // exceeds" the threshold (s4(1)(a)(i)), and a large agreement is principal
   // debt "at or above" the higher threshold (s9(4)(b)). Both are >=.
-  // UNTESTED: boundary to confirm with legal
+  // Boundary signed off (see DESIGN.md sign-off record 2026-10-17)
   const size = Math.max(turnover ?? 0, assets ?? 0)
   if (size >= NCA_JURISTIC_THRESHOLD_CENTS) {
     return result(

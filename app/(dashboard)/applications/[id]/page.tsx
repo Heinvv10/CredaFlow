@@ -81,6 +81,7 @@ import { signingOtpView } from "@/lib/signing-otp/view"
 import { previewAffordability } from "@/lib/affordability/preview"
 import { ownLenderPreview } from "@/components/applications/OwnLenderDebtRows"
 import { approvalGateBlockers, headerBlockerLabel } from "@/lib/applications/rail-blockers"
+import { rateCapBlocker } from "@/lib/applications/rate-cap-blocker"
 import {
   isSegregationOfDutiesRequired,
   segregationOfDutiesConflict,
@@ -265,6 +266,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     latestAvsCheck,
     latestSelfieToken,
     ownLenderDebts,
+    rateCapGate,
   ] = await Promise.all([
     getDocumentMismatches(application.clientId, tenantId),
     getBureauCheck(application.id, tenantId, application.bureauReviewGeneration),
@@ -286,6 +288,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
     }),
     // The client's loans with this lender: counted in affordability, arrears flagged.
     loadOwnLenderDebts(prisma, tenantId, application.clientId, application.id),
+    // NCA Regulation 42: the verdict /decide would answer, listed before anyone clicks Approve.
+    rateCapBlocker(prisma, tenantId, application),
   ])
   // Masked here rather than in the component: the raw destination must not
   // cross into a client bundle at all.
@@ -520,6 +524,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       clientAffordabilityDeclared: !!application.clientAffordabilityDeclaredAt,
       openCreditChecks: openChecks,
     }),
+    ...(rateCapGate ? [rateCapGate] : []),
   ]
   const decisionItem = decisionAuditItem(application)
   const auditItems = [

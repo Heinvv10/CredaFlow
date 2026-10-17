@@ -56,6 +56,12 @@ function Living({ data }: { data: Payload }) {
         <Figure label="Declared expenses a month" value={declaredCents === null ? "Not captured" : formatCents(declaredCents)} />
         <Figure label="Statement above declared" value={gapCents === null ? "—" : formatCents(gapCents)} />
       </div>
+      {data.aboveDeclared && gapCents !== null && (
+        <p data-testid="expense-hint" className="rounded-md border border-[var(--cf-warning)] p-3 text-sm text-[var(--cf-warning)]">
+          Spending looks about {formatCents(gapCents)} a month higher than declared. A hint, not a check: it does not block
+          approval. Categories are automatic and miss some spending, so check the rows and ask the client.
+        </p>
+      )}
       {!data.enoughCoverage && (
         <p className="text-xs text-[var(--cf-text-muted)]">
           Under four weeks of reconciling statements: living spend is not compared with the declaration.
@@ -183,6 +189,7 @@ export function StatementInsightsPanel({ applicationId }: { applicationId: strin
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[var(--cf-text)]">Statement insights</h2>
           <Badge variant="secondary">From statement — estimate</Badge>
+          {data?.aboveDeclared && <span className="text-xs font-semibold text-[var(--cf-warning)]">Spending above declared</span>}
         </div>
         <a
           href={`/api/applications/${applicationId}/statement-export`}

@@ -1,0 +1,38 @@
+--- 2-placeholder-replaced-bd5b1047/valuation.txt	2026-10-17 10:35:49.738404323 +0200
++++ 3-review-fixes/valuation.txt	2026-10-17 10:35:49.739404332 +0200
+@@ -45,6 +45,9 @@
+ days after receiving that demand to pay it before we may begin legal proceedings for it.
+ 1.5 If you dispute this valuation, tell us in writing within the 10 business days in clause 1.2. After the sale, section 128 of the
+ Act allows you to apply to the National Consumer Tribunal to review it.
++1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our
++notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a
++bank account in your name, with proof that it is yours.
+ Page 1 of 1
+ Ref AF-NCA-S127-TEST
+ DRAFT — NOT FOR EXECUTION
+--- 2-placeholder-replaced-bd5b1047/final.txt	2026-10-17 10:35:49.738404323 +0200
++++ 3-review-fixes/final.txt	2026-10-17 10:35:49.739404332 +0200
+@@ -36,7 +36,9 @@
+ 1.2 The net proceeds were less than the settlement value. Under section 127 of the Act we demand payment of the shortfall of
+ R 250.00. If you do not pay it within 10 business days after you receive this notice, we may begin legal proceedings against
+ you for it. Contact us if you cannot pay it in full.
+-1.3 The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale
++1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days
++after the date of this notice.
++1.4 The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale
+ price or any cost shown is wrong, tell us in writing; section 128 of the Act also allows you to apply to the National Consumer
+ Tribunal to review the sale.
+ Page 1 of 1
+--- 2-placeholder-replaced-bd5b1047/finalWithCosts.txt	2026-10-17 10:35:49.738404323 +0200
++++ 3-review-fixes/finalWithCosts.txt	2026-10-17 10:35:49.739404332 +0200
+@@ -51,7 +51,9 @@
+ 1.2 The net proceeds were less than the settlement value. Under section 127 of the Act we demand payment of the shortfall of
+ R 250.00. If you do not pay it within 10 business days after you receive this notice, we may begin legal proceedings against
+ you for it. Contact us if you cannot pay it in full.
+-1.3 The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale
++1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days
++after the date of this notice.
++1.4 The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale
+ price or any cost shown is wrong, tell us in writing; section 128 of the Act also allows you to apply to the National Consumer
+ Tribunal to review the sale.
+ Page 1 of 1

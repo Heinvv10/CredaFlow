@@ -145,6 +145,12 @@ export const PAYDAY_LENDERS = ["WONGA", "LIME24", "LENDPLUS", "PRIMELOANS", "CRE
  */
 export const EXPENSE_GAP_MIN_CENTS = 150_000
 export const EXPENSE_GAP_MIN_SHARE = 0.25
+
+/** Both must hold: more than R1,500 a month above declared, and more than 25% of declared. */
+export function understated(livingMonthlyCents: number, declaredCents: number): boolean {
+  const gap = livingMonthlyCents - declaredCents
+  return gap > EXPENSE_GAP_MIN_CENTS && gap > declaredCents * EXPENSE_GAP_MIN_SHARE
+}
 /** Under four weeks of statements there is no month to average: no flag, and the panel says why. */
 export const EXPENSE_MIN_COVERAGE_DAYS = 28
 /**

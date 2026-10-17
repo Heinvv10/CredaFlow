@@ -117,7 +117,7 @@ export default async function PaymentPage() {
           bank-sync reconciler can allocate the deposit to the right loan. Shown
           whether or not the bank panel below is configured. */}
       {loans.length > 0 && (
-        <div className="mb-5 rounded-lg border p-5" style={{ borderColor: "#4F46E5", backgroundColor: "#4F46E514" }}>
+        <div className="mb-5 rounded-lg border border-[var(--cf-brand)] bg-[color-mix(in_srgb,var(--cf-brand)_8%,var(--cf-bg-raised))] p-5">
           <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--cf-text-muted)] mb-3">
             {loans.length > 1 ? t("yourReferences") : t("yourReference")}
           </p>

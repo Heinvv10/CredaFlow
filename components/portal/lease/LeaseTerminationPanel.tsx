@@ -96,7 +96,7 @@ export function LeaseTerminationPanel({ loanId, quote, actions }: Props) {
       {confirming && quote && (
         <LeaseConfirm confirmLabel="Yes, end the lease early" busy={busy} onCancel={() => setConfirming(false)}
           onConfirm={() => send(`termination-quotes/${quote.id}/accept`, "The quote could not be accepted")}>
-          {/* UNTESTED: legal — wording of the acceptance consequences. */}
+          {/* Wording of the acceptance consequences: drafted 2026-10-17, awaits the lender's legal approval (TenantConfig.assetFinanceLegalWordingApproved). */}
           <p className="font-semibold">Accepting cannot be undone.</p>
           <p className="mt-1 text-[var(--cf-text-muted)]">
             The remaining rentals are cancelled, you are invoiced {formatMoney(quote.totalCents - quote.arrearsCents)} (including VAT) and the asset must be returned.
