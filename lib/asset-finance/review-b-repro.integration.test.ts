@@ -10,7 +10,7 @@ import type { SessionUser } from "./payout-booking.integration-fixture"
 import { quoteEarlyTermination, acceptEarlyTermination } from "./lease-termination-store"
 import { backdateLease, testSetup } from "./lease-servicing.integration-fixture"
 import { presentValueOfRentals } from "./lease-termination"
-import { isoOfDbDate } from "./dates"
+import { fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { recordLeaseTotalLoss } from "./lease-total-loss"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -82,25 +82,32 @@ suite.sequential("lease legal calculations applied to actual accounts", () => {
     expect(payments.some((p) => p.allocationStatus === "UNAPPLIED")).toBe(true)
   })
 
-  it("uses the evidenced 1 October loss when recorded on 17 October, independently of insurer cash date", async () => {
+  it("uses the evidenced historical loss date, independently of recording, later rate and insurer cash dates", async () => {
+    // Keep the original 1/10/16/17 October chronology relative to the real
+    // recording day: total-loss quotes deliberately reject a past recording date.
+    const recordedOn = today()
+    const relativeDate = (days: number) => fromDayNumber(toDayNumber(recordedOn) + days)
+    const lossOn = relativeDate(-16)
+    const laterRateOn = relativeDate(-7)
+    const insuranceReceivedOn = relativeDate(-1)
     const loanId = loans[3]
     await backdateLease(database(), loanId, 1)
     const before = await database().loan.findUniqueOrThrow({ where: { id: loanId }, include: { leaseRentals: true, contractRates: true } })
     const originalRate = before.contractRates[0]
-    for (const lossOn of ["2026-10-18", "2020-01-01"]) {
-      const invalid = await database().$transaction((tx) => recordLeaseTotalLoss(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { loanId, today: "2026-10-17", lossOn, insuranceProceedsCents: 0, evidence: "synthetic-invalid-event.pdf" }))
+    for (const lossOn of [relativeDate(1), relativeDate(-60)]) {
+      const invalid = await database().$transaction((tx) => recordLeaseTotalLoss(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { loanId, today: recordedOn, lossOn, insuranceProceedsCents: 0, evidence: "synthetic-invalid-event.pdf" }))
       expect(invalid).toMatchObject({ kind: "refused", reason: "invalid_loss_date" })
     }
-    await testSetup(database(), ['INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "fixedRate", "margin", "resultingRate", "createdAt") SELECT $1,"tenantId","loanId",$2,"basis","fixedRate","margin",0.25,now() FROM "ContractRate" WHERE "id"=$3', `synthetic-rate-${t}`, new Date("2026-10-10"), originalRate.id])
+    await testSetup(database(), ['INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "fixedRate", "margin", "resultingRate", "createdAt") SELECT $1,"tenantId","loanId",$2,"basis","fixedRate","margin",0.25,now() FROM "ContractRate" WHERE "id"=$3', `synthetic-rate-${t}`, new Date(laterRateOn), originalRate.id])
     await applyManualReceipt(database() as unknown as PaymentDb, { tenantId: fx.tenantId, loanId, amount: before.totalRepayable, capturedById: fx.adminA, reference: "SYNTHETIC-POST-LOSS-PREPAID" })
-    const result = await database().$transaction((tx) => recordLeaseTotalLoss(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { loanId, today: "2026-10-17", lossOn: "2026-10-01", insuranceReceivedOn: "2026-10-16", insuranceProceedsCents: 100_000, evidence: "synthetic-loss-confirmed-1oct.pdf" }))
-    expect(result).toMatchObject({ kind: "recorded", terminationDate: "2026-10-01" })
+    const result = await database().$transaction((tx) => recordLeaseTotalLoss(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { loanId, today: recordedOn, lossOn, insuranceReceivedOn, insuranceProceedsCents: 100_000, evidence: "synthetic-historical-loss-confirmed.pdf" }))
+    expect(result).toMatchObject({ kind: "recorded", terminationDate: lossOn })
     const quote = await database().leaseTerminationQuote.findFirstOrThrow({ where: { loanId } })
-    expect(quote.pvCents).toBe(presentValueOfRentals(before.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), "2026-10-01", Number(originalRate.resultingRate)))
+    expect(quote.pvCents).toBe(presentValueOfRentals(before.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), lossOn, Number(originalRate.resultingRate)))
     const rentals = await database().leaseRental.findMany({ where: { loanId }, include: { schedule: true } })
-    expect(rentals.filter((r) => isoOfDbDate(r.dueDate) > "2026-10-01").every((r) => r.cancelledAt && r.cancellationCreditNoteId && r.schedule.totalDue === 0)).toBe(true)
+    expect(rentals.filter((r) => isoOfDbDate(r.dueDate) > lossOn).every((r) => r.cancelledAt && r.cancellationCreditNoteId && r.schedule.totalDue === 0)).toBe(true)
     const insurer = await database().payment.findFirstOrThrow({ where: { loanId, reference: `LOSS-${quote.id}` } })
-    expect(insurer.receivedAt.toISOString()).toBe("2026-10-16T10:00:00.000Z")
+    expect(insurer.receivedAt.toISOString()).toBe(`${insuranceReceivedOn}T10:00:00.000Z`)
     const payments = await database().payment.findMany({ where: { loanId, reversed: false } })
     expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable + 100_000)
   })
