@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { pdfPageContents } from "@/lib/pdf/__tests__/pdf-test-utils"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { DRAFT_WATERMARK, PLACEHOLDER_CLAUSE } from "../pdf-layout"
+import { expiryNoticeClauses, inspectionReportClauses, terminationQuoteClauses } from "../wording/lease-servicing"
+import type { WordingClause } from "../wording/lease-agreement"
 import { renderLeaseExpiryNotice } from "./expiry-notice-pdf"
 import { renderLeaseInspectionReport } from "./inspection-report-pdf"
 import { renderLeaseTerminationQuote } from "./termination-quote-pdf"
@@ -19,6 +21,21 @@ async function pageTexts(bytes: Buffer): Promise<string[][]> {
   return (await pdfPageContents(bytes)).map((content) => [...content.matchAll(/<([0-9A-Fa-f]+)> Tj/g)].map((m) => winAnsi(m[1])))
 }
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex")
+const words = (text: string) => text.split(/\s+/).filter(Boolean).join(" ")
+
+/** Every clause renders as "<section>.<n> heading" followed by its full wording, and no placeholder renders. */
+async function expectClauses(bytes: Buffer, section: number, clauses: WordingClause[]): Promise<string> {
+  const lines = (await pageTexts(bytes)).flat()
+  const text = words(lines.filter((l) => !/^Page \d+ of \d+$|^Ref /.test(l) && l !== DRAFT_WATERMARK).join(" "))
+  expect(lines).not.toContain(PLACEHOLDER_CLAUSE)
+  expect(text).not.toContain("Placeholder")
+  clauses.forEach((c, i) => {
+    expect(lines, c.heading).toContain(`${section}.${i + 1} ${c.heading}`)
+    expect(c.text.length, c.heading).toBeGreaterThan(80)
+    for (const paragraph of c.text.split(/\n{2,}/)) expect(text, c.heading).toContain(words(paragraph))
+  })
+  return text
+}
 
 describe("CPA expiry notice", () => {
   it("names the lessee, lease, goods, expiry date, options and the lender's contacts, under a DRAFT watermark", async () => {
@@ -31,7 +48,15 @@ describe("CPA expiry notice", () => {
     }
     for (const option of ["Return the goods", "Extend month to month", "Buy the goods"]) expect(all).toContain(option)
     expect(all.join(" ")).toContain("fair market value")
-    expect(all).toContain(PLACEHOLDER_CLAUSE)
+  })
+
+  it("says what happens if the lessee does nothing: CPA s14(2)(d) month-to-month continuation, with the notice period", async () => {
+    const clauses = expiryNoticeClauses(NOTICE)
+    expect(clauses.map((c) => c.heading)).toEqual(["Consequences of taking no action before the expiry date", "How to tell us your choice"])
+    const text = await expectClauses(await renderLeaseExpiryNotice(NOTICE, LENDER), 4, clauses)
+    expect(text).toContain("If you have not told us your choice by 30 June 2027, your lease does not simply end. Section 14(2)(d)")
+    expect(text).toContain("giving one month's written notice")
+    expect(words(expiryNoticeClauses({ ...NOTICE, extensionNoticeMonths: 2 })[0].text)).toContain("giving 2 months' written notice")
   })
 
   it("carries no watermark once the lender's wording is approved, and is deterministic", async () => {
@@ -57,6 +82,29 @@ describe("early-termination quote", () => {
     expect(all.join(" ")).toContain("CPA Regulation 5(2)")
   })
 
+  it("a CPA lessee's quote explains the s14 cancellation and the Reg 5(2) limit, with the quote's own dates", async () => {
+    const clauses = terminationQuoteClauses(QUOTE)
+    expect(clauses.map((c) => c.heading)).toEqual(["What accepting this quote means", "Your rights under the Consumer Protection Act"])
+    const text = await expectClauses(await renderLeaseTerminationQuote(QUOTE, LENDER), 5, clauses)
+    expect(text).toContain("If you accept this quote, your lease ends on 15 March 2027. The 14 rentals that would fall due after that date are cancelled.")
+    expect(text).toContain("the termination date is 20 business days after 23 February 2027")
+    expect(text).toContain("regulation 5(2) of the CPA Regulations")
+    expect(text).toContain("6. HOW TO ACCEPT")
+  })
+
+  it("a commercial lessee's quote is an offer to end the lease by agreement, with no CPA wording", async () => {
+    const commercial = { ...QUOTE, cpaCancellation: false, basis: "Present value of the rentals plus a penalty plus the arrears." }
+    const clauses = terminationQuoteClauses(commercial)
+    expect(clauses.map((c) => c.heading)).toEqual(["What accepting this quote means", "Basis of early termination"])
+    const text = await expectClauses(await renderLeaseTerminationQuote(commercial, LENDER), 5, clauses)
+    expect(text).toContain("Your lease agreement does not give you a right to end the lease early.")
+    expect(text).not.toMatch(/Consumer Protection Act|section 14|regulation 5/)
+  })
+
+  it("the quote's watermark follows the lender's approval of the wording", async () => {
+    expect((await pageTexts(await renderLeaseTerminationQuote({ ...QUOTE, draft: false }, LENDER))).flat()).not.toContain(DRAFT_WATERMARK)
+  })
+
   it("is deterministic and changes with any figure", async () => {
     expect(sha(await renderLeaseTerminationQuote(QUOTE, LENDER))).toBe(sha(await renderLeaseTerminationQuote(QUOTE, LENDER)))
     expect(sha(await renderLeaseTerminationQuote({ ...QUOTE, totalCents: QUOTE.totalCents + 1 }, LENDER))).not.toBe(sha(await renderLeaseTerminationQuote(QUOTE, LENDER)))
@@ -74,6 +122,26 @@ describe("inspection report", () => {
     expect(all.some((line) => /4.620 hours on 2 July 2027/.test(line))).toBe(true)
     expect(all.some((line) => /4.500 hours/.test(line))).toBe(true)
     for (const cents of [123_456, 765_432, 123_456 + 765_432, 1_750_000, 123_456 + 765_432 + 1_750_000]) expect(all).toContain(formatZarPdf(cents))
+  })
+
+  it("explains fair wear and tear, the damage, the excess usage, payment and how to object, then the lessor's contacts", async () => {
+    const clauses = inspectionReportClauses(REPORT)
+    expect(clauses).toHaveLength(5)
+    const text = await expectClauses(await renderLeaseInspectionReport(REPORT, LENDER), 6, clauses)
+    expect(text).toContain("Damage is charged only where it goes beyond fair wear and tear.")
+    expect(text).toContain(`The excess-usage charge in section 5 (${formatZarPdf(1_750_000)} excl. VAT)`)
+    expect(text).toContain("payable within 7 days of its date")
+    expect(text).toContain("within 10 business days of receiving this report")
+    expect(text).toContain("7. HOW TO REACH US")
+    expect(text).toContain(LENDER.collectionsEmail)
+    expect(text).not.toContain("only the months to the termination date count")
+    const early = words(inspectionReportClauses({ ...REPORT, origin: "EARLY_TERMINATION", excessUsageCents: null }).map((c) => c.text).join(" "))
+    expect(early).toContain("Because the lease ended early, only the months to the termination date count.")
+    expect(early).toContain("The excess-usage charge is calculated when the end-of-term invoice is issued")
+  })
+
+  it("the report's watermark follows the lender's approval of the wording", async () => {
+    expect((await pageTexts(await renderLeaseInspectionReport({ ...REPORT, draft: false }, LENDER))).flat()).not.toContain(DRAFT_WATERMARK)
   })
 
   it("says so when there is no damage and the excess usage is not yet invoiced", async () => {

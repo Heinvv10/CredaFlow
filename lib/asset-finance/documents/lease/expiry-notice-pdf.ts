@@ -2,10 +2,12 @@
 // told, 40 to 80 business days before the term expires, that it is expiring
 // and what the options are (the notice row is queued by lib/asset-finance/
 // lease-expiry.ts). Real data: lessee, lease, goods, expiry date, the lender's
-// contacts. The consequence of doing nothing is a placeholder clause until
-// the lender's legal team supplies it. Deterministic; DRAFT watermark.
+// contacts. The consequence of doing nothing is drafted wording
+// (../wording/lease-servicing.ts) for the lender's legal team to approve.
+// Deterministic; DRAFT watermark.
 // UNTESTED: legal — the notice's content and the options it lists.
 import { formatIsoDatePdf } from "../pdf-layout"
+import { expiryNoticeClauses } from "../wording/lease-servicing"
 import { contactRows, finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
 import type { ExpiryNoticeData, LeaseDocLender } from "./lease-docs-types"
 
@@ -30,7 +32,7 @@ export async function renderLeaseExpiryNotice(data: ExpiryNoticeData, lender: Le
   ])
   w.section("4. IF YOU DO NOTHING")
   // UNTESTED: legal — what happens when the lessee neither returns, extends nor buys.
-  w.placeholderClause("4.1", "Consequences of taking no action before the expiry date")
+  expiryNoticeClauses(data).forEach((c, i) => w.clause(`4.${i + 1}`, c.heading, c.text))
   w.section("5. HOW TO REACH US")
   w.labelValues(contactRows(lender))
   return finishLeaseDocument(w, data)
