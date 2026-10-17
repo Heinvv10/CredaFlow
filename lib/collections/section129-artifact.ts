@@ -79,7 +79,10 @@ async function createAtomicAudit(
 }
 
 export interface Section129RecordData extends Record<string, unknown> {
-  lifecycle: "STAGING" | "READY" | "DISPATCHING" | "ISSUED" | "FAILED" | "RECONCILIATION_REQUIRED"
+  // SIMULATED: a demo stack's notice to an undeliverable mailbox, recorded
+  // and never sent (lib/collections/section129-email.ts). Not a statutory
+  // notice: the NCR return and the register count it apart.
+  lifecycle: "STAGING" | "READY" | "DISPATCHING" | "ISSUED" | "SIMULATED" | "FAILED" | "RECONCILIATION_REQUIRED"
   loanReference: string
   clientName: string
   clientEmail: string
@@ -113,6 +116,9 @@ export interface Section129RecordData extends Record<string, unknown> {
   providerPersistenceWarning?: string
   emergencyEvidenceAuditPersisted?: boolean
   bulk?: boolean
+  /** A demo stack's simulated notice (lib/collections/section129-email.ts),
+   *  decided at reservation so a stale or reconciled record keeps it. */
+  simulated?: boolean
   reconciledById?: string
   reconciliationReason?: string
   reconciledAt?: string
@@ -136,6 +142,8 @@ export interface IssuedSection129Artifact {
 
 export interface Section129IssuanceAvailability {
   hasRetrievableIssuedArtifact: boolean
+  /** That latest retrievable notice was simulated (demo), not sent. */
+  latestIssuedSimulated: boolean
   canReserve: boolean
   blockedBy: "ACTIVE_ISSUANCE" | "RECENT_NOTICE" | null
   activeLifecycle: Section129RecordData["lifecycle"] | null
@@ -144,7 +152,7 @@ export interface Section129IssuanceAvailability {
 
 export type Section129ReservationAvailability = Omit<
   Section129IssuanceAvailability,
-  "hasRetrievableIssuedArtifact"
+  "hasRetrievableIssuedArtifact" | "latestIssuedSimulated"
 >
 
 export class Section129IssuanceConflictError extends Error {
@@ -461,7 +469,7 @@ type RetrievableSection129RecordData = Section129RecordData & {
 function isRetrievableIssuedRecordData(
   data: Section129RecordData | null,
 ): data is RetrievableSection129RecordData {
-  return data?.lifecycle === "ISSUED"
+  return (data?.lifecycle === "ISSUED" || data?.lifecycle === "SIMULATED")
     && typeof data.storagePath === "string"
     && data.storagePath.length > 0
     && typeof data.fileName === "string"
@@ -497,6 +505,8 @@ export async function reserveSection129Issuance(args: {
   createdById: string
   createdByEmail?: string | null
   bulk?: boolean
+  /** The send will be simulated (simulatesSection129): recorded from the start. */
+  simulated?: boolean
 }): Promise<ReservedSection129Issuance> {
   if (!Buffer.isBuffer(args.pdf) || args.pdf.length === 0) {
     throw new Error("Section 129 attachment is missing or empty")
@@ -530,6 +540,7 @@ export async function reserveSection129Issuance(args: {
     reservedById: args.createdById,
     reservedAt: now.toISOString(),
     ...(args.bulk ? { bulk: true } : {}),
+    ...(args.simulated ? { simulated: true } : {}),
   }
 
   const recovered = await recoverStaleSection129Issuance({
@@ -1188,6 +1199,8 @@ export async function markSection129ReconciliationRequired(args: {
   providerAcceptedAt?: Date
   providerPersistenceWarning?: string
   emergencyEvidenceAuditPersisted?: boolean
+  /** The notice was simulated, not sent: carried through to the reconciled record. */
+  simulated?: boolean
 }): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const current = await complianceRecordDelegate(tx).findUnique({
@@ -1226,6 +1239,7 @@ export async function markSection129ReconciliationRequired(args: {
       ...(args.emergencyEvidenceAuditPersisted !== undefined
         ? { emergencyEvidenceAuditPersisted: args.emergencyEvidenceAuditPersisted }
         : {}),
+      ...(args.simulated ? { simulated: true } : {}),
     }
     const updated = await complianceRecordDelegate(tx).updateMany({
       where: {
@@ -1258,6 +1272,7 @@ export async function markSection129ReconciliationRequired(args: {
         providerAcceptedAt: providerAcceptedAt?.toISOString(),
         providerPersistenceWarning: args.providerPersistenceWarning,
         emergencyEvidenceAuditPersisted: args.emergencyEvidenceAuditPersisted,
+        ...(args.simulated ? { simulated: true } : {}),
       },
     })
     args.reservation.recordData = reconciliationData
@@ -1277,9 +1292,15 @@ export async function finaliseSection129Issuance(args: {
   emergencyEvidenceAuditPersisted?: boolean
   reconciliationReason?: string
   issuedAt: Date
+  /** Demo stack, .invalid mailbox: recorded as "simulated (not sent)" (lib/collections/section129-email.ts). */
+  simulated?: boolean
 }): Promise<void> {
   const reconciledAt = new Date()
   const issuedAt = args.issuedAt
+  // Also when a simulated notice reaches here through reconciliation: the
+  // reserved record carries the flag (markSection129ReconciliationRequired).
+  const simulated = args.simulated === true || args.reservation.recordData.simulated === true
+  const finalLifecycle = simulated ? "SIMULATED" : "ISSUED"
   const providerMessageId = (args.providerMessageId ?? args.emailMessageId)?.trim()
   const providerEvidenceReference = args.providerEvidenceReference?.trim()
   const durableProviderReference = providerMessageId ?? providerEvidenceReference
@@ -1374,11 +1395,12 @@ export async function finaliseSection129Issuance(args: {
         completedAt: issuedAt,
         data: {
           ...args.reservation.recordData,
-          lifecycle: "ISSUED",
+          lifecycle: finalLifecycle,
           issuedAt: issuedAt.toISOString(),
           // The default administration charge this notice carries, frozen at
           // issue so a later change to the tenant setting never reprices it.
-          ...(loanBefore.tenant?.config
+          // A simulated notice was never sent, so it carries none.
+          ...(loanBefore.tenant?.config && !simulated
             ? {
                 adminChargeCents: loanBefore.tenant.config.defaultAdminChargeCents
                   + loanBefore.tenant.config.defaultAdminPostageCents,
@@ -1389,6 +1411,7 @@ export async function finaliseSection129Issuance(args: {
           ...(providerMessageId ? { providerMessageId } : {}),
           ...(providerEvidenceReference ? { providerEvidenceReference } : {}),
           providerAcceptedAt: issuedAt.toISOString(),
+          ...(simulated ? { simulated: true, delivery: "simulated (not sent)" } : {}),
           ...(args.providerPersistenceWarning
             ? { providerPersistenceWarning: args.providerPersistenceWarning }
             : {}),
@@ -1425,7 +1448,9 @@ export async function finaliseSection129Issuance(args: {
       tenantId: args.tenantId,
       userId: args.issuedById,
       userEmail: args.issuedByEmail,
-      action: args.reconciliationReason ? "SECTION_129_ISSUANCE_RECONCILED" : "SECTION_129_ISSUED",
+      action: simulated
+        ? (args.reconciliationReason ? "SECTION_129_SIMULATION_RECONCILED" : "SECTION_129_SIMULATED")
+        : (args.reconciliationReason ? "SECTION_129_ISSUANCE_RECONCILED" : "SECTION_129_ISSUED"),
       loanId: args.loanId,
       oldValue: {
         issuanceId: args.reservation.issuanceId,
@@ -1433,8 +1458,8 @@ export async function finaliseSection129Issuance(args: {
       },
       newValue: {
         issuanceId: args.reservation.issuanceId,
-        lifecycle: "ISSUED",
-        outcome: "ISSUED",
+        lifecycle: finalLifecycle,
+        outcome: finalLifecycle,
         pdfSha256: args.reservation.pdfSha256,
         emailMessageId: durableProviderReference,
         providerMessageId,
@@ -1445,6 +1470,7 @@ export async function finaliseSection129Issuance(args: {
         arrearsAmount: args.reservation.recordData.arrearsAmount,
         daysInArrears: args.reservation.recordData.daysInArrears,
         sentTo: args.reservation.recordData.clientEmail,
+        ...(simulated ? { simulated: true, delivery: "simulated (not sent)" } : {}),
         reconciliationReason: args.reconciliationReason,
         issuedAt: issuedAt.toISOString(),
         ...(args.reconciliationReason ? { reconciledAt: reconciledAt.toISOString() } : {}),
@@ -1567,7 +1593,11 @@ export async function getSection129IssuanceAvailability(
       hasRetrievableIssuedArtifact = false
     }
   }
-  return { ...reservationAvailability, hasRetrievableIssuedArtifact }
+  return {
+    ...reservationAvailability,
+    hasRetrievableIssuedArtifact,
+    latestIssuedSimulated: hasRetrievableIssuedArtifact && latestRetrievableData?.lifecycle === "SIMULATED",
+  }
 }
 
 export async function loadIssuedSection129Artifact(args: {

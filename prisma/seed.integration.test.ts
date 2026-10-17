@@ -119,6 +119,14 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(await prisma.documentTemplate.count({ where: { tenantId: tenant.id } })).toBeGreaterThan(0)
   })
 
+  it("marks the tenant as a demo lender, which provisioning never does", async () => {
+    const prisma = freshDb()
+    expect(await prisma.tenantConfig.findFirstOrThrow({
+      where: { tenant: { slug: "acme" } },
+      select: { isDemoLender: true },
+    })).toEqual({ isDemoLender: true })
+  })
+
   it("prices every seeded product within the NCA interest-rate cap at its seeded repo rate", async () => {
     const prisma = freshDb()
     const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: "acme" }, select: { id: true } })

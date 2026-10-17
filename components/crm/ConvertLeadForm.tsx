@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { UserCheck, Briefcase, CreditCard, AlertCircle, CheckCircle } from "lucide-react"
 import { LOAN_PURPOSE_OPTIONS } from "@/lib/loan-purpose-categories"
 import { convertBlocked, defaultTermInput, isFixedTerm, termForRequest, termIsInvalid, type TermBounds } from "./convert-term"
+import { formatRands } from "@/lib/utils"
 
 type Product = {
   id: string
@@ -272,7 +273,7 @@ export function ConvertLeadForm({ lead, prefill, products, recoveryMode = false 
             <div className="p-3 bg-amber-50 rounded-md text-sm">
               <span className="font-medium text-gray-700">Net Disposable Income: </span>
               <span className="font-bold text-amber-700">
-                R {(parseFloat(income) - parseFloat(expenses)).toLocaleString("en-ZA")}
+                {formatRands(parseFloat(income) - parseFloat(expenses))}
               </span>
             </div>
           )}

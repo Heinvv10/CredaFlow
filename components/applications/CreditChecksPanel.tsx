@@ -43,6 +43,9 @@ function errorText(body: unknown, fallback: string): string {
   return fallback
 }
 
+/** Says the same minimum as the counter under it and the route behind it. */
+export const CLEAR_REASON_PLACEHOLDER = `Why is this check being cleared? (at least ${CLEAR_REASON_MIN_LENGTH} characters)`
+
 function ClearForm({ applicationId, flagId, onDone }: {
   applicationId: string
   flagId: string
@@ -86,7 +89,7 @@ function ClearForm({ applicationId, flagId, onDone }: {
         maxLength={CLEAR_REASON_MAX_LENGTH}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        placeholder="Why is this check being cleared? (min 15 characters)"
+        placeholder={CLEAR_REASON_PLACEHOLDER}
       />
       <p className="text-xs text-[var(--cf-text-muted)]">{length} / {CLEAR_REASON_MIN_LENGTH} characters minimum</p>
       {error && (

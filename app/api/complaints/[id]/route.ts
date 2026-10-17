@@ -12,7 +12,7 @@ import type { ComplaintStatus, ComplaintOutcome } from "@prisma/client"
 const AUDITED_FIELDS = ["status", "assignedToId", "outcome", "acknowledgedAt", "resolvedAt"] as const
 const auditValue = (value: unknown) => (value instanceof Date ? value.toISOString() : value ?? null)
 const FINAL_STATUSES: ReadonlySet<ComplaintStatus> = new Set(["RESOLVED", "CLOSED"])
-const PATCHABLE_FIELDS = ["status", "assignedToId", "resolution", "outcome", "resolvedAt"] as const
+const PATCHABLE_FIELDS = ["status", "assignedToId", "resolution", "outcome", "resolvedAt", "acknowledge"] as const
 const isDateString = (value: unknown) => typeof value === "string" && !Number.isNaN(Date.parse(value))
 
 export async function GET(
@@ -55,6 +55,8 @@ export async function PATCH(
       resolution?: string
       outcome?: ComplaintOutcome
       resolvedAt?: string
+      /** Record the acknowledgement of an open complaint, its status unchanged. */
+      acknowledge?: unknown
     }
 
     if (PATCHABLE_FIELDS.every((field) => body[field] === undefined)) {
@@ -64,6 +66,9 @@ export async function PATCH(
     // real date may be stored as when the complaint was resolved.
     if (body.resolvedAt !== undefined && !isDateString(body.resolvedAt)) {
       return NextResponse.json({ error: "resolvedAt must be a date" }, { status: 400 })
+    }
+    if (body.acknowledge !== undefined && body.acknowledge !== true) {
+      return NextResponse.json({ error: "acknowledge must be true" }, { status: 400 })
     }
     if (body.assignedToId != null && typeof body.assignedToId !== "string") {
       return NextResponse.json({ error: "assignedToId must be a string" }, { status: 400 })
@@ -107,10 +112,20 @@ export async function PATCH(
         if (!isFinal && wasFinal) updateData.resolvedAt = null
       }
 
-      // Auto-set acknowledgedAt when complaint moves to UNDER_INVESTIGATION,
-      // only if not already acknowledged
-      if (body.status === "UNDER_INVESTIGATION" && !existing.acknowledgedAt) {
+      // Acknowledged once: explicitly, when the complaint is taken under
+      // investigation, or when an open one is resolved or closed straight away
+      // (either answers it). An escalation alone does not. Never moved once set.
+      const answers = body.status === "UNDER_INVESTIGATION"
+        || (existing.status === "OPEN" && body.status !== undefined && FINAL_STATUSES.has(body.status))
+      if ((body.acknowledge === true || answers) && !existing.acknowledgedAt) {
         updateData.acknowledgedAt = new Date()
+      }
+      if (Object.keys(updateData).length === 0) {
+        // An acknowledgement of a complaint already acknowledged: nothing to write.
+        return tx.complaint.findFirst({
+          where: { id, tenantId: tenant.id },
+          include: { client: { select: { id: true, firstName: true, lastName: true } } },
+        })
       }
 
       // updateMany so tenantId can be included in the where clause

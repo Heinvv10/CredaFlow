@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react"
 import { Upload, CheckCircle, XCircle, AlertCircle, Download } from "lucide-react"
+import { formatZAR } from "@/lib/utils"
 
 interface UploadResult {
   processed: number
@@ -36,10 +37,6 @@ export function BulkUploadRecorded({ held, refundDue }: {
       ))}
     </div>
   )
-}
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function parseCSV(text: string): Record<string, string>[] {

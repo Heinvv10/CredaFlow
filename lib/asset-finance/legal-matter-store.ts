@@ -8,6 +8,7 @@ import { attorneyAppointmentRefusal } from "./legal-matter-gate"
 import { LegalRefusal, refusing } from "./legal-matter-guard"
 import type { AppointAttorneyInput } from "./legal-matter-input"
 import type { SigningTx } from "./signing-prepare"
+import { SECTION129_ON_RECORD_WHERE } from "@/lib/collections/section129-reporting"
 
 export interface LegalActor { tenantId: string; userId: string; userEmail?: string | null }
 export type LegalResult = { kind: "not_found" } | { kind: "not_ready"; reason: string } | { kind: "done"; id: string }
@@ -51,7 +52,7 @@ export async function appointAttorney(actor: LegalActor, matterId: string, input
       regime: loan.ncaRegime, collectionsStage: loan.collectionsStage, steps: await loadHintSteps(tx, actor.tenantId, matter.id),
       // The notice the manual attorney-referral route requires: issued and completed.
       hasIssuedNotice: await tx.complianceRecord.count({
-        where: { tenantId: actor.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.id, status: "COMPLETED", completedAt: { not: null }, data: { path: ["lifecycle"], equals: "ISSUED" } },
+        where: { tenantId: actor.tenantId, type: "SECTION_129_NOTICE", referenceId: loan.id, status: "COMPLETED", completedAt: { not: null }, ...SECTION129_ON_RECORD_WHERE },
       }) > 0,
     })
     if (refusal) throw new LegalRefusal(refusal)

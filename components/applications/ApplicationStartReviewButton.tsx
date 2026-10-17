@@ -7,7 +7,8 @@ import { toast } from "@/lib/toast"
 
 type Props = {
   applicationId: string
-  mode?: "start" | "retry"
+  /** "rerun": a bureau result is already on file; a quieter, secondary action. */
+  mode?: "start" | "retry" | "rerun"
 }
 
 type ReviewErrorBody = {
@@ -37,7 +38,7 @@ export function ApplicationStartReviewButton({ applicationId, mode = "start" }: 
         } else if (body.bureauResult === "skipped") {
           toast.error("Bureau enquiry was skipped because client consent is unavailable.")
         } else {
-          toast.success(mode === "retry" ? "Bureau enquiry completed" : "Review started")
+          toast.success(mode === "start" ? "Review started" : "Bureau enquiry completed")
         }
         router.refresh()
         return
@@ -54,10 +55,10 @@ export function ApplicationStartReviewButton({ applicationId, mode = "start" }: 
   }
 
   return (
-    <Button type="button" onClick={startReview} disabled={loading} className="w-full">
+    <Button type="button" onClick={startReview} disabled={loading} className="w-full" variant={mode === "rerun" ? "outline" : "default"}>
       {loading
-        ? mode === "retry" ? "Retrying…" : "Starting…"
-        : mode === "retry" ? "Retry Bureau Enquiry" : "Start Review"}
+        ? mode === "start" ? "Starting…" : "Retrying…"
+        : mode === "retry" ? "Retry Bureau Enquiry" : mode === "rerun" ? "Re-run bureau enquiry" : "Start Review"}
     </Button>
   )
 }

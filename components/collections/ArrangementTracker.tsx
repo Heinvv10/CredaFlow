@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { CheckCircle, XCircle, AlertCircle, Clock, TrendingUp } from "lucide-react"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { SAST_TIME_ZONE, formatZAR } from "@/lib/utils"
 
 interface Installment {
   period: number
@@ -51,10 +51,6 @@ const INSTALLMENT_STATUS = {
   PARTIAL:  { color: "#F59E0B", bg: "#FEF3C7", icon: AlertCircle,  label: "Partial" },
   MISSED:   { color: "#EF4444", bg: "#FEE2E2", icon: XCircle,      label: "Missed" },
   UPCOMING: { color: "#9CA3AF", bg: "#F3F4F6", icon: Clock,        label: "Upcoming" },
-}
-
-function formatZAR(cents: number) {
-  return `R ${(cents / 100).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function formatDate(d: string) {

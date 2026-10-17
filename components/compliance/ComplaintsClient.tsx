@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
 import { Plus, X } from "lucide-react"
+import {
+  COMPLAINT_ACTION_LABELS,
+  complaintActionBody,
+  complaintStatusLabel,
+  complaintTiles,
+  nextComplaintActions,
+  type ComplaintAction,
+} from "@/lib/complaints/status-flow"
 
 type ClientOption = {
   id: string
@@ -59,6 +67,14 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   CLOSED: { bg: "#F3F4F6", text: "#374151" },
 }
 
+const TILE_COLORS: Record<string, { color: string; bg: string }> = {
+  total: { color: "#1565c0", bg: "#DBEAFE" },
+  open: { color: "#92400E", bg: "#FEF3C7" },
+  underInvestigation: { color: "#1E40AF", bg: "#DBEAFE" },
+  resolved: { color: "#065F46", bg: "#D1FAE5" },
+  escalated: { color: "#991B1B", bg: "#FEE2E2" },
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   FEES_AND_CHARGES: "Fees & Charges",
   COLLECTIONS_CONDUCT: "Collections Conduct",
@@ -70,15 +86,6 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS)
-
-const NEXT_STATUS: Record<string, string[]> = {
-  OPEN: ["UNDER_INVESTIGATION", "ESCALATED", "ESCALATED_OMBUD", "CLOSED"],
-  UNDER_INVESTIGATION: ["RESOLVED", "ESCALATED", "ESCALATED_OMBUD", "CLOSED"],
-  ESCALATED: ["UNDER_INVESTIGATION", "RESOLVED", "ESCALATED_OMBUD", "CLOSED"],
-  ESCALATED_OMBUD: ["UNDER_INVESTIGATION", "RESOLVED", "CLOSED"],
-  RESOLVED: ["CLOSED"],
-  CLOSED: [],
-}
 
 function isUnacknowledgedOver24h(complaint: Complaint): boolean {
   if (complaint.acknowledgedAt) return false
@@ -114,7 +121,7 @@ export function ComplaintsClient({
   const [newError, setNewError] = useState<string | null>(null)
 
   // Status update modal state
-  const [updateStatus, setUpdateStatus] = useState("")
+  const [updateStatus, setUpdateStatus] = useState<ComplaintAction | "">("")
   const [resolution, setResolution] = useState("")
 
   const filtered = complaints.filter((c) => {
@@ -122,13 +129,7 @@ export function ComplaintsClient({
     return true
   })
 
-  const stats = {
-    total: complaints.length,
-    open: complaints.filter((c) => c.status === "OPEN").length,
-    underInvestigation: complaints.filter((c) => c.status === "UNDER_INVESTIGATION").length,
-    resolved: complaints.filter((c) => c.status === "RESOLVED").length,
-    escalated: complaints.filter((c) => c.status === "ESCALATED").length,
-  }
+  const tiles = complaintTiles(complaints)
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -161,7 +162,7 @@ export function ComplaintsClient({
     setUpdating(true)
     setError(null)
     try {
-      const body: Record<string, string> = { status: updateStatus }
+      const body: Record<string, unknown> = { ...complaintActionBody(updateStatus) }
       if (resolution) body.resolution = resolution
       const res = await fetch(`/api/complaints/${selectedComplaint.id}`, {
         method: "PATCH",
@@ -206,13 +207,7 @@ export function ComplaintsClient({
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        {[
-          { label: "Total", value: stats.total, color: "#1565c0", bg: "#DBEAFE" },
-          { label: "Open", value: stats.open, color: "#92400E", bg: "#FEF3C7" },
-          { label: "Under Investigation", value: stats.underInvestigation, color: "#1E40AF", bg: "#DBEAFE" },
-          { label: "Resolved", value: stats.resolved, color: "#065F46", bg: "#D1FAE5" },
-          { label: "Escalated", value: stats.escalated, color: "#991B1B", bg: "#FEE2E2" },
-        ].map((s) => (
+        {tiles.map((tile) => ({ ...tile, ...TILE_COLORS[tile.key] })).map((s) => (
           <div key={s.label} className="bg-white rounded-xl shadow-sm p-4" style={{ borderLeft: `4px solid ${s.color}` }}>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">{s.label}</p>
             <p className="text-2xl font-extrabold" style={{ color: s.color }}>{s.value}</p>
@@ -285,7 +280,7 @@ export function ComplaintsClient({
                       className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-semibold"
                       style={{ backgroundColor: sc.bg, color: sc.text }}
                     >
-                      {STATUS_LABELS[c.status] ?? c.status}
+                      {complaintStatusLabel(c)}
                     </span>
                   </td>
                   <td className="px-4 py-3.5 text-[13px] text-gray-600">
@@ -303,11 +298,11 @@ export function ComplaintsClient({
                     )}
                   </td>
                   <td className="px-4 py-3.5">
-                    {NEXT_STATUS[c.status]?.length > 0 && (
+                    {nextComplaintActions(c).length > 0 && (
                       <button
                         onClick={() => {
                           setSelectedComplaint(c)
-                          setUpdateStatus(NEXT_STATUS[c.status][0])
+                          setUpdateStatus(nextComplaintActions(c)[0])
                           setResolution(c.resolution ?? "")
                           setError(null)
                         }}
@@ -438,8 +433,8 @@ export function ComplaintsClient({
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">New Status *</label>
                 <div className="flex gap-2 flex-wrap">
-                  {NEXT_STATUS[selectedComplaint.status].map((s) => {
-                    const sc = STATUS_COLORS[s] ?? { bg: "#F3F4F6", text: "#374151" }
+                  {nextComplaintActions(selectedComplaint).map((s) => {
+                    const sc = STATUS_COLORS[s === "ACKNOWLEDGE" ? "OPEN" : s] ?? { bg: "#F3F4F6", text: "#374151" }
                     return (
                       <button
                         key={s}
@@ -452,7 +447,7 @@ export function ComplaintsClient({
                           borderColor: updateStatus === s ? sc.text : "#E5E7EB",
                         }}
                       >
-                        {STATUS_LABELS[s] ?? s}
+                        {COMPLAINT_ACTION_LABELS[s]}
                       </button>
                     )
                   })}

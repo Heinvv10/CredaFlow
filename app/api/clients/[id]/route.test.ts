@@ -44,6 +44,8 @@ vi.mock("@/lib/prisma", () => ({
     client: {
       findUnique: (...args: unknown[]) => clientFindUniqueMock(...args),
     },
+    // The KYC override policy the refusal message names: the defaults.
+    tenantConfig: { findUnique: async () => null },
     // Options forwarded, not dropped: the isolation level and the timeout are
     // both asserted, and a mock that swallowed them would hide their loss.
     $transaction: (cb: (tx: unknown) => Promise<unknown>, options?: unknown) =>

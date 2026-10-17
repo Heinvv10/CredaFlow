@@ -40,12 +40,16 @@ export async function AppTopbar({ user }: AppTopbarProps) {
           so it no longer overlaps the logo (audit N-12). */}
       <div className="flex min-w-0 items-center gap-4 pl-12 lg:pl-0">
         {logoVersion ? (
-          // eslint-disable-next-line @next/next/no-img-element -- an authenticated API response, not a static asset
-          <img
-            src={`/api/settings/identity/logo?v=${logoVersion}`}
-            alt={brandName}
-            className="h-8 w-auto max-w-[160px] rounded bg-white object-contain px-1"
-          />
+          // A light chip with its own padding: a dark logo (navy on transparent,
+          // or on its own dark square) disappears into the dark shell otherwise.
+          <span data-logo-chip className="inline-flex h-10 items-center rounded-md bg-white px-2.5 py-1 shadow-sm ring-1 ring-black/10">
+            {/* eslint-disable-next-line @next/next/no-img-element -- an authenticated API response, not a static asset */}
+            <img
+              src={`/api/settings/identity/logo?v=${logoVersion}`}
+              alt={brandName}
+              className="h-7 w-auto max-w-[150px] object-contain"
+            />
+          </span>
         ) : (
           <p className="truncate text-base font-bold text-[var(--cf-text)]">{brandName}</p>
         )}

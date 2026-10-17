@@ -215,6 +215,18 @@ describe("Section 129 private artifact lifecycle", () => {
     expect(createMock.mock.invocationCallOrder[0]).toBeLessThan(saveFileToManagedPathMock.mock.invocationCallOrder[0])
   })
 
+  // #147 review: a crash rolls a dispatch back to READY, so a simulated send
+  // must be on the reservation itself for stale recovery and reconciliation.
+  it("records a simulated send on the reservation from STAGING on, and only when asked", async () => {
+    await reserveSection129Issuance({ ...reservationArgs, simulated: true })
+    expect(createMock.mock.calls[0][0].data.data).toMatchObject({ lifecycle: "STAGING", simulated: true })
+    expect(updateManyMock.mock.calls[0][0].data.data).toMatchObject({ lifecycle: "READY", simulated: true })
+
+    vi.clearAllMocks()
+    await reserveSection129Issuance(reservationArgs)
+    expect(createMock.mock.calls[0][0].data.data).not.toHaveProperty("simulated")
+  })
+
   it("keeps a durable STAGING manifest when the private-byte write fails", async () => {
     saveFileToManagedPathMock.mockRejectedValue(new Error("disk unavailable"))
 
@@ -1271,6 +1283,27 @@ describe("Section 129 private artifact lifecycle", () => {
       canReserve: true,
       blockedBy: null,
     })
+  })
+
+  it("says when the retrievable notice on file was simulated", async () => {
+    const pdf = Buffer.from("%PDF simulated")
+    findUniqueMock.mockResolvedValue(null)
+    findFirstMock.mockResolvedValue(null)
+    findManyMock.mockResolvedValue([{
+      id: "issue-sim",
+      idempotencyKey: null,
+      status: "COMPLETED",
+      completedAt: new Date("2026-07-18"),
+      data: {
+        lifecycle: "SIMULATED",
+        storagePath: "/private/legal/notice.pdf",
+        fileName: "Section-129-Notice-LN-1.pdf",
+        pdfSha256: section129PdfSha256(pdf),
+      },
+    }])
+    readFileMock.mockResolvedValue(pdf)
+    expect(await getSection129IssuanceAvailability("t1", "loan-1", new Date("2026-09-19T00:00:00.000Z")))
+      .toMatchObject({ hasRetrievableIssuedArtifact: true, latestIssuedSimulated: true })
   })
 
   it("detects tampering when serving a completed issued record", async () => {

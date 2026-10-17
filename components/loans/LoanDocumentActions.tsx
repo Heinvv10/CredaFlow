@@ -11,9 +11,12 @@ import { Button } from "@/components/ui/button"
 export function LoanDocumentActions({
   loanId,
   showSection129,
+  section129Simulated = false,
 }: {
   loanId: string
   showSection129: boolean
+  /** The notice on file was simulated on a demo stack and never sent. */
+  section129Simulated?: boolean
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -29,7 +32,7 @@ export function LoanDocumentActions({
       {showSection129 && (
         <a href={`/api/loans/${loanId}/section129-pdf`} target="_blank" rel="noopener noreferrer">
           <Button variant="outline" size="sm" className="border-[rgba(208,92,75,0.45)] text-[var(--cf-danger)] hover:bg-[rgba(208,92,75,0.08)]">
-            <Download className="mr-1 h-4 w-4" />S129 Notice
+            <Download className="mr-1 h-4 w-4" />{section129Simulated ? "S129 Notice (simulated, not sent)" : "S129 Notice"}
           </Button>
         </a>
       )}

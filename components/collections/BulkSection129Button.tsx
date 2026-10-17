@@ -2,12 +2,15 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 type BulkResult = {
   reference: string
   outcome: "SENT" | "SKIPPED" | "FAILED" | "RECOVERY_REQUIRED" | "RECONCILIATION_REQUIRED"
   issuanceId?: string
   error?: string
+  simulated?: boolean
 }
 
 type BulkResponse = {
@@ -44,7 +47,7 @@ export function BulkSection129Button({ count90Plus }: { count90Plus: number }) {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg text-sm">
         <span className="text-green-600 font-semibold">✓ Bulk S.129 sent</span>
-        <span className="text-gray-500">· {result.sent} sent, {result.skipped} skipped or blocked, {result.failed} failed</span>
+        <span className="text-gray-500">· {result.sent} sent{simulatedCount(result) > 0 ? ` (${simulatedCount(result)} simulated, not sent)` : ""}, {result.skipped} skipped or blocked, {result.failed} failed</span>
         <button onClick={() => setState("idle")} className="text-gray-400 hover:text-gray-600 ml-2">×</button>
       </div>
     )
@@ -53,12 +56,22 @@ export function BulkSection129Button({ count90Plus }: { count90Plus: number }) {
   if (state === "warning" && result) {
     const uncertain = result.results?.filter((item) => item.outcome === "RECONCILIATION_REQUIRED") ?? []
     const recovery = result.results?.filter((item) => item.outcome === "RECOVERY_REQUIRED") ?? []
+    const notSent = result.results?.filter((item) => item.outcome === "FAILED" || item.outcome === "SKIPPED") ?? []
     return (
       <div className="max-w-2xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
         <p className="font-semibold text-amber-900">Bulk run completed with exceptions</p>
         <p className="mt-1 text-xs text-amber-800">
-          {result.sent} sent, {result.skipped} skipped, {result.failed} failed, {uncertain.length} require reconciliation, {recovery.length} require timed-out recovery.
+          {result.sent} sent{simulatedCount(result) > 0 ? ` (${simulatedCount(result)} simulated, not sent)` : ""}, {result.skipped} skipped, {result.failed} failed, {uncertain.length} require reconciliation, {recovery.length} require timed-out recovery.
         </p>
+        {notSent.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {notSent.map((item) => (
+              <li key={`${item.reference}-${item.outcome}`} className="text-xs text-amber-900">
+                <span className="font-mono">{item.reference}</span>: {item.outcome === "SKIPPED" ? "skipped" : "not sent"} — {item.error ?? "no reason recorded"}
+              </li>
+            ))}
+          </ul>
+        )}
         {uncertain.length > 0 && (
           <div className="mt-2">
             <p className="text-xs font-bold text-red-700">Do not retry uncertain notices.</p>
@@ -106,16 +119,6 @@ export function BulkSection129Button({ count90Plus }: { count90Plus: number }) {
     )
   }
 
-  if (state === "confirm") {
-    return (
-      <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg text-sm">
-        <span className="text-red-700 font-semibold">Send S.129 to all {count90Plus} accounts 90+ DPD?</span>
-        <button onClick={send} className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700">Send All</button>
-        <button onClick={() => setState("idle")} className="px-3 py-1 border border-gray-300 text-xs rounded hover:bg-gray-50">Cancel</button>
-      </div>
-    )
-  }
-
   if (state === "sending") {
     return <div className="px-4 py-2 bg-gray-50 rounded-lg text-sm text-gray-500">Sending notices…</div>
   }
@@ -132,9 +135,30 @@ export function BulkSection129Button({ count90Plus }: { count90Plus: number }) {
   if (count90Plus === 0) return null
 
   return (
-    <button onClick={() => setState("confirm")}
-      className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">
-      ⚖️ Bulk S.129 ({count90Plus})
-    </button>
+    <>
+      <button onClick={() => setState("confirm")}
+        className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">
+        ⚖️ Bulk S.129 ({count90Plus})
+      </button>
+      <Dialog open={state === "confirm"} onOpenChange={(next) => { if (!next) setState("idle") }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Section 129 notices to {count90Plus} accounts?</DialogTitle>
+            <DialogDescription>
+              Every account 90 or more days in arrears that is eligible gets the statutory default notice by
+              email. Notices are legal documents: once sent they cannot be withdrawn.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setState("idle")}>Cancel</Button>
+            <Button onClick={send} className="bg-red-600 text-white hover:bg-red-700">Send all</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
+}
+
+function simulatedCount(result: BulkResponse): number {
+  return result.results?.filter((item) => item.simulated).length ?? 0
 }

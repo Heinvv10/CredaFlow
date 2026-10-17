@@ -13,6 +13,7 @@ import { BOOK_DEFINITIONS, getBookArrears } from "@/lib/reports/book-arrears"
 import { BookDefinitions } from "@/components/reports/BookDefinitions"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
 import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
+import { latestSection129Failures } from "@/lib/collections/section129-failures"
 
 
 async function getCollectionsData(tenantId: string, chargesLive: boolean) {
@@ -32,9 +33,14 @@ async function getCollectionsData(tenantId: string, chargesLive: boolean) {
   // name and messages them (WhatsApp, contact log, Section 129 notice). An
   // entity borrower (asset finance) has no Client, so it is left out of this
   // list; its regime is not the reason.
-  return loans
-    .filter(hasClientBorrower)
-    .map((loan) => ({ ...loan, arrearsAmount: arrearsWithCharges(loan, chargesLive) }))
+  const clientLoans = loans.filter(hasClientBorrower)
+  // A notice that was not sent says why on its row, not only in a toast.
+  const section129Failures = await latestSection129Failures(tenantId, clientLoans.map((loan) => loan.id))
+  return clientLoans.map((loan) => ({
+    ...loan,
+    arrearsAmount: arrearsWithCharges(loan, chargesLive),
+    section129Failure: section129Failures.get(loan.id) ?? null,
+  }))
 }
 
 async function getPendingWriteOffs(tenantId: string) {

@@ -88,3 +88,14 @@ describe("AppTopbar", () => {
     expectOnlySessionLender(html)
   })
 })
+
+describe("AppTopbar logo", () => {
+  // Fair Score audit 2026-10-16: a dark-blue logo on the near-black header.
+  it("sets an uploaded logo on a light, padded chip", async () => {
+    const { getLenderLogo } = await import("@/lib/config/lender-logo")
+    vi.mocked(getLenderLogo).mockResolvedValueOnce(new Uint8Array([0x89, 0x50, 0x4e, 0x47]) as never)
+    mockGetSession.mockResolvedValue({ user: { id: "u-1", role: "LOAN_ADMIN", tenantId: "tenant-session" } })
+    const html = renderToStaticMarkup(await AppTopbar({ user: { name: "Staff Member", email: "s@example.test", role: "LOAN_ADMIN" } }))
+    expect(html).toMatch(/<span data-logo-chip="true" class="[^"]*bg-white[^"]*px-2\.5[^"]*"><img src="\/api\/settings\/identity\/logo\?v=/)
+  })
+})

@@ -8,6 +8,7 @@ import { displayCents } from "./formatters"
 import { OwnLenderArrearsNotice } from "@/components/applications/OwnLenderArrearsNotice"
 import type { ApplicationProduct, ApplicationWizardData, WizardMode } from "./types"
 import type { ValidationErrors } from "@/lib/validation/application-wizard"
+import { AFFORDABILITY_FAIL_REVIEW_COPY } from "@/lib/applications/wizard-copy"
 
 export interface ClientForAffordability {
   monthlyIncome: number       // cents
@@ -177,11 +178,7 @@ export function Step3Affordability({
               onChange={(e) => patch({ recklessLendingConfirmed: e.target.checked })}
               className="mt-1"
             />
-            <span>
-              I acknowledge the affordability check has failed and that proceeding
-              would constitute reckless lending under NCA §80. Advancing to the
-              review step requires this acknowledgement.
-            </span>
+            <span>{AFFORDABILITY_FAIL_REVIEW_COPY}</span>
           </label>
         </FieldGroup>
       )}
