@@ -1,0 +1,11 @@
+# Concurrent upstream UI change and reconciliation plan
+
+While core candidate b637a03eabd1dbd2362fba10cd48d7cafb442274 was frozen in full gates, another session queued [PR166](https://github.com/Heinvv10/CredaFlow/pull/166), head9f4fdffeb2e32a005eace989192346a79c0609ce. Read via agent-reach GitHub/gh; state OPEN, quality/integration in progress at observation. No changes to that PR or its queue entry are authorized/needed by this session.
+
+Overlap is substantive: PR166 adds a Dialog-based mobile portal menu and header spacing, shared dialog scrolling and global UI layout; this remediation added native-details navigation. A blind merge could render two menus. Other overlap touches client detail layout versus role-gated ClientRecordActions and integration settings layout versus truthful prerequisite copy.
+
+Final release-image build is held for actual landed-main inspection/reconciliation. Preserve PR166 work. Do not treat an unmerged PR head as accepted main. Current frozen pre166 full checks can provide only exact predecessor evidence, never proof for the later combined source.
+
+After166actuallylands, MQ fetches exact origin/mainSHA and sends it to A. A creates own clean branch fix/gtm-upstream-ui-reconcile-20261017 fromb637, merges actual landed main in its own worktree, retains upstream Dialog/PortalShell/shared UI changes, removes only redundant native-details menu, uses existing translated Menu label, rewrites own mobile test for actual Dialog and adapts browser driver. B independently reviews exact combined merge commit and reruns affected regressions. MQ sole integration writer fastforwards to that reviewed merge commit, preserving actual main ancestry. New final source/full quality/integration/image/browser evidence required.
+
+Approved A reconciliation writable paths: components/app-shell/PortalSidebar.tsx, PortalSidebar.mobile.test.tsx, A-UPSTREAM-RECONCILIATION.md. Conditional ownership transfer to A for textual merge conflicts only: app/(dashboard)/clients/[id]/page.tsx and components/settings/IntegrationsTab.tsx, preserving upstream layout plus B role/copy fixes. Any other substantive conflict needs exact-path ownership/specification before editing. No PortalShell/global CSS/shared Dialog changes assigned; retain upstream implementation.
