@@ -120,6 +120,18 @@ const calls: CallStat[] = []
 
 function asker(kind: string) {
   return async (prompt: string, maxTokens: number): Promise<string> => {
+    // The shared model can drop a request; one failed call must not end the run.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await once(prompt, maxTokens)
+      } catch (err) {
+        if (attempt >= 3) throw err
+        process.stderr.write(`(model call failed: ${err instanceof Error ? err.message : "unknown"}; retrying)`)
+        await new Promise((r) => setTimeout(r, 5_000 * attempt))
+      }
+    }
+  }
+  async function once(prompt: string, maxTokens: number): Promise<string> {
     const started = Date.now()
     const res = await fetch(`${process.env.VLM_API_URL!.replace(/\/$/, "")}/v1/chat/completions`, {
       method: "POST",

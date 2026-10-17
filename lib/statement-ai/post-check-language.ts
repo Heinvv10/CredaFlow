@@ -37,6 +37,7 @@ export const VERDICT = new RegExp([
   "trust(worthy|ed|s)?", "reliab\\w*", "suspicious\\w*", "fraud\\w*", "risky", "(high|low|elevated|moderate|minimal|little)[- ]risk",
   "genuine\\w*", "authentic\\w*", "unaltered", "untampered", "tamper\\w*", "forg(ed|ery|eries)", "fake\\w*", "doctored",
   "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verif(y|ied|ies|ication)(?! against a payslip)", "real",
+  "(is|was|are|were|been|being|appears?|looks?|seems?) (true|correct|clean|accurate|valid|honest|sound|in order)",
 ].map((w) => `\\b${w}\\b`).join("|"), "i")
 
 /**

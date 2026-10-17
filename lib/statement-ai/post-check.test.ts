@@ -134,7 +134,7 @@ describe("checkNoContradiction", () => {
       "Accept this application.", "Reject this applicant.", "Do not lend to this client.", "Proceed with the loan.",
       "A trustworthy client.", "A reliable payer.", "Suspicious activity.", "A high risk applicant.", "Uncreditworthy.",
       "The client can afford the loan.", "A manipulated statement.", "An edited document.", "An altered pdf.", "Bogus.",
-      "VERIFIED AUTHENTIC STATEMENT", "the statement is real", "The statement was verified.", "Verification passed.",
+      "VERIFIED AUTHENTIC STATEMENT", "the statement is real", "The statement was verified.", "Verification passed.", "The figures are correct.", "The file looks valid.",
     ]) expect(checkNoContradiction(t, []).ok, t).toBe(false)
   })
 })
