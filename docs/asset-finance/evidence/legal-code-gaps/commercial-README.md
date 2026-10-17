@@ -48,3 +48,14 @@ cutoff with maturity fails this independent interest oracle. The separate
 sale-completion database guard also refuses a direct completion without the
 actual cancellation event. These focused proofs do not replace the final full
 CI gate.
+
+Concurrent evidence edits are serialized by agreement → evidence row locks in
+both the staff service and database event guard. Real PostgreSQL tests cover
+a pending soft deletion before cancellation through both the staff route and
+direct writes, and a pending direct cancellation before soft deletion. The
+first ordering refuses cancellation; the second refuses deletion after the
+event commits. The original independent review repro failed before this fix.
+Removing only the database evidence lock also fails the direct-write race
+regression (`/tmp/cf-commercial-evidence-lock-mutation.log`); the function was
+restored before the broad recovery rerun. Eight commercial integration tests
+passed after the fix (`/tmp/cf-commercial-evidence-race-green.log`).

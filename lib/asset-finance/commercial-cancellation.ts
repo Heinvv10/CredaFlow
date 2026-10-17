@@ -29,6 +29,9 @@ export async function recordCommercialCancellation(actor: RecoveryActor, loanId:
     if (loan.commercialCancellationEvent) throw new RecoveryRefusal("The evidenced cancellation date is already recorded and permanent")
     if (!["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF"].includes(loan.status)) throw new RecoveryRefusal("Record cancellation on an open commercial agreement")
     if (input.cancelledOn < sastCalendarDate(loan.startDate) || input.cancelledOn > sastCalendarDate(new Date())) throw new RecoveryRefusal("The actual cancellation date must be between contract start and today")
+    // Keep the same agreement → evidence lock order as the database guard.
+    // Validate after a pending evidence edit has committed, never from its old image.
+    await tx.$queryRaw`SELECT "id" FROM "EntityDocument" WHERE "id" = ${input.evidenceDocumentId} AND "tenantId" = ${actor.tenantId} FOR UPDATE`
     const evidence = await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId, tenantId: actor.tenantId, entityId: loan.entityId,
       docType: "LEGAL_DOCUMENT", uploadedByType: "staff", deletedAt: null, OR: [{ dealId: null }, { dealId: loan.assetFinanceDeal?.id ?? null }] } })
     if (!evidence) throw new RecoveryRefusal("Choose live staff-uploaded legal evidence belonging to this borrower and agreement")

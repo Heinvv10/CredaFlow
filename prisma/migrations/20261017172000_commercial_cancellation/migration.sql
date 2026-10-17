@@ -28,9 +28,13 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Cancellation needs an open commercial instalment sale and an actual date from contract start through today'; END IF;
  IF NOT EXISTS (SELECT 1 FROM "User" WHERE "id" = NEW."recordedById" AND "tenantId" = NEW."tenantId" AND "active" AND "role" IN ('LOAN_ADMIN','ADMIN','SUPER_ADMIN')) THEN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Commercial cancellation needs an authorised staff verifier'; END IF;
- IF NOT EXISTS (SELECT 1 FROM "EntityDocument" evidence WHERE evidence."id" = NEW."evidenceDocumentId" AND evidence."tenantId" = NEW."tenantId"
+ -- Lock after the agreement, before validating live evidence. A concurrent
+ -- soft deletion must either commit first and be refused here, or wait and
+ -- be refused by the evidence immutability guard after this event commits.
+ PERFORM 1 FROM "EntityDocument" evidence WHERE evidence."id" = NEW."evidenceDocumentId" AND evidence."tenantId" = NEW."tenantId"
    AND evidence."entityId" = agreement."entityId" AND evidence."docType" = 'LEGAL_DOCUMENT' AND evidence."uploadedByType" = 'staff' AND evidence."deletedAt" IS NULL
-   AND (evidence."dealId" IS NULL OR EXISTS (SELECT 1 FROM "AssetFinanceDeal" deal WHERE deal."id" = evidence."dealId" AND deal."loanId" = agreement."id" AND deal."tenantId" = agreement."tenantId"))) THEN
+   AND (evidence."dealId" IS NULL OR EXISTS (SELECT 1 FROM "AssetFinanceDeal" deal WHERE deal."id" = evidence."dealId" AND deal."loanId" = agreement."id" AND deal."tenantId" = agreement."tenantId")) FOR UPDATE OF evidence;
+ IF NOT FOUND THEN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Cancellation needs live staff legal evidence of the same borrower and agreement'; END IF;
  RETURN NEW;
 END; $$;
