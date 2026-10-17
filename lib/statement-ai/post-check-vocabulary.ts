@@ -53,7 +53,7 @@ returned return returns unpaid collected collect collection attempt attempts
 recurring repeated
 read reads named name names
 found find finds located
-time times
+time
 question questions answer answers query queries result results computed calculated
 appear appears appeared
 whether because so if then

@@ -21,6 +21,10 @@ export interface Allowed {
   names?: Iterable<string>
   /** Payee names (statement text): copied only as given, in capitals. */
   payees?: Iterable<string>
+  /** Relations the facts state: only then may the prose say something is below another. */
+  relations?: { below?: boolean }
+  /** Amounts that are a whole period's (not a month's): only these may be called a total. */
+  periodAmountsCents?: Iterable<number>
 }
 
 export type CheckResult = { ok: true } | { ok: false; reason: string }
