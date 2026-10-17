@@ -24,5 +24,8 @@ describe("toView: a summary missing a flag raised since", () => {
     expect(toView(row({ text }), "h2", ["GAMBLING"])).toMatchObject({ status: "OK", text })
     expect(toView(row({ text }), "h2", ["GAMBLING", "RETURNED_DEBIT"])).toMatchObject({ status: "PENDING", text: null, stale: true })
     expect(toView(row({ kind: "ANSWER", text: "[q1] Rows for all rows: 3." }), "h2", ["RETURNED_DEBIT"])).toMatchObject({ status: "OK" })
+    // A payee named like the new flag's code does not count as naming it.
+    expect(toView(row({ text: `Largest payees by money out: "GAMBLING" R1.00 (1 payment). ${text}` }), "h2", ["GAMBLING", "UNREADABLE"])).toMatchObject({ text: null })
+    expect(toView(row({ text: `Largest payees by money out: "UNREADABLE" R1.00 (1 payment). ${text}` }), "h2", ["GAMBLING", "UNREADABLE"])).toMatchObject({ status: "PENDING", text: null })
   })
 })

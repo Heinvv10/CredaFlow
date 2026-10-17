@@ -43,9 +43,11 @@ const plain = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toUpperC
 export function safeKey(key: string, clientName: string | null = null): boolean {
   if (!key || FIGURE_KEY.test(key) || figureWord(key) || CHECK_WORDS_KEY.test(key) || OUTCOME_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
   const name = plain(clientName ?? "").split(/[^A-Z]+/).filter((w) => w.length >= 2)
-  // A key word is the name's when equal, or (three letters or more) the start of a name word: a statement may drop
-  // an accented letter ("René" read as "REN") or shorten a name.
-  return !key.split(" ").some((w) => name.some((n) => n === w || (w.length >= 3 && n.startsWith(w))))
+  // A key word is the name's when equal; when (three letters or more) the start of a name word, as a statement may
+  // drop an accented letter ("René" read as "REN"); or when it starts with a name word of three letters or more, or
+  // ends with one of four ("SMITS", "ANNE", "TSMIT"). Best effort: a nickname or another surname is not caught.
+  return !key.split(" ").some((w) => name.some((n) =>
+    n === w || (w.length >= 3 && n.startsWith(w)) || (n.length >= 3 && w.startsWith(n)) || (n.length >= 4 && w.endsWith(n))))
 }
 
 export const WITHHELD = "(payee withheld)"
@@ -88,6 +90,8 @@ export interface SummaryFacts {
   livingSpendComparedWithDeclared: "above" | "below" | "equal" | null
   livingSpendDifferenceFromDeclaredPerMonth: string | null
   topPayees: Array<{ payee: string; moneyOut: string; payments: number }>
+  /** Payees whose names are withheld, together: listed apart, since many payees are not one "largest" payee. */
+  withheldPayees: { moneyOut: string; payments: number } | null
   raisedFlags: RaisedFlag[]
   raisedFlagCount: number
 }
@@ -161,21 +165,25 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
 
 type PayeeRow = Pick<CountedRow, "t">
 
-function topPayees(rows: PayeeRow[], clientName: string | null): SummaryFacts["topPayees"] {
+function topPayees(rows: PayeeRow[], clientName: string | null): Pick<SummaryFacts, "topPayees" | "withheldPayees"> {
   const by = new Map<string, { cents: number; n: number }>()
   for (const { t } of rows) {
     if (t.amountCents >= 0 || t.nonPosting) continue
-    // Withheld payees are one bucket, ranked with the rest: dropping them would make "largest" untrue.
     const key = payeeOf(t.description, clientName)
     const e = by.get(key) ?? { cents: 0, n: 0 }
     e.cents -= t.amountCents
     e.n++
     by.set(key, e)
   }
-  return [...by.entries()]
-    .sort((a, b) => b[1].cents - a[1].cents || a[0].localeCompare(b[0]))
-    .slice(0, TOP_PAYEES)
-    .map(([payee, e]) => ({ payee, moneyOut: rand(e.cents), payments: e.n }))
+  const withheld = by.get(WITHHELD)
+  by.delete(WITHHELD)
+  return {
+    topPayees: [...by.entries()]
+      .sort((a, b) => b[1].cents - a[1].cents || a[0].localeCompare(b[0]))
+      .slice(0, TOP_PAYEES)
+      .map(([payee, e]) => ({ payee, moneyOut: rand(e.cents), payments: e.n })),
+    withheldPayees: withheld ? { moneyOut: rand(withheld.cents), payments: withheld.n } : null,
+  }
 }
 
 function evidenceRows(f: Pick<ApplicationCheckFlag, "evidence">): number {
@@ -220,7 +228,7 @@ export function summaryFacts(
     declaredExpensesPerMonth: insights.declaredCents === null ? null : rand(insights.declaredCents),
     livingSpendComparedWithDeclared: insights.gapCents === null ? null : insights.gapCents > 0 ? "above" : insights.gapCents < 0 ? "below" : "equal",
     livingSpendDifferenceFromDeclaredPerMonth: insights.gapCents === null ? null : rand(Math.abs(insights.gapCents)),
-    topPayees: topPayees(rows, clientName),
+    ...topPayees(rows, clientName),
     raisedFlags: raised,
     raisedFlagCount: raised.length,
   }

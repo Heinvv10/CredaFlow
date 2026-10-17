@@ -35,7 +35,8 @@ export interface OutputView {
  */
 export function toView(o: StatementAiOutput, currentHash: string | null, raisedFlagCodes: readonly string[]): OutputView {
   // A summary made before a flag was raised does not name it: not shown, since a summary never leaves out what the rules found.
-  const namesFlags = o.kind !== "SUMMARY" || raisedFlagCodes.every((c) => o.text.includes(c))
+  // "CODE (" is how the flags sentence names a flag; a quoted payee named like a code ("GAMBLING") never reads so.
+  const namesFlags = o.kind !== "SUMMARY" || raisedFlagCodes.every((c) => o.text.includes(`${c} (`))
   const ok = o.status === "OK" && namesFlags && checkNoContradiction(o.text, raisedFlagCodes).ok
   return {
     id: o.id,

@@ -78,8 +78,13 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
     }
     case "uncategorised":
       return f.uncategorisedPercentOfMoneyOut === null ? null : `${f.uncategorisedPercentOfMoneyOut}% of money out has no category.`
-    case "payees":
-      return f.topPayees.length ? `Largest payees by money out: ${list(f.topPayees.map((p) => `${quoted(p.payee)} ${p.moneyOut} (${p.payments} payment${p.payments === 1 ? "" : "s"})`))}.` : null
+    case "payees": {
+      const payments = (n: number) => `${n} payment${n === 1 ? "" : "s"}`
+      const withheld = f.withheldPayees ? `Payees whose names are withheld, together: ${f.withheldPayees.moneyOut} (${payments(f.withheldPayees.payments)}).` : ""
+      if (!f.topPayees.length) return withheld || null
+      const named = `Largest ${withheld ? "named " : ""}payees by money out: ${list(f.topPayees.map((p) => `${quoted(p.payee)} ${p.moneyOut} (${payments(p.payments)})`))}.`
+      return withheld ? `${named} ${withheld}` : named
+    }
     case "flags":
       return f.raisedFlags.length
         ? `Flags raised by the credit checks: ${list(f.raisedFlags.map((r) => `${r.code} (${r.check}, ${r.evidenceRows} evidence row${r.evidenceRows === 1 ? "" : "s"})`))}. An officer reviews each before a decision.`
@@ -172,7 +177,7 @@ export function renderResult(q: QueryResult): string {
       const items = entries.map((e) => `${key === "payee" ? quoted(e[key]) : e[key]} ${e.total !== undefined ? `${e.total} (${rowsWord(e.rowCount)})` : rowsWord(e.count)}`)
       if (!items.length) return `[${q.id}] No rows for ${what}.`
       const net = entries.some((e) => e.total !== undefined) && !(q.args.filter as Record<string, unknown> | undefined)?.direction ? " (net totals: a minus means more went out than came in)" : ""
-      const top = key === "payee" && entries.length === q.args.limit ? `, the largest ${q.args.limit} payees` : ""
+      const top = key === "payee" && entries.length === q.args.limit ? (q.args.limit === 1 ? ", the largest payee" : `, the largest ${q.args.limit} payees`) : ""
       return `[${q.id}] By ${key} for ${what}${top}${net}: ${list(items)}.`
     }
     case "list": {

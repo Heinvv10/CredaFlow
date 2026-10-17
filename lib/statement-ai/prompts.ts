@@ -7,7 +7,7 @@
 import type { SummaryFacts } from "./facts"
 import { CLAIM_DESCRIPTIONS, SUMMARY_CLAIMS } from "./render"
 
-export const SUMMARY_PROMPT_VERSION = "summary-claims-2"
+export const SUMMARY_PROMPT_VERSION = "summary-claims-3"
 
 export function summaryPrompt(facts: SummaryFacts): string {
   return `You choose what a short summary of a loan applicant's bank statements should say to a credit officer at a South African lender.

@@ -6,6 +6,7 @@ import { allowedFrom, explanationFacts, safeKey, summaryFacts, WITHHELD } from "
 import { rand } from "./format"
 import { checkFigures } from "./post-check"
 import { SUMMARY_PROMPT_VERSION, summaryPrompt } from "./prompts"
+import { renderSummary } from "./render"
 
 const read = { periodStart: "2026-07-01", periodEnd: "2026-09-30", openingBalanceCents: 500_000, closingBalanceCents: null, accountHolderName: "T TESTER", accountNumberLast4: "0001", transactions: syntheticTransactions() }
 const insights = computeInsights(
@@ -87,7 +88,7 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-2", "b47ae42d7cbeecd6"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-3", "ebad7751d015e5f3"])
   })
 })
 
@@ -101,10 +102,19 @@ describe("review round 5: payees", () => {
     expect(["FIVE THOUSAND", "TWICE MONTHLY", "TWELFTH AVE", "MAY", "LAST MONTH", "ONE STOP SHOP"].filter((k) => safeKey(k))).toEqual([])
     expect(safeKey("FIRST NATIONAL BANK")).toBe(true)
   })
-  it("ranks withheld payees as one bucket, so the largest are the largest", () => {
+  it("lists withheld payees apart, together, never dropped and never ranked as one payee", () => {
     const out = read.transactions.find((t) => t.amountCents < 0)!
     const big = [1, 2].map((i) => ({ t: { ...out, description: `STANDARD BANK HOMELOAN ${i}`, amountCents: -5_000_000 } }))
-    const top = summaryFacts(insights, [...rows, ...big], [], "T TESTER").facts.topPayees
-    expect(top[0]).toEqual({ payee: WITHHELD, moneyOut: "R100 000.00", payments: 2 })
+    const f = summaryFacts(insights, [...rows, ...big], [], "T TESTER").facts
+    expect(f.withheldPayees).toEqual({ moneyOut: "R100 000.00", payments: 2 })
+    expect(f.topPayees.map((p) => p.payee)).not.toContain(WITHHELD)
+    expect(renderSummary(["payees"], { ...f, raisedFlags: [] })).toMatch(/^Largest named payees by money out: "SYNTH RENTALS" .*\. Payees whose names are withheld, together: R100 000\.00 \(2 payments\)\.$/)
+    expect(summaryFacts(insights, rows, [], "T TESTER").facts.withheldPayees).toBeNull()
+  })
+  it("withholds a payee word that extends or ends with a client name word", () => {
+    expect(["SMITS", "TSMIT"].filter((k) => safeKey(k, "J Smit"))).toEqual([])
+    expect(safeKey("ANNE", "Ann Mokoena")).toBe(false)
+    expect(safeKey("TESTERS", "Thabo Tester")).toBe(false)
+    expect(safeKey("SYNTH RENTALS", "Ann Mokoena")).toBe(true)
   })
 })

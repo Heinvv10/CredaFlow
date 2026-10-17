@@ -115,6 +115,9 @@ describe("review round 4: what the sentences must never say", () => {
 
 describe("review round 5", () => {
   const ask = askRows([{ ref: "S1", transactions: read.transactions.map((t, index) => ({ index, t })) }], "T TESTER")
+  it("says the largest payee, not the largest 1 payees", () => {
+    expect(renderResult(runQuery(ask, { id: "q1", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 1 }))).toMatch(/^\[q1\] By payee for money out, the largest payee: "SYNTH RENTALS"/)
+  })
   it("calls an average with no direction a net average", () => {
     expect(renderResult(runQuery(ask, { id: "q1", tool: "average", filter: {} }))).toMatch(/^\[q1\] Net average amount \(money in less money out, per row; a minus means more went out than came in\) for all rows: /)
     expect(renderResult(runQuery(ask, { id: "q2", tool: "average", filter: { direction: "out" } }))).toMatch(/^\[q2\] Average amount for money out: /)
