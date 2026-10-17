@@ -1,12 +1,14 @@
 /** Migrated PG deadlines: fixture classification only is installed before the
  * real queue, scan and dispatch operations, which run with every guard active. */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { withoutTenantScope } from "@/lib/tenant-scope"
 import { createRepriceLoan, createRepriceTenant } from "./reprice.integration-fixture"
 import { queueRepriceNotice } from "./reprice-notice"
-import { scanRateNoticeDeadlines } from "./rate-notice-deadline"
+import { scanRateNoticeDeadlines, rateNoticeDispatchStatus } from "./rate-notice-deadline"
 import { dispatchRepriceNotices } from "./reprice-notice-dispatch"
 import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" ? describe : describe.skip
@@ -70,6 +72,35 @@ suite.sequential("NCA written-rate deadline and historical breach on PostgreSQL"
           },
         })
       ).rejects.toThrow("Rate notice deadline must follow actual effective date and NCA regime")
+    }))
+  it("does not turn legacy application completion without provider timestamps into dispatch proof", () =>
+    withoutTenantScope(async () => {
+      const { tenant, notice } = await setup()
+      await db.assetFinanceRateNotice.update({
+        where: { id: notice.id },
+        data: {
+          completedAt: new Date("2026-05-19T08:00:00Z"),
+          lastOutcomes: [
+            { clientId: tenant.directorId, channel: "EMAIL", status: "SENT", messageId: "synthetic-legacy-unproven" },
+          ],
+        },
+      })
+      // Execute the migration's actual data backfill against a legacy completed
+      // notice. No linked Message/provider timestamp exists for this fixture.
+      const migration = readFileSync(
+        resolve(process.cwd(), "prisma/migrations/20261018010000_rate_notice_deadlines/migration.sql"),
+        "utf8"
+      )
+      const backfill = migration.match(/UPDATE "AssetFinanceRateNotice" n[\s\S]*?;/)?.[0]
+      if (!backfill) throw new Error("Deadline migration data backfill is missing")
+      await db.$executeRawUnsafe(backfill)
+      await scanRateNoticeDeadlines(prisma, "2026-05-21")
+      const legacy = await db.assetFinanceRateNotice.findUniqueOrThrow({ where: { id: notice.id } })
+      expect(legacy.completedAt).toEqual(new Date("2026-05-19T08:00:00Z"))
+      expect(legacy.firstDispatchedAt).toBeNull()
+      expect(legacy.deadlineExceptionAt).not.toBeNull()
+      expect(legacy.deadlineEscalationLevel).toBe(3)
+      expect(rateNoticeDispatchStatus("2026-05-20", "2026-05-21", null)).toBe("OVERDUE_UNVERIFIED")
     }))
   it("alerts once per deadline stage, keeps partial delivery pending, and preserves breach after late completion", () =>
     withoutTenantScope(async () => {

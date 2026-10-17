@@ -336,3 +336,14 @@ Latest source checks: 43 focused unit/route/registry tests pass in
 `/tmp/cf-rate-deadline-final-lint.log`. The staff panel distinguishes timely
 dispatch, late dispatch and overdue-unverified evidence without claiming reader
 receipt.
+
+Fresh security correction: the migration no longer copies legacy `completedAt`
+into `firstDispatchedAt`. Application completion alone proves no provider
+acceptance. Existing records remain unknown until authentic Message timestamp
+provenance is available. The prepared PostgreSQL regression executes the actual
+migration data backfill against a completed legacy notice with a `SENT` outcome
+but no linked provider timestamp, then requires unknown dispatch and escalation.
+This new regression is explicitly **not run** while migration approval is held.
+Affected unit checks (19), TypeScript and lint pass in
+`/tmp/cf-rate-legacy-unit.log`, `/tmp/cf-rate-legacy-typecheck.log`, and
+`/tmp/cf-rate-legacy-lint.log`.

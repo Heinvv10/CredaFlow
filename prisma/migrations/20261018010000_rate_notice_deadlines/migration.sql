@@ -4,9 +4,10 @@ ALTER TABLE "AssetFinanceRateNotice"
   ADD COLUMN "deadlineExceptionAt" TIMESTAMP(3),
   ADD COLUMN "deadlineEscalationLevel" INTEGER NOT NULL DEFAULT 0;
 
+-- Legacy completedAt is application workflow state, not provider evidence.
+-- Leave firstDispatchedAt NULL unless authentic Message timestamps are proven.
 UPDATE "AssetFinanceRateNotice" n
-SET "statutoryDueOn" = public."recoveryAddBusinessDays"(n."effectiveDate", 30),
-    "firstDispatchedAt" = n."completedAt"
+SET "statutoryDueOn" = public."recoveryAddBusinessDays"(n."effectiveDate", 30)
 FROM "Loan" l
 WHERE l.id = n."loanId" AND l."tenantId" = n."tenantId" AND l."ncaRegime" = 'NCA';
 
