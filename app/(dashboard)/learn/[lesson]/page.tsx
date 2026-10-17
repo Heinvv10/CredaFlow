@@ -1,3 +1,4 @@
+import { availableLessonMedia } from "@/lib/manual/media"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ExternalLink, ShieldCheck } from "lucide-react"
@@ -5,7 +6,7 @@ import { requireMinRole } from "@/lib/auth-guards"
 import { auth } from "@/lib/auth"
 import { Header } from "@/components/layout/Header"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
-import { findLesson, lessonAssets } from "@/lib/manual/curriculum"
+import { findLesson } from "@/lib/manual/curriculum"
 import { getCompletedSlugs } from "@/lib/manual/progress"
 import { LessonPlayer } from "@/components/manual/LessonPlayer"
 import { LessonProgressToggle } from "@/components/manual/LessonProgressToggle"
@@ -18,7 +19,7 @@ export default async function LessonPage({ params }: { params: Promise<{ lesson:
 
   const session = await auth()
   const completed = session?.user ? await getCompletedSlugs(session.user.id) : []
-  const assets = lessonAssets(lesson.slug)
+  const assets = await availableLessonMedia(lesson.slug)
 
   return (
     <>

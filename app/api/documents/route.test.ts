@@ -19,6 +19,7 @@ const extractDocumentDataMock = vi.fn()
 const validateDocumentAgainstClientMock = vi.fn()
 const readStatementInBackgroundMock = vi.fn()
 const recomputeClientApplicationsMock = vi.fn()
+const enqueueClientApplicationsMock = vi.fn()
 
 const tx = {
   $queryRaw: (query: unknown) => queryRawMock(query),
@@ -74,6 +75,9 @@ vi.mock("@/lib/vlm-extract", () => ({
 }))
 vi.mock("@/lib/credit-checks/recompute", () => ({
   recomputeClientApplications: (...args: unknown[]) => recomputeClientApplicationsMock(...args),
+}))
+vi.mock("@/lib/statement-ai/worker", () => ({
+  enqueueClientApplications: (...args: unknown[]) => enqueueClientApplicationsMock(...args),
 }))
 vi.mock("@/lib/statement-analysis/persist", () => ({
   readStatementInBackground: (...args: unknown[]) => readStatementInBackgroundMock(...args),
@@ -455,6 +459,9 @@ describe("POST /api/documents", () => {
     const { onRead } = readStatementInBackgroundMock.mock.calls[0][2] as { onRead: () => Promise<unknown> }
     await onRead()
     expect(recomputeClientApplicationsMock).toHaveBeenCalledWith("tenant-1", "client-1")
+    // Statement AI explains the flags just raised, so it is queued after them.
+    expect(enqueueClientApplicationsMock).toHaveBeenCalledWith("tenant-1", "client-1")
+    expect(enqueueClientApplicationsMock.mock.invocationCallOrder[0]).toBeGreaterThan(recomputeClientApplicationsMock.mock.invocationCallOrder[0])
   })
 
   it("recomputes the client's applications when a payslip's extraction completes, and a failure there does not fail the extraction", async () => {

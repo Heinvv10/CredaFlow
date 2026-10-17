@@ -1,0 +1,114 @@
+{
+  "base": "http://localhost:44213",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "at": "2026-10-17T15:51:48.662Z",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "941f664fd8721c83c147367ccbed6a061d1ba6ea14dabc65382284827c245f6e",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual authenticated role",
+      "role": "READONLY",
+      "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+    },
+    {
+      "route": "/clients/cmnflx7kl003bay0cpexkq72j",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "no client edit link",
+          "ok": true
+        },
+        {
+          "label": "no new application link",
+          "ok": true
+        }
+      ],
+      "evidence": "_clients_cmnflx7kl003bay0cpexkq72j.json"
+    },
+    {
+      "route": "/clients/cmnflx7kl003bay0cpexkq72j/edit",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "direct editable URL explains read-only role",
+          "ok": true
+        },
+        {
+          "label": "no actionable edit/create wizard",
+          "ok": true
+        }
+      ],
+      "evidence": "_clients_cmnflx7kl003bay0cpexkq72j_edit.json"
+    },
+    {
+      "route": "/clients/new",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "direct editable URL explains read-only role",
+          "ok": true
+        },
+        {
+          "label": "no actionable edit/create wizard",
+          "ok": true
+        }
+      ],
+      "evidence": "_clients_new.json"
+    },
+    {
+      "route": "/applications/new",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "direct editable URL explains read-only role",
+          "ok": true
+        },
+        {
+          "label": "no actionable edit/create wizard",
+          "ok": true
+        }
+      ],
+      "evidence": "_applications_new.json"
+    },
+    {
+      "url": "/api/clients/cmnflx7kl003bay0cpexkq72j",
+      "method": "PATCH",
+      "status": 403
+    },
+    {
+      "url": "/api/clients",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "url": "/api/applications",
+      "method": "POST",
+      "status": 403
+    }
+  ],
+  "failures": []
+}

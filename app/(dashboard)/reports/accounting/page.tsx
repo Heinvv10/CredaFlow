@@ -1,7 +1,5 @@
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
-import { AccountingExportPanel } from "@/components/accounting/AccountingExportPanel"
-import { AccountMappingEditor } from "@/components/accounting/AccountMappingEditor"
-import { AccountingSettingsPanel } from "@/components/accounting/AccountingSettingsPanel"
+import { AccountingWorkspace } from "@/components/accounting/AccountingWorkspace"
 import { hasMinRole, requireMinRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -52,9 +50,7 @@ export default async function AccountingExportPage() {
           ))}
         </InfoStrip>
       )}
-      <AccountingSettingsPanel canEdit={canAdmin} locked={latest !== null} />
-      <AccountingExportPanel initialPeriod={initialPeriod} canClose={canAdmin} xeroConnected={xero?.status === "CONNECTED"} isaflowConnected={isaflow?.status === "CONNECTED"} />
-      <AccountMappingEditor canEdit={canAdmin} />
+      <AccountingWorkspace initialPeriod={initialPeriod} canAdmin={canAdmin} locked={latest !== null} xeroConnected={xero?.status === "CONNECTED"} isaflowConnected={isaflow?.status === "CONNECTED"} />
     </div>
   )
 }

@@ -2,6 +2,17 @@
 import type { Catalog } from "../../catalog"
 
 export const portalLoans: Catalog["portalLoans"] = {
+  principalOutstanding: "Uitstaande hoofsom",
+  currentAccountAmount: "Current account amount",
+  accountPrincipalDefinition: "Principal still owed. This excludes future interest, fees and premiums and is not a settlement quote.",
+  accountSettlementDefinition: "Today’s calculated settlement amount, including any default charges shown below.",
+  accountContractDefinition: "Remaining contractual amount, including default charges. This is not an early-settlement quote.",
+  overdueNow: "Overdue now, including default charges",
+  remainingContractual: "Remaining contractual instalments",
+  remainingDefinition: "Unpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.",
+  settlementAsOf: "Calculated settlement as of {date}",
+  settlementQuoteRequired: "Ask your lender for a dated settlement quote for this contract.",
+  settlementDefinition: "Calculated for this date using the same settlement rules as staff servicing and the certificate of balance. Later payments or charges can change it.",
   noClientRecord: "Geen kliëntrekord gevind nie",
   notLinked: "Hierdie portaalaanmelding is nog nie aan ’n kliëntrekening gekoppel nie.",
   backToOverview: "Terug na oorsig",
@@ -11,7 +22,7 @@ export const portalLoans: Catalog["portalLoans"] = {
   noLoansDesc: "Goedgekeurde en uitbetaalde lenings sal hier verskyn, saam met terugbetalingskedules en state.",
   startApplication: "Begin ’n aansoek",
   loanCardDesc: "{product} / Begin op {date}",
-  outstanding: "Uitstaande",
+  outstanding: "Uitstaande hoofsom",
   totalPaid: "Totaal betaal",
   totalRepayable: "Totaal terugbetaalbaar",
   nextPayment: "Volgende betaling",

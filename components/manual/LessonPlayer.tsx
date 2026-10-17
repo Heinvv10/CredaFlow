@@ -3,20 +3,20 @@
 import { useState } from "react"
 import Image from "next/image"
 
-type Props = { videoSrc: string; posterSrc: string; title: string }
+type Props = { videoSrc: string | null; posterSrc: string | null; title: string }
 
 export function LessonPlayer({ videoSrc, posterSrc, title }: Props) {
   const [videoFailed, setVideoFailed] = useState(false)
   const [posterFailed, setPosterFailed] = useState(false)
 
-  if (videoFailed) {
-    if (posterFailed) {
+  if (!videoSrc || videoFailed) {
+    if (!posterSrc || posterFailed) {
       // Both video and poster are missing: fall back to a styled, on-brand
       // placeholder instead of a broken-image icon.
       return (
         <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-[var(--cf-border-subtle)] text-center text-sm text-[var(--cf-text-muted)]">
           <span>
-            Walkthrough video for &ldquo;{title}&rdquo; is coming soon.
+            This lesson, &ldquo;{title}&rdquo;, is available as a written guide.
             <br />
             Follow the step-by-step guide below.
           </span>
@@ -42,7 +42,7 @@ export function LessonPlayer({ videoSrc, posterSrc, title }: Props) {
   return (
     <video
       controls
-      poster={posterSrc}
+      poster={posterSrc ?? undefined}
       onError={() => setVideoFailed(true)}
       className="w-full rounded-xl border border-[var(--cf-border-subtle)]"
     >

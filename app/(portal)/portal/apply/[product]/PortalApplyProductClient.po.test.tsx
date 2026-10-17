@@ -54,6 +54,13 @@ describe("PortalApplyProductClient for PO funding", () => {
     await act(async () => checkbox("Pre-Agreement Statement").props.onChange({ target: { checked: true } }))
   }
 
+  it("states the supported borrower assessment before order details are captured", () => {
+    const text = JSON.stringify(renderer.toJSON())
+    expect(text).toContain("income, expenses and existing debts")
+    expect(text).toContain("full scheduled repayment")
+    expect(text).not.toContain("not sized on your salary")
+  })
+
   it("offers only the Business purpose — no medical or funeral", () => {
     const options = byId("category").findAllByType("option").map((o) => o.props.value)
     expect(options).toEqual(["BUSINESS"])

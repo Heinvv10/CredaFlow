@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Download, CreditCard } from "lucide-react"
 import { BackLink } from "@/components/nav/BackLink"
 import { recurringInstalmentDue } from "@/lib/loan/instalment"
-import { documentLoanFigures, documentScheduleRow, owesNothing } from "@/lib/loan/charges-summary"
+import { documentLoanFigures, documentScheduleRow, owesNothing, isS125Priced } from "@/lib/loan/charges-summary"
 import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
@@ -51,7 +51,10 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     s => s.status === "PENDING" || s.status === "PARTIAL"
   )
   // Default charges are owed now, on top of the schedule (0 while off).
-  const charges = await portalLoanCharges(loan.tenantId, loan.id, new Date())
+  const asOf = new Date()
+  const charges = await portalLoanCharges(loan.tenantId, loan.id, asOf)
+  const settlementPriced = isS125Priced(loan, loan.repaymentSchedule)
+  const accountDefinition = charges.settlementAmount === null ? "accountPrincipalDefinition" : settlementPriced ? "accountSettlementDefinition" : "accountContractDefinition"
   // What the client has paid is cash received; Loan.totalPaid is only the
   // share applied to the instalments once charges exist.
   const cashPaid = cashReceivedCents(loan.payments)
@@ -108,7 +111,8 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
           </div>
         </div>
         <p className="text-3xl font-bold mt-4">{formatZAR(portalOutstanding(loan.outstandingPrincipal, charges))}</p>
-        <p className="text-xs text-gray-400 mt-1">{t("outstandingBalance")}</p>
+        <p className="text-xs text-gray-400 mt-1">{t(charges.settlementAmount === null ? "principalOutstanding" : "currentAccountAmount")}</p>
+        <p className="mt-2 text-xs text-[var(--cf-text-muted)]">{t(accountDefinition)}</p>
         <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />
       </div>
 
@@ -134,6 +138,17 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
           </div>
         ))}
       </div>
+
+      <section className="mb-6 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-5 text-sm text-[var(--cf-text)]">
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <div><dt className="text-[var(--cf-text-muted)]">{t("principalOutstanding")}</dt><dd className="mt-1 font-semibold">{formatZAR(documentLoanFigures(loan).outstandingPrincipal)}</dd></div>
+          <div><dt className="text-[var(--cf-text-muted)]">{t("overdueNow")}</dt><dd className="mt-1 font-semibold">{formatZAR(cancelled ? 0 : portalLoanArrears(loan, asOf).amount + charges.outstanding)}</dd></div>
+          <div><dt className="text-[var(--cf-text-muted)]">{t("remainingContractual")}</dt><dd className="mt-1 font-semibold">{formatZAR(cancelled ? 0 : Math.max(0, loan.totalRepayable - loan.totalPaid))}</dd></div>
+          {settlementPriced && <div><dt className="text-[var(--cf-text-muted)]">{t("settlementAsOf", { date: formatDay(asOf, locale) })}</dt><dd className="mt-1 font-semibold">{formatZAR(charges.totalToSettle)}</dd></div>}
+        </dl>
+        <p className="mt-3 text-xs text-[var(--cf-text-muted)]">{t("remainingDefinition")}</p>
+        <p className="mt-2 text-xs text-[var(--cf-text-muted)]">{t(settlementPriced ? "settlementDefinition" : "settlementQuoteRequired")}</p>
+      </section>
 
       {/* Progress */}
       <div className="bg-white rounded-lg border border-gray-100 shadow-sm p-5 mb-6">

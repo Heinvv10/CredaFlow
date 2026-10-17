@@ -1,0 +1,183 @@
+{
+  "route": "/compliance/complaints",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/compliance/complaints",
+    "title": "Client and staff workspace",
+    "headings": [
+      "Complaints Management"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nCompliance\nComplaints\nComplaints Management\n\nNCR · FSCA complaint tracking and resolution\n\n← Compliance\nNew Complaint\n\nTOTAL\n\n9\n\nOPEN\n\n5\n\nUNDER INVESTIGATION\n\n0\n\nRESOLVED\n\n2\n\nESCALATED (INCL. OMBUD)\n\n1\n\nAll 9\nOpen 5\nUnder Investigation 0\nResolved 2\nEscalated 0\nEscalated to Ombud 1\nClosed 1\nCOMPLAINT REF\tCLIENT\tDATE LODGED\tCATEGORY\tSTATUS\tSLA\tACTIONS\nCOMP-MVCJAHOQ-LZBJ\t\n\nSipho Nkosi\n\n+27761234501\n\n\t17 Oct 2026\tService Quality\tAcknowledged\t\n0d open\n\tUpdate Status\nCOMP-MVCJ8EBX-X62F\t\n\nSipho Nkosi\n\n+27761234501\n\n\t17 Oct 2026\tService Quality\tAcknowledged\t\n0d open\n\tUpdate Status\nCOMP-MVCJ5FXK-I906\t\n\nSipho Nkosi\n\n+27761234501\n\n\t17 Oct 2026\tService Quality\tAcknowledged\t\n0d open\n\tUpdate Status\nCOMP-MVCJ11MX-V2ML\t\n\nSipho Nkosi\n\n+27761234501\n\n\t17 Oct 2026\tService Quality\tAcknowledged\t\n0d open\n\tUpdate Status\nCOMP-MV6HPG10-CSVZ\t\n\nBontle Letsoalo\n\n+27600000013\n\n\t13 Oct 2026\tService Quality\tOpen\t\n4d open\n>24h unacknowledged\n\tUpdate Status\nCOMP-MUMHJJBA-LFXA\t\n\nThemba Mthethwa\n\n+27600000025\n\n\t29 Sept 2026\tCredit Agreement\tEscalated to Ombud\t\n18d open\n\tUpdate Status\nCOMP-MTMRJ89K-QPSQ\t\n\nThabo Sithole\n\n+27600000021\n\n\t04 Sept 2026\tCollections Conduct\tResolved\t—\tUpdate Status\nCOMP-MTH1RTPU-EH73\t\n\nTeboho Chauke\n\n+27600000009\n\n\t31 Aug 2026\tData Privacy\tClosed\t—\t\nCOMP-MR1VWV1G-OEPE\t\n\nNeo Petersen\n\n+27600000016\n\n\t01 Jul 2026\tFees & Charges\tResolved\t—\tUpdate Status",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "← Compliance",
+        "href": "/compliance"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": [],
+  "verifiedSyntheticRow": "COMP-MVCJAHOQ-LZBJ\t\n\nSipho Nkosi\n\n+27761234501\n\n\t17 Oct 2026\tService Quality\tAcknowledged\t\n0d open\n\tUpdate Status"
+}

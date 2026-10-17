@@ -278,3 +278,14 @@ describe("AffordabilityCapture for a role without edit_affordability", () => {
     expect(render(true)).toContain("Update Affordability")
   })
 })
+
+
+describe("PO full-repayment assessment presentation", () => {
+  it.each([[100_000, true], [1_045_000, false]] as const)("assesses the actual repayment %s without weakening the affordability result", (proposedInstalment, affordable) => {
+    const html = renderToStaticMarkup(<AffordabilityCapture applicationId="application-synthetic" monthlyIncome={800_000} monthlyExpenses={400_000} existingDebts={[]} clientDebtTotal={0} proposedInstalment={proposedInstalment} done={false} canEdit={false} proposedPaymentLabel="Single scheduled repayment" proposedPaymentNote="The full scheduled repayment is assessed against disposable income." />)
+    expect(html).toContain("Single scheduled repayment")
+    expect(html).toContain("full scheduled repayment")
+    expect(html).not.toContain("Proposed Instalment")
+    expect(html).toContain(affordable ? ">AFFORDABLE<" : ">NOT AFFORDABLE<")
+  })
+})

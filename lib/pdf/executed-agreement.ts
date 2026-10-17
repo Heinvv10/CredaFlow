@@ -1,3 +1,6 @@
+import { appendAgreementDeclarationCertificate } from "./agreement-declaration-certificate"
+import { assertDeclarationEvidence, signatureDigest, type DeclarationEvidence } from "@/lib/compliance/agreement-declarations.server"
+import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 import { PDFDocument, StandardFonts } from "pdf-lib"
 import type { PDFFont, PDFPage } from "pdf-lib"
 import type { AgreementRuleAnchor, AgreementSignatureAnchors } from "./creditAgreement"
@@ -173,6 +176,7 @@ export function readAgreementSignatureAnchors(
  */
 export async function stampExecutedAgreement(args: {
   agreementBytes: Buffer
+  declarations?: DeclarationEvidence
   anchors: AgreementSignatureAnchors | null
   execution: AgreementExecution
   /** Prefix of pasqEvidenceSha256 — the same marker the agreement's own pages
@@ -199,6 +203,15 @@ export async function stampExecutedAgreement(args: {
     throw new Error("Executed agreement requires the countersigning representative's name")
   }
 
+  if (args.declarations) {
+    assertDeclarationEvidence(args.declarations, {
+      tenantId: args.declarations.tenantId, applicationId: args.declarations.applicationId, clientId: args.declarations.clientId,
+      signerId: args.declarations.clientId, method: "portal", pasqDocumentSha256: args.declarations.pasqDocumentSha256,
+      signedAt: execution.consumerSignedAt, signatureSha256: signatureDigest(execution.consumerSignature),
+      agreementDocumentSha256: sha256DocumentBytes(agreementBytes),
+    })
+    if (isReturnedPacketReference(execution.consumerSignature)) throw new Error("A returned paper packet has no recorded portal declaration acceptance")
+  }
   const doc = await PDFDocument.load(agreementBytes)
   const regular = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
@@ -237,6 +250,7 @@ export async function stampExecutedAgreement(args: {
       8,
       GRAY,
     )
+    if (args.declarations) await appendAgreementDeclarationCertificate(doc, args.declarations)
     return {
       bytes: Buffer.from(await doc.save()),
       method: "stamped",
@@ -248,6 +262,7 @@ export async function stampExecutedAgreement(args: {
   const appended = await appendExecutionPage(
     doc, { regular, bold, italic }, execution, ceremonyMarker, identity,
   )
+  if (args.declarations) await appendAgreementDeclarationCertificate(doc, args.declarations)
   return {
     bytes: Buffer.from(await doc.save()),
     method: "execution_page",

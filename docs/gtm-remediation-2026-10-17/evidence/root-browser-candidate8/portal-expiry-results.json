@@ -1,0 +1,36 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "base": "http://localhost:44213",
+  "kind": "portal",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "1f16e9f5f0918006e2914d7d3948d7f043a2f55813cbc4923b9131502aa7d98b",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual fresh forgot UI request",
+      "status": 200
+    },
+    {
+      "scenario": "owned exact delivered unused fixture expired transactionally by MQ",
+      "evidence": {
+        "fixtureDatabase": "credaflow_rc",
+        "kind": "portal",
+        "rowIdHash": "d3828dc627653aee9c9dca6d9c83ed6cab8568b4ffd9bad4af94e79f689ca2ed",
+        "previousExpiry": "2026-10-17T16:08:41.507Z",
+        "fixtureExpiry": "2026-10-17T15:53:41.290Z",
+        "deliveredMessageBound": true,
+        "syntheticOnly": true
+      }
+    },
+    {
+      "scenario": "actual delivered expired portal code refused by normal UI",
+      "status": 400,
+      "error": "Invalid or expired reset code.",
+      "stateClaim": "Reset refused; no independent post-refusal password sign-in assertion"
+    }
+  ],
+  "limitation": "Explicit synthetic fixture expiry on owned database; no clock change, real account or rate-limit waiver."
+}

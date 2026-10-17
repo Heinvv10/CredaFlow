@@ -1,3 +1,4 @@
+import { assertDeclarationEvidence, signatureDigest } from "@/lib/compliance/agreement-declarations.server"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { Prisma } from "@prisma/client"
@@ -114,6 +115,8 @@ async function prepareExecutedAgreement(args: {
     agreementDocumentId: string | null
     agreementDocumentSha256: string | null
     agreementSignedAt: Date | null
+    agreementSignedMethod: string | null
+    pasqDocumentSha256: string | null
     agreementSignatureData: string | null
     pasqEvidenceSha256: string | null
   }
@@ -246,9 +249,23 @@ async function prepareExecutedAgreement(args: {
     }
   }
 
+  const declarations = await prisma.agreementDeclarationAcceptance.findFirst({
+    where: { tenantId, applicationId, signedAt: application.agreementSignedAt },
+  })
+  if (declarations) {
+    try {
+      assertDeclarationEvidence(declarations, { tenantId, applicationId, clientId: application.clientId,
+        signerId: application.clientId, method: application.agreementSignedMethod ?? "",
+        signedAt: application.agreementSignedAt, agreementDocumentSha256: application.agreementDocumentSha256,
+        pasqDocumentSha256: application.pasqDocumentSha256 ?? "", signatureSha256: signatureDigest(application.agreementSignatureData),
+      })
+    } catch { throw new ProviderCountersignError("agreement_declarations_changed") }
+  }
+
   const stamped = await stampExecutedAgreement({
     agreementBytes,
     anchors,
+    declarations: declarations ?? undefined,
     execution: {
       consumerSignature: application.agreementSignatureData,
       consumerSignedAt: application.agreementSignedAt,
@@ -312,6 +329,7 @@ async function prepareExecutedAgreement(args: {
     storagePath,
     fileSize: stamped.bytes.length,
     artifactRecordId: artifact.id,
+    declarationAcceptanceId: declarations?.id ?? null,
     countersignedByName,
     method: stamped.method,
     consumerSignatureRendered: stamped.consumerSignatureRendered,
@@ -364,6 +382,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         agreementCountersignedAt: true,
         agreementExecutedDocumentId: true,
         pasqEvidenceSha256: true,
+        pasqDocumentSha256: true,
         reference: true,
       },
     })
@@ -450,6 +469,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       storagePath: string
       fileSize: number
       artifactRecordId: string
+      declarationAcceptanceId: string | null
       countersignedByName: string
       method: ExecutedAgreementMethod
       consumerSignatureRendered: boolean
@@ -798,6 +818,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
               // Recorded rather than inferred: the two produce visibly
               // different documents.
               executedArtifactMethod: executed.method,
+              declarationAcceptanceId: executed.declarationAcceptanceId,
               // A "stamped" artifact whose consumer signature could not be
               // drawn still looks authoritative. Say so here rather than
               // leaving it discoverable only by opening the PDF.

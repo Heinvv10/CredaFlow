@@ -1,0 +1,189 @@
+{
+  "route": "/learn/agreement-signing",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/learn/agreement-signing",
+    "title": "Client and staff workspace",
+    "headings": [
+      "Agreement & signing",
+      "Step by step",
+      " Key rules"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\n\nWORKSPACE\n\nAgreement & signing\n\nGenerate the credit agreement and debit mandate after a complete decision.\n\nDashboard\nAcademy\nAgreement & signing\nMark complete\nOpen the live screen\nThis lesson, “Agreement & signing”, is available as a written guide.\nFollow the step-by-step guide below.\nStep by step\n1\nGenerate the agreement after approval\n2\nThe client signs from the portal\n3\nThe signed agreement links to the application\nKey rules\nGenerate the agreement only after decision requirements are complete.\nAgreement PDF text is legally exact — do not edit.",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Open the live screen",
+        "href": "/applications"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": [],
+  "media": []
+}

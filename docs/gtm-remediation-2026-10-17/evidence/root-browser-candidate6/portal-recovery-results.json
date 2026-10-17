@@ -1,0 +1,34 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "mode": "portal",
+  "results": [
+    {
+      "route": "/portal/forgot-password",
+      "status": 200,
+      "scenario": "actual recovery entry"
+    },
+    {
+      "scenario": "fresh actual forgot UI request",
+      "status": 200
+    },
+    {
+      "scenario": "wrong-code refusal retained in earlier actual UI attempt; skipped duplicate guess in this run",
+      "limitation": "Previous controlled-input selection failed before delivered-code POST; no product failure inferred"
+    },
+    {
+      "scenario": "fresh delivered recovery accepted by actual UI",
+      "status": 200
+    },
+    {
+      "scenario": "used recovery refuses replay",
+      "status": 400,
+      "expected": 400
+    },
+    {
+      "scenario": "recovered password authenticates actual account",
+      "ok": true,
+      "role": "CLIENT"
+    }
+  ],
+  "limitation": "Local SMTP delivery and synthetic recovery; bot challenge/provider configuration is recorded separately. Wrong/expired and concurrent-claim cases require their own evidence."
+}

@@ -1,3 +1,5 @@
+import { PALETTE_SURFACES } from "@/lib/theme/palette-tokens"
+import { contrast, resolve } from "@/lib/theme/contrast"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, describe, it, expect, vi } from "vitest"
 
@@ -133,5 +135,17 @@ describe("portal Make Payment", () => {
       renderToStaticMarkup(await PaymentPage())
       expect(formProps).not.toHaveBeenCalled()
     })
+  })
+})
+
+
+describe("existing payment-reference correction contrast", () => {
+  it.each(["dark", "light"] as const)("keeps reference and helper text readable on the corrected %s panel", (mode) => {
+    for (const primary of ["#4f46e5", "#033483", "#1F4E79"]) {
+      const tokens = { ...PALETTE_SURFACES[mode], "--cf-tenant-primary": primary }
+      const background = resolve("color-mix(in srgb, var(--cf-brand) 8%, var(--cf-bg-raised))", tokens)
+      expect(contrast(resolve("var(--cf-text)", tokens), background)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(resolve("var(--cf-text-muted)", tokens), background)).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })

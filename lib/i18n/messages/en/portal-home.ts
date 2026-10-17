@@ -1,5 +1,8 @@
 /** The portal overview page (/portal). */
 export const portalHome = {
+  currentAccountAmount: "Current account amount",
+  accountPrincipalDefinition: "Principal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.",
+  accountLiveDefinition: "Includes current calculated settlement or contractual amounts and default charges across your open loans. Open each loan for its principal, scheduled amounts and settlement basis.",
   noClientAccount: "No client account found for this email address.",
   contactToStart: "Contact {email} to get started.",
   agreementAwaiting: "Credit agreement awaiting your signature",

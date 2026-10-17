@@ -1,0 +1,217 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "image": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "scope": "Historical candidate6 exact-source browser evidence; no pass inherited by replacement66c183c1. Image/source provenance is in MQ release/build ledger; individual recovery logs have the narrower recorded fields.",
+  "files": [
+    {
+      "file": "staff-_compliance_complaints.png",
+      "sourceEvidence": "browser-1792250094851/_compliance_complaints.png",
+      "sha256": "541e6283c79f2282ae828f3273a9581aa95aa8e3309af7141994e13552f166a8"
+    },
+    {
+      "file": "staff-_learn_agreement_signing.png",
+      "sourceEvidence": "browser-1792250094851/_learn_agreement_signing.png",
+      "sha256": "ceca02df9f25493d029bc36ddc3d30dc068445c6bdf7ad30930785472c08da49"
+    },
+    {
+      "file": "staff-results.json",
+      "sourceEvidence": "browser-1792250094851/results.json",
+      "sha256": "b380a21c3f29f773b16e4632342af54109a806c7ed82151fd1ed02715c127328"
+    },
+    {
+      "file": "staff-pasq-acknowledged.png",
+      "sourceEvidence": "browser-1792250094851/pasq-acknowledged.png",
+      "sha256": "41fb3a371eb3454b3c805ff709cf8f9486aacad2b2a29787cfe3f20f5e665df9"
+    },
+    {
+      "file": "staff-_compliance_coi.json",
+      "sourceEvidence": "browser-1792250094851/_compliance_coi.json",
+      "sha256": "50792e5ebf6e07a3f2369cdfc442651ffc9fd83b8d6152c87505ec5ed8b9bfd0"
+    },
+    {
+      "file": "staff-pasq-fresh-token-page.png",
+      "sourceEvidence": "browser-1792250094851/pasq-fresh-token-page.png",
+      "sha256": "9582d1d80e53c38d0cdf3e164d8d5b858c3e67f33c6890c87dbad531737fa6a6"
+    },
+    {
+      "file": "staff-_compliance_fic.json",
+      "sourceEvidence": "browser-1792250094851/_compliance_fic.json",
+      "sha256": "78e6df3afdb04bfd4c656fb013d47b4f1969d9a37c988d60bbfc72436b6cbce7"
+    },
+    {
+      "file": "staff-_compliance.json",
+      "sourceEvidence": "browser-1792250094851/_compliance.json",
+      "sha256": "274393aa6bbc3baeab8dee139747c89e36c6608e85d34df382a8e7e39492adbe"
+    },
+    {
+      "file": "staff-_settings_notifications.png",
+      "sourceEvidence": "browser-1792250094851/_settings_notifications.png",
+      "sha256": "8e13a248e9c23683cbc5e42adea08a4483b519c1e48684701eca79a3637172d2"
+    },
+    {
+      "file": "staff-authorized-deal-signer-existing.png",
+      "sourceEvidence": "browser-1792250094851/authorized-deal-signer-existing.png",
+      "sha256": "ed95ac35bee03773f113834a0b7a015cb12b2c689baa628705fa3462f62e9e7a"
+    },
+    {
+      "file": "staff-_compliance.png",
+      "sourceEvidence": "browser-1792250094851/_compliance.png",
+      "sha256": "f49d4f5c5ed6cb8bea4706efa0016383869771416f4c8530b49a1cb48aab939d"
+    },
+    {
+      "file": "staff-_compliance_coi.png",
+      "sourceEvidence": "browser-1792250094851/_compliance_coi.png",
+      "sha256": "55b726b94fe6a95fe6b345811e450b542a186e424e366e44daf428c42f4ac9be"
+    },
+    {
+      "file": "staff-_compliance_fic.png",
+      "sourceEvidence": "browser-1792250094851/_compliance_fic.png",
+      "sha256": "eef68c7f0406e7209dc3717346df19f19193a816ac76b6d2ddc207da1e9b542d"
+    },
+    {
+      "file": "staff-_settings_integrations.png",
+      "sourceEvidence": "browser-1792250094851/_settings_integrations.png",
+      "sha256": "cce2fef0ff7cd02d8b19d06179a5525787fcc360baffcf52aaba3c2c71d7dd5f"
+    },
+    {
+      "file": "staff-_settings_integrations.json",
+      "sourceEvidence": "browser-1792250094851/_settings_integrations.json",
+      "sha256": "21e3fccfea48ff6b7a4e68967244d2cd071f557373bd1904f4607c1cbc1395fd"
+    },
+    {
+      "file": "staff-_compliance_screening.png",
+      "sourceEvidence": "browser-1792250094851/_compliance_screening.png",
+      "sha256": "82e988cb656827e28ec13b2f8afc6137306399a109f75830455a3eace52784be"
+    },
+    {
+      "file": "staff-_learn_agreement_signing.json",
+      "sourceEvidence": "browser-1792250094851/_learn_agreement_signing.json",
+      "sha256": "f13738edeae2243eabe5903155ee2f9dbf3956289f1947f85855a2cdbac6a2b7"
+    },
+    {
+      "file": "staff-_settings_notifications.json",
+      "sourceEvidence": "browser-1792250094851/_settings_notifications.json",
+      "sha256": "28725b92c063ca77013f0d1b28faaf443fccdd0a80934ce209c42a311d72164d"
+    },
+    {
+      "file": "staff-dsar-created-updated.png",
+      "sourceEvidence": "browser-1792250094851/dsar-created-updated.png",
+      "sha256": "67bd74d47a79210822a7ee7d1757e19fb68a5c39b759eb1d3afe9104387adb17"
+    },
+    {
+      "file": "staff-_compliance_complaints.json",
+      "sourceEvidence": "browser-1792250094851/_compliance_complaints.json",
+      "sha256": "9b834f9d858acacc47816042e03930e350d56c37dd301e12e8857ec4ab63c1d7"
+    },
+    {
+      "file": "staff-_compliance_screening.json",
+      "sourceEvidence": "browser-1792250094851/_compliance_screening.json",
+      "sha256": "16de6703a65620c51b0219ab921fb3daea9fd0a49753f6642dbf1d2a5ba44bb3"
+    },
+    {
+      "file": "staff-selfie-fresh-token-page.png",
+      "sourceEvidence": "browser-1792250094851/selfie-fresh-token-page.png",
+      "sha256": "864dcab6146cbc15a86f8daa5110ad1073e651092cb1b959ea9d4fe76e1b05af"
+    },
+    {
+      "file": "readonly-results.json",
+      "sourceEvidence": "browser-1792249412804/results.json",
+      "sha256": "9251c7993333dfcae08319b0ee63837998a3d360a4db9198e859fec0d3c0aa01"
+    },
+    {
+      "file": "readonly-_clients_new.png",
+      "sourceEvidence": "browser-1792249412804/_clients_new.png",
+      "sha256": "ef866e5dd4162da67bd7163b6a861debf216b4f568607301cd019a048cda967f"
+    },
+    {
+      "file": "readonly-_applications_new.json",
+      "sourceEvidence": "browser-1792249412804/_applications_new.json",
+      "sha256": "eeb29887fdd2c15afddd9f9e98f84dafb207b86dc015ee28eb42483033ffd13a"
+    },
+    {
+      "file": "readonly-_clients_cmnflx7kl003bay0cpexkq72j.json",
+      "sourceEvidence": "browser-1792249412804/_clients_cmnflx7kl003bay0cpexkq72j.json",
+      "sha256": "4ee1e2fb41ba2cabcd5801dfec6ce2d4f49f2e8aca54aa33d828a1725ba0c037"
+    },
+    {
+      "file": "readonly-_applications_new.png",
+      "sourceEvidence": "browser-1792249412804/_applications_new.png",
+      "sha256": "81b58abc80d2b947a18e28718aecf0975b0703ed95cf0a5e0a1b1d2aa915b665"
+    },
+    {
+      "file": "readonly-_clients_new.json",
+      "sourceEvidence": "browser-1792249412804/_clients_new.json",
+      "sha256": "c24725ff9bf144006dd4470d44f5a78f51f8871e1d3a208730102c1283e4e512"
+    },
+    {
+      "file": "readonly-_clients_cmnflx7kl003bay0cpexkq72j_edit.png",
+      "sourceEvidence": "browser-1792249412804/_clients_cmnflx7kl003bay0cpexkq72j_edit.png",
+      "sha256": "1515d659628bff54583f6f59bc4a0cedf87dc18c95c68e939d69c754d15d679b"
+    },
+    {
+      "file": "readonly-_clients_cmnflx7kl003bay0cpexkq72j.png",
+      "sourceEvidence": "browser-1792249412804/_clients_cmnflx7kl003bay0cpexkq72j.png",
+      "sha256": "c9487b3e8a619b3207f67cc5c5d1c63750fad3b2055fa3a40454aa9bb4e9563f"
+    },
+    {
+      "file": "readonly-_clients_cmnflx7kl003bay0cpexkq72j_edit.json",
+      "sourceEvidence": "browser-1792249412804/_clients_cmnflx7kl003bay0cpexkq72j_edit.json",
+      "sha256": "2c5e56e9a0d440ddd377bd9b8713d118cf8ca4c6193edf385b096c709b2068bb"
+    },
+    {
+      "file": "staff-recovery-password-reset-success.png",
+      "sourceEvidence": "recovery-staff-1792249805775/password-reset-success.png",
+      "sha256": "2a610bde3b79e524c627bf38125b4e3deaae66b03b4af1b500b78ac887ced10f"
+    },
+    {
+      "file": "staff-recovery-wrong-token-refused.png",
+      "sourceEvidence": "recovery-staff-1792249805775/wrong-token-refused.png",
+      "sha256": "3a682a0d751e866b71201d1f79a3bfe1a5924c31eb881009683d4c8045aab642"
+    },
+    {
+      "file": "staff-recovery-results.json",
+      "sourceEvidence": "recovery-staff-1792249805775/results.json",
+      "sha256": "de6c586b9d1371b510f8abf251d71eb2329e4c9259face35cd6a177ac9e00507"
+    },
+    {
+      "file": "staff-recovery-recovered-account-authenticated.png",
+      "sourceEvidence": "recovery-staff-1792249805775/recovered-account-authenticated.png",
+      "sha256": "6a9f58aa08157f471a8361541368c40f626c8ad689e72e12960110c107b19176"
+    },
+    {
+      "file": "staff-recovery-recovery-entry.png",
+      "sourceEvidence": "recovery-staff-1792249805775/recovery-entry.png",
+      "sha256": "874dc387513acdcd11732f86fc74cd953b485c5112add1fe3acc199104b2661b"
+    },
+    {
+      "file": "portal-recovery-password-reset-success.png",
+      "sourceEvidence": "recovery-portal-1792250289153/password-reset-success.png",
+      "sha256": "4dc646452f424c5b9a1ecb3e785363c7a5eee92267f6cb2bce94dfe0f0384820"
+    },
+    {
+      "file": "portal-recovery-results.json",
+      "sourceEvidence": "recovery-portal-1792250289153/results.json",
+      "sha256": "91e0735e66d035b92364b90ad9261d3d098a6408906cc5678a8b559535bc49c1"
+    },
+    {
+      "file": "portal-recovery-recovered-account-authenticated.png",
+      "sourceEvidence": "recovery-portal-1792250289153/recovered-account-authenticated.png",
+      "sha256": "00f678a89daa14ee3b008700a1981882001be82bcfae3e2abe37b4a159168fe6"
+    },
+    {
+      "file": "portal-recovery-recovery-entry.png",
+      "sourceEvidence": "recovery-portal-1792250289153/recovery-entry.png",
+      "sha256": "879989b6bd2ac10525497ae8efb6d7174693cdb679d6a41d270ac203c87c82ae"
+    },
+    {
+      "file": "complaint-partial.json",
+      "sourceEvidence": "browser-1792249849529/results.partial.json",
+      "sha256": "689ffa8def7dc3cd5019c26826d765a9eb14020dcd3cad7257530c1bca3a3cff"
+    },
+    {
+      "file": "portal-wrong-code-partial.json",
+      "sourceEvidence": "recovery-portal-1792250231293/results.partial.json",
+      "sha256": "526ad90cf80cf2ac6b653039b5dd74f83645c654c2d212ef3ab7cf14f252344a"
+    }
+  ]
+}

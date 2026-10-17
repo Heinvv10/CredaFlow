@@ -1,3 +1,4 @@
+import { AGREEMENT_DECLARATION_PAYLOAD } from "@/lib/signing/agreement-declaration-set"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { calculateLoan } from "@/lib/loan-calculator"
@@ -14,6 +15,7 @@ import { southAfricanCalendarDate } from "@/lib/compliance/sa-business-days"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
 
 const {
+  txDeclarationCreateMock,
   authMock,
   applicationFindUniqueMock,
   agreementDocumentFindFirstMock,
@@ -35,6 +37,7 @@ const {
   txOtpUpdateManyMock,
   txOtpFindFirstMock,
 } = vi.hoisted(() => ({
+  txDeclarationCreateMock: vi.fn(),
   otpFindFirstMock: vi.fn(),
   txOtpUpdateManyMock: vi.fn(),
   txOtpFindFirstMock: vi.fn(),
@@ -224,6 +227,7 @@ function request(body: unknown) {
   // tests inherit the fixture's digest unless they override it explicitly.
   const withEcho = typeof body === "object" && body !== null
     ? {
+        declarations: AGREEMENT_DECLARATION_PAYLOAD,
         agreementDocumentSha256: agreementPdfSha256,
         pasqDocumentSha256: "d".repeat(64),
         ...body,
@@ -304,6 +308,7 @@ beforeEach(() => {
   })
   txApplicationUpdateManyMock.mockResolvedValue({ count: 1 })
   txDocumentUpdateManyMock.mockResolvedValue({ count: 1 })
+  txDeclarationCreateMock.mockResolvedValue({ id: "acceptance-1" })
   txAuditCreateMock.mockResolvedValue({ id: "audit-1" })
   txQueryRawMock.mockResolvedValue([])
   txApplicationFindUniqueMock.mockResolvedValue({
@@ -319,6 +324,7 @@ beforeEach(() => {
       findFirst: txAgreementDocumentFindFirstMock,
       updateMany: txDocumentUpdateManyMock,
     },
+    agreementDeclarationAcceptance: { create: txDeclarationCreateMock },
     auditLog: { create: txAuditCreateMock },
     signingOtpChallenge: {
       updateMany: txOtpUpdateManyMock,
@@ -335,6 +341,19 @@ afterEach(() => {
 })
 
 describe("identity must be established before the consumer is bound", () => {
+  it("persists explicit acceptance in the same transaction as the exact signature", async () => {
+    const response = await POST(request({ method: "portal", signature: "Jane Doe" }), context)
+    expect(response.status).toBe(200)
+    expect(txDeclarationCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({
+      tenantId: "tenant-1", applicationId: "app-1", signerId: "client-1", method: "portal",
+      ...AGREEMENT_DECLARATION_PAYLOAD, agreementDocumentSha256: agreementPdfSha256, pasqDocumentSha256: "d".repeat(64),
+    }) })
+  })
+  it.each([null, { ...AGREEMENT_DECLARATION_PAYLOAD, version: "old" }, { ...AGREEMENT_DECLARATION_PAYLOAD, acceptedIds: ["pasq_read"] }])("refuses a portal signature with missing or malformed declarations %j", async declarations => {
+    const response = await POST(request({ method: "portal", signature: "Jane Doe", declarations }), context)
+    expect(response.status).toBe(422)
+    expect(transactionMock).not.toHaveBeenCalled()
+  })
   it("refuses to sign when the composite KYC gate rejects the locked approval", async () => {
     // Signing has always required payout-grade evidence, via
     // verifyLockedCurrentAffordabilityApproval -> hasCurrentCompositeKyc.

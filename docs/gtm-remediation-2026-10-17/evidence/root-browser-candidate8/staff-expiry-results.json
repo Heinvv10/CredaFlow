@@ -1,0 +1,36 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "base": "http://localhost:44213",
+  "kind": "staff",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "1f16e9f5f0918006e2914d7d3948d7f043a2f55813cbc4923b9131502aa7d98b",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual fresh forgot UI request",
+      "status": 200
+    },
+    {
+      "scenario": "owned exact delivered unused fixture expired transactionally by MQ",
+      "evidence": {
+        "fixtureDatabase": "credaflow_rc",
+        "kind": "staff",
+        "rowIdHash": "92d5947090a0f7c413abc9889b66d5d8f9d5d62c05c01ce97d28001978d3322a",
+        "previousExpiry": "2026-10-17T16:23:40.353Z",
+        "fixtureExpiry": "2026-10-17T15:53:36.174Z",
+        "deliveredMessageBound": true,
+        "syntheticOnly": true
+      }
+    },
+    {
+      "scenario": "actual delivered expired staff URL refused by UI and validation",
+      "pageStatus": 200,
+      "status": 200,
+      "valid": false
+    }
+  ],
+  "limitation": "Explicit synthetic fixture expiry on owned database; no clock change, real account or rate-limit waiver."
+}

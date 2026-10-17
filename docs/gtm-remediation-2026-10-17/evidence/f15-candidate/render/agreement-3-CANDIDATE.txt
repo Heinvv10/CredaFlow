@@ -1,0 +1,211 @@
+Acme Lending (Pty) Ltd
+NCR Registration: NCRCP99999
+
+CREDIT AGREEMENT
+In terms of the National Credit Act 34 of 2005
+Entered into pursuant to the Pre-Agreement Statement and Quotation presented
+22 July 2026 (SAST) and acknowledged by the consumer.
+
+
+ Credit Provider                                            Acme Lending (Pty) Ltd
+
+ NCR Registration                                           NCRCP99999
+
+ Consumer Name                                              Thandi Mthembu
+
+ Consumer ID Number                                         9401010000080
+
+ Consumer Physical Address                                  1 Fixture Street, Johannesburg
+
+ Consumer Contact Number                                    —
+
+ Credit Agreement Type                                      Personal Loan
+
+ Principal Debt                                             R 100,000.00
+
+ Distribution of Principal Debt                             R 100,000.00 paid to the consumer in full
+
+ Initiation Fee                                             R 1,080.00
+
+ Initiation Fee Payment                                     Added to repayment schedule (interest-free)
+
+ Amount Advanced                                            R 100,000.00
+
+ Monthly Service Fee                                        R 69.00
+
+ Interest Rate                                              3.00% per month
+
+ Interest Over Loan Term                                    6.06% of the principal debt over 90 days
+
+ Annual Interest Rate                                       36.0% per year (nominal) — comparison only; term is 90 days
+
+ Interest Model                                             REDUCING BALANCE
+
+ Total Interest                                             R 6,059.11
+
+ Total Cost of Credit                                       R 107,346.11
+
+ Loan Term                                                  90 days
+
+ Instalments                                                First R 36,502.04, then R 35,422.04, final R 35,422.03
+
+ First Payment Date                                         22 August 2026
+
+ Final Payment Date                                         22 October 2026
+
+ Maturity Date                                              22 October 2026
+
+
+ IMPORTANT NOTICES
+
+  PAYMENT DATES: Payment dates run from the date this loan is paid out to you. The dates shown above assume payout on 22 July 2026. If
+  the loan is paid out on a later date, every payment date moves by the same number of days, so the time you have to repay does not change.
+
+  EARLY SETTLEMENT (NCA Section 125): You may settle this agreement in full at any time, with or without advance notice. The settlement
+  amount is the unpaid balance of the principal debt together with the interest, fees and charges payable up to the date of settlement.
+
+  DEBT REVIEW (NCA Section 86): If you are or become over-indebted, you have the right to apply to a registered debt counsellor for debt
+  review.
+
+
+
+
+Ref 0123456789ab                                                                                                                  Page 1 of 4
+REPAYMENT SCHEDULE
+No.     Due Date            Principal      Interest     Fees         Total Due      Balance
+
+1       22 August 2026      R 32,353.04    R 3,000.00   R 1,149.00   R 36,502.04    R 67,646.96
+
+2       22 September 2026   R 33,323.63    R 2,029.41   R 69.00      R 35,422.04    R 34,323.33
+
+3       22 October 2026     R 34,323.33    R 1,029.70   R 69.00      R 35,422.03    R 0.00
+
+TOTAL                       R 100,000.00   R 6,059.11   R 1,287.00   R 107,346.11
+
+
+
+
+Ref 0123456789ab                                                                                  Page 2 of 4
+TERMS AND CONDITIONS
+
+1. LATE PAYMENT: A late payment fee may be charged for each payment not received by the due date, as prescribed by the National
+Credit Act and Regulations.
+
+2. DEFAULT: You will be in default if payment is not received within 20 business days of the due date. The credit provider may take
+steps to recover the outstanding amount.
+
+3. SECTION 129 NOTICE: In the event of default, we are required to send you a Section 129 notice before any legal action. This notice
+will inform you of your rights, including the right to refer the matter to a debt counsellor.
+
+4. COLLECTION COSTS: In the event of default, you may be liable for legal costs on the attorney-client scale, including tracing fees,
+collection commission, and court costs as permitted by law.
+
+5. CREDIT BUREAU: Your credit information may be reported to registered credit bureaux. Late payments, defaults, and judgments will
+be recorded and may affect your ability to obtain credit in the future.
+
+6. POPIA: Your personal information is processed in accordance with the Protection of Personal Information Act (POPIA). You have the
+right to access, correct, and delete your personal information held by us.
+
+7. JURISDICTION: This agreement is subject to the laws of the Republic of South Africa. Any disputes arising from this agreement shall
+be subject to the jurisdiction of the Magistrate's Court.
+
+8. ENTIRE AGREEMENT: This document, together with the Pre-Agreement Statement and Quotation and the Repayment Schedule,
+constitutes the entire agreement between the parties.
+
+9. VARIATION: No variation, amendment, or consensual cancellation of this agreement shall be of any force or effect unless reduced to
+writing and signed by both parties.
+
+10. CONSUMER RIGHTS: You have the right to receive this agreement in an official language that you read or understand, to the
+extent that is reasonable. You also have the right to receive periodic statements of account.
+
+
+
+
+Ref 0123456789ab                                                                                                             Page 3 of 4
+ CONSUMER DECLARATION
+
+
+I, Thandi Mthembu (ID: 9401010000080), hereby confirm that:
+
+     I received the Pre-Agreement Statement and Quotation before signing this Credit Agreement
+
+     I have read and understood the Repayment Schedule
+
+     I have been informed of my right to settle this agreement in full at any time (NCA Section 125)
+
+     I accept the terms and conditions of this credit agreement
+
+     The information I have provided is true and correct
+
+
+
+
+Consumer Signature: Synthetic Signer
+                    _______________________________ Date: 23 July 2026
+                                                          _______________
+
+
+
+Witness Signature: _______________________________ Date: _______________
+
+
+
+Credit Provider Representative: Synthetic Provider
+                                ____________________ Date: 23 July 2026
+                                                           _______________
+Countersigned for the credit provider by Synthetic Provider.
+
+
+
+
+This agreement is governed by the National Credit Act 34 of 2005
+
+
+
+
+Ref 0123456789ab                                                                                       Page 4 of 4
+Electronic declaration acceptance record
+Record: synthetic-declarations-3
+
+Application: synthetic-application-3
+
+Signer client: synthetic-client
+
+Version: portal-agreement-declarations-v1
+
+Declaration set SHA-256: 94948b549e9415944b73909f0dce298c5b304e8ed4f832de4e14787e5452cfd7
+
+Accepted: 23 July 2026 (2026-07-23T08:00:00.000Z)
+
+Agreement SHA-256: 51ef4e6073e44633065ba7cb177f0681aa796d8ba0d60e9122b54e25d0e1aa02
+
+PASQ SHA-256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Signature SHA-256: 642659d6371cb4a01542f4f37b4a3ab66edd64d18c3da325bacf26cea7490a42
+
+
+The signer explicitly accepted each statement below in the portal:
+
+[Accepted] I have read and understood this Pre-Agreement Statement and Quotation
+
+
+
+[Accepted] I have read and understood the Repayment Schedule
+
+
+
+[Accepted] I have been informed of my right to settle this agreement in full at any time (NCA Section 125)
+
+
+
+[Accepted] I accept the terms and conditions of this credit agreement
+
+
+
+[Accepted] The information I have provided is true and correct
+
+
+
+This record documents electronic acceptance of the displayed statements. The original agreement pages and their printed boxes
+have not been altered by this record.
+

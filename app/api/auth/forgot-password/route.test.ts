@@ -3,11 +3,13 @@ import { NextRequest } from "next/server"
 
 const findUniqueMock = vi.fn()
 const updateMock = vi.fn()
+const auditCreateMock = vi.fn()
 const legacySendEmailMock = vi.fn()
 const sendEmailMock = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb({ user: { update: updateMock }, auditLog: { create: auditCreateMock } }),
     user: {
       findUnique: (...args: unknown[]) => findUniqueMock(...args),
       update: (...args: unknown[]) => updateMock(...args),
@@ -44,6 +46,7 @@ beforeEach(() => {
     email: "staff@example.com",
     active: true,
   })
+  auditCreateMock.mockResolvedValue({ id: "audit-synthetic" })
   updateMock.mockResolvedValue(undefined)
   legacySendEmailMock.mockResolvedValue({ ok: true })
   sendEmailMock.mockResolvedValue({
@@ -72,4 +75,12 @@ it("sends staff password resets through the tenant SMTP service", async () => {
     referenceId: "user-1",
   }))
   expect(legacySendEmailMock).not.toHaveBeenCalled()
+})
+
+
+it("never sends a reset link if the token audit fails", async () => {
+  auditCreateMock.mockRejectedValue(new Error("audit unavailable"))
+  const req = new NextRequest("http://localhost/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email: "staff@example.com" }) })
+  await expect(POST(req)).rejects.toThrow("audit unavailable")
+  expect(sendEmailMock).not.toHaveBeenCalled()
 })
