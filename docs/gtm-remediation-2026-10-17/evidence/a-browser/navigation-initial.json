@@ -1,0 +1,162 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "baseUrl": "http://127.0.0.1:44213",
+  "immutableImage": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "startedAt": "2026-10-17T14:57:46.695Z",
+  "driverSha256": "fe4bd77cf9d57cf5585a8b55b2066b636aa646512d32e5dd18f58b61999825d8",
+  "scenarios": [
+    {
+      "finding": "F06",
+      "account": "no-loan",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 577,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    },
+    {
+      "finding": "F06",
+      "account": "consumer",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 577,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    }
+  ],
+  "errors": [
+    "TimeoutError: Waiting failed: 30000ms exceeded\n    at new WaitTask (file:///home/hein/Workspace/CredaFlow-gtm-a/node_modules/puppeteer-core/lib/puppeteer/common/WaitTask.js:46:34)\n    at IsolatedWorld.waitForFunction (file:///home/hein/Workspace/CredaFlow-gtm-a/node_modules/puppeteer-core/lib/puppeteer/api/Realm.js:49:26)\n    at CdpFrame.waitForFunction (file:///home/hein/Workspace/CredaFlow-gtm-a/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:585:43)\n    at CdpFrame.<anonymous> (file:///home/hein/Workspace/CredaFlow-gtm-a/node_modules/puppeteer-core/lib/puppeteer/util/decorators.js:101:27)\n    at CdpPage.waitForFunction (file:///home/hein/Workspace/CredaFlow-gtm-a/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:1540:37)\n    at login (file:///tmp/cf-gtm-a-browser-20261017/portal-acceptance.mjs:21:14)\n    at async navTest (file:///tmp/cf-gtm-a-browser-20261017/portal-acceptance.mjs:28:3)\n    at async file:///tmp/cf-gtm-a-browser-20261017/portal-acceptance.mjs:160:22"
+  ],
+  "browserErrors": [],
+  "consoleMessages": [
+    {
+      "path": "/portal/login",
+      "type": "error",
+      "message": "Access to fetch at 'http://localhost:44213/' (redirected from 'http://127.0.0.1:44213/login?_rsc=0GLEBdckRB3mjc46') from origin 'http://127.0.0.1:44213' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "path": "/portal/login",
+      "type": "error",
+      "message": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "path": "/portal/login",
+      "type": "error",
+      "message": "Access to fetch at 'http://localhost:44213/' (redirected from 'http://127.0.0.1:44213/login?_rsc=0GLEBdckRB3mjc46') from origin 'http://127.0.0.1:44213' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "path": "/portal/login",
+      "type": "error",
+      "message": "Failed to load resource: net::ERR_FAILED"
+    }
+  ],
+  "httpFailures": [
+    {
+      "path": "/",
+      "status": 400
+    },
+    {
+      "path": "/",
+      "status": 400
+    }
+  ],
+  "endedAt": "2026-10-17T14:58:37.785Z",
+  "runLabel": "navigation-initial",
+  "privateAttemptId": "1792249066583"
+}

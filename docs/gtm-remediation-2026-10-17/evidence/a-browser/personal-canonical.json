@@ -1,0 +1,465 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "baseUrl": "http://localhost:44213",
+  "immutableImage": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "startedAt": "2026-10-17T15:02:37.206Z",
+  "driverSha256": "d33ccb0ae05e295a2645ecf26eb1ad884442e880232980e8a612b22e95bf974c",
+  "scenarios": [
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "overview",
+      "text": "Account in Arrears\n\nDineo, your account is 7 days overdue\n\nPay R 531.43 to bring your account up to date.\n\nR 531.43\n\nCurrent account amount\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\nMake Payment\n\nCURRENT ACCOUNT AMOUNT\n\nR 531.43\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\n93%\n\nPAID TO DATE\n\nR 6,681.54\n\nLOAN REFERENCE\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan\n\nACCOUNT STATUS\n\nIn Arrears\n\nAction needed\nQuick Actions\n\nSecure shortcuts for the next client task.\n\nMake Payment\nView Schedule\nDownload Statement\nUpload Document\nTrack Application\nRecent Activity\nView all\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n16 Sept\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n17 Aug\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n16 Jul\n\nPayment allocated\n\nDebit order\n\nR 1,791.54\n\n11 May\n\nMy Documents\nManage documents\nUploaded: 11\nVerified: 9\nAll required documents uploaded\nMy Insurance\nNo active insurance policies."
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "/portal/loans",
+      "text": "CLIENT PORTAL\n\nMy Loans\n\nReview active and historical loan accounts, balances and repayment schedules.\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan / Started 10 Apr 2026\n\nACTIVE\n\nOUTSTANDING PRINCIPAL\n\nR 531.43\n\nTOTAL PAID\n\nR 6,681.54\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nNEXT PAYMENT\n\n10 Oct 2026\n\nView Schedule"
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "/portal/statement",
+      "text": "YOUR ACCOUNT\n\nPayment History & Statements\n\nView active loan balances, download official statements and track recorded repayments.\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan / ACTIVE\n\nPDF\nPrint\n\nPAYMENT REFERENCE\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nQuote this reference on every payment or deposit so it is allocated to this loan.\n\nOUTSTANDING PRINCIPAL\n\nR 531.43\n\nTOTAL PAID\n\nR 6,681.54\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n16 Sept 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n17 Aug 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n16 Jul 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n11 May 2026\tR 1,791.54\tDebit Order\tDO202605116LCXUV"
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "loanId": "cmnsodku700fh5f4goin47id4",
+      "breakdown": {
+        "Outstanding principal": "R 531.43",
+        "Overdue now, including default charges": "R 531.43",
+        "Remaining contractual instalments": "R 531.43",
+        "Calculated settlement as of 17 Oct 2026": "R 531.43"
+      },
+      "expected": {
+        "loanId": "cmnsodku700fh5f4goin47id4",
+        "status": "ACTIVE",
+        "ncaRegime": "NCA",
+        "contractType": "LOAN",
+        "outstandingPrincipal": 53143,
+        "totalRepayable": 721297,
+        "totalPaid": 668154,
+        "currentAccountAmount": 53143,
+        "chargesOutstanding": 0,
+        "chargeLines": [],
+        "chargesLive": false,
+        "totalToSettle": 53143,
+        "isS125Priced": true,
+        "overdueNow": 53143,
+        "daysOverdue": 7,
+        "remainingContractual": 53143
+      },
+      "text": "Back to Loans\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan\n\n7 days overdue\nACTIVE\n\nR 531.43\n\nOutstanding principal\n\nPrincipal still owed. This excludes future interest, fees and premiums and is not a settlement quote.\n\nPRINCIPAL\n\nR 5,500.00\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nTOTAL PAID\n\nR 6,681.54\n\nMONTHLY INSTALMENT\n\nR 1,084.29\n\nNEXT PAYMENT DATE\n\n10 Oct 2026\n\nNEXT PAYMENT AMOUNT\n\nR 531.43\n\nOutstanding principal\nR 531.43\nOverdue now, including default charges\nR 531.43\nRemaining contractual instalments\nR 531.43\nCalculated settlement as of 17 Oct 2026\nR 531.43\n\nUnpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.\n\nCalculated for this date using the same settlement rules as staff servicing and the certificate of balance. Later payments or charges can change it.\n\nYou have paid 93% of your loan\n93%\nPaid: R 6,681.54\nTotal: R 7,212.97\nDownload Statement\nMake a Payment\nRepayment Schedule\nNO.\tDUE DATE\tAMOUNT\tSTATUS\n1\t10 May 2026\tR 1,791.54\tPAID\n2\t10 Jun 2026\tR 1,084.29\tPAID\n3\t10 Jul 2026\tR 1,084.29\tPAID\n4\t10 Aug 2026\tR 1,084.29\tPAID\n5\t10 Sept 2026\tR 1,084.29\tPAID\n6\t10 Oct 2026\tR 1,084.27\tPARTIAL \u00b7 OVERDUE\nPayment History\nDownload Statement\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n16 Sept 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n17 Aug 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n16 Jul 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n11 May 2026\tR 1,791.54\tDebit Order\tDO202605116LCXUV"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "theme": "dark",
+      "background": "color(srgb 0.134965 0.156031 0.194573)",
+      "reference": "rgb(236, 238, 243)",
+      "helper": "rgb(140, 147, 163)",
+      "referenceRatio": 12.761510696124795,
+      "helperRatio": 4.809177477596605,
+      "text": "LN-cmnoaheve00605f4g9j6lcxuv"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "theme": "light",
+      "background": "color(srgb 0.911686 0.930039 0.947137)",
+      "reference": "rgb(27, 29, 36)",
+      "helper": "rgb(95, 101, 115)",
+      "referenceRatio": 14.286476029600523,
+      "helperRatio": 4.9579863152949795,
+      "text": "LN-cmnoaheve00605f4g9j6lcxuv"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "tenant",
+      "theme": "dark",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "actual tenant palette",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.809177477596605,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.761510696124795,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.809177477596605,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.761510696124795,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "tenant",
+      "theme": "light",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "actual tenant palette",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 4.9579863152949795,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.286476029600523,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 4.9579863152949795,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.286476029600523,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "default",
+      "theme": "dark",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "browser-only root CSS default palette override; database unchanged",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.761455648741144,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.634877268222702,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.761455648741144,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.634877268222702,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "default",
+      "theme": "light",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "browser-only root CSS default palette override; database unchanged",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 5.022975785038948,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.473743690830123,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 5.022975785038948,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.473743690830123,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "route": "/portal/payment/success",
+      "evidence": "authenticated presentation only; no provider callback, transfer or settlement exercised",
+      "text": "Payment Initiated\n\nYour payment has been submitted via Stitch. It will be allocated to your loan account once the bank transfer is confirmed \u2014 this typically takes a few minutes.\n\nYou will receive an email confirmation once the payment is received.\n\nBack to Overview"
+    },
+    {
+      "route": "/portal/payment/failure",
+      "evidence": "authenticated presentation only; no provider callback, transfer or settlement exercised",
+      "text": "Payment not confirmed\n\nWe couldn't confirm your payment. If money left your account, it will be allocated to your loan once your bank confirms it \u2014 please don't pay again until you've checked your bank statement.\n\nBack to my loans\nContact Support\n\nMake a new payment\n\nIf you continue to experience issues, contact us at hello@tsela-lending.example or +27 11 000 0000."
+    },
+    {
+      "finding": "F08",
+      "account": "consumer",
+      "intakeCopy": "Back to Apply\n\nPURCHASE ORDER FUNDING\n\nApply for Purchase Order Funding\n\nWe already have your profile on file. Just tell us how much you need and what for.\n\nAPPLYING AS\nUpdate profile\n\nNAME\n\nDineo Ngcobo\n\nSA ID NUMBER\n\n*********7086\n\nPHONE\n\n+27600000027\n\nEMAIL\n\ndineo.ngcobo@tsela-lending.invalid\n\nMONTHLY INCOME\n\nR 7,924.75\n\nMONTHLY EXPENSES\n\nR 3,610.00\n\nAMOUNT (R) \u2014 BETWEEN R 10,000.00 AND R 500,000.00\nTERM (DAYS) \u2014 BETWEEN 30 AND 120\nWHAT IS THE LOAN FOR?\nBusiness\n\nFor a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.\n\nPURCHASE ORDER NUMBER\nBUYER (WHO ISSUED THE PURCHASE ORDER)\nPURCHASE ORDER DOCUMENT (PDF, JPEG OR PNG)\nDESCRIBE THE PURPOSE (required, 3\u2013500 chars)\n\nCredit life election\n\nEnter an amount to see your credit-life cover options.\n\nI confirm the income, expenses and debt obligations on my profile are accurate. I understand Tsela Lending will use this information to assess affordability under the National Credit Act.\nI understand I will receive a Pre-Agreement Statement & Quotation (PASQ) for review in this portal. I must open and acknowledge that exact document before approval; this checkbox is not the PASQ acknowledgement. This submission does not create a binding loan.\nCancel\nSubmit application\n\nRegistered credit provider (NCR Reg: NCRCP99999). Demo lender: registration numbers are fictional. Product reference: PO."
+    }
+  ],
+  "errors": [],
+  "browserErrors": [],
+  "consoleMessages": [],
+  "httpFailures": [],
+  "endedAt": "2026-10-17T15:02:47.302Z",
+  "runLabel": "personal-canonical",
+  "privateAttemptId": "1792249357088"
+}
