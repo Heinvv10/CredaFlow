@@ -13,3 +13,9 @@ Correction assigned A in already-owned af/zu/xh portal-loans.ts: precise princip
 Root independently reviewed exact patch: six locale catalogs restore precise principal terms consistently for list/detail/statement; locale test strengthens exact terms for all four languages rather than accepting English in non-English output. MACHINE DRAFT notices, native-review records and language serving gates unchanged. This review approves software correction, not native translation quality.
 
 Root independently ran Node22 Vitest5suites with maxWorkers2: portal loans page.locale, catalog, loan detail, statement, mobile sidebar. Result5files/215testsPASS, exit0,3.82seconds. A also reproduced exact3locale failures first and changed-file ESLint passed. MQ authorized serial integration then new full candidate/gates; old failed logs preserved.
+
+## Candidate527291a79909b71a17e62aa225cb81fe7791fcde
+
+Corrected full units passed uninterrupted:1506files/19560testsPASS,333files/2932tests skipped,219.18seconds. Quality reached pinned public model acquisition (YuNet complete/SFace pending), not full-quality exit. Newly reviewed recovery correction a6600c9d makes this source predecessor obsolete. Root authorized graceful stop of owned predecessor gate, retention of its partial evidence, copying independently hash-verified public model/license cache only, and a new exact final source full-quality/integration invocation including14actual model tests/build. This is not a full-quality pass or a waiver of any check. No private audit runtime/data reused.
+
+G06-R source a6600c9d passed B independent review and rerun4unit63tests, A tsc/lint and2realDBsuites8cases; root source reviewed atomicity/guarded consumption/actor truth/no-secrets/preserved gates, no blocker. MQ authorized serial integration before final candidate source/gates/image.
