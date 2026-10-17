@@ -23,7 +23,7 @@ Legal decisions required:
 5. Approve historical/paper treatment, immutable retention and post-ceremony rollback boundaries.
 6. Sign off short, continuation and actual executed samples/digests for the named lender before merge/promotion, including the pre-existing crowded provider-signature line preserved by the exact legacy-page comparison. Synthetic technical review is not lender legal sign-off.
 
-Static short/continuation manifest: `docs/gtm-remediation-2026-10-17/evidence/f15-candidate/render/SHA256.json`; final actual-artifact manifest: [final actual-artifact manifest](docs/gtm-remediation-2026-10-17/evidence/f15-final64/index.json).
+Static short/continuation manifest: `docs/gtm-remediation-2026-10-17/evidence/f15-candidate/render/SHA256.json`; final actual-artifact manifest: [final actual-artifact manifest](evidence/f15-final64/index.json).
 
 
 Private portable review package: `/home/hein/credaflow-release-candidates/gtm-f15-review-20261017-64a1fd37ae58`, with source/image exports, paired post-ceremony database/uploads/key backup and `SHA256SUMS`. MQ independently restored the package and verified receipt/renderer/key consistency; independent final manifest review remains pending. This private artifact is review/rollback preparation, not target deployment or legal approval.
