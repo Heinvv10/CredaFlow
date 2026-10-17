@@ -253,8 +253,10 @@ trigger or CHECK, each proven by an IT that removes it
   acceptance. A CPA lessee's notice itself cancels rentals after 20 South African
   business days and opens the return; no acceptance is needed. Staff later record
   the goods value and each actual documented recovery, refurbishment and re-letting
-  cost. The CPA charge is PV less goods value plus those costs, floored at zero
-  and capped below undiscounted remaining rentals, with no percentage penalty.
+  cost. The CPA financial ceiling is PV less goods value plus those costs, floored
+  at zero and capped below undiscounted remaining rentals, with no percentage
+  penalty. Staff record all applicable Regulation 5 factors and a reasoned charge
+  at or below the ceiling that preserves the consumer’s right to cancel.
 - **Continuation:** a CPA lease without an election automatically continues month
   to month at expiry, including a defaulted or paid-up lease. The lessee ends it
   on 20 South African business days' notice, independently of rental dates.
