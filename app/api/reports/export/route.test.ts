@@ -62,6 +62,11 @@ vi.mock("@/lib/audit", () => ({
   logAuditStrict: (args: unknown) => logAuditStrictMock(args),
 }))
 
+const snapshotRegisterMock = vi.fn()
+vi.mock("@/lib/reports/arrears-snapshot", () => ({
+  readSnapshotArrearsRegister: (...a: unknown[]) => snapshotRegisterMock(...a),
+}))
+
 vi.mock("@/lib/compliance/ncr-return", async () => {
   const actual = await vi.importActual<typeof import("@/lib/compliance/ncr-return")>(
     "@/lib/compliance/ncr-return",
@@ -273,6 +278,9 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     submittedByName: null,
     filed: null,
     positionIsStale: true,
+    positionSource: "LIVE" as const,
+    positionAsOf: null as Date | null,
+    historyStartsOn: null,
   }
 
   const loanRow = {
@@ -350,6 +358,32 @@ describe("GET reports export — ncr-quarterly workbook", () => {
     expect(values).toContain("NOT the quarter end")
     expect(values).toContain("Not submitted")
     expect(values).toContain(ACME_LENDER.ncrNumber)
+  })
+
+  // Review of #153: the register must come from the same day as the summary.
+  it("builds the Arrears Register from the quarter-end history when the summary does, and labels both", async () => {
+    getNcrReturnDataMock.mockResolvedValue({
+      ...ncrData, positionIsStale: false, positionSource: "SNAPSHOT", positionAsOf: new Date("2026-03-31T00:00:00Z"),
+    })
+    snapshotRegisterMock.mockResolvedValue([{
+      daysInArrears: 31, arrearsCents: 12_00, outstandingPrincipalCents: 300_00,
+      loan: { reference: "LN-HIST", principal: 500_00, client: { idNumber: "8801015000088", firstName: "Thandiwe", lastName: "Mokoena" }, entity: null },
+    }])
+    const wb = await sheets(await GET(request("type=ncr-quarterly&quarter=2026-Q1")))
+    expect(snapshotRegisterMock).toHaveBeenCalledWith("tenant-1", new Date("2026-03-31T00:00:00Z"))
+    const register = wb.getWorksheet("Arrears Register")!
+    expect(register.getRow(2).getCell(1).value).toBe("LN-HIST")
+    expect(register.getRow(2).getCell(4).value).toBe(31)
+    expect(wb.getWorksheet("NCR Summary")!.getRow(3).getCell(2).value).toBe("Position at quarter end")
+    const info = wb.getWorksheet("Return Info")!.getSheetValues().flat().map(String).join(" | ")
+    expect(info).toContain("Accounts in arrears at quarter end")
+  })
+
+  it("labels a live Arrears Register as today's book", async () => {
+    const wb = await sheets(await GET(request("type=ncr-quarterly&quarter=2026-Q1")))
+    expect(snapshotRegisterMock).not.toHaveBeenCalled()
+    const info = wb.getWorksheet("Return Info")!.getSheetValues().flat().map(String).join(" | ")
+    expect(info).toContain("NOT at quarter end")
   })
 
   it("exports the filed figures and says so once a quarter is submitted", async () => {

@@ -156,6 +156,10 @@ describe("tenant-scope — ALS primitives", () => {
       "RemarketingSale",
       "RecoveryVatEvent",
       "RecoveryRefund",
+      // Daily arrears history for the NCR return — non-null tenantId; the
+      // nightly cron writes inside runWithTenant.
+      "LoanArrearsSnapshot",
+      "ArrearsSnapshotRun",
     ])
   })
 
