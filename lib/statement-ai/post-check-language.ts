@@ -36,8 +36,8 @@ export const VERDICT = new RegExp([
   "turn(ed|s)? down", "den(y|ied|ies)", "refus\\w*", "(un)?creditworth\\w*", "afford\\w*", "eligib\\w*", "suitab\\w*",
   "trust(worthy|ed|s)?", "reliab\\w*", "suspicious\\w*", "fraud\\w*", "risky", "(high|low|elevated|moderate|minimal|little)[- ]risk",
   "genuine\\w*", "authentic\\w*", "unaltered", "untampered", "tamper\\w*", "forg(ed|ery|eries)", "fake\\w*", "doctored",
-  "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verified (as )?(genuine|authentic|real|correct|true|clean)",
-  "(is|was|are|were|been|being|appears?|looks?) (verified|real|true|correct|clean)(?! against)",
+  "falsifi\\w*", "manipulat\\w*", "fabricat\\w*", "altered", "edited", "counterfeit", "bogus", "legit\\w*", "verif(y|ied|ies|ication)(?! against a payslip)", "real",
+  "(is|was|are|were|been|being|appears?|looks?|seems?) (true|correct|clean|accurate|valid|honest|sound|in order)",
 ].map((w) => `\\b${w}\\b`).join("|"), "i")
 
 /**
@@ -73,12 +73,14 @@ export function checkNoContradiction(rawText: string, raisedFlagCodes: readonly 
  * be a name the facts gave, as written. Figures are checked elsewhere: any
  * token with a digit is skipped here.
  */
-export function checkVocabulary(rawText: string, names: Iterable<string>): CheckResult {
-  // A whole name matches in any case: its words came from the facts ("Capitec" for "CAPITEC").
-  // A payee's single words match only in capitals ("BLUEGUM MILLS" of "SALARY BLUEGUM MILLS"), so a
-  // payee cannot lend the prose an ordinary word. Codes are never split: NO_PAYSLIP does not make "no" a word.
-  const words = [...names].flatMap((n) => (n.includes("_") ? [] : n.split(" ").filter((w) => w.length > 2)))
-  let text = stripLiterals(stripLiterals(plainLetters(rawText), names, "i"), words)
+export function checkVocabulary(rawText: string, names: Iterable<string>, payeeNames: Iterable<string> = []): CheckResult {
+  const payees = new Set(payeeNames)
+  // Names from the system (banks, categories, checks, codes) match in any case ("Capitec" for
+  // "CAPITEC"). A payee's name is statement text a client can write: it matches only as given, in
+  // capitals, so it reads as a name and can never lend the prose an ordinary word.
+  const trusted = [...names].filter((n) => !payees.has(n))
+  const payeeWords = [...payees].flatMap((n) => [n, ...n.split(" ").filter((w) => w.length > 2)])
+  let text = stripLiterals(stripLiterals(plainLetters(rawText), trusted, "i"), payeeWords)
   text = text.replace(/\S*\d\S*/g, " ").replace(ALLOWED_NEGATIONS, " ")
   for (const word of text.match(/[A-Za-z]+(?:['-][A-Za-z]+)*/g) ?? []) {
     const w = word.toLowerCase().replace(/'s$/, "")
@@ -90,10 +92,10 @@ export function checkVocabulary(rawText: string, names: Iterable<string>): Check
 }
 
 /** Every language rule: the vocabulary, then reassurance and verdicts (kept: they name the failure plainly). */
-export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = []): CheckResult {
+export function checkLanguage(rawText: string, raisedFlagCodes: readonly string[], names: Iterable<string> = [], payees: Iterable<string> = []): CheckResult {
   const contradiction = checkNoContradiction(rawText, raisedFlagCodes)
   if (!contradiction.ok) return contradiction
-  return checkVocabulary(rawText, [...names, ...raisedFlagCodes])
+  return checkVocabulary(rawText, [...names, ...raisedFlagCodes], payees)
 }
 
 /** Which way a flag's figure departs from what was expected; null for flags that are presence, not size. */
