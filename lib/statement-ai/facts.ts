@@ -97,6 +97,7 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   const literals: string[] = [...extraLiterals]
   const monthly: number[] = []
   const names: string[] = []
+  const payees: string[] = []
   const ins: number[] = []
   const outs: number[] = []
   type Ctx = { perMonth: boolean; direction: "in" | "out" | null }
@@ -130,10 +131,10 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     // Any other string with a digit (a row reference, a code) may be copied whole, never read as a figure.
     if (/\d/.test(v)) return void literals.push(v)
     // A name in capitals (a payee, a bank, a category, a check) may be copied as written.
-    if (/^[A-Z][A-Z0-9_&' -]*$/.test(v)) names.push(v)
+    if (/^[A-Z][A-Z0-9_&' -]*$/.test(v)) (/payee/i.test(key) ? payees : names).push(v)
   }
   visit(facts, "", { perMonth: false, direction: null })
-  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals, names }
+  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals, names, payees }
 }
 
 type PayeeRow = Pick<CountedRow, "t">
