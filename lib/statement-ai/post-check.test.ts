@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { checkFigures, checkFlagExplanation, checkNoContradiction, postCheck, type Allowed, type FlagSpec } from "./post-check"
+import { checkVocabulary } from "./post-check-language"
 
 const allowed: Allowed = {
   amountsCents: [123_456, 850_000, 12_500_00, -45_000, 50_000],
@@ -73,6 +74,10 @@ describe("checkFigures: any other figure, or a given one written another way, re
     expect(rejected("2,5% of money out.")).toMatch(/not given/)
     expect(rejected("5 pct of income.")).toMatch(/words/)
     expect(rejected("5 ‰ of income.")).toMatch(/per-mille/)
+    expect(rejected("Five percent of money out.")).toMatch(/percentage in words/)
+    expect(rejected("5 pc of money out.")).toMatch(/not given/)
+    expect(rejected("5 percentage of income.")).toMatch(/not given/)
+    expect(rejected("Debits were returned: one.", { amountsCents: [], numbers: [3] })).toMatch(/words not given/)
   })
   it("rejects a number not given, digits it cannot read, and a fabricated row reference", () => {
     expect(rejected("Across 4 statements.")).toMatch(/not given/)
@@ -84,12 +89,14 @@ describe("checkFigures: any other figure, or a given one written another way, re
     expect(rejected("See S1-R129.", { amountsCents: [], numbers: [9], literals: ["S1-R12"] })).toMatch(/not given/)
   })
   it("rejects a total called monthly, and money out called money in", () => {
-    expect(rejected("Rent of R8 500.00 a month.")).toMatch(/called monthly/)
-    expect(rejected("Debit orders totaling -R450.00 monthly.")).toMatch(/called monthly/)
-    expect(rejected("The monthly rent of R8 500.00 was paid.")).toMatch(/called monthly/)
+    expect(rejected("Rent of R8 500.00 a month.")).toMatch(/another period/)
+    expect(rejected("Debit orders totaling -R450.00 monthly.")).toMatch(/another period/)
+    expect(rejected("The monthly rent of R8 500.00 was paid.")).toMatch(/another period/)
     expect(rejected("The client received R500.00 from the payee.")).toMatch(/money out called money in/)
     expect(rejected("The client spent R1 234.56.")).toMatch(/money in called money out/)
     ok("Living spend R12 500.00 a month; R8 500.00 over the period.")
+    expect(rejected("Rent of R8 500.00 weekly.")).toMatch(/another period/)
+    expect(rejected("Rent of R8 500.00 a year.")).toMatch(/another period/)
   })
 })
 
@@ -130,6 +137,27 @@ describe("checkNoContradiction", () => {
   })
 })
 
+describe("checkVocabulary", () => {
+  it("rejects any word outside the advisory vocabulary, however the reassurance is phrased", () => {
+    for (const t of [
+      "No further action is needed.", "This is nothing out of the ordinary.", "This is common and regular for this client.",
+      "It poses no threat.", "This was to be expected.", "It does not require attention.", "The pattern looks plausible and understandable.",
+      "Requires no follow-up.", "The client keeps up with payments.", "The client is doing well.",
+    ]) expect(checkVocabulary(t, []).ok, t).toBe(false)
+  })
+  it("accepts plain description, names as given, and the allowed negations", () => {
+    expect(checkVocabulary("The statements cover 2026-07 to 2026-09. Money out to SYNTH RENTALS totals R19 500.00 across 3 rows (S1-R5).", ["SYNTH RENTALS"])).toEqual({ ok: true })
+    expect(checkVocabulary("NO_PAYSLIP is raised because no recent payslip is on file, so the salary could not be matched.", ["NO_PAYSLIP"])).toEqual({ ok: true })
+    expect(checkVocabulary("The salary could not be explained.", []).ok).toBe(false)
+    // A code's parts are not words: NO_PAYSLIP does not make "no" one.
+    expect(checkVocabulary("NO_PAYSLIP: no review.", ["NO_PAYSLIP"]).ok).toBe(false)
+  })
+  it("reads a given name in any case, and still checks every other word", () => {
+    expect(checkVocabulary("Paid to Synth Rentals.", ["SYNTH RENTALS"])).toEqual({ ok: true })
+    expect(checkVocabulary("Paid to Synth Rentals, a sensible choice.", ["SYNTH RENTALS"]).ok).toBe(false)
+  })
+})
+
 describe("checkFlagExplanation", () => {
   const gambling: FlagSpec = { code: "GAMBLING", direction: "ABOVE", thresholds: { amountsCents: [], percents: [5] } }
   it("passes an explanation naming the code, the direction and the policy threshold", () => {
@@ -144,7 +172,11 @@ describe("checkFlagExplanation", () => {
   })
   it("rejects one without the direction, with it negated, or with the opposite one anywhere", () => {
     expect(checkFlagExplanation("GAMBLING: betting was seen. It was checked after the rule ran.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/does not say/) })
-    expect(checkFlagExplanation("GAMBLING is not above the policy threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/negates/) })
+    for (const t of [
+      "GAMBLING is not above the policy threshold of 5%.", "GAMBLING does not appear to be above the policy threshold of 5%.",
+      "GAMBLING isn’t above the policy threshold of 5%.", "GAMBLING cannot be above the policy threshold of 5%.",
+      "GAMBLING: betting fails to exceed the policy threshold of 5%.",
+    ]) expect(checkFlagExplanation(t, gambling), t).toMatchObject({ ok: false, reason: expect.stringMatching(/negates/) })
     expect(checkFlagExplanation("GAMBLING was raised. Spend is above 5%. Spend is below the threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/opposite/) })
   })
   it("rejects a threshold other than the policy value, before or after the word, or any other percentage", () => {

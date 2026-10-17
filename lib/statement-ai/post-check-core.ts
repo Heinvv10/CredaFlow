@@ -17,6 +17,8 @@ export interface Allowed {
   months?: Iterable<string>
   /** Whole tokens copied from the input that may contain digits (row refs "S1-R12", flag codes, query ids). */
   literals?: Iterable<string>
+  /** Names the facts gave, as written (payees, banks, categories, check names): words the vocabulary need not hold. */
+  names?: Iterable<string>
 }
 
 export type CheckResult = { ok: true } | { ok: false; reason: string }
@@ -34,16 +36,17 @@ export function norm(text: string): string {
     .normalize("NFKC")
     .replace(/\p{Cf}/gu, "")
     .replace(/[‐-―−﹣－]/g, "-")
+    .replace(/[\u2018\u2019\u02BC\u2032]/g, "'")
     .replace(/\s+/g, " ")
 }
 
 export const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /** Removes each literal where it stands as a whole token ("S1-R12" is not removed from "S1-R129"). */
-export function stripLiterals(text: string, literals: Iterable<string>): string {
+export function stripLiterals(text: string, literals: Iterable<string>, flags = ""): string {
   let out = text
   for (const lit of [...new Set(literals)].map(norm).filter((l) => l.trim()).sort((a, b) => b.length - a.length)) {
-    out = out.replace(new RegExp(`(?<![\\w-])${escape(lit)}(?![\\w-])`, "g"), " ")
+    out = out.replace(new RegExp(`(?<![\\w-])${escape(lit)}(?![\\w-])`, `g${flags}`), " ")
   }
   return out
 }
