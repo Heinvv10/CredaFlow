@@ -12,7 +12,7 @@ type Row = DefaultChargeInput["schedule"][number] & { commonLawContractualIntere
  * of interest never invents a principal receipt. Future unearned periods are
  * removed at the statement/settlement date before the chronological replay.
  */
-export function lawfulRateCorrection(replay: ChargesReplay, rows: Row[], startDate: string, oldPath: RatePoint[], newPath: RatePoint[], asOf: Date): number {
+export function lawfulRateCorrection(replay: ChargesReplay, rows: Row[], startDate: string, oldPath: RatePoint[], newPath: RatePoint[], asOf: Date, uncappedCashCorrection?: number): number {
   const start = toDayNumber(startDate)
   const end = toDayNumber(sastCalendarDate(asOf))
   const oldSegments = rateSegments(oldPath, start)
@@ -30,7 +30,8 @@ export function lawfulRateCorrection(replay: ChargesReplay, rows: Row[], startDa
   }
   const owed = (path: RatePoint[]) => {
     const result = replay.replayAt(asOf, [], { schedule: candidate(path), contractRateHistory: path.map((point) => ({ effectiveDate: dbDate(point.effectiveDate), annualRate: point.annualRate })) })
-    return result.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0) + result.interestAccrued + result.feesAccrued
+    return { amount: result.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0) + result.interestAccrued + result.feesAccrued, capped: result.lawfulSchedule!.some((row) => row.interestDue < row.contractualInterestDue) }
   }
-  return owed(newPath) - owed(oldPath)
+  const old = owed(oldPath), revised = owed(newPath)
+  return uncappedCashCorrection !== undefined && !old.capped && !revised.capped ? uncappedCashCorrection : revised.amount - old.amount
 }

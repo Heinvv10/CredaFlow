@@ -230,7 +230,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     if (loan.ncaRegime === "NON_NCA" && !closedReplay) throw new Error("Closed rate correction needs its common-law replay")
     const settlementEvidence = closedReplay ? (await loadSettlementEvidence(tx, tenantId, [loanId])).get(loanId) : null
     const legalSourceRows = settlementEvidence ? rawStored.map((row) => ({ ...row, ...settlementEvidence.rows.find((saved) => saved.id === row.id)! })) : rawStored
-    const cumulativeAmountCents = closedReplay ? lawfulRateCorrection(closedReplay, legalSourceRows, startDate, billedPath, newPath, loan.closedAt ?? dueDateInstant(request.runDate)) : corrected - oldBalance
+    const cumulativeAmountCents = closedReplay ? lawfulRateCorrection(closedReplay, legalSourceRows, startDate, billedPath, newPath, loan.closedAt ?? dueDateInstant(request.runDate), corrected - oldBalance) : corrected - oldBalance
     const previousAmount = previous.reduce((sum, row) => sum + row.amountCents, 0)
     const amountCents = cumulativeAmountCents - previousAmount
     const created = await tx.contractRate.create({ data: { tenantId, loanId, effectiveDate: dbDate(effectiveDate), basis, margin: prior.margin, resultingRate, newInstalmentCents: 0 } })

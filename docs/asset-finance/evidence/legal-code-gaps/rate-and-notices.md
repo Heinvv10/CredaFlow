@@ -70,7 +70,7 @@ reported by the cron; Message idempotency prevents duplicate provider calls.
 
 The durable queue, dispatch module and ZARONIA wording tests were run red
 before their implementations. After restoring the final implementation, the
-focused tests pass. Six independent temporary mutations were each caught by
+focused tests pass. Seven independent temporary mutations were each caught by
 a failing test, then restored:
 
 | Reversed change | Result |
@@ -81,6 +81,7 @@ a failing test, then restored:
 | Treat pending/simulated outcomes as completed | caught |
 | Allow statutory override for commercial notices | caught |
 | Drop the explicit historical date range | caught |
+| Omit proposed-lawful-interest projection before restating a paid capped row | caught by real PostgreSQL regression |
 
 ## Documents
 
@@ -120,11 +121,12 @@ the same chronological combined cap, including actual receipts.
 
 Recent local evidence (all PostgreSQL 16 containers removed after the checks):
 
-- `/tmp/cf-rate-closed3.log`: real NCA revision, settlement, late closed-book credit,
-  reversal/retry, independent signed arithmetic and reopened repricing.
-- `/tmp/cf-rate-cap2.log`: real booked paid-capped and closed-capped acceptance.
-- `/tmp/cf-rate-domain-final.log`: 1,360 domain tests passed (integration skipped).
-- `/tmp/cf-rate-law-tsc.log`: regenerated-client TypeScript check passed.
+- `/tmp/cf-rate-candidate-pg.log`: 40 tests passed on one fresh migrated PostgreSQL 16 database, including actual NCA revision/settlement, exact independent signed arithmetic, reversal/retry, reopened repricing, paid-capped and closed-capped acceptance.
+- `/tmp/cf-rate-law-mutation-red.log`: removing the proposed-lawful-interest projection creates the phantom-principal failure in the real booked commercial regression; the implementation was restored and all 40 checks passed.
+- `/tmp/cf-rate-units-final.log`: 1,374 domain/replay tests passed (integration skipped).
+- `/tmp/cf-rate-final-tsc.log`: regenerated-client TypeScript check passed.
+- `/tmp/cf-rate-final-focused.log`: 25 latest focused checks passed.
+- `/tmp/cf-rate-doc-check.log`: canonical-path and generated-agent mirrors passed.
 
 These focused checks are not a claim that the final full gate or independent
 review has passed. Root owns the final exact-candidate `ci:full`, review and fixes.

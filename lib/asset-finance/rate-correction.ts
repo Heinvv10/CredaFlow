@@ -56,7 +56,7 @@ export async function reconcileRateCorrections(tx: Pick<RepriceTx, "assetFinance
   const events = correctionCashEvents(evidence.rows, receipts)
   let target = correctionBalance(evidence.principalCents, evidence.startDate, evidence.correctedPath, events) - correctionBalance(evidence.principalCents, evidence.startDate, evidence.billedPath, events)
   const replay = await loadChargesReplay(tx, { tenantId, loanId }, new Date(), { decidingStatus: true })
-  if (replay?.loan.ncaRegime === "NON_NCA") target = lawfulRateCorrection(replay, sourceRows ?? replay.loan.repaymentSchedule, evidence.startDate, evidence.billedPath, evidence.correctedPath, new Date())
+  if (replay?.loan.ncaRegime === "NON_NCA") target = lawfulRateCorrection(replay, sourceRows ?? replay.loan.repaymentSchedule, evidence.startDate, evidence.billedPath, evidence.correctedPath, new Date(), target)
   const previous = ledger.reduce((sum, row) => sum + row.amountCents, 0)
   await tx.assetFinanceRateCorrection.create({ data: { tenantId, loanId, contractRateId: latest.contractRateId, cause, amountCents: target - previous, cumulativeAmountCents: target, reason: "RECEIPT_RECONCILIATION", contractualRows: { ...evidence, events } as never } })
 }
