@@ -378,6 +378,7 @@ model EntityDocument {
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
   meterReadings     AssetMeterReading[]
+  ncaSurplusAccounts NcaSurplusAccount[]
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")
 
@@ -385,6 +386,7 @@ model EntityDocument {
   @@index([tenantId, entityId])
   @@index([tenantId, clientId])
   @@index([dealId])
+
 }
 
 enum AssetClass {
@@ -480,6 +482,7 @@ model AssetValuation {
 }
 
 enum SurrenderStatus {
+  WITHDRAWN
   REQUESTED
   VALUED
   VALUATION_NOTICE_ISSUED
@@ -507,6 +510,13 @@ model SurrenderRequest {
   valuation             AssetValuation? @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   valuationNoticePath   String?
   valuationNoticeSha256 String?
+  valuationNoticeIssuedOn DateTime? @db.Date
+  valuationNoticeReceivedOn DateTime? @db.Date
+  valuationReceiptReference String?
+  goodsReturnedOn DateTime? @db.Date
+  goodsReturnReference String?
+  chargesFrozenFrom DateTime? @db.Date
+  chargesFrozenUntil DateTime? @db.Date
   saleProceedsCents     Int?
   proceedsPaymentId     String?         @unique
   proceedsPayment       Payment?        @relation("SurrenderProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -516,10 +526,12 @@ model SurrenderRequest {
   finalNoticeSha256     String?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
+  ncaSurplusRemittance NcaSurplusRemittance?
   recovery              Recovery?
 
   @@unique([tenantId, id])
   @@index([tenantId, loanId])
+
 }
 
 // A supplier paid out on asset deals; separate from clients (DESIGN D8).

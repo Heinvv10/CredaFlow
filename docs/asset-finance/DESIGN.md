@@ -511,3 +511,15 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   lender until the list "Code changes required before approval" in
   [`legal-wording/README.md`](legal-wording/README.md) is empty: the drafted
   wording states the law where the code does not yet do what it says.
+
+- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
+  settlement rebates unearned interest; recorded valuation-notice receipt
+  starts the statutory sale wait; timely withdrawal records goods returned;
+  standalone surrender shortfalls freeze charges. Final notices atomically
+  issue an independently authorised surplus instruction or an audited missing-
+  account exception. No external bank settlement is asserted.
+- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
+  agreement disclosures include cash price, deposit and credit-life premium;
+  schedule capital excludes fees; total cost of credit retains principal debt
+  and the duplicate asset-document total row is removed. Consumer PASQ output
+  and consumer PDF pins are unchanged.

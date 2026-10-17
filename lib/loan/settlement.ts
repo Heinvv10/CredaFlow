@@ -175,8 +175,8 @@ function elapsedContractDays(startDate: Date, asOf: Date, maturityDate: Date) {
 }
 
 /**
- * s125 on an instalment loan: an NCA consumer loan (not an asset-finance
- * contract) of more than one instalment. DAILY_ACCRUAL bullets keep their own
+ * s125 on an instalment agreement: NCA cash loans, instalment sales and
+ * finance leases of more than one instalment. DAILY_ACCRUAL bullets keep their own
  * rule below.
  */
 export function isS125InstalmentLoan(
@@ -186,7 +186,7 @@ export function isS125InstalmentLoan(
   return loan.interestModel !== "DAILY_ACCRUAL"
     && schedule.length > 1
     && loan.ncaRegime === "NCA"
-    && loan.contractType === "LOAN"
+    && ["LOAN", "INSTALMENT_SALE", "FINANCE_LEASE"].includes(loan.contractType ?? "")
     && schedule.every((row) => row.creditLifePremiumDue !== undefined)
 }
 

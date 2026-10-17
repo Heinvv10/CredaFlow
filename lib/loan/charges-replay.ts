@@ -182,6 +182,10 @@ export async function loadChargesReplay(
       },
       repaymentSchedule: { orderBy: [{ dueDate: "asc" }, { installmentNo: "asc" }] },
       // A recovery's charge freeze (chargesFrozenFrom..chargesFrozenUntil), so that every writer's replay honours it.
+      surrenderRequests: {
+        where: { chargesFrozenFrom: { not: null }, shortfallCents: { gt: 0 } },
+        select: { chargesFrozenFrom: true, chargesFrozenUntil: true },
+      },
       recoveries: {
         where: { chargesFrozenFrom: { not: null } },
         select: {
@@ -191,7 +195,7 @@ export async function loadChargesReplay(
       },
     },
   })
-  const allPauses = [...(pauses ?? []), ...(recoveryChargePauses(loan?.recoveries) ?? [])]
+  const allPauses = [...(pauses ?? []), ...(recoveryChargePauses(loan?.recoveries) ?? []), ...(recoveryChargePauses(loan?.surrenderRequests) ?? [])]
   const recoveryCosts = recoveryCostCharges(loan?.recoveries)
   const config = loan?.tenant.config
   // Once charges were stopped nothing is ever derived again, not even a preview.

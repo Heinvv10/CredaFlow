@@ -3,6 +3,7 @@ import { DealDocumentWriter, type TableColumn } from "../pdf-layout"
 import { surrenderFinalClause, surrenderValuationClause } from "../wording/nca-surrender"
 
 export interface SurrenderNoticeData {
+  surplusDisposition?: "INSTRUCTED" | "HELD_NO_VERIFIED_ACCOUNT"
   /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark, subtitle and line notes. */
   legalWordingApproved: boolean
   reference: string

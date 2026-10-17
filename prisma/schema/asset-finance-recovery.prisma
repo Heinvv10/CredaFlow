@@ -124,6 +124,9 @@ model Recovery {
   // s131 only: s127 keeps its notices on the SurrenderRequest.
   valuationNoticePath     String?
   valuationNoticeSha256   String?
+  valuationNoticeIssuedOn DateTime? @db.Date
+  valuationNoticeReceivedOn DateTime? @db.Date
+  valuationReceiptReference String?
   finalNoticePath         String?
   finalNoticeSha256       String?
   settlementDueCents      Int?
@@ -146,6 +149,7 @@ model Recovery {
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   costs                   RecoveryCost[]
+  ncaSurplusRemittance NcaSurplusRemittance?
   refund                  RecoveryRefund?
   sales                   RemarketingSale[]
   vatEvents               RecoveryVatEvent[]
@@ -156,6 +160,7 @@ model Recovery {
   @@unique([tenantId, proceedsPaymentId])
   @@index([tenantId, loanId])
   @@index([tenantId, assetId])
+
 }
 
 enum RecoveryCostType {

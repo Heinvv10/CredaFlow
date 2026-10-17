@@ -23,7 +23,7 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | OutcomeSettled> => {
     const recovery = await tx.recovery.findFirst({
       where: { id: recoveryId, tenantId: actor.tenantId },
-      select: { id: true, route: true, status: true, shortfallCents: true, surplusCents: true, unrecoverableCostsCents: true, chargesFrozenFrom: true, chargesFrozenUntil: true },
+      select: { id: true, surrenderRequestId: true, route: true, status: true, shortfallCents: true, surplusCents: true, unrecoverableCostsCents: true, chargesFrozenFrom: true, chargesFrozenUntil: true },
     })
     if (!recovery) return { kind: "not_found" }
     const nca = isNcaRoute(recovery.route)
@@ -36,7 +36,8 @@ export async function settleOutcome(actor: RecoveryActor, recoveryId: string): P
     const surplus = recovery.surplusCents ?? 0
     // Owed on the account: the shortfall less the charged costs the account could not carry (they stay recorded on the recovery).
     const owed = shortfall - (recovery.unrecoverableCostsCents ?? 0)
-    const status: OutcomeSettled["status"] = owed > 0 ? "SHORTFALL_OPEN" : surplus > 0 ? "SURPLUS_HELD" : "CLOSED"
+    const instructed = nca && surplus > 0 && await tx.ncaSurplusRemittance.count({ where: { tenantId: actor.tenantId, status: "INSTRUCTED", OR: [{ recoveryId }, ...(recovery.surrenderRequestId ? [{ surrenderId: recovery.surrenderRequestId }] : [])] } }) > 0
+    const status: OutcomeSettled["status"] = owed > 0 ? "SHORTFALL_OPEN" : surplus > 0 && !instructed ? "SURPLUS_HELD" : "CLOSED"
     await advance(tx, actor, recovery.id, from, { status, ...(status === "CLOSED" ? { closedAt: new Date() } : {}) })
     const audit = { tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined }
     await logAuditStrict({

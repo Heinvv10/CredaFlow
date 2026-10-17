@@ -11,8 +11,8 @@ import type { NcaClause } from "./nca-agreement"
 export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name, with proof that it is yours. If you do not, we will pay it as soon as you give us those details."
 
 /** The surplus sentence of the post-sale notices: remitted with the notice, into the account given at valuation. */
-export const surplusRemitted = (amount: string, over: string): string =>
-  `1.2 The net proceeds exceeded ${over} by ${amount}. Under section 127 of the Act that amount is due to you, and we remit it to you with this notice, into the bank account you gave us after our valuation notice.`
+export const surplusRemitted = (amount: string, over: string, held = false): string =>
+  held ? `1.2 The net proceeds exceeded ${over} by ${amount}. That surplus is held because we do not yet have a staff-verified bank account in your name. This is recorded as an exception; give us your bank details and proof of account so we can remit the surplus promptly.` : `1.2 The net proceeds exceeded ${over} by ${amount}. Under section 127 of the Act that amount is due to you, and we remit it to you with this notice, into the bank account you gave us after our valuation notice.`
 
 /** The charge freeze after a shortfall (s127), printed by both post-sale notices under the same condition. */
 export const SHORTFALL_FREEZE = "1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days after the date of this notice."
@@ -43,7 +43,7 @@ export function surrenderFinalClause(data: SurrenderNoticeData): NcaClause {
   const result = shortfall > 0
     ? `1.2 The net proceeds were less than the settlement value. Under section 127 of the Act we demand payment of the shortfall of ${formatZarPdf(shortfall)}. If you do not pay it within 10 business days after you receive this notice, we may begin legal proceedings against you for it. Contact us if you cannot pay it in full.`
     : surplus > 0
-      ? surplusRemitted(formatZarPdf(surplus), "the settlement value")
+      ? surplusRemitted(formatZarPdf(surplus), "the settlement value", data.surplusDisposition === "HELD_NO_VERIFIED_ACCOUNT")
       : "1.2 The net proceeds equalled the settlement value. Nothing further is owed by you or by us under the agreement."
   return {
     heading: "Consumer rights following disposal and account reconciliation",

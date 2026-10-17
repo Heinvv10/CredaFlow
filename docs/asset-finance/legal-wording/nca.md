@@ -130,22 +130,27 @@ cross-referred, not restated.
 
 ## Points for the lender's legal team
 
-**First: "total cost of credit" (README gap 23).** The NCA quote and
-agreement print "Total cost of credit" from the PASQ evidence
-(`lib/compliance/pasq.ts:190`, shared with the consumer loans). That figure
-includes the principal debt, so it equals "Total repayable" and the two rows
-print the same amount. Quote 1.5 describes the figure as the code computes it
-and takes no position on the law. Confirm the Form 20 / Reg 31 meaning: if the
-cost of credit excludes the principal (s101 separates the principal debt from
-the charges), the shared calculation and 1.5 change; if it includes it, drop
-the duplicate row from the asset quote and agreement.
+**Resolved in the NCA legal-code changes (2026-10-17).** Section 125
+rebates now apply to NCA instalment sales and finance leases, including the
+s127 settlement value. Recorded receipt starts the ten-business-day sale
+window; proceeds and listing are refused before it expires. A timely withdrawal
+records return of the goods. Standalone surrender shortfalls use the same charge
+freeze as recoveries.
 
-Points 1–3 and 5, and the charge-freeze half of point 6, of the first draft
-(numbers kept) are code gaps, now listed in
-[`README.md`](README.md) ("Code changes required before approval", gaps 1–5).
-The wording states the law: s125 settlement, the s127(3) withdrawal and the
-10-business-day wait, the surplus remitted with the post-sale notice, and the
-charge freeze after a shortfall on both notices.
+Bank proof, independent verification and release authorisation precede the
+final notice. That action creates the exact surplus payment instruction with
+the notice; an unverified account instead creates an audited held-account
+exception and matching notice text. The instruction is downloadable; external
+bank settlement is not asserted. Agreement disclosures now include cash price,
+deposit and monthly credit-life premium, and schedule capital excludes fees.
+
+**Total cost of credit (former gap 23).** Regulation 23A(15)(d), inserted by
+[GN R202, Gazette 38557, 13 March 2015](https://www.gov.za/sites/default/files/gcis_document/201503/38557rg10382gon202.pdf),
+expressly includes principal debt, interest, initiation fees, service fees and
+credit insurance in total cost of credit. The existing shared PASQ calculation
+therefore stays unchanged. The duplicate Total repayable table row was removed
+from the asset quotation and agreement; the quotation still explains the total.
+No consumer-loan PDF pin changed.
 
 4. **s127(2) timing.** `valuationDueOn` is the request date plus 10 business
    days; the Act counts from the later of the notice and the return of the goods.
@@ -184,6 +189,5 @@ charge freeze after a shortfall on both notices.
 16. **Audit rows** record `draftLegalWording` as the inverse of the tenant flag
     (`nca-agreement-store.ts`, `nca-entity-signing.ts`, `surrender-store.ts`,
     `recovery-notices.ts`).
-17. **Cash price, deposit and credit-life premium** are printed on the quote but
-    not on the agreement (README gap 21); low confidence on the Regulation item
-    numbers.
+17. **Cash price, deposit and credit-life premium** now appear on both the quote
+    and agreement (former gap 21); the lender must still approve the rendered form.

@@ -82,6 +82,10 @@ model User {
   messagesEdited               Message[]                             @relation("MessagesEditedBy")
   ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
   ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
+  ncaSurplusAccountsApproved NcaSurplusAccount[] @relation("NcaSurplusApprovedBy")
+  ncaSurplusAccountsCreated NcaSurplusAccount[] @relation("NcaSurplusCreatedBy")
+  ncaSurplusAccountsReleaseAuthorised NcaSurplusAccount[] @relation("NcaSurplusReleaseAuthorisedBy")
+  ncaSurplusRemittancesIssued NcaSurplusRemittance[] @relation("NcaSurplusIssuedBy")
   notifications                Notification[]
   pasqAckTokensIssued          PasqAcknowledgementToken[]            @relation("PasqAckTokensIssuedBy")
   payoutChecklistConfirmed     PayoutChecklistItem[]                 @relation("PayoutChecklistConfirmedBy")

@@ -104,6 +104,8 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
     } else if (next === "VALUATION_NOTICE_ISSUED") {
       if (s127) await surrender("VALUATION_NOTICE_ISSUED", `, "valuationNoticePath" = '/nonexistent/vn.pdf', "valuationNoticeSha256" = '${SHA}'`)
       await set({ status: next, ...(s127 ? {} : { valuationNoticePath: "/nonexistent/vn.pdf", valuationNoticeSha256: SHA }) })
+      await testSetup(db, [`UPDATE "Recovery" SET "valuationNoticeIssuedOn"=CURRENT_DATE-30,"valuationNoticeReceivedOn"=CURRENT_DATE-30,"valuationReceiptReference"='Synthetic delivery proof; fixture time advanced' WHERE "id"=$1`,recoveryId])
+      if (s127) await testSetup(db, [`UPDATE "SurrenderRequest" SET "valuationNoticeIssuedOn"=CURRENT_DATE-30,"valuationNoticeReceivedOn"=CURRENT_DATE-30,"valuationReceiptReference"='Synthetic delivery proof; fixture time advanced' WHERE "id"=$1`,o.surrenderId])
     } else if (next === "LISTED") {
       await set({ status: next })
     } else if (next === "SOLD") {
@@ -131,6 +133,10 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
         chargesFrozenFrom: dbDate(from), ...(loan.regime === "NON_NCA" ? { chargesFrozenUntil: dbDate(addDays(from, 10)) } : {}),
       })
     } else if (next === "FINAL_NOTICE_ISSUED") {
+      if (!s127) {
+        const row = await db.recovery.findUniqueOrThrow({ where: { id: recoveryId } })
+        if ((row.surplusCents ?? 0) > 0) await db.ncaSurplusRemittance.create({ data: { tenantId: fx.tenantId, recoveryId, amountCents: row.surplusCents!, status: "HELD_NO_VERIFIED_ACCOUNT", exceptionReason: "Synthetic fixture: no verified bank account", issuedById: fx.officer } })
+      }
       if (s127) await surrender("FINAL_NOTICE_ISSUED", `, "finalNoticePath" = '/nonexistent/fn.pdf', "finalNoticeSha256" = '${SHA}'`)
       await set({
         status: next, finalNoticeIssuedOn: dbDate(today()), chargesFrozenUntil: dbDate(addSouthAfricanBusinessDays(today(), 10)),

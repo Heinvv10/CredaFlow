@@ -1,3 +1,4 @@
+import { requireNcaSaleWindow } from "./surrender-lifecycle"
 import type { RecoveryRoute, SurrenderStatus, ValuationSource } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
@@ -116,6 +117,7 @@ export async function listForSale(actor: RecoveryActor, id: string): Promise<Rec
     const nca = isNcaRoute(recovery.route)
     const from = nca ? "VALUATION_NOTICE_ISSUED" : "VALUED"
     if (recovery.status !== from) throw new RecoveryRefusal(nca ? "An NCA recovery is listed after its valuation notice" : "A recovery is listed once it is valued")
+    await requireNcaSaleWindow(tx, actor.tenantId, id, "recovery")
     await advance(tx, actor, id, from, { status: "LISTED" })
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
       action: AuditAction.ASSET_RECOVERY_LISTED, entity: "Recovery", entityId: id, newValue: { route: recovery.route },

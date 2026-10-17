@@ -10,8 +10,9 @@
  *   payment       = the row's regular payment, round(B × weight) (+ a lump);
  *                   on the last row the solver's rounding residue included
  *   interestDue   = min(interest the period accrues, payment)
- *   principalDue  = payment − interestDue, plus the balloon on the last row
- *   feesDue = creditLifePremiumDue = 0;  totalDue = payment (+ the balloon)
+ *   principalDue  = payment − fees − interestDue, plus the balloon on the last row
+ *   feesDue = row fees (NCA service/initiation); creditLifePremiumDue = 0
+ *   totalDue = payment (+ the balloon). Premiums are appended by PASQ billing.
  *
  * CAPITALISED INTEREST. A period whose payment is below the interest it
  * accrues (a skip period, weight 0, or a low seasonal weight) cannot pay that
@@ -103,7 +104,7 @@ export function capitalisedInterestCents(row: ScheduleRow): number {
 }
 
 export function toScheduleRecord(row: ScheduleRow): ScheduleRecordAmounts {
-  const payment = regularPaymentCents(row)
+  const payment = regularPaymentCents(row) - row.feesCents
   const interestDue = Math.min(row.interestCents, payment)
   return {
     installmentNo: row.index + 1,

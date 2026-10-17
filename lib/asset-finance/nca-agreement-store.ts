@@ -67,7 +67,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
       totalCostOfCreditCents: evidence.totalCostOfCreditCents, totalRepayableCents: evidence.billing.totalRepayableCents,
     },
     schedule: evidence.billing.schedule.map((row) => ({
-      installmentNo: row.installmentNo, dueDate: row.dueDate.slice(0, 10), principalCents: row.principalDueCents,
+      installmentNo: row.installmentNo, dueDate: sastCalendarDate(new Date(row.dueDate)), principalCents: row.principalDueCents,
       interestCents: row.interestDueCents, feesCents: row.feesDueCents, totalCents: row.totalDueCents, closingBalanceCents: row.closingBalanceCents,
     })),
   })

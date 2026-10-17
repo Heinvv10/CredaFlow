@@ -35,7 +35,7 @@ export function recoveryFinalClause(data: RecoveryNoticeData): NcaClause {
   const result = shortfall > 0
     ? `1.2 The net proceeds were less than the settlement value together with the costs charged to your account. Under section 127 of the Act we demand payment of the shortfall of ${formatZarPdf(shortfall)}. If you do not pay it within 10 business days after you receive this notice, we may take further legal steps against you for it. Contact us if you cannot pay it in full.`
     : o.surplusCents > 0
-      ? surplusRemitted(formatZarPdf(o.surplusCents), "what you owe")
+      ? surplusRemitted(formatZarPdf(o.surplusCents), "what you owe", data.surplusDisposition === "HELD_NO_VERIFIED_ACCOUNT")
       : "1.2 The net proceeds equalled what you owe. Nothing further is owed by you or by us under the agreement."
   return {
     heading: "Consumer rights following sale and account reconciliation",

@@ -1,0 +1,47 @@
+// Bank confirmation and release authority collected before the NCA final notice.
+model NcaSurplusAccount {
+  id String @id @default(cuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  loanId String
+  loan Loan @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  accountHolder String
+  bankName String
+  branchCode String
+  accountNumber String
+  evidenceDocumentId String
+  evidenceDocument EntityDocument @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdById String
+  createdBy User @relation("NcaSurplusCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedById String?
+  approvedBy User? @relation("NcaSurplusApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  releaseAuthorisedById String?
+  releaseAuthorisedBy User? @relation("NcaSurplusReleaseAuthorisedBy", fields: [tenantId, releaseAuthorisedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt DateTime @default(now())
+  remittances NcaSurplusRemittance[]
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
+}
+
+// The payment instruction is issued atomically with the final notice. No bank
+// account numbers are printed on the notice or copied into the audit trail.
+model NcaSurplusRemittance {
+  id String @id @default(cuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  surrenderId String? @unique
+  surrender SurrenderRequest? @relation(fields: [tenantId, surrenderId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recoveryId String? @unique
+  recovery Recovery? @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  accountId String?
+  account NcaSurplusAccount? @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents Int
+  status String
+  exceptionReason String?
+  issuedById String
+  issuedBy User @relation("NcaSurplusIssuedBy", fields: [tenantId, issuedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt DateTime @default(now())
+  @@unique([tenantId, id])
+  @@unique([tenantId, surrenderId])
+  @@unique([tenantId, recoveryId])
+}

@@ -199,6 +199,7 @@ model Loan {
   legalMatters               LegalMatter[]
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
+  ncaSurplusAccounts NcaSurplusAccount[]
   notes                      LoanNote[]
   paymentArrangement         PaymentArrangement?
   paymentNotifications       PaymentNotification[]
@@ -217,6 +218,7 @@ model Loan {
   @@index([tenantId, status])
   @@index([agreementDocId])
   @@index([entityId])
+
 }
 
 enum LoanChargeType {

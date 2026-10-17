@@ -21,7 +21,7 @@ vi.mock("./nca-evidence", () => ({
     calculator: { principalCents: 100, initiationFeeCents: 0, totalInterestCents: 10 },
     creditLife: { monthlyPremiumCents: 0 }, totalCostOfCreditCents: 15,
     billing: { recurringPaymentCents: 115, totalRepayableCents: 115, schedule: [
-      { installmentNo: 1, dueDate: "2026-11-30T00:00:00.000Z", principalDueCents: 100, interestDueCents: 10, feesDueCents: 5, totalDueCents: 115, closingBalanceCents: 0 },
+      { installmentNo: 1, dueDate: "2026-11-29T22:00:00.000Z", principalDueCents: 100, interestDueCents: 10, feesDueCents: 5, totalDueCents: 115, closingBalanceCents: 0 },
     ] },
   }),
 }))
@@ -53,6 +53,6 @@ describe("issueAssetNcaQuote passes the tenant's legal-wording flag through", ()
     } as unknown as RegimeTx
     expect((await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("issued")
     expect(m.approved).toHaveBeenCalledWith(tx, "t1")
-    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved }))
+    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved, schedule: [expect.objectContaining({ dueDate: "2026-11-30", principalCents: 100, feesCents: 5 })] }))
   })
 })

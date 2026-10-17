@@ -63,7 +63,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       collectionFeeCents: 0,
     },
     schedule: evidence.billing.schedule.map((r, index) => ({
-      index, dueDate: r.dueDate.slice(0, 10), weight: 1,
+      index, dueDate: sastCalendarDate(new Date(r.dueDate)), weight: 1,
       openingBalanceCents: r.openingBalanceCents, interestCents: r.interestDueCents,
       principalCents: r.principalDueCents, feesCents: r.feesDueCents,
       balloonCents: index === evidence.billing.schedule.length - 1 ? deal.balloonCents : 0,
@@ -91,7 +91,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       totalCostOfCreditCents: evidence.totalCostOfCreditCents, totalRepayableCents: evidence.billing.totalRepayableCents,
     },
     schedule: evidence.billing.schedule.map((r) => ({
-      installmentNo: r.installmentNo, dueDate: r.dueDate.slice(0, 10), principalCents: r.principalDueCents,
+      installmentNo: r.installmentNo, dueDate: sastCalendarDate(new Date(r.dueDate)), principalCents: r.principalDueCents,
       interestCents: r.interestDueCents, feesCents: r.feesDueCents, totalCents: r.totalDueCents, closingBalanceCents: r.closingBalanceCents,
     })),
   })

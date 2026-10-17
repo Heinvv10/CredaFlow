@@ -144,6 +144,8 @@ model Tenant {
   messageMentions            MessageMention[]
   messages                   Message[]
   messageTemplates           MessageTemplate[]
+  ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusRemittances NcaSurplusRemittance[]
   notificationLogs           NotificationLog[]
   notifications              Notification[]
   pasqAcknowledgementTokens  PasqAcknowledgementToken[]
@@ -186,6 +188,7 @@ model Tenant {
   xeroConnection             XeroConnection?
 
   @@index([operatorId])
+
 }
 
 enum TenantStatus {

@@ -1,0 +1,92 @@
+--- before/quote.before
++++ after/quote.after
+@@ -70 +69,0 @@
+-Total repayable                        R 1,226,991.16
+@@ -81,5 +79,0 @@
+-                       T
+-
+-
+-
+-
+@@ -87,0 +82,5 @@
++                       T
++
++
++
++
+@@ -88,0 +88 @@
++5       31 May 2027                   R 19,214.98           R 9,219.01           R 60.00            R 28,493.99
+@@ -94 +93,0 @@
+-5       31 May 2027                   R 19,214.98           R 9,219.01           R 60.00            R 28,493.99
+@@ -97,0 +97 @@
++9       30 September 2027             R 20,268.70           R 8,165.29           R 60.00            R 28,493.99
+@@ -103 +102,0 @@
+-9       30 September 2027             R 20,268.70           R 8,165.29           R 60.00            R 28,493.99
+@@ -108,0 +108 @@
++15      31 March 2028                 R 21,234.42           R 7,199.57           R 60.00            R 28,493.99
+@@ -118 +117,0 @@
+-15       31 March 2028                      R 21,234.42             R 7,199.57             R 60.00              R 28,493.99
+@@ -119,0 +119 @@
++17       31 May 2028                        R 21,662.60             R 6,771.39             R 60.00              R 28,493.99
+@@ -125 +124,0 @@
+-17       31 May 2028                        R 21,662.60             R 6,771.39             R 60.00              R 28,493.99
+@@ -126,0 +126 @@
++19       31 July 2028                       R 22,099.23             R 6,334.76             R 60.00              R 28,493.99
+@@ -132 +131,0 @@
+-19       31 July 2028                       R 22,099.23             R 6,334.76             R 60.00              R 28,493.99
+@@ -135,0 +135 @@
++23       30 November 2028                   R 23,171.99             R 5,262.00             R 60.00              R 28,493.99
+@@ -141 +140,0 @@
+-23       30 November 2028                   R 23,171.99             R 5,262.00             R 60.00              R 28,493.99
+@@ -145,0 +145 @@
++28       30 April 2029                      R 24,311.06             R 4,122.93             R 60.00              R 28,493.99
+@@ -151 +150,0 @@
+-28       30 April 2029                      R 24,311.06             R 4,122.93             R 60.00              R 28,493.99
+@@ -154,0 +154 @@
++32       31 August 2029                     R 25,155.77             R 3,278.22             R 60.00              R 28,493.99
+@@ -160 +159,0 @@
+-32       31 August 2029                     R 25,155.77             R 3,278.22             R 60.00              R 28,493.99
+@@ -164,0 +164,4 @@
++
++
++
++ ACKNOWLEDGEMENT
+@@ -166 +169 @@
+- ACKNOWLEDGEMENT
++1 Statutory disclosures and validity period
+@@ -169 +171,0 @@
+-1 Statutory disclosures and validity period
+@@ -178 +179,0 @@
+-
+@@ -179,0 +181 @@
++     only that the Consumer received it. A credit agreement comes into existence only when both parties sign the agreement itself.
+@@ -185 +186,0 @@
+-     only that the Consumer received it. A credit agreement comes into existence only when both parties sign the agreement itself.
+@@ -190,0 +192 @@
++     September 2026): 11.75% a year (nominal). It accrues daily on the reducing balance, on the actual number of days over a
+@@ -196 +197,0 @@
+-     September 2026): 11.75% a year (nominal). It accrues daily on the reducing balance, on the actual number of days over a
+@@ -199,0 +201 @@
++     written notice of the new rate and instalment as section 104 of the Act requires. The rate will never exceed the maximum
+@@ -205 +206,0 @@
+-     written notice of the new rate and instalment as section 104 of the Act requires. The rate will never exceed the maximum
+@@ -216,0 +218 @@
++     keep the asset insured as the proposed agreement requires. The interest rate, the initiation fee and the monthly service fee do
+@@ -222 +223,0 @@
+-     keep the asset insured as the proposed agreement requires. The interest rate, the initiation fee and the monthly service fee do
+@@ -225,0 +227 @@
++     may not require the Consumer to use a particular insurer. No credit-life premium is included in these figures.
+@@ -232 +233,0 @@
+-   may not require the Consumer to use a particular insurer. No credit-life premium is included in these figures.
+@@ -236,0 +238 @@
++   agreement sets out these rights in full.
+@@ -242 +243,0 @@
+-   agreement sets out these rights in full.
+@@ -249,0 +251 @@
++Acknowledges receipt; this is not acceptance of the agreement
+@@ -255,5 +256,0 @@
+-Acknowledges receipt; this is not acceptance of the agreement
+-
+-
+-
+-

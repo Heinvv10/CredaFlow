@@ -164,6 +164,8 @@ describe("tenant-scope — ALS primitives", () => {
       // the worker runs after its request has returned.
       "StatementAiOutput",
       "StatementAiUsage",
+      "NcaSurplusAccount",
+      "NcaSurplusRemittance",
     ])
   })
 

@@ -52,7 +52,7 @@ suite("slice 4a a surrender with a recovery is credited by the recovery", () => 
     const loan = await newLoan(database(), fx, "NCA")
     const surrenderId = await newSurrender(database(), fx, loan)
     const valuationId = await newValuation(database(), fx, loan.assetId)
-    await testSetup(database(), [`UPDATE "SurrenderRequest" SET "status" = 'VALUATION_NOTICE_ISSUED', "valuationId" = $1, "valuationNoticePath" = '/nonexistent/vn.pdf', "valuationNoticeSha256" = $2 WHERE "id" = $3`, valuationId, "b".repeat(64), surrenderId])
+    await testSetup(database(), [`UPDATE "SurrenderRequest" SET "status" = 'VALUATION_NOTICE_ISSUED', "valuationId" = $1, "valuationNoticePath" = '/nonexistent/vn.pdf', "valuationNoticeSha256" = $2, "valuationNoticeIssuedOn"=CURRENT_DATE-30, "valuationNoticeReceivedOn"=CURRENT_DATE-30, "valuationReceiptReference"='Synthetic received notice; clock advanced' WHERE "id" = $3`, valuationId, "b".repeat(64), surrenderId])
     S.free = { surrenderId, loanId: loan.loanId, assetId: loan.assetId }
   }, 600_000)
 
