@@ -21,7 +21,7 @@ export async function recordLeaseTotalLoss(tx: SigningTx, actor: { tenantId: str
   await tx.$queryRaw`SELECT "id" FROM "Loan" WHERE "id" = ${input.loanId} AND "tenantId" = ${tenantId} FOR UPDATE`
   const loan = await tx.loan.findFirst({ where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } }, include: {
     leaseEndOfTerm: true, leaseTerminationQuotes: true, entity: true, client: true, repaymentSchedule: true,
-    leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null } }, contractRates: { orderBy: { effectiveDate: "desc" }, take: 1 },
+    leaseRentals: { where: { cancelledAt: null } }, contractRates: { orderBy: { effectiveDate: "desc" }, take: 1 },
   } })
   if (!loan) return { kind: "not_found" }
   if (loan.leaseEndOfTerm || loan.leaseTerminationQuotes.some((q) => q.totalLoss)) return { kind: "refused", reason: "end_of_term", error: "The lease is already ending" }
@@ -46,12 +46,13 @@ export async function recordLeaseTotalLoss(tx: SigningTx, actor: { tenantId: str
   await tx.leaseTerminationQuote.update({ where: { id: quote.id }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedById: actor.userId,
     taxInvoiceId: invoice?.id, scheduleId, invoiceExclVatCents: invoice?.totalExclVatCents ?? 0, invoiceVatCents: invoice?.vatCents ?? 0, totalCents: pvCents + arrearsCents } })
   await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: loan.id, origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED", electedById: actor.userId } })
-  await replayLeaseCancellationCredit(tx, { tenantId, loanId: loan.id, userId: actor.userId, reference: quote.id })
   if (input.insuranceProceedsCents > 0) {
     const db = { $transaction: <T>(run: (client: SigningTx) => Promise<T>) => run(tx) } as unknown as PaymentDb
     await applyManualReceipt(db, { tenantId, loanId: loan.id, amount: input.insuranceProceedsCents, paymentMethod: "EFT", reference: `LOSS-${quote.id}`,
       notes: `Insurer payment: ${input.evidence}`, capturedById: actor.userId, idempotencyKey: `lease-total-loss:${quote.id}`, receivedAt: new Date() })
   }
+  // Record insurer cash against the new damages before reallocating prepaid credit.
+  await replayLeaseCancellationCredit(tx, { tenantId, loanId: loan.id, userId: actor.userId, reference: quote.id })
   await logAuditStrict({ tenantId, userId: actor.userId, action: AuditAction.LEASE_EARLY_TERMINATION_ACCEPTED, entity: "LeaseTerminationQuote", entityId: quote.id,
     newValue: { loanId: loan.id, totalLoss: true, endsOn: input.today, pvCents, insuranceProceedsCents: input.insuranceProceedsCents, evidence: input.evidence } }, tx)
   return { kind: "recorded", quoteId: quote.id, terminationDate: input.today }

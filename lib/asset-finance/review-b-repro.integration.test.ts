@@ -6,14 +6,9 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
-import { backdateLease, testSetup, ruleRefuses } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { quoteEarlyTermination, acceptEarlyTermination } from "./lease-termination-store"
-import { fundBalance } from "./maintenance-fund"
-import { prepareLeaseRecoveryDamages } from "./lease-recovery-damages"
 import { recordLeaseTotalLoss } from "./lease-total-loss"
-import { issueLeaseRentalInvoice } from "./lease-invoices"
-import { vatOnExclusive } from "@/lib/vat/amounts"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
@@ -59,6 +54,29 @@ suite.sequential("lease legal calculations applied to actual accounts", () => {
       expect(result.kind).toBe("recorded")
       const quote = await database().leaseTerminationQuote.findFirstOrThrow({ where: { loanId } })
       expect(quote.pvCents).toBeGreaterThan(0)
+      const payments = await database().payment.findMany({ where: { loanId, reversed: false } })
+      expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable + insurance)
+      expect(payments.some((p) => p.allocationStatus === "UNAPPLIED")).toBe(true)
+      const schedule = await database().repaymentSchedule.findMany({ where: { loanId } })
+      expect(schedule.reduce((sum, row) => sum + row.totalDue, 0)).toBe(quote.totalCents)
+      expect(schedule.reduce((sum, row) => sum + row.totalPaid, 0)).toBe(quote.totalCents)
     })
   }
+  it("fully prepaid commercial acceptance retains future PV and offsets cash separately", async () => {
+    const loanId = loans[2]
+    const before = await database().loan.findUniqueOrThrow({ where: { id: loanId } })
+    await applyManualReceipt(database() as unknown as PaymentDb, { tenantId: fx.tenantId, loanId, amount: before.totalRepayable, capturedById: fx.adminA, reference: "SYNTHETIC-PREPAID-COMMERCIAL" })
+    const actor = { tenantId: fx.tenantId, userId: fx.adminA }
+    const quote = await database().$transaction((tx) => quoteEarlyTermination(tx as never, actor, { loanId, today: today() }))
+    expect(quote.kind).toBe("quoted")
+    if (quote.kind !== "quoted") throw new Error(JSON.stringify(quote))
+    const accepted = await database().$transaction((tx) => acceptEarlyTermination(tx as never, actor, { quoteId: quote.quoteId, today: today() }))
+    expect(accepted.kind).toBe("accepted")
+    const assessed = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: quote.quoteId } })
+    expect(assessed.pvCents).toBeGreaterThan(0)
+    const payments = await database().payment.findMany({ where: { loanId, reversed: false } })
+    expect(payments.reduce((sum, p) => sum + p.amount, 0)).toBe(before.totalRepayable)
+    expect(payments.some((p) => p.allocationStatus === "UNAPPLIED")).toBe(true)
+  })
+
 })

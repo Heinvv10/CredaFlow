@@ -52,12 +52,12 @@ export async function quoteEarlyTermination(tx: SigningTx, actor: TerminationAct
       id: true, status: true, cpaApplies: true, interestRatePm: true, totalRepayable: true, totalPaid: true, outstandingPrincipal: true, arrearsAmount: true, tenantId: true, principal: true, totalInterest: true, interestModel: true, startDate: true, maturityDate: true,
       contractualTotalInterest: true, contractualTotalRepayable: true,
       repaymentSchedule: true, leaseEndOfTerm: { select: { id: true } }, assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } },
-      leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true, rentalExclVatCents: true } },
+      leaseRentals: { where: { cancelledAt: null }, select: { dueDate: true, rentalExclVatCents: true } },
       contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
     },
   })
   if (!loan) return { kind: "not_found" }
-  if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED" && !(loan.status === "COMPLETED" && loan.cpaApplies)) return refused("lease_closed", `The lease is ${loan.status}`)
+  if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED" && loan.status !== "COMPLETED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (loan.leaseEndOfTerm && !loan.cpaApplies) return refused("end_of_term", "The lease's end of term is already under way")
   const penalty = loan.assetFinanceDeal?.earlyTerminationPenaltyRate
   if (!penalty) return refused("penalty", "The lease has no early-termination penalty rate")
@@ -120,7 +120,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
       client: { select: { firstName: true, lastName: true, addressLine1: true, city: true, province: true, postalCode: true } },
       asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true } },
       assetFinanceDeal: { select: { earlyTerminationPenaltyRate: true } }, interestRatePm: true, contractRates: { orderBy: { effectiveDate: "desc" }, take: 1, select: { resultingRate: true } },
-      leaseRentals: { where: { cancelledAt: null, taxInvoiceId: null }, select: { dueDate: true, rentalExclVatCents: true } },
+      leaseRentals: { where: { cancelledAt: null }, select: { dueDate: true, rentalExclVatCents: true } },
     } } },
   })
   if (await clientLeaseRefusal(actor, quote.loanId)) return { kind: "not_found" }
@@ -128,7 +128,7 @@ export async function acceptEarlyTermination(tx: SigningTx, actor: TerminationAc
   if (!quote.cpaCancellation && input.today > isoOfDbDate(quote.validUntil)) return refused("expired", `The quote expired on ${isoOfDbDate(quote.validUntil)}`)
   const { loan } = quote
   if (loan.leaseEndOfTerm && !quote.cpaCancellation) return refused("end_of_term", "The lease's end of term is already under way")
-  if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED" && !(loan.status === "COMPLETED" && quote.cpaCancellation)) return refused("lease_closed", `The lease is ${loan.status}`)
+  if (loan.status !== "ACTIVE" && loan.status !== "DEFAULTED" && loan.status !== "COMPLETED") return refused("lease_closed", `The lease is ${loan.status}`)
   if (quote.cpaCancellation && (!actor.userId || !input.assessment)) return refused("valuation", "Staff must record the goods' net realisable or re-let value and documented actual costs; cancellation already stands")
   if (quote.cpaCancellation && input.assessment && (!Number.isSafeInteger(input.assessment.goodsValueCents) || input.assessment.goodsValueCents < 0
     || !Array.isArray(input.assessment.costs) || input.assessment.costs.some((c) => !c || !Number.isSafeInteger(c.amountCents) || c.amountCents < 0
