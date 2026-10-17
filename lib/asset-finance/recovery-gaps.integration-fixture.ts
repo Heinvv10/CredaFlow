@@ -13,7 +13,7 @@ import type { DealFixture } from "./deal.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { advance, recordDecidedCost } from "./recovery-path.integration-fixture"
 import { disburseApplication } from "./recovery-sale.integration-fixture"
-import { courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
+import { alignRecoveryFixtureSchedule, courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
 
 export interface GapDealRecovery {
   loan: RecoveryLoan
@@ -60,6 +60,7 @@ export async function listedGapDeal(db: PrismaClient, fx: DealFixture, deal: Acc
   )
   await setDebtorVat(db, fx, loan, deal.debtorVatVendor)
   await disburseApplication(db, fx, loan)
+  await alignRecoveryFixtureSchedule(db, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true, legalMatterId: true, surrenderRequestId: true } })
   const judgment = rec.legalMatterId ? await db.legalMatterStep.findFirst({ where: { matterId: rec.legalMatterId, kind: "JUDGMENT" }, select: { id: true } }) : null
   for (const cost of deal.costs) {

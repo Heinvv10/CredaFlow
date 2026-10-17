@@ -209,3 +209,14 @@ export async function cleanupRecoveryFixture(db: PrismaClient, tenantId: string)
   await cleanupRecoveryRows(db, tenantId)
   await cleanupDealFixture(db, { tenantId })
 }
+
+/** Align a synthetic recovery account's cash schedule with its loan snapshot. */
+export async function alignRecoveryFixtureSchedule(db: PrismaClient, loanId: string): Promise<void> {
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { ncaRegime: true } })
+  if (loan.ncaRegime !== "NON_NCA") return
+  await testSetup(db,
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
+    [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
+      SELECT $2, "tenantId", "id", 1, "maturityDate", "principal", "totalInterest", "totalRepayable" - "principal" - "totalInterest", "totalRepayable" FROM "Loan" WHERE "id" = $1`, loanId, `rs_${randomUUID().replaceAll("-", "").slice(0, 18)}`],
+  )
+}

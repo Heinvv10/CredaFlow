@@ -19,7 +19,7 @@ import { POST as approveRefundRoute } from "@/app/api/asset-finance/recoveries/[
 import { POST as releaseRefundRoute } from "@/app/api/asset-finance/recoveries/[id]/refund/release/route"
 import type { AcceptanceRecoveryDeal } from "./__fixtures__/acceptance-recovery-deals"
 import { advance, ladderRecovery, recordDecidedCost } from "./recovery-path.integration-fixture"
-import { courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
+import { alignRecoveryFixtureSchedule, courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import type { DealFixture } from "./deal.integration-fixture"
 
@@ -90,6 +90,7 @@ export async function listedDealRecovery(db: PrismaClient, fx: DealFixture, deal
   )
   if (loan.entityId) await testSetup(db, [`UPDATE "BusinessEntity" SET "vatNumber" = $1 WHERE "id" = $2`, deal.debtorVatVendor ? "4000000099" : null, loan.entityId])
   await disburseApplication(db, fx, loan)
+  await alignRecoveryFixtureSchedule(db, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true, legalMatterId: true } })
   const judgment = rec.legalMatterId
     ? await db.legalMatterStep.findFirst({ where: { matterId: rec.legalMatterId, kind: "JUDGMENT" }, select: { id: true } })
@@ -116,6 +117,7 @@ export async function disburseApplication(db: PrismaClient, fx: DealFixture, loa
 export async function plainListed(db: PrismaClient, fx: DealFixture, regime: "NCA" | "NON_NCA", valuationCents = 100_000_000) {
   const { loan, id } = await ladderRecovery(db, fx, regime === "NCA", "LISTED", { valuationCents })
   await disburseApplication(db, fx, loan)
+  await alignRecoveryFixtureSchedule(db, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true } })
   return { loan, id, valuationId: rec.valuationId as string }
 }

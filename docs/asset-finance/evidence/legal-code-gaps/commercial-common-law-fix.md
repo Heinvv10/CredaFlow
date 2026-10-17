@@ -62,3 +62,20 @@ on, and after the stop, with no later receipts, and checks the unpaid-interest
 ceiling and preserved paid shares. Daily accrual remains bounded by SAST days;
 this correction preserves recorded intraday paid shares without inventing
 post-stop default accrual or negative unpaid charges.
+
+Full integration follow-up repaired existing synthetic account fixtures exposed
+by unconditional NON_NCA replay: accounting loans now have their required
+classified, approved/disbursed application and entity parents; recovery
+accounts carry a repayment schedule matching their agreed loan money instead
+of only a rewritten loan total. Existing agreed interest is copied to rows,
+not erased. The concurrent-receipt recovery test now records actual cash and
+its allocation rather than changing only Loan.totalPaid. An overdue fixture
+replaces its prior schedule rather than appending a duplicate instalment.
+Portal privacy checks cover every own-client wet-ink scan across both fixture
+deals, still refusing another surety's scan. Repricing settlement assertions
+now use earned-period settlement rather than collecting future interest.
+
+A production read-model correction keeps the legal-cap replay independent of
+the optional charge switch while reporting `chargesLive` from the actual switch.
+SuretyConsent Prisma referential actions now explicitly match the migration's
+NO ACTION defaults; migrated PostgreSQL reports `No difference detected`.
