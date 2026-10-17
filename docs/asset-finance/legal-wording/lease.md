@@ -135,7 +135,7 @@ s14 terms by contract.
    penalty, less insurance proceeds.
 8. **VAT rate change (9.4).** The wording follows VAT Act s67 (rentals change
    with the rate). The code refuses a VAT-rate change after booking
-   (`vat_rate_changed`, documented PARTIAL). The VAT treatment of termination amounts,
+   (`vat_rate_changed`, documented PARTIAL; README gap 25). The VAT treatment of termination amounts,
    excess usage, damage and fund settlements was signed off (see
    DESIGN.md sign-off record 2026-10-17).
 9. **Purchase option (9.9(c)).** Market value is the highest current assessor
@@ -157,7 +157,14 @@ s14 terms by contract.
     recorded" if the lessee's address is missing; consider refusing to render.
 14. **Rate changes (9.3).** The 14-day notice is `REPRICE_NOTICE_DAYS`, marked
     in the code as a product default to confirm. The lessee notice is
-    PARTIAL in the code (a staff bell item, nothing sent).
+    PARTIAL in the code (a staff bell item, nothing sent; README gap 24).
 15. **Citations to verify:** s14(2)(b)(i)(bb), s14(2)(b)(ii), s14(2)(d),
     s14(3), reg 5(2), VAT Act s67; the R2m threshold (GN 294, GG 34181) is
     already flagged in `cpa-thresholds.ts`.
+16. **Residual value on cancellation (9.10 CPA, 9.11).** The CPA cancellation
+    charge and the commercial damages credit the full value of the returned
+    goods now against the PV of the remaining rentals only, so the lessor
+    gives up the PV of the residual it would have recovered at the end of the
+    term. That is lawful and favours the lessee, but it is a commercial loss on
+    an operating lease. A Reg 5(2)-defensible alternative is PV(rentals) +
+    PV(expected residual) - value realised. Decide which the lender wants.

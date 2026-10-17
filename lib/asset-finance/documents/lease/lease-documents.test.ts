@@ -100,6 +100,7 @@ describe("lease agreements (C9)", () => {
     for (const commercial of ["voetstoots", "section 45 of the Magistrates' Courts Act", "attorney and own client", "prima facie proof"]) expect(text).toContain(commercial)
     for (const consumer of ["section 14(2)(d)", "section 49 of the CPA", "Lessee's initials:"]) expect(text).not.toContain(consumer)
     expect(text).toContain("The termination date is the day the lessee accepts the quote.")
+    expect(text).toContain("Early-termination penalty 10.00% of the present value of the rentals outstanding (clause 9.10)")
     expect(text).toContain("A lease in default is not extended.")
     expect(text).toContain("claim the arrears and, as damages, the present value on the cancellation date of the rentals in section 6 still to fall due for the rest "
       + "of the term, discounted at the contract rate")
@@ -119,6 +120,9 @@ describe("lease agreements (C9)", () => {
     expect(text).toContain("The lessee may end the extension at any time by giving the lessor at least 20 business days' written notice")
     expect(text).toContain("claim the amounts owed up to the cancellation date and a reasonable cancellation penalty calculated as clause 9.10 provides")
     for (const commercialOnly of ["A lease in default is not extended", "early-termination penalty of", "no credit for the resale value"]) expect(text).not.toContain(commercialOnly)
+    // The section 5 terms row agrees with the CPA 9.10: no penalty % on a consumer lease.
+    expect(text).toContain("Cancellation penalty Reasonable cancellation penalty: see clause 9.10")
+    expect(text).not.toContain("of the present value of the rentals outstanding")
     expect(text).toContain("Section 7 records that no usage limit is contracted")
     for (const commercial of ["voetstoots", "Magistrates' Court", "attorney and own client", "prima facie", "without deduction or set-off"]) expect(text).not.toContain(commercial)
   })

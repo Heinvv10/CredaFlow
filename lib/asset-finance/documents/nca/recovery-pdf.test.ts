@@ -117,6 +117,7 @@ describe("s131 notice wording", () => {
     expect(all).toContain("you may remedy your default by paying all overdue amounts")
     expect(all).toContain("up to the time the default is remedied, as section 129(3) of the Act provides")
     expect(all).toContain("If the sale realises more than what you owe, section 127 of the Act requires us to remit the surplus to you with our notice after the sale.")
+    expect(all).toContain("If you do not, we will pay it as soon as you give us those details.")
     expect(all).not.toMatch(/reinstate/i)
   })
 

@@ -44,7 +44,7 @@ starts a new page when a block does not fit).
 ## Re-pinned s127 render hashes: what changed
 
 `surrender-pdf-costs.test.ts` pins five s127 renders. Their text runs are
-committed in [`s127-text-runs/`](s127-text-runs/) at three points, with the
+committed in [`s127-text-runs/`](s127-text-runs/) at four points, with the
 unified diffs between them:
 
 - `1-base-fbcb1535/` to `2-placeholder-replaced-bd5b1047/` (`1-to-2.diff`): the
@@ -58,5 +58,8 @@ unified diffs between them:
   recovery-linked renders do not change. `valuation`, `final` and
   `finalWithCosts` were re-pinned; `finalWithRecovery` and
   `finalWithUnrecoverable` keep their hashes.
+- `3-…` to `4-round-2/` (`3-to-4.diff`): one sentence appended to the
+  valuation notice's 1.6 ("If you do not, we will pay it as soon as you give us
+  those details."), on the same line; only `valuation` was re-pinned.
 
 No figure, label or table line changed in either step.

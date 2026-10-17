@@ -29,9 +29,9 @@ const costs = [
 // in docs/asset-finance/evidence/legal-wording/nca/s127-text-runs/ (1-to-2.diff:
 // the placeholder replaced; 2-to-3.diff: the review fixes, which add only the
 // valuation notice's clause 1.6 and the shortfall freeze 1.3 on every final
-// notice). A surrender with no recovery costs must keep printing these bytes.
+// notice; 3-to-4.diff: one sentence appended to the valuation notice's 1.6). A surrender with no recovery costs must keep printing these bytes.
 const PINNED = {
-  valuation: "14e18b5289de8f347cb69739e0b7585740218407a7c70223d154a4e171c32a6a",
+  valuation: "9b9c3045da0c1241d1fed6ad94e5bc0059e03ef37ddcb428015a7d4882e7873d",
   final: "dafdda483a14fef90fa0851dddbb40705d687fff2d304033837a663a1d0c61e4",
   finalWithCosts: "90e34ac52bb974f069c930fda62f9878779510b3edffe90bc754659e3a4e495b",
   // The same notice with the linked recovery's sale and account lines added.

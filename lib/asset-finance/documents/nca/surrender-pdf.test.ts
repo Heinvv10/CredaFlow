@@ -58,6 +58,7 @@ describe("s127 notice wording", () => {
     expect(all).toContain("unconditionally withdraw your termination notice")
     expect(all).toContain("1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice "
       + "after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name")
+    expect(all).toContain("If you do not, we will pay it as soon as you give us those details.")
   })
 
   it("the final notice demands the shortfall, or remits the surplus with the notice, from the deal's figures", async () => {

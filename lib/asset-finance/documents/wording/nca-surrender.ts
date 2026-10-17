@@ -8,7 +8,7 @@ import { formatIsoDatePdf } from "../pdf-layout"
 import type { NcaClause } from "./nca-agreement"
 
 /** Asked for at valuation, so a surplus can be remitted with the post-sale notice (s127). Shared with ./nca-recovery.ts. */
-export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name, with proof that it is yours."
+export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name, with proof that it is yours. If you do not, we will pay it as soon as you give us those details."
 
 /** The surplus sentence of the post-sale notices: remitted with the notice, into the account given at valuation. */
 export const surplusRemitted = (amount: string, over: string): string =>

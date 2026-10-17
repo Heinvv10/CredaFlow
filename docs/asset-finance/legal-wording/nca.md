@@ -130,6 +130,16 @@ cross-referred, not restated.
 
 ## Points for the lender's legal team
 
+**First: "total cost of credit" (README gap 23).** The NCA quote and
+agreement print "Total cost of credit" from the PASQ evidence
+(`lib/compliance/pasq.ts:190`, shared with the consumer loans). That figure
+includes the principal debt, so it equals "Total repayable" and the two rows
+print the same amount. Quote 1.5 describes the figure as the code computes it
+and takes no position on the law. Confirm the Form 20 / Reg 31 meaning: if the
+cost of credit excludes the principal (s101 separates the principal debt from
+the charges), the shared calculation and 1.5 change; if it includes it, drop
+the duplicate row from the asset quote and agreement.
+
 Points 1–3 and 5, and the charge-freeze half of point 6, of the first draft
 (numbers kept) are code gaps, now listed in
 [`README.md`](README.md) ("Code changes required before approval", gaps 1–5).
@@ -160,7 +170,7 @@ charge freeze after a shortfall on both notices.
     carry it); payment frequency; a contact address or email for notices
     (clause 10.3 refers to "the address the Credit Provider publishes").
 11. **Repricing notice.** Clause 3.3 promises the s104 notice; `reprice-notice.ts`
-    only raises a staff bell (PARTIAL), so a person must send it.
+    only raises a staff bell (PARTIAL), so a person must send it (README gap 24).
 12. **Rate above the cap.** The code refuses the whole repricing (`nca_rate_cap`)
     rather than capping the rate; clause 3.3 says the change "is not applied".
     Confirm that is the intended contractual position.
@@ -177,8 +187,3 @@ charge freeze after a shortfall on both notices.
 17. **Cash price, deposit and credit-life premium** are printed on the quote but
     not on the agreement (README gap 21); low confidence on the Regulation item
     numbers.
-18. **"Total cost of credit".** The figure comes from the PASQ evidence
-    (`lib/compliance/pasq.ts:190`, shared with the consumer loans) and includes
-    the principal debt, so it equals the total repayable. Quote 1.5 now says so.
-    Confirm that is the Form 20 meaning; if the cost of credit should exclude the
-    principal, the shared calculation changes, not the wording.

@@ -180,7 +180,7 @@ approval".
    ZARONIA moves are recorded only at 0.25 points or more from the latest live
    value. The wording says the change takes effect "from the date on which the
    changed reference rate takes effect". Decide whether to word it as "the date
-   the Seller records".
+   the Seller records" (README gap 26).
 8. **Lender's own base rate.** A rate set by one party is open to challenge
    as a potestative condition. The wording ties it to a rate published for all
    linked agreements, which matches the per-tenant rate table.
@@ -188,7 +188,7 @@ approval".
    says three-month JIBAR "or any rate that officially replaces it".
 10. **Rate-change notice (7.5).** The code alerts staff to send the notice but
     does not send it (`reprice-notice.ts`, PARTIAL). The wording promises
-    written notice.
+    written notice (README gap 24).
 11. **Cancellation before payout (7.5).** Booking is refused when the start
     date has passed or the rate on it differs from the signed rate. The wording
     gives the Seller a right to cancel in those cases; there is no cancellation

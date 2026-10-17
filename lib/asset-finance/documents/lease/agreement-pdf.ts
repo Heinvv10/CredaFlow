@@ -74,7 +74,9 @@ function rentalRows(data: AnyDealDocumentData, lease: LeaseDocumentTerms): [stri
     ...(lease.contractType === "FULL_MAINTENANCE_LEASE" ? [["Total maintenance excl. VAT", formatZarPdf(s.totalMaintenanceExclVatCents)] as [string, string]] : []),
     ["Total VAT", formatZarPdf(s.totalVatCents)],
     ["Total payable incl. VAT", formatZarPdf(s.totalCents)],
-    ["Early-termination penalty", `${percentPdf(t.earlyTerminationPenaltyRate)} of the present value of the rentals outstanding (clause 9.10)`],
+    lease.cpaApplies
+      ? ["Cancellation penalty", "Reasonable cancellation penalty: see clause 9.10"]
+      : ["Early-termination penalty", `${percentPdf(t.earlyTerminationPenaltyRate)} of the present value of the rentals outstanding (clause 9.10)`],
     ["Default interest on arrears", arrearsText(p.arrearsMarginRate)],
     ["Collection fee per missed rental", p.collectionFeeCents > 0 ? formatZarPdf(p.collectionFeeCents) : "None"],
   ]
