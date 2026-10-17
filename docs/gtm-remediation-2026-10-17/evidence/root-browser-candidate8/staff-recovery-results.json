@@ -1,0 +1,35 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "mode": "staff",
+  "results": [
+    {
+      "route": "/forgot-password",
+      "status": 200,
+      "scenario": "actual recovery entry"
+    },
+    {
+      "scenario": "fresh actual forgot UI request",
+      "status": 200
+    },
+    {
+      "scenario": "wrong staff recovery token renders refused state",
+      "ok": true
+    },
+    {
+      "scenario": "fresh delivered recovery accepted by actual UI",
+      "status": 200
+    },
+    {
+      "scenario": "used recovery refuses replay",
+      "status": 400,
+      "expected": 400
+    },
+    {
+      "scenario": "recovered password authenticates actual account",
+      "ok": true,
+      "role": "LOAN_ADMIN",
+      "staffTotpVerified": true
+    }
+  ],
+  "limitation": "Local SMTP delivery and synthetic recovery; bot challenge/provider configuration is recorded separately. Wrong/expired and concurrent-claim cases require their own evidence."
+}
