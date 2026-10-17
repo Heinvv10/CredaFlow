@@ -48,6 +48,8 @@ export interface DocumentPerson {
 export interface DealDocumentData {
   /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark. */
   legalWordingApproved: boolean
+  /** The application's NCA regime is not NON_NCA (unclassified counts as NCA): the suretyship drops terms s90 forbids. */
+  ncaApplies: boolean
   /** The credit decision's instant: the document date and the PDF metadata dates. */
   documentDate: Date
   reference: string
@@ -155,7 +157,7 @@ export async function loadDealDocumentData(
       application: {
         select: {
           reference: true,
-          approvedTermDays: true,
+          approvedTermDays: true, ncaRegime: true,
           product: { select: { minTermDays: true, maxTermDays: true, nonNcaDefaultInterestMargin: true, nonNcaCollectionFeeCents: true } },
         },
       },
@@ -218,6 +220,7 @@ export async function loadDealDocumentData(
 
   const common = {
     legalWordingApproved: config?.assetFinanceLegalWordingApproved === true,
+    ncaApplies: deal.application.ncaRegime !== "NON_NCA",
     documentDate: deal.decidedAt,
     reference: deal.application.reference,
     lender: {

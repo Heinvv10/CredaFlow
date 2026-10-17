@@ -13,7 +13,7 @@ import {
 } from "@/lib/pdf/helpers"
 import { winAnsiSafe } from "@/lib/pdf/executed-agreement"
 
-/** Marks every clause whose wording the lender's legal team has not supplied. */
+/** The old placeholder text; kept so tests can assert it never renders. */
 export const PLACEHOLDER_CLAUSE = "[Placeholder clause — wording to be supplied by the lender's legal team]"
 /** Printed diagonally across every page until TenantConfig.assetFinanceLegalWordingApproved. */
 export const DRAFT_WATERMARK = "DRAFT — NOT FOR EXECUTION"
@@ -133,12 +133,22 @@ export class DealDocumentWriter {
     this.y -= 4
   }
 
-  /** A numbered clause whose wording is a placeholder, marked as such. */
-  placeholderClause(number: string, heading: string): void {
+  /** A numbered clause: bold heading, then its wording. Paragraphs split on line breaks. */
+  clause(number: string, heading: string, text: string): void {
     this.ensure(3 * LINE)
     drawText(this.page, winAnsiSafe(`${number} ${heading}`), MARGIN, this.y, this.bold, BODY, DARK)
     this.y -= LINE
-    this.paragraph(PLACEHOLDER_CLAUSE, this.italic, 14)
+    for (const para of text.split(/\n{2,}/)) this.paragraph(para, this.regular, 14)
+  }
+
+  /** "Initials: ____" under a clause the signer must initial (CPA s49). */
+  initialLine(caption: string): void {
+    this.ensure(2 * LINE)
+    const label = winAnsiSafe(caption)
+    drawText(this.page, label, MARGIN + 14, this.y, this.bold, BODY, DARK)
+    const x = MARGIN + 14 + this.bold.widthOfTextAtSize(label, BODY) + 6
+    this.page.drawLine({ start: { x, y: this.y - 2 }, end: { x: x + 90, y: this.y - 2 }, thickness: 0.6, color: DARK })
+    this.y -= LINE + 6
   }
 
   /** Label/value rows; long values wrap under their value column. */

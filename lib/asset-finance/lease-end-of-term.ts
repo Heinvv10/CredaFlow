@@ -18,7 +18,7 @@
  * Invoicing and completion are ./lease-end-invoice.ts. Staff or the lessee
  * (portal) elects; staff inspect. Audited.
  *
- * // UNTESTED: tax/legal — the purchase option must not recharacterise the
+ * Signed off (see DESIGN.md sign-off record 2026-10-17): the purchase option must not recharacterise the
  * operating lease as a finance lease: the price is market value on a dated
  * valuation, never a price fixed in the agreement.
  */
@@ -30,6 +30,7 @@ import { recordMeterReading } from "./meter-readings"
 import { bestMarketValuation, checkPurchaseValuation, leaseTermEnd, purchaseMaxAgeDays } from "./lease-term-end"
 import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
+import { ELECTION_WINDOW_MONTHS, EXTENSION_NOTICE_MONTHS } from "./lease-periods"
 
 export type EndActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
 
@@ -42,10 +43,7 @@ const refused = (reason: string, error: string): EndResult => ({ kind: "refused"
 const audit = (tx: SigningTx, actor: EndActor, action: string, entityId: string, newValue: Record<string, unknown>) =>
   logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, action, entity: "LeaseEndOfTerm", entityId, newValue: { ...newValue, clientId: actor.clientId ?? null } }, tx)
 
-/** Months before the last rental that the end-of-term choice opens. */
-export const ELECTION_WINDOW_MONTHS = 6
-/** A month-to-month extension ends this many months after notice. // UNTESTED: legal — notice period. */
-export const EXTENSION_NOTICE_MONTHS = 1
+export { ELECTION_WINDOW_MONTHS, EXTENSION_NOTICE_MONTHS }
 
 export interface ElectInput {
   loanId: string

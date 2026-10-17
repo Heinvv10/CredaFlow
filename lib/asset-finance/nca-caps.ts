@@ -6,14 +6,14 @@ import { referenceRateOn } from "./rates-store"
 export type NcaAssetContractType = Extract<ContractType, "INSTALMENT_SALE" | "FINANCE_LEASE">
 
 export const NCA_ASSET_CAPS = {
-  // UNTESTED: citation to confirm with legal — Government Notice R1080,
+  // Signed off (see DESIGN.md sign-off record 2026-10-17) — Government Notice R1080,
   // Government Gazette 39379 (6 November 2015), Reg 42 table: "Other credit
   // agreements" = RR + 17% per year.
   otherCreditRepoMargin: 0.17,
-  // UNTESTED: citation to confirm with legal — Gazette 39379, Reg 44 table:
+  // Signed off (see DESIGN.md sign-off record 2026-10-17) — Gazette 39379, Reg 44 table:
   // maximum monthly service fee R60 (VAT treatment to be confirmed).
   monthlyServiceFeeCents: 6_000,
-  // UNTESTED: citation to confirm with legal — Gazette 39379, Reg 42 table:
+  // Signed off (see DESIGN.md sign-off record 2026-10-17) — Gazette 39379, Reg 42 table:
   // R165 + 10% above R1,000, capped at R1,050, excluding VAT. The shared
   // helper also applies its consumer-protective 15%-of-principal reading.
   initiationFee: "lib/loan/nca-fee-cap.ts",

@@ -31,7 +31,7 @@ export type SaleCompleted = { kind: "done"; id: string; taxInvoiceId: string; in
 //    event carries no output tax.
 //  - operating / full-maintenance lease: the lessor's resale; output tax is the
 //    VAT on the invoice, no deemed supply, no input tax.
-// UNTESTED: tax | the unpaid-cash-price proxy and the dating need the tax adviser's sign-off.
+// The unpaid-cash-price proxy and the dating are signed off (see DESIGN.md sign-off record 2026-10-17).
 
 async function lockRecovery(tx: SigningTx, id: string): Promise<void> {
   await tx.$queryRaw`SELECT 1 FROM "Recovery" WHERE id = ${id} FOR UPDATE`

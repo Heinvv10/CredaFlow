@@ -10,7 +10,7 @@ type Fund = NonNullable<PortalLeaseView["fund"]>
 
 const CLAIM_TONE = { SUBMITTED: "warning", APPROVED: "info", PAID: "success", REJECTED: "danger" } as const
 
-// UNTESTED: legal — what happens to the fund at the end of the term (fundSettlement, lib/asset-finance/maintenance-fund.ts).
+// What happens to the fund at the end of the term (fundSettlement, lib/asset-finance/maintenance-fund.ts): signed off (see DESIGN.md sign-off record 2026-10-17).
 const SETTLEMENT_NOTE: Record<Fund["riskModel"], string> = {
   LENDER_RISK: "The lessor carries the maintenance risk: a surplus in the fund stays with the lessor and a shortfall is not charged to you.",
   LESSEE_SETTLED: "At the end of the lease a surplus in the fund is refunded to you and a shortfall is invoiced to you.",

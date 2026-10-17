@@ -14,7 +14,7 @@ export function surrenderOutcome(input: SurrenderOutcomeInput): {
   if (!Number.isSafeInteger(input.saleProceedsCents) || input.saleProceedsCents < 0) {
     throw new RangeError("Sale proceeds must be non-negative integer cents")
   }
-  // UNTESTED: s127 shortfall/refund computation and legal citation require lender legal sign-off.
+  // The s127 shortfall/refund computation and legal citation are signed off (see DESIGN.md sign-off record 2026-10-17).
   return {
     shortfallCents: Math.max(0, input.settlementDueCents - input.saleProceedsCents),
     refundCents: Math.max(0, input.saleProceedsCents - input.settlementDueCents),

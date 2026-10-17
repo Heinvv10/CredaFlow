@@ -34,6 +34,7 @@ async function baseOf(db: LeaseDocsDb, tenantId: string, loan: LoanRow): Promise
     lessee: loan.entity ? `${loan.entity.legalName} (${loan.entity.registrationNumber})` : `${loan.client?.firstName ?? ""} ${loan.client?.lastName ?? ""}`.trim(),
     asset: loan.asset ? `${loan.asset.year} ${loan.asset.make} ${loan.asset.model}, serial ${loan.asset.serialNumber}` : "—",
     draft: config?.assetFinanceLegalWordingApproved !== true,
+    naturalPerson: loan.entity === null,
   }
 }
 

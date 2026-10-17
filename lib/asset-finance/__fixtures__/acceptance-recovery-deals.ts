@@ -19,8 +19,8 @@
  *   lessor resale   (operating, full-maintenance lease): no deemed supply
  *   resale invoice  vat = round(price × 1500 / 11500); excl = price − vat
  *
- * UNTESTED: the legal (cost treatment) and tax (s8(10)/s10(10)) rules await
- * the lender's legal team and tax adviser.
+ * The legal (cost treatment) and tax (s8(10)/s10(10)) rules were signed off
+ * (see DESIGN.md sign-off record 2026-10-17).
  */
 export type RecoveryRouteName = "NCA_S127_SURRENDER" | "NCA_S131_ATTACHMENT" | "NON_NCA_VOLUNTARY" | "NON_NCA_COURT_ORDER"
 export type RecoveryContractType = "INSTALMENT_SALE" | "FINANCE_LEASE" | "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE"

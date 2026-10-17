@@ -1,0 +1,33 @@
+TEST Credit Provider
+NCR NCRCP00000
+1 Test Road
+VOLUNTARY SURRENDER VALUATION NOTICE
+Loan AF-NCA-S127-TEST · prepared 13 October 2026
+DRAFT legal wording — statutory wording requires lender legal approval
+CONSUMER AND ASSET
+Consumer
+TEST Borrower
+Identity / registration
+0000000000000
+Consumer address
+2 Synthetic Street
+Asset
+2026 TEST TLB · TEST-SERIAL-127
+Recorded condition
+Synthetic working condition
+Surrender requested
+2026-10-13
+Valuation due
+2026-10-27
+VALUATION
+Valuation date
+20 October 2026
+Valuer
+TEST Valuer
+Valuation
+R 1,250.00
+1 Consumer rights following valuation
+[Placeholder clause — wording to be supplied by the lender's legal team]
+Page 1 of 1
+Ref AF-NCA-S127-TEST
+DRAFT — NOT FOR EXECUTION

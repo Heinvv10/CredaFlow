@@ -20,7 +20,7 @@ export type StepResult = { kind: "not_found" } | Refused | { kind: "done"; id: s
  * and the bell items commit together; the database guard (guardLegalMatterStep)
  * refuses a step out of order and that refusal comes back as `not_ready` with
  * its own sentence.
- * UNTESTED: legal sign-off on the step order and on the recovery routes.
+ * The step order and the recovery routes are signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 export async function recordLegalStep(actor: LegalActor, matterId: string, input: LegalStepInput): Promise<StepResult> {
   const bytes = input.evidence ? Buffer.from(await input.evidence.file.arrayBuffer()) : null
@@ -49,7 +49,7 @@ export async function recordLegalStep(actor: LegalActor, matterId: string, input
       } })
       let recoveryId: string | null = null
       if (input.kind === "ASSET_RECOVERED" && input.recovery) {
-        // UNTESTED: legal sign-off. An NCA loan recovers under s131 (needs the attachment order), a NON_NCA one on a court order (needs the judgment).
+        // Signed off (see DESIGN.md sign-off record 2026-10-17). An NCA loan recovers under s131 (needs the attachment order), a NON_NCA one on a court order (needs the judgment).
         const created = await createRecoveryTx(tx, actor, {
           loanId: loan.id, route: loan.ncaRegime === "NCA" ? "NCA_S131_ATTACHMENT" : "NON_NCA_COURT_ORDER", recoveredOn: input.stepDate,
           location: input.recovery.location, condition: input.recovery.condition, legalMatterId: matterId,

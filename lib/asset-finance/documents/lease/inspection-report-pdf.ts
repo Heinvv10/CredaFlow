@@ -2,11 +2,14 @@
 // condition recorded at the inspection, the meter readings (start of the
 // lease against the final reading), each damage item with its assessed
 // amount excl. VAT, and the totals. VAT is added on the end-of-term tax
-// invoice, not here. Deterministic; DRAFT watermark.
-// UNTESTED: legal — the report's wording and fair wear and tear.
+// invoice, not here. Then the basis of the report (../wording/lease-servicing.ts)
+// and the lender's contacts. Deterministic; DRAFT watermark.
+// The report's wording and fair wear and tear: drafted 2026-10-17, awaits the lender's legal
+// approval (TenantConfig.assetFinanceLegalWordingApproved).
 import { formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { formatIsoDatePdf, type TableColumn } from "../pdf-layout"
-import { finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
+import { inspectionReportClauses } from "../wording/lease-servicing"
+import { contactRows, finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
 import type { InspectionReading, InspectionReportData, LeaseDocLender } from "./lease-docs-types"
 
 const DAMAGE_COLUMNS: TableColumn[] = [
@@ -47,5 +50,9 @@ export async function renderLeaseInspectionReport(data: InspectionReportData, le
     ["Total", formatZarPdf(damageTotal + (data.excessUsageCents ?? 0))],
   ])
   w.paragraph("VAT is added on the end-of-term tax invoice. This report is the lessor's record of the inspection and is not itself an invoice.")
+  w.section("6. HOW THIS REPORT WORKS")
+  inspectionReportClauses(data).forEach((c, i) => w.clause(`6.${i + 1}`, c.heading, c.text))
+  w.section("7. HOW TO REACH US")
+  w.labelValues(contactRows(lender))
   return finishLeaseDocument(w, data)
 }

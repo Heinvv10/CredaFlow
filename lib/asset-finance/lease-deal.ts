@@ -15,7 +15,7 @@ import type { LeaseContractType, LeaseTerms } from "./lease-input"
  * The NON_NCA classification a lease application is written with. An
  * operating or full-maintenance lease is not a credit agreement: ownership
  * never passes, so the NCA definition of a lease is not met.
- * // UNTESTED: legal — the lender's legal team to confirm.
+ * Signed off (see DESIGN.md sign-off record 2026-10-17).
  */
 export function leaseApplicationRegime(userId: string, contractType: LeaseContractType) {
   return {
