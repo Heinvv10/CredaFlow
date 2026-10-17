@@ -8,12 +8,14 @@
  *   ARREARS  worse when the loan's status moved up the ladder
  *            (ACTIVE/RESTRUCTURED → DEFAULTED → PENDING_WRITE_OFF →
  *            WRITTEN_OFF) or its days in arrears moved into a later band
- *            (1–29, 30–59, 60–89, 90+). A larger arrears amount alone is
- *            NOT worse (policy, follow-up to #151): the amount overdue rises
- *            at every due date the loan misses between approval and booking,
- *            so it would block almost every approved override. It is
- *            recorded instead: arrearsGrowth, written to the payout and
- *            booking audit rows.
+ *            (1–29, 30–59, 60–89, 90+), or its arrears amount grew by more
+ *            than MAX_ARREARS_GROWTH_INSTALMENTS of the loan's regular
+ *            scheduled instalment (a balloon or lump falling due unpaid, or
+ *            growth inside the open-ended 90+ band). Smaller growth is NOT
+ *            worse (policy, follow-up to #151): the amount overdue rises at
+ *            every due date the loan misses between approval and booking.
+ *            It is recorded instead: arrearsGrowth, written to the payout
+ *            and booking audit rows.
  *   BUREAU   worse when the person's latest outcome is not the one answered.
  *
  * The approver's reason binds to exceptionsFingerprint: the keys with their
@@ -57,6 +59,28 @@ export function worsenedSince(approved: RecordedException, current: RecordedExce
     return `its days in arrears moved from ${approved.daysInArrears} to ${current.daysInArrears}`
   }
   return null
+}
+
+/**
+ * How much an answered loan's arrears may grow before payout or booking is
+ * refused, in regular scheduled instalments (policy decided by the
+ * orchestrator for the follow-up to #151; Hein to confirm). 1.5: one more
+ * missed instalment, and some charges on it, pass; a balloon, a lump or
+ * several more missed instalments do not.
+ */
+export const MAX_ARREARS_GROWTH_INSTALMENTS = 1.5
+
+/** A loan's regular scheduled instalment: the median of its schedule rows' totals (a balloon or lump row does not move it). */
+export function regularInstalmentCents(scheduledTotals: number[]): number {
+  if (scheduledTotals.length === 0) return 0
+  const sorted = [...scheduledTotals].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+}
+
+/** The growth is more than MAX_ARREARS_GROWTH_INSTALMENTS regular instalments (no schedule: any growth is). */
+export function growthBeyondCap(growth: Pick<ArrearsGrowth, "approvedArrearsCents" | "currentArrearsCents">, regularCents: number): boolean {
+  return growth.currentArrearsCents - growth.approvedArrearsCents > MAX_ARREARS_GROWTH_INSTALMENTS * regularCents
 }
 
 export interface ArrearsGrowth {

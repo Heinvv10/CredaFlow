@@ -22,6 +22,7 @@ import { addMonthsClamped } from "./dates"
 import { loadDealDetail } from "./deal-detail"
 import { loadDealExceptions } from "./deal-exceptions"
 import { dealCreditGate } from "./deal-credit-gate"
+import { MAX_ARREARS_GROWTH_INSTALMENTS, regularInstalmentCents } from "./deal-exception-severity"
 import {
   approveLease, cleanupLeaseRows, confirmChecklist, createAndApprovePayout, createLeaseFixture, leaseBody, payoutAndBook, signLease,
   type LeaseFixture,
@@ -145,12 +146,24 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     expect(await gate()).toEqual({ problem: null, arrearsGrown: [] }) // as approved: DEFAULTED, 166 days, R98,123.45
     await setLoan({ daysInArrears: 200 })
     expect((await gate()).problem).toBeNull() // still in the 90+ band
-    // The amount overdue rises at each missed due date: noted, not refused.
+    // The amount overdue rises at each missed due date: noted, not refused, up to 1.5 regular instalments.
+    const rentals = await database().repaymentSchedule.findMany({ where: { loanId: suretyLoanId }, select: { totalDue: true } })
+    const regular = regularInstalmentCents(rentals.map((r) => r.totalDue))
+    expect(regular).toBeGreaterThan(0)
     await setLoan({ arrearsAmount: 9_900_000 })
     expect(await gate()).toEqual({
       problem: null,
-      arrearsGrown: [{ key: `ARREARS:${suretyLoanId}`, approvedArrearsCents: 9_812_345, currentArrearsCents: 9_900_000, approvedDaysInArrears: 166, currentDaysInArrears: 200 }],
+      arrearsGrown: [{
+        key: `ARREARS:${suretyLoanId}`, approvedArrearsCents: 9_812_345, currentArrearsCents: 9_900_000, approvedDaysInArrears: 166, currentDaysInArrears: 200,
+        regularInstalmentCents: regular,
+      }],
     })
+    const cap = Math.floor(MAX_ARREARS_GROWTH_INSTALMENTS * regular)
+    await setLoan({ arrearsAmount: 9_812_345 + cap })
+    expect((await gate()).problem).toBeNull()
+    await setLoan({ arrearsAmount: 9_812_345 + cap + 1 })
+    expect((await gate()).problem?.message).toMatch(/its arrears grew by .*more than 1.5 regular instalments of/)
+    await setLoan({ arrearsAmount: 9_900_000 })
     await setLoan({ status: "WRITTEN_OFF" })
     expect((await gate()).problem?.message).toMatch(/worse since approval: it moved from DEFAULTED to WRITTEN_OFF/)
     await setLoan({ status: "DEFAULTED" })
@@ -171,6 +184,45 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     const bookedAudit = await database().auditLog.findFirstOrThrow({ where: { entityId: dealId, action: "ASSET_DEAL_BOOKED" } })
     expect(bookedAudit.newValue).toMatchObject({ arrearsGrownSinceApproval: grown })
   }, 180_000)
+
+  it("an instalment sale books with the grown amount in its booking audit too", async () => {
+    const routes = dealRoutes(fx.host)
+    staff(fx.officer, "CREDIT_OFFICER")
+    const created = await routes.create({
+      assetId: fx.assets[3], depositCents: 17_250_000, balloonCents: 0, firstDueDate: addMonthsClamped(sastCalendarDate(new Date()), 1),
+      preset: { kind: "MONTHLY", periods: 36 }, rateBasis: "PRIME", rateMargin: "0.0100", entityId: fx.evidenced, supplierId: fx.supplier, productId: fx.product,
+    })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const sale = ((await created.json()) as { id: string }).id
+    expect((await routes.submit(sale)).status).toBe(200)
+    const row = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: sale } })
+    const override = await database().ncaRegimeOverride.findFirstOrThrow({ where: { applicationId: row.applicationId } })
+    staff(fx.adminB, "LOAN_ADMIN")
+    expect((await routes.decideOverride(override.id, { decision: "APPROVE", note: "Synthetic AFS agree" })).status).toBe(200)
+    staff(fx.officer, "CREDIT_OFFICER")
+    expect((await routes.financials(sale, {
+      periodEnd: "2026-02-28", turnoverCents: 200_000_000, ebitdaCents: 60_000_000, totalAssetsCents: 200_000_000,
+      totalLiabilitiesCents: 50_000_000, existingDebtServiceCents: 10_000_000, avgMonthlyCreditsCents: 16_000_000, returnedDebitsCount: 0,
+    })).status).toBe(200)
+    const page = await runWithTenant(fx.tenantId, () => loadDealDetail(fx.tenantId, sale))
+    staff(fx.adminA, "LOAN_ADMIN")
+    const decided = await routes.decide(sale, {
+      decision: "APPROVE", reasons: REASONS, exceptionReason: "The surety's lease is under a signed settlement plan", exceptionsFingerprint: page?.exceptions.fingerprint,
+    })
+    expect(decided.status, await decided.clone().text()).toBe(200)
+    await signLease(fx, database(), setSession, sale)
+    await confirmChecklist(fx, database(), staff, sale)
+    await createAndApprovePayout(fx, database(), staff, sale)
+    await database().loan.update({ where: { id: suretyLoanId }, data: { arrearsAmount: 9_950_000 } })
+    staff(fx.adminA, "LOAN_ADMIN")
+    const booked = await bookingRoutes(fx.host).book(sale)
+    expect(booked.status, await booked.clone().text()).toBe(201)
+    const audit = await database().auditLog.findFirstOrThrow({ where: { entityId: sale, action: "ASSET_DEAL_BOOKED" } })
+    expect(audit.newValue).toMatchObject({
+      interestModel: "REDUCING_BALANCE",
+      arrearsGrownSinceApproval: [expect.objectContaining({ key: `ARREARS:${suretyLoanId}`, approvedArrearsCents: 9_900_000, currentArrearsCents: 9_950_000 })],
+    })
+  }, 240_000)
 
   it("cross-checks the borrower's own loans and a party's arrears, not only defaults", async () => {
     const exceptions = (deal: { entityId: string | null; clientId: string | null }) =>

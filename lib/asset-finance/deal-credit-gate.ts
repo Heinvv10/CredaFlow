@@ -11,7 +11,10 @@
  */
 import type { RegimeTx } from "./classification"
 import { loadDealExceptions } from "./deal-exceptions"
-import { arrearsGrowth, recordedExceptions, worsenedSince, type ArrearsGrowth } from "./deal-exception-severity"
+import {
+  arrearsGrowth, growthBeyondCap, MAX_ARREARS_GROWTH_INSTALMENTS, recordedExceptions, regularInstalmentCents, worsenedSince, type ArrearsGrowth,
+} from "./deal-exception-severity"
+import { formatMoney } from "./format"
 
 export type CreditGateProblem =
   | { kind: "product_not_asset_finance"; message: string }
@@ -19,8 +22,8 @@ export type CreditGateProblem =
 
 export interface CreditGate {
   problem: CreditGateProblem | null
-  /** Answered arrears exceptions whose amount grew since approval: not a refusal, the caller audits them. */
-  arrearsGrown: ArrearsGrowth[]
+  /** Answered arrears exceptions whose amount grew since approval, within the cap: not a refusal, the caller audits them. */
+  arrearsGrown: (ArrearsGrowth & { regularInstalmentCents: number })[]
 }
 
 export async function dealCreditGate(tx: RegimeTx, tenantId: string, dealId: string): Promise<CreditGate> {
@@ -43,11 +46,25 @@ export async function dealCreditGate(tx: RegimeTx, tenantId: string, dealId: str
     const worse = worsenedSince(answered, current)
     return worse ? [`${found.lines[i]} (worse since approval: ${worse})`] : []
   })
-  const arrearsGrown = found.recorded.flatMap((current) => {
+  const grown = found.recorded.flatMap((current, i) => {
     const answered = approved.get(current.key)
-    const grown = answered && arrearsGrowth(answered, current)
-    return grown ? [grown] : []
+    const growth = answered && arrearsGrowth(answered, current)
+    return growth ? [{ growth, line: found.lines[i] }] : []
   })
+  const loanIds = grown.map((g) => g.growth.key.replace(/^ARREARS:/, ""))
+  const rows = loanIds.length === 0 ? [] : await tx.repaymentSchedule.findMany({
+    where: { tenantId, loanId: { in: loanIds } }, select: { loanId: true, totalDue: true },
+  })
+  const arrearsGrown: CreditGate["arrearsGrown"] = []
+  for (const { growth, line } of grown) {
+    const regular = regularInstalmentCents(rows.filter((r) => `ARREARS:${r.loanId}` === growth.key).map((r) => r.totalDue))
+    if (growthBeyondCap(growth, regular)) {
+      problems.push(`${line} (worse since approval: its arrears grew by ${formatMoney(growth.currentArrearsCents - growth.approvedArrearsCents)}, `
+        + `more than ${MAX_ARREARS_GROWTH_INSTALMENTS} regular instalments of ${formatMoney(regular)})`)
+    } else {
+      arrearsGrown.push({ ...growth, regularInstalmentCents: regular })
+    }
+  }
   if (problems.length === 0) return { problem: null, arrearsGrown }
   return {
     problem: {

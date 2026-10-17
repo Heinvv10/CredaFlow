@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { arrearsGrowth, dpdBand, exceptionsFingerprint, recordedExceptions, worsenedSince, type RecordedException } from "./deal-exception-severity"
+import {
+  arrearsGrowth, dpdBand, exceptionsFingerprint, growthBeyondCap, MAX_ARREARS_GROWTH_INSTALMENTS, recordedExceptions, regularInstalmentCents,
+  worsenedSince, type RecordedException,
+} from "./deal-exception-severity"
 
 const arrears = (over: Partial<Extract<RecordedException, { kind: "ARREARS" }>> = {}): RecordedException =>
   ({ key: "ARREARS:loan-1", kind: "ARREARS", status: "ACTIVE", daysInArrears: 10, arrearsCents: 50_000, ...over })
@@ -31,6 +34,19 @@ describe("exception severity (security review of #151)", () => {
     expect(arrearsGrowth(answered, arrears({ arrearsCents: 50_000 }))).toBeNull()
     expect(arrearsGrowth(answered, arrears({ arrearsCents: 10_000 }))).toBeNull()
     expect(arrearsGrowth({ key: "BUREAU:c-1", kind: "BUREAU", outcome: "x" }, { key: "BUREAU:c-1", kind: "BUREAU", outcome: "x" })).toBeNull()
+  })
+
+  it(`growth beyond ${MAX_ARREARS_GROWTH_INSTALMENTS} regular instalments is refused; the regular instalment ignores a balloon row`, () => {
+    // 36 rentals of R1,000 and a R50,000 balloon: the regular instalment is R1,000.
+    const regular = regularInstalmentCents([...Array(36).fill(100_000), 5_000_000])
+    expect(regular).toBe(100_000)
+    expect(regularInstalmentCents([100_000, 300_000])).toBe(200_000)
+    expect(regularInstalmentCents([])).toBe(0)
+    const from = { approvedArrearsCents: 50_000 }
+    expect(growthBeyondCap({ ...from, currentArrearsCents: 50_000 + 150_000 }, regular)).toBe(false) // exactly 1.5
+    expect(growthBeyondCap({ ...from, currentArrearsCents: 50_000 + 150_001 }, regular)).toBe(true)
+    expect(growthBeyondCap({ ...from, currentArrearsCents: 50_000 + 5_000_000 }, regular)).toBe(true) // the balloon fell due unpaid
+    expect(growthBeyondCap({ ...from, currentArrearsCents: 50_001 }, 0)).toBe(true) // no schedule: any growth
   })
 
   it("a bureau exception is covered only for the outcome answered", () => {
