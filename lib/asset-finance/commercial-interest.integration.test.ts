@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { NextRequest } from "next/server"
 import { PATCH as reverseReceipt } from "@/app/api/payments/[id]/reverse/route"
 import { newRecovery, cleanupRecoveryFixture, today, type RecoveryLoan } from "./recovery.integration-fixture"
+import { repriceLoanForReference } from "./reprice-loan"
 import { advance } from "./recovery-path.integration-fixture"
 import { saleRoutes, saleBody, readJson } from "./recovery-sale.integration-fixture"
 import { PrismaClient } from "@prisma/client"
@@ -103,6 +104,10 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       const cancelled = await load()
       expect(cancelled).toMatchObject({ commercialCancellationSaleId: saleId, totalInterest: 0, totalRepayable: original.principal, contractualTotalInterest: original.totalInterest })
       expect(cancelled.commercialCancelledAt).not.toBeNull()
+      const rateCount = await db!.contractRate.count({ where: { loanId: second.loanId } })
+      const rateResult = await db!.$transaction((tx) => repriceLoanForReference(tx as unknown as Parameters<typeof repriceLoanForReference>[0], { tenantId: second.tenantId, loanId: second.loanId, basis: "PRIME", effectiveDate: today(), runDate: today() }))
+      expect(rateResult).toEqual({ kind: "not_eligible", reason: "contract_cancelled" })
+      expect(await db!.contractRate.count({ where: { loanId: second.loanId } })).toBe(rateCount)
       expect(cancelled.repaymentSchedule.some((row) => row.commonLawContractualInterestDue !== null)).toBe(true)
       const applied = await readJson(await routes.proceeds(recoveryId))
       expect(applied.status, JSON.stringify(applied.body)).toBe(200)
