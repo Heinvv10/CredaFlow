@@ -71,21 +71,25 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F08 — PO-funding promise and the displayed affordability process conflict
 
-- Priority/status/owner: P2 / review / A.
+- Priority/status/owner: P2 / integrated / A.
 - Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Current portal card already shows configured range only, so preserve it; false translated intake promise remains. Runtime verification pending.
 - Intended smallest change: Truthful intake and repayment/assessment explanation; preserve affordability enforcement.
 - Acceptance: PO submission, review, affordable/declined scenarios; no new underwriting model. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Submission:9f2ba03ec0ac8454de4c41da1ee75eaaa801687c,7 targeted suites239 tests PASS and ci:quick PASS. B independent review pending; runtime approval/refusal acceptance pending.
 
+- Integration: included in frozen e1d5cff9 after independent reviewer approval and final branch ci:quick. Full quality stopped on F12 locale regression; integration/browser remain pending.
+
 ## F09 — READONLY users receive editable client forms whose writes are forbidden
 
-- Priority/status/owner: P2 / review / B.
+- Priority/status/owner: P2 / integrated / B.
 - Current reproduction/root cause: Source confirmed: client detail gates edits/New Application on showLoanBook; edit page only requires loan-book viewing. Actual READONLY browser pending.
 - Intended smallest change: Render action permissions consistently; explanatory direct-link read-only state.
 - Acceptance: Actual READONLY session controls/direct URL/PATCH 403; eligible staff retained. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
+
+- Integration: included in frozen e1d5cff9 after independent reviewer approval and final branch ci:quick. Full quality stopped on F12 locale regression; integration/browser remain pending.
 
 ## F10 — Accounting preview stays stale after configuration is saved
 
@@ -98,12 +102,14 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F11 — “100% / Good Standing” implies broader compliance coverage than measured
 
-- Priority/status/owner: P2 / review / B.
+- Priority/status/owner: P2 / integrated / B.
 - Current reproduction/root cause: Source confirmed: Good Standing and statutory obligations complete headline represent stored subset. Browser/configuration scope verification pending.
 - Intended smallest change: Name tracked scope and clarify excluded/unconfigured/not-due/unverified areas.
 - Acceptance: Partial and complete tracked rows, absent config and browser labels. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
+
+- Integration: included in frozen e1d5cff9 after independent reviewer approval and final branch ci:quick. Full quality stopped on F12 locale regression; integration/browser remain pending.
 
 ## F12 — Customer “Outstanding Balance” needs a clearer financial definition
 
@@ -116,21 +122,25 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F13 — Customer-facing operator screens expose internal paths and development-phase copy
 
-- Priority/status/owner: P3 / review / B.
+- Priority/status/owner: P3 / integrated / B.
 - Current reproduction/root cause: Source confirmed internal buildTemplate/lib paths/migration instructions in notification client and Phase 7 go-live in IntegrationsTab. Browser pending.
 - Intended smallest change: Replace internal implementation instructions with operational meaning.
 - Acceptance: Settings browser copy retains prerequisites and simulation warnings. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
 
+- Integration: included in frozen e1d5cff9 after independent reviewer approval and final branch ci:quick. Full quality stopped on F12 locale regression; integration/browser remain pending.
+
 ## F14 — Academy lesson references missing video and poster assets
 
-- Priority/status/owner: P3 / review / B.
+- Priority/status/owner: P3 / integrated / B.
 - Current reproduction/root cause: Source confirmed lessonAssets constructs all video/poster paths and lesson page unconditionally renders LessonPlayer. Clean-build/browser request proof pending.
 - Intended smallest change: Deliberate text-only lessons unless packaged media exists.
 - Acceptance: Clean-build all declared lesson assets no missing requests; browser text-only state. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Submission:81d92ef2a8f71dddae850bccbed11019aab8e7a2,12 targeted files57 tests PASS; final ci:quick/A independent review pending. Browser acceptance pending.
+
+- Integration: included in frozen e1d5cff9 after independent reviewer approval and final branch ci:quick. Full quality stopped on F12 locale regression; integration/browser remain pending.
 
 ## F15 — Executed agreement leaves declaration boxes visually empty after electronic acceptance
 
@@ -141,3 +151,5 @@ Closure requires regression results AND real browser acceptance on the integrate
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
 - Closure evidence: baseline render reproduced, no fix accepted. Separate unmerged candidate proposed: append-only declaration acceptance bound per signature ceremony with verified evidence certificate. Required legal approval remains outstanding; no historical inferred acceptance.
 
+
+No finding is accepted yet. Candidate e1d5cff9 full quality failed on three F12 locale regressions; see VALIDATION.md. Corrections/review underway; do not inherit a green result from targeted checks.

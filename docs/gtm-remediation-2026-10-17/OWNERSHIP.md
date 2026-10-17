@@ -38,3 +38,5 @@ Coordinator owns docs/gtm-remediation-2026-10-17/evidence/f15-baseline/* for unc
 Coordinator owns ROUTE-ACCEPTANCE.csv for the19previously uncaptured routes and their fresh browser evidence/status.
 
 A owns A-REVIEW-B-WAVE-B.md; B proposed F15 append-only AgreementDeclarationAcceptance evidence model approved in principle only, exact writable paths still pending. No F15 merge/queue authorization without lender legal approval.
+
+Coordinator owns VALIDATION.md for exact-candidate failed/passed gate iterations. MQ must preserve frozen source during checks; new reviewed source corrections require new SHA/new logs.
