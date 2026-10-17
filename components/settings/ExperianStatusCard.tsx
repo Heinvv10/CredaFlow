@@ -9,7 +9,7 @@ export function ExperianStatusCard({ configured, env }: { configured: boolean; e
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle>Experian (Sigma) Credit Bureau</CardTitle>
             <CardDescription>
@@ -17,7 +17,7 @@ export function ExperianStatusCard({ configured, env }: { configured: boolean; e
               environment (.env) and cannot be edited here.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {env && <Badge variant="outline">{env}</Badge>}
             <Badge variant={configured ? "default" : "secondary"}>
               {configured ? "Configured" : "Not configured"}
