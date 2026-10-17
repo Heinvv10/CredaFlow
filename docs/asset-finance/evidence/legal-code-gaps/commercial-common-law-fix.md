@@ -40,3 +40,14 @@ paid by historical receipts; only net schedule cash enters the contractual
 replay. Unpaid default charges remain uncollectible after the permanent stop,
 and no new default charge accrues. Contractual-interest protection still runs.
 Current main was merged; revised synthetic seed deal amounts from main remain.
+
+A second blind-review regression exposed that frozen history alone was
+insufficient: turning the historical default margin off restored contractual
+interest previously blocked by competing unpaid default interest (123 became
+1000). The engine now retains the original margin, rates, daily competition and
+actual charge shares of historical receipts up to the permanent stop. At the
+stop it forgives unpaid charges and suppresses all future default-charge
+accrual. The loader keeps frozen postings and paid shares as audit history.
+The reviewer's actual-loader repro failed before the correction and passed
+afterward; a further 2030 replay leaves the historical contractual cap and
+charge postings unchanged, with zero collectible default interest.

@@ -270,7 +270,7 @@ export async function loadChargesReplay(
   const replayAt = (at: Date, extraReceipts: DefaultChargeReceipt[] = [], proposed?: { schedule: DefaultChargeInput["schedule"]; contractRateHistory?: Array<{ effectiveDate: Date; annualRate: number }> }) => {
     const common = {
       schedule: proposed?.schedule ?? loan.repaymentSchedule,
-      receipts: [...receipts.map((receipt) => stoppedHistory ? { ...receipt, amount: receipt.amount - receipt.defaultInterestAllocated - receipt.chargeFeesAllocated } : receipt), ...extraReceipts],
+      receipts: [...receipts, ...extraReceipts],
       interestRatePm: loan.interestRatePm,
       maturityDate: loan.maturityDate,
       asOf: at,
@@ -286,8 +286,9 @@ export async function loadChargesReplay(
       const result = computeNonNcaCharges({
         ...common,
         startDate: loan.startDate,
-        defaultInterestMargin: !defaultChargesLive || margin === null ? null : margin.toNumber(),
-        collectionFeeCents: defaultChargesLive ? terms.nonNcaCollectionFeeCents : null,
+        defaultInterestMargin: (!defaultChargesLive && !stoppedHistory) || margin === null ? null : margin.toNumber(),
+        collectionFeeCents: defaultChargesLive || stoppedHistory ? terms.nonNcaCollectionFeeCents : null,
+        stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts } : undefined,
         contractRateHistory: proposed?.contractRateHistory ?? loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),
