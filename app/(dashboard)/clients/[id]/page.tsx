@@ -318,7 +318,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
       <div className="p-4 lg:p-8 space-y-6">
         {/* Client Overview */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-start justify-between mb-6">
+          <div className="mb-6 flex flex-col items-start gap-4 sm:flex-row sm:justify-between">
             <div>
               <Badge className={kycBadge.className}>{kycBadge.label}</Badge>
               <Badge className={`ml-2 ${CLIENT_STATUS_BADGE[status].className}`}>
@@ -326,7 +326,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
               </Badge>
               {client.popiaConsentGiven && <Badge className="ml-2 bg-green-100 text-green-800">POPIA</Badge>}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <MessageClientButton
                 clientId={client.id}
                 clientName={`${client.firstName} ${client.lastName}`}

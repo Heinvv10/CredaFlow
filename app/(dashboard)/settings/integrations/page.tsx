@@ -11,7 +11,7 @@ export const metadata = {
 export default async function IntegrationsSettingsPage({ searchParams }: { searchParams: Promise<{ xero?: string }> }) {
   const { xero } = await searchParams
   return (
-    <div className="container mx-auto max-w-4xl py-8 space-y-6">
+    <div className="w-full max-w-4xl space-y-6 p-4 lg:p-8">
       <Breadcrumbs
         items={[
           { label: "Settings", href: "/settings" },
@@ -20,7 +20,7 @@ export default async function IntegrationsSettingsPage({ searchParams }: { searc
       />
       <div>
         <h1 className="text-2xl font-bold">Integrations</h1>
-        <p className="text-muted-foreground">
+        <p className="mt-2 text-sm leading-6 text-[var(--cf-text-muted)]">
           Configure external service integrations for SMS, payments, credit checks, and ID verification.
         </p>
       </div>

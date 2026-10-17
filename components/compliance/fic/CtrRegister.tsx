@@ -114,9 +114,9 @@ export function CtrRegister({ unfiled, recorded, recordedTotal, pageSize, aggreg
   const router = useRouter()
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
+      <CardHeader className="flex flex-col items-start gap-4 xl:flex-row xl:justify-between">
         <CardTitle>Cash threshold register ({unfiled.length} unfiled)</CardTitle>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("ctr", "csv")} download>CSV (goAML-ready draft)</a></Button>
           <Button asChild size="sm" variant="outline"><a href={ficExportHref("ctr", "xml")} download>XML (goAML-ready draft)</a></Button>
         </div>

@@ -85,6 +85,9 @@ docker run --rm \
   -e HOME=/tmp \
   -e DATABASE_URL \
   -e DEMO_LENDER \
+  -e DEMO_MODE=true \
+  -e EXPERIAN_DRY_RUN=true \
+  -e EXPERIAN_ENV=UAT \
   ${seed_env[@]+"${seed_env[@]}"} \
   -e SEED_PRINT_CREDENTIALS=1 \
   -e TZ=UTC \

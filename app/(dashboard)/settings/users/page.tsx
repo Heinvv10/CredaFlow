@@ -11,7 +11,7 @@ export default async function UsersPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Users"
         subtitle="User management"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },

@@ -106,14 +106,14 @@ export function FscaReturnClient({
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">FSCA Conduct of Business Return</h1>
           <p className="text-sm text-gray-500 mt-1">
             FSP: {data.fspNumber} · Quarterly self-assessment
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-gray-500" htmlFor="fsca-quarter">
             Quarter
           </label>

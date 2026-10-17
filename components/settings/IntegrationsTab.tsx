@@ -333,12 +333,12 @@ function IntegrationCard(props: {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
           <div>
             <CardTitle>{props.title}</CardTitle>
             <CardDescription>{props.description}</CardDescription>
           </div>
-          <Badge variant={props.configured ? "default" : "secondary"}>
+          <Badge className="shrink-0" variant={props.configured ? "default" : "secondary"}>
             {props.configured ? "Configured" : "Not configured"}
           </Badge>
         </div>
@@ -350,9 +350,10 @@ function IntegrationCard(props: {
           </p>
         )}
         <div className="space-y-2">
-          <Label>{props.fieldLabel}</Label>
+          <Label htmlFor={props.title + "-credentials"}>{props.fieldLabel}</Label>
           <div className="flex gap-2">
             <Input
+              id={props.title + "-credentials"}
               type="password"
               placeholder="Enter new credentials..."
               value={props.fieldValue}
@@ -401,14 +402,14 @@ function CollectionsCard(props: {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
           <div>
             <CardTitle>Collections</CardTitle>
             <CardDescription>
               Provider-agnostic collection engine — account verification (AVS) and debit-order collection
             </CardDescription>
           </div>
-          <Badge variant={props.configured ? "default" : "secondary"}>
+          <Badge className="shrink-0" variant={props.configured ? "default" : "secondary"}>
             {props.configured ? "Configured" : "Not configured"}
           </Badge>
         </div>
