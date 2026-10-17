@@ -23,3 +23,15 @@ G06-R source a6600c9d passed B independent review and rerun4unit63tests, A tsc/l
 ## Candidate b637a03eabd1dbd2362fba10cd48d7cafb442274
 
 MQ reported uninterrupted ci:quality exit0: app/demo typechecks, lint, documented paths/mirrors/date/timezone gates,1506unit files/19568testsPASS,335files/2940tests skipped (including8new realDB recovery cases reserved for integration),14actual pinned face-model casesPASS in3.57seconds, and production buildPASS. Owned disposable ci:integration is running; no result asserted yet. This remains predecessor evidence because actual main gained separately queued PR166 during validation. Fresh combined-source full gates and pristine immutable image/browser evidence remain required.
+
+## Final core candidate31339e0cc15478538ce6085fa808374cb2d08bf9
+
+MQ froze the independently reviewed reconciliation plus source/provenance documentation, preserving actual maina740801a ancestry. Uninterrupted ci:quality exit0:1506unit files/19569testsPASS,335files/2940tests skipped,242.30seconds;14actual pinned face-model testsPASS; production buildPASS; app/demo types/lint/docs/mirror/date/timezone gatesPASS. Statement and VLM accuracy are not implied by those face-model checks.
+
+Uninterrupted owned-PostgreSQL ci:integration exit0:332selected suites,330filesPASS/2filesSKIP;2917testsPASS/2testsSKIP,671.98seconds,0baseline failures. The two skipped cases are lib/ocr/accuracy/accuracy.integration.test.ts (RUN_VLM_ACCURACY) and lib/statement-analysis/accuracy/accuracy.integration.test.ts (RUN_STATEMENT_ACCURACY); neither corpus accuracy gate was measured or waived. Two Docker opt-ins are also explicitly excluded from that gate; the independent pristine-image build is a separate artifact check. Owned credaflow-ci-1023629 database/container/volumes removed after completion. Selection inventory is not fabricated per-file output: reporter emitted aggregate completion only.
+
+NCA fingerprint script and five executed/unsigned sample renders exit0 on the same core source. All five extracted texts and23page72dpi raster renders byte-identical to preserved synthetic baseline; binary PDF hashes may differ from metadata timestamps, no fingerprints repinned. F15 blank declarations are unchanged on core and remain the separate legal proposal.
+
+Pristine git-archive Docker build is in progress, with source and build inputs captured outside the frozen worktree. Original official SFace download is progressing slowly by measured RX; no host-model overlay or pin waiver. No immutable image/runtime/browser acceptance claimed until completion.
+
+Independent A source review approved post-freeze tracker33622b52 and gate-map09956bbc, checking31actual test paths and scope boundaries; permissive no-context RLS behavior remains distinct from strict-mode tests. B independently reviewed root browser drivers and caught an initial operator-refusal assertion that also accepted a granted view. Corrected pre-execution to require explicit no-active-grant refusal and no borrower table/Clients heading; B spot-reviewed approval. Driver preflight is not browser acceptance.
