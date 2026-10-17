@@ -63,3 +63,15 @@ describe("loadChargesReplay — the loan's recovery freeze", () => {
     expect(both.result.interestAccrued).toBe(1_667) // 9 accruing days less 3 frozen and 1 paused: 5 x 333.33
   })
 })
+
+
+describe("standalone surrender freezes use the same replay boundary", () => {
+  it("freezes charges without any Recovery record", async () => {
+    const frozen = [{ chargesFrozenFrom: new Date("2026-09-04T00:00:00Z"), chargesFrozenUntil: new Date("2026-09-06T00:00:00Z") }]
+    const tx = {
+      loan: { findUnique: vi.fn().mockResolvedValue({ ...loan([]), surrenderRequests: frozen }) },
+      payment: { findMany: vi.fn().mockResolvedValue([]) }, complianceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never
+    expect((await loadChargesReplay(tx, { tenantId: "t1", loanId: "loan-1" }, d("2026-09-11")))!.result.interestAccrued).toBe(2_000)
+  })
+})

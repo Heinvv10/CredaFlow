@@ -20,6 +20,8 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, dealRoutes, type DealFixture } from "./deal.integration-fixture"
 import { POST as requestSurrenderRoute } from "@/app/api/portal/asset-finance/loans/[loanId]/surrender/route"
 import { POST as valuationRoute } from "@/app/api/asset-finance/surrenders/[id]/valuation/route"
+import { testSetup } from "./lease-servicing.integration-fixture"
+import { POST as valuationReceiptRoute } from "@/app/api/asset-finance/surrenders/[id]/valuation-receipt/route"
 import { POST as valuationNoticeRoute } from "@/app/api/asset-finance/surrenders/[id]/valuation-notice/route"
 import { POST as proceedsRoute } from "@/app/api/asset-finance/surrenders/[id]/proceeds/route"
 import { POST as finalNoticeRoute } from "@/app/api/asset-finance/surrenders/[id]/final-notice/route"
@@ -439,6 +441,17 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     }), { params: Promise.resolve({ id: surrenderId }) })
     expect(valued.status).toBe(200)
     expect((await valuationNoticeRoute(request(`/api/asset-finance/surrenders/${surrenderId}/valuation-notice`, "POST", {}), { params: Promise.resolve({ id: surrenderId }) })).status).toBe(200)
+    expect((await valuationReceiptRoute(request(`/api/asset-finance/surrenders/${surrenderId}/valuation-receipt`, "POST", {
+      receivedOn: sastCalendarDate(new Date()), reference: "Synthetic signed delivery receipt for this valuation notice",
+    }), { params: Promise.resolve({ id: surrenderId }) })).status).toBe(200)
+    expect((await proceedsRoute(request(`/api/asset-finance/surrenders/${surrenderId}/proceeds`, "POST", { saleProceedsCents: 100_000_000 }), { params: Promise.resolve({ id: surrenderId }) })).status).toBe(409)
+    expect(await database().payment.count({ where: { tenantId: fx.tenantId, loanId: deal.loanId, reference: `S127-${surrenderId}` } })).toBe(0)
+    // Owned synthetic fixture only: age the statutory notice clock to exercise
+    // the post-wait continuation without changing the loan's calculation clock.
+    // The real route above records receipt and refuses sale before this setup.
+    await testSetup(database(), [`UPDATE "SurrenderRequest" SET "requestedOn"="requestedOn"-30, "valuationDueOn"="valuationDueOn"-30,
+      "valuationNoticeIssuedOn"="valuationNoticeIssuedOn"-30, "valuationNoticeReceivedOn"="valuationNoticeReceivedOn"-30 WHERE "id"=$1`, surrenderId],
+      [`UPDATE "AssetValuation" SET "valuedOn"="valuedOn"-30 WHERE "id"=(SELECT "valuationId" FROM "SurrenderRequest" WHERE "id"=$1)`, surrenderId])
     expect((await proceedsRoute(request(`/api/asset-finance/surrenders/${surrenderId}/proceeds`, "POST", { saleProceedsCents: 100_000_000 }), { params: Promise.resolve({ id: surrenderId }) })).status).toBe(200)
     expect((await finalNoticeRoute(request(`/api/asset-finance/surrenders/${surrenderId}/final-notice`, "POST", {}), { params: Promise.resolve({ id: surrenderId }) })).status).toBe(200)
 

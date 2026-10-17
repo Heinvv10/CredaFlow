@@ -1,4 +1,5 @@
 import { CommercialCancellationPanel } from "./CommercialCancellationPanel"
+import { NcaSurrenderStaffPanel } from "../NcaSurrenderStaffPanel"
 import { LegalMatterPanel } from "./LegalMatterPanel"
 import { RecoveryPanel } from "./RecoveryPanel"
 
@@ -23,6 +24,7 @@ export function AssetLoanRecoveryPanels({ tenantId, loanId, userId, canManage, c
   return (
     <>
       <CommercialCancellationPanel tenantId={tenantId} loanId={loanId} canDecide={canDecide} />
+      <NcaSurrenderStaffPanel tenantId={tenantId} loanId={loanId} canManage={canManage} canDecide={canDecide} canRecordPayment={canRecordPayment} />
       <LegalMatterPanel tenantId={tenantId} loanId={loanId} canManage={canManage} />
       <RecoveryPanel tenantId={tenantId} loanId={loanId} userId={userId} canManage={canManage} canDecide={canDecide} canRecordPayment={canRecordPayment} />
     </>

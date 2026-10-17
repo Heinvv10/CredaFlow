@@ -36,7 +36,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
     ["Initiation fee", formatZarPdf(p.initiationFeeCents)], ["Monthly service fee", formatZarPdf(p.monthlyServiceFeeCents)],
     ["Credit-life premium", formatZarPdf(p.creditLifePremiumCents)], ["Base instalment", formatZarPdf(p.instalmentCents)],
     ["Residual / balloon", formatZarPdf(p.balloonCents)], ["Total interest", formatZarPdf(p.totalInterestCents)],
-    ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)], ["Total repayable", formatZarPdf(p.totalRepayableCents)],
+    ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)],
   ])
   w.table("PROPOSED REPAYMENT SCHEDULE", COLUMNS, data.schedule.map((r) => [
     String(r.installmentNo), formatIsoDatePdf(r.dueDate), formatZarPdf(r.principalCents),

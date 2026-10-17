@@ -38,7 +38,7 @@ export function SurrenderRequestCard({ loanId, existing, canRequest = true }: Pr
     }
   }
 
-  if (existing) {
+  if (existing && existing.status !== "WITHDRAWN") {
     return (
       <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4 text-sm">
         <p className="font-semibold text-[var(--cf-text)]">Voluntary surrender recorded</p>
@@ -55,6 +55,7 @@ export function SurrenderRequestCard({ loanId, existing, canRequest = true }: Pr
 
   return (
     <div className="rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">
+      {existing?.status === "WITHDRAWN" && <p className="mb-2 text-sm">The previous surrender was withdrawn and the goods returned.</p>}
       <p className="font-semibold text-[var(--cf-text)]">Voluntary surrender (NCA s127)</p>
       <p className="mt-1 text-xs text-[var(--cf-text-muted)]">Describe the asset condition. This records a formal request; staff will arrange valuation and issue the draft notices.</p>
       <textarea value={condition} onChange={(event) => setCondition(event.target.value)} rows={3} maxLength={2000}

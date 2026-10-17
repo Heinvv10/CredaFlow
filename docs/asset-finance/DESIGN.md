@@ -538,3 +538,17 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   scope; the CPA agreement preserves statutory goods remedies and prominently
   draws attention to risk and indemnity. The surety's existing client physical
   address is included in the deed and its domicilium clause.
+- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
+  settlement rebates unearned interest; recorded valuation-notice receipt
+  starts the statutory sale wait; timely withdrawal records goods returned;
+  standalone surrender shortfalls freeze charges. Final notices atomically
+  issue an independently authorised surplus instruction or an audited missing-
+  account exception. An instruction leaves the surplus outstanding (SURPLUS_HELD),
+  even though the loan debt is settled. Only retained bank execution evidence,
+  recording the exact amount, date, reference and staff actor once, permits
+  recovery closure. No transfer is initiated by the evidence form.
+- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
+  agreement disclosures include cash price, deposit and credit-life premium;
+  schedule capital excludes fees; total cost of credit retains principal debt
+  and the duplicate asset-document total row is removed. Consumer PASQ output
+  and consumer PDF pins are unchanged.

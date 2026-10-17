@@ -1,3 +1,4 @@
+import { requireNcaSaleWindow } from "./surrender-lifecycle"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt, PaymentApplicationError, type PaymentDb } from "@/lib/loan/apply-payment"
@@ -60,6 +61,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
     }
     const sale = recovery.sales[0]
     if (recovery.status !== "SOLD" || !sale) throw new RecoveryRefusal("Proceeds are applied to a sold recovery")
+    await requireNcaSaleWindow(tx, actor.tenantId, recoveryId, "recovery", receivedAt)
     const receivedOn = sastCalendarDate(receivedAt)
     if (toDayNumber(receivedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The proceeds cannot be dated before the recovery")
 

@@ -139,7 +139,7 @@ suite("slice 4a recovery database rules: the status matrix", () => {
     })
 
     it("lists an NCA recovery only after its valuation notice, a NON_NCA one straight from its valuation", async () => {
-      await refuses(raiseOff(G, "An NCA recovery is listed only after its valuation notice"), /listed only after its valuation notice/, move("nca", "VALUED", "LISTED"))
+      await refuses(raiseOff(G, "An NCA recovery is listed only after its valuation notice"), /listed only after its valuation notice/, move("nca", "VALUED", "LISTED"), [{ table: "Recovery", trigger: "Recovery_sale_window" }])
       await admits(move("non", "VALUED", "LISTED"))
     })
 

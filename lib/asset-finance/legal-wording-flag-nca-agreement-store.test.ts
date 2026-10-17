@@ -20,7 +20,7 @@ vi.mock("./documents/nca/legal-wording-approved", () => ({ legalWordingApproved:
 
 import { issueAssetNcaAgreement } from "./nca-agreement-store"
 
-const row = { installmentNo: 1, dueDate: "2026-11-30T00:00:00.000Z", principalDueCents: 100, interestDueCents: 10, feesDueCents: 5, totalDueCents: 115, closingBalanceCents: 0 }
+const row = { installmentNo: 1, dueDate: "2026-11-29T22:00:00.000Z", principalDueCents: 100, interestDueCents: 10, feesDueCents: 5, totalDueCents: 115, closingBalanceCents: 0 }
 const evidence = {
   calculator: { startDate: "2026-10-31T00:00:00.000Z", principalCents: 100, initiationFeeCents: 0, serviceFeesCents: 5, schedule: [row], totalInterestCents: 10, recurringInstalmentCents: 115 },
   creditLife: { monthlyPremiumCents: 0, election: "DECLINED" },
@@ -50,7 +50,7 @@ describe("issueAssetNcaAgreement passes the tenant's legal-wording flag through"
     m.approved.mockResolvedValue(approved)
     expect((await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("done")
     expect(m.approved).toHaveBeenCalledWith(expect.anything(), "t1")
-    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved }))
+    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved, schedule: [expect.objectContaining({ dueDate: "2026-11-30", principalCents: 100, feesCents: 5 })] }))
     expect(m.compliance).toHaveBeenCalledWith({ data: expect.objectContaining({ data: expect.objectContaining({ draftLegalWording: !approved }) }) })
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: !approved }) }), expect.anything())
   })

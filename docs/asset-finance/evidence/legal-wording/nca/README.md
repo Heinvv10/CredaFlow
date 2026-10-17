@@ -30,13 +30,12 @@ renders all six PDFs here; rerunning it reproduces the committed bytes. It
 runs with `npx tsx` and needs `lib/registry/generated` (gitignored): run
 `npm run gen:registries` first in a fresh checkout.
 
-One departure from the store: the schedule rows are the solver's rows, not the
-PASQ billing records, because `toScheduleRecord` folds an NCA row's fees into
-`principalDueCents` (README gap 22,
-[`../../../legal-wording/README.md`](../../../legal-wording/README.md)). The
-store's documents therefore show a capital column that over-counts by the fees.
-The quotation's "Total cost of credit" equals the total repayable: the PASQ
-figure includes the principal (nca.md point 18).
+The samples now use the acknowledged PASQ billing records, matching the
+production document stores. Capital excludes fees and sums to principal; the
+render script checks those identities. Contract dates are converted from the
+stored SAST instant, avoiding the previous UTC-slice one-day shift. Total cost
+of credit includes principal under Regulation 23A(15)(d), and the duplicate
+Total repayable table row has been removed. Consumer PASQ output is unchanged.
 
 Page images at 60 dpi were checked for layout: clauses wrap inside the margins,
 headings stay with their first paragraph, the watermark sits behind the text.

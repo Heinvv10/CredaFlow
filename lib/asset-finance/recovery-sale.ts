@@ -1,3 +1,4 @@
+import { requireNcaSaleWindow } from "./surrender-lifecycle"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
@@ -61,6 +62,7 @@ export async function proposeSale(actor: RecoveryActor, recoveryId: string, inpu
     const recovery = await tx.recovery.findFirst({ where: { id: recoveryId, tenantId: actor.tenantId }, select: { id: true, status: true, assetId: true, loanId: true } })
     if (!recovery) return { kind: "not_found" }
     if (recovery.status !== "LISTED") throw new RecoveryRefusal("A sale is proposed on a listed recovery")
+    await requireNcaSaleWindow(tx, actor.tenantId, recoveryId, "recovery")
     if (await actorIsBuyer(tx, actor.tenantId, actor.userId, { name: input.buyerName, identifier: input.buyerIdentifier })) throw new RecoveryRefusal(SELF_DEALING)
     const now = new Date()
     const today = sastCalendarDate(now)

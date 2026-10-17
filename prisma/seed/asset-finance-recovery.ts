@@ -5,7 +5,8 @@
  *
  *  (1) The sole-proprietor TLB instalment sale (NCA), taken from its legal
  *      matter (./asset-finance-recovery-legal.ts) through the s131 recovery:
- *      independent valuation, valuation notice, listing, a storage cost (recorded
+ *      independent valuation and actual notice receipt. A fresh seed waits
+ *      ten business days; a later seed may continue to listing, a cost (recorded
  *      by the officer, approved by the first admin), a sale BELOW the
  *      valuation (reason recorded, approved by the second admin), completed,
  *      proceeds applied, final notice, to SHORTFALL_OPEN. The legal steps are
@@ -16,6 +17,9 @@
  * Idempotent: each step runs only from the state before it. Every name and
  * number is synthetic.
  */
+import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
+import { recordValuationReceipt } from "@/lib/asset-finance/surrender-lifecycle"
+import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { decideRecoveryCost, recordRecoveryCost } from "@/lib/asset-finance/recovery-costs"
@@ -74,7 +78,17 @@ async function seedTlbRecovery(ctx: RecoverySeedContext, today: string): Promise
 
   if (await statusOf(tenantId, recoveryId) === "RECOVERED") expectDone("valuation", await recordRecoveryValuation(officer, recoveryId, valuation(45_000_000)))
   if (await statusOf(tenantId, recoveryId) === "VALUED") expectDone("valuation notice", await issueRecoveryValuationNotice(officer, recoveryId))
-  if (await statusOf(tenantId, recoveryId) === "VALUATION_NOTICE_ISSUED") expectDone("listing", await listForSale(officer, recoveryId))
+  if (await statusOf(tenantId, recoveryId) === "VALUATION_NOTICE_ISSUED") {
+    let notice = await prisma.recovery.findFirstOrThrow({ where: { id: recoveryId, tenantId }, select: { valuationNoticeReceivedOn: true } })
+    if (!notice.valuationNoticeReceivedOn) {
+      expectDone("valuation receipt", await recordValuationReceipt(officer, recoveryId, "recovery", { receivedOn: today, reference: "Consumer delivery receipt TLB-001" }))
+      notice = await prisma.recovery.findFirstOrThrow({ where: { id: recoveryId, tenantId }, select: { valuationNoticeReceivedOn: true } })
+    }
+    // A fresh seed cannot instantly complete a statutory waiting period. A
+    // later seed may continue once the recorded receipt window has elapsed.
+    if (!notice.valuationNoticeReceivedOn || today <= addSouthAfricanBusinessDays(isoOfDbDate(notice.valuationNoticeReceivedOn),10)) return
+    expectDone("listing", await listForSale(officer, recoveryId))
+  }
 
   if (await statusOf(tenantId, recoveryId) === "LISTED") {
     const valuationId = (await prisma.recovery.findFirstOrThrow({ where: { id: recoveryId, tenantId }, select: { valuationId: true } })).valuationId

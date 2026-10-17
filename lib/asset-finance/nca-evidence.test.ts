@@ -15,6 +15,10 @@ describe("asset NCA PASQ evidence", () => {
     if (!solved.ok) return
     const calculator = assetCalculatorEvidence(solved, 20_000)
     expect(calculator.principalCents).toBe(1_000_000)
+    expect(calculator.schedule.reduce((sum, row) => sum + row.principalDueCents, 0)).toBe(calculator.principalCents)
+    for (const row of calculator.schedule) {
+      expect(row.principalDueCents + row.interestDueCents + row.feesDueCents).toBe(row.totalDueCents)
+    }
     expect(calculator.serviceFeesCents).toBe(12_000)
     expect(calculator.totalRepayableCents).toBe(1_000_000 + calculator.totalInterestCents + 32_000)
     const noOffer = { version: "credit-life-no-offer-v1" as const, election: "DECLINED" as const, principalCents: 1_000_000, termDays: solved.termDays }
