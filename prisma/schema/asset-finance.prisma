@@ -332,6 +332,9 @@ model CreditNote {
   createdById      String?
   createdAt        DateTime   @default(now())
 
+  leaseRentalCancellation LeaseRental? @relation("LeaseRentalCancellationCredit")
+
+  @@unique([tenantId, id])
   @@unique([tenantId, number])
 }
 

@@ -91,3 +91,26 @@ export async function runExpiryNotices(db: DailyDb, tenantId: string, today: str
     }
   }
 }
+
+/** CPA s14(2)(d): silence at expiry continues the lease, including a lease in default. */
+export async function runCpaContinuations(db: DailyDb, tenantId: string, today: string, run: DailyRun): Promise<void> {
+  const leases = await db.loan.findMany({
+    where: { tenantId, cpaApplies: true, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] }, status: { in: ["ACTIVE", "COMPLETED", "DEFAULTED"] }, leaseEndOfTerm: null },
+    select: { id: true, maturityDate: true, assetFinanceDeal: { select: { rentalTiming: true } } },
+  })
+  for (const lease of leases) {
+    if (leaseExpiryDate(lease.maturityDate, lease.assetFinanceDeal?.rentalTiming ?? null) > today) continue
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Loan" WHERE "id" = ${lease.id} AND "tenantId" = ${tenantId} FOR UPDATE`
+        const current = await tx.loan.findFirst({ where: { id: lease.id, tenantId }, select: { leaseEndOfTerm: { select: { id: true } } } })
+        if (!current || current.leaseEndOfTerm) return
+        const end = await tx.leaseEndOfTerm.create({ data: { tenantId, loanId: lease.id, origin: "EXPIRY", outcome: "EXTEND", status: "EXTENDING" } })
+        await logAuditStrict({ tenantId, action: AuditAction.LEASE_END_OF_TERM_ELECTED, entity: "LeaseEndOfTerm", entityId: end.id, newValue: { loanId: lease.id, source: "CPA_s14_automatic_continuation", effectiveOn: leaseExpiryDate(lease.maturityDate, lease.assetFinanceDeal?.rentalTiming ?? null) } }, tx)
+      })
+    } catch (error) {
+      run.failed++
+      console.error("[asset-finance-lease-daily] continuation failed", { tenantId, loanId: lease.id, error: error instanceof Error ? error.name : "unknown" })
+    }
+  }
+}

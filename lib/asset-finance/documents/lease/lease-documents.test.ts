@@ -100,6 +100,12 @@ describe("lease agreements (C9)", () => {
     for (const commercial of ["voetstoots", "section 45 of the Magistrates' Courts Act", "attorney and own client", "prima facie proof"]) expect(text).toContain(commercial)
     for (const consumer of ["section 14(2)(d)", "section 49 of the CPA", "Lessee's initials:"]) expect(text).not.toContain(consumer)
     expect(text).toContain("The termination date is the day the lessee accepts the quote.")
+    expect(text).toContain("On acceptance the amount is recalculated at the contract rate using the acceptance date")
+    expect(text).not.toContain("lapses if a rental is invoiced")
+    expect(text).toContain("the goods are written off, recorded with supporting evidence")
+    expect(text).toContain("including later receipts")
+    expect(text).toContain("do not depend on insurer settlement or a physical return or inspection")
+    expect(text).not.toContain("ends on the day the insurer settles")
     expect(text).toContain("Early-termination penalty 10.00% of the present value of the rentals outstanding (clause 9.10)")
     expect(text).toContain("A lease in default is not extended.")
     expect(text).toContain("claim the arrears and, as damages, the present value on the cancellation date of the rentals in section 6 still to fall due for the rest "
@@ -115,7 +121,7 @@ describe("lease agreements (C9)", () => {
     expect(text).toContain("The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, as section 14(2)(b)(i)(bb) "
       + "of the CPA allows. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or pays any quote.")
     expect(text).toContain("less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or letting the returned goods")
-    expect(text).toContain("It is never more than the lessee would have paid had the lease run its full term, no further penalty is added")
+    expect(text).toContain("The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added")
     expect(text).toContain("regulation 5(2) of the CPA Regulations")
     expect(text).toContain("The lessee may end the extension at any time by giving the lessor at least 20 business days' written notice")
     expect(text).toContain("claim the amounts owed up to the cancellation date and a reasonable cancellation penalty calculated as clause 9.10 provides")

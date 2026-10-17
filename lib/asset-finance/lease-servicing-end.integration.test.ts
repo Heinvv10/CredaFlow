@@ -14,6 +14,9 @@
  *   RUN_ASSET_FINANCE_LEASE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/asset-finance/lease-servicing-end.integration.test.ts
  */
+import { writeFileSync } from "node:fs"
+import bcrypt from "bcryptjs"
+import { generateTotpSecret } from "@/lib/totp"
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -21,11 +24,13 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { loadLeaseStaffData } from "@/components/asset-finance/lease/lease-staff-data"
 import { loadPortalLease } from "./portal-lease"
+import { prepareLeaseRecoveryDamages } from "./lease-recovery-damages"
+import { acceptEarlyTermination } from "./lease-termination-store"
 import { cpaCancellationDate } from "./lease-termination"
 import { cleanupDealFixture, dealFixtureTenantId } from "./deal.integration-fixture"
 import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { approveLease, cleanupLeaseRows, createLeaseFixture, leaseBody, payoutAndBook, signLease, type LeaseFixture } from "./lease.integration-fixture"
-import { backdateLease, leaseRoutes, payAllOwed, shiftLease, testSetup } from "./lease-servicing.integration-fixture"
+import { backdateLease, leaseRoutes, payAllOwed, shiftLease, testSetup, ruleRefuses } from "./lease-servicing.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { runLeaseInvoiceBatch } from "./lease-invoice-batch"
 
@@ -67,22 +72,30 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     const short = { contractType: "OPERATING_LEASE" as const, rentalTiming: "ARREARS" as const, entityId: fx.evidenced, preset: { kind: "MONTHLY", periods: 2 }, balloonCents: 100_000_000 }
     loans.extend = await book({ ...short, assetId: fx.assets[1] })
     loans.purchase = await book({ ...short, assetId: fx.assets[0] }) // asset 1 is a registered vehicle
-    const firstDue = addMonthsClamped(today(), 1)
+    const firstDue = fromDayNumber(toDayNumber(today()) + 15)
     loans.terminate = await book({ assetId: fx.assets[2], contractType: "OPERATING_LEASE", rentalTiming: "ADVANCE", clientId: fx.lessee, firstDueDate: firstDue, preset: { kind: "MONTHLY", periods: 24 } }, firstDue)
     loans.expiry = await book({ assetId: fx.assets[3], contractType: "OPERATING_LEASE", rentalTiming: "ARREARS", clientId: fx.lessee, preset: { kind: "MONTHLY", periods: 6 } })
     await backdateLease(database(), loans.extend, 2)
     await backdateLease(database(), loans.purchase, 2)
-    await backdateLease(database(), loans.terminate, 1) // started today: the first rental (in advance) is due today
+    await backdateLease(database(), loans.terminate, 1) // first rental is past due, next rental falls inside the 20-business-day notice window
     await backdateLease(database(), loans.expiry, 3) // expires in about three months: inside 40–80 business days
     firstRun = await runLeaseInvoiceBatch(database() as never, today())
     expect(firstRun).toMatchObject({ ok: true })
   }, 600_000)
 
   afterAll(async () => {
+    if (process.env.LEASE_BROWSER_METADATA) { await db?.$disconnect(); return }
     await cleanupLeaseRows(database(), dealFixtureTenantId(t)).catch(() => undefined)
     await cleanupDealFixture(database(), { tenantId: dealFixtureTenantId(t) })
     await db?.$disconnect()
   }, 60_000)
+
+  it.skipIf(!process.env.LEASE_BROWSER_METADATA)("creates an isolated synthetic fixture for browser acceptance", async () => {
+    const password = `Synthetic-${randomUUID()}!`
+    const totpSecret = generateTotpSecret()
+    const staff = await database().user.update({ where: { id: fx.adminA }, data: { password: await bcrypt.hash(password, 12), totpEnabled: true, totpSecret } })
+    writeFileSync(process.env.LEASE_BROWSER_METADATA!, JSON.stringify({ tenantId: fx.tenantId, host: fx.host, slug: `af-deal-${t}`, loanId: loans.terminate, expiryLoanId: loans.expiry, staffEmail: staff.email, password, totpSecret }), { mode: 0o600 })
+  })
 
   it("C7 EXTEND: month to month, one rental at a time at the last rental, until notice ends it; then a return", async () => {
     staff(fx.officer, "CREDIT_OFFICER")
@@ -179,18 +192,28 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     expect(await database().leaseTerminationQuote.count({ where: { loanId: loans.terminate } })).toBe(1)
     expect(isoOfDbDate(quote.terminationDate)).toBe(cpaCancellationDate(today()))
     expect(quote.basis).toMatch(/Regulation 5\(2\)/)
-    expect(quote.totalCents).toBe(quote.pvCents + quote.penaltyCents + quote.invoiceVatCents + quote.arrearsCents)
+    expect(quote.totalCents).toBe(quote.arrearsCents) // the charge awaits documented valuation; cancellation is already effective
+    expect(quote.penaltyCents).toBe(0)
+    const insideWindow = await database().leaseRental.findMany({ where: { loanId: loans.terminate, dueDate: { gt: dbDate(today()), lte: quote.terminationDate } }, include: { schedule: true } })
+    expect(insideWindow.length).toBeGreaterThan(0)
+    expect(insideWindow.every((r) => r.cancelledAt === null && r.schedule.totalDue === r.totalCents)).toBe(true)
+
+    expect(await database().leaseEndOfTerm.count({ where: { loanId: loans.terminate } })).toBe(1)
     setSession({ id: fx.director, email: fx.directorEmail, role: "CLIENT", tenantId: fx.tenantId })
     expect((await routes().portalAccept(loans.terminate, quote.id)).status).toBe(404) // not the lessee
     lessee()
     const acceptedNow = await json(await routes().portalAccept(loans.terminate, quote.id))
-    expect(acceptedNow.status, JSON.stringify(acceptedNow.body)).toBe(200)
+    expect(acceptedNow.status, JSON.stringify(acceptedNow.body)).toBe(422) // client acceptance is unnecessary; staff valuation required
+    staff(fx.adminA, "LOAN_ADMIN")
+    const assessment = await database().$transaction((tx) => acceptEarlyTermination(tx as never, { tenantId: fx.tenantId, userId: fx.adminA }, { quoteId: quote.id, today: today(), assessment: { goodsValueCents: 20_000_000, costs: [{ description: "Recovery", amountCents: 50_000, evidence: "synthetic-recovery.pdf", valuationNoOverlapEvidence: "synthetic-valuation.pdf confirms recovery cost excluded" }] } }))
+    expect(assessment.kind).toBe("accepted")
     const rentals = await database().leaseRental.findMany({ where: { loanId: loans.terminate } })
     const after = rentals.filter((r) => r.dueDate.getTime() > quote.terminationDate.getTime())
     expect(after.length).toBe(quote.remainingRentals)
     expect(after.every((r) => r.cancelledAt !== null)).toBe(true)
     const accepted = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: quote.id }, include: { taxInvoice: { include: { lines: true } } } })
-    expect(accepted.taxInvoice?.totalInclVatCents).toBe(quote.invoiceExclVatCents + quote.invoiceVatCents)
+    expect(accepted.invoiceExclVatCents).toBe(accepted.pvCents - 20_000_000 + 50_000)
+    expect(accepted.taxInvoice?.totalInclVatCents).toBe(accepted.invoiceExclVatCents + accepted.invoiceVatCents)
     // The termination charge is due on the termination date, not at the old term's end (its cancelled rentals owe nothing).
     const charge = await database().repaymentSchedule.findUniqueOrThrow({ where: { id: accepted.scheduleId ?? "" } })
     expect(sastCalendarDate(charge.dueDate)).toBe(isoOfDbDate(quote.terminationDate))
@@ -203,6 +226,7 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
       state: "PENDING", invoice: { id: accepted.taxInvoiceId, invoiceNumber: accepted.taxInvoice?.invoiceNumber },
     }])
     expect(view?.endOfTerm.chosen).toMatchObject({ early: true, inspected: false })
+    lessee()
     expect((await routes().portalAccept(loans.terminate, quote.id)).status).toBe(409) // once
     const end = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.terminate } })
     expect(end).toMatchObject({ origin: "EARLY_TERMINATION", outcome: "RETURN", status: "ELECTED" })
@@ -215,8 +239,10 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     expect((await json(await inspect())).status).toBe(200)
     expect((await portal())?.endOfTerm.chosen).toMatchObject({ inspected: true })
     staff(fx.adminA, "LOAN_ADMIN")
-    expect((await json(await routes().endOfTerm(loans.terminate, "invoice"))).status).toBe(200)
+    // The retained rental inside the notice window is still owed. Paying it
+    // also supplies/invoices it before the return's final billing gate.
     await payAllOwed(database(), fx, loans.terminate)
+    expect((await json(await routes().endOfTerm(loans.terminate, "invoice"))).status).toBe(200)
     expect((await database().loan.findUniqueOrThrow({ where: { id: loans.terminate } })).status).toBe("COMPLETED")
   }, 120_000)
 
@@ -232,12 +258,30 @@ suite.sequential("lease end of term and early termination (real Postgres, real r
     expect(await database().emailLog.count({ where: { tenantId: fx.tenantId } })).toBe(0)
   }, 60_000)
 
-  it("C7: a lease in default is not extended", async () => {
+  it("CPA default does not prevent automatic month-to-month continuation", async () => {
     await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, loans.expiry])
     staff(fx.officer, "CREDIT_OFFICER")
-    const refused = await json(await routes().endOfTerm(loans.expiry, "elect", { outcome: "EXTEND" }))
-    expect([refused.status, refused.body.reason]).toEqual([409, "defaulted"])
-    expect(await database().leaseEndOfTerm.count({ where: { loanId: loans.expiry } })).toBe(0)
-    expect((await json(await routes().endOfTerm(loans.expiry, "elect", { outcome: "RETURN" }))).status).toBe(200) // the other outcomes stay open
+    await backdateLease(database(), loans.expiry, 4)
+    const before = await database().leaseRental.count({ where: { loanId: loans.expiry } })
+    expect((await runLeaseInvoiceBatch(database() as never, today())).ok).toBe(true)
+    const continued = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
+    expect(continued.status).toBe("EXTENDING")
+    await ruleRefuses(database(), { fn: "guardLeaseEndOfTerm", replace: ['OR NEW."extensionEndsOn" IS DISTINCT FROM public."recoveryAddBusinessDays"(NEW."extensionNoticeOn", 20)', ""] }, /20 business days/, (tx) => tx.leaseEndOfTerm.update({ where: { id: continued.id }, data: {
+      extensionNoticeOn: dbDate(today()), extensionNoticeByClientId: fx.lessee,
+      extensionEndsOn: dbDate(fromDayNumber(toDayNumber(cpaCancellationDate(today())) + 1)),
+    } }))
+    expect(await database().leaseRental.count({ where: { loanId: loans.expiry } })).toBeGreaterThan(before)
+    lessee()
+    expect((await routes().portalEndOfTerm(loans.expiry, { action: "extension-notice", noticeOn: today() })).status).toBe(200)
+    const ended = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
+    expect(isoOfDbDate(ended.extensionEndsOn!)).toBe(cpaCancellationDate(today()))
+    await database().$transaction(async (tx) => {
+      await prepareLeaseRecoveryDamages(tx as never, { tenantId: fx.tenantId, userId: fx.adminA, loanId: loans.expiry, recoveredOn: today(), today: today(), netProceedsCents: 0, chargedCostsCents: 0 })
+      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
+    })
+    const cancelledByLessor = await database().leaseEndOfTerm.findUniqueOrThrow({ where: { loanId: loans.expiry } })
+    expect(isoOfDbDate(cancelledByLessor.extensionEndsOn!)).toBe(today())
+    expect((await database().leaseTerminationQuote.findFirstOrThrow({ where: { loanId: loans.expiry } })).lessorCancellation).toBe(true)
+
   }, 60_000)
 })

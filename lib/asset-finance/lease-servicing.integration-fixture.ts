@@ -58,8 +58,8 @@ export async function shiftLease(db: PrismaClient, loanId: string, interval: str
   const i = `INTERVAL '${interval}'`
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
-    db.$executeRawUnsafe(`UPDATE "Loan" SET "startDate" = "startDate" - ${i}, "maturityDate" = "maturityDate" - ${i}, "nextPaymentDate" = "nextPaymentDate" - ${i} WHERE "id" = $1`, loanId),
-    db.$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "dueDate" = "dueDate" - ${i} WHERE "loanId" = $1`, loanId),
+    db.$executeRawUnsafe(`UPDATE "Loan" SET "startDate" = ((("startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - ${i}) AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC', "maturityDate" = ((("maturityDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - ${i}) AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC', "nextPaymentDate" = ((("nextPaymentDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - ${i}) AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC' WHERE "id" = $1`, loanId),
+    db.$executeRawUnsafe(`UPDATE "RepaymentSchedule" SET "dueDate" = ((("dueDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date - ${i}) AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC' WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "LeaseRental" SET "dueDate" = ("dueDate" - ${i})::date WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "TaxInvoice" SET "issueDate" = ("issueDate" - ${i})::date, "supplyDate" = ("supplyDate" - ${i})::date WHERE "loanId" = $1`, loanId),
     db.$executeRawUnsafe(`UPDATE "AssetMeterReading" SET "readingDate" = ("readingDate" - ${i})::date WHERE "loanId" = $1`, loanId),

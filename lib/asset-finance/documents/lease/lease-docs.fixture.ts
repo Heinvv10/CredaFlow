@@ -1,5 +1,7 @@
 // Synthetic data for the lease servicing document tests (slice 3, C9): the
 // renderer inputs and the database rows the loaders read. Obviously fake.
+import { cpaCancellationCharge, cpaCancellationDate, earlyTerminationAmount } from "@/lib/asset-finance/lease-termination"
+import { vatOnExclusive } from "@/lib/vat/amounts"
 import type { ExpiryNoticeData, InspectionReportData, LeaseDocBase, LeaseDocLender, TerminationQuoteData } from "./lease-docs-types"
 
 export const LENDER: LeaseDocLender = {
@@ -21,19 +23,34 @@ export const BASE: LeaseDocBase = {
   naturalPerson: false,
 }
 
-export const BASIS = "Present value of the rentals (ex VAT and maintenance) falling due after 2027-03-15, discounted at the contract rate, "
-  + "plus a penalty of 10.00% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value. "
-  + "The lessee is a consumer under the CPA: cancellation on 20 business days' notice (s14(2)(b)(i)(bb)); the penalty is limited to a reasonable "
-  + "cancellation penalty, weighing CPA Regulation 5(2): the amount of the agreement, the length of notice given."
+export const BASIS = "Present value of the remaining rentals at the contract rate, less the net realisable or re-let value of the returned goods, plus actual documented recovery, refurbishment and re-letting costs. No percentage penalty. The charge is floored at zero and capped below undiscounted remaining rentals. CPA Regulation 5(2) applies; cancellation is effective on 20 business days notice without accepting this quote."
+
 
 export const NOTICE: ExpiryNoticeData = {
   ...BASE, noticeId: "notice-1", expiryDate: "2027-06-30", queuedOn: "2027-02-01", extensionNoticeMonths: 1,
 }
 
+// Shared synthetic cash flows make both quotes reproducible from their dates.
+export const QUOTE_RENTALS = Array.from({ length: 14 }, (_, i) => ({
+  dueDate: `${2027 + Math.floor((i + 3) / 12)}-${String((i + 3) % 12 + 1).padStart(2, "0")}-15`,
+  rentalExclVatCents: 3_000_000,
+}))
+const quotedOn = "2027-02-23"
+const terminationDate = cpaCancellationDate(quotedOn)
+const documentedCosts = [{ description: "Recovery", amountCents: 500_000, evidence: "synthetic-recovery.pdf", valuationNoOverlapEvidence: "synthetic-net-valuation-excludes-this-cost.pdf" }]
+const cpa = cpaCancellationCharge({ rentals: QUOTE_RENTALS, terminationDate, annualRate: 0.12, goodsValueCents: 12_000_000, costs: documentedCosts })
+const arrearsCents = 1_234_500
+const invoiceVatCents = vatOnExclusive(cpa.chargeCents, 1500)
 export const QUOTE: TerminationQuoteData = {
-  ...BASE, quoteId: "quote-1", status: "QUOTED", quotedOn: "2027-02-23", terminationDate: "2027-03-15", validUntil: "2027-03-05",
-  cpaCancellation: true, remainingRentals: 14, pvCents: 41_234_567, penaltyCents: 4_123_457, arrearsCents: 1_234_500,
-  invoiceExclVatCents: 45_358_024, invoiceVatCents: 6_803_704, totalCents: 53_396_228, basis: BASIS,
+  ...BASE, quoteId: "quote-1", status: "ACCEPTED", quotedOn, terminationDate, validUntil: "2027-03-05",
+  cpaCancellation: true, remainingRentals: QUOTE_RENTALS.filter(r => r.dueDate > terminationDate).length,
+  pvCents: cpa.pvCents, penaltyCents: 0, goodsValueCents: cpa.goodsValueCents, documentedCosts, arrearsCents,
+  invoiceExclVatCents: cpa.chargeCents, invoiceVatCents, totalCents: cpa.chargeCents + invoiceVatCents + arrearsCents, basis: BASIS,
+}
+export const COMMERCIAL_QUOTE: TerminationQuoteData = {
+  ...QUOTE, status: "QUOTED", cpaCancellation: false, goodsValueCents: null, documentedCosts: [], terminationDate: quotedOn,
+  ...earlyTerminationAmount({ rentals: QUOTE_RENTALS, terminationDate: quotedOn, annualRate: 0.12, arrearsCents, penaltyRate: "0.1", vatRateTenThousandths: 1500 }),
+  basis: "Present value of the rentals (ex VAT and maintenance) falling due after 2027-02-23, discounted at the contract rate, plus a penalty of 10.00% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value.",
 }
 
 export const REPORT: InspectionReportData = {
@@ -62,9 +79,11 @@ const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
 export const NOTICE_ROW = { id: "notice-1", expiryDate: day("2027-06-30"), queuedOn: day("2027-02-01"), loan: LOAN_ROW }
 
 export const QUOTE_ROW = {
-  id: "quote-1", status: "QUOTED", quotedOn: day("2027-02-23"), terminationDate: day("2027-03-15"), validUntil: day("2027-03-05"),
-  cpaCancellation: true, remainingRentals: 14, pvCents: 41_234_567, penaltyCents: 4_123_457, arrearsCents: 1_234_500,
-  invoiceExclVatCents: 45_358_024, invoiceVatCents: 6_803_704, totalCents: 53_396_228, basis: BASIS, loan: LOAN_ROW,
+  id: QUOTE.quoteId, status: QUOTE.status, cpaCancellation: QUOTE.cpaCancellation,
+  remainingRentals: QUOTE.remainingRentals, pvCents: QUOTE.pvCents, penaltyCents: QUOTE.penaltyCents,
+  goodsValueCents: QUOTE.goodsValueCents, documentedCosts: QUOTE.documentedCosts, arrearsCents: QUOTE.arrearsCents,
+  invoiceExclVatCents: QUOTE.invoiceExclVatCents, invoiceVatCents: QUOTE.invoiceVatCents, totalCents: QUOTE.totalCents, basis: QUOTE.basis,
+  quotedOn: day(QUOTE.quotedOn), terminationDate: day(QUOTE.terminationDate), validUntil: day(QUOTE.validUntil), loan: LOAN_ROW,
 }
 
 export const END_ROW = {

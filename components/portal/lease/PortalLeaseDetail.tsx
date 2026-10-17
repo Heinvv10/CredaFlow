@@ -95,8 +95,8 @@ export function PortalLeaseDetail({ view, back, documents, extra }: {
         </DataPanel>
       )}
       {(termination.canRequest || termination.state !== "NONE") && (
-        <DataPanel title="End the lease early" description="Ask for a quote and, if it suits you, accept it">
-          <LeaseTerminationPanel loanId={loan.id} quote={view.termination.latestQuote} actions={termination} />
+        <DataPanel title="End the lease early" description={view.termination.cpaApplies ? "Cancel on 20 business days notice; the charge is assessed separately" : "Ask for a quote and, if it suits you, accept it"}>
+          <LeaseTerminationPanel cpa={view.termination.cpaApplies} loanId={loan.id} quote={view.termination.latestQuote} actions={termination} />
         </DataPanel>
       )}
       {offer.kind !== "closed" && (

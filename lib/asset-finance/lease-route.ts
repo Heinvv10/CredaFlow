@@ -54,6 +54,8 @@ async function run(actor: Actor, action: (tx: SigningTx, actor: Actor, today: st
     return await prisma.$transaction(async (tx) => {
       const result = await action(tx, actor, sastCalendarDate(new Date()))
       if (result.kind === "refused" || result.kind === "not_found") throw new Refused(result)
+      // Surface deferred database refusals before Prisma hands an HTTP success back.
+      await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")
       return result
     }, { timeout: 20_000 })
   } catch (error) {

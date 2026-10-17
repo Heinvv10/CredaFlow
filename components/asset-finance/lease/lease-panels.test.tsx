@@ -95,15 +95,15 @@ describe("LeaseTerminationPanel", () => {
 
   it("offers a new quote and accepting a live one", async () => {
     const r = await render(<LeaseTerminationPanel data={data([quote()])} canManage canDecide />)
-    expect(buttons(r)).toEqual(["Request a quote", "Accept on the lessee's instruction"])
+    expect(buttons(r)).toEqual(["Request a quote", "Record write-off and end lease", "Accept on the lessee's instruction"])
     expect(text(r)).toContain(formatMoney(1_012_000))
   })
 
   it("offers no accept on an expired or accepted quote, and no quote once an end of term exists", async () => {
     const expired = await render(<LeaseTerminationPanel data={data([quote({ validUntil: "2030-06-14" })])} canManage canDecide />)
-    expect(buttons(expired)).toEqual(["Request a quote"])
+    expect(buttons(expired)).toEqual(["Request a quote", "Record write-off and end lease"])
     const accepted = await render(<LeaseTerminationPanel data={data([quote({ status: "ACCEPTED", invoice: { id: "inv-9", number: "INV-000009" } })])} canManage canDecide />)
-    expect(buttons(accepted)).toEqual(["Request a quote"])
+    expect(buttons(accepted)).toEqual(["Request a quote", "Record write-off and end lease"])
     expect(text(accepted)).toContain("INV-000009")
     const closing = await render(<LeaseTerminationPanel data={data([quote()], { endOfTerm: {} as LeaseStaffData["endOfTerm"] })} canManage canDecide />)
     expect(buttons(closing)).toEqual([])

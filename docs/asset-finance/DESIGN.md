@@ -204,8 +204,8 @@ migration `20261014090000_asset_finance_lease_foundation`.
 - **Tax invoices** (`lease-invoices.ts`): one per rental, supply date = the
   earlier of the due date (daily cron) and a receipt that reaches it (all
   three receipt paths). Exactly once: row lock + unique `taxInvoiceId`. No
-  inception invoice. Signed off (see the sign-off record 2026-10-17 below). // PARTIAL: a VAT-rate
-  change after booking is refused (`vat_rate_changed`), not re-priced.
+  inception invoice. VAT Act s67: VAT is recomputed at the supply-date rate;
+  the invoice, rental, schedule and loan totals move together in one transaction.
 - **Repricing** (`lease-reprice.ts`): term and residual unchanged; the
   uninvoiced rentals outside the notice window take the new rental, their
   VAT and total; maintenance never changes. The `LeaseRental` amounts change
@@ -249,10 +249,23 @@ trigger or CHECK, each proven by an IT that removes it
 - **Early termination** (`lease-termination*.ts`): a quote (staff, or the
   lessee in the portal), valid `TenantConfig.leaseTerminationQuoteValidDays`
   (10): PV of the remaining rentals ex VAT and maintenance at the contract
-  rate + the deal's penalty % + arrears; a CPA lessee's on 20 business days'
-  notice, its basis naming the Reg 5(2) factors. Accepting cancels the
-  uninvoiced rentals after the termination date (their rows go to 0),
-  invoices PV and penalty, and opens a RETURN end of term. Signed off (see the sign-off record 2026-10-17 below).
+  rate + the deal's penalty % + arrears for a commercial lessee, repriced on
+  acceptance. A CPA lessee's notice itself cancels rentals after 20 South African
+  business days and opens the return; no acceptance is needed. Staff later record
+  the goods value and each actual documented recovery, refurbishment and re-letting
+  cost. The CPA charge is PV less goods value plus those costs, floored at zero
+  and capped below undiscounted remaining rentals, with no percentage penalty.
+- **Continuation:** a CPA lease without an election automatically continues month
+  to month at expiry, including a defaulted or paid-up lease. The lessee ends it
+  on 20 South African business days' notice, independently of rental dates.
+- **Prepaid supplies:** cancellation fully credits superseded invoices, replays
+  receipts without changing cash received, and keeps unused cash in UNAPPLIED
+  reconciliation/refund credits. The later assessed charge consumes only its
+  share. An immutable CONTRIBUTION_CREDIT reverses future maintenance fund
+  contributions; its accounting entry reverses income/liability, never BANK.
+- **Total loss:** staff records the write-off evidence and insurer proceeds. Future
+  rentals stop; a PV charge, without a penalty, replaces them. The insurer's actual
+  cash is credited through the ordinary payment ledger; arrears remain collectible.
 - **Charges** (end of term, purchase, termination) are schedule rows of their
   own: the row's total is its tax invoice's total, never a rental's row or
   invoice, and a closed loan is reopened for it. Receipts settle them like
@@ -511,6 +524,21 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Changed 2026-10-17 to comply with the reference-rate effective-date rule:**
   SARB dated change series replace homepage observation dates, full history
   preserves outage catch-up, and every changed ZARONIA value is recorded.
+- **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
+  cancellation, valuation credit and documented actual costs, automatic continuation
+  despite default, and 20-business-day lessee notice during continuation. Added-cost
+  assessments require recorded evidence that the cost was not already deducted
+  from the net goods valuation, enforced in the server and database.
+- **Changed 2026-10-17 to comply with the Conventional Penalties Act and lease
+  clauses 9.5/9.11:** cancellation damages discount unearned rentals at the contract
+  rate; total loss ends the lease on the evidenced write-off or confirmed unrecovered
+  theft-loss date, values PV on that date, and credits actual insurer receipts, including
+  later receipts, without a penalty or physical-return condition. Staff records the evidenced
+  historical event date (commencement through today); PV uses the contract rate effective
+  on that date, and arrears/cancellation use that date independently of actual receipt dates. Commercial acceptance
+  recalculates the amount at the acceptance date even if rentals were invoiced/prepaid.
+- **Changed 2026-10-17 to comply with VAT Act s67:** rentals use supply-date VAT,
+  adjusting the rental and schedule ledger in the same transaction as their invoice.
 
 - **2026-10-17** — Hein (owner) confirmed the lender's legal team and tax
   adviser signed off the calculations and rules as built; the document wording

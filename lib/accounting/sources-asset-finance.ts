@@ -180,6 +180,9 @@ function fundSources(loan: SourceLoan, asOf: Date): DesiredSource[] {
       if (done && m.kind === "CONTRIBUTION") {
         addTo(vector, "MAINTENANCE_INCOME", m.amountCents)
         addTo(vector, "MAINTENANCE_FUND_LIABILITY", -m.amountCents)
+      } else if (done && m.kind === "CONTRIBUTION_CREDIT") {
+        addTo(vector, "MAINTENANCE_INCOME", -m.amountCents)
+        addTo(vector, "MAINTENANCE_FUND_LIABILITY", m.amountCents)
       } else if (done) {
         addTo(vector, "MAINTENANCE_FUND_LIABILITY", m.amountCents)
         addTo(vector, "BANK", -m.amountCents)

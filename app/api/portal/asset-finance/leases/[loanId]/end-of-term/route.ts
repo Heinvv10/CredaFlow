@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { badRequest, leasePortalAction } from "@/lib/asset-finance/lease-route"
-import { electEndOfTerm } from "@/lib/asset-finance/lease-end-of-term"
+import { electEndOfTerm, endExtension } from "@/lib/asset-finance/lease-end-of-term"
 import { bestMarketValuation } from "@/lib/asset-finance/lease-term-end"
 
 type Params = { params: Promise<{ loanId: string }> }
@@ -14,6 +14,7 @@ type Params = { params: Promise<{ loanId: string }> }
 export async function POST(req: NextRequest, { params }: Params) {
   const { loanId } = await params
   return leasePortalAction(req, loanId, "portal_end_of_term", async (tx, actor, today, body) => {
+    if (body.action === "extension-notice") return endExtension(tx, actor, { loanId, noticeOn: today, today })
     const outcome = (["RETURN", "EXTEND", "PURCHASE"] as const).find((o) => o === body.outcome)
     if (!outcome) return badRequest("outcome", "outcome must be RETURN, EXTEND or PURCHASE")
     if (outcome !== "PURCHASE") return electEndOfTerm(tx, actor, { loanId, outcome, today })

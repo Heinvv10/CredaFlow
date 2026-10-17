@@ -10,6 +10,7 @@ import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
 import { isNcaRoute } from "./recovery-input"
 import { recoveryChargeFreeze } from "./recovery-deadline"
+import { prepareLeaseRecoveryDamages } from "./lease-recovery-damages"
 import { costTotals, recoveryOutcome } from "./recovery-outcome"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 import type { SigningTx } from "./signing-prepare"
@@ -67,7 +68,9 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
 
     if (recovery.costs.some((cost) => cost.status === "PENDING")) throw new RecoveryRefusal("Proceeds are applied once every cost is decided")
     const { deducted, charged } = costTotals(recovery.costs.filter((cost) => cost.status === "APPROVED"))
-    const settlementDueCents = (await loanSettlementFigures(tx, recovery.loan, receivedAt)).totalToSettle
+    await prepareLeaseRecoveryDamages(tx, { tenantId: actor.tenantId, userId: actor.userId, loanId: recovery.loanId, recoveredOn: isoOfDbDate(recovery.recoveredOn), today: receivedOn, netProceedsCents: Math.max(0, sale.priceInclVatCents - deducted), chargedCostsCents: charged })
+    const pricedLoan = await tx.loan.findFirstOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+    const settlementDueCents = (await loanSettlementFigures(tx, pricedLoan, receivedAt)).totalToSettle
     let outcome
     try {
       outcome = recoveryOutcome({ settlementDueCents, grossProceedsCents: sale.priceInclVatCents, deductedCostsCents: deducted, chargedCostsCents: charged })

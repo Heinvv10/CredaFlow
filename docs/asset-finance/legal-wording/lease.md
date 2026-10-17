@@ -125,19 +125,18 @@ the charge credits the returned goods and has no penalty %, the lessee ends a
 continuation on 20 business days' notice, and juristic CPA lessees get the
 s14 terms by contract.
 
-6. **Damages on cancellation for breach (9.11).** The wording now claims the
-   PV of the remaining rentals (commercial) or the 9.10 charge (CPA); the
-   recovery code still uses the undiscounted settlement (README gaps 11–12).
-   Open: VAT on a damages claim; refunding a surplus gives the lessee a share
-   of residual value, a finance-lease indicator for tax and IFRS 16.
-7. **Total loss (9.5)** is not modelled in the code (README gap 14). The
-   wording charges the arrears and the PV of the remaining rentals, without a
-   penalty, less insurance proceeds.
-8. **VAT rate change (9.4).** The wording follows VAT Act s67 (rentals change
-   with the rate). The code refuses a VAT-rate change after booking
-   (`vat_rate_changed`, documented PARTIAL; README gap 25). The VAT treatment of termination amounts,
-   excess usage, damage and fund settlements was signed off (see
-   DESIGN.md sign-off record 2026-10-17).
+6. **Damages on cancellation for breach (9.11).** The recovery path replaces
+   unearned rentals with their discounted value, with no percentage penalty. Net
+   sale proceeds credit the returned goods once, through the ordinary receipt.
+   CPA recovery costs are actual, evidenced costs, with the cancellation charge
+   capped below the undiscounted remaining rentals. The tax treatment of a damages
+   claim and surplus treatment remain points for the legal and tax advisers.
+7. **Total loss (9.5).** Staff record the write-off evidence and insurer cash
+   actually received. The future rentals stop, their PV replaces them without a
+   penalty, and insurance is a real audited receipt against PV and arrears.
+8. **VAT rate change (9.4).** Rentals are invoiced at supply-date VAT under s67.
+   The invoice, rental, repayment schedule and loan totals change together; invoiced
+   rentals stay immutable. The earlier refusal has been removed.
 9. **Purchase option (9.9(c)).** Market value is the highest current assessor
    or dealer valuation, as `lease-term-end.ts` and the portal price it; the
    price is never fixed in the agreement (to avoid recharacterising the

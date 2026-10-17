@@ -116,8 +116,7 @@ export function terminationQuoteClauses(data: TerminationQuoteData): WordingClau
       text: para(
         `If you accept this quote within its validity, your lease ends on the day you accept it. ${rentals("that day")} ${goods("that day")}`,
         "On acceptance the lessor issues one tax invoice for the present value and the penalty, plus VAT, due on the day you accept. The arrears are already due. Default "
-        + "interest runs on any amount not paid by its due date, as the lease agreement provides. If a rental is invoiced or changed before you accept, this quote can no "
-        + "longer be accepted and a new quote is needed.",
+        + "interest runs on any amount not paid by its due date, as the lease agreement provides. The present value and charge are recalculated on the day of acceptance using the rentals then remaining.",
       ),
     },
     {

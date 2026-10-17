@@ -1,0 +1,1 @@
+ALTER TYPE "MaintenanceMovementKind" ADD VALUE 'CONTRIBUTION_CREDIT';

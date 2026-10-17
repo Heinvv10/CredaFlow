@@ -155,9 +155,10 @@ export async function completeEndOfTermIfSettled(tx: CompleteEndTx, input: { ten
   const { tenantId, loanId } = input
   const row = await tx.leaseEndOfTerm.findFirst({
     where: { tenantId, loanId, status: "INVOICED" },
-    select: { id: true, outcome: true, natisTransferConfirmedAt: true, loan: { select: { status: true, assetId: true, asset: { select: { registrationNumber: true } }, repaymentSchedule: { select: { totalDue: true, totalPaid: true } } } } },
+    select: { id: true, outcome: true, natisTransferConfirmedAt: true, loan: { select: { status: true, assetId: true, asset: { select: { registrationNumber: true } }, leaseTerminationQuotes: { where: { cpaCancellation: true, status: "QUOTED" }, select: { id: true } }, repaymentSchedule: { select: { totalDue: true, totalPaid: true } } } } },
   })
   if (!row) return false
+  if (row.loan.leaseTerminationQuotes.length > 0) return false
   if (row.loan.repaymentSchedule.some((r) => r.totalPaid < r.totalDue)) return false
   if (row.outcome === "PURCHASE" && row.loan.asset?.registrationNumber?.trim() && !row.natisTransferConfirmedAt) return false
   const now = new Date()

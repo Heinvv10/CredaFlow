@@ -34,6 +34,7 @@ export type QuoteState = "NONE" | "VALID" | "EXPIRED" | "ACCEPTED"
 export interface QuoteFacts {
   status: "QUOTED" | "ACCEPTED"
   validUntil: string
+  cpaCancellation?: boolean
 }
 
 export function quoteState(quote: QuoteFacts | null, today: string): QuoteState {
@@ -59,7 +60,7 @@ export function terminationActions(input: {
 }): TerminationActions {
   const state = quoteState(input.quote, input.today)
   const open = leaseRunning(input.status) && !input.endOfTermStarted && state !== "ACCEPTED"
-  return { state, canRequest: open && input.penaltyConfigured, canAccept: open && state === "VALID" }
+  return { state, canRequest: open && input.penaltyConfigured, canAccept: open && state === "VALID" && !input.quote?.cpaCancellation }
 }
 
 export type EndOption = "RETURN" | "EXTEND" | "PURCHASE"
