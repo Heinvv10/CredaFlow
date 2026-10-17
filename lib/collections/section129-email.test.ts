@@ -58,10 +58,23 @@ describe("simulatesSection129", () => {
 
 describe("sendSection129Email", () => {
   it("simulates when the reservation recorded a simulated send: nothing reaches the provider", async () => {
+    vi.stubEnv("DEMO_MODE", "true")
     const result = await sendSection129Email(opts("kabelo.mokoena@fairscore.invalid"), true)
     expect(result).toMatchObject({ ok: true, simulated: true, providerOutcome: "ACCEPTED" })
     expect(result.messageId).toMatch(/^simulated-s129-/)
     expect(result.acceptedAt).toBeInstanceOf(Date)
+    expect(h.sendEmail).not.toHaveBeenCalled()
+  })
+
+  // #147 follow-up: a reservation recorded on a demo stack never simulates
+  // once the deployment is no longer DEMO_MODE. Sending it for real would leave
+  // a record that says "simulated" for a notice that went out, so it is
+  // refused as definitely not sent, before the provider.
+  it("re-checks DEMO_MODE at send time: a recorded simulation outside demo mode is refused, not simulated or sent", async () => {
+    const result = await sendSection129Email(opts("kabelo.mokoena@fairscore.invalid"), true)
+    expect(result).toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(result.error).toMatch(/no longer in demo mode/)
+    expect(result).not.toHaveProperty("simulated")
     expect(h.sendEmail).not.toHaveBeenCalled()
   })
 

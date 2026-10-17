@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DEMO_LENDERS } from '@/prisma/demo-lender'
 
 // Pure helpers of scripts/demo/lib.sh, called from a shell that sources it.
 
@@ -50,5 +51,19 @@ describe('seed_passwords_ok', () => {
     ['SEED_PRINT_CREDENTIALS=0\n'],
   ])('refuses %j', (content) => {
     expect(ok(content)).toBe(false)
+  })
+})
+
+// #147 follow-up: the marker names exactly the seeded demo lenders' slugs, so a
+// lender added to prisma/demo-lender.ts without lib.sh fails here.
+describe('TENANT_DEMO_LENDER_SQL', () => {
+  it('marks only the tenants whose slug is a seeded demo lender', () => {
+    const r = spawnSync('bash', ['-c', '. "$0"; printf %s "$TENANT_DEMO_LENDER_SQL"', LIB], { encoding: 'utf8' })
+    const sql = r.stdout
+    expect(sql).toContain('SET "isDemoLender" = true')
+    const list = /WHERE "tenantId" IN \(SELECT id FROM "Tenant" WHERE slug IN \(([^)]*)\)\)/.exec(sql)
+    expect(list).not.toBeNull()
+    const slugs = list![1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''))
+    expect(slugs.sort()).toEqual(Object.values(DEMO_LENDERS).map((l) => l.slug).sort())
   })
 })

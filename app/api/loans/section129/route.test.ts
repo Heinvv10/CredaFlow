@@ -281,6 +281,18 @@ describe("POST /api/loans/section129", () => {
     expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ simulated: false }))
   })
 
+  // #147 follow-up: a reservation recorded as simulated on a stack that has
+  // since left DEMO_MODE is neither simulated nor sent, and is released.
+  it("refuses a reservation recorded as simulated once DEMO_MODE is off, as definitely not sent", async () => {
+    reserveIssuanceMock.mockResolvedValueOnce({ ...reservation, recordData: { ...reservation.recordData, simulated: true } })
+    const response = await POST(request())
+    expect(await response.json()).toMatchObject({ ok: false, error: expect.stringMatching(/no longer in demo mode/) })
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(finaliseIssuanceMock).not.toHaveBeenCalled()
+    expect(markKnownNotSentMock).toHaveBeenCalled()
+    expect(markReconciliationRequiredMock).not.toHaveBeenCalled()
+  })
+
   it("still refuses on a demo stack for a deliverable address", async () => {
     vi.stubEnv("DEMO_MODE", "true")
     sendEmailMock.mockResolvedValue({ ok: false, error: "Email not configured for this tenant. Go to Settings → Email.", providerOutcome: "DEFINITELY_REJECTED" })
