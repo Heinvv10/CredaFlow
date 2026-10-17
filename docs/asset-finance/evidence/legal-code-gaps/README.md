@@ -61,3 +61,10 @@ receipt together with supporting evidence. Existing issue/receipt dates cannot
 be rewritten. The new real-PG repros failed before these fixes and now pass;
 the combined new-guard suite passes 17 tests, including immutable-release
 mutation and four historical-status cases.
+
+The complete gate also exposed the base seed trying to issue and sell the same
+NCA valuation notice immediately. The seed now records receipt and leaves that
+recovery waiting; a later seed can continue after the statutory window. The
+fresh-database seed suite passes all 13 tests, including immediate rerun
+idempotency. This changes source fixtures only; no demo stack was restored or
+changed.
