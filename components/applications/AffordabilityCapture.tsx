@@ -4,7 +4,8 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle, PlusCircle, Trash2, TrendingDown, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { assessAffordability, affordabilityRiskGrade } from "@/lib/affordability/ndi"
+import { affordabilityRiskGrade } from "@/lib/affordability/ndi"
+import { previewAffordability } from "@/lib/affordability/preview"
 import {
   DEBT_ACCOUNT_TYPES,
   debtAccountTypeLabel,
@@ -74,6 +75,10 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   const invalidDebtEvidence = debtEvidenceInvalid || clientDebtEvidenceInvalid
   const debtInputsReadOnly = readOnly || clientDebtEvidenceInvalid || !canEdit
   const [saved, setSaved] = useState(done && !invalidDebtEvidence)
+  // The rail's approval checks read the saved figures; edits here are a preview
+  // until saved, and the panel says so rather than contradict the rail.
+  const [savedDebts, setSavedDebts] = useState(() => JSON.stringify(debts))
+  const unsaved = !lockedAssessment && JSON.stringify(debts) !== savedDebts
 
   function addDebt() {
     setDebts(d => [...d, { sourceId: null, creditor: "", type: "PERSONAL_LOAN", monthlyInstalment: 0, balance: 0, notes: null }])
@@ -91,14 +96,13 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
   // props, and the proposed instalment. This preview mirrors the server recompute
   // (lib/affordability/ndi) exactly, so the staff view and the persisted, audited
   // NDI agree (the old code treated cents debts as rands → 100x off).
-  const applicationDebtTotal = debts.reduce(
-    (sum, debt) => sum + Math.max(0, Math.round(debt.monthlyInstalment || 0)),
-    0,
-  ) + ownLenderPreview(debts, ownLenderDebts).instalments // as the server adds obligations to this lender
-  const calculatedAssessment = assessAffordability({
+  const calculatedAssessment = previewAffordability({
     monthlyIncomeCents: monthlyIncome,
     monthlyExpensesCents: monthlyExpenses,
-    debts: [{ monthlyInstalment: Math.max(applicationDebtTotal, clientDebtTotal) }],
+    applicationDebtInstalmentsCents: debts.map((debt) => debt.monthlyInstalment),
+    // as the server adds obligations to this lender
+    ownLenderInstalmentsCents: ownLenderPreview(debts, ownLenderDebts).instalments,
+    clientDebtTotalCents: clientDebtTotal,
     proposedInstalmentCents: proposedInstalment,
   })
   const assessment = lockedAssessment
@@ -151,6 +155,7 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
         return
       }
       setSaved(true)
+      setSavedDebts(JSON.stringify(debts))
       toast.success("Affordability saved", "Net disposable income was recalculated from the client's figures.")
       router.refresh()
     } catch {
@@ -227,6 +232,11 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
               {isAffordable ? "AFFORDABLE" : "NOT AFFORDABLE"}
             </div>
           </div>
+          {unsaved && (
+            <p role="status" className="mt-3 text-xs font-medium text-[var(--cf-warning)]">
+              Unsaved changes: save to update the approval checks.
+            </p>
+          )}
         </div>
         )}
 

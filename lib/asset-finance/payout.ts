@@ -2,8 +2,9 @@
  * The supplier payout of a CONTRACTED deal (goal §4.10, DESIGN D8): created
  * for the supplier's APPROVED bank account once every required checklist item
  * is confirmed, for payoutAmountCents (./payout-checklist.ts). At or above
- * TenantConfig.assetPayoutDualApprovalCents it is created PENDING_APPROVAL
- * and a second, different decide_asset_finance user approves it; below, the
+ * TenantConfig.assetPayoutDualApprovalCents, or at any amount while
+ * TenantConfig.requireSegregationOfDuties is on, it is created PENDING_APPROVAL
+ * and a second, different decide_asset_finance user approves it; otherwise the
  * creation is the approval (APPROVED, approvedById = the creator). guardPayout
  * and the Payout CHECKs (migration 20261013113000) refuse every one of these
  * rules in the database too. Booking (./booking.ts) releases it.
@@ -64,9 +65,13 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
       const amountCents = payoutAmountCents({ ...deal.asset, depositCents: deal.depositCents, tradeInCents: deal.tradeInCents })
       if (amountCents <= 0 || amountCents > INT4_MAX) return { kind: "amount_invalid", amountCents }
 
-      const config = await tx.tenantConfig.findUnique({ where: { tenantId }, select: { assetPayoutDualApprovalCents: true } })
-      // No config row: the trigger requires two approvers; so does this.
-      const dual = config === null || needsDualApproval(amountCents, config.assetPayoutDualApprovalCents)
+      const config = await tx.tenantConfig.findUnique({
+        where: { tenantId }, select: { assetPayoutDualApprovalCents: true, requireSegregationOfDuties: true },
+      })
+      // No config row, or segregation of duties on: the trigger requires two
+      // approvers whatever the amount; so does this.
+      const dual = config === null || config.requireSegregationOfDuties
+        || needsDualApproval(amountCents, config.assetPayoutDualApprovalCents)
       const now = new Date()
       const payout = await tx.payout.create({
         data: {
@@ -85,6 +90,7 @@ export async function createPayout(actor: SigningActor, dealId: string): Promise
         newValue: {
           dealId, supplierBankAccountId: account.id, amountCents, status: payout.status,
           dualApprovalRequired: payout.dualApprovalRequired, thresholdCents: config?.assetPayoutDualApprovalCents ?? null,
+          segregationOfDuties: config?.requireSegregationOfDuties ?? true,
           ...(credit.arrearsGrown.length > 0 ? { arrearsGrownSinceApproval: credit.arrearsGrown } : {}),
         },
       }, tx)

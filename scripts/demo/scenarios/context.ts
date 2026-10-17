@@ -6,7 +6,8 @@
  * Roles follow the route guards: CREDIT_OFFICER captures clients and
  * applications, verifies documents, starts the bureau review and assesses
  * affordability; ADMIN (above LOAN_ADMIN) records the in-person identity
- * check, the compliance evidence and the decision, countersigns and pays out.
+ * check, the compliance evidence and the decision, and countersigns; the
+ * `disburser` (or, without one, the ADMIN) pays out.
  */
 import path from "node:path"
 
@@ -17,6 +18,12 @@ import { log } from "../sim/env"
 export interface OriginationContext {
   officer: SimClient
   admin: SimClient
+  /**
+   * Who pays out (POST …/disburse); unset = the admin. The simulator sets a
+   * LOAN_ADMIN here (servicing/setup.ts), so the approver never disburses and
+   * a lender with segregation of duties on still simulates.
+   */
+  disburser?: { client: SimClient; creds: StaffCredentials }
   creds: SeedCredentials
   /** Where per-persona specimen documents are generated. */
   specimensRoot: string
@@ -47,4 +54,5 @@ async function ensureStaff(client: SimClient, who: StaffCredentials): Promise<vo
 export async function ensureStaffSessions(ctx: OriginationContext): Promise<void> {
   await ensureStaff(ctx.officer, ctx.creds.officer)
   await ensureStaff(ctx.admin, ctx.creds.admin)
+  if (ctx.disburser) await ensureStaff(ctx.disburser.client, ctx.disburser.creds)
 }

@@ -122,6 +122,7 @@ async function main() {
     featurePortal: true,
     featureReports: true,
     featureAssetFinance: true,
+    requireSegregationOfDuties: LENDER.requireSegregationOfDuties,
     // This seed only ever creates a synthetic demo lender. The marker lets a
     // DEMO_MODE stack simulate a Section 129 email to its undeliverable
     // mailboxes (lib/collections/section129-email.ts); provisioning refuses it.

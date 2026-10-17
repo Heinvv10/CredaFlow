@@ -146,6 +146,9 @@ async function createCountersignedApplication(
       name: `Signature guard ${label}`,
     },
   })
+  // Off, so a direct DISBURSED write meets the envelope gate alone; segregation
+  // of duties is proved in lib/security/segregation-of-duties.integration.test.ts.
+  await prisma.tenantConfig.create({ data: { tenantId, requireSegregationOfDuties: false } })
   await prisma.user.create({
     data: {
       id: officerId,

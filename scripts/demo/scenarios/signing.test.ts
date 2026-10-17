@@ -5,7 +5,8 @@ import type { SimClient } from "../sim/api"
 
 vi.mock("../sim/env", async (orig) => ({ ...(await orig<typeof import("../sim/env")>()), log: () => undefined }))
 
-import { signAgreement, signDebitMandate } from "./signing"
+import { disburse, signAgreement, signDebitMandate } from "./signing"
+import type { OriginationContext } from "./context"
 
 const PDF = new TextEncoder().encode("%PDF-1.4 synthetic agreement")
 const PDF_SHA = createHash("sha256").update(PDF).digest("hex")
@@ -50,3 +51,43 @@ describe("demo signing scenario: the borrower verifies a signing code before eac
     expect(posts.map((p) => p.path)).not.toContain("/api/applications/app-1/agreement/sign")
   })
 })
+
+describe("demo signing scenario: payout", () => {
+  /** A signed-in staff SimClient fake recording the paths it POSTs. */
+  function staffClient(posted: string[], who: string) {
+    return {
+      user: { role: who },
+      session: async () => true,
+      post: async (path: string) => {
+        posted.push(`${who} ${path}`)
+        const json = { loanId: "loan-1", loanRef: "LN-1" }
+        return { status: 200, headers: new Headers(), json, text: JSON.stringify(json), bytes: new Uint8Array() }
+      },
+    } as unknown as SimClient
+  }
+  const creds = { email: "x@example.invalid", password: "p", totpSecret: "s" }
+
+  it("pays out as the disburser, never the admin who approved, when the context has one", async () => {
+    const posted: string[] = []
+    const ctx = {
+      officer: staffClient(posted, "officer"),
+      admin: staffClient(posted, "admin"),
+      disburser: { client: staffClient(posted, "loan-admin"), creds },
+      creds: { admin: creds, officer: creds, portalPassword: "p" },
+    } as unknown as OriginationContext
+    expect(await disburse(ctx, "app-1")).toEqual({ loanId: "loan-1", loanRef: "LN-1" })
+    expect(posted).toEqual(["loan-admin /api/applications/app-1/disburse"])
+  })
+
+  it("falls back to the admin without one", async () => {
+    const posted: string[] = []
+    const ctx = {
+      officer: staffClient(posted, "officer"),
+      admin: staffClient(posted, "admin"),
+      creds: { admin: creds, officer: creds, portalPassword: "p" },
+    } as unknown as OriginationContext
+    await disburse(ctx, "app-1")
+    expect(posted).toEqual(["admin /api/applications/app-1/disburse"])
+  })
+})
+

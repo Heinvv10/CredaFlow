@@ -67,6 +67,7 @@ model User {
   contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
   countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
+  disbursedApplications        LoanApplication[]                     @relation("DisbursedBy")
   fitAndProper                 FitAndProper?
   kycOverrideRequestsDecided   KycOverrideRequest[]                  @relation("KycOverrideDecidedBy")
   kycOverrideRequestsMade      KycOverrideRequest[]                  @relation("KycOverrideRequestedBy")

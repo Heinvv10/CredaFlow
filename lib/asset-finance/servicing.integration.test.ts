@@ -66,8 +66,8 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
     const d = database()
     // The product's terms when deal A's documents are prepared: the signed terms.
     fx = await createBookingFixture(d, t, setSession, { dealAArrears: { margin: BOOKED_MARGIN, feeCents: BOOKED_FEE } })
-    // One approver: the payout is created APPROVED.
-    await d.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
+    // One approver (segregation of duties off): the payout is created APPROVED.
+    await d.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000, requireSegregationOfDuties: false } })
     const serial = (await d.assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, include: { asset: true } })).asset.serialNumber
     for (const row of await d.payoutChecklistItem.findMany({ where: { dealId: fx.dealId, required: true } })) {
       const type = EVIDENCE[row.item]

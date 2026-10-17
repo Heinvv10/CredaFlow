@@ -73,6 +73,7 @@ function run(env: Record<string, string> = {}) {
 
 const clearCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "User"'))
 const policyCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "requireStaffTotp" = false'))
+const sodCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "requireSegregationOfDuties" = false'))
 const markerCalls = (calls: string[]) => calls.filter((c) => c.includes('UPDATE "TenantConfig" SET "isDemoLender" = true'))
 
 beforeEach(() => {
@@ -145,6 +146,25 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
     expect(idx('UPDATE "TenantConfig" SET "requireStaffTotp"')).toBeLessThan(idx('RENAME TO "demo"'))
     expect(policy[1]).toContain('DB=demo ')
+  })
+
+  // The column defaults ON for rows that existed before it (#140 review): a
+  // restored demo would refuse the presenter, who approves and pays out alone.
+  it('switches segregation of duties off on the restored live db', () => {
+    const live = run()
+    expect(sodCalls(live.calls)).toHaveLength(1)
+    expect(sodCalls(live.calls)[0]).toContain('DB=demo ')
+    expect(live.out).toMatch(/segregation of duties switched off/)
+  })
+
+  it('with DEMO_CLEAR_STAFF_TOTP=true also switches it off in the staged db, before the swap', () => {
+    const staged = run({ STUB_CLEAR_TOTP: '1' })
+    expect(sodCalls(staged.calls)).toHaveLength(2)
+    expect(sodCalls(staged.calls)[0]).toMatch(/DB=demo_restore_/)
+  })
+
+  it('does not touch segregation of duties when the restore fails before the swap', () => {
+    expect(sodCalls(run({ STUB_COUNTS: '{}' }).calls)).toHaveLength(0)
   })
 
   it('reads the container env whole: env printed after the match is no SIGPIPE refusal or skipped clear', () => {

@@ -66,3 +66,20 @@ describe("loadPayoutPanel bank account", () => {
     }))
   })
 })
+
+describe("loadPayoutPanel segregation of duties", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    m.currentAccount.mockResolvedValue(account("2222"))
+    m.deal.mockResolvedValue(deal(null))
+  })
+
+  it.each([
+    [{ assetPayoutDualApprovalCents: 100, requireSegregationOfDuties: true }, true],
+    [{ assetPayoutDualApprovalCents: 100, requireSegregationOfDuties: false }, false],
+    [null, true],
+  ])("reports the lender's setting (%j -> %s)", async (config, expected) => {
+    m.config.mockResolvedValue(config)
+    expect((await loadPayoutPanel("tenant-1", "deal-1"))?.segregationOfDuties).toBe(expected)
+  })
+})

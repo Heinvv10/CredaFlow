@@ -77,8 +77,8 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
   beforeAll(async () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
     fx = await createBookingFixture(database(), t, setSession, { dealAArrears: { margin: "0.02", feeCents: 45_000 } })
-    // One approver: payouts are created APPROVED.
-    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
+    // One approver (segregation of duties off): payouts are created APPROVED.
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000, requireSegregationOfDuties: false } })
   }, 180_000)
 
   afterAll(async () => {

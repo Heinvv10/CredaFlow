@@ -32,6 +32,7 @@ describe("demoLender", () => {
       staffDomain: "acme-lending.example",
       clientDomain: "acme-lending.invalid",
       bureau: { supplierNumber: "ACME01", tradingName: "ACME LENDING" },
+      requireSegregationOfDuties: false,
     }
     expect(demoLender({})).toEqual(acme)
     expect(demoLender({ DEMO_LENDER: "" })).toEqual(acme)
@@ -95,6 +96,10 @@ describe("demoLender", () => {
     it("has an identity the audited identity API accepts and colours the tenant admin API accepts", () => {
       expect(validateLenderIdentityColumns(lender.identity)).toMatchObject({ ok: true })
       expect(tenantColourErrors(lender.colours)).toEqual({})
+    })
+
+    it("turns segregation of duties off: one presenter approves and pays out", () => {
+      expect(lender.requireSegregationOfDuties).toBe(false)
     })
 
     it("is keyed by its slug", () => {

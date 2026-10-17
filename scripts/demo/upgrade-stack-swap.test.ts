@@ -35,6 +35,17 @@ describe('upgrade-stack.sh swap', () => {
     expect(worktrees()).toEqual([`worktree ${repo}`])
   })
 
+  // #140 review: the migration adding the setting defaults it ON for the demo
+  // tenant; the presenter approves and pays out as one admin.
+  it('switches segregation of duties off on the demo db right after migrate deploy, before the pin', () => {
+    const r = run([commits.c2!])
+    expect(r.status).toBe(0)
+    const sod = idx(r.calls, 'UPDATE "TenantConfig" SET "requireSegregationOfDuties" = false')
+    expect(sod).toBeGreaterThan(idx(r.calls, 'prisma migrate deploy'))
+    expect(sod).toBeLessThan(idx(r.calls, ' up -d'))
+    expect(r.calls[sod]).toMatch(/exec -e DB=\S+ -e SQL=/)
+  })
+
   // #147 review: the migration adding TenantConfig.isDemoLender leaves it false
   // on the demo tenant, and the demo's simulated Section 129 email needs it.
   it('marks the demo db tenants as demo lenders right after migrate deploy, before the pin', () => {

@@ -23,6 +23,8 @@ export interface PayoutPanel {
   documents: { id: string; fileName: string; docType: EntityDocumentType }[]
   payoutAmountCents: number
   dualApprovalThresholdCents: number | null
+  /** TenantConfig.requireSegregationOfDuties: every payout needs a second approver. */
+  segregationOfDuties: boolean
   approvedAccount: { bankName: string; accountNumberTail: string; accountHolder: string } | null
   payout: {
     status: PayoutStatus
@@ -70,7 +72,7 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
   })
   if (!deal) return null
   const [config, account] = await Promise.all([
-    prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetPayoutDualApprovalCents: true } }),
+    prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetPayoutDualApprovalCents: true, requireSegregationOfDuties: true } }),
     deal.payout ? Promise.resolve(deal.payout.supplierBankAccount) : prisma.supplierBankAccount.findFirst({
       where: { tenantId, supplierId: deal.supplierId, status: "APPROVED" },
       select: { bankName: true, accountNumber: true, accountHolder: true },
@@ -101,6 +103,8 @@ export async function loadPayoutPanel(tenantId: string, dealId: string): Promise
     documents: deal.documents,
     payoutAmountCents: payoutAmountCents({ ...deal.asset, depositCents: deal.depositCents, tradeInCents: deal.tradeInCents }),
     dualApprovalThresholdCents: config?.assetPayoutDualApprovalCents ?? null,
+    // No config row: the trigger treats it as on.
+    segregationOfDuties: config?.requireSegregationOfDuties ?? true,
     approvedAccount: account && {
       bankName: account.bankName, accountNumberTail: account.accountNumber.slice(-4), accountHolder: account.accountHolder,
     },

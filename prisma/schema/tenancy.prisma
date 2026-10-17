@@ -308,6 +308,13 @@ model TenantConfig {
   // existing rows too.
   requireStaffTotp Boolean @default(true)
 
+  // Segregation of duties (lib/security/segregation-of-duties.ts). On: the
+  // approver of an application cannot disburse it, the staff witness of an
+  // in-branch consumer signature cannot countersign it, and every asset-finance
+  // payout needs a second approver. The database triggers read it. Changed only
+  // by ADMIN or SUPER_ADMIN, audited. Default on, for existing rows too.
+  requireSegregationOfDuties Boolean @default(true)
+
   // Failed-selfie and in-person override policy (lib/kyc/override-policy.ts).
   // A clear biometric mismatch remains non-overridable regardless of these
   // settings; the database independently enforces that boundary.

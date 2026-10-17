@@ -158,6 +158,10 @@ model LoanApplication {
   approvedRate                            Float?
   approvedAt                              DateTime?
   disbursedAt                             DateTime?
+  // Staff user who disbursed it, written with the DISBURSED transition. With
+  // TenantConfig.requireSegregationOfDuties on, it must not be the approver
+  // (trigger LoanApplication_z_guard_segregation_of_duties).
+  disbursedById                           String?
   disbursementBank                        String?
   disbursementAccountNo                   String?
   disbursementBranchCode                  String?
@@ -176,6 +180,7 @@ model LoanApplication {
   approvedBy                              User?                @relation("ApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementCountersignedBy                User?                @relation("AgreementCountersignedBy", fields: [tenantId, agreementCountersignedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   agreementSignedBy                       User?                @relation("AgreementSignedBy", fields: [tenantId, agreementSignedByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  disbursedBy                             User?                @relation("DisbursedBy", fields: [tenantId, disbursedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   // PostgreSQL partial unique index (not expressible in Prisma schema):
   // LoanApplication_debitMandateReference_key, created by the baseline
   // migration.

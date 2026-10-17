@@ -61,8 +61,8 @@ suite.sequential("review round 3: planned start, frozen deal terms, released ass
   beforeAll(async () => {
     vi.stubEnv("TRUSTED_PROXY", "1")
     fx = await createBookingFixture(database(), t, setSession)
-    // One approver: a payout is created APPROVED.
-    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000 } })
+    // One approver (segregation of duties off): a payout is created APPROVED.
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetPayoutDualApprovalCents: 500_000_000, requireSegregationOfDuties: false } })
     otherSupplier = (await database().supplier.create({ data: { tenantId: fx.tenantId, name: "TEST Other Plant (Pty) Ltd" } })).id
     await database().financedAsset.update({
       where: { id: fx.assets[2] }, data: { trackerId: "TRK-R3C", trackerProvider: "TEST Tracking", lenderNotedConfirmed: true },

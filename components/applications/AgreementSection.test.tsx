@@ -398,3 +398,50 @@ describe("AgreementSection signing-grade KYC gate", () => {
     await act(async () => renderer!.unmount())
   })
 })
+
+describe("AgreementSection countersign refusals", () => {
+  async function countersignWith(response: { ok: boolean; status?: number; json: () => Promise<unknown> }) {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
+    let renderer: ReactTestRenderer
+    await act(async () => {
+      renderer = create(<AgreementSection {...baseProps} />)
+    })
+    const attest = renderer!.root.findAll((n) => n.type === "input" && n.props.type === "checkbox")[0]
+    await act(async () => attest.props.onChange({ target: { checked: true } }))
+    const button = renderer!.root.findAll((n) => n.type === "button" && nodeText(n.props.children).includes("Countersign Agreement"))[0]
+    await act(async () => {
+      await button.props.onClick()
+    })
+    const rendered = JSON.stringify(renderer!.toJSON())
+    await act(async () => renderer!.unmount())
+    return rendered
+  }
+
+  // Fair Score audit 2026-10-16: the countersign failed and the button "just
+  // did nothing". A toast disappears; the reason must stay on screen.
+  it("keeps the route's refusal on screen under the button", async () => {
+    const rendered = await countersignWith({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "The countersignature was refused: Signed debit-mandate authority is immutable outside an explicit return to review." }),
+    })
+    expect(rendered).toContain("Signed debit-mandate authority is immutable outside an explicit return to review")
+  })
+
+  it("says something readable when the response is not JSON", async () => {
+    const rendered = await countersignWith({ ok: false, status: 500, json: async () => { throw new SyntaxError("Unexpected end of JSON input") } })
+    expect(rendered).toContain("Countersign failed (HTTP 500)")
+  })
+
+  it("shows why this staff member cannot countersign instead of the form", () => {
+    const html = renderToStaticMarkup(
+      <AgreementSection
+        {...baseProps}
+        agreementSignedMethod="branch"
+        countersignBlockedReason="Segregation of duties: you witnessed the client's in-branch signature, so another staff member must countersign for the lender."
+      />,
+    )
+    expect(html).toContain("another staff member must countersign for the lender")
+    expect(html).not.toContain("Countersign Agreement")
+  })
+})

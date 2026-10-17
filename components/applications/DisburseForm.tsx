@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
 import { formatZAR } from "@/lib/utils"
 
@@ -23,6 +24,9 @@ interface Props {
     accountType: string | null
   }
 }
+
+/** No example reference: a dated one goes stale (the audit saw an April date in October). */
+export const PAYMENT_REFERENCE_PLACEHOLDER = "Your bank's transfer reference"
 
 /**
  * Turns the API's machine-readable evidence reason into the next action. The
@@ -80,11 +84,17 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
   const [confirm, setConfirm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set once the payout committed: no second POST, whatever the refresh does.
+  const [disbursed, setDisbursed] = useState(false)
+  // A double click lands before the disabled state renders: the ref holds.
+  const inFlight = useRef(false)
   const clientBankMissing = !clientBankDetails.bankName || !clientBankDetails.bankAccountNumber
 
   async function submit() {
     if (!bank || !accountNo) { setError("Bank and account number required"); return }
     if (!confirm) { setError("Please confirm the disbursement details are correct"); return }
+    if (inFlight.current || disbursed) return
+    inFlight.current = true
     setLoading(true)
     setError(null)
     try {
@@ -96,7 +106,7 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
         }),
       })
       if (!res.ok) {
-        const d = await res.json() as {
+        const d = await res.json().catch(() => ({})) as {
           error?: string
           bankingEvidence?: string
           bankingEvidenceField?: string
@@ -110,112 +120,117 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
           d.bankingEvidence ?? d.debitMandateEvidence,
           d.bankingEvidenceField,
         )
-        setError([d.error ?? "Disbursement failed", detail].filter(Boolean).join(" "))
+        setError([d.error ?? `Disbursement failed (HTTP ${res.status}).`, detail].filter(Boolean).join(" "))
         return
       }
+      setDisbursed(true)
+      setOpen(false)
       router.refresh()
     } catch {
       setError("Request failed")
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }
 
-  if (!open) {
-    return (
-      <Button onClick={() => setOpen(true)}>
-        <Banknote className="h-4 w-4" />
-        Disburse Loan
-      </Button>
-    )
-  }
-
+  // A rail button; the payout form opens over the page, where it has room.
   return (
-    <div className="overflow-hidden rounded-lg border border-[rgba(63,191,127,0.32)] bg-[var(--cf-bg-panel)]">
-      <div className="flex items-center gap-2 border-b border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.08)] px-5 py-3">
-        <Banknote className="h-4 w-4 text-[var(--cf-success)]" />
-        <span className="text-sm font-semibold text-[var(--cf-text)]">Disburse Loan - {formatZAR(disbursementCents)} to {clientName}</span>
-      </div>
+    <>
+      <Button className="w-full" onClick={() => setOpen(true)} disabled={disbursed}>
+        <Banknote className="h-4 w-4" />
+        {disbursed ? "Disbursed — opening the loan…" : "Disburse Loan"}
+      </Button>
+      <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setError(null) }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto p-0 sm:max-w-xl">
+          <div className="overflow-hidden rounded-lg border border-[rgba(63,191,127,0.32)] bg-[var(--cf-bg-panel)]">
+            <div className="flex items-center gap-2 border-b border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.08)] px-5 py-3 pr-12">
+              <Banknote className="h-4 w-4 text-[var(--cf-success)]" />
+              <DialogTitle className="text-sm font-semibold leading-normal">Disburse Loan - {formatZAR(disbursementCents)} to {clientName}</DialogTitle>
+            </div>
 
-      <div className="space-y-4 p-5">
-        <div className="flex items-start gap-2 rounded-lg border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-warning)]" />
-          <p className="text-xs font-medium text-[var(--cf-warning)]">
-            This action is irreversible. The loan will be created and repayment schedule generated immediately.
-          </p>
-        </div>
+            <div className="space-y-4 p-5">
+              <div className="flex items-start gap-2 rounded-lg border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-4 py-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-warning)]" />
+                <p className="text-xs font-medium text-[var(--cf-warning)]">
+                  This action is irreversible. The loan will be created and repayment schedule generated immediately.
+                </p>
+              </div>
 
-        <div className="rounded-lg border border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.07)] px-4 py-3">
-          <p className="text-sm font-semibold text-[var(--cf-success)]">Client bank details are locked for disbursement</p>
-          <p className="mt-1 text-xs leading-5 text-[var(--cf-text-secondary)]">
-            {repaymentMethod === "EFT"
-              ? "These are the recorded payout details. Before funds move, the disbursement gate will match them to an intact verified bank statement. Repayment is set to EFT, so no debit mandate is required."
-              : "These details match the customer’s verified bank statement and signed debit mandate. Change them only through a new customer-authorised mandate."}
-          </p>
-        </div>
+              <div className="rounded-lg border border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.07)] px-4 py-3">
+                <p className="text-sm font-semibold text-[var(--cf-success)]">Client bank details are locked for disbursement</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--cf-text-secondary)]">
+                  {repaymentMethod === "EFT"
+                    ? "These are the recorded payout details. Before funds move, the disbursement gate will match them to an intact verified bank statement. Repayment is set to EFT, so no debit mandate is required."
+                    : "These details match the customer’s verified bank statement and signed debit mandate. Change them only through a new customer-authorised mandate."}
+                </p>
+              </div>
 
-        {clientBankMissing && (
-          <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
-            {repaymentMethod === "EFT"
-              ? "Client bank details are incomplete. Verify the payout banking before disbursement."
-              : "Client bank details are incomplete. The customer must complete and sign a new debit mandate before disbursement."}
-          </p>
-        )}
+              {clientBankMissing && (
+                <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">
+                  {repaymentMethod === "EFT"
+                    ? "Client bank details are incomplete. Verify the payout banking before disbursement."
+                    : "Client bank details are incomplete. The customer must complete and sign a new debit mandate before disbursement."}
+                </p>
+              )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Bank *">
-            <input value={bank} className={fieldClass} readOnly />
-          </Field>
-          <Field label="Account Type">
-            <input value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
-          </Field>
-          <Field label="Account Number *">
-            <input value={accountNo} className={`${fieldClass} font-mono`} readOnly />
-          </Field>
-          <Field label="Branch Code">
-            <input value={branchCode} className={`${fieldClass} font-mono`} readOnly />
-          </Field>
-          <Field label="Payment Reference (optional)" className="col-span-2">
-            <input value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder="e.g. DISB-20260404-001" />
-          </Field>
-        </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Bank *" id="disburse-bank">
+                  <input id="disburse-bank" value={bank} className={fieldClass} readOnly />
+                </Field>
+                <Field label="Account Type" id="disburse-account-type">
+                  <input id="disburse-account-type" value={accountTypeLabel(accountType)} className={fieldClass} readOnly />
+                </Field>
+                <Field label="Account Number *" id="disburse-account-number">
+                  <input id="disburse-account-number" value={accountNo} className={`${fieldClass} font-mono`} readOnly />
+                </Field>
+                <Field label="Branch Code" id="disburse-branch-code">
+                  <input id="disburse-branch-code" value={branchCode} className={`${fieldClass} font-mono`} readOnly />
+                </Field>
+                <Field label="Payment Reference (optional)" id="disburse-payment-reference" className="col-span-2">
+                  <input id="disburse-payment-reference" value={bankRef} onChange={e => setBankRef(e.target.value)} className={fieldClass} placeholder={PAYMENT_REFERENCE_PLACEHOLDER} />
+                </Field>
+              </div>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[rgba(63,191,127,0.28)] bg-[rgba(63,191,127,0.08)] px-4 py-3">
-          <input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--cf-success)]" />
-          <div>
-            <p className="text-sm font-semibold text-[var(--cf-success)]">I confirm the disbursement details are correct</p>
-            <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
-              Disbursing {formatZAR(disbursementCents)} to <strong>{clientName}</strong> at {bank || "..."} - Account {accountNo || "..."}
-            </p>
-            {feeDeducted && (
-              <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
-                (Principal {formatZAR(principalCents)} less the initiation fee {formatZAR(principalCents - disbursementCents)}, deducted from the advance per the consumer&apos;s election.)
-              </p>
-            )}
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[rgba(63,191,127,0.28)] bg-[rgba(63,191,127,0.08)] px-4 py-3">
+                <input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--cf-success)]" />
+                <div>
+                  <p className="text-sm font-semibold text-[var(--cf-success)]">I confirm the disbursement details are correct</p>
+                  <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
+                    Disbursing {formatZAR(disbursementCents)} to <strong>{clientName}</strong> at {bank || "..."} - Account {accountNo || "..."}
+                  </p>
+                  {feeDeducted && (
+                    <p className="mt-0.5 text-xs text-[var(--cf-text-secondary)]">
+                      (Principal {formatZAR(principalCents)} less the initiation fee {formatZAR(principalCents - disbursementCents)}, deducted from the advance per the consumer&apos;s election.)
+                    </p>
+                  )}
+                </div>
+                {confirm && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
+              </label>
+
+              {error && <p role="alert" className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
+                <Button onClick={submit} disabled={loading || disbursed || !confirm || !bank || !accountNo || clientBankMissing}>
+                  <Banknote className="h-4 w-4" />
+                  {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
+                </Button>
+              </div>
+            </div>
           </div>
-          {confirm && <CheckCircle className="ml-auto mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-success)]" />}
-        </label>
-
-        {error && <p className="rounded border border-[rgba(208,92,75,0.28)] bg-[rgba(208,92,75,0.08)] px-3 py-2 text-xs text-[var(--cf-danger)]">{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={() => { setOpen(false); setError(null) }}>Cancel</Button>
-          <Button onClick={submit} disabled={loading || !confirm || !bank || !accountNo || clientBankMissing}>
-            <Banknote className="h-4 w-4" />
-            {loading ? "Disbursing..." : `Confirm - Disburse ${formatZAR(disbursementCents)}`}
-          </Button>
-        </div>
-      </div>
-    </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
 const fieldClass = "w-full rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-subtle)] px-2.5 py-2 text-sm text-[var(--cf-text)] outline-none focus:ring-1 focus:ring-[var(--cf-brand)]"
 
-function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({ label, id, children, className }: { label: string; id: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
-      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">{label}</label>
+      <label htmlFor={id} className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">{label}</label>
       {children}
     </div>
   )

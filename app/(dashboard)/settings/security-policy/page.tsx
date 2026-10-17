@@ -15,6 +15,8 @@ import { policyFromConfig } from "@/lib/security/staff-access-policy"
 import { getPortalPolicy } from "@/lib/portal/portal-policy"
 import { StaffAccessPolicyCard } from "@/components/settings/StaffAccessPolicyCard"
 import { PortalSigningPolicyCard } from "@/components/settings/PortalSigningPolicyCard"
+import { getSegregationOfDutiesState } from "@/lib/security/segregation-of-duties"
+import { SegregationOfDutiesToggle } from "@/components/settings/SegregationOfDutiesToggle"
 
 export const metadata = {
   title: "Security & KYC policy — Settings",
@@ -30,10 +32,11 @@ async function lastChangeOf(tenantId: string, action: string): Promise<string | 
 }
 
 export default async function SecurityPolicySettingsPage() {
-  // Visible to ADMIN and above; only a SUPER_ADMIN changes the policies.
+  // Visible to ADMIN and above; only a SUPER_ADMIN changes the policies,
+  // except segregation of duties, which an ADMIN changes too.
   const user = await requireMinRole("ADMIN")
   const tenantId = await getStaffTenantId()
-  const [state, kycState, accessColumns, portalPolicy, accessChange, portalChange, requestHeaders] = await Promise.all([
+  const [state, kycState, accessColumns, portalPolicy, accessChange, portalChange, requestHeaders, sod] = await Promise.all([
     getStaffTotpPolicyState(tenantId),
     getKycOverridePolicyState(tenantId),
     readStaffAccessColumns(tenantId),
@@ -41,6 +44,7 @@ export default async function SecurityPolicySettingsPage() {
     lastChangeOf(tenantId, AuditAction.STAFF_ACCESS_POLICY_UPDATED),
     lastChangeOf(tenantId, AuditAction.PORTAL_POLICY_UPDATED),
     headers(),
+    getSegregationOfDutiesState(tenantId),
   ])
   const access = policyFromConfig(accessColumns)
   const lastChange = state.lastChange
@@ -63,6 +67,13 @@ export default async function SecurityPolicySettingsPage() {
           requireStaffTotp={state.required}
           canChange={canChange}
           lastChange={lastChange}
+        />
+        <SegregationOfDutiesToggle
+          required={sod.required}
+          canChange={user.role === "ADMIN" || user.role === "SUPER_ADMIN"}
+          lastChange={sod.lastChange
+            ? `Last changed by ${sod.lastChange.byEmail ?? "unknown"} on ${formatDateTime(sod.lastChange.at)}.`
+            : null}
         />
         <StaffAccessPolicyCard
           hours={access.hours}
