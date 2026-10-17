@@ -53,7 +53,9 @@ describe("checkFigures: any other figure, or a given one written another way, re
     expect(rejected("Paid in Q3.")).toMatch(/not given/)
   })
   it("rejects abbreviated, compound, fractional, scaled and quantity figures", () => {
-    expect(rejected("Spend of R1 2k.")).toMatch(/not given/)
+    expect(rejected("Spend of R1 2k.")).toMatch(/abbreviated/)
+    expect(rejected("Balance R8 500.00k.")).toMatch(/abbreviated/)
+    expect(rejected("Balance R8 500.00 bn.")).toMatch(/abbreviated/)
     expect(rejected("About R1.2 million.")).toMatch(/words/)
     expect(rejected("Twenty-one payments.")).toMatch(/compound/)
     expect(rejected("Twenty one payments.")).toMatch(/compound/)

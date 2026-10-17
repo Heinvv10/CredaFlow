@@ -53,6 +53,9 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
   let text = stripLiterals(norm(rawText), allowed.literals ?? [])
   if (/(?![0-9])\p{Nd}/u.test(text)) return fail("figure in a non-ASCII script")
   if (/[⁄‰‱]/.test(text)) return fail("fraction or per-mille sign")
+  // "R8 500.00k", "R2 bn": a scale written after a figure, even a given one.
+  const abbreviated = text.match(/\d\s*(k|m|bn|mn|mil|mill?|thou)\b/i)
+  if (abbreviated) return fail(`abbreviated figure: "${abbreviated[0]}"`)
   const lower = text.toLowerCase()
   for (const [re, what] of [[QUANTITY_WORDS, "figure in words"], [ORDINAL_WORDS, "ordinal"], [WEEKDAYS, "weekday"], [RELATIVE_DATES, "relative date"]] as const) {
     const m = text.match(re)
@@ -81,7 +84,7 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
 
   const monthly = new Set([...(allowed.monthlyAmountsCents ?? [])].map((c) => Math.round(c)))
   for (const a of t.amounts.sort((x, y) => y.text.length - x.text.length)) {
-    const re = new RegExp(`(?<![\\w.,-])${escape(a.text)}(?!\\d|[.,]\\d)`, "g")
+    const re = new RegExp(`(?<![\\w.,-])${escape(a.text)}(?!\\w|[.,]\\d)`, "g")
     let bad = false
     text = text.replace(re, (m, offset: number, whole: string) => {
       if (MONTHLY.test(whole.slice(offset + m.length, offset + m.length + 30)) && !monthly.has(a.cents)) bad = true
@@ -93,7 +96,7 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     text = text.replace(new RegExp(`(?<![\\w-])${escape(s)}(?![\\w-])`, "g"), " ")
   }
   for (const p of t.percents.sort((x, y) => y.length - x.length)) {
-    text = text.replace(new RegExp(`(?<![\\w.,-])${escape(p)}(?![\\w%])`, "g"), " ")
+    text = text.replace(new RegExp(`(?<![\\w.,-])${escape(p)}(?![\\w%]|[.,]\\d)`, "g"), " ")
   }
   for (const n of t.numbers.map(String).sort((x, y) => y.length - x.length)) {
     // Not when a percentage sign or word follows: a count is not a percentage.
