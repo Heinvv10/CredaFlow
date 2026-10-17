@@ -43,3 +43,26 @@ describe("StatementInsightsPanel: model labels", () => {
     expect(html).not.toContain("Model-assigned: ")
   })
 })
+
+describe("StatementInsightsPanel: spending above declared", () => {
+  const spend = (declaredExpensesCents: number) => ({
+    ...computeInsights(
+      [{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read: { ...read, transactions: [{ ...rows[1], amountCents: -500_000 }] }, modelLabels: null }],
+      { clientName: "Thabo Tester", declaredExpensesCents },
+    ),
+    unreadStatements: 0,
+  })
+
+  it("shows a hint, never a block, when living spend is well above the declaration", async () => {
+    const html = await render(spend(100_000))
+    expect(html).toContain("expense-hint")
+    expect(html).toContain("Spending above declared")
+    expect(html).toContain("does not block approval")
+  })
+
+  it("shows no hint within the margins", async () => {
+    const html = await render(spend(450_000))
+    expect(html).not.toContain("expense-hint")
+    expect(html).not.toContain("Spending above declared")
+  })
+})
