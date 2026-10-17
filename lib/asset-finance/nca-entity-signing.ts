@@ -50,6 +50,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
   if (!authorityData) return { kind: "not_found" }
   const ncaAuthorityData = {
     ...authorityData,
+    ncaApplies: true,
     pricing: {
       ...authorityData.pricing,
       financedFeesCents: evidence.calculator.initiationFeeCents,

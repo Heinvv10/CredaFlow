@@ -1,22 +1,13 @@
 // A suretyship for one surety of a deal (goal §4.9): one document per surety,
 // signed by that surety alone. The parties and the debt are real data; the
-// clauses are marked placeholders until the lender's legal team supplies the
-// wording, and the DRAFT watermark prints until it is approved.
+// clauses are drafted wording (./wording/suretyship.ts) awaiting the lender's
+// legal team, and the DRAFT watermark prints until it is approved.
 import { formatDatePdf } from "@/lib/pdf/helpers"
 import type { DealDocumentData, DocumentPerson } from "./deal-document-data"
 import { DealDocumentError } from "./deal-document-data"
 import { DealDocumentWriter } from "./pdf-layout"
+import { suretyshipClauses } from "./wording/suretyship"
 import { debtSummary, entityRows, lenderLetterhead, lenderRows } from "./document-parts"
-
-const CLAUSES = [
-  "Suretyship and co-principal debtor",
-  "Extent of the suretyship",
-  "Renunciation of benefits",
-  "Continuing covering security",
-  "Certificate of balance",
-  "Domicilium and notices",
-  "General",
-]
 
 export function suretyFor(data: DealDocumentData, clientId: string): DocumentPerson {
   const surety = data.sureties.find((s) => s.clientId === clientId)
@@ -45,11 +36,12 @@ export async function renderSuretyship(data: DealDocumentData, suretyClientId: s
   w.labelValues(debtSummary(data))
 
   w.section("5. TERMS AND CONDITIONS")
-  CLAUSES.forEach((heading, i) => w.placeholderClause(`5.${i + 1}`, heading))
+  suretyshipClauses(data, surety).forEach((c, i) => w.clause(`5.${i + 1}`, c.heading, c.text))
 
   w.section("6. SIGNATURES")
   w.signatures([
     { caption: "The surety", name: surety.name, detail: `Identity number ${surety.idNumber}` },
+    { caption: "Spouse of the surety (only if married in community of property)", name: "Name:", detail: "Consents under section 15(2)(h) of the Matrimonial Property Act 88 of 1984" },
     { caption: "Witness", name: "Name:" },
   ])
   return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })

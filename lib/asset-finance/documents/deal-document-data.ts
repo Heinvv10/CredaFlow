@@ -48,6 +48,8 @@ export interface DocumentPerson {
 export interface DealDocumentData {
   /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark. */
   legalWordingApproved: boolean
+  /** True for an NCA entity deal's resolution and suretyships (../nca-entity-signing.ts): the suretyship drops terms s90 forbids. */
+  ncaApplies?: boolean
   /** The credit decision's instant: the document date and the PDF metadata dates. */
   documentDate: Date
   reference: string

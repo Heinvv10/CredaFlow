@@ -1,7 +1,7 @@
 // The instalment sale agreement (goal §4.9). Parties, goods, supplier,
-// pricing and the full schedule are the deal's real data; every clause is a
-// marked placeholder until the lender's legal team supplies the wording
-// (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
+// pricing and the full schedule are the deal's real data; the clauses are
+// drafted wording (./wording/instalment-sale.ts) awaiting the lender's legal
+// team (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
 // every page carries the DRAFT — NOT FOR EXECUTION watermark.
 import { Prisma } from "@prisma/client"
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
@@ -9,24 +9,8 @@ import { PRESET_LABELS } from "../deal-labels"
 import { STRUCTURE_PRESETS } from "../deal-input"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "./pdf-layout"
+import { instalmentSaleClauses } from "./wording/instalment-sale"
 import { assetRows, entityRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "./document-parts"
-
-/** Clause topics only. The wording of each is a placeholder for the legal team. */
-const CLAUSES = [
-  "Sale of the goods and ownership",
-  "Delivery, acceptance and risk",
-  "Payment",
-  "Interest and changes to the contract rate",
-  "Commencement and recalculation of the schedule",
-  "Insurance of the goods",
-  "Use, maintenance and location of the goods",
-  "Breach and remedies",
-  "Default interest and collection costs",
-  "Early settlement",
-  "Cession and assignment",
-  "Domicilium and notices",
-  "General",
-]
 
 const SCHEDULE_COLUMNS: TableColumn[] = [
   { header: "No.", x: MARGIN + 4, width: 22 },
@@ -102,7 +86,7 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData): Pro
   )
 
   w.section("7. TERMS AND CONDITIONS")
-  CLAUSES.forEach((heading, i) => w.placeholderClause(`7.${i + 1}`, heading))
+  instalmentSaleClauses(data).forEach((c, i) => w.clause(`7.${i + 1}`, c.heading, c.text))
 
   w.section("8. SIGNATURES")
   w.signatures([
