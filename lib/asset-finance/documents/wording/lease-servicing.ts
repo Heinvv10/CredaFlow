@@ -12,7 +12,7 @@ import { CPA_CANCELLATION_NOTICE_BUSINESS_DAYS } from "../../lease-termination"
 import { formatIsoDatePdf } from "../pdf-layout"
 import type { ExpiryNoticeData, InspectionReportData, TerminationQuoteData } from "../lease/lease-docs-types"
 import type { WordingClause } from "./lease-agreement"
-import { CPA_CANCELLATION_CHARGE, s14 } from "./lease-agreement-end"
+import { CPA_CANCELLATION_CHARGE, s14Note, s14Source } from "./lease-agreement-end"
 import { INSPECTION_OBJECTION_BUSINESS_DAYS } from "./lease-agreement-goods"
 
 const para = (...parts: (string | false)[]): string => parts.filter((p): p is string => p !== false).join("\n\n")
@@ -29,8 +29,9 @@ export function expiryNoticeClauses(data: ExpiryNoticeData): WordingClause[] {
     {
       heading: "Consequences of taking no action before the expiry date",
       text: para(
-        `If you have not told us your choice by ${expiry}, your lease does not simply end. Under ${s14(data, "2)(d")}, it then `
-        + "continues month to month after the expiry date. It continues on the same terms, at the same monthly rental (and maintenance, if your lease includes it) as your "
+        `If you have not told us your choice by ${expiry}, your lease does not simply end. As ${s14Source(data, "2)(d")} provides, it then `
+        + `continues month to month after the expiry date.${s14Note(data, "2)(d", "you")} It continues `
+        + "on the same terms, at the same monthly rental (and maintenance, if your lease includes it) as your "
         + "last rental: no material change applies to the continued lease.",
         "While it continues you keep the goods, pay the rental each month, and keep the goods insured and in good condition as your lease agreement requires. You may end "
         + `the month-to-month lease at any time by giving us at least ${days}' written notice; it ends on the date in your notice, not earlier than ${days} after it. We may `
@@ -89,14 +90,14 @@ export function terminationQuoteClauses(data: TerminationQuoteData): WordingClau
       {
         heading: "Your cancellation",
         text: para(
-          `You gave us notice on ${formatIsoDatePdf(data.quotedOn)} to cancel your lease, as ${s14(data, "2)(b)(i)(bb")} allows on `
-          + `${CPA_CANCELLATION_NOTICE_BUSINESS_DAYS} business days' notice. Your lease therefore ends on ${on}, whether or not you accept or pay this quote. ${rentals("that date")} ${goods("that date")}`,
+          `You gave us notice on ${formatIsoDatePdf(data.quotedOn)} to cancel your lease, as ${s14Source(data, "2)(b)(i)(bb")} allows on `
+          + `${CPA_CANCELLATION_NOTICE_BUSINESS_DAYS} business days' notice.${s14Note(data, "2)(b)(i)(bb", "you")} Your lease therefore ends on ${on}, whether or not you accept or pay this quote. ${rentals("that date")} ${goods("that date")}`,
         ),
       },
       {
         heading: "The cancellation charge",
         text: para(
-          `You remain liable for the amounts owed up to ${on}, and the lessor may charge only a reasonable cancellation penalty (${s14(data, "3")}). `
+          `You remain liable for the amounts owed up to ${on}, and the lessor may charge only a reasonable cancellation penalty, as ${s14Source(data, "3")} provides. `
           + `This quote states that charge. ${CPA_CANCELLATION_CHARGE}`,
           `The lessor issues one tax invoice for the charge, plus VAT, due on ${on}. The arrears are already due. Default interest runs on any amount not paid by its due `
           + "date, as the lease agreement provides.",

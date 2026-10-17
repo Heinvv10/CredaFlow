@@ -111,9 +111,9 @@ describe("lease agreements (C9)", () => {
     const text = await expectEveryClause(soleProprietor, 15)
     expect(text).toContain(`("the lessor") lets to Test Soleprop ("the lessee")`)
     expect(text).toContain("IMPORTANT (section 49 of the CPA)")
-    expect(text).toContain("the lease continues month to month under (b), under section 14(2)(d) of the CPA")
-    expect(text).toContain("The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, under section 14(2)(b)(i)(bb) "
-      + "of the CPA. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or pays any quote.")
+    expect(text).toContain("the lease continues month to month under (b), as section 14(2)(d) of the CPA provides, until it is ended as (b) provides.")
+    expect(text).toContain("The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, as section 14(2)(b)(i)(bb) "
+      + "of the CPA allows. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or pays any quote.")
     expect(text).toContain("less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or letting the returned goods")
     expect(text).toContain("It is never more than the lessee would have paid had the lease run its full term, no further penalty is added")
     expect(text).toContain("regulation 5(2) of the CPA Regulations")
@@ -136,9 +136,16 @@ describe("lease agreements (C9)", () => {
   it("a juristic CPA lessee gets the s14 terms by contract, not as the statute (s14(1))", async () => {
     const juristic: AnyDealDocumentData = { ...fml, lease: { ...lease, cpaApplies: true, cpaRule: "CPA_JURISTIC_UNDER_THRESHOLD" } }
     const text = await expectEveryClause(juristic, 17)
-    expect(text).toContain("under this agreement, on the terms section 14(2)(b)(i)(bb) of the CPA sets for a natural-person consumer")
+    // Whole sentences: the juristic form reads as English at every s14 site (9.9, 9.10, 9.11).
+    expect(text).toContain("the lease continues month to month under (b), as this agreement provides, until it is ended as (b) provides. Section 14(2)(d) of "
+      + "the CPA does not apply to a juristic lessee, but this agreement gives the lessee the same terms as it gives a natural-person consumer.")
+    expect(text).toContain("20 business days' written notice, as this agreement allows. Section 14(2)(b)(i)(bb) of the CPA does not apply to a juristic lessee, "
+      + "but this agreement gives the lessee the same terms as it gives a natural-person consumer. The cancellation takes effect")
+    expect(text).toContain("the lessor may charge only a reasonable cancellation penalty, as this agreement provides.")
+    expect(text).toContain("the lessor may cancel this agreement, as this agreement provides, or exercise its other remedies below. Section 14(2)(b)(ii) of the CPA")
+    expect(text).not.toMatch(/on the terms section 14|this agreement, on the terms/)
     expect(text).toContain("Section 14 does not apply between juristic persons, but this agreement gives the lessee the same rights")
-    expect(text).not.toMatch(/under section 14\(2\)\(d\) of the CPA|Its fixed-term rules \(section 14\) apply/)
+    expect(text).not.toMatch(/as section 14\(2\)\(d\) of the CPA provides|Its fixed-term rules \(section 14\) apply/)
   })
 
   it("the DRAFT watermark follows the lender's approval of the wording", async () => {

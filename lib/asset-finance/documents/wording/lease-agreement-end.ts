@@ -20,9 +20,12 @@ const para = (...parts: (string | false)[]): string => parts.filter((p): p is st
 const months = (n: number): string => (n === 1 ? "one month" : `${n} months`)
 const CPA_DAYS = `${CPA_CANCELLATION_NOTICE_BUSINESS_DAYS} business days`
 
-/** The statute for a natural-person lessee; a juristic CPA lessee gets the same terms by contract (s14(1) excludes it). */
-export const s14 = (i: Pick<LeaseWordingInput, "naturalPerson">, subsection: string): string =>
-  i.naturalPerson ? `section 14(${subsection}) of the CPA` : `this agreement, on the terms section 14(${subsection}) of the CPA sets for a natural-person consumer`
+type Lessee = Pick<LeaseWordingInput, "naturalPerson">
+/** What a s14 term rests on: the statute for a natural-person lessee, this agreement for a juristic one (s14(1) excludes it). */
+export const s14Source = (i: Lessee, subsection: string): string => (i.naturalPerson ? `section 14(${subsection}) of the CPA` : "this agreement")
+/** For a juristic lessee, the sentence that says why the agreement gives the s14 term; nothing for a natural person. */
+export const s14Note = (i: Lessee, subsection: string, who: string): string => (i.naturalPerson ? ""
+  : ` Section 14(${subsection}) of the CPA does not apply to a juristic lessee, but this agreement gives ${who} the same terms as it gives a natural-person consumer.`)
 
 function endOptions(i: LeaseWordingInput): string {
   const maintenance = i.fml ? " and maintenance" : ""
@@ -47,8 +50,8 @@ function endOptions(i: LeaseWordingInput): string {
       ? "The lessee has had the goods throughout the term and knows their condition; the sale does not limit the lessee's rights under the CPA."
       : "The goods are sold in the condition they are in at the end of the term, which the lessee knows, without any warranty by the lessor (voetstoots)."),
     i.cpa
-      ? "If the lessee has made no choice by the expiry date and has not told the lessor to end the lease on that date, the lease continues month to month under (b), under "
-        + `${s14(i, "2)(d")}, until it is ended as (b) provides.`
+      ? "If the lessee has made no choice by the expiry date and has not told the lessor to end the lease on that date, the lease continues month to month under (b), as "
+        + `${s14Source(i, "2)(d")} provides, until it is ended as (b) provides.${s14Note(i, "2)(d", "the lessee")}`
       : "If the lessee has made no choice by the expiry date, it must return the goods on that date under clause 9.8. Until it does, the lessor may by written notice treat the "
         + "lease as extended under (b) from the expiry date.",
   )
@@ -63,10 +66,10 @@ export const CPA_CANCELLATION_CHARGE = "The cancellation penalty is the lessor's
 function earlyTermination(i: LeaseWordingInput): string {
   if (i.cpa) {
     return para(
-      `The lessee may cancel this lease at any time by giving the lessor ${CPA_DAYS}' written notice, under ${s14(i, "2)(b)(i)(bb")}. The cancellation takes effect `
+      `The lessee may cancel this lease at any time by giving the lessor ${CPA_DAYS}' written notice, as ${s14Source(i, "2)(b)(i)(bb")} allows.${s14Note(i, "2)(b)(i)(bb", "the lessee")} The cancellation takes effect `
       + `${CPA_DAYS} after the notice is given, whether or not the lessee accepts or pays any quote. The rentals that would fall due after the cancellation date are `
       + "cancelled, and the goods are returned and inspected under clause 9.8 (the end-of-term invoice for usage and damage follows separately).",
-      `The lessee remains liable for the amounts owed up to the cancellation date, and the lessor may charge only a reasonable cancellation penalty (${s14(i, "3")}). `
+      `The lessee remains liable for the amounts owed up to the cancellation date, and the lessor may charge only a reasonable cancellation penalty, as ${s14Source(i, "3")} provides. `
       + CPA_CANCELLATION_CHARGE,
       "The lessor gives the lessee a written quote stating the penalty, and invoices it, plus VAT, on the cancellation date. The lessee may dispute the amount with the "
       + "lessor, and may refer a dispute to the National Consumer Commission or a court; a dispute does not delay the cancellation.",
@@ -88,7 +91,8 @@ function earlyTermination(i: LeaseWordingInput): string {
 function breach(i: LeaseWordingInput): string {
   const events = i.cpa
     ? `If the lessee fails to pay any amount on its due date or materially breaches this agreement, the lessor may give the lessee written notice of the breach. If the lessee `
-      + `has not remedied it within ${CPA_DAYS} of the notice, the lessor may cancel this agreement (${s14(i, "2)(b)(ii")}) or exercise its other remedies below.`
+      + `has not remedied it within ${CPA_DAYS} of the notice, the lessor may cancel this agreement, as ${s14Source(i, "2)(b)(ii")} provides, or exercise its other remedies `
+      + `below.${s14Note(i, "2)(b)(ii", "the lessor")}`
     : "The lessee is in default if it: fails to pay any amount on its due date; breaches any other term and does not remedy the breach within "
       + `${COMMERCIAL_REMEDY_DAYS} days of the lessor's written notice; is placed under provisional or final sequestration, liquidation or deregistration, commits an act of `
       + "insolvency, or offers a compromise to its creditors; allows a judgment against it to stay unsatisfied for 7 days; allows the goods to be attached; or gave materially "
