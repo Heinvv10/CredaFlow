@@ -156,10 +156,35 @@ suite.sequential("asset-finance payout gate and booking (real Postgres, real rou
     await database().suretyConsent.update({ where: { signerId: signer.id }, data: { maritalRegime: "IN_COMMUNITY" } })
     expect(await sqlError(() => rawPayout(fx.dealId, fx.accountId))).toContain("every surety marital regime")
     const evidenceDocumentId = await dealDocument(database(), fx, fx.dealId, "LEGAL_DOCUMENT")
-    const input = { maritalRegime: "IN_COMMUNITY" as const, spouseName: "TEST Spouse", witnessOne: "TEST Witness One", witnessTwo: "TEST Witness Two", evidenceDocumentId }
+    const input = { consentSignedOn: sastCalendarDate(new Date()), suretySignedOn: sastCalendarDate(new Date()), consentBeforeSurety: true, maritalRegime: "IN_COMMUNITY" as const, spouseName: "TEST Spouse", witnessOne: "TEST Witness One", witnessTwo: "TEST Witness Two", evidenceDocumentId }
     staff(fx.officer, "CREDIT_OFFICER")
     expect((await routes().consent(fx.dealId, signer.id, input)).status).toBe(200)
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "ASSET_SURETY_CONSENT_VERIFIED" } })).toBe(2)
+    const today = sastCalendarDate(new Date())
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    expect((await routes().consent(fx.dealId, signer.id, { ...input, consentSignedOn: today, suretySignedOn: yesterday })).status).toBe(400)
+    expect((await routes().consent(fx.dealId, signer.id, { ...input, consentBeforeSurety: false })).status).toBe(400)
+    await ruleRefuses(database(), { table: "SuretyConsent", trigger: "SuretyConsent_timing" }, /before the surety signs/, (tx) => tx.suretyConsent.update({ where: { signerId: signer.id }, data: { consentSignedOn: dbDate(today), suretySignedOn: dbDate(yesterday) } }))
+    await ruleRefuses(database(), { table: "SuretyConsent", trigger: "SuretyConsent_timing" }, /before the surety signs/, (tx) => tx.suretyConsent.update({ where: { signerId: signer.id }, data: { consentBeforeSurety: false } }))
+    expect(await recordSuretyConsent(actor, fx.dealId, signer.id, { ...input, consentSignedOn: today, suretySignedOn: yesterday })).toMatchObject({ status: 422 })
+    // Upload/verification today does not turn actual earlier consent into ratification.
+    expect((await routes().consent(fx.dealId, signer.id, { ...input, consentSignedOn: yesterday, suretySignedOn: yesterday })).status).toBe(200)
+    const recorded = await database().suretyConsent.findUniqueOrThrow({ where: { signerId: signer.id } })
+    expect(recorded.consentSignedOn?.toISOString().slice(0, 10)).toBe(yesterday)
+    expect(sastCalendarDate(recorded.verifiedAt)).toBe(today)
+    // Simulate legacy evidence without invented timing and prove the payout guard,
+    // independently of the consent-write guard, refuses it. Restore afterwards.
+    await database().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER TABLE "SuretyConsent" DISABLE TRIGGER "SuretyConsent_timing"')
+      await tx.suretyConsent.update({ where: { signerId: signer.id }, data: { consentSignedOn: null, suretySignedOn: null, consentBeforeSurety: false } })
+      await tx.$executeRawUnsafe('ALTER TABLE "SuretyConsent" ENABLE TRIGGER "SuretyConsent_timing"')
+    })
+    staff(fx.adminA, "LOAN_ADMIN")
+    expect((await routes().createPayout(fx.dealId)).status).toBe(409)
+    await ruleRefuses(database(), { table: "Payout", trigger: "Payout_consent_timing" }, /consent preceded surety signing/, (tx) => tx.payout.create({ data: { tenantId: fx.tenantId, dealId: fx.dealId, supplierBankAccountId: fx.accountId, amountCents: 155_250_000, createdById: fx.adminA } }))
+    staff(fx.officer, "CREDIT_OFFICER")
+    expect((await routes().consent(fx.dealId, signer.id, input)).status).toBe(200)
+
     expect(await sqlError(() => database().entityDocument.update({ where: { id: evidenceDocumentId }, data: { deletedAt: new Date() } }))).toContain("verified spouse consent document is immutable")
   })
 

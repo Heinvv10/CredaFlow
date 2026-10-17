@@ -23,6 +23,9 @@ export function SuretyConsentForm({ dealId, signerId, documents, maritalRegime }
     </select></label>
     {regime === "IN_COMMUNITY" && <>
       <p className="text-sm">Verify the spouse signed the wet-ink consent in the presence of two competent witnesses who also signed. Upload the scan as a Legal document below.</p>
+      <label>Actual date surety signed the wet-ink suretyship <input className={field} type="date" name="suretySignedOn" /></label>
+      <label>Actual date spouse signed the witnessed consent <input className={field} type="date" name="consentSignedOn" /></label>
+      <label className="text-sm"><input type="checkbox" name="consentBeforeSurety" /> I verified the witnessed spouse consent was obtained before the surety signed, including the order of signatures on the same day. Later consent cannot ratify an existing suretyship.</label>
       <input className={field} name="spouseName" placeholder="Spouse full name" maxLength={200} />
       <input className={field} name="witnessOne" placeholder="First witness full name" maxLength={200} />
       <input className={field} name="witnessTwo" placeholder="Second witness full name" maxLength={200} />

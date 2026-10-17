@@ -889,6 +889,9 @@ model SuretyConsent {
   spouseName String?
   witnessOne String?
   witnessTwo String?
+  suretySignedOn DateTime? @db.Date
+  consentSignedOn DateTime? @db.Date
+  consentBeforeSurety Boolean @default(false)
   evidenceDocumentId String?
   evidenceDocument EntityDocument? @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   verifiedById String
