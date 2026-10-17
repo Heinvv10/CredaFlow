@@ -34,7 +34,9 @@ export interface OutputView {
  * the language check today.
  */
 export function toView(o: StatementAiOutput, currentHash: string | null, raisedFlagCodes: readonly string[]): OutputView {
-  const ok = o.status === "OK" && checkNoContradiction(o.text, raisedFlagCodes).ok
+  // A summary made before a flag was raised does not name it: not shown, since a summary never leaves out what the rules found.
+  const namesFlags = o.kind !== "SUMMARY" || raisedFlagCodes.every((c) => o.text.includes(c))
+  const ok = o.status === "OK" && namesFlags && checkNoContradiction(o.text, raisedFlagCodes).ok
   return {
     id: o.id,
     kind: o.kind,

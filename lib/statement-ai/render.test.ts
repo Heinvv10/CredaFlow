@@ -7,6 +7,7 @@ import { buildPlans, produce } from "./generate"
 import { checkFigures } from "./post-check"
 import { renderResult, renderSummary, SUMMARY_CLAIMS } from "./render"
 import { askRows, runQuery } from "./ask/tools"
+import { checkAnswer } from "./ask/answer"
 
 const st = statement(syntheticTransactions())
 const read = st.read!
@@ -111,3 +112,18 @@ describe("review round 4: what the sentences must never say", () => {
   })
 })
 
+
+describe("review round 5", () => {
+  const ask = askRows([{ ref: "S1", transactions: read.transactions.map((t, index) => ({ index, t })) }], "T TESTER")
+  it("calls an average with no direction a net average", () => {
+    expect(renderResult(runQuery(ask, { id: "q1", tool: "average", filter: {} }))).toMatch(/^\[q1\] Net average amount \(money in less money out, per row; a minus means more went out than came in\) for all rows: /)
+    expect(renderResult(runQuery(ask, { id: "q2", tool: "average", filter: { direction: "out" } }))).toMatch(/^\[q2\] Average amount for money out: /)
+  })
+  it("figure-checks a payee named with a direction or number word as a name", () => {
+    const out = read.transactions.find((t) => t.amountCents < 0)!
+    const salaryCo = askRows([{ ref: "S1", transactions: [{ index: 0, t: { ...out, description: "SALARY ADVANCE CO" } }, { index: 1, t: { ...out, description: "ONE STOP SHOP" } }] }], "T TESTER")
+    for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5 }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum" })]) {
+      expect(checkAnswer(renderResult(q), [q])).toEqual({ ok: true })
+    }
+  })
+})

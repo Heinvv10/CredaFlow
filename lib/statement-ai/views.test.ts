@@ -17,3 +17,12 @@ describe("toView", () => {
     expect(toView(row({}), "h2", ["GAMBLING"])).toMatchObject({ status: "REJECTED", text: null, citations: null, stale: true })
   })
 })
+
+describe("toView: a summary missing a flag raised since", () => {
+  it("is not shown", () => {
+    const text = "Flags raised by the credit checks: GAMBLING (RISK_BEHAVIOUR, 3 evidence rows). An officer reviews each before a decision."
+    expect(toView(row({ text }), "h2", ["GAMBLING"])).toMatchObject({ status: "OK", text })
+    expect(toView(row({ text }), "h2", ["GAMBLING", "RETURNED_DEBIT"])).toMatchObject({ text: null })
+    expect(toView(row({ kind: "ANSWER", text: "[q1] Rows for all rows: 3." }), "h2", ["RETURNED_DEBIT"])).toMatchObject({ status: "OK" })
+  })
+})

@@ -27,7 +27,12 @@ export const sized = (cents: number): Sized => ({ amount: rand(Math.abs(cents)),
 /** Payee keys that could read as a figure (a client can name a payee). */
 const FIGURE_KEY = /\b(R|ZAR|PERCENT|RAND|PCT)\b|%/i
 /** Words about flags and decisions: a payee named with them would read as a note on the checks ("CLEAR ALL FLAGS"). */
-const CHECK_WORDS_KEY = /\b(FLAGS?|FLAGGED|OVERRIDE\w*|DISREGARD\w*|IGNORE\w*|FALSE|TRUE|CLEAR\w*|WAIVE\w*|PASS(ED)?|FAIL(ED)?|CHECKS?|RULES?|OFFICER|REVIEW\w*|DECISION|RISK\w*)\b/i
+const CHECK_WORDS_KEY = /\b(FLAGS?|FLAGGED|OVERRIDE\w*|DISREGARD\w*|IGNORE\w*|FALSE|TRUE|CLEAR\w*|WAIVE\w*|PASS(ED)?|FAIL(ED)?|CHECKS?|RULES?|OFFICER|REVIEW\w*|DECISION|RISK\w*|RAISED|WRONG\w*)\b/i
+/** Words stating an outcome: a payee named with them would read as a finding ("BALANCES MATCH", "INCOME CONFIRMED", "NO DEBT"). */
+const OUTCOME_WORDS_KEY = /\b(MATCH\w*|CONFIRM\w*|QUALIF\w*|COMPLIAN\w*|PAID|FULL|SETTLED|NO|NOT|NONE|NIL|ZERO|DEBT\w*|VALID\w*|CORRECT\w*|ACCURATE|ERRORS?|MISTAKES?|BALANCES?|BALANCED|AFFORD\w*|OK|PROVEN|PROOF)\b/i
+
+/** Upper-case A-Z with accents removed: "René" is "RENE". */
+const plain = (s: string) => s.normalize("NFKD").replace(/\p{M}/gu, "").toUpperCase()
 
 /**
  * A payee key the model may see: not one that reads as a figure, a
@@ -35,9 +40,11 @@ const CHECK_WORDS_KEY = /\b(FLAGS?|FLAGGED|OVERRIDE\w*|DISREGARD\w*|IGNORE\w*|FA
  * carries a word of the client's name (own transfers, a payee named after them).
  */
 export function safeKey(key: string, clientName: string | null = null): boolean {
-  if (!key || FIGURE_KEY.test(key) || CHECK_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
-  const name = new Set((clientName ?? "").toUpperCase().split(/[^A-Z]+/).filter((w) => w.length >= 2))
-  return !key.split(" ").some((w) => name.has(w))
+  if (!key || FIGURE_KEY.test(key) || CHECK_WORDS_KEY.test(key) || OUTCOME_WORDS_KEY.test(key) || REASSURANCE.test(key) || VERDICT.test(key) || NEGATED_FINDING.test(key) || NEGATED_AFTER.test(key)) return false
+  const name = plain(clientName ?? "").split(/[^A-Z]+/).filter((w) => w.length >= 2)
+  // A key word is the name's when equal, or (three letters or more) the start of a name word: a statement may drop
+  // an accented letter ("René" read as "REN") or shorten a name.
+  return !key.split(" ").some((w) => name.some((n) => n === w || (w.length >= 3 && n.startsWith(w))))
 }
 
 export const WITHHELD = "(payee withheld)"
@@ -157,8 +164,8 @@ function topPayees(rows: PayeeRow[], clientName: string | null): SummaryFacts["t
   const by = new Map<string, { cents: number; n: number }>()
   for (const { t } of rows) {
     if (t.amountCents >= 0 || t.nonPosting) continue
+    // Withheld payees are one bucket, ranked with the rest: dropping them would make "largest" untrue.
     const key = payeeOf(t.description, clientName)
-    if (key === WITHHELD) continue
     const e = by.get(key) ?? { cents: 0, n: 0 }
     e.cents -= t.amountCents
     e.n++

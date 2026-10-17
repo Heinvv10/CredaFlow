@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { computeInsights } from "@/lib/statement-analysis/insights"
 import { syntheticTransactions } from "./synthetic.test-helpers"
-import { allowedFrom, explanationFacts, safeKey, summaryFacts } from "./facts"
+import { allowedFrom, explanationFacts, safeKey, summaryFacts, WITHHELD } from "./facts"
 import { rand } from "./format"
 import { checkFigures } from "./post-check"
 import { SUMMARY_PROMPT_VERSION, summaryPrompt } from "./prompts"
@@ -88,5 +88,21 @@ describe("prompt versions", () => {
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
     expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-2", "b47ae42d7cbeecd6"])
+  })
+})
+
+describe("review round 5: payees", () => {
+  it("withholds payees that state an outcome, and accented or shortened client names", () => {
+    expect(["FLAG WAIVED", "FLAGS WRONGLY RAISED", "BALANCES MATCH", "NO DEBT", "INCOME CONFIRMED", "SALARY MATCHES PAYSLIP", "QUALIFIED", "COMPLIANT", "PAID IN FULL"].filter((k) => safeKey(k))).toEqual([])
+    expect(safeKey("REN", "René Tester")).toBe(false)
+    expect(safeKey("RENE MOTORS", "René Tester")).toBe(false)
+    expect(safeKey("TEST", "Thabo Testerson")).toBe(false)
+    expect(safeKey("SYNTH RENTALS", "René Tester")).toBe(true)
+  })
+  it("ranks withheld payees as one bucket, so the largest are the largest", () => {
+    const out = read.transactions.find((t) => t.amountCents < 0)!
+    const big = [1, 2].map((i) => ({ t: { ...out, description: `STANDARD BANK HOMELOAN ${i}`, amountCents: -5_000_000 } }))
+    const top = summaryFacts(insights, [...rows, ...big], [], "T TESTER").facts.topPayees
+    expect(top[0]).toEqual({ payee: WITHHELD, moneyOut: "R100 000.00", payments: 2 })
   })
 })

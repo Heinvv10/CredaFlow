@@ -58,7 +58,9 @@ function tokens(allowed: Allowed) {
  * that is not allowed, or not written as given, as the reason.
  */
 export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
-  let text = stripLiterals(norm(rawText), allowed.literals ?? [])
+  // A quoted payee (render.ts) is a name, never a figure or a direction: "SALARY ADVANCE CO" names who was paid.
+  // Payee keys hold only A-Z, & and spaces (labelKey), so a quote cannot be smuggled inside one.
+  let text = stripLiterals(norm(rawText).replace(/"[A-Z&][A-Z& ]*"/g, '"payee"'), allowed.literals ?? [])
   if (/(?![0-9])\p{Nd}/u.test(text)) return fail("figure in a non-ASCII script")
   if (/[⁄‰‱]/.test(text)) return fail("fraction or per-mille sign")
   // "R8 500.00k", "R2 bn": a scale written after a figure, even a given one.

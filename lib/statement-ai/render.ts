@@ -8,7 +8,7 @@
  * over the rendered text, as a second line.
  */
 import { z } from "zod"
-import type { ExplanationFacts, Sized, SummaryFacts } from "./facts"
+import { WITHHELD, type ExplanationFacts, type Sized, type SummaryFacts } from "./facts"
 import type { QueryResult } from "./ask/tools"
 
 // ── Feature A: summary claims ───────────────────────────────────────────────
@@ -36,7 +36,7 @@ export const ClaimsSchema = z.object({ claims: z.array(z.enum(SUMMARY_CLAIMS)).m
 
 const list = (items: string[]) => items.join("; ")
 /** A payee's name is statement text a client can write: always quoted, so it reads as a name, never as the sentence. */
-const quoted = (payee: unknown) => `"${String(payee)}"`
+const quoted = (payee: unknown) => (payee === WITHHELD ? WITHHELD : `"${String(payee)}"`)
 const sized = (s: Sized) => `${s.amount} ${s.direction === "in" ? "in" : "out"}`
 
 function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
@@ -162,7 +162,9 @@ export function renderResult(q: QueryResult): string {
     case "count":
       return `[${q.id}] Rows for ${what}: ${r.count}.`
     case "average":
-      return r.average === null ? `[${q.id}] No rows for ${what}.` : `[${q.id}] Average amount for ${what}: ${r.average}, over ${rowsWord(r.rowCount)}.`
+      return r.average === null
+        ? `[${q.id}] No rows for ${what}.`
+        : `[${q.id}] ${r.direction ? "Average amount" : "Net average amount (money in less money out, per row; a minus means more went out than came in)"} for ${what}: ${r.average}, over ${rowsWord(r.rowCount)}.`
     case "groupByMonth":
     case "groupByPayee": {
       const key = q.tool === "groupByMonth" ? "month" : "payee"
