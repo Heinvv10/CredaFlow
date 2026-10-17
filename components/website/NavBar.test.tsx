@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 const g = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+const roots = new Set<ReturnType<typeof hydrateRoot>>()
 
 function Shell() {
   return (
@@ -40,9 +41,15 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {
+    for (const root of roots) root.unmount()
+  })
+  roots.clear()
   document.body.innerHTML = ""
   window.localStorage.clear()
+  delete g.IS_REACT_ACT_ENVIRONMENT
+  vi.restoreAllMocks()
 })
 
 describe("NavBar login link and the application draft", () => {
@@ -65,7 +72,7 @@ describe("NavBar login link and the application draft", () => {
 
     const recoverable = vi.fn()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    await act(async () => { hydrateRoot(container, <Shell />, { onRecoverableError: recoverable }) })
+    await act(async () => { roots.add(hydrateRoot(container, <Shell />, { onRecoverableError: recoverable })) })
 
     const mismatch = consoleError.mock.calls.some((args) => String(args[0]).includes("hydrat"))
     consoleError.mockRestore()
@@ -78,7 +85,7 @@ describe("NavBar login link and the application draft", () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
     container.innerHTML = renderToString(<Shell />)
-    await act(async () => { hydrateRoot(container, <Shell />) })
+    await act(async () => { roots.add(hydrateRoot(container, <Shell />)) })
     expect(loginHrefs(container).some((h) => h.includes("callbackUrl"))).toBe(false)
 
     await act(async () => {

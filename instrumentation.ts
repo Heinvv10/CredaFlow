@@ -16,6 +16,13 @@ export async function register() {
       return
     }
 
+    // The fake-clock simulator calls cron routes in dated order itself.
+    // A second scheduler reacts to clock jumps and duplicates those calls.
+    if (process.env.DEMO_MODE === "true" && process.env.DEMO_SIM_MANUAL_CRON === "true") {
+      console.log("[cron] demo simulator — explicit cron driver owns scheduling")
+      return
+    }
+
     const cron = await import("node-cron")
 
     // EVERY schedule below is pinned to SAST.
