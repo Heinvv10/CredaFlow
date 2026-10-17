@@ -1,5 +1,7 @@
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
+import { rateDescription } from "../document-parts"
+import { ncaQuoteClauses } from "../wording/nca-quote"
 import type { NcaAssetDocumentData } from "./types"
 
 const COLUMNS: TableColumn[] = [
@@ -16,7 +18,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
   w.letterhead(data.lender.legalName, [`NCR ${data.lender.ncrNumber}`, ...data.lender.registeredOfficeLines])
   w.title("PRE-AGREEMENT STATEMENT AND QUOTATION", [
     `Asset finance reference ${data.reference} · prepared ${formatDatePdf(data.documentDate)}`,
-    "DRAFT legal wording — figures are generated from the proposed agreement",
+    ...(data.legalWordingApproved ? [] : ["DRAFT legal wording — figures are generated from the proposed agreement"]),
   ])
   w.section("CREDIT PROVIDER AND CONSUMER")
   w.labelValues([
@@ -30,7 +32,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
     ["Agreement", data.contractType === "FINANCE_LEASE" ? "Finance lease" : "Instalment sale"],
     ["Asset", `${data.asset.description} · ${data.asset.serialNumber}`],
     ["Cash price", formatZarPdf(p.cashPriceCents)], ["Deposit", formatZarPdf(p.depositCents)],
-    ["Principal debt", formatZarPdf(p.principalCents)], ["Annual interest rate", `${(Number(p.annualRate) * 100).toFixed(2)}%`],
+    ["Principal debt", formatZarPdf(p.principalCents)], ["Annual interest rate", rateDescription(p)],
     ["Initiation fee", formatZarPdf(p.initiationFeeCents)], ["Monthly service fee", formatZarPdf(p.monthlyServiceFeeCents)],
     ["Credit-life premium", formatZarPdf(p.creditLifePremiumCents)], ["Base instalment", formatZarPdf(p.instalmentCents)],
     ["Residual / balloon", formatZarPdf(p.balloonCents)], ["Total interest", formatZarPdf(p.totalInterestCents)],
@@ -41,7 +43,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
     formatZarPdf(r.interestCents), formatZarPdf(r.feesCents), formatZarPdf(r.totalCents),
   ]))
   w.section("ACKNOWLEDGEMENT")
-  w.placeholderClause("1", "Statutory disclosures and validity period")
+  ncaQuoteClauses(data).forEach((c, i) => w.clause(String(i + 1), c.heading, c.text))
   w.signatures([{ caption: "Consumer acknowledgement", name: data.borrower.name, detail: "Acknowledges receipt; this is not acceptance of the agreement" }])
-  return w.finish({ reference: data.reference, watermark: true })
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
 }

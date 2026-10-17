@@ -15,7 +15,7 @@ export function percentPdf(decimal: string): string {
 }
 
 /** How the contract rate is set, with the figures it resolves to today. */
-export function rateDescription(p: DealDocumentData["pricing"]): string {
+export function rateDescription(p: Pick<DealDocumentData["pricing"], "annualRate" | "rateBasis" | "rateMargin" | "reference">): string {
   if (p.rateBasis === "FIXED") return `Fixed at ${percentPdf(p.annualRate)} a year (nominal)`
   const margin = p.rateMargin ?? "0"
   const sign = new Prisma.Decimal(margin).isNegative() ? "minus" : "plus"

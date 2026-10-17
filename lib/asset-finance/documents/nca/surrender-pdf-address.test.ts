@@ -12,6 +12,7 @@ const texts = async (bytes: Buffer) => (await pdfPageContents(bytes)).flatMap((c
 const ADDRESS = ["2 Synthetic Street", "Testville", "Free State", "9999"]
 
 const surrender: SurrenderNoticeData = {
+  legalWordingApproved: false,
   reference: "AF-NCA-S127-TEST", documentDate: new Date("2026-10-13T08:00:00.000Z"),
   lender: { legalName: "TEST Credit Provider", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] },
   borrower: { name: "TEST Borrower", identityNumber: "0000000000000", addressLines: ADDRESS },
@@ -22,12 +23,14 @@ const surrender: SurrenderNoticeData = {
 }
 
 const deal: NcaAssetDocumentData = {
+  legalWordingApproved: false,
   reference: "AF-NCA-TEST-1", documentDate: new Date("2026-10-13T08:00:00.000Z"), contractType: "FINANCE_LEASE",
   lender: { legalName: "TEST Credit Provider (Pty) Ltd", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] },
   borrower: { name: "TEST Sole Proprietor", identityNumber: "0000000000000", addressLines: ADDRESS },
   asset: { description: "TEST 2026 TLB", serialNumber: "TESTSERIAL0001" },
   pricing: {
     cashPriceCents: 1_725_000, depositCents: 225_000, principalCents: 1_500_000, annualRate: "0.1175",
+    rateBasis: "FIXED", rateMargin: null, reference: null,
     initiationFeeCents: 120_750, monthlyServiceFeeCents: 6_000, creditLifePremiumCents: 7_500,
     instalmentCents: 140_000, balloonCents: 300_000, totalInterestCents: 172_500,
     totalCostOfCreditCents: 373_250, totalRepayableCents: 1_873_250,

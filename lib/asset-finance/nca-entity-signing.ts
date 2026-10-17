@@ -74,7 +74,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
   const required = ncaAuthorityData.requiredSigners
   if (!required.some((s) => s.clientId === representative && s.document === "AGREEMENT")) return { kind: "no_authority" }
   const agreement = await renderNcaAssetAgreement({
-    reference: deal.application.reference, documentDate: deal.decidedAt ?? new Date(), contractType: deal.contractType,
+    legalWordingApproved: authorityData.legalWordingApproved, reference: deal.application.reference, documentDate: deal.decidedAt ?? new Date(), contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: {
       name: deal.entity.legalName, identityNumber: deal.entity.mastersReference ?? deal.entity.registrationNumber,
@@ -84,6 +84,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,
+      rateBasis: deal.rateBasis, rateMargin: deal.rateMargin?.toString() ?? null, reference: rate.reference,
       initiationFeeCents: evidence.calculator.initiationFeeCents,
       monthlyServiceFeeCents: Math.round(evidence.calculator.serviceFeesCents / evidence.calculator.schedule.length),
       creditLifePremiumCents: evidence.creditLife.monthlyPremiumCents, instalmentCents: evidence.billing.recurringPaymentCents,
