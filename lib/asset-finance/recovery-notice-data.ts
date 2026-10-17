@@ -1,3 +1,4 @@
+import { ncaSurplusNoticeDetails } from "./nca-surplus"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { prisma } from "@/lib/prisma"
 import type { RecoveryNoticeData } from "./documents/nca/recovery-pdf"
@@ -30,7 +31,7 @@ export async function loadRecoveryNoticeData(tenantId: string, id: string, docum
       unrecoverableCostsCents: row.unrecoverableCostsCents ?? undefined,
     }
   const data: RecoveryNoticeData = {
-    surplusDisposition: (row.surplusCents ?? 0) > 0 && row.route.startsWith("NCA_") ? ((await prisma.ncaSurplusAccount.findFirst({ where: { tenantId, loanId: row.loanId } }))?.releaseAuthorisedById ? "INSTRUCTED" : "HELD_NO_VERIFIED_ACCOUNT") : undefined,
+    ...((row.surplusCents ?? 0) > 0 && row.route.startsWith("NCA_") ? await ncaSurplusNoticeDetails(tenantId, row.loanId) : {}),
     legalWordingApproved: approved, reference: row.loan.reference, documentDate,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines }, borrower,
     asset: { description: `${row.asset.year} ${row.asset.make} ${row.asset.model}`, serialNumber: row.asset.vin ?? row.asset.serialNumber, condition: row.condition },

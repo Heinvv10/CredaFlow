@@ -1,0 +1,106 @@
+TEST Credit Provider
+NCR NCRCP00000
+1 Test Road
+
+
+REPOSSESSED GOODS VALUATION NOTICE
+Loan AF-NCA-S131-TEST · prepared 13 October 2026
+
+
+
+
+                                                                                                                 N
+DRAFT legal wording — statutory wording requires lender legal approval
+
+
+
+
+                                                                                                               IO
+ CONSUMER AND ASSET
+
+ Consumer                                   TEST Borrower
+
+
+
+
+                                                                                                    UT
+ Identity / registration                    0000000000000
+ Consumer address                           2 Synthetic Street
+ Asset                                      2026 TEST TLB · TEST-SERIAL-131
+ Recorded condition                         Synthetic working condition
+
+
+
+
+                                                                                         EC
+ Repossessed on                             10 October 2026
+ Held at                                    TEST Yard
+
+
+ VALUATION
+
+
+
+
+                                                                              EX
+ Valuation date                             12 October 2026
+ Valuer                                     TEST Valuer
+ Valuation                                  R 1,250.00
+                                                                      R
+1 Consumer rights following repossession and valuation
+   1.1 In this notice "the Act" means the National Credit Act 34 of 2005, "you" means TEST Borrower and "we" means TEST
+   Credit Provider, registered credit provider NCRCP00000. The asset described above was attached under a court order
+                                                           FO
+
+   enforcing agreement AF-NCA-S131-TEST and has been held at TEST Yard since 10 October 2026. Section 131 of the Act
+   applies sections 127(2) to (9) and 128 of the Act to it. This is our notice of its estimated value: R 1,250.00, as valued by TEST
+   Valuer on 12 October 2026. The estimate is not a guaranteed sale price.
+   1.2 Until the asset is sold you may remedy your default by paying all overdue amounts, together with the default charges the
+   Act permits and our reasonable costs of enforcing the agreement up to the time the default is remedied, as section 129(3) of
+                                                   T
+
+
+   the Act provides, unless section 129(4) of the Act excludes that right. Ask us in writing for the amount. If you remedy the
+   default, we will return the asset to you.
+                                       NO
+
+
+
+
+   1.3 If the default is not remedied, we must sell the asset as soon as practicable for the best price reasonably obtainable. We
+   will not sell it before 10 business days after you receive this notice.
+   1.4 After the sale we will credit your account with the proceeds less the reasonable costs of the sale, and send you a written
+   notice of the settlement value of the agreement immediately before the sale, the gross amount realised, the net proceeds and
+   the amount credited or debited to your account, as section 127(5) of the Act requires. Legal costs awarded or taxed under the
+   court order may be charged to your account. If the net proceeds exceed what you owe we will pay you the difference; if they
+                             —
+
+
+
+
+   are less, we will demand the balance, and you will have 10 business days after receiving that demand to pay it before we may
+   take further legal steps for it.
+   1.5 If you dispute this valuation, tell us in writing within 10 business days after you receive this notice. After the sale, section
+   128 of the Act allows you to apply to the National Consumer Tribunal to review it.
+                      T
+
+
+
+
+   1.6 If the sale realises more than what you owe, section 127 of the Act requires us to remit the surplus to you with our notice
+   after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank
+             AF
+
+
+
+
+   account in your name, with proof that it is yours. If you do not, we will pay it as soon as you give us those details. If another
+   credit provider has a registered credit agreement with you concerning these same goods, section 127(6)(a) requires
+   remittance to the National Consumer Tribunal instead.
+DR
+
+
+
+
+Ref AF-NCA-S131-TEST                                                                                                          Page 1 of 1
+

@@ -5,6 +5,7 @@ model NcaSurplusAccount {
   tenant Tenant @relation(fields: [tenantId], references: [id])
   loanId String
   loan Loan @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recipient String @default("CONSUMER")
   accountHolder String
   bankName String
   branchCode String
@@ -55,4 +56,22 @@ model NcaSurplusRemittance {
   @@unique([tenantId, bankExecutionReference])
   @@unique([tenantId, surrenderId])
   @@unique([tenantId, recoveryId])
+}
+
+// A recorded, evidence-backed determination under NCA s127(6), never an assumed no.
+model NcaSurplusDetermination {
+  id String @id @default(cuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  loanId String
+  loan Loan @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  competingAgreement Boolean
+  basis String
+  evidenceDocumentId String
+  evidenceDocument EntityDocument @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedById String
+  recordedBy User @relation(fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recordedAt DateTime @default(now())
+  @@unique([tenantId, id])
+  @@unique([tenantId, loanId])
 }

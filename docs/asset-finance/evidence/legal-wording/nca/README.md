@@ -64,3 +64,20 @@ unified diffs between them:
   those details."), on the same line; only `valuation` was re-pinned.
 
 No figure, label or table line changed in either step.
+
+## Actual-remittance review, 2026-10-18
+
+The ordinary surplus samples now show actual consumer remittance before the
+final notice; separate held-account and Tribunal samples exercise NCA s127(6).
+The same-consumer/same-goods registered-agreement determination routes a
+competing agreement to the Tribunal; unrelated debts do not. Final sample dates
+are 5 November 2026, after the ten-business-day valuation-receipt wait; execution
+is dated that day. The surrender valuation notice is dated 20 October, after its
+valuation, within the request's valuation deadline.
+
+Only the asset-finance test's valuation hash changed, from
+`9b9c3045da0c1241d1fed6ad94e5bc0059e03ef37ddcb428015a7d4882e7873d` to
+`828a9fa9a3c6abcc52cd94961c22847711bb810079dbfb77ad2e609a7c0fdfeb`.
+[Exact pinned-fixture text proof](../../legal-code-gaps/nca-remittance-review/pinned-valuation.diff)
+shows the added Tribunal sentence and its wrap; the four shortfall-final pins
+remain unchanged. Consumer NCA document pins and consumer PASQ are unchanged.

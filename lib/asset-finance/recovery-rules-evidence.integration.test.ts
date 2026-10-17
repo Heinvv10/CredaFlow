@@ -39,7 +39,7 @@ suite("slice 4a evidence documents are not deleted", () => {
     docs.step = await legalDocument(database(), fx)
     await addStep(database(), fx, await newMatter(database(), fx, (await newLoan(database(), fx, "NCA")).loanId), "JUDGMENT", undefined, { evidenceDocumentId: docs.step })
     docs.bank = await legalDocument(database(), fx, "OTHER")
-    const surplus = await ladderRecovery(database(), fx, true, "SURPLUS_HELD", { settlementCents: 80_000_000 })
+    const surplus = await ladderRecovery(database(), fx, false, "SURPLUS_HELD", { settlementCents: 80_000_000 })
     const { surplusCents } = await database().recovery.findUniqueOrThrow({ where: { id: surplus.id }, select: { surplusCents: true } })
     await database().recoveryRefund.create({
       data: {

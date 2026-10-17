@@ -82,6 +82,7 @@ model User {
   messagesEdited               Message[]                             @relation("MessagesEditedBy")
   ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
   ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusAccountsApproved NcaSurplusAccount[] @relation("NcaSurplusApprovedBy")
   ncaSurplusAccountsCreated NcaSurplusAccount[] @relation("NcaSurplusCreatedBy")
   ncaSurplusAccountsReleaseAuthorised NcaSurplusAccount[] @relation("NcaSurplusReleaseAuthorisedBy")

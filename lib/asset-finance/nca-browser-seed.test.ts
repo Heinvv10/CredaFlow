@@ -21,7 +21,7 @@ seed("seeds only the owned disposable local acceptance database", async () => {
    staff.push(row)
   }
   const loans=[]
-  for(const label of ["SURRENDER","SETTLEMENT"]) {
+  for(const label of ["SURRENDER","SETTLEMENT","HELD","TRIBUNAL"]) {
    const loan=await newLoan(db,fx,"NCA","INSTALMENT_SALE")
    await testSetup(db,[`UPDATE "Loan" SET "reference"=$2,"principal"=300000,"totalInterest"=15000,"totalRepayable"=315000,"outstandingPrincipal"=300000,"interestModel"='FLAT',"interestRatePm"=0.01,"startDate"=$3::date,"maturityDate"=$4::date WHERE "id"=$1`,loan.loanId,`SYNTHETIC-NCA-${label}`,day(-40),day(40)])
    await db.repaymentSchedule.createMany({data:[10,40].map((offset,i)=>({tenantId:fx.tenantId,loanId:loan.loanId,installmentNo:i+1,dueDate:new Date(`${day(offset)}T10:00:00Z`),principalDue:150000,interestDue:7500,feesDue:0,totalDue:157500}))})

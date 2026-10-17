@@ -39,14 +39,13 @@ const adminB = () => as(fx.adminB, "LOAN_ADMIN")
 const routes = () => saleRoutes(fx.host)
 const status = async (response: Promise<Response>) => (await readJson(await response)).status
 
-/** A NCA recovery taken to SURPLUS_HELD by the routes (price above the settlement). */
+/** Legacy NON_NCA refund coverage; NCA surplus uses its actual-remittance path. */
 async function surplusHeld() {
-  const rec = await plainListed(database(), fx, "NCA", 100_000_000)
+  const rec = await plainListed(database(), fx, "NON_NCA", 100_000_000)
   officer()
   const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 200_000_000)))).body.id as string
   expect(await status(routes().completeSale(rec.id, sale))).toBe(200)
   expect(await status(routes().proceeds(rec.id))).toBe(200)
-  await advance(database(), fx, rec.loan, rec.id, "FINAL_NOTICE_ISSUED")
   expect((await readJson(await routes().outcome(rec.id))).body).toMatchObject({ status: "SURPLUS_HELD" })
   return rec
 }

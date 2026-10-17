@@ -195,6 +195,7 @@ export async function cleanupRecoveryRows(db: PrismaClient, tenantId: string): P
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.ncaSurplusRemittance.deleteMany({ where: { tenantId } }),
     db.ncaSurplusAccount.deleteMany({ where: { tenantId } }),
+    db.ncaSurplusDetermination.deleteMany({ where: { tenantId } }),
     db.recoveryRefund.deleteMany({ where: { tenantId } }),
     db.recoveryVatEvent.deleteMany({ where: { tenantId } }),
     db.recoveryCost.deleteMany({ where: { tenantId } }),

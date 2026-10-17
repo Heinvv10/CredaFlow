@@ -82,10 +82,13 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
 
   // A voluntary surrender (NCA s127) can be asked for until the lender holds the asset; an existing request still shows.
   const surrenderApplies = loan.ncaRegime === "NCA" && loan.contractType !== "LOAN" && Boolean(loan.assetId)
+  const surplusRemittance = loan.surrenderRequests?.[0]?.ncaSurplusRemittance ?? loan.recoveries?.find(r => r.ncaSurplusRemittance)?.ncaSurplusRemittance
+  const unpaidSurplus = surplusRemittance && !surplusRemittance.executedOn ? surplusRemittance.amountCents : 0
   const canRequestSurrender = surrenderApplies && await loadSurrenderRequestOpen(loan.tenantId, loan.id)
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
+      {unpaidSurplus > 0 && <p className="mb-4 rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-4">Your loan debt is settled, but the credit provider still owes you a surplus of {formatZAR(unpaidSurplus)}. The agreement has not terminated under section 127(6)(b) while that surplus remains unpaid. Your retained post-sale statement records the account exception; a supplemental confirmation follows actual remittance.</p>}
       {/* Back */}
       <BackLink href="/portal/loans" label={t("backToLoans")} className="mb-6" />
 

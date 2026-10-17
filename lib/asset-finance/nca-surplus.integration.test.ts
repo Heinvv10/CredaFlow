@@ -1,3 +1,4 @@
+import { determineSurplusRecipient } from "./nca-surplus.integration-fixture"
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -22,6 +23,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  async function outcome() {
   const loan = await newLoan(database(), fx, "NCA")
   const id = await newSurrender(database(), fx, loan)
+  await determineSurplusRecipient(fx, loan.loanId)
   await testSetup(database(), [`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`,loan.loanId], [`UPDATE "SurrenderRequest" SET "status"='PROCEEDS_CREDITED',"refundCents"=12345,"shortfallCents"=0 WHERE "id"=$1`,id])
   return { loanId: loan.loanId, surrenderId: id, amountCents:12345 }
  }
@@ -57,10 +59,10 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   await testSetup(database(),[`UPDATE "EntityDocument" SET "clientId"=$2,"entityId"=NULL WHERE "id"=$1`,document.id,client.id])
   await rules(database).refuses({table:"NcaSurplusRemittance",trigger:"NcaSurplusRemittance_guard"},/borrower-owned/,(tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:execution}))
  })
- it("refuses bank execution before an issued final notice",async()=>{
+ it("permits bank execution of its prepared instruction before the ordinary final notice",async()=>{
   const {row,execution,input}=await readyInstruction()
   await testSetup(database(),[`UPDATE "SurrenderRequest" SET "status"='PROCEEDS_CREDITED',"finalNoticePath"=NULL,"finalNoticeSha256"=NULL WHERE "id"=$1`,input.surrenderId])
-  await rules(database).refuses({table:"NcaSurplusRemittance",trigger:"NcaSurplusRemittance_guard"},/final notice/,(tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:execution}))
+  await rules(database).admits((tx)=>tx.ncaSurplusRemittance.update({where:{id:row.id},data:execution}))
  })
  it("retains execution evidence and records it only once",async()=>{
   const {row,execution,document}=await readyInstruction()
@@ -75,7 +77,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  it("refuses cross-tenant execution without retaining any proof or audit",async()=>{
   const {input,row}=await readyInstruction()
   const before=await database().entityDocument.count({where:{tenantId:otherFx.tenantId}})
-  const result=await recordSurplusExecution({tenantId:otherFx.tenantId,userId:otherFx.officer},input.loanId,row.id,{executedOn:day(0),bankReference:"TEST-CROSS-TENANT",amountCents:12345,upload:{file:new File(["%PDF-1.4 synthetic proof"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}})
+  const result=await recordSurplusExecution({tenantId:otherFx.tenantId,userId:otherFx.officer},input.loanId,row.id,{executedOn:day(0),bankReference:"TEST-CROSS-TENANT",amountCents:12345,destinationAccountId:row.accountId!,destinationConfirmed:true,upload:{file:new File(["%PDF-1.4 synthetic proof"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}})
   expect(result).toMatchObject({kind:"not_found"})
   expect(await database().entityDocument.count({where:{tenantId:otherFx.tenantId}})).toBe(before)
   expect(await database().auditLog.count({where:{tenantId:otherFx.tenantId,action:"ASSET_SURPLUS_EXECUTION_RECORDED"}})).toBe(0)
@@ -87,7 +89,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   expect(a.document.id).not.toBe(b.document.id)
   await rules(database).refuses({index:"NcaSurplusRemittance_tenantId_bankExecutionReference_key"},/Unique constraint/i,(tx)=>tx.ncaSurplusRemittance.update({where:{id:b.row.id},data:{...b.execution,bankExecutionReference:`  ${reference.toLowerCase()}  `}}))
   const documentsBefore=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
-  expect(await recordSurplusExecution(b.actor,b.input.loanId,b.row.id,{executedOn:day(0),bankReference:reference.toLowerCase(),amountCents:12345,upload:{file:new File(["%PDF-1.4 separately uploaded duplicate bank proof"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}})).toMatchObject({kind:"not_ready"})
+  expect(await recordSurplusExecution(b.actor,b.input.loanId,b.row.id,{executedOn:day(0),bankReference:reference.toLowerCase(),amountCents:12345,destinationAccountId:b.row.accountId!,destinationConfirmed:true,upload:{file:new File(["%PDF-1.4 separately uploaded duplicate bank proof"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}})).toMatchObject({kind:"not_ready"})
   expect(await database().entityDocument.count({where:{tenantId:fx.tenantId}})).toBe(documentsBefore)
   expect((await database().ncaSurplusRemittance.findUniqueOrThrow({where:{id:b.row.id}})).executedOn).toBeNull()
   expect(await database().payment.count({where:{loanId:{in:[a.input.loanId,b.input.loanId]}}})).toBe(0)
@@ -128,6 +130,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  it("retains its original exception and issues once after later independent bank authorisation",async()=>{
   const loan=await newLoan(database(),fx,"NCA")
   const id=await newSurrender(database(),fx,loan)
+  await determineSurplusRecipient(fx, loan.loanId)
   await testSetup(database(),[`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`,loan.loanId],[`UPDATE "SurrenderRequest" SET "status"='PROCEEDS_CREDITED',"refundCents"=12345,"shortfallCents"=0 WHERE "id"=$1`,id])
   const actor={tenantId:fx.tenantId,userId:fx.officer}
   const held=await database().$transaction(tx=>issueNcaSurplusRemittance(tx as never,actor,{loanId:loan.loanId,surrenderId:id,amountCents:12345}))
@@ -144,6 +147,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  })
  it("records bank execution after a genuine s131 outcome opens its surplus",async()=>{
   const loan=await newLoan(database(),fx,"NCA")
+  await determineSurplusRecipient(fx, loan.loanId)
   const recoveryId=await newRecovery(database(),fx,loan,"NCA_S131_ATTACHMENT",{legalMatterId:await courtMatter(database(),fx,loan)})
   await testSetup(database(),[`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`,loan.loanId],[`UPDATE "Recovery" SET "status"='PROCEEDS_APPLIED',"settlementDueCents"=300000,"grossProceedsCents"=312345,"deductedCostsCents"=0,"chargedCostsCents"=0,"netProceedsCents"=312345,"shortfallCents"=0,"surplusCents"=12345,"unrecoverableCostsCents"=0 WHERE "id"=$1`,recoveryId])
   const actor={tenantId:fx.tenantId,userId:fx.officer}
@@ -159,7 +163,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
    await tx.$executeRawUnsafe("SET LOCAL session_replication_role=origin")
    return tx.ncaSurplusRemittance.create({data:{tenantId:fx.tenantId,recoveryId,accountId:instruction!.accountId,amountCents:12345,status:"INSTRUCTED",issuedById:fx.officer}})
   })
-  const input={executedOn:day(0),bankReference:"TEST-S131-EXECUTED",amountCents:12345,upload:{file:new File(["%PDF-1.4 synthetic bank execution"],"execution.pdf",{type:"application/pdf"}),docType:"OTHER" as const,dealId:null}}
+  const input={destinationAccountId:instruction!.accountId!,destinationConfirmed:true,executedOn:day(0),bankReference:"TEST-S131-EXECUTED",amountCents:12345,upload:{file:new File(["%PDF-1.4 synthetic bank execution"],"execution.pdf",{type:"application/pdf"}),docType:"OTHER" as const,dealId:null}}
   const documentsBefore=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
   expect(await recordSurplusExecution(actor,loan.loanId,instruction!.id,input)).toMatchObject({kind:"done"})
   expect(await database().recovery.findUniqueOrThrow({where:{id:recoveryId}})).toMatchObject({status:"CLOSED"})
@@ -170,6 +174,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  it("keeps an instructed linked surplus outstanding until bank execution is evidenced",async()=>{
   const loan=await newLoan(database(),fx,"NCA")
   const surrenderId=await newSurrender(database(),fx,loan)
+  await determineSurplusRecipient(fx, loan.loanId)
   const recoveryId=await newRecovery(database(),fx,loan,"NCA_S127_SURRENDER",{surrenderRequestId:surrenderId})
   await testSetup(database(),[`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`,loan.loanId],[`UPDATE "SurrenderRequest" SET "status"='PROCEEDS_CREDITED',"refundCents"=12345,"shortfallCents"=0 WHERE "id"=$1`,surrenderId])
   const actor={tenantId:fx.tenantId,userId:fx.officer}
@@ -179,8 +184,8 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   const instruction = await database().$transaction(tx=>issueNcaSurplusRemittance(tx as never,actor,{loanId:loan.loanId,surrenderId,amountCents:12345}))
   await testSetup(database(),[`UPDATE "SurrenderRequest" SET "status"='FINAL_NOTICE_ISSUED',"finalNoticePath"='/synthetic/final.pdf',"finalNoticeSha256"=$2 WHERE "id"=$1`,surrenderId,"a".repeat(64)],[`UPDATE "Recovery" SET "status"='FINAL_NOTICE_ISSUED',"settlementDueCents"=300000,"grossProceedsCents"=312345,"deductedCostsCents"=0,"chargedCostsCents"=0,"netProceedsCents"=312345,"shortfallCents"=0,"surplusCents"=12345,"unrecoverableCostsCents"=0,"chargesFrozenFrom"=CURRENT_DATE,"chargesFrozenUntil"=$2::date WHERE "id"=$1`,recoveryId,day(15)])
   expect(await settleOutcome(actor,recoveryId)).toMatchObject({kind:"done",status:"SURPLUS_HELD"})
-  await rules(database).refuses({table:"Recovery",trigger:"Recovery_guard"},/surplus closes/,(tx)=>tx.recovery.update({where:{id:recoveryId},data:{status:"CLOSED",closedAt:new Date()}}))
-  const input={executedOn:day(0),bankReference:"TEST-EXECUTED-0001",amountCents:12345,upload:{file:new File(["%PDF-1.4 synthetic bank execution"],"execution.pdf",{type:"application/pdf"}),docType:"OTHER" as const,dealId:null}}
+  await rules(database).refuses({table:"Recovery",trigger:"Recovery_guard"},/surplus closes/,async(tx)=>{ await tx.$executeRawUnsafe('ALTER TABLE "Recovery" DISABLE TRIGGER "Recovery_actual_surplus_remittance"'); return tx.recovery.update({where:{id:recoveryId},data:{status:"CLOSED",closedAt:new Date()}}) })
+  const input={destinationAccountId:instruction!.accountId!,destinationConfirmed:true,executedOn:day(0),bankReference:"TEST-EXECUTED-0001",amountCents:12345,upload:{file:new File(["%PDF-1.4 synthetic bank execution"],"execution.pdf",{type:"application/pdf"}),docType:"OTHER" as const,dealId:null}}
   expect(await recordSurplusExecution(actor,loan.loanId,instruction!.id,{...input,amountCents:1})).toMatchObject({kind:"not_ready"})
   const documentsBefore=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
   expect(await recordSurplusExecution(actor,loan.loanId,instruction!.id,input)).toMatchObject({kind:"done"})
@@ -199,7 +204,7 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
  it("independently serializes simultaneous execution submissions to one proof and audit",async()=>{
   const {input,row,actor}=await readyInstruction()
   const before=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
-  const submissions=['A','B'].map(suffix=>recordSurplusExecution(actor,input.loanId,row.id,{executedOn:day(0),bankReference:`TEST-CONCURRENT-${suffix}-${randomUUID()}`,amountCents:12345,upload:{file:new File(["%PDF-1.4 independently uploaded execution"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
+  const submissions=['A','B'].map(suffix=>recordSurplusExecution(actor,input.loanId,row.id,{executedOn:day(0),bankReference:`TEST-CONCURRENT-${suffix}-${randomUUID()}`,amountCents:12345,destinationAccountId:row.accountId!,destinationConfirmed:true,upload:{file:new File(["%PDF-1.4 independently uploaded execution"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
   expect((await Promise.all(submissions)).map(r=>r.kind).sort()).toEqual(['done','not_ready'])
   expect(await database().entityDocument.count({where:{tenantId:fx.tenantId}})).toBe(before+1)
   expect(await database().auditLog.count({where:{entityId:row.id,action:'ASSET_SURPLUS_EXECUTION_RECORDED'}})).toBe(1)
@@ -209,11 +214,52 @@ suite("NCA final-notice surplus remittance (real Postgres)", () => {
   const a=await readyInstruction(),b=await readyInstruction()
   const reference=`TEST-INDEPENDENT-${randomUUID()}`
   const before=await database().entityDocument.count({where:{tenantId:fx.tenantId}})
-  const submissions=[a,b].map((v,index)=>recordSurplusExecution(v.actor,v.input.loanId,v.row.id,{executedOn:day(0),bankReference:index?`  ${reference.toUpperCase()}  `:reference,amountCents:12345,upload:{file:new File([`%PDF-1.4 separate proof ${index}`],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
+  const submissions=[a,b].map((v,index)=>recordSurplusExecution(v.actor,v.input.loanId,v.row.id,{executedOn:day(0),bankReference:index?`  ${reference.toUpperCase()}  `:reference,amountCents:12345,destinationAccountId:v.row.accountId!,destinationConfirmed:true,upload:{file:new File([`%PDF-1.4 separate proof ${index}`],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}}))
   expect((await Promise.all(submissions)).map(r=>r.kind).sort()).toEqual(['done','not_ready'])
   expect(await database().entityDocument.count({where:{tenantId:fx.tenantId}})).toBe(before+1)
   expect(await database().ncaSurplusRemittance.count({where:{id:{in:[a.row.id,b.row.id]},executedOn:{not:null}}})).toBe(1)
   expect(await database().auditLog.count({where:{entityId:{in:[a.row.id,b.row.id]},action:'ASSET_SURPLUS_EXECUTION_RECORDED'}})).toBe(1)
+ })
+
+ it("refuses a bank execution submitted for another destination account",async()=>{
+  const {input,row,actor}=await readyInstruction()
+  expect(await recordSurplusExecution(actor,input.loanId,row.id,{executedOn:day(0),bankReference:`TEST-WRONG-DESTINATION-${randomUUID()}`,amountCents:12345,destinationAccountId:"OTHER-ACCOUNT",destinationConfirmed:true,upload:{file:new File(["%PDF-1.4 wrong-destination proof"],"proof.pdf",{type:"application/pdf"}),docType:"OTHER",dealId:null}} as never)).toMatchObject({kind:"not_ready"})
+  expect((await database().ncaSurplusRemittance.findUniqueOrThrow({where:{id:row.id}})).executedOn).toBeNull()
+ })
+
+ it("server-stamps instruction preparation so an inserted timestamp cannot predate reconciled proceeds",async()=>{
+  const input=await outcome()
+  const before=Date.now()-2000
+  const row=await database().ncaSurplusRemittance.create({data:{tenantId:fx.tenantId,surrenderId:input.surrenderId,amountCents:12345,status:"HELD_NO_VERIFIED_ACCOUNT",exceptionReason:"TEST no verified account",issuedById:fx.officer,createdAt:new Date(`${day(-30)}T00:00:00Z`)}})
+  expect(row.createdAt.getTime()).toBeGreaterThanOrEqual(before)
+ })
+ it("serializes execution with concurrent proof deletion and refuses the stale deleted proof",async()=>{
+  const {row,execution,document}=await readyInstruction()
+  let unlock!:()=>void,started!:()=>void
+  const proceed=new Promise<void>(resolve=>{unlock=resolve}),ready=new Promise<void>(resolve=>{started=resolve})
+  let deleterPid=0
+  const deletion=database().$transaction(async tx=>{
+    const [pid]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`
+    deleterPid=pid.pid
+    await tx.entityDocument.update({where:{id:document.id},data:{deletedAt:new Date()}})
+    started()
+    await proceed
+  },{timeout:15000})
+  await ready
+  let finished=false
+  const executionAttempt=database().ncaSurplusRemittance.update({where:{id:row.id},data:execution}).then(()=>"accepted",()=>"refused").finally(()=>{finished=true})
+  let blocked=false
+  try {
+    const limit=Date.now()+3000
+    while(!finished && Date.now()<limit) {
+      const [state]=await database().$queryRaw<{blocked:boolean}[]>`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE ${deleterPid}=ANY(pg_blocking_pids(pid))) AS blocked`
+      if(state.blocked){blocked=true;break}
+      await new Promise(resolve=>setTimeout(resolve,10))
+    }
+    expect(blocked).toBe(true)
+  } finally {unlock();await deletion}
+  expect(await executionAttempt).toBe("refused")
+  expect((await database().ncaSurplusRemittance.findUniqueOrThrow({where:{id:row.id}})).executedOn).toBeNull()
  })
 
 })

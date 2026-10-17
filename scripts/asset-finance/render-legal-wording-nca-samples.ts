@@ -76,8 +76,8 @@ async function main(): Promise<void> {
     requestDate: "2026-10-13", valuationDueDate: "2026-10-27",
     valuation: { valuedOn: "2026-10-20", valuerName: "TEST Valuer", amountCents: 125_000 },
     outcome: { saleProceedsCents: 100_000, shortfallCents: 25_000, refundCents: 0 } }
-  writeFileSync(`${OUT}/s127-valuation-notice.pdf`, await renderSurrenderValuationNotice(surrender))
-  writeFileSync(`${OUT}/s127-final-notice.pdf`, await renderSurrenderFinalNotice(surrender))
+  writeFileSync(`${OUT}/s127-valuation-notice.pdf`, await renderSurrenderValuationNotice({ ...surrender, documentDate: new Date("2026-10-20T08:00:00Z") }))
+  writeFileSync(`${OUT}/s127-final-notice.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z") }))
   const recovery: RecoveryNoticeData = { ...base, reference: "AF-NCA-S131-TEST",
     asset: { description: "2026 TEST TLB", serialNumber: "TEST-SERIAL-131", condition: "Synthetic working condition" },
     recoveredOn: "2026-10-10", location: "TEST Yard",
@@ -85,10 +85,12 @@ async function main(): Promise<void> {
     outcome: { settlementDueCents: 150_000, grossProceedsCents: 120_000, deductedCostsCents: 5_000, chargedCostsCents: 2_000, netProceedsCents: 115_000, shortfallCents: 37_000, surplusCents: 0 },
     costs: [{ label: "Towing and transport", grossCents: 5_000, treatment: "DEDUCT_FROM_PROCEEDS" }, { label: "Legal costs (taxed)", grossCents: 2_000, treatment: "CHARGE_TO_ACCOUNT" }] }
   writeFileSync(`${OUT}/s131-valuation-notice.pdf`, await renderRecoveryValuationNotice(recovery))
-  writeFileSync(`${OUT}/s131-final-notice.pdf`, await renderRecoveryFinalNotice(recovery))
-  writeFileSync(`${OUT}/s127-final-notice-surplus-instructed.pdf`, await renderSurrenderFinalNotice({ ...surrender, surplusDisposition: "INSTRUCTED", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
-  writeFileSync(`${OUT}/s131-final-notice-surplus-instructed.pdf`, await renderRecoveryFinalNotice({ ...recovery, surplusDisposition: "INSTRUCTED", outcome: { ...recovery.outcome!, grossProceedsCents: 175_000, netProceedsCents: 170_000, shortfallCents: 0, surplusCents: 18_000 } }))
-  process.stdout.write(`wrote 8 PDFs to ${OUT}\n`)
+  writeFileSync(`${OUT}/s131-final-notice.pdf`, await renderRecoveryFinalNotice({ ...recovery, documentDate: new Date("2026-11-05T08:00:00Z") }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-remitted.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "CONSUMER", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  writeFileSync(`${OUT}/s131-final-notice-surplus-remitted.pdf`, await renderRecoveryFinalNotice({ ...recovery, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "CONSUMER", outcome: { ...recovery.outcome!, grossProceedsCents: 175_000, netProceedsCents: 170_000, shortfallCents: 0, surplusCents: 18_000 } }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-held.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "HELD_NO_VERIFIED_ACCOUNT", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-tribunal.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "TRIBUNAL", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  process.stdout.write(`wrote 10 PDFs to ${OUT}\n`)
 }
 
 void main()

@@ -8,11 +8,11 @@ import { formatIsoDatePdf } from "../pdf-layout"
 import type { NcaClause } from "./nca-agreement"
 
 /** Asked for at valuation, so a surplus can be remitted with the post-sale notice (s127). Shared with ./nca-recovery.ts. */
-export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name, with proof that it is yours. If you do not, we will pay it as soon as you give us those details."
+export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name, with proof that it is yours. If you do not, we will pay it as soon as you give us those details. If another credit provider has a registered credit agreement with you concerning these same goods, section 127(6)(a) requires remittance to the National Consumer Tribunal instead."
 
-/** The notice records the instruction; only separate bank evidence confirms payment. */
-export const surplusRemitted = (amount: string, over: string, held = false): string =>
-  held ? `1.2 The net proceeds exceeded ${over} by ${amount}. That surplus is held because we do not yet have a staff-verified bank account in your name. This is recorded as an exception; give us your bank details and proof of account so we can remit the surplus promptly.` : `1.2 The net proceeds exceeded ${over} by ${amount}. Under section 127 of the Act that amount is due to you, and we have issued a payment instruction with this notice for the bank account you gave us after our valuation notice. Payment remains outstanding until bank execution is evidenced; this notice does not confirm that the bank has paid you.`
+/** Ordinary notice follows evidenced remittance; the authorised exception remains payable. */
+export const surplusRemitted = (amount: string, over: string, held = false, recipient = "CONSUMER", executedOn?: string): string =>
+  held ? `1.2 The net proceeds exceeded ${over} by ${amount}. That surplus remains payable and is held because we do not yet have a staff-verified bank account in your name. This is recorded as an exception; give us your bank details and proof of account so we can remit the surplus promptly. This account statement does not discharge our surplus liability or terminate the agreement under section 127(6)(b). We will provide a supplemental remittance confirmation after payment.` : `1.2 The net proceeds exceeded ${over} by ${amount}. Under section 127(6) of the Act we remitted that amount ${recipient === "TRIBUNAL" ? "to the National Consumer Tribunal because another credit provider has a registered credit agreement with you concerning the same goods" : "to you through your verified bank account"}.${executedOn ? ` The remittance was executed on ${formatIsoDatePdf(executedOn)}.` : ""} Actual bank execution is recorded with retained bank evidence; this is not merely a payment instruction.`
 
 /** The charge freeze after a shortfall (s127), printed by both post-sale notices under the same condition. */
 export const SHORTFALL_FREEZE = "1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days after the date of this notice."
@@ -43,7 +43,7 @@ export function surrenderFinalClause(data: SurrenderNoticeData): NcaClause {
   const result = shortfall > 0
     ? `1.2 The net proceeds were less than the settlement value. Under section 127 of the Act we demand payment of the shortfall of ${formatZarPdf(shortfall)}. If you do not pay it within 10 business days after you receive this notice, we may begin legal proceedings against you for it. Contact us if you cannot pay it in full.`
     : surplus > 0
-      ? surplusRemitted(formatZarPdf(surplus), "the settlement value", data.surplusDisposition === "HELD_NO_VERIFIED_ACCOUNT")
+      ? surplusRemitted(formatZarPdf(surplus), "the settlement value", data.surplusDisposition === "HELD_NO_VERIFIED_ACCOUNT", data.surplusRecipient, data.surplusExecutedOn)
       : "1.2 The net proceeds equalled the settlement value. Nothing further is owed by you or by us under the agreement."
   return {
     heading: "Consumer rights following disposal and account reconciliation",
@@ -51,7 +51,9 @@ export function surrenderFinalClause(data: SurrenderNoticeData): NcaClause {
       `1.1 ${parties(data)} This is our notice under section 127(5) of the Act after the sale of the asset you surrendered under agreement ${data.reference}. The figures above show the result of the sale and how it was applied to your account.`,
       result,
       ...(shortfall > 0 ? [SHORTFALL_FREEZE] : []),
-      `${shortfall > 0 ? "1.4" : "1.3"} The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale price or any cost shown is wrong, tell us in writing; section 128 of the Act also allows you to apply to the National Consumer Tribunal to review the sale.`,
+      data.surplusRecipient === "TRIBUNAL" && surplus > 0
+        ? "1.3 The surplus has been remitted to the National Consumer Tribunal under section 127(6)(a), for distribution as it directs. This notice does not assert termination under section 127(6)(b), which concerns remittance to the consumer. Section 128 of the Act also allows you to apply to the Tribunal to review the sale."
+        : `${shortfall > 0 ? "1.4" : "1.3"} The agreement ends when any shortfall has been paid to us and any surplus has been paid to you. If you believe the sale price or any cost shown is wrong, tell us in writing; section 128 of the Act also allows you to apply to the National Consumer Tribunal to review the sale.`,
     ].join("\n\n"),
   }
 }

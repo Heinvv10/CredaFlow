@@ -10,6 +10,6 @@ export async function renderNcaSurplusPaymentInstruction(input: {
   ["Instruction reference",input.reference],["Loan",input.loanReference],["Issued",formatDatePdf(input.issuedAt)],
   ["Pay to",input.accountHolder],["Bank",input.bankName],["Branch code",input.branchCode],["Account number",input.accountNumber],["Amount",formatZarPdf(input.amountCents)],
  ])
- w.paragraph("Issued with the NCA final account notice following separate bank verification and release authorisation. Use this reference when executing the transfer. This instruction is not a bank settlement confirmation.")
+ w.paragraph("Prepared before the NCA final account notice following separate bank verification and release authorisation. Execute this payment and record bank evidence before issuing the ordinary final notice. Use this reference when executing the transfer. This instruction is not a bank settlement confirmation.")
  return w.finish({reference:input.reference, watermark: !input.legalWordingApproved})
 }

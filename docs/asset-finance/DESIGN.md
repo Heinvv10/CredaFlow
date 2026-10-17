@@ -515,12 +515,18 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
   settlement rebates unearned interest; recorded valuation-notice receipt
   starts the statutory sale wait; timely withdrawal records goods returned;
-  standalone surrender shortfalls freeze charges. Final notices atomically
-  issue an independently authorised surplus instruction or an audited missing-
-  account exception. An instruction leaves the surplus outstanding (SURPLUS_HELD),
-  even though the loan debt is settled. Only retained bank execution evidence,
-  recording the exact amount, date, reference and staff actor once, permits
-  recovery closure. No transfer is initiated by the evidence form.
+  standalone surrender shortfalls freeze charges.
+- **Changed 2026-10-18 to comply with NCA s127(6)(a) and (b):** an
+  evidence-backed same-consumer/same-goods registered-credit-agreement
+  determination selects consumer or Tribunal remittance; unknown refuses
+  disposal. Independently authorised treasury instructions precede actual
+  external bank execution, and ordinary final notices require exact retained
+  execution proof. The authorised held-account exception preserves an unpaid
+  surplus, no statutory termination and a staff escalation. Later execution
+  retains the original statement and appends a supplemental confirmation.
+  NCA recovery closure requires actual remittance, including when a legacy
+  refund row says released. Financial Loan COMPLETED is separate from surplus
+  discharge; staff and consumer views identify outstanding surplus.
 - **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
   agreement disclosures include cash price, deposit and credit-life premium;
   schedule capital excludes fees; total cost of credit retains principal debt
