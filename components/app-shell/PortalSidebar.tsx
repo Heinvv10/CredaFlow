@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { LogOut } from "lucide-react"
+import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { LogOut, Menu } from "lucide-react"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher"
 import { buildPortalNavigation, type NavItem } from "@/lib/navigation"
@@ -71,6 +73,7 @@ type PortalSidebarProps = {
 
 export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, whatsappE164, showBusiness = false, enabledLocales = [] }: PortalSidebarProps) {
   const pathname = usePathname()
+  const [mobileOpen, setMobileOpen] = useState(false)
   const t = useT("portalShell")
   const label = (item: NavItem) => {
     const key = item.external ? "navSupport" : NAV_LABEL_KEYS[item.href]
@@ -81,6 +84,43 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
 
   return (
     <>
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("clientPortal")}
+            className="fixed left-3 top-[calc(0.75rem+var(--cf-demo-banner-h))] z-40 flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] md:hidden"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        </DialogTrigger>
+        <DialogContent aria-describedby={undefined} className="max-w-sm">
+          <DialogHeader><DialogTitle>{t("clientPortal")}</DialogTitle></DialogHeader>
+          <nav aria-label={t("clientPortal")} className="grid gap-1">
+            {portalNavigation.map(item => {
+              const Icon = item.icon
+              const active = !item.external && isActive(pathname, item.href)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  aria-current={active ? "page" : undefined}
+                  {...(item.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                  className={cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm", active ? "bg-[var(--cf-surface-strong)] text-[var(--cf-text)]" : "text-[var(--cf-text-secondary)] hover:bg-[var(--cf-surface-hover)]")}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{label(item)}</span>
+                </Link>
+              )
+            })}
+          </nav>
+          <LanguageSwitcher enabled={enabledLocales} />
+          <button type="button" onClick={() => signOut({ redirectTo: "/portal/login" })} className="flex items-center gap-3 px-3 py-2 text-sm text-[var(--cf-text-muted)]">
+            <LogOut className="h-4 w-4" />{t("signOut")}
+          </button>
+        </DialogContent>
+      </Dialog>
       <aside className="fixed bottom-0 left-0 top-[var(--cf-demo-banner-h)] z-40 hidden w-60 border-r border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] md:flex md:flex-col">
         <div className="flex h-16 items-center border-b border-[var(--cf-border-subtle)] px-5">
           <div className="min-w-0">
@@ -99,7 +139,7 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
           <p className="mt-1 truncate text-xs text-[var(--cf-text-muted)]">{userEmail}</p>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav aria-label={t("clientPortal")} className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-1">
             {portalNavigation.map(item => {
               const Icon = item.icon
@@ -110,6 +150,7 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   {...linkProps}
                   className={cn(
                     "flex items-center gap-3 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors",
@@ -119,7 +160,7 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
                   )}
                 >
                   <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--cf-brand-soft)]")} />
-                  <span className="truncate">{label(item)}</span>
+                  <span className="min-w-0 leading-5">{label(item)}</span>
                 </Link>
               )
             })}
@@ -151,6 +192,7 @@ export function PortalSidebar({ userName, userEmail, brandName, logoSrc = null, 
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 text-[10px] font-medium",
                 active ? "text-[var(--cf-brand-soft)]" : "text-[var(--cf-text-muted)]"

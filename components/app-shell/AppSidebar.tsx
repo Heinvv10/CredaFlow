@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { LogOut, Menu, X } from "lucide-react"
+import { LogOut, Menu } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { badgeDescription, staffNavigation, type NavGroup, type NavItem, type StaffBadgeKey } from "@/lib/navigation"
 import { hasMinRole, type UserRole } from "@/lib/permissions"
@@ -163,30 +164,25 @@ export function AppSidebar({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setMobileOpen(v => !v)}
-        className="fixed left-3 top-[calc(0.75rem+var(--cf-demo-banner-h))] z-[60] inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] lg:hidden"
-        aria-label="Toggle navigation"
-      >
-        {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-      </button>
-
-      {mobileOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-40 bg-[var(--cf-overlay-bg)] lg:hidden"
-          aria-label="Close navigation"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      <aside
-        className={cn(
-          "fixed bottom-0 left-0 top-[calc(3.5rem+var(--cf-demo-banner-h))] z-50 w-[248px] transform transition-transform lg:translate-x-0",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            className="fixed left-3 top-[calc(0.75rem+var(--cf-demo-banner-h))] z-50 inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] text-[var(--cf-text)] lg:hidden"
+            aria-label="Open navigation"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        </DialogTrigger>
+        <DialogContent
+          aria-describedby={undefined}
+          className="left-0 top-0 block h-dvh max-h-dvh w-[min(20rem,100vw)] translate-x-0 translate-y-0 gap-0 rounded-none border-0 p-0 sm:rounded-none"
+        >
+          <DialogTitle className="sr-only">Staff navigation</DialogTitle>
+          {content}
+        </DialogContent>
+      </Dialog>
+      <aside className="fixed bottom-0 left-0 top-[calc(3.5rem+var(--cf-demo-banner-h))] z-40 hidden w-[248px] lg:block">
         {content}
       </aside>
     </>

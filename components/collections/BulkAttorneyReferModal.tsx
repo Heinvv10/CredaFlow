@@ -90,7 +90,7 @@ export function BulkAttorneyReferModal({ loanIds, onClose, onSuccess }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="flex items-center gap-2">
             <Briefcase className="h-5 w-5 text-purple-600" />

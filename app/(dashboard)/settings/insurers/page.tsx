@@ -18,7 +18,7 @@ export default async function InsurersPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Insurers"
         subtitle="Insurer management"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },

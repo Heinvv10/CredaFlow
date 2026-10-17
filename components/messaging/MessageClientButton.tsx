@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { MessageClientDrawer } from "./MessageClientDrawer"
 import { CHANNEL_ORDER, type Channel } from "./ChannelPicker"
@@ -32,6 +32,7 @@ const CHANNEL_LABELS: Record<Channel, string> = { EMAIL: "Email", WHATSAPP: "Wha
 export function MessageClientButton(props: MessageClientButtonProps) {
   const { clientId, clientName, cannedReplies, loanId, quickActions = [], fullWidth = false, apiBase } = props
 
+  const menuId = useId()
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [initialChannel, setInitialChannel] = useState<Channel | undefined>(undefined)
@@ -43,8 +44,18 @@ export function MessageClientButton(props: MessageClientButtonProps) {
     function onClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen(false)
+        menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus()
+      }
+    }
     document.addEventListener("mousedown", onClickOutside)
-    return () => document.removeEventListener("mousedown", onClickOutside)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside)
+      document.removeEventListener("keydown", onKeyDown)
+    }
   }, [menuOpen])
 
   function openChannel(channel: Channel) {
@@ -66,6 +77,8 @@ export function MessageClientButton(props: MessageClientButtonProps) {
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? menuId : undefined}
         className={
           fullWidth
             ? "flex w-full items-center justify-center gap-1.5 px-4 py-2 border border-[#4F46E5] text-[#4F46E5] bg-white text-sm font-semibold rounded-lg hover:bg-amber-50"
@@ -77,7 +90,7 @@ export function MessageClientButton(props: MessageClientButtonProps) {
       </button>
 
       {menuOpen && (
-        <div className={`absolute z-40 mt-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg ${fullWidth ? "left-0 w-full" : "right-0 w-56"}`}>
+        <div id={menuId} className={`absolute z-40 mt-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg ${fullWidth ? "left-0 w-full" : "left-0 w-56 sm:left-auto sm:right-0"}`}>
           {CHANNEL_ORDER.map((c) => (
             <button
               key={c}

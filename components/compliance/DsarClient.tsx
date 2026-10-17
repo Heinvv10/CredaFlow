@@ -292,7 +292,7 @@ export function DsarClient({
       {/* New DSAR Modal */}
       {showNewModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h2 className="font-bold text-gray-900">New Data Subject Request</h2>
               <button onClick={() => setShowNewModal(false)} className="text-gray-400 hover:text-gray-600">
@@ -371,7 +371,7 @@ export function DsarClient({
       {/* Status Update Modal */}
       {selectedDsar && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h2 className="font-bold text-gray-900">Update DSAR Status</h2>
               <button

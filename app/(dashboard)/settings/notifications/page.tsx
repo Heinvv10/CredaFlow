@@ -50,7 +50,7 @@ export default async function NotificationsSettingsPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Notifications"
         subtitle="Notification templates & SMS reminders"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },

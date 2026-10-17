@@ -33,7 +33,7 @@ export default async function BranchesSettingsPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Branches"
         subtitle="Branch management"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },

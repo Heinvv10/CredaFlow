@@ -117,7 +117,7 @@ export const staffNavigation: NavGroup[] = [
     ],
   },
   {
-    label: "Comms",
+    label: "Communications",
     items: [
       { href: "/inbox", label: "Inbox", icon: Inbox, badgeKey: "inbox" },
     ],
@@ -154,7 +154,7 @@ export const staffNavigation: NavGroup[] = [
     ],
   },
   {
-    label: "Growth",
+    label: "CRM",
     feature: "crm",
     items: [
       { href: "/crm", label: "CRM Dashboard", icon: Target },
@@ -165,7 +165,7 @@ export const staffNavigation: NavGroup[] = [
     ],
   },
   {
-    label: "Cover",
+    label: "Insurance",
     feature: "ims",
     items: [
       { href: "/insurance", label: "Insurance", icon: Shield },
