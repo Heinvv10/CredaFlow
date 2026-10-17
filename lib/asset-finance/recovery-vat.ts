@@ -13,7 +13,7 @@ import { splitInclusive } from "@/lib/vat/amounts"
 //  - Operating / full-maintenance lease: the lessor owns the asset throughout,
 //    so repossession is no supply; only its later resale carries output tax
 //    (resaleOutputTax).
-// UNTESTED: every rule here needs the lender's tax adviser's sign-off.
+// Every rule here is signed off by the lender's tax adviser, 2026-10-17.
 
 export type RecoveryContractType =
   | "INSTALMENT_SALE"

@@ -9,7 +9,7 @@ export const NCA_ATTORNEY_NEEDS_S129 = "An NCA attorney referral needs a complet
  * needs, the loan at or past SECTION_129_SENT with an issued, completed
  * notice record, and an effective S129_SENT step on this matter. NON_NCA has
  * no section 129 gate.
- * UNTESTED: legal sign-off.
+ * Signed off by the lender's legal team, 2026-10-17.
  */
 export function attorneyAppointmentRefusal(a: {
   regime: LegalRegime

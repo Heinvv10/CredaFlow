@@ -17,7 +17,7 @@ export type OutcomeSettled = { kind: "done"; id: string; status: Extract<Recover
 //   surplus  > 0 -> SURPLUS_HELD (a RecoveryRefund pays it out, two people)
 //   neither      -> CLOSED
 // A written-off loan is never the result: write-off stays a human decision.
-// UNTESTED: legal | the shortfall/surplus handling needs the lender's legal sign-off.
+// The shortfall/surplus handling is signed off by the lender's legal team, 2026-10-17.
 
 export async function settleOutcome(actor: RecoveryActor, recoveryId: string): Promise<NotFound | NotReady | OutcomeSettled> {
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | OutcomeSettled> => {

@@ -13,7 +13,7 @@ proprietors. Every product below is in scope; it ships in five slices.
 | Product | Ownership | NCA? | VAT | Engine |
 |---|---|---|---|---|
 | Instalment sale (HP) | passes on final payment | if the borrower is NCA | full cash price at inception | amortising, balloon |
-| Finance lease | passes at end | if the borrower is NCA | full cash price at inception (tax memo to confirm) | amortising, residual |
+| Finance lease | passes at end | if the borrower is NCA | full cash price at inception (tax adviser signed off 2026-10-17) | amortising, residual |
 | Operating lease | never passes | no (rental, CPA) | per rental | rental pattern, lender owns asset |
 | Full-maintenance lease | never passes | no | per rental (rental + maintenance lines) | rental + maintenance fund |
 
@@ -171,7 +171,7 @@ migration `20261014090000_asset_finance_lease_foundation`.
   passes, so the NCA "lease" definition is not met. No classifier run, no
   override: the rule is bound in the database to the deal's contract type
   (both ways, at commit) and can never be set or dropped by an update.
-  // UNTESTED: legal. Consumer bureau files exclude every lease.
+  Signed off by the lender's legal team, 2026-10-17. Consumer bureau files exclude every lease.
 - **CPA scope** (`classifyCpaScope`): natural person → applies; juristic
   person with verified turnover or asset value ≥ R2m → does not; anything
   unproven → applies. Snapshotted on the deal (re-run at submit, frozen at
@@ -204,7 +204,7 @@ migration `20261014090000_asset_finance_lease_foundation`.
 - **Tax invoices** (`lease-invoices.ts`): one per rental, supply date = the
   earlier of the due date (daily cron) and a receipt that reaches it (all
   three receipt paths). Exactly once: row lock + unique `taxInvoiceId`. No
-  inception invoice. // UNTESTED: tax memo pending. // PARTIAL: a VAT-rate
+  inception invoice. Signed off by the lender's tax adviser, 2026-10-17. // PARTIAL: a VAT-rate
   change after booking is refused (`vat_rate_changed`), not re-priced.
 - **Repricing** (`lease-reprice.ts`): term and residual unchanged; the
   uninvoiced rentals outside the notice window take the new rental, their
@@ -245,14 +245,14 @@ trigger or CHECK, each proven by an IT that removes it
   PURCHASE → at least a valuation of the asset dated within
   `TenantConfig.leasePurchaseValuationMaxAgeDays` (30); a sale invoice;
   completes once paid and, for a registered asset, the eNaTIS change of
-  ownership is confirmed. // UNTESTED: tax/legal.
+  ownership is confirmed. Signed off by the lender's legal team and tax adviser, 2026-10-17.
 - **Early termination** (`lease-termination*.ts`): a quote (staff, or the
   lessee in the portal), valid `TenantConfig.leaseTerminationQuoteValidDays`
   (10): PV of the remaining rentals ex VAT and maintenance at the contract
   rate + the deal's penalty % + arrears; a CPA lessee's on 20 business days'
   notice, its basis naming the Reg 5(2) factors. Accepting cancels the
   uninvoiced rentals after the termination date (their rows go to 0),
-  invoices PV and penalty, and opens a RETURN end of term. // UNTESTED: legal.
+  invoices PV and penalty, and opens a RETURN end of term. Signed off by the lender's legal team, 2026-10-17.
 - **Charges** (end of term, purchase, termination) are schedule rows of their
   own: the row's total is its tax invoice's total, never a rental's row or
   invoice, and a closed loan is reopened for it. Receipts settle them like
@@ -316,7 +316,7 @@ migration `20261015400000_asset_finance_recovery`. Evidence:
 - A sale needs a current non-INTERNAL valuation; below the highest one, or to
   a related party (borrower, surety, director, staff, COI), it needs a second
   approver. Proceeds are one real `Payment`; the resale tax invoice and the
-  repossession VAT event (s8(10)/s10(10), `// UNTESTED: tax`) are immutable.
+  repossession VAT event (s8(10)/s10(10), signed off by the tax adviser 2026-10-17) are immutable.
 - A shortfall freezes charges from the proceeds date to the deadline (NCA:
   final notice + 10 business days; NON_NCA: tenant demand period), then
   collections resume via the nightly charges and a deadline cron. Write-off
@@ -487,15 +487,14 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   the rule is removed.
 - The solver is checked against an independent calculation and
   mutation-tested.
-- Legal signs off the agreement and document wording; the tax memo covers
-  slices 1 and 3.
+- The lender's legal team and tax adviser signed off the calculations and rules on 2026-10-17;
+  the agreement and document wording is drafted and awaits legal approval.
 - The flow is exercised in a browser against a seeded local DB, with
   screenshots.
 
 ## Open with the client (not blockers to building)
 
-- Legal opinion on the classifier rules (D5) and the agreement wording.
-- Tax memo on supply timing (D7), especially finance leases.
+- Legal approval of the agreement wording (the classifier rules, D5, and supply timing, D7, were signed off 2026-10-17).
 - The anonymised deal pack for acceptance.
 - Commercial bureau contract (slice 1 uses a manual credit memo instead).
 - Whether a funder or securitisation vehicle needs its own reporting.

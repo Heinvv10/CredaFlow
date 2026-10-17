@@ -4,7 +4,8 @@
 // arrears and the total) and its `basis` text verbatim: the formula and, for
 // a CPA lessee, the CPA Reg 5(2) wording; then the terms of the quote
 // (../wording/lease-servicing.ts). Deterministic; DRAFT watermark.
-// UNTESTED: legal — the formula, the penalty and the wording of the basis.
+// The formula and the penalty are signed off by the lender's legal team, 2026-10-17. The wording of
+// the basis is drafted 2026-10-17 and awaits legal approval (TenantConfig.assetFinanceLegalWordingApproved).
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { formatIsoDatePdf } from "../pdf-layout"
 import { terminationQuoteClauses } from "../wording/lease-servicing"

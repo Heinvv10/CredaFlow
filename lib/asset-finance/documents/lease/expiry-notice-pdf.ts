@@ -5,7 +5,8 @@
 // contacts. The consequence of doing nothing is drafted wording
 // (../wording/lease-servicing.ts) for the lender's legal team to approve.
 // Deterministic; DRAFT watermark.
-// UNTESTED: legal — the notice's content and the options it lists.
+// The notice's content and the options it lists: wording drafted 2026-10-17, awaits the lender's legal approval
+// (TenantConfig.assetFinanceLegalWordingApproved).
 import { formatIsoDatePdf } from "../pdf-layout"
 import { expiryNoticeClauses } from "../wording/lease-servicing"
 import { contactRows, finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
@@ -31,7 +32,7 @@ export async function renderLeaseExpiryNotice(data: ExpiryNoticeData, lender: Le
     ["Buy the goods", "Buy the goods from the lessor at their fair market value on a valuation dated shortly before the purchase. The price is not fixed in the lease agreement."],
   ])
   w.section("4. IF YOU DO NOTHING")
-  // UNTESTED: legal — what happens when the lessee neither returns, extends nor buys.
+  // What happens when the lessee neither returns, extends nor buys: wording drafted 2026-10-17, awaits legal approval.
   expiryNoticeClauses(data).forEach((c, i) => w.clause(`4.${i + 1}`, c.heading, c.text))
   w.section("5. HOW TO REACH US")
   w.labelValues(contactRows(lender))

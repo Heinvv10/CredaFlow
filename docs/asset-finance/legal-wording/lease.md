@@ -149,9 +149,9 @@ this quote"; "How to accept" is now section 6.
    to process it manually (an early-termination quote includes the penalty).
 8. **VAT rate change (9.4).** The wording follows VAT Act s67 (rentals change
    with the rate). The code refuses a VAT-rate change after booking
-   (`vat_rate_changed`, documented PARTIAL). Tax memo still pending on the VAT
-   treatment of termination amounts, excess usage, damage and fund
-   settlements (code markers `UNTESTED: tax memo`).
+   (`vat_rate_changed`, documented PARTIAL). The VAT treatment of termination amounts,
+   excess usage, damage and fund settlements was signed off by the tax
+   adviser on 2026-10-17.
 9. **Purchase option (9.9(c)).** Market value is the highest current assessor
    or dealer valuation, as `lease-term-end.ts` and the portal price it; the
    price is never fixed in the agreement (to avoid recharacterising the

@@ -10,7 +10,7 @@
  * A purchase rests on market value: a valuation by an ASSESSOR or a DEALER
  * (never INTERNAL, never an AUCTIONEER's forced-sale figure), dated within
  * TenantConfig.leasePurchaseValuationMaxAgeDays, recorded by someone other
- * than the staff member who elects. // UNTESTED: tax/legal.
+ * than the staff member who elects. // Signed off by the lender's legal team and tax adviser, 2026-10-17.
  */
 import type { ValuationSource } from "@prisma/client"
 import { addMonthsClamped, dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"

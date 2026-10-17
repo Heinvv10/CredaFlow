@@ -18,7 +18,7 @@
  * Invoicing and completion are ./lease-end-invoice.ts. Staff or the lessee
  * (portal) elects; staff inspect. Audited.
  *
- * // UNTESTED: tax/legal — the purchase option must not recharacterise the
+ * // Signed off by the lender's legal team and tax adviser, 2026-10-17: the purchase option must not recharacterise the
  * operating lease as a finance lease: the price is market value on a dated
  * valuation, never a price fixed in the agreement.
  */

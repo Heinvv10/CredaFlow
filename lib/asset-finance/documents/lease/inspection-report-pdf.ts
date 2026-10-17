@@ -4,7 +4,8 @@
 // amount excl. VAT, and the totals. VAT is added on the end-of-term tax
 // invoice, not here. Then the basis of the report (../wording/lease-servicing.ts)
 // and the lender's contacts. Deterministic; DRAFT watermark.
-// UNTESTED: legal — the report's wording and fair wear and tear.
+// The report's wording and fair wear and tear: drafted 2026-10-17, awaits the lender's legal
+// approval (TenantConfig.assetFinanceLegalWordingApproved).
 import { formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { formatIsoDatePdf, type TableColumn } from "../pdf-layout"
 import { inspectionReportClauses } from "../wording/lease-servicing"

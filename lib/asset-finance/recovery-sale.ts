@@ -15,7 +15,7 @@ import type { SigningTx } from "./signing-prepare"
 // highest independent valuation or the buyer matched a screened list, then
 // completed (./recovery-sale-complete.ts). The database repeats the valuation,
 // below-valuation, related-party and second-approver rules (guardRemarketingSale).
-// UNTESTED: legal | the lender's policy on sales below valuation and to related parties.
+// The lender's policy on sales below valuation and to related parties is signed off by its legal team, 2026-10-17.
 
 export type SaleProposed = { kind: "done"; id: string; belowValuation: boolean; relatedPartyMatch: boolean; selfValued: boolean; approvalRequired: boolean }
 export type SaleDone = { kind: "done"; id: string }
@@ -41,7 +41,7 @@ const auditActor = (actor: RecoveryActor) => ({ tenantId: actor.tenantId, userId
  * (A lease purchase counts only assessors and dealers; a forced-sale
  * auctioneer valuation still binds a repossession sale.) A tie for highest
  * counts as the proposer's if any of the tied valuations is.
- * UNTESTED: legal | the lender's valuation-independence policy.
+ * The lender's valuation-independence policy is signed off by its legal team, 2026-10-17.
  */
 export async function valuationFacts(tx: SigningTx, tenantId: string, assetId: string, valuationId: string, today: string, proposerId: string) {
   const maxAge = await purchaseMaxAgeDays(tx, tenantId)

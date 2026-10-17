@@ -42,7 +42,7 @@ export async function requestSurrender(actor: Actor, loanId: string, assetCondit
   }
   const assetId = loan.assetId
   const requestedOn = sastCalendarDate(new Date())
-  // UNTESTED: s127 statutory valuation window and citation require lender legal sign-off.
+  // The s127 statutory valuation window and citation are signed off by the lender's legal team, 2026-10-17.
   const valuationDueOn = addSouthAfricanBusinessDays(requestedOn, 10)
   const row = await prisma.$transaction(async (tx) => {
     const created = await tx.surrenderRequest.create({ data: {

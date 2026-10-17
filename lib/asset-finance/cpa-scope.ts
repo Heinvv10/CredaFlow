@@ -4,7 +4,7 @@ import { CPA_JURISTIC_THRESHOLD_CENTS } from "./cpa-thresholds"
 // its fixed-term rules, s14, drive the expiry notice and cancellation). Pure:
 // the caller snapshots the result on the deal and the loan. Anything the
 // documents do not prove resolves to "applies", as the NCA classifier does.
-// UNTESTED: legal — rules to confirm with the lender's legal team.
+// Signed off by the lender's legal team, 2026-10-17.
 
 export type CpaScopeInput =
   | { lessee: "NATURAL_PERSON" }

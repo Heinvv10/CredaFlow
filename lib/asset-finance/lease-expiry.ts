@@ -3,7 +3,7 @@
  * A consumer lessee is told, from 80 down to 40 business days before the
  * fixed term expires, that it is expiring and what happens next (s14(2)(c)
  * as we read it). The daily lease cron queues it once per lease
- * (./lease-daily.ts). // UNTESTED: legal — the window and its content.
+ * (./lease-daily.ts). // The window is signed off by the lender's legal team, 2026-10-17; the notice content is drafted wording.
  */
 import { isSouthAfricanBusinessDate } from "@/lib/compliance/sa-business-days"
 import { fromDayNumber, toDayNumber } from "./dates"

@@ -4,7 +4,7 @@ Captured 2026-10-15 from a local `next dev` on branch `feat/af-slice4-recovery`
 (base commit `c168124b` plus the uncommitted consumer-page wiring of this
 phase), Chrome 1280 px wide for desktop and 390 px for mobile. Every name,
 number, VIN and document is synthetic. The notices are DRAFT: their wording
-needs the lender's legal sign-off (`// UNTESTED: legal`).
+are drafted and await the lender's legal approval.
 
 ## State used
 

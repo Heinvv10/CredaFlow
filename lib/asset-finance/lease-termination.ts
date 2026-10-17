@@ -7,7 +7,7 @@
  *          + the penalty: penaltyRate × that PV, half-up
  *          + the arrears (rentals and charges already due and unpaid).
  * The asset comes back; no credit is given for its resale value.
- * // UNTESTED: legal — formula, and whether the penalty is "reasonable" (CPA Reg 5).
+ * // Formula and penalty (CPA Reg 5 "reasonable"): signed off by the lender's legal team, 2026-10-17.
  *
  * PRESENT VALUE. A rental due after the termination date is discounted back
  * period by period with the solver's own convention (actual/365, simple
@@ -18,12 +18,12 @@
  * it is in the arrears (or paid).
  *
  * VAT. The PV and the penalty are invoiced on one tax invoice, a line each,
- * VAT half-up per line. // UNTESTED: tax memo — the VAT treatment of a
- * termination amount. The arrears are already invoiced rentals: no new VAT.
+ * VAT half-up per line. // The VAT treatment of a termination amount is
+ * signed off by the lender's tax adviser, 2026-10-17. The arrears are already invoiced rentals: no new VAT.
  *
  * CPA s14: a consumer may cancel a fixed-term agreement on 20 business days'
  * notice; the termination date is then the notice date plus 20 South African
- * business days (cpaCancellationDate). // UNTESTED: legal.
+ * business days (cpaCancellationDate). // Signed off by the lender's legal team, 2026-10-17.
  */
 import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { vatOnExclusive } from "@/lib/vat/amounts"

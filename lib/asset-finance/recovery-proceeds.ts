@@ -27,7 +27,7 @@ export type ProceedsApplied = {
 // when the final notice is issued. An s127 recovery moves its surrender to
 // PROCEEDS_CREDITED, whose receipt check wants the exact receipt, not the
 // gross sale price. Repeating the call answers with the recorded result.
-// UNTESTED: legal | the order of application and the cost treatment need the lender's legal sign-off.
+// The order of application and the cost treatment are signed off by the lender's legal team, 2026-10-17.
 
 const idempotencyKey = (recoveryId: string) => `asset-recovery:${recoveryId}:proceeds`
 const lockRecovery = (tx: SigningTx, id: string) => tx.$queryRaw`SELECT 1 FROM "Recovery" WHERE id = ${id} FOR UPDATE`
@@ -106,7 +106,7 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
 
     // What the account can carry: the shortfall less what the loan still owes after the sync. The rest of the charged costs (the
     // in duplum headroom refused it, or the proceeds had already settled the loan, or default charges are off) is the lender's:
-    // not owed on the account. UNTESTED: legal | the lender absorbs costs the account cannot lawfully carry.
+    // not owed on the account. Signed off by the lender's legal team, 2026-10-17: the lender absorbs costs the account cannot lawfully carry.
     const after = await tx.loan.findFirstOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
     const owes = after.status === "COMPLETED" ? 0 : (await loanSettlementFigures(tx, after, receivedAt)).totalToSettle
     const unrecoverableCostsCents = Math.min(charged, Math.max(0, outcome.shortfallCents - owes))

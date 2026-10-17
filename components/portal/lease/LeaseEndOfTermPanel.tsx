@@ -86,7 +86,7 @@ function EndOfTermChoice({ loanId, offer, chosen, valuation }: Props) {
               <span className="block font-semibold text-[var(--cf-text)]">{OUTCOME_LABEL[option]}</span>
               <span className="block text-xs text-[var(--cf-text-muted)]">
                 {option === "RETURN" && "The asset is inspected, and any damage or excess usage is invoiced."}
-                {/* UNTESTED: legal — notice period of an extension (EXTENSION_NOTICE_MONTHS). */}
+                {/* Notice period of an extension (EXTENSION_NOTICE_MONTHS), signed off by the lender's legal team, 2026-10-17. */}
                 {option === "EXTEND" && "The lease continues month to month; either party may end it on a month's notice."}
                 {option === "PURCHASE" && valuation && `At market value: ${formatMoney(valuation.amountExclVatCents)} excluding VAT, from the valuation of ${formatIsoDate(valuation.valuedOn)}.`}
               </span>

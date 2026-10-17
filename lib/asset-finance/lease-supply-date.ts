@@ -7,7 +7,7 @@
  * (guardLeaseRental, migration 20261014090000): any supply date from that day
  * to the due date is accepted; this gives the earliest, whatever order the
  * receipts were captured in (a back-dated receipt captured after a later one).
- * // UNTESTED: tax memo pending.
+ * // Signed off by the lender's tax adviser, 2026-10-17.
  */
 import type { VatTransaction } from "@/lib/vat/db"
 import { sastCalendarDate } from "@/lib/date/sast"

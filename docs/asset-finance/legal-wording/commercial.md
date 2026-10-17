@@ -184,8 +184,8 @@ quoted; obligations are paraphrased and cited.
     gives the Seller a right to cancel in those cases; there is no cancellation
     notice in the system.
 12. **VAT (7.3).** One tax invoice at the payout date; interest exempt under
-    VAT Act ss 2 and 12(a). The tax memo on supply timing (DESIGN D7) is still
-    outstanding.
+    VAT Act ss 2 and 12(a). Supply timing (DESIGN D7) was signed off by the
+    tax adviser on 2026-10-17.
 13. **Insurance premium recovery (7.6).** The Seller may insure and recover the
     premium, but the system has no way to debit it to the loan.
 14. **Resolution signers.** The resolution is signed by the authorised

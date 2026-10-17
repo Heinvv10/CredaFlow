@@ -22,7 +22,8 @@ const NOT_NCA = "A NON_NCA recovery has no NCA notice; its post-sale account sta
 /**
  * VALUED → VALUATION_NOTICE_ISSUED. s127: the surrender's own notice (issued
  * through the surrender route) must already exist; s131: rendered and stored
- * here. NON_NCA has none. UNTESTED: legal sign-off on the notice wording.
+ * here. NON_NCA has none. The notice wording is drafted 2026-10-17 and awaits the
+ * lender's legal approval (TenantConfig.assetFinanceLegalWordingApproved).
  */
 export async function issueRecoveryValuationNotice(actor: RecoveryActor, id: string): Promise<RecoveryResult> {
   const loaded = await loadRecoveryNoticeData(actor.tenantId, id, new Date())
@@ -48,7 +49,8 @@ export async function issueRecoveryValuationNotice(actor: RecoveryActor, id: str
  * PROCEEDS_APPLIED → FINAL_NOTICE_ISSUED, setting the final notice date and the
  * end of the charge freeze (10 SA business days later). s127 issues the
  * surrender's final notice (with the recovery's cost table); s131 renders its
- * own. NON_NCA has no NCA notice. UNTESTED: legal sign-off on the notice and the freeze.
+ * own. NON_NCA has no NCA notice. The notice wording is drafted 2026-10-17 and awaits legal
+ * approval (TenantConfig.assetFinanceLegalWordingApproved); the freeze is signed off by the lender's legal team, 2026-10-17.
  */
 export async function issueRecoveryFinalNotice(actor: RecoveryActor, id: string): Promise<RecoveryResult> {
   const loaded = await loadRecoveryNoticeData(actor.tenantId, id, new Date())

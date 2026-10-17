@@ -45,7 +45,8 @@ export const COST_COLUMNS: readonly TableColumn[] = [
   { header: "Amount", x: 460, width: 90, align: "right" },
 ]
 
-// UNTESTED: legal sign-off. Titles and layout follow docs/asset-finance/SLICE4.md; the clause wording is ../wording/nca-recovery.ts.
+// Titles and layout follow docs/asset-finance/SLICE4.md; the clause wording is ../wording/nca-recovery.ts,
+// drafted 2026-10-17 and awaiting the lender's legal approval (TenantConfig.assetFinanceLegalWordingApproved).
 export async function renderRecoveryValuationNotice(data: RecoveryNoticeData): Promise<Buffer> {
   const w = await baseWriter(data, "REPOSSESSED GOODS VALUATION NOTICE")
   if (!data.valuation) throw new RangeError("Valuation evidence is required")
