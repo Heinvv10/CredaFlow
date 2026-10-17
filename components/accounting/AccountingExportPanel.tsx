@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { InfoStrip } from "@/components/app-shell/InfoStrip"
 import { MetricCard } from "@/components/app-shell/MetricCard"
@@ -42,38 +42,56 @@ async function fetchSnapshot(period: string): Promise<Snapshot> {
     : { preview: null, previewError: pj.error ?? `Preview failed (${p.status})`, batches }
 }
 
-export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean }) {
+export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, isaflowConnected, revision = 0, settingsBusy = false, onClosed, onMutationStart, onMutationEnd }: { initialPeriod: string; canClose: boolean; xeroConnected: boolean; isaflowConnected: boolean; revision?: number; settingsBusy?: boolean; onClosed?: () => void; onMutationStart?: () => void; onMutationEnd?: () => void }) {
   const [period, setPeriod] = useState(initialPeriod)
-  const [preview, setPreview] = useState<Preview | null>(null)
+  const [loaded, setLoaded] = useState<{ key: string; preview: Preview | null } | null>(null)
+  const key = `${period}:${revision}:${settingsBusy}`
+  const currentKey = useRef(key)
+  currentKey.current = key
+  const request = useRef(0)
+  const preview = loaded?.key === key ? loaded.preview : null
+  useEffect(() => { setPeriod(initialPeriod) }, [initialPeriod])
   const [batches, setBatches] = useState<Batch[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  function applySnapshot(snap: Snapshot) {
-    setPreview(snap.preview)
+  function applySnapshot(snap: Snapshot, forKey: string) {
+    setLoaded({ key: forKey, preview: snap.preview })
     if (snap.previewError !== null) setMessage(snap.previewError)
     if (snap.batches) setBatches(snap.batches)
   }
 
-  // A stale response (the month changed while it was in flight) is ignored.
+  // A revision invalidates the rendered preview before a settings write begins.
+  // Neither an earlier GET nor a POST refresh may restore that old snapshot.
   useEffect(() => {
+    const id = ++request.current
+    if (settingsBusy) return
     let ignore = false
-    void fetchSnapshot(period).then((snap) => { if (!ignore) applySnapshot(snap) })
+    setMessage(null)
+    void fetchSnapshot(period).then((snap) => {
+      if (!ignore && id === request.current && currentKey.current === key) applySnapshot(snap, key)
+    }).catch(() => { if (!ignore && id === request.current) setMessage("Could not load the preview. Try again.") })
     return () => { ignore = true }
-  }, [period])
+  }, [period, revision, settingsBusy, key])
 
   async function post(url: string, body: unknown, done: (json: Record<string, unknown>) => string) {
+    const forKey = key
+    const id = ++request.current
     setBusy(true)
+    onMutationStart?.()
     setMessage(null)
     try {
       const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      setMessage(res.ok ? done(json) : String(json.error ?? `Failed (${res.status})`))
-      applySnapshot(await fetchSnapshot(period))
+      if (res.ok && url === "/api/accounting/periods") onClosed?.()
+      const message = res.ok ? done(json) : String(json.error ?? `Failed (${res.status})`)
+      const snap = await fetchSnapshot(period)
+      if (id === request.current && currentKey.current === forKey) { setMessage(message); applySnapshot(snap, forKey) }
     } catch {
-      setMessage("Network error; refresh to see the current state.")
+      if (id === request.current && currentKey.current === forKey) setMessage("Network error; refresh to see the current state.")
     } finally {
       setBusy(false)
+      onMutationEnd?.()
     }
   }
 
@@ -89,7 +107,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
         actions={
           <div className="flex items-center gap-2">
             <label htmlFor="period" className="text-xs text-[var(--cf-text-muted)]">Month</label>
-            <Input id="period" type="month" value={period} onChange={(e) => e.target.value && setPeriod(e.target.value)} className="w-40" />
+            <Input id="period" type="month" value={period} disabled={busy || settingsBusy} onChange={(e) => e.target.value && setPeriod(e.target.value)} className="w-40" />
           </div>
         }
       >
@@ -150,7 +168,7 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
             </p>
             <div className="flex flex-wrap gap-2">
               {!preview.closed && canClose && (
-                <Button disabled={busy || !balanced || preview.refusal !== null} onClick={() => post("/api/accounting/periods", { period: preview.period }, () => `${preview.label} closed.`)}>
+                <Button disabled={busy || settingsBusy || !balanced || preview.refusal !== null} onClick={() => post("/api/accounting/periods", { period: preview.period }, () => `${preview.label} closed.`)}>
                   Close {preview.label}
                 </Button>
               )}
@@ -161,13 +179,13 @@ export function AccountingExportPanel({ initialPeriod, canClose, xeroConnected, 
                 </>
               )}
             </div>
-            {closedBatch && <IsaFlowPushControl batch={closedBatch} canAdmin={canClose} connected={isaflowConnected} busy={busy} post={post} />}
+            {closedBatch && <IsaFlowPushControl batch={closedBatch} canAdmin={canClose} connected={isaflowConnected} busy={busy || settingsBusy} post={post} />}
           </div>
         )}
         {message && <p className="mt-3 text-sm text-[var(--cf-text-secondary)]" role="status">{message}</p>}
       </DataPanel>
 
-      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} isaflowConnected={isaflowConnected} busy={busy} post={post} />
+      <AccountingHistory batches={batches} canAdmin={canClose} xeroConnected={xeroConnected} isaflowConnected={isaflowConnected} busy={busy || settingsBusy} post={post} />
     </div>
   )
 }
