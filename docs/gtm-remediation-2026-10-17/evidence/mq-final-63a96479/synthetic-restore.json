@@ -1,0 +1,70 @@
+{
+  "source": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "scope": "owned synthetic databases only; not production backup certification",
+  "databases": [
+    {
+      "database": "credaflow_rc",
+      "restoredDatabase": "credaflow_rc_final_drill8",
+      "counts": {
+        "loans": 35,
+        "applications": 57,
+        "payments": 60,
+        "audits": 2487,
+        "documents": 349
+      },
+      "allocationMismatches": 0,
+      "uploadFiles": 445,
+      "uploadBytesIdentical": true,
+      "dumpSha256": "f77185d6d32185b897e4cf1aa62d153c017bbf46960b279e7f697a98a654d24c",
+      "uploadArchiveSha256": "8f9799bfb6f304e248704bd4711a3a1e2796b6279f65e4164ecd1eafa047c957"
+    },
+    {
+      "database": "credaflow_rc_charges",
+      "restoredDatabase": "credaflow_rc_charges_final_drill8",
+      "counts": {
+        "loans": 35,
+        "applications": 56,
+        "payments": 60,
+        "audits": 2339,
+        "documents": 347
+      },
+      "allocationMismatches": 0,
+      "uploadFiles": 443,
+      "uploadBytesIdentical": true,
+      "dumpSha256": "93f9b13e6a618f9c31a570b27741d91d29df246872d00e3153da340fb5c04d7f",
+      "uploadArchiveSha256": "dd608d498e72d9b7379c73e4dd523ee8042edf982fd707905a72473433d3ee86"
+    },
+    {
+      "database": "credaflow_rc_accounting",
+      "restoredDatabase": "credaflow_rc_accounting_final_drill8",
+      "counts": {
+        "loans": 35,
+        "applications": 56,
+        "payments": 60,
+        "audits": 2364,
+        "documents": 348
+      },
+      "allocationMismatches": 0,
+      "uploadFiles": 446,
+      "uploadBytesIdentical": true,
+      "dumpSha256": "ed2157ff88fe870eaa1bfba7ae9671ce03515910136687615a258d4f41f7a580",
+      "uploadArchiveSha256": "80a62f4316c17a0d6e3cc8d09b4c8f5224791ea88a73c80c25bd726a9bbf0a45"
+    },
+    {
+      "database": "credaflow_rc_accounting8",
+      "restoredDatabase": "credaflow_rc_accounting8_final_drill8",
+      "counts": {
+        "loans": 35,
+        "applications": 56,
+        "payments": 60,
+        "audits": 2349,
+        "documents": 347
+      },
+      "allocationMismatches": 0,
+      "uploadFiles": 443,
+      "uploadBytesIdentical": true,
+      "dumpSha256": "f1e458eff3e8fcbef93b738cfc389db12c955c8e88b2fbe72f9dd0ee3f953bed",
+      "uploadArchiveSha256": "9bf2fb50c919295d07c4787d63ba2b6d4a303d95842581b07d8cf494cf8f691d"
+    }
+  ]
+}

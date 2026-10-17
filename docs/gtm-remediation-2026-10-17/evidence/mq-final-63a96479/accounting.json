@@ -1,0 +1,391 @@
+{
+  "identity": {
+    "id": "cmnflx6y3002xay0cdmpo26zd",
+    "role": "ADMIN",
+    "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+  },
+  "runtimeHealth": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "baseUrl": "http://localhost:57323",
+  "fixtureDatabaseLabel": "credaflow_rc_accounting8",
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "states": [
+    {
+      "label": "initial",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 1,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": {
+            "code": "MAPPING_NOT_CONFIRMED",
+            "message": "Review and confirm the chart-of-accounts mapping first"
+          },
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:12.795Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING NOT CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nNo month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.\n\nAsset-finance accounts:\n0 OF 16 CONFIRMED\n\nNot yet confirmed: Instalment sale and finance lease debtors, Lease debtors, VAT input, Assets under operating lease, Lease asset disposal proceeds, Rental income, Maintenance income, Maintenance fund liability, Maintenance claims paid, Recovery clearing, Recovery costs payable, Recovery costs, Recovery costs recharged, Recovery surplus refunds payable, Recovery result, Asset-finance price credits. A month that posts one of these closes only after the mapping is confirmed again.\n\nI have reviewed the mapping: confirm it\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nThe chart of accounts needs confirming\n\nAn administrator reviews the mapping below and confirms it. Asset-finance accounts were added after many lenders confirmed theirs, so confirm again before the first month that posts them.\n\nReview and confirm the chart-of-accounts mapping first\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": true
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "go-live-saved",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 2,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": {
+            "code": "MAPPING_NOT_CONFIRMED",
+            "message": "Review and confirm the chart-of-accounts mapping first"
+          },
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:14.064Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING NOT CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nNo month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.\n\nAsset-finance accounts:\n0 OF 16 CONFIRMED\n\nNot yet confirmed: Instalment sale and finance lease debtors, Lease debtors, VAT input, Assets under operating lease, Lease asset disposal proceeds, Rental income, Maintenance income, Maintenance fund liability, Maintenance claims paid, Recovery clearing, Recovery costs payable, Recovery costs, Recovery costs recharged, Recovery surplus refunds payable, Recovery result, Asset-finance price credits. A month that posts one of these closes only after the mapping is confirmed again.\n\nI have reviewed the mapping: confirm it\n\nGo-live month saved.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nThe chart of accounts needs confirming\n\nAn administrator reviews the mapping below and confirms it. Asset-finance accounts were added after many lenders confirmed theirs, so confirm again before the first month that posts them.\n\nReview and confirm the chart-of-accounts mapping first\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": true
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "vat-reset-before-test",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 3,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": {
+            "code": "MAPPING_NOT_CONFIRMED",
+            "message": "Review and confirm the chart-of-accounts mapping first"
+          },
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:14.503Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING NOT CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: no\nLender is VAT-registered\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nNo month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.\n\nAsset-finance accounts:\n0 OF 16 CONFIRMED\n\nNot yet confirmed: Instalment sale and finance lease debtors, Lease debtors, VAT input, Assets under operating lease, Lease asset disposal proceeds, Rental income, Maintenance income, Maintenance fund liability, Maintenance claims paid, Recovery clearing, Recovery costs payable, Recovery costs, Recovery costs recharged, Recovery surplus refunds payable, Recovery result, Asset-finance price credits. A month that posts one of these closes only after the mapping is confirmed again.\n\nI have reviewed the mapping: confirm it\n\nVAT split off.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nThe chart of accounts needs confirming\n\nAn administrator reviews the mapping below and confirms it. Asset-finance accounts were added after many lenders confirmed theirs, so confirm again before the first month that posts them.\n\nReview and confirm the chart-of-accounts mapping first\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": true
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "vat-on",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 4,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": {
+            "code": "MAPPING_NOT_CONFIRMED",
+            "message": "Review and confirm the chart-of-accounts mapping first"
+          },
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:14.949Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING NOT CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nNo month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.\n\nAsset-finance accounts:\n0 OF 16 CONFIRMED\n\nNot yet confirmed: Instalment sale and finance lease debtors, Lease debtors, VAT input, Assets under operating lease, Lease asset disposal proceeds, Rental income, Maintenance income, Maintenance fund liability, Maintenance claims paid, Recovery clearing, Recovery costs payable, Recovery costs, Recovery costs recharged, Recovery surplus refunds payable, Recovery result, Asset-finance price credits. A month that posts one of these closes only after the mapping is confirmed again.\n\nI have reviewed the mapping: confirm it\n\nVAT-registered: fees marked VAT-inclusive split 15% to VAT output.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nThe chart of accounts needs confirming\n\nAn administrator reviews the mapping below and confirms it. Asset-finance accounts were added after many lenders confirmed theirs, so confirm again before the first month that posts them.\n\nReview and confirm the chart-of-accounts mapping first\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": true
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "mapping-confirmed",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 5,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": null,
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:15.421Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nMapping confirmed 2026/10/17, 17:55:15.\n\nAsset-finance accounts:\n16 OF 16 CONFIRMED\n\nI have reviewed the mapping: confirm it\n\nMapping confirmed.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": false
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "mapping-edited",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 6,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": {
+            "code": "MAPPING_NOT_CONFIRMED",
+            "message": "Review and confirm the chart-of-accounts mapping first"
+          },
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:15.995Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING NOT CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nNo month closes until an administrator reviews the chart of accounts below and confirms it. Any later change to it needs confirming again.\n\nAsset-finance accounts:\n0 OF 16 CONFIRMED\n\nNot yet confirmed: Instalment sale and finance lease debtors, Lease debtors, VAT input, Assets under operating lease, Lease asset disposal proceeds, Rental income, Maintenance income, Maintenance fund liability, Maintenance claims paid, Recovery clearing, Recovery costs payable, Recovery costs, Recovery costs recharged, Recovery surplus refunds payable, Recovery result, Asset-finance price credits. A month that posts one of these closes only after the mapping is confirmed again.\n\nI have reviewed the mapping: confirm it\n\nMapping confirmed.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nThe chart of accounts needs confirming\n\nAn administrator reviews the mapping below and confirms it. Asset-finance accounts were added after many lenders confirmed theirs, so confirm again before the first month that posts them.\n\nReview and confirm the chart-of-accounts mapping first\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t\n\nSaved. Months closed from now on use these codes. Confirm the mapping again before the next close.",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": true
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "mapping-reconfirmed",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 7,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": false,
+          "refusal": null,
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:16.433Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING CONFIRMED\nGo-live month\nSave go-live month\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nMapping confirmed 2026/10/17, 17:55:16.\n\nAsset-finance accounts:\n16 OF 16 CONFIRMED\n\nI have reviewed the mapping: confirm it\n\nMapping confirmed.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\nGo-live month: history before September 2026 posts as one opening entry.\n\nSTATUS\n\nOpen (preview)\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\n\nLoan-book tie-out at month end: journal R 2,366,340.82 · owed by borrowers R 2,366,340.82 · ties\n\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nClose September 2026\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nNo month has been closed yet.\n\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t\n\nSaved. Months closed from now on use these codes. Confirm the mapping again before the next close.",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [
+        {
+          "text": "Close September 2026",
+          "disabled": false
+        }
+      ],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Open (preview)",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "closed",
+      "uiOriginPreviewResponses": [
+        {
+          "requestSequence": 8,
+          "status": 200,
+          "period": "2026-09",
+          "debitCents": 407510112,
+          "creditCents": 407510112,
+          "closed": true,
+          "refusal": null,
+          "entryCount": 49,
+          "at": "2026-10-17T15:55:16.903Z"
+        }
+      ],
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n9\n9 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nReports\nAccounting export\n\nGENERAL LEDGER\n\nAccounting Export\n\nDouble-entry journals for disbursements, instalments due (interest, fees, credit-life premiums), default charges, receipts, reversals, refunds, waivers and write-offs, one month at a time. Each money event is exported once; a closed month never changes.\n\nBefore the first close\n\nThe go-live month (history before it posts as one opening entry), VAT, and your confirmation of the chart of accounts below.\n\nMAPPING CONFIRMED\nGo-live month\nFixed: a month has closed.\nVAT-registered: yes, 15%\nTurn VAT split off\n\nVAT is split only from fee accounts marked VAT-inclusive in the mapping. Credit notes on lease invoices, on an instalment sale's or finance lease's inception invoice and on a repossession sale are exported; a credit note on any other instalment-sale or finance-lease invoice is not yet, and holds the month open.\n\nMapping confirmed 2026/10/17, 17:55:16.\n\nAsset-finance accounts:\n16 OF 16 CONFIRMED\n\nI have reviewed the mapping: confirm it\n\nMapping confirmed.\n\nPeriod\n\nA SAST calendar month. Months close in order from the go-live month, once ended; closing seals its journals for good.\n\nMonth\n\nSTATUS\n\nClosed\n\nJOURNAL ENTRIES\n\n49\n\nDEBITS\n\nR 4,075,101.12\n\nCREDITS\n\nR 4,075,101.12\nBalanced\nACCOUNT\tCODE\tDEBIT\tCREDIT\nBank\t1000\tR 42,280.15\tR 1,300.00\nLoans receivable\t1100\tR 382,614.97\tR 42,280.15\nVAT output\t2300\t\tR 409,036.76\nOpening balance equity\t3900\t\tR 3,566,786.22\nInterest income\t4000\t\tR 38,831.99\nFee income\t4010\t\tR 3,666.00\nInstalment sale and finance lease debtors\t1110\tR 2,026,006.00\t\nVAT input\t1300\tR 570,000.00\t\nAssets under operating lease\t1500\tR 1,050,000.00\t\nMaintenance fund liability\t2400\t\tR 2,500.00\nRecovery clearing\t2500\tR 4,200.00\t\nRecovery costs payable\t2510\t\tR 10,700.00\n\nEvents: disbursement 1, instalment due 37, opening 1, receipt 10\n\nDownload CSV\nDownload Sage CSV\nIsaFlow\nNot pushed\n\nConnect IsaFlow under Settings → Integrations to push this month as a draft journal.\n\nSeptember 2026 closed.\n\nExport history\n\nClosed months. Connect Xero or IsaFlow under Settings → Integrations to push journals.\n\nMONTH\tENTRIES\tDEBITS = CREDITS\tCLOSED\tXERO\tISAFLOW\t\n2026-09\t49\tR 4,075,101.12\t2026/10/17\tNot pushed\tNot pushed\tCSVSage\nChart of accounts\n\nWhere each journal line posts in your general ledger. Xero refuses manual journals to a bank account: map Bank to a clearing account.\n\nSave mapping\nJOURNAL ROLE\tACCOUNT CODE\tACCOUNT NAME\tTAX CODE\tVAT-INCL.\n\n\nbank\n\nCash paid out and received. In Xero map this to a clearing account: manual journals cannot post to a bank account\n\n\t\n\t\n\t\n\t\n\n\npayout clearing\n\nLoans booked whose payout the provider has not yet confirmed paid (payout channel on)\n\n\t\n\t\n\t\n\t\n\n\nloan book\n\nEverything borrowers owe: principal plus interest, fees, premiums and charges once due\n\n\t\n\t\n\t\n\t\n\n\nunallocated receipts\n\nMoney received and not yet applied to a loan, or owed back as a refund\n\n\t\n\t\n\t\n\t\n\n\ncredit life payable\n\nBundled credit-life premiums owed to the insurer as they fall due; uncollected premium is reversed on write-off\n\n\t\n\t\n\t\n\t\n\n\noutput vat\n\nVAT inside VAT-inclusive fees, when the lender is VAT-registered\n\n\t\n\t\n\t\n\t\n\n\nopening balance equity\n\nContra of the go-live opening entry; reconcile it to the legacy ledger\n\n\t\n\t\n\t\n\t\n\n\ninterest income\n\nContractual interest as instalments fall due\n\n\t\n\t\n\t\n\t\n\n\nfee income\n\nInitiation and monthly service fees\n\n\t\n\t\n\t\n\t\n\n\ndefault interest income\n\nDefault interest charged after a missed instalment\n\n\t\n\t\n\t\n\t\n\n\ndefault fee income\n\nPost-default service fees, letter and collection fees\n\n\t\n\t\n\t\n\t\n\n\nbad debt recovery\n\nMoney received on a written-off loan\n\n\t\n\t\n\t\n\t\n\n\nbad debt expense\n\nLoan balances written off\n\n\t\n\t\n\t\n\t\n\n\nwaiver expense\n\nSub-R1 residues closed by a waiver\n\n\t\n\t\n\t\n\t\n\n\nAsset finance\n\nInstalment sales, leases and repossessions. Their VAT posts on its own lines, so these accounts take no tax code. Confirm the mapping again before the first month that posts them.\n\n\n\n\naf instalment debtors\n\nAsset finance: the financed amount plus interest as it falls due, less receipts\n\n\t\n\t\n\t\n\t\n\n\nlease debtors\n\nAsset finance: rentals and end-of-term invoices once invoiced, less receipts\n\n\t\n\t\n\t\n\t\n\n\ninput vat\n\nAsset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))\n\n\t\n\t\n\t\n\t\n\n\nleased assets\n\nCost excluding VAT of leased assets; depreciation stays in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nasset disposal proceeds\n\nPrice excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register\n\n\t\n\t\n\t\n\t\n\n\nrental income\n\nLease rentals and end-of-term charges excluding VAT, as invoiced\n\n\t\n\t\n\t\n\t\n\n\nmaintenance income\n\nMaintenance portion of full-maintenance lease rentals excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nmaintenance fund liability\n\nLessee-settled maintenance funds: contributions less claims and refunds\n\n\t\n\t\n\t\n\t\n\n\nmaintenance expense\n\nMaintenance claims paid on lender-risk leases\n\n\t\n\t\n\t\n\t\n\n\nrecovery clearing\n\nRepossession sales and costs, per recovery; clears to nil once the proceeds are applied or the recovery is withdrawn\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs payable\n\nSupplier invoices for recovery costs, settled through accounts payable\n\n\t\n\t\n\t\n\t\n\n\nrecovery cost expense\n\nRecovery costs charged to the borrower's account, excluding VAT\n\n\t\n\t\n\t\n\t\n\n\nrecovery costs recharged\n\nContra-expense: recovery costs charged to the borrower's account\n\n\t\n\t\n\t\n\t\n\n\nrecovery refund payable\n\nSurplus owed back to the debtor after a recovery sale\n\n\t\n\t\n\t\n\t\n\n\nrecovery result\n\nGain or loss left in recovery clearing: output VAT less repossession and cost input VAT\n\n\t\n\t\n\t\n\t\n\n\naf price credits\n\nPrice excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it\n\n\t\n\t\n\t\n\t\n\nSaved. Months closed from now on use these codes. Confirm the mapping again before the next close.",
+      "goLive": "2026-09",
+      "period": "2026-09",
+      "close": [],
+      "navigationStart": 1792252512546.9,
+      "metrics": {
+        "Status": "Closed",
+        "Journal entries": "49",
+        "Debits": "R 4,075,101.12",
+        "Credits": "R 4,075,101.12"
+      }
+    },
+    {
+      "label": "closed-csv",
+      "batchId": "dd7c0199-7786-49b9-95d5-a4489846153c",
+      "preview": {
+        "period": "2026-09",
+        "label": "September 2026",
+        "closed": true,
+        "batchId": "dd7c0199-7786-49b9-95d5-a4489846153c",
+        "entryCount": 49,
+        "refusal": null,
+        "reconciliation": null,
+        "accounts": [
+          {
+            "role": "BANK",
+            "accountCode": "1000",
+            "debitCents": 4228015,
+            "creditCents": 130000,
+            "name": "Bank"
+          },
+          {
+            "role": "LOAN_BOOK",
+            "accountCode": "1100",
+            "debitCents": 38261497,
+            "creditCents": 4228015,
+            "name": "Loans receivable"
+          },
+          {
+            "role": "OUTPUT_VAT",
+            "accountCode": "2300",
+            "debitCents": 0,
+            "creditCents": 40903676,
+            "name": "VAT output"
+          },
+          {
+            "role": "OPENING_BALANCE_EQUITY",
+            "accountCode": "3900",
+            "debitCents": 0,
+            "creditCents": 356678622,
+            "name": "Opening balance equity"
+          },
+          {
+            "role": "INTEREST_INCOME",
+            "accountCode": "4000",
+            "debitCents": 0,
+            "creditCents": 3883199,
+            "name": "Interest income"
+          },
+          {
+            "role": "FEE_INCOME",
+            "accountCode": "4010",
+            "debitCents": 0,
+            "creditCents": 366600,
+            "name": "Fee income"
+          },
+          {
+            "role": "AF_INSTALMENT_DEBTORS",
+            "accountCode": "1110",
+            "debitCents": 202600600,
+            "creditCents": 0,
+            "name": "Instalment sale and finance lease debtors"
+          },
+          {
+            "role": "INPUT_VAT",
+            "accountCode": "1300",
+            "debitCents": 57000000,
+            "creditCents": 0,
+            "name": "VAT input"
+          },
+          {
+            "role": "LEASED_ASSETS",
+            "accountCode": "1500",
+            "debitCents": 105000000,
+            "creditCents": 0,
+            "name": "Assets under operating lease"
+          },
+          {
+            "role": "MAINTENANCE_FUND_LIABILITY",
+            "accountCode": "2400",
+            "debitCents": 0,
+            "creditCents": 250000,
+            "name": "Maintenance fund liability"
+          },
+          {
+            "role": "RECOVERY_CLEARING",
+            "accountCode": "2500",
+            "debitCents": 420000,
+            "creditCents": 0,
+            "name": "Recovery clearing"
+          },
+          {
+            "role": "RECOVERY_COSTS_PAYABLE",
+            "accountCode": "2510",
+            "debitCents": 0,
+            "creditCents": 1070000,
+            "name": "Recovery costs payable"
+          }
+        ],
+        "events": {
+          "DISBURSEMENT": 1,
+          "INSTALMENT_DUE": 37,
+          "OPENING": 1,
+          "RECEIPT": 10
+        },
+        "debitCents": 407510112,
+        "creditCents": 407510112
+      },
+      "csvDownloaded": true
+    }
+  ],
+  "boundary": "Actual private browser settings/edit/reconfirm with no navigation reload; existing close guards preserved. CSV arithmetic independently checked after download."
+}
