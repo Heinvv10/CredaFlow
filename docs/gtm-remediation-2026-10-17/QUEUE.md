@@ -14,6 +14,8 @@ Each submission requires finding IDs, reproduced failure, base/submitted SHAs, e
 | Order | Findings | Submitted SHA | Reviewer/verdict | Integrated SHA | Candidate checks | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B APPROVE: independently re-ran 6 suites/53 tests; registry subject/role/tenant inspection; coordinator admission authorized | `a679a71c` | branch quick passed; MQ exact 6 suites/53 tests PASS exit0; combined full gates/browser pending | integrated, not accepted |
+| 2 | F02/F03/F10 | `aea9f3b4` then `9891a0ef` (base `3a0a17e3`) | A APPROVE exact final SHA; independent 6 suites/28 tests, B quick PASS | `3a337585` then `f7c72d67` | combined core 13 files/83 tests and ci:quick PASS | integrated, not accepted |
+| 3 | F06/F07/F12 | `314a9321` then `34040560` | B APPROVE independent 4 files/34 tests; root payment-label blocker resolved | `0803b838` then `87516c0f` | MQ affected portal tests running; final full gates/browser pending | integrated, not accepted |
 
 ## Resource and runtime ownership
 
