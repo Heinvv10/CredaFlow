@@ -35,3 +35,7 @@ NCA fingerprint script and five executed/unsigned sample renders exit0 on the sa
 Pristine git-archive Docker build is in progress, with source and build inputs captured outside the frozen worktree. Original official SFace download is progressing slowly by measured RX; no host-model overlay or pin waiver. No immutable image/runtime/browser acceptance claimed until completion.
 
 Independent A source review approved post-freeze tracker33622b52 and gate-map09956bbc, checking31actual test paths and scope boundaries; permissive no-context RLS behavior remains distinct from strict-mode tests. B independently reviewed root browser drivers and caught an initial operator-refusal assertion that also accepted a granted view. Corrected pre-execution to require explicit no-active-grant refusal and no borrower table/Clients heading; B spot-reviewed approval. Driver preflight is not browser acceptance.
+
+### Candidate31339 pristine-image attempt1 failed
+
+Actual Step34 SFace full-body transfer terminated; Dockerexit1 after14:05:26–14:17:10UTC, OOMKilled=false. No image or runtime accepted. Source quality/integration passes above remain exact predecessor evidence. MQ retained immutable attempt logs/exit/transfer measurements and official HEAD/tail/1MiB range diagnostics. A implementing G18-R under682ea42c ownership/specification, B independent review follows; no changes to URL/pins/models/runtime thresholds/Dockerfile allowed. New reviewed source requires a new freeze and full gates/image. No old-image retries, host-cache overlay or fingerprint waiver.
