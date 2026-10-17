@@ -142,6 +142,8 @@ export async function loadChargesReplay(
     where: { id: ref.loanId, tenantId: ref.tenantId },
     select: {
       principal: true,
+      startDate: true,
+      totalInterest: true, totalRepayable: true, contractualTotalInterest: true, contractualTotalRepayable: true,
       interestRatePm: true,
       ncaRegime: true,
       maturityDate: true,
@@ -195,7 +197,9 @@ export async function loadChargesReplay(
   const recoveryCosts = recoveryCostCharges(loan?.recoveries)
   const config = loan?.tenant.config
   // Once charges were stopped nothing is ever derived again, not even a preview.
-  if (!loan || !config || config.defaultChargesStoppedAt || !(chargesEnabled({ tenant: { config } }) || preview)) return null
+  if (!loan || !config) return null
+  const defaultChargesLive = !config.defaultChargesStoppedAt && (chargesEnabled({ tenant: { config } }) || !!preview)
+  if (!defaultChargesLive && loan.ncaRegime !== "NON_NCA") return null
 
   const receipts = await tx.payment.findMany({
     where: {
@@ -275,8 +279,9 @@ export async function loadChargesReplay(
       const margin = terms.nonNcaDefaultInterestMargin
       return computeNonNcaCharges({
         ...common,
-        defaultInterestMargin: margin === null ? null : margin.toNumber(),
-        collectionFeeCents: terms.nonNcaCollectionFeeCents,
+        startDate: loan.startDate,
+        defaultInterestMargin: !defaultChargesLive || margin === null ? null : margin.toNumber(),
+        collectionFeeCents: defaultChargesLive ? terms.nonNcaCollectionFeeCents : null,
         contractRateHistory: loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),

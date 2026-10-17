@@ -26,7 +26,7 @@ const EVIDENCE: Partial<Record<PayoutChecklistItemKind, Parameters<typeof dealDo
   NATIS_TITLEHOLDER: "NATIS_DOCUMENT",
 }
 
-export async function createBookedContractFixture(db: PrismaClient, t: string, setSession: SetSession, options: { dealAArrears?: { margin: string; feeCents: number } } = {}): Promise<BookedContractFixture> {
+export async function createBookedContractFixture(db: PrismaClient, t: string, setSession: SetSession, options: { dealAStructure?: { periods: number; rateMargin: string }; dealAArrears?: { margin: string; feeCents: number } } = {}): Promise<BookedContractFixture> {
   const fx = await createBookingFixture(db, t, setSession, options)
   const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") =>
     setSession({ id, email: `${id}@booking-it.test`, role, tenantId: fx.tenantId })

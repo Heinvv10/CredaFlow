@@ -10,6 +10,7 @@ import { scheduleRowStatus } from "@/lib/loan/schedule-status"
 
 export interface WrittenRow {
   id: string
+  commonLawContractualInterestDue?: number | null
   interestDue: number
   feesDue: number
   creditLifePremiumDue?: number
@@ -33,7 +34,7 @@ export interface WriteScheduleOptions {
   writeUnchanged?: boolean
 }
 
-const MONEY = ["interestDue", "feesDue", "creditLifePremiumDue", "totalDue", "totalPaid"] as const
+const MONEY = ["commonLawContractualInterestDue","interestDue", "feesDue", "creditLifePremiumDue", "totalDue", "totalPaid"] as const
 
 /** Writes each row of `after` that differs from the same row of `before`. */
 export async function writeReceiptSchedule(
@@ -54,6 +55,7 @@ export async function writeReceiptSchedule(
       data: {
         totalPaid: row.totalPaid,
         interestDue: row.interestDue,
+        ...(row.commonLawContractualInterestDue === undefined ? {} : { commonLawContractualInterestDue: row.commonLawContractualInterestDue }),
         feesDue: row.feesDue,
         ...(row.creditLifePremiumDue === undefined ? {} : { creditLifePremiumDue: row.creditLifePremiumDue }),
         totalDue: row.totalDue,

@@ -1,3 +1,4 @@
+import { commonLawReplayRows } from "@/lib/asset-finance/common-law-interest"
 import {
   chargesBackdating,
   chargesEnabled,
@@ -51,7 +52,7 @@ interface ReceiptArgs {
 
 /** The replay a receipt is bounded by, or null while charges are off. */
 export async function loadReceiptReplay(tx: ChargesTx, loan: ReceiptLoan, asOf: Date): Promise<ChargesReplay | null> {
-  return chargesEnabled(loan)
+  return (chargesEnabled(loan) || loan.ncaRegime === "NON_NCA")
     ? await loadChargesReplay(tx, { tenantId: loan.tenantId, loanId: loan.id }, asOf)
     : null
 }
@@ -67,15 +68,24 @@ export function projectReceiptWithReplay(replay: ChargesReplay | null, args: Rec
   }
   const dated = replay.replayAt(asOf, [{ id: PROBE, amount, receivedAt }])
   const split = dated.receiptSplits.find((s) => s.receiptId === PROBE)
-  const projection = projectReceipt({
+  const lawfulSchedule = commonLawReplayRows(schedule, replay.replayAt(receivedAt))
+  let projection = projectReceipt({
     loan,
-    schedule,
+    schedule: lawfulSchedule,
     amount,
     asOf: receivedAt,
     allowOverpayment,
     chargesOutstanding: (split?.toDefaultInterest ?? 0) + (split?.toFees ?? 0),
     replayCapCents: amount - dated.unallocated,
   })
+  if (loan.ncaRegime === "NON_NCA" && !projection.isEarlyInstalmentSettlement && !projection.isEarlyDailySettlement) {
+    const cappedRows = commonLawReplayRows(schedule, dated).map((row, i) => ({ ...row, totalPaid: dated.scheduleRows[i].paid }))
+    const commonLawAdjusted = cappedRows.some((row, i) => row.interestDue !== schedule[i].interestDue)
+    projection = { ...projection, rows: cappedRows,
+      totalInterest: cappedRows.reduce((sum, row) => sum + row.interestDue, 0),
+      totalRepayable: cappedRows.reduce((sum, row) => sum + row.totalDue, 0),
+      ...(commonLawAdjusted ? { commonLawAdjusted: true } : {}) }
+  }
   // Whether this receipt settles the loan is the replay's call once the
   // amount is known: charges re-priced by its date can leave a few cents of
   // the schedule unpaid. A writer that marked it COMPLETED on the projection
@@ -84,7 +94,7 @@ export function projectReceiptWithReplay(replay: ChargesReplay | null, args: Rec
   const settled = () => {
     if (projection.appliedAmount === 0) return false
     const after = replay.replayAt(asOf, [{ id: PROBE, amount: projection.appliedAmount, receivedAt }])
-    const scheduleTotal = schedule.reduce((sum, row) => sum + row.totalDue, 0)
+    const scheduleTotal = (after.lawfulSchedule ?? schedule).reduce((sum, row) => sum + row.totalDue, 0)
     return after.scheduleAllocated >= scheduleTotal && after.interestOutstanding + after.feesOutstanding === 0
   }
   return {

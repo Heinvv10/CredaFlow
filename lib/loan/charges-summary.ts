@@ -1,3 +1,4 @@
+import { commonLawReplayRows } from "@/lib/asset-finance/common-law-interest"
 import {
   chargesOutstandingTotal,
   loadChargesReplay,
@@ -192,8 +193,10 @@ export async function loanSettlementFigures(
   }
   const charges = await loadLoanCharges(db, { tenantId: loan.tenantId, loanId: loan.id }, asOf)
   const chargesOutstanding = charges?.outstanding ?? 0
+  const legalReplay = loan.ncaRegime === "NON_NCA" ? await loadChargesReplay(db, { tenantId: loan.tenantId, loanId: loan.id }, asOf) : null
+  const legalSchedule = legalReplay ? commonLawReplayRows(loan.repaymentSchedule, legalReplay.result).map((row, i) => ({ ...row, totalPaid: legalReplay.result.scheduleRows[i].paid })) : loan.repaymentSchedule
   const totalToSettle = currentSettlementAmount({
-    loan, schedule: loan.repaymentSchedule, asOf, chargesOutstanding,
+    loan: legalReplay ? { ...loan, totalPaid: legalReplay.result.scheduleAllocated } : loan, schedule: legalSchedule, asOf, chargesOutstanding,
   })
   const received = await db.payment.aggregate({
     where: { tenantId: loan.tenantId, loanId: loan.id, reversed: false, allocationStatus: "ALLOCATED", ...CASH_RECEIPTS },

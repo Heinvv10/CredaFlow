@@ -58,6 +58,37 @@ it("a later contractual-interest due date cannot push total unpaid interest abov
     receipts: [], interestRatePm: 1, maturityDate: d("2021-01-01"), asOf: d("2026-01-01"),
     defaultInterestMargin: 0, collectionFeeCents: null,
   })
-  expect(result.interestOutstanding).toBe(18000)
-  expect(result.postings.filter((p) => p.type === "DEFAULT_INTEREST").reduce((sum, p) => sum + p.amount, 0)).toBe(18000)
+  const contractualInterest = result.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0)
+  expect(result.interestOutstanding + contractualInterest).toBe(20000)
+  expect(result.postings.filter((p) => p.type === "DEFAULT_INTEREST").reduce((sum, p) => sum + p.amount, 0)).toBe(result.interestOutstanding)
+})
+
+it("caps contractual arrear interest itself when it already exceeds capital", () => {
+  const row = { id: "contractual", dueDate: d("2020-01-01"), principalDue: 10000, interestDue: 20000, feesDue: 0, totalDue: 30000, totalPaid: 0 }
+  const result = computeNonNcaCharges({ schedule: [row], receipts: [], interestRatePm: 1, maturityDate: row.dueDate, asOf: d("2021-01-01"), defaultInterestMargin: 0, collectionFeeCents: null })
+  expect(result.lawfulSchedule?.[0]).toMatchObject({ interestDue: 10000, totalDue: 20000, contractualInterestDue: 20000 })
+  const loan = { principal: 10000, totalInterest: 20000, totalRepayable: 30000, totalPaid: 0, interestRatePm: 1, interestModel: "REDUCING_BALANCE" as const, startDate: d("2019-01-01"), maturityDate: row.dueDate, ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE" }
+  expect(currentSettlementAmount({ loan, schedule: [row], asOf: d("2021-01-01") })).toBe(20000)
+})
+
+it("does not discount earned contractual interest before any instalment is overdue", () => {
+  const row = { id: "ordinary", dueDate: d("2026-12-31"), principalDue: 10000, interestDue: 40000, feesDue: 0, totalDue: 50000, totalPaid: 0 }
+  const loan = { principal: 10000, totalInterest: 40000, totalRepayable: 50000, totalPaid: 0, interestRatePm: 1, interestModel: "REDUCING_BALANCE" as const, startDate: d("2025-12-31"), maturityDate: row.dueDate, ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE" }
+  const asOf = d("2026-07-01")
+  const earned = Math.round(40000 * 182 / 365)
+  expect(currentSettlementAmount({ loan, schedule: [row], asOf })).toBe(10000 + earned)
+  const result = computeNonNcaCharges({ startDate: loan.startDate, schedule: [row], receipts: [], interestRatePm: 1, maturityDate: row.dueDate, asOf, defaultInterestMargin: null, collectionFeeCents: null })
+  expect(result.lawfulSchedule?.[0].interestDue).toBe(40000)
+})
+
+it("resumes only new daily interest after a partial receipt releases common-law headroom", () => {
+  const input = { schedule: [{ dueDate: d("2020-01-01"), principalDue: 10000, interestDue: 0, feesDue: 0, totalDue: 10000 }], interestRatePm: 1, maturityDate: d("2020-01-01"), defaultInterestMargin: 0, collectionFeeCents: null }
+  const receipts = [{ id: "partial", amount: 5000, receivedAt: d("2021-01-01") }]
+  const atPayment = computeNonNcaCharges({ ...input, receipts, asOf: d("2021-01-01") })
+  const nextDay = computeNonNcaCharges({ ...input, receipts, asOf: d("2021-01-02") })
+  expect(atPayment.receiptSplits[0].toDefaultInterest).toBe(5000)
+  expect(atPayment.interestOutstanding).toBe(5000)
+  expect(nextDay.interestOutstanding).toBeGreaterThan(5000)
+  expect(nextDay.interestOutstanding).toBe(5329)
+  expect(nextDay.interestAccrued).toBe(10329)
 })
