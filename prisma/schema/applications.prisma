@@ -191,13 +191,13 @@ model LoanApplication {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   assetFinanceDeal          AssetFinanceDeal?
   checkFlags                ApplicationCheckFlag[]
-  statementAiOutputs        StatementAiOutput[]
   conversations             Conversation[]
   convertedLead             Lead?                      @relation("LeadConvertedApplication")
   loan                      Loan?
   ncaRegimeOverrides        NcaRegimeOverride[]
   pasqAcknowledgementTokens PasqAcknowledgementToken[]
   selfieCaptureTokens       SelfieCaptureToken[]
+  statementAiOutputs        StatementAiOutput[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, id, clientId])

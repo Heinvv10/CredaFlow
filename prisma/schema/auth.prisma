@@ -56,7 +56,6 @@ model User {
   branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
   bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
-  statementAiQuestions         StatementAiOutput[]                   @relation("StatementAiAskedBy")
   coiDeclarations              CoiDeclaration[]
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
   contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
@@ -104,6 +103,7 @@ model User {
   remarketingSalesCreated      RemarketingSale[]                     @relation("RemarketingSaleCreatedBy")
   selfieCaptureTokensIssued    SelfieCaptureToken[]                  @relation("SelfieCaptureTokensIssuedBy")
   sessions                     Session[]
+  statementAiQuestions         StatementAiOutput[]                   @relation("StatementAiAskedBy")
   supplierAccountsDecided      SupplierBankAccount[]                 @relation("SupplierAccountDecidedBy")
   supplierAccountsRequested    SupplierBankAccount[]                 @relation("SupplierAccountRequestedBy")
   supportGrantsGiven           TenantSupportGrant[]                  @relation("SupportGrantGrantedBy")
