@@ -72,6 +72,18 @@ function makeTx(loan: ReturnType<typeof makeLoan>) {
   }
 }
 
+it("preserves historical NON_NCA charges and live-era receipt splits after the permanent stop", async () => {
+  const loan = makeLoan("NON_NCA")
+  Object.assign(loan.tenant.config, { defaultChargesEnabled: false, defaultChargesStoppedAt: d("2026-09-20") })
+  const tx = makeTx(loan)
+  tx.loanCharge.findMany.mockResolvedValue([{ type: "DEFAULT_INTEREST", day: d("2026-09-10"), amount: 1000, sourceId: null }] as never)
+  tx.payment.findMany.mockResolvedValue([{ id: "live-era-receipt", amount: 5000, receivedAt: d("2026-09-10"), defaultInterestAllocated: 1000, chargeFeesAllocated: 0 }] as never)
+  // The permanent stop leaves stored charge history and paid splits unchanged.
+  await syncLoanCharges(tx as never, ref, d("2026-09-26"), { source: "test" })
+  expect.soft(tx.loanCharge.deleteMany).not.toHaveBeenCalled()
+  expect.soft(tx.payment.update).not.toHaveBeenCalled()
+})
+
 async function sync(ncaRegime: "NCA" | "NON_NCA") {
   engines.nca.mockClear()
   engines.nonNca.mockClear()
