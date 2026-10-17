@@ -144,9 +144,11 @@ suite.sequential("charge freeze, outcome and deadline sweep (real Postgres)", ()
   it("closes a recovery straight away when the proceeds settle the loan exactly", async () => {
     const rec = await plainListed(database(), fx, "NON_NCA", 100_000_000)
     officer()
-    const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 150_000_001)))).body.id as string
+    // The signed extra cent is unearned at actual cancellation; exact proceeds
+    // therefore settle the lawful capital, while signed history remains intact.
+    const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 150_000_000)))).body.id as string
     expect((await readJson(await routes().completeSale(rec.id, sale))).status).toBe(200)
-    expect(await readJson(await routes().proceeds(rec.id))).toMatchObject({ status: 200, body: { paymentCents: 150_000_001, shortfallCents: 0, surplusCents: 0 } })
+    expect(await readJson(await routes().proceeds(rec.id))).toMatchObject({ status: 200, body: { paymentCents: 150_000_000, shortfallCents: 0, surplusCents: 0 } })
     expect(await readJson(await routes().outcome(rec.id))).toMatchObject({ status: 200, body: { status: "CLOSED" } })
     expect(await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).toMatchObject({ status: "CLOSED" })
     expect((await readJson(await routes().outcome(rec.id))).status).toBe(409)

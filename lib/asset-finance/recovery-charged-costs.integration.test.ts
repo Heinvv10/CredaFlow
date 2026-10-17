@@ -47,6 +47,7 @@ async function scheduleLoan(loanId: string, principalCents: number, totalDueCent
   await testSetup(database(),
     [`UPDATE "Loan" SET "interestModel" = 'FLAT', "startDate" = CURRENT_TIMESTAMP - INTERVAL '200 days', "maturityDate" = CURRENT_DATE + ${dueInDays}, "interestRatePm" = 0.02,
         "principal" = $2, "totalInterest" = $3, "totalRepayable" = $4, "outstandingPrincipal" = $2 WHERE "id" = $1`, loanId, principalCents, totalDueCents - principalCents, totalDueCents],
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
     [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
         VALUES ($1, $2, $3, 1, CURRENT_DATE + ${dueInDays}, $4, $5, 0, $6)`, `rs_${randomUUID().slice(0, 12)}`, fx.tenantId, loanId, principalCents, totalDueCents - principalCents, totalDueCents],
   )

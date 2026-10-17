@@ -12,7 +12,7 @@ import { dbDate, fromDayNumber, toDayNumber } from "./dates"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { advance } from "./recovery-path.integration-fixture"
 import { cleanupE2e } from "./recovery-e2e.integration-fixture"
-import { cleanupRecoveryFixture, day, newLoan, newRecovery, today, type RecoveryFixture } from "./recovery.integration-fixture"
+import { recordFixtureCommercialCancellation, cleanupRecoveryFixture, day, newLoan, newRecovery, today, type RecoveryFixture } from "./recovery.integration-fixture"
 import { disburseApplication, plainListed, readJson, saleBody } from "./recovery-sale.integration-fixture"
 import { asUser, bundle, db, makeTenant, RUN, sessionBox } from "./recovery-break.fixture"
 
@@ -34,6 +34,7 @@ async function overdueInstalment(loanId: string): Promise<void> {
   await testSetup(db, [`UPDATE "Loan" SET "nonNcaDefaultInterestMargin" = 0.05 WHERE "id" = $1 AND "ncaRegime" = 'NON_NCA'`, loanId],
     [`UPDATE "Loan" SET "startDate" = CURRENT_TIMESTAMP - INTERVAL '120 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '60 days', "interestRatePm" = 0.02,
         "totalInterest" = 3000000, "totalRepayable" = 153000000 WHERE "id" = $1`, loanId],
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
     [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
         VALUES ($1, $2, $3, 1, CURRENT_DATE - 60, 150000000, 3000000, 0, 153000000)`, `rs_${randomUUID().slice(0, 12)}`, fx.tenantId, loanId],
   )
@@ -58,6 +59,7 @@ async function oldListed(regime: "NCA" | "NON_NCA", daysAgo: number) {
     [`UPDATE "Loan" SET "startDate" = CURRENT_TIMESTAMP - INTERVAL '90 days' WHERE "id" = $1`, loan.loanId],
     [`UPDATE "LoanApplication" SET "disbursedAt" = CURRENT_TIMESTAMP - INTERVAL '90 days' WHERE "id" = (SELECT "applicationId" FROM "Loan" WHERE "id" = $1)`, loan.loanId])
   const valuationId = (await db.recovery.findUniqueOrThrow({ where: { id } })).valuationId as string
+  await recordFixtureCommercialCancellation(db, fx, loan.loanId)
   return { loan, id, valuationId }
 }
 
