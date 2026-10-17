@@ -15,7 +15,7 @@ Status: prepared environment, no application submissions integrated or accepted 
 
 Provider safety preparation passed: nullable provider secrets/tokens/keys/SMTP/IMAP credentials removed from restored configuration; EmailConfig inactive; CommsSettings WhatsApp, bot and auto-reply off; IntegrationConfig BulkSMS, Netcash, TransUnion and Smile off. Final app environment will be an explicit synthetic allow-list, with no provider secrets or CRON_SECRET. Retain simulated provider labels where needed for authorized synthetic acceptance.
 
-Evidence already retained privately: `evidence/initial-migrate.log`, `provider-safety.log`, `triggers-initial.txt`, `checks-initial.txt`. These prove preparation only, not candidate application acceptance.
+Evidence already retained privately: `evidence/initial-migrate.log`, `provider-safety.log`, `triggers-initial.txt`, `checks-initial.txt`, `backup-credaflow_rc.txt`, `backup-credaflow_restore_drill.txt`, `backup-upload-compare.txt`. These prove preparation only, not candidate application acceptance.
 
 ## Build and validation record to complete
 
@@ -30,7 +30,7 @@ Evidence already retained privately: `evidence/initial-migrate.log`, `provider-s
 | Browser acceptance | finding-specific assertions and screenshots on image | pending |
 | Financial invariants | receipt allocation, book/report sums, CSV balancing | pending |
 | PDF evidence | rendered comparison, fingerprints, immutable binding | pending |
-| Backup/restore drill | private pg_dump + uploads archive, separate verified restore | pending |
+| Backup/restore drill | private pg_dump + uploads archive, separate verified restore | baseline passed: 35 loans, 56 applications, 60 payments match; allocation invariant passes both DBs; all 443 upload files byte-identical. Repeat after final candidate mutations |
 | External acceptance | provider/legal/configuration gates in TRACKER | not authorized by synthetic acceptance |
 
 Use a `git archive` export of the exact final committed SHA as Docker context. Do not include private env files, runtime credentials, uploads or untracked helpers. Set exact GIT_SHA/BUILD_TIME/NEXT_PUBLIC_TENANT_SLUG build args and record resulting image ID. Run that ID directly rather than a mutable tag. Retain build provenance and candidate screenshots together. An image rebuilt from a later SHA needs its own acceptance.
