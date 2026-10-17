@@ -55,7 +55,7 @@ export default async function AuditLogPage() {
   return (
     <>
       <Header
-        title="Settings"
+        title="Audit trail"
         subtitle="Audit Log — all platform activity"
         breadcrumbs={[
           { label: "Settings", href: "/settings" },

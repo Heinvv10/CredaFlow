@@ -38,7 +38,7 @@ export async function PortalShell({ userName, userEmail, showBusiness = false, e
         enabledLocales={enabledLocales}
       />
 
-      <header className="sticky top-[var(--cf-demo-banner-h)] z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] px-4 py-3 backdrop-blur md:hidden">
+      <header className="sticky top-[var(--cf-demo-banner-h)] z-30 flex items-center justify-between border-b border-[var(--cf-border-subtle)] bg-[var(--cf-shell-bg)] py-3 pl-16 pr-4 backdrop-blur md:hidden">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--cf-brand)]">
             {t("clientPortal")}

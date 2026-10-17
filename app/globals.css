@@ -105,10 +105,14 @@ body {
   background: var(--cf-app-background);
 }
 
-.cf-app-surface main,
+.cf-app-surface main {
+  min-width: 0;
+}
+
+/* Preserve page-level max-width utilities; long forms need a readable measure. */
 .cf-app-surface main > div,
 .cf-app-surface main > section {
-  max-width: 100%;
+  min-width: 0;
 }
 
 .cf-panel {
@@ -751,7 +755,6 @@ html[data-theme="light"] .cf-app-surface [class*="text-[#0b0d12]"] {
 .cf-app-surface .space-y-8,
 .cf-app-surface .space-y-6 {
   min-width: 0;
-  max-width: 100%;
 }
 
 .cf-app-surface .lg\:grid-cols-3 {

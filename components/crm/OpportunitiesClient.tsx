@@ -171,7 +171,7 @@ export function OpportunitiesClient({ opportunities }: { opportunities: Opportun
   return (
     <div className="flex gap-6">
       <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between mb-4 gap-4">
+        <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-[var(--cf-text)]">Cross-sell Opportunities</h1>
             {isFiltered ? (
@@ -184,7 +184,7 @@ export function OpportunitiesClient({ opportunities }: { opportunities: Opportun
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
               value={search}
               onChange={setSearch}
@@ -211,7 +211,7 @@ export function OpportunitiesClient({ opportunities }: { opportunities: Opportun
 
         {/* Status tabs — counts reflect the search + type filters, so they
             stay consistent with what a tab switch would reveal. */}
-        <div className="flex gap-1 mb-4 bg-[var(--cf-bg-raised)] p-1 rounded-lg w-fit">
+        <div className="mb-4 flex w-fit max-w-full flex-wrap gap-1 rounded-lg bg-[var(--cf-bg-raised)] p-1">
           {STATUS_TABS.map((tab) => {
             const withinTypeAndSearch = opportunities.filter(
               (o) => (!typeFilter || o.type === typeFilter) && matchesSearch(o)
