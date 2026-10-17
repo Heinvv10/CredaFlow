@@ -14,7 +14,7 @@ export const SURPLUS_ACCOUNT_REQUEST = "1.6 If the sale realises more than the s
 export const surplusRemitted = (amount: string, over: string, held = false, recipient = "CONSUMER", executedOn?: string): string =>
   held ? `1.2 The net proceeds exceeded ${over} by ${amount}. That surplus remains payable and is held because we do not yet have a staff-verified bank account in your name. This is recorded as an exception; give us your bank details and proof of account so we can remit the surplus promptly. This account statement does not discharge our surplus liability or terminate the agreement under section 127(6)(b). We will provide a supplemental remittance confirmation after payment.` : `1.2 The net proceeds exceeded ${over} by ${amount}. Under section 127(6) of the Act we remitted that amount ${recipient === "TRIBUNAL" ? "to the National Consumer Tribunal because another credit provider has a registered credit agreement with you concerning the same goods" : "to you through your verified bank account"}.${executedOn ? ` The remittance was executed on ${formatIsoDatePdf(executedOn)}.` : ""} Actual bank execution is recorded with retained bank evidence; this is not merely a payment instruction.`
 
-/** The charge freeze after a shortfall (s127), printed by both post-sale notices under the same condition. */
+/** Voluntary lender concession after a shortfall, printed by both post-sale notices under the same condition. */
 export const SHORTFALL_FREEZE = "1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied until 10 business days after the date of this notice."
 
 const parties = (data: SurrenderNoticeData): string =>

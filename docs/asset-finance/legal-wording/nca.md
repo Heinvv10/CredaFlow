@@ -172,7 +172,13 @@ No consumer-loan PDF pin changed.
 
 4. **s127(2) timing.** `valuationDueOn` is the request date plus 10 business
    days; the Act counts from the later of the notice and the return of the goods.
-6. **Interest on the shortfall after the s127 demand (s127(8)).** Confirm.
+6. **Lender concession after the shortfall demand.** The lender waives interest,
+   fees and charges from application of the proceeds through 10 business days
+   after the final notice. This is the existing voluntary concession, not a
+   statutory interest prohibition: s127(8) governs the enforcement waiting
+   period, while s127(9) otherwise provides for contract-rate interest from
+   demand. The waiver, cash calculations and rendered promise remain unchanged.
+   [Primary Act, s127(8)–(9)](https://www.justice.gov.za/mc/vnbp/act2005-034.pdf).
 7. **NCA deductible cost types.** `recoveryNcaDeductibleCostTypes` defaults
    include towing, storage, repairs, insurance and sheriff's fees. s127(5) allows
    "reasonable costs of the sale"; legal to confirm which are sale costs.
