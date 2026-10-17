@@ -1,6 +1,7 @@
 // Shared pieces of the commercial (non-NCA) deal document wording: the clause
 // shape and how a contract rate's reference is defined. DRAFT wording for the
-// lender's legal team (docs/asset-finance/legal-wording/commercial.md).
+// lender's legal team (docs/asset-finance/legal-wording/commercial.md); the
+// rules behind it are signed off (see DESIGN.md sign-off record 2026-10-17).
 import { Prisma, type ReferenceRateBasis } from "@prisma/client"
 import { RATE_BASIS_LABELS } from "../../deal-labels"
 import type { DealDocumentData } from "../deal-document-data"

@@ -7,6 +7,7 @@
 // Deterministic; DRAFT watermark.
 // The notice's content and the options it lists: wording drafted 2026-10-17, awaits the lender's legal approval
 // (TenantConfig.assetFinanceLegalWordingApproved).
+import { CPA_CANCELLATION_NOTICE_BUSINESS_DAYS } from "../../lease-termination"
 import { formatIsoDatePdf } from "../pdf-layout"
 import { expiryNoticeClauses } from "../wording/lease-servicing"
 import { contactRows, finishLeaseDocument, leaseRows, openLeaseDocument } from "./lease-docs-parts"
@@ -28,7 +29,7 @@ export async function renderLeaseExpiryNotice(data: ExpiryNoticeData, lender: Le
   w.section("3. YOUR OPTIONS AT EXPIRY")
   w.labelValues([
     ["Return the goods", "Return the goods to the lessor on or before the expiry date. The goods are inspected on return; damage beyond fair wear and tear, and any usage above the contracted usage, is invoiced."],
-    ["Extend month to month", `Continue the lease month to month on the same rentals. Either of us may end the extension by giving ${data.extensionNoticeMonths === 1 ? "one month's" : `${data.extensionNoticeMonths} months'`} notice.`],
+    ["Extend month to month", `Continue the lease month to month on the same rentals. You may end the extension on ${CPA_CANCELLATION_NOTICE_BUSINESS_DAYS} business days' written notice, and we on ${data.extensionNoticeMonths === 1 ? "one month's" : `${data.extensionNoticeMonths} months'`} notice (section 4.1).`],
     ["Buy the goods", "Buy the goods from the lessor at their fair market value on a valuation dated shortly before the purchase. The price is not fixed in the lease agreement."],
   ])
   w.section("4. IF YOU DO NOTHING")

@@ -41,8 +41,10 @@ export async function renderSuretyship(data: DealDocumentData, suretyClientId: s
   w.section("6. SIGNATURES")
   w.signatures([
     { caption: "The surety", name: surety.name, detail: `Identity number ${surety.idNumber}` },
+    { caption: "Witness to the surety's signature", name: "Name:" },
     { caption: "Spouse of the surety (only if married in community of property)", name: "Name:", detail: "Consents under section 15(2)(h) of the Matrimonial Property Act 88 of 1984" },
-    { caption: "Witness", name: "Name:" },
+    { caption: "First witness to the spouse's consent (section 15(5))", name: "Name:" },
+    { caption: "Second witness to the spouse's consent (section 15(5))", name: "Name:" },
   ])
   return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
 }

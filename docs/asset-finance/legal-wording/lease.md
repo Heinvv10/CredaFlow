@@ -21,16 +21,16 @@ unchanged.
 | No. | Heading | Summary |
 |---|---|---|
 | 9.1 | Lease of the goods; ownership remains with the lessor | Names lessor and lessee (from sections 1–2), commencement and end dates; ownership never passes except by a market-value purchase; no encumbrance; landlord's-hypothec notice; registered vehicles in the lessor's name; fines and licences. |
-| 9.2 | Delivery, acceptance and risk | Lessee chose goods and supplier; delivery and acceptance certificate; risk on the lessee from delivery to return. Commercial: no lessor warranty, supplier warranties ceded. CPA: s55/s56 preserved; s49 notice. |
+| 9.2 | Delivery, acceptance and risk | Lessee chose goods and supplier; delivery and acceptance certificate; risk on the lessee from delivery to return. Commercial: no lessor warranty, supplier warranties ceded. CPA: s55/s56 preserved; s49 notice and initial line. |
 | 9.3 | Rentals, escalation and changes to the contract rate | Timing (advance/arrears), escalation %, and for a linked rate: uninvoiced rentals due ≥ 14 days after a rate change are recalculated, term and number of rentals unchanged, maintenance unchanged. Commercial adds "without deduction or set-off". |
 | 9.4 | Tax invoices and VAT | One tax invoice per rental on the earlier of due date and payment; VAT at the rate then in force; VAT Act s67 adjustment on a rate change. |
-| 9.5 | Insurance of the goods | Comprehensive and liability cover with an insurer of the lessee's choice, lessor noted as owner/first loss payee; lessor may insure at lessee's cost; total loss ends the lease, lessee pays the 9.10 amount without the penalty, less proceeds. CPA: s49 notice. |
-| 9.6 | Use, care and location of the goods | Careful use, licensed operators, stay in RSA, lessee services the goods (operating) or presents them for lessor maintenance (FML); no alterations; inspection rights; indemnity (gross negligence carved out). CPA: s49 notice. |
+| 9.5 | Insurance of the goods | Comprehensive and liability cover with an insurer of the lessee's choice, lessor noted as owner/first loss payee; lessor may insure at lessee's cost; total loss ends the lease, lessee pays the arrears and the PV of the remaining rentals, no penalty, less proceeds. CPA: s49 notice and initial line. |
+| 9.6 | Use, care and location of the goods | Careful use, licensed operators, stay in RSA, lessee services the goods (operating) or presents them for lessor maintenance (FML); no alterations; inspection rights; indemnity (gross negligence carved out). CPA: s49 notice and initial line. |
 | 9.7 | Contracted usage and excess-usage charges | Allowance a year and excess rate from the annexure; formula as `lease-usage.ts`; billed once at end of term; meter care. Without a usage limit: says none applies. |
 | 9.8 | Return of the goods and the end-of-term inspection | Return obligations; inspection on/after the end; fair wear and tear defined; one end-of-term invoice payable in 7 days; 10-business-day objection, credit note if upheld. |
-| 9.9 | End-of-term options: return, extension or purchase at market value | Election window 6 months before the last rental, final once recorded; (a) return, (b) month to month at the last rental (and maintenance), ended on a month's notice at the next rental date, (c) purchase at no less than the highest current independent valuation, never a fixed price. If no choice: CPA continues month to month (s14(2)(d)); commercial must return, lessor may treat as extended. |
-| 9.10 | Early termination | Formula of `lease-termination.ts` (PV at contract rate + penalty % of PV + VAT + arrears; no resale credit). Commercial: only by agreement, termination date = quote date. CPA: s14(2)(b)(i)(bb) 20 business days' notice; s14(3); Reg 5(2) reasonableness. |
-| 9.11 | Breach and remedies | Commercial: events of default, 7-day remedy notice. CPA: 20-business-day notice to remedy (s14(2)(b)(ii)). Remedies: enforce, or cancel, recover by court order and claim arrears plus remaining rentals as damages plus costs; net resale proceeds credited, surplus refunded. |
+| 9.9 | End-of-term options: return, extension or purchase at market value | Election window 6 months before the last rental, final once recorded; (a) return, (b) month to month at the last rental (and maintenance); commercial: either party ends it on a month's notice at the next rental date, a lease in default is not extended; CPA: the lessee ends it on 20 business days' notice, the lessor on a month's notice, no default exclusion; (c) purchase at no less than the highest current independent valuation, never a fixed price. If no choice: CPA continues month to month (s14(2)(d)); commercial must return, lessor may treat as extended. |
+| 9.10 | Early termination | Commercial: only by agreement, termination date = the day the quote is accepted; PV at contract rate + penalty % of PV + VAT + arrears, no resale credit. CPA: unilateral cancellation on 20 business days' notice (s14(2)(b)(i)(bb)), effective whether or not a quote is accepted; s14(3) liability to the cancellation date; penalty = PV of the remaining rentals less the net sale or re-let value of the returned goods, below full performance, no penalty %, Reg 5(2) cited; dispute to the NCC or a court. |
+| 9.11 | Breach and remedies | Commercial: events of default, 7-day remedy notice. CPA: 20-business-day notice to remedy (s14(2)(b)(ii)). Remedies: enforce, or cancel and recover by court order; commercial damages = arrears plus the PV of the remaining rentals; CPA = amounts owed to cancellation plus the 9.10 charge; costs; net resale proceeds credited, surplus refunded. Commercial: business rescue is not a default (s133 moratorium noted). |
 | 9.12 | Default interest and collection costs | Contract rate + margin from section 5 (or none), daily, actual/365, monthly, not compounding; collection fee per missed rental (or none); allocation order of `non-nca-charges.ts`. |
 | 9.13 | Cession and assignment | Lessor may cede and transfer ownership without consent if the lessee's rights are not reduced; lessee may not cede or sublet without consent. |
 | 9.14 | Domicilium and notices | Section 1 / section 2 addresses; hand delivery or email. Commercial: deemed receipt. CPA: plain language (s22). |
@@ -46,8 +46,8 @@ outstanding", which is not what `lease-termination.ts` computes.
 
 | No. | Heading | Summary |
 |---|---|---|
-| 4.1 | Consequences of taking no action before the expiry date | The lease continues month to month (s14(2)(d)) at the last rental and maintenance, no material change; either party ends it on the notice period (`extensionNoticeMonths`); to end on expiry, tell the lessor in writing and return the goods. |
-| 4.2 | How to tell us your choice (added) | Portal, email or telephone (section 5 contacts); choice final once recorded, confirmed in writing. Added because s14(2)(c) requires the notice to state the options and the lessee needs a way to exercise them. |
+| 4.1 | Consequences of taking no action before the expiry date | The lease continues month to month (s14(2)(d)) at the last rental and maintenance, no material change; the lessee ends it on 20 business days' notice, the lessor on `extensionNoticeMonths`; to end on expiry, tell the lessor in writing and return the goods. |
+| 4.2 | How to tell us your choice (added) | Portal or written notice (email allowed), as agreement 9.9 says; choice final once recorded, confirmed in writing. Added because s14(2)(c) requires the notice to state the options and the lessee needs a way to exercise them. |
 
 ## 3. End-of-term inspection report (`lease/inspection-report-pdf.ts`)
 
@@ -65,14 +65,18 @@ the objection clause points to).
 
 ## 4. Early-termination quote (`lease/termination-quote-pdf.ts`)
 
-Section 4 still prints the stored `basis` verbatim. Added section 5 "Terms of
-this quote"; "How to accept" is now section 6.
+Section 4 still prints the stored `basis` verbatim (for a CPA lessee it still
+describes the code's PV + penalty formula: README gap 7). Added section 5 "Terms
+of this quote"; section 6 is "How to accept" (commercial) or "How to reach us"
+(CPA: the cancellation does not depend on accepting).
 
 | No. | Heading | Summary |
 |---|---|---|
-| 5.1 | What accepting this quote means | Lease ends on the termination date; the remaining rentals are cancelled; goods returned and inspected, damage/excess/fund settled on a separate invoice; PV and penalty invoiced, due on the termination date; quote lapses if a rental is invoiced or changed. |
-| 5.2 (CPA) | Your rights under the Consumer Protection Act | s14(2)(b)(i)(bb) 20 business days; the request is treated as notice, effective on acceptance; s14(3) liability to the termination date and reasonable cancellation penalty; Reg 5(2); raise it with the lessor or the National Consumer Commission. |
-| 5.2 (commercial) | Basis of early termination | No right to terminate early; the quote is an offer to end by agreement on clause 9.10's terms, termination date = quote date. |
+| 5.1 (CPA) | Your cancellation | The lease ends on the termination date (20 business days after the notice) whether or not the quote is accepted or paid; the remaining rentals are cancelled; goods returned and inspected, damage/excess/fund on a separate invoice. |
+| 5.2 (CPA) | The cancellation charge | s14(3); the quote states the charge (9.10's PV less the goods' net value, below full performance, Reg 5(2)); invoiced with VAT on the termination date. |
+| 5.3 (CPA) | If you disagree with the charge | Lessor, then the National Consumer Commission or a court; a dispute does not delay the cancellation. |
+| 5.1 (commercial) | What accepting this quote means | Lease ends on the day of acceptance; remaining rentals cancelled; goods returned; PV and penalty invoiced, due that day; quote lapses if a rental is invoiced or changed. |
+| 5.2 (commercial) | Basis of early termination | No right to terminate early; the quote is an offer to end by agreement on clause 9.10's terms, termination date = acceptance date. |
 
 ## Statutory sources relied on
 
@@ -105,53 +109,35 @@ this quote"; "How to accept" is now section 6.
   7 days; objection to the inspection report 10 business days
   (`INSPECTION_OBJECTION_BUSINESS_DAYS`); loss reporting 24 hours.
 - The CPA variant puts the s49 "IMPORTANT" notice at the head of clauses 9.2,
-  9.5 and 9.6. The writer has no bold-in-paragraph, so it is plain text.
+  9.5 and 9.6, and prints a "Lessee's initials" line after each
+  (`DealDocumentWriter.initialLine`). The writer has no bold-in-paragraph, so
+  the notice is plain text.
+- s14 is cited as the statute only for a natural-person lessee (a sole
+  proprietor). A juristic CPA lessee gets the same terms "by this agreement",
+  because s14(1) excludes transactions between juristic persons.
 
 ## Points for the lender's legal team
 
-1. **Doing nothing at expiry (code gap).** The expiry notice and clause 9.9
-   say a CPA lessee's lease continues month to month (s14(2)(d)). The code
-   does not do this: with no election, no `LeaseEndOfTerm` row exists, the
-   daily run appends no rentals and the lessee holds the goods rent-free.
-   Staff can elect EXTEND for the lessee (no cut-off after expiry), but nothing
-   prompts them. The wording follows the statute, not the code; the code needs
-   an automatic EXTEND (or a bell item) at expiry for a CPA lessee without an
-   election. Commercial lessees: the wording lets the lessor treat the lease
-   as extended, which staff can do today.
-2. **s14 for small juristic lessees.** s14(1) excludes transactions between
-   juristic persons regardless of turnover, as we read it. The code gives s14
-   rights (expiry notice, 20-business-day cancellation, Reg 5 limit) to every
-   `cpaApplies` lessee, including juristic ones under the threshold, and
-   section 8 of the agreement (not drafted here) says "its fixed-term rules
-   (section 14) apply". The clauses follow the code. Decide whether juristic
-   lessees under the threshold should get the commercial variant of 9.9–9.11.
-3. **Lessor ending a month-to-month extension under the CPA.** The notice and
-   9.9(b) let either party end it on one month's notice (code:
-   `EXTENSION_NOTICE_MONTHS`). Confirm the lessor may do so for a CPA consumer.
-4. **CPA cancellation charge.** For a CPA lessee the code charges the full PV
-   of the remaining rentals plus the penalty. The wording treats both together
-   as the s14(3) "reasonable cancellation penalty" subject to Reg 5(2). Confirm
-   whether charging the full PV is reasonable, and whether the penalty % on a
-   CPA deal needs a cap.
-5. **CPA cancellation depends on accepting a quote.** In the code the
-   cancellation takes effect only when the lessee accepts a quote (its
-   termination date is quote date + 20 business days). s14 cancellation is a
-   unilateral right. The quote says the request is treated as notice "and
-   takes effect if you accept"; confirm.
-6. **Damages on cancellation for breach (9.11).** Follows the recovery code:
-   the claim is the rentals outstanding (undiscounted, VAT-inclusive schedule
-   amounts), less net resale proceeds, surplus refunded. Points: undiscounted
-   vs the PV basis of early termination (Conventional Penalties Act 15 of 1962
-   exposure); VAT on a damages claim; refunding a surplus gives the lessee a
-   share of residual value, a finance-lease indicator for tax and IFRS 16.
-7. **Total loss (9.5)** is not modelled in the code. The wording charges the
-   9.10 amount without the penalty, less insurance proceeds. Staff would have
-   to process it manually (an early-termination quote includes the penalty).
+Gaps between this wording and the code are listed in
+[`README.md`](README.md) ("Code changes required before approval"). The
+2026-10-17 legal review settled the s14 points: cancellation is unilateral,
+the charge credits the returned goods and has no penalty %, the lessee ends a
+continuation on 20 business days' notice, and juristic CPA lessees get the
+s14 terms by contract.
+
+6. **Damages on cancellation for breach (9.11).** The wording now claims the
+   PV of the remaining rentals (commercial) or the 9.10 charge (CPA); the
+   recovery code still uses the undiscounted settlement (README gaps 11–12).
+   Open: VAT on a damages claim; refunding a surplus gives the lessee a share
+   of residual value, a finance-lease indicator for tax and IFRS 16.
+7. **Total loss (9.5)** is not modelled in the code (README gap 14). The
+   wording charges the arrears and the PV of the remaining rentals, without a
+   penalty, less insurance proceeds.
 8. **VAT rate change (9.4).** The wording follows VAT Act s67 (rentals change
    with the rate). The code refuses a VAT-rate change after booking
    (`vat_rate_changed`, documented PARTIAL). The VAT treatment of termination amounts,
-   excess usage, damage and fund settlements was signed off by the tax
-   adviser on 2026-10-17.
+   excess usage, damage and fund settlements was signed off (see
+   DESIGN.md sign-off record 2026-10-17).
 9. **Purchase option (9.9(c)).** Market value is the highest current assessor
    or dealer valuation, as `lease-term-end.ts` and the portal price it; the
    price is never fixed in the agreement (to avoid recharacterising the
@@ -165,7 +151,8 @@ this quote"; "How to accept" is now section 6.
     whether the annexure should carry a lender-specific schedule.
 12. **Commercial terms to confirm:** own-client costs, certificate of balance,
     s45 consent, set-off waiver, voetstoots, default events (business rescue
-    is deliberately not an event of default; confirm), 7-day remedy period.
+    is not an event of default in the lease or the instalment sale; the s133
+    moratorium is noted in both), 7-day remedy period.
 13. **Domicilium** uses the address in section 2, which can print "Not
     recorded" if the lessee's address is missing; consider refusing to render.
 14. **Rate changes (9.3).** The 14-day notice is `REPRICE_NOTICE_DAYS`, marked

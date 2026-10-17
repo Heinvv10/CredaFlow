@@ -1,14 +1,16 @@
 // The deed of suretyship's clauses (./../suretyship-pdf.ts section 5). DRAFT
-// wording for the lender's legal team; the DRAFT watermark prints until
-// TenantConfig.assetFinanceLegalWordingApproved.
+// wording for the lender's legal team (the rules behind it are signed off: see DESIGN.md sign-off record 2026-10-17);
+// the DRAFT watermark prints until TenantConfig.assetFinanceLegalWordingApproved.
 //
 // Two variants. A suretyship is a credit guarantee, and the NCA applies to one
 // only to the extent it applies to the principal agreement (NCA s4(2)(c)). So
-// a surety for a non-NCA deal gets the usual commercial terms; a surety for an
-// NCA entity deal (data.ncaApplies, set by ../../nca-entity-signing.ts) gets a
-// variant without the terms s90 makes unlawful: no certificate of balance as
-// proof, no consent to jurisdiction, no pre-agreed cost scale, no renounced
-// evidential exceptions, no variation of the Agreement without the surety.
+// a surety for a non-NCA deal gets the usual commercial terms; a surety where
+// the application is not NON_NCA (data.ncaApplies, ../deal-document-data.ts)
+// gets a variant that leaves out the terms most open to challenge under s90: no
+// certificate of balance as proof, no consent to jurisdiction, no pre-agreed
+// cost scale, no renounced evidential exceptions, no variation of the
+// Agreement without the surety. It still renounces excussion and division;
+// whether that survives s90 is an open point for legal (commercial.md).
 // Notes and sources: docs/asset-finance/legal-wording/commercial.md.
 import type { DealDocumentData, DocumentPerson } from "../deal-document-data"
 import type { WordingClause } from "./commercial-common"
@@ -78,7 +80,7 @@ A notice under this deed must be in writing. A notice delivered by hand to a dom
 function spouse(): WordingClause {
   return {
     heading: "Marital status and spouse's consent",
-    text: `The Surety warrants that the Surety is unmarried, or is married out of community of property, or is married in community of property and the Surety's spouse consents in writing to this suretyship by signing it where indicated below, as section 15(2)(h) of the Matrimonial Property Act 88 of 1984 requires for a spouse married in community of property who binds himself or herself as surety.`,
+    text: `The Surety warrants that the Surety is unmarried, or is married out of community of property, or is married in community of property and the Surety's spouse consents in writing to this suretyship by signing it where indicated below, in the presence of two competent witnesses who also sign, as sections 15(2)(h) and 15(5) of the Matrimonial Property Act 88 of 1984 require for a spouse married in community of property who binds himself or herself as surety.`,
   }
 }
 
@@ -98,7 +100,7 @@ The Surety consents to the Creditor processing the Surety's personal information
 
 /** Clauses 5.1 to 5.8 in printed order. */
 export function suretyshipClauses(data: DealDocumentData, surety: DocumentPerson): WordingClause[] {
-  const nca = data.ncaApplies === true
+  const nca = data.ncaApplies
   return [
     principal(data, surety),
     extent(nca),

@@ -17,6 +17,8 @@ export interface LeaseDocBase {
   asset: string
   /** True until TenantConfig.assetFinanceLegalWordingApproved: the DRAFT watermark goes on every page. */
   draft: boolean
+  /** The lessee is a natural person: CPA s14 applies by statute (a juristic CPA lessee has the same terms by contract). */
+  naturalPerson: boolean
 }
 
 export interface ExpiryNoticeData extends LeaseDocBase {

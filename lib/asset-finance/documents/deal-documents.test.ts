@@ -94,6 +94,13 @@ describe("deal document renderers", () => {
     expect(text).toContain("a collection fee of R 450.00")
     expect(text).toContain("includes the balloon of R 300,000.00")
     expect(text).toContain("its registered office at 1 Test Street, Testville, 0001; the Purchaser, 2 Test Road, Testburg, Gauteng, 0002")
+    // Settlement = arrears + capital + interest accrued; damages after cancellation net of the proceeds (Conventional Penalties Act).
+    expect(text).toContain("(b) the capital outstanding on that date, including the capital of the balloon; and (c) the interest accrued on that capital from the last due date")
+    expect(text).toContain("claim as damages the Settlement Amount on the date of cancellation, together with the costs under clause 7.9, less the net proceeds")
+    expect(text).toContain("interest in arrears stops running while the unpaid interest equals the unpaid capital")
+    expect(text).toContain("Business rescue proceedings are not of themselves an event of default; while they last, section 133 of the Companies Act 71 of 2008")
+    expect(text).toContain("The Seller issues a tax invoice for the cash price of the Goods including value-added tax, as shown in section 5.")
+    expect(text).not.toMatch(/not rebated|time of supply|under business rescue/)
 
     const fixed = syntheticDealDocumentData({
       pricing: { ...draft.pricing, rateBasis: "FIXED", rateMargin: null, fixedRate: "0.1175", reference: null, arrearsMarginRate: null, collectionFeeCents: 0 },
@@ -112,7 +119,11 @@ describe("deal document renderers", () => {
     expect(commercial).toContain("the agreement reference AF-TEST-0001")
     expect(commercial).toContain("is prima facie proof of its contents")
     expect(commercial).toContain("section 45 of the Magistrates' Courts Act")
-    expect(commercial).toContain("section 15(2)(h) of the Matrimonial Property Act 88 of 1984")
+    expect(commercial).toContain("in the presence of two competent witnesses who also sign, as sections 15(2)(h) and 15(5) of the Matrimonial Property Act 88 of 1984 require")
+    const signatures = (await pageTexts(await renderSuretyship(draft, "client-surety"))).flat()
+    expect(signatures).toEqual(expect.arrayContaining([
+      "Witness to the surety's signature", "First witness to the spouse's consent (section 15(5))", "Second witness to the spouse's consent (section 15(5))",
+    ]))
 
     const nca = normalise((await pageTexts(await renderSuretyship({ ...draft, ncaApplies: true }, "client-surety"))).flat().join(" "))
     expect(nca).toContain(`TEST Surety ("the Surety") is bound to the creditor`)

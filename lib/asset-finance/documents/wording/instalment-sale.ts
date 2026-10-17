@@ -1,6 +1,6 @@
 // The instalment sale agreement's clauses (./../agreement-pdf.ts section 7).
-// DRAFT wording for the lender's legal team: the DRAFT watermark prints until
-// TenantConfig.assetFinanceLegalWordingApproved. Only for a juristic
+// DRAFT wording for the lender's legal team (the rules behind it are signed off: see DESIGN.md sign-off record 2026-10-17):
+// the DRAFT watermark prints until TenantConfig.assetFinanceLegalWordingApproved. Only for a juristic
 // purchaser outside the NCA: an NCA deal is refused this document
 // (deal-document-data.ts, nca-entity-signing.ts renders the NCA agreement).
 // Every figure is the deal's own data, printed in sections 1 to 6.
@@ -51,7 +51,7 @@ function payment(data: DealDocumentData): WordingClause {
 
 The Seller applies every amount it receives under this Agreement in this order: first to default interest under clause 7.9; then to interest due under clause 7.4; then to collection fees under clause 7.9; then to any other fees and charges due; then to capital due; and last to payments not yet due, in the order of their due dates.
 
-The Seller issues one tax invoice for the cash price of the Goods including value-added tax, as shown in section 5, at the time of supply, which is the date on which it pays the Supplier. Interest under this Agreement is consideration for an exempt financial service under sections 2 and 12(a) of the Value-Added Tax Act 89 of 1991. Any fee under this Agreement bears value-added tax where that Act requires it.`,
+The Seller issues a tax invoice for the cash price of the Goods including value-added tax, as shown in section 5. Interest under this Agreement is consideration for an exempt financial service under sections 2 and 12(a) of the Value-Added Tax Act 89 of 1991. Any fee under this Agreement bears value-added tax where that Act requires it.`,
   }
 }
 

@@ -56,18 +56,24 @@ describe("s127 notice wording", () => {
     expect(all).toContain("terminate agreement AF-NCA-S127-TEST")
     expect(all).toContain("the estimated value of the asset is R 1,250.00, as valued by TEST Valuer on 20 October 2026")
     expect(all).toContain("unconditionally withdraw your termination notice")
+    expect(all).toContain("1.6 If the sale realises more than the settlement value, section 127 of the Act requires us to remit the surplus to you with our notice "
+      + "after the sale. So that we can, give us in writing, within 10 business days after you receive this notice, the details of a bank account in your name")
   })
 
-  it("the final notice demands the shortfall, or promises the surplus, from the deal's figures", async () => {
+  it("the final notice demands the shortfall, or remits the surplus with the notice, from the deal's figures", async () => {
     const shortfall = prose(await texts(await renderSurrenderFinalNotice(data)))
     expect(shortfall).toContain("we demand payment of the shortfall of R 250.00")
-    expect(shortfall).not.toContain("No interest, fees or charges accrue") // no recovery, no charge freeze
+    // The freeze follows the shortfall, with or without a recovery (the s131 notice's rule).
+    expect(shortfall).toContain("1.3 No interest, fees or charges accrue on your account from the date the sale proceeds were applied")
+    expect(shortfall).toContain("1.4 The agreement ends")
     const linked = prose(await texts(await renderSurrenderFinalNotice({ ...data, recoveryOutcome: { ...recoveryOutcome, unrecoverableCostsCents: 10_000 } })))
     expect(linked).toContain("we demand payment of the shortfall of R 270.00")
     expect(linked).toContain("No interest, fees or charges accrue on your account")
     const surplus = prose(await texts(await renderSurrenderFinalNotice({ ...data, outcome: { saleProceedsCents: 150_000, shortfallCents: 0, refundCents: 25_000 } })))
     expect(surplus).toContain("exceeded the settlement value by R 250.00")
-    expect(surplus).not.toContain("we demand payment")
+    expect(surplus).toContain("we remit it to you with this notice, into the bank account you gave us after our valuation notice")
+    expect(surplus).not.toMatch(/we demand payment|once we have verified|No interest, fees or charges accrue/)
+    expect(surplus).toContain("1.3 The agreement ends")
     const even = prose(await texts(await renderSurrenderFinalNotice({ ...data, outcome: { saleProceedsCents: 125_000, shortfallCents: 0, refundCents: 0 } })))
     expect(even).toContain("Nothing further is owed by you or by us")
   })

@@ -1,7 +1,8 @@
 // Clause wording for the NCA instalment sale / finance lease agreement
 // (../nca/agreement-pdf.ts), clauses 1 to 6; clauses 7 to 11 are in
-// ./nca-agreement-rights.ts. DRAFT for the lender's legal team: the document
+// ./nca-agreement-rights.ts. DRAFT for the lender's legal team (the rules behind it are signed off: see DESIGN.md sign-off record 2026-10-17): the document
 // keeps its watermark until TenantConfig.assetFinanceLegalWordingApproved.
+// Code gaps: docs/asset-finance/legal-wording/README.md.
 // Sources, drafting choices and open points: docs/asset-finance/legal-wording/nca.md.
 // Every party, figure, rate and date comes from the document data.
 import { formatZarPdf } from "@/lib/pdf/helpers"
@@ -120,7 +121,7 @@ function coreClauses(data: NcaAssetDocumentData): NcaClause[] {
         "6.2 If the Consumer is in default, the Credit Provider will not begin legal proceedings to enforce this agreement before (a) it has delivered to the Consumer the notice that section 129(1)(a) of the Act requires, in the manner section 129 requires; and (b) the periods and other requirements of section 130 of the Act have been met, including that the Consumer has been in default for at least 20 business days and at least 10 business days have passed since that notice was delivered. The content of that notice is prescribed by the Act and is not repeated here.",
         "6.3 The Credit Provider may terminate this agreement before the end of its term only as section 123 of the Act allows: when the Consumer is in default and the Credit Provider has followed the procedure in sections 129 and 130 of the Act.",
         "6.4 If a court orders the attachment of the Goods, the Credit Provider will deal with them as section 131 of the Act provides: it will value them, give the Consumer notice of their estimated value, sell them for the best price reasonably obtainable and account to the Consumer for the proceeds, as sections 127(2) to (9) and 128 of the Act require.",
-        "6.5 At any time before the Credit Provider has cancelled this agreement, the Consumer may remedy a default and reinstate the agreement by paying all overdue amounts, together with the default charges the Act permits and the reasonable costs of enforcing the agreement up to the time of reinstatement, as section 129(3) of the Act provides. Section 129(4) of the Act sets out when this right is no longer available, including after the Goods have been sold under an attachment order or after a surrender under clause 7. On reinstatement the Consumer may resume possession of Goods the Credit Provider has taken back.",
+        "6.5 At any time before the Credit Provider has cancelled this agreement, the Consumer may remedy a default by paying all overdue amounts, together with the default charges the Act permits and the reasonable costs of enforcing the agreement up to the time the default is remedied, as section 129(3) of the Act provides. Section 129(4) of the Act sets out when this right is no longer available, including after the Goods have been sold under an attachment order or after a surrender under clause 7. When the default is remedied the Consumer may resume possession of Goods the Credit Provider has taken back.",
         "6.6 The Credit Provider may recover the costs of collection and enforcement only to the extent section 101(1)(g) of the Act, the Regulations and any order of court permit.",
         "6.7 If the Consumer applies for debt review under section 86 of the Act, the Credit Provider may enforce this agreement only as sections 86 and 88 of the Act allow.",
       ].join("\n\n"),

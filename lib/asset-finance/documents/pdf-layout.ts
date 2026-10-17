@@ -141,6 +141,16 @@ export class DealDocumentWriter {
     for (const para of text.split(/\n{2,}/)) this.paragraph(para, this.regular, 14)
   }
 
+  /** "Initials: ____" under a clause the signer must initial (CPA s49). */
+  initialLine(caption: string): void {
+    this.ensure(2 * LINE)
+    const label = winAnsiSafe(caption)
+    drawText(this.page, label, MARGIN + 14, this.y, this.bold, BODY, DARK)
+    const x = MARGIN + 14 + this.bold.widthOfTextAtSize(label, BODY) + 6
+    this.page.drawLine({ start: { x, y: this.y - 2 }, end: { x: x + 90, y: this.y - 2 }, thickness: 0.6, color: DARK })
+    this.y -= LINE + 6
+  }
+
   /** Label/value rows; long values wrap under their value column. */
   labelValues(rows: readonly [string, string][]): void {
     const valueX = MARGIN + 170

@@ -1,5 +1,6 @@
 // Clauses 7 to 11 of the NCA asset agreement (see ./nca-agreement.ts).
-// DRAFT for the lender's legal team; docs/asset-finance/legal-wording/nca.md.
+// DRAFT for the lender's legal team (the rules behind it are signed off: see DESIGN.md sign-off record 2026-10-17);
+// docs/asset-finance/legal-wording/nca.md.
 import type { NcaAssetDocumentData } from "../nca/types"
 import type { NcaClause } from "./nca-agreement"
 
@@ -8,7 +9,7 @@ export function ncaAgreementRightsClauses(data: NcaAssetDocumentData): NcaClause
     {
       heading: "Voluntary surrender",
       text: [
-        "7.1 The Consumer may terminate this agreement at any time by giving the Credit Provider written notice under section 127(1) of the Act, in writing or through the client portal. If the Goods are in the Consumer's possession, the Consumer must return them to the Credit Provider's place of business during ordinary business hours within 5 business days after the notice, or at another time and place the Credit Provider agrees to in writing; if they are not, the Consumer must tell the Credit Provider where they are.",
+        "7.1 The Consumer may terminate this agreement at any time by giving the Credit Provider written notice under section 127(1) of the Act, in writing or through the client portal. If the Goods are already in the Credit Provider's possession, the Consumer may in that notice require the Credit Provider to sell them, as section 127(1)(b)(i) of the Act provides. If the Goods are in the Consumer's possession, the Consumer must return them to the Credit Provider's place of business during ordinary business hours within 5 business days after the notice, or at another time and place the Credit Provider agrees to in writing; if they are not, the Consumer must tell the Credit Provider where they are.",
         "7.2 Within 10 business days after the later of receiving the notice and receiving the Goods, the Credit Provider will give the Consumer written notice of the estimated value of the Goods, as section 127(2) of the Act requires.",
         "7.3 Within 10 business days after receiving that notice, the Consumer may unconditionally withdraw the termination notice and resume possession of the Goods, unless the Consumer is in default under this agreement, as section 127(3) of the Act provides.",
         "7.4 If the Consumer does not withdraw the notice, the Credit Provider must sell the Goods as soon as practicable for the best price reasonably obtainable, credit or debit the Consumer's account with the proceeds less the reasonable costs of the sale, and give the Consumer written notice of the settlement value immediately before the sale, the gross and net proceeds and the amount credited or debited, as section 127(4) and (5) of the Act require.",

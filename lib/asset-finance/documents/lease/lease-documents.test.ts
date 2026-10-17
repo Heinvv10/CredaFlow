@@ -65,7 +65,7 @@ describe("lease agreements (C9)", () => {
   // The wording module's own clauses, as the renderer is given them.
   const wordingOf = (data: AnyDealDocumentData): LeaseWordingInput => ({
     lessorName: data.lender.legalName, lesseeName: data.entity?.legalName ?? data.soleProprietor?.name ?? "", fml: data.lease?.contractType === "FULL_MAINTENANCE_LEASE",
-    cpa: data.lease?.cpaApplies ?? false, terms: data.lease!.terms, pricing: data.pricing, startDate: data.pricing.startDate, endDate: data.lease!.endDate,
+    cpa: data.lease?.cpaApplies ?? false, naturalPerson: !data.entity, terms: data.lease!.terms, pricing: data.pricing, startDate: data.pricing.startDate, endDate: data.lease!.endDate,
   })
   async function expectEveryClause(data: AnyDealDocumentData, count: number): Promise<string> {
     const lines = (await pageTexts(await renderLeaseAgreement(data))).flat()
@@ -98,18 +98,43 @@ describe("lease agreements (C9)", () => {
     expect(text).toContain("linked to the Prime rate")
     expect(text).toContain("The rental increases by 8.00% on each anniversary")
     for (const commercial of ["voetstoots", "section 45 of the Magistrates' Courts Act", "attorney and own client", "prima facie proof"]) expect(text).toContain(commercial)
-    for (const consumer of ["section 14(2)(d)", "section 49 of the CPA"]) expect(text).not.toContain(consumer)
+    for (const consumer of ["section 14(2)(d)", "section 49 of the CPA", "Lessee's initials:"]) expect(text).not.toContain(consumer)
+    expect(text).toContain("The termination date is the day the lessee accepts the quote.")
+    expect(text).toContain("A lease in default is not extended.")
+    expect(text).toContain("claim the arrears and, as damages, the present value on the cancellation date of the rentals in section 6 still to fall due for the rest "
+      + "of the term, discounted at the contract rate")
+    expect(text).toContain("Business rescue proceedings are not of themselves a default; while they last, section 133 of the Companies Act, 2008")
   })
 
   it("a CPA lessee's operating lease has the 15 common clauses in their consumer form, and no commercial-only terms", async () => {
     const text = await expectEveryClause(soleProprietor, 15)
     expect(text).toContain(`("the lessor") lets to Test Soleprop ("the lessee")`)
     expect(text).toContain("IMPORTANT (section 49 of the CPA)")
-    expect(text).toContain("as section 14(2)(d) of the CPA provides")
-    expect(text).toContain("Section 14(2)(b)(i)(bb) of the CPA allows the lessee to cancel this lease at any time on 20 business days' notice")
+    expect(text).toContain("the lease continues month to month under (b), under section 14(2)(d) of the CPA")
+    expect(text).toContain("The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, under section 14(2)(b)(i)(bb) "
+      + "of the CPA. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or pays any quote.")
+    expect(text).toContain("less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or letting the returned goods")
+    expect(text).toContain("It is never more than the lessee would have paid had the lease run its full term, no further penalty is added")
     expect(text).toContain("regulation 5(2) of the CPA Regulations")
+    expect(text).toContain("The lessee may end the extension at any time by giving the lessor at least 20 business days' written notice")
+    expect(text).toContain("claim the amounts owed up to the cancellation date and a reasonable cancellation penalty calculated as clause 9.10 provides")
+    for (const commercialOnly of ["A lease in default is not extended", "early-termination penalty of", "no credit for the resale value"]) expect(text).not.toContain(commercialOnly)
     expect(text).toContain("Section 7 records that no usage limit is contracted")
     for (const commercial of ["voetstoots", "Magistrates' Court", "attorney and own client", "prima facie", "without deduction or set-off"]) expect(text).not.toContain(commercial)
+  })
+
+  it("a CPA lessee initials the three s49 clauses (9.2, 9.5, 9.6), each directly after its wording", async () => {
+    const lines = (await pageTexts(await renderLeaseAgreement(soleProprietor))).flat().filter((l) => !/^Page \d+ of \d+$|^Ref /.test(l) && l !== DRAFT_WATERMARK)
+    const initialled = lines.flatMap((line, i) => (line === "Lessee's initials:" ? [lines.slice(0, i).reverse().find((l) => /^9\.\d+ /.test(l))] : []))
+    expect(initialled).toEqual(["9.2 Delivery, acceptance and risk", "9.5 Insurance of the goods", "9.6 Use, care and location of the goods"])
+  })
+
+  it("a juristic CPA lessee gets the s14 terms by contract, not as the statute (s14(1))", async () => {
+    const juristic: AnyDealDocumentData = { ...fml, lease: { ...lease, cpaApplies: true, cpaRule: "CPA_JURISTIC_UNDER_THRESHOLD" } }
+    const text = await expectEveryClause(juristic, 17)
+    expect(text).toContain("under this agreement, on the terms section 14(2)(b)(i)(bb) of the CPA sets for a natural-person consumer")
+    expect(text).toContain("Section 14 does not apply between juristic persons, but this agreement gives the lessee the same rights")
+    expect(text).not.toMatch(/under section 14\(2\)\(d\) of the CPA|Its fixed-term rules \(section 14\) apply/)
   })
 
   it("the DRAFT watermark follows the lender's approval of the wording", async () => {

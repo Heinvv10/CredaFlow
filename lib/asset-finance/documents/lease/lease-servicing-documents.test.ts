@@ -54,9 +54,14 @@ describe("CPA expiry notice", () => {
     const clauses = expiryNoticeClauses(NOTICE)
     expect(clauses.map((c) => c.heading)).toEqual(["Consequences of taking no action before the expiry date", "How to tell us your choice"])
     const text = await expectClauses(await renderLeaseExpiryNotice(NOTICE, LENDER), 4, clauses)
-    expect(text).toContain("If you have not told us your choice by 30 June 2027, your lease does not simply end. Section 14(2)(d)")
-    expect(text).toContain("giving one month's written notice")
-    expect(words(expiryNoticeClauses({ ...NOTICE, extensionNoticeMonths: 2 })[0].text)).toContain("giving 2 months' written notice")
+    expect(text).toContain("If you have not told us your choice by 30 June 2027, your lease does not simply end. Under this agreement, on the terms section 14(2)(d)")
+    expect(text).toContain("You may end the month-to-month lease at any time by giving us at least 20 business days' written notice")
+    expect(text).toContain("We may end it by giving you one month's written notice")
+    expect(text).toContain("Extend month to month Continue the lease month to month on the same rentals. You may end the extension on 20 business days' written notice")
+    expect(text).toContain("through our client portal, or by written notice to us, which may be sent by email")
+    expect(words(clauses.map((c) => c.text).join(" "))).not.toMatch(/telephone|Either of us/)
+    expect(words(expiryNoticeClauses({ ...NOTICE, extensionNoticeMonths: 2 })[0].text)).toContain("giving you 2 months' written notice")
+    expect(words(expiryNoticeClauses({ ...NOTICE, naturalPerson: true })[0].text)).toContain("your lease does not simply end. Under section 14(2)(d) of the CPA, it then")
   })
 
   it("carries no watermark once the lender's wording is approved, and is deterministic", async () => {
@@ -84,12 +89,17 @@ describe("early-termination quote", () => {
 
   it("a CPA lessee's quote explains the s14 cancellation and the Reg 5(2) limit, with the quote's own dates", async () => {
     const clauses = terminationQuoteClauses(QUOTE)
-    expect(clauses.map((c) => c.heading)).toEqual(["What accepting this quote means", "Your rights under the Consumer Protection Act"])
+    expect(clauses.map((c) => c.heading)).toEqual(["Your cancellation", "The cancellation charge", "If you disagree with the charge"])
     const text = await expectClauses(await renderLeaseTerminationQuote(QUOTE, LENDER), 5, clauses)
-    expect(text).toContain("If you accept this quote, your lease ends on 15 March 2027. The 14 rentals that would fall due after that date are cancelled.")
-    expect(text).toContain("the termination date is 20 business days after 23 February 2027")
+    expect(text).toContain("You gave us notice on 23 February 2027 to cancel your lease")
+    expect(text).toContain("Your lease therefore ends on 15 March 2027, whether or not you accept or pay this quote. The 14 rentals that would fall due after that date are cancelled.")
+    expect(text).toContain("This quote states that charge.")
+    expect(text).toContain("less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or letting the returned goods")
     expect(text).toContain("regulation 5(2) of the CPA Regulations")
-    expect(text).toContain("6. HOW TO ACCEPT")
+    expect(text).toContain("National Consumer Commission or a court. A dispute does not delay your cancellation.")
+    expect(text).toContain("6. HOW TO REACH US")
+    expect(text).not.toMatch(/takes effect if you accept|6\. HOW TO ACCEPT/)
+    expect(words(terminationQuoteClauses({ ...QUOTE, naturalPerson: true })[0].text)).toContain("as section 14(2)(b)(i)(bb) of the CPA allows")
   })
 
   it("a commercial lessee's quote is an offer to end the lease by agreement, with no CPA wording", async () => {
@@ -98,7 +108,10 @@ describe("early-termination quote", () => {
     expect(clauses.map((c) => c.heading)).toEqual(["What accepting this quote means", "Basis of early termination"])
     const text = await expectClauses(await renderLeaseTerminationQuote(commercial, LENDER), 5, clauses)
     expect(text).toContain("Your lease agreement does not give you a right to end the lease early.")
-    expect(text).not.toMatch(/Consumer Protection Act|section 14|regulation 5/)
+    expect(text).toContain("If you accept this quote within its validity, your lease ends on the day you accept it.")
+    expect(text).toContain("with the termination date on the day you accept it")
+    expect(text).toContain("6. HOW TO ACCEPT")
+    expect(text).not.toMatch(/Consumer Protection Act|section 14|regulation 5|the day the quote was given/)
   })
 
   it("the quote's watermark follows the lender's approval of the wording", async () => {

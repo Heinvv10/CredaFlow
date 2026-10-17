@@ -24,15 +24,16 @@ const costs = [
   { type: "LEGAL_TAXED", label: "Legal costs (taxed)", grossCents: 2_000, treatment: "CHARGE_TO_ACCOUNT" as const },
 ]
 
-// The renders of the notices since the clause wording replaced the placeholder
-// (docs/asset-finance/legal-wording/nca.md; the before/after text proof is in
-// docs/asset-finance/evidence/legal-wording/nca/README.md: only the placeholder
-// line and the page footers changed). A surrender with no recovery costs must
-// keep printing exactly these bytes.
+// The renders of the notices with the drafted clause wording
+// (docs/asset-finance/legal-wording/nca.md). Each re-pin has a text-run proof
+// in docs/asset-finance/evidence/legal-wording/nca/s127-text-runs/ (1-to-2.diff:
+// the placeholder replaced; 2-to-3.diff: the review fixes, which add only the
+// valuation notice's clause 1.6 and the shortfall freeze 1.3 on every final
+// notice). A surrender with no recovery costs must keep printing these bytes.
 const PINNED = {
-  valuation: "5f8401c26afeb54bce2aee487d1b1faa3fbec5ed417c7db50dc1a58e9545373e",
-  final: "561f7723b2410e11f4c3ac72b5e29da69c6ad40d8176e5d2c9fd34c29b69778b",
-  finalWithCosts: "0ac134a92d5027e0b5034da0774554be83694da6b3ccb4a541040d14501ffe06",
+  valuation: "14e18b5289de8f347cb69739e0b7585740218407a7c70223d154a4e171c32a6a",
+  final: "dafdda483a14fef90fa0851dddbb40705d687fff2d304033837a663a1d0c61e4",
+  finalWithCosts: "90e34ac52bb974f069c930fda62f9878779510b3edffe90bc754659e3a4e495b",
   // The same notice with the linked recovery's sale and account lines added.
   finalWithRecovery: "aef7544437b1bca34d613f78c19eacb624763cf3400c96ae771a52f31258a9cd",
   // With a charged cost the account cannot carry (R 100.00 of the R 370.00 shortfall): the new line, and the shortfall net of it.

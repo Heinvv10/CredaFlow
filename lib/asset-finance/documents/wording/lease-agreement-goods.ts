@@ -11,7 +11,7 @@ import { formatIsoDatePdf } from "../pdf-layout"
 import type { LeaseWordingInput, WordingClause } from "./lease-agreement"
 
 /** The s49 CPA notice that opens a clause placing risk or liability on a consumer lessee. */
-export const CPA_S49_NOTICE = "IMPORTANT (section 49 of the CPA): this clause places risk or liability on the lessee. Read it carefully before signing."
+export const CPA_S49_NOTICE = "IMPORTANT (section 49 of the CPA): this clause places risk or liability on the lessee. Read it carefully, and initial it below to show you have read and understood it."
 
 /** Business days within which the lessee may object to the inspection report. */
 export const INSPECTION_OBJECTION_BUSINESS_DAYS = 10
@@ -90,9 +90,9 @@ function insurance(i: LeaseWordingInput): string {
     + "and gives the lessor proof of cover on request. If the lessee does not insure the goods, the lessor may insure them and recover the premium from the lessee on demand.",
     "The lessee reports any loss or damage to the lessor and the insurer within 24 hours, and a theft or hijacking also to the South African Police Service, and does nothing that "
     + "could void the cover. Insurance proceeds for repairable damage are used to repair the goods.",
-    "If the goods are stolen and not recovered, or written off, the lease ends on the day the insurer settles the claim. The lessee then pays the lessor the amount clause 9.10 "
-    + "would give on that day, without the early-termination penalty, and the insurance proceeds the lessor receives are credited against it. The lessee has no claim to any "
-    + "part of the proceeds above that amount.",
+    "If the goods are stolen and not recovered, or written off, the lease ends on the day the insurer settles the claim. The lessee then pays the lessor the arrears and the "
+    + "present value on that day of the rentals (excl. VAT and maintenance) that would have fallen due after it, discounted at the contract rate, without any penalty, and the "
+    + "insurance proceeds the lessor receives are credited against that amount. The lessee has no claim to any part of the proceeds above that amount.",
   )
 }
 
@@ -151,11 +151,11 @@ function returnOfGoods(i: LeaseWordingInput): string {
 export function goodsClauses(i: LeaseWordingInput): WordingClause[] {
   return [
     { heading: "Lease of the goods; ownership remains with the lessor", text: leaseOfGoods(i) },
-    { heading: "Delivery, acceptance and risk", text: delivery(i) },
+    { heading: "Delivery, acceptance and risk", text: delivery(i), initial: i.cpa },
     { heading: "Rentals, escalation and changes to the contract rate", text: rentals(i) },
     { heading: "Tax invoices and VAT", text: vat() },
-    { heading: "Insurance of the goods", text: insurance(i) },
-    { heading: "Use, care and location of the goods", text: careAndUse(i) },
+    { heading: "Insurance of the goods", text: insurance(i), initial: i.cpa },
+    { heading: "Use, care and location of the goods", text: careAndUse(i), initial: i.cpa },
     { heading: "Contracted usage and excess-usage charges", text: usage(i) },
     { heading: "Return of the goods and the end-of-term inspection", text: returnOfGoods(i) },
   ]

@@ -4,7 +4,7 @@
 // arrears and the total) and its `basis` text verbatim: the formula and, for
 // a CPA lessee, the CPA Reg 5(2) wording; then the terms of the quote
 // (../wording/lease-servicing.ts). Deterministic; DRAFT watermark.
-// The formula and the penalty are signed off by the lender's legal team, 2026-10-17. The wording of
+// The formula and the penalty are signed off (see DESIGN.md sign-off record 2026-10-17). The wording of
 // the basis is drafted 2026-10-17 and awaits legal approval (TenantConfig.assetFinanceLegalWordingApproved).
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import { formatIsoDatePdf } from "../pdf-layout"
@@ -41,8 +41,13 @@ export async function renderLeaseTerminationQuote(data: TerminationQuoteData, le
   w.paragraph(data.basis)
   w.section("5. TERMS OF THIS QUOTE")
   terminationQuoteClauses(data).forEach((c, i) => w.clause(`5.${i + 1}`, c.heading, c.text))
-  w.section("6. HOW TO ACCEPT")
-  w.paragraph(`Accept this quote on or before ${formatIsoDatePdf(data.validUntil)} through the lessor's portal or by contacting the lessor. After that date the quote lapses and a new quote is needed.`)
+  if (data.cpaCancellation) {
+    w.section("6. HOW TO REACH US")
+    w.paragraph("Your cancellation does not depend on accepting this quote. Pay the invoice by its due date, or tell the lessor if you dispute the charge.")
+  } else {
+    w.section("6. HOW TO ACCEPT")
+    w.paragraph(`Accept this quote on or before ${formatIsoDatePdf(data.validUntil)} through the lessor's portal or by contacting the lessor. After that date the quote lapses and a new quote is needed.`)
+  }
   w.labelValues(contactRows(lender))
   return finishLeaseDocument(w, data)
 }

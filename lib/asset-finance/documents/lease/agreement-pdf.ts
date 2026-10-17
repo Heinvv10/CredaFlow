@@ -100,10 +100,12 @@ function annexureRows(lease: LeaseDocumentTerms): [string, string][] {
   return rows
 }
 
-function cpaText(lease: LeaseDocumentTerms): string {
-  return lease.cpaApplies
-    ? "The Consumer Protection Act, 2008 applies to this lease. Its fixed-term rules (section 14) apply: the lessee may cancel on 20 business days' notice, subject to a reasonable cancellation penalty, and is notified before the term expires."
-    : "The Consumer Protection Act, 2008 does not apply to this lease: the lessee is a juristic person at or above the threshold (section 5(2)(b))."
+function cpaText(lease: LeaseDocumentTerms, naturalPerson: boolean): string {
+  if (!lease.cpaApplies) return "The Consumer Protection Act, 2008 does not apply to this lease: the lessee is a juristic person at or above the threshold (section 5(2)(b))."
+  const rights = "the lessee may cancel on 20 business days' notice, subject to a reasonable cancellation penalty, and is notified before the term expires."
+  return naturalPerson
+    ? `The Consumer Protection Act, 2008 applies to this lease. Its fixed-term rules (section 14) apply: ${rights}`
+    : `The Consumer Protection Act, 2008 applies to this lease. Section 14 does not apply between juristic persons, but this agreement gives the lessee the same rights: ${rights}`
 }
 
 export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<Buffer> {
@@ -144,12 +146,15 @@ export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<B
     w.paragraph("No usage limit is contracted.")
   }
   w.section("8. CONSUMER PROTECTION ACT")
-  w.paragraph(cpaText(lease))
+  w.paragraph(cpaText(lease, !data.entity))
   w.section("9. TERMS AND CONDITIONS")
   leaseAgreementClauses({
-    lessorName: data.lender.legalName, lesseeName: lesseeName(data), fml, cpa: lease.cpaApplies, terms: lease.terms,
+    lessorName: data.lender.legalName, lesseeName: lesseeName(data), fml, cpa: lease.cpaApplies, naturalPerson: !data.entity, terms: lease.terms,
     pricing: data.pricing, startDate: data.pricing.startDate, endDate: lease.endDate,
-  }).forEach((c, i) => w.clause(`9.${i + 1}`, c.heading, c.text))
+  }).forEach((c, i) => {
+    w.clause(`9.${i + 1}`, c.heading, c.text)
+    if (c.initial) w.initialLine("Lessee's initials:")
+  })
 
   w.section("10. SIGNATURES")
   w.signatures([

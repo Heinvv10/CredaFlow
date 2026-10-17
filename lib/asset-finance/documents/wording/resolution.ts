@@ -1,5 +1,6 @@
 // The entity resolution's clauses (./../resolution-pdf.ts section 4), worded
-// for the entity type. DRAFT wording for the lender's legal team; the DRAFT
+// for the entity type. DRAFT wording for the lender's legal team (the rules
+// behind it are signed off: see DESIGN.md sign-off record 2026-10-17); the DRAFT
 // watermark prints until TenantConfig.assetFinanceLegalWordingApproved. The
 // same text serves NCA and non-NCA deals: it grants authority and binds no
 // consumer to any term of the Agreement.

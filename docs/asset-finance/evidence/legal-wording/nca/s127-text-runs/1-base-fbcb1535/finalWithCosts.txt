@@ -1,0 +1,50 @@
+TEST Credit Provider
+NCR NCRCP00000
+1 Test Road
+VOLUNTARY SURRENDER FINAL ACCOUNT NOTICE
+Loan AF-NCA-S127-TEST · prepared 13 October 2026
+DRAFT legal wording — statutory wording requires lender legal approval
+CONSUMER AND ASSET
+Consumer
+TEST Borrower
+Identity / registration
+0000000000000
+Consumer address
+2 Synthetic Street
+Asset
+2026 TEST TLB · TEST-SERIAL-127
+Recorded condition
+Synthetic working condition
+Surrender requested
+2026-10-13
+Valuation due
+2026-10-27
+SALE PROCEEDS AND ACCOUNT RESULT
+Valuation
+R 1,250.00
+Sale proceeds credited
+R 1,000.00
+Shortfall
+R 250.00
+Refund due
+R 0.00
+RECOVERY COSTS
+Cost
+Treatment
+Amount
+Towing and transport
+Deducted from proceeds
+R 50.00
+Legal costs (taxed)
+Charged to account
+R 20.00
+Costs deducted from proceeds
+R 50.00
+Costs charged to account
+R 20.00
+Cost lines: DRAFT — require lender legal approval
+1 Consumer rights following disposal and account reconciliation
+[Placeholder clause — wording to be supplied by the lender's legal team]
+Page 1 of 1
+Ref AF-NCA-S127-TEST
+DRAFT — NOT FOR EXECUTION

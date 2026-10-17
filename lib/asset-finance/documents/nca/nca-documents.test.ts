@@ -18,7 +18,7 @@ const data: NcaAssetDocumentData = {
     rateBasis: "FIXED", rateMargin: null, reference: null,
     initiationFeeCents: 120_750, monthlyServiceFeeCents: 6_000, creditLifePremiumCents: 7_500,
     instalmentCents: 140_000, balloonCents: 300_000, totalInterestCents: 172_500,
-    totalCostOfCreditCents: 373_250, totalRepayableCents: 1_873_250,
+    totalCostOfCreditCents: 1_873_250, totalRepayableCents: 1_873_250,
   },
   schedule: [
     { installmentNo: 1, dueDate: "2026-11-30", principalCents: 100_000, interestCents: 14_000, feesCents: 13_500, totalCents: 127_500, closingBalanceCents: 1_400_000 },
@@ -75,6 +75,11 @@ describe("NCA agreement wording", () => {
     expect(all).toContain("credit-life cover at a premium of R 75.00 a month")
     expect(all).toContain("No early-termination charge is payable.")
     expect(all).toContain("2 Synthetic Street, Johannesburg")
+    expect(all).toContain("6.5 At any time before the Credit Provider has cancelled this agreement, the Consumer may remedy a default by paying all overdue amounts")
+    expect(all).toContain("up to the time the default is remedied, as section 129(3) of the Act provides")
+    expect(all).not.toMatch(/reinstate/i)
+    expect(all).toContain("If the Goods are already in the Credit Provider's possession, the Consumer may in that notice require the Credit Provider to sell them, "
+      + "as section 127(1)(b)(i) of the Act provides.")
   })
 
   it("follows the contract type, the rate basis, the size and the credit-life election", async () => {
@@ -101,9 +106,10 @@ describe("NCA quotation wording", () => {
     const all = prose(await texts(await renderNcaAssetQuote(data)))
     expect(all).toContain('"the Credit Provider" means TEST Credit Provider (Pty) Ltd, registered credit provider NCRCP00000')
     expect(all).toContain("bound by this quotation for five business days")
-    expect(all).toContain("The total cost of credit of R 3,732.50")
+    expect(all).toContain("The total cost of credit of R 18,732.50 shown above is the principal debt together with the interest")
     expect(all).toContain("the total repayable is R 18,732.50")
     expect(all).toContain("credit-life cover at R 75.00 a month")
+    expect(all).toContain("and the premium of any insurance the Credit Provider arranges under section 106 of the Act if the Consumer does not keep the asset insured")
     expect(all).not.toContain("Because the proposed rate is variable")
     expect(prose(await texts(await renderNcaAssetQuote(prime)))).toContain("Because the proposed rate is variable")
   })

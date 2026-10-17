@@ -33,8 +33,8 @@ same description the commercial agreement uses (`rateDescription`).
 | 3 | Payments, interest and statutory charges | Number of instalments, first and last dates, base instalment, residual; payment method; rate (fixed or reference-linked, daily actual/365, reprice keeps term and residual, s104 notice, s105 cap); initiation and service fees within s105, nothing outside s100/s101; default interest at the contract rate on overdue principal, s101(1)(f)/(g) charges, s103(5) in duplum; s126(3) allocation; VAT and tax invoice. |
 | 4 | Insurance and credit-life election | Comprehensive cover up to replacement value, insurer of the Consumer's choice (s106); the lender may arrange cover after notice; credit-life premium from the data with the right to substitute (Credit Life Insurance Regulations, 2017), or "no premium"; insurance proceeds. |
 | 5 | Consumer statements and early settlement | Statements at least three-monthly (s108) by the s65 method; s125 settlement at any time; early-termination charge only for a large agreement (s125(3)); settlement quote; ownership passes. |
-| 6 | Default, enforcement and statutory notices | Default; no proceedings before the s129(1)(a) notice and the s130 periods (cross-refers, does not restate the notice); s123 termination; s131 attachment → s127(2)–(9), s128; s129(3)/(4) reinstatement; costs only as s101(1)(g) allows; s86/s88 debt review. |
-| 7 | Voluntary surrender | s127(1) notice and return within 5 business days; s127(2) valuation notice within 10 business days; s127(3) withdrawal; s127(4)/(5) sale and account; surplus paid, shortfall demanded, 10 business days before proceedings; s128. |
+| 6 | Default, enforcement and statutory notices | Default; no proceedings before the s129(1)(a) notice and the s130 periods (cross-refers, does not restate the notice); s123 termination; s131 attachment → s127(2)–(9), s128; s129(3)/(4) remedying the default (the amended wording: "remedy", costs "up to the time the default is remedied"); costs only as s101(1)(g) allows; s86/s88 debt review. |
+| 7 | Voluntary surrender | s127(1) notice; goods already held by the Credit Provider sold at the Consumer's request (s127(1)(b)(i)), otherwise returned within 5 business days; s127(2) valuation notice within 10 business days; s127(3) withdrawal; s127(4)/(5) sale and account; surplus paid, shortfall demanded, 10 business days before proceedings; s128. |
 | 8 | Cooling-off right (new) | s121: rescission within 5 business days if signed away from the registered business premises. |
 | 9 | Credit information, debt review and complaints (new) | Bureau reporting with 20 business days' notice of adverse information; s86 debt review; complaints and Chapter 7 dispute routes; POPIA. |
 | 10 | Addresses and notices | s96 addresses (the Consumer's from the data, the lender's registered office); s65 delivery method; s129 notice delivery; written notices, portal and email. |
@@ -52,7 +52,8 @@ purpose; agreement type and s9 size from the principal debt; the quotation is
 not an agreement and the acknowledgement is receipt only; binding on the Credit
 Provider for five business days after delivery (s92); a variable rate moves with
 its reference rate; the rate terms (shared with agreement clause 3.3); total cost
-of credit and total repayable from the data; no fees outside s101; caps under
+of credit and total repayable from the data; no fees outside s101 except a
+lender-placed s106 insurance premium; caps under
 s105; insurance and the right to choose the insurer (s106); credit-life premium or
 "no premium"; summary of the Consumer's rights (s125, s127, s129, s121, s108, s86).
 
@@ -70,27 +71,31 @@ large (Form 20.2). Low confidence on the regulation numbering.
   estimate is not a guaranteed price; s127(3) withdrawal within 10 business days
   unless in default; s127(4) sale, not before that period ends; the agreement
   continues until the sale; s127(5) account and notice; surplus paid, shortfall
-  demanded with 10 business days to pay; disputes and s128.
+  demanded with 10 business days to pay; disputes and s128; the consumer is
+  asked for a bank account in their name now, so that a surplus can be remitted
+  with the post-sale notice.
 - Final notice, "Consumer rights following disposal and account reconciliation":
   the s127(5) notice; shortfall demanded (net of unrecoverable charged costs when
   a recovery is linked) with 10 business days before proceedings, or the surplus
-  paid to a verified nominated account, or nothing owed; when a recovery is
-  linked (the only path that sets a charge freeze), no interest or charges from
-  the proceeds date to 10 business days after the notice; the agreement ends on
+  remitted with the notice into the account given after the valuation notice,
+  or nothing owed; after a shortfall (with or without a linked recovery, the
+  same rule as the s131 notice) no interest or charges from the proceeds date
+  to 10 business days after the notice; the agreement ends on
   payment either way; disputes and s128.
 
 ## 4. s131 repossessed-goods notices (`documents/nca/recovery-pdf.ts`)
 
 - Valuation notice, "Consumer rights following repossession and valuation":
   attachment under a court order, place and date held; s131 applies s127(2)–(9)
-  and s128; valuation; s129(3)/(4) reinstatement until the sale; sale for the
+  and s128; valuation; s129(3)/(4) remedying the default until the sale; a bank account for any surplus; sale for the
   best price, not before 10 business days after the notice; account and notice
   under s127(5); taxed or awarded legal costs may be charged to the account;
   surplus or shortfall; disputes and s128.
 - Final notice, "Consumer rights following sale and account reconciliation":
   s127(5) and s131 notice; shortfall (settlement value plus charged costs less net
   proceeds, net of unrecoverable charged costs) demanded with 10 business days, or
-  surplus, or nothing owed; charge freeze to 10 business days after the notice;
+  surplus remitted with the notice, or nothing owed; after a shortfall, charge
+  freeze to 10 business days after the notice;
   disputes and s128.
 
 The NON_NCA post-sale statement (`post-sale-statement.ts`) is unchanged and
@@ -125,34 +130,21 @@ cross-referred, not restated.
 
 ## Points for the lender's legal team
 
-1. **Early settlement does not match s125 in the code (engineering bug, not
-   wording).** `isS125InstalmentLoan` (`lib/loan/settlement.ts`) applies the s125
-   rebate only to contract type `LOAN`. An NCA instalment sale or finance lease
-   is quoted every remaining scheduled amount, unearned future interest included
-   (`settlement-balloon.test.ts` pins that). Clause 5.2 states the s125 position
-   (principal plus interest and charges to the settlement date), so the system
-   currently overcharges against its own agreement. This also feeds the s127
-   "settlement value immediately before the sale" figure.
-2. **No waiting period before a sale (engineering).** Neither the surrender path
-   (`creditSurrenderProceeds` needs only the valuation notice) nor the recovery
-   path (VALUATION_NOTICE_ISSUED → LISTED → SOLD has no date check) waits the 10
-   business days of s127(3)/(4). The notices promise the wait.
-3. **No s127(3) withdrawal in the code.** `SurrenderStatus` has no withdrawn
-   state; the valuation notice tells the consumer they may withdraw.
+Points 1–3 and 5, and the charge-freeze half of point 6, of the first draft
+(numbers kept) are code gaps, now listed in
+[`README.md`](README.md) ("Code changes required before approval", gaps 1–5).
+The wording states the law: s125 settlement, the s127(3) withdrawal and the
+10-business-day wait, the surplus remitted with the post-sale notice, and the
+charge freeze after a shortfall on both notices.
+
 4. **s127(2) timing.** `valuationDueOn` is the request date plus 10 business
    days; the Act counts from the later of the notice and the return of the goods.
-5. **Surplus timing.** s127 requires the surplus to be remitted with the
-   notice; the code holds it (SURPLUS_HELD) until a two-person refund release
-   after bank verification. The notices say "we will pay it ... once verified".
-6. **Charge freeze on a standalone surrender.** Only a recovery-linked surrender
-   gets the post-proceeds charge freeze; a surrender credited without a recovery
-   does not. The surrender final notice mentions the freeze only when a recovery
-   is linked. Confirm interest on the shortfall after the s127 demand (s127(8)).
+6. **Interest on the shortfall after the s127 demand (s127(8)).** Confirm.
 7. **NCA deductible cost types.** `recoveryNcaDeductibleCostTypes` defaults
    include towing, storage, repairs, insurance and sheriff's fees. s127(5) allows
    "reasonable costs of the sale"; legal to confirm which are sale costs.
-8. **Reinstatement after attachment (s129(3)/(4)).** The s131 valuation notice
-   says the consumer may reinstate until the sale. Confirm against s129(4)(b)
+8. **Remedying the default after attachment (s129(3)/(4)).** The s131
+   valuation notice says the consumer may remedy the default until the sale. Confirm against s129(4)(b)
    ("execution of any other court order") and current case law.
 9. **Subsection citations to verify:** s127(6)–(9) and s128 (cited as a group,
    no time limit stated for the Tribunal review); s129(5)–(7) delivery rules
@@ -179,5 +171,14 @@ cross-referred, not restated.
     `lib/pdf/creditAgreement.ts` uses "above R250 000". Pick one.
 15. **Juristic consumers.** Entity NCA agreements use the same wording; credit
     life (clause 4.3) and POPIA (9.4) read naturally only for a natural person.
-16. **Audit rows** still record `draftLegalWording: true` for every issued notice
-    (`surrender-store.ts`, `recovery-notices.ts`), regardless of the flag.
+16. **Audit rows** record `draftLegalWording` as the inverse of the tenant flag
+    (`nca-agreement-store.ts`, `nca-entity-signing.ts`, `surrender-store.ts`,
+    `recovery-notices.ts`).
+17. **Cash price, deposit and credit-life premium** are printed on the quote but
+    not on the agreement (README gap 21); low confidence on the Regulation item
+    numbers.
+18. **"Total cost of credit".** The figure comes from the PASQ evidence
+    (`lib/compliance/pasq.ts:190`, shared with the consumer loans) and includes
+    the principal debt, so it equals the total repayable. Quote 1.5 now says so.
+    Confirm that is the Form 20 meaning; if the cost of credit should exclude the
+    principal, the shared calculation changes, not the wording.

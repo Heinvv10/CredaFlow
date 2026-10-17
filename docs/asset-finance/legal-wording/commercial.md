@@ -32,8 +32,8 @@ number, not to an instalment sale.
 2. **Delivery, acceptance and risk.** Supplier delivers; delivery and
    acceptance certificate before payout; risk on delivery; indemnity.
 3. **Payment.** Deposit and scheduled payments (balloon named with its due
-   date); no set-off; order of application of receipts; one VAT invoice for the
-   cash price at the payout date; interest exempt.
+   date); no set-off; order of application of receipts; a tax invoice for the
+   cash price (no statutory time of supply asserted); interest exempt.
 4. **Interest and changes to the contract rate.** Daily actual/365 on the
    reducing balance. Fixed: no change. Linked: reference + margin, the
    reference defined per basis (Prime, Repo, ZARONIA with its 0.25-point rule,
@@ -50,16 +50,19 @@ number, not to an instalment sale.
    use, servicing, licensing (Seller titleholder), kept at the printed address
    or a notified place in South Africa, inspection, tracker on request,
    attachment notice.
-8. **Breach and remedies.** Events of default; acceleration of the Settlement
-   Amount, or cancellation, possession (consent or court order only) and
-   damages; voluntary return; sale, net proceeds, shortfall and surplus;
+8. **Breach and remedies.** Events of default (business rescue is not one; the
+   s133 moratorium is noted); acceleration of the Settlement Amount, or
+   cancellation, possession (consent or court order only) and damages of the
+   Settlement Amount less the net proceeds; voluntary return; sale, net proceeds, shortfall and surplus;
    charges may be suspended during recovery.
 9. **Default interest and collection costs.** From the deal's signed terms:
    none, the contract rate, or the contract rate plus the margin, on unpaid
-   capital and contractual interest; collection fee per missed payment or none;
+   capital and contractual interest, stopping at the common-law in duplum
+   limit; collection fee per missed payment or none;
    enforcement costs on the attorney-and-own-client scale.
-10. **Early settlement.** Settlement Amount = arrears and charges plus every
-    remaining scheduled payment, interest included, no rebate.
+10. **Early settlement.** Settlement Amount = arrears and charges, plus the
+    outstanding capital (balloon included), plus interest accrued to the date;
+    no unearned interest, no early-settlement fee.
 11. **Cession and assignment.** Seller free to cede; Purchaser needs consent.
 12. **Domicilium and notices.** Seller's registered office and the
     Purchaser's printed address; hand, registered post or designated email.
@@ -88,8 +91,9 @@ number, not to an instalment sale.
 6. **Domicilium and notices.** Creditor's registered office; the surety's last
    notified residential address.
 7. **Marital status and spouse's consent** (added). Warranty of marital
-   regime; spouse's written consent under MPA s15(2)(h); a spouse signature
-   line was added to section 6.
+   regime; spouse's written consent under MPA s15(2)(h), attested by two
+   competent witnesses (s15(5)); section 6 has a witness line for the surety,
+   the spouse's line and two witness lines for the spouse.
 8. **General.** Whole deed, non-variation, acceptance by acting on it,
    cession with the Agreement, POPIA consent. Commercial only: s45
    Magistrates' Court consent.
@@ -114,7 +118,8 @@ from 5.7 to 5.8.
 
 NCA 34 of 2005 ss 4(2)(c), 90, 101(1)(g); CPA 68 of 2008 ss 5, 55, 56;
 VAT Act 89 of 1991 ss 2, 12(a); Insurance Act 18 of 2017; Magistrates'
-Courts Act 32 of 1944 s45; Matrimonial Property Act 88 of 1984 s15(2)(h);
+Courts Act 32 of 1944 s45; Matrimonial Property Act 88 of 1984 s15(2)(h) and (5);
+Companies Act 71 of 2008 s133;
 Companies Act 71 of 2008 s74; Close Corporations Act 69 of 1984; Trust
 Property Control Act 57 of 1988 s6; POPIA 4 of 2013. No statutory text is
 quoted; obligations are paraphrased and cited.
@@ -134,6 +139,11 @@ quoted; obligations are paraphrased and cited.
 
 ## Points for the lender's legal team
 
+Gaps between this wording and the code (suretyship e-sign, surety address,
+spouse consent, settlement, in duplum, CPA classification of instalment sales)
+are listed in [`README.md`](README.md), "Code changes required before
+approval".
+
 1. **Electronic signature of the suretyship.** A suretyship must be in
    writing and signed by the surety (General Law Amendment Act 50 of 1956
    s6). ECTA 25 of 2002 s13(1) requires an *advanced* electronic signature
@@ -143,8 +153,8 @@ quoted; obligations are paraphrased and cited.
    address this because the code allows e-sign.
 2. **Spouse's consent.** The data has no marital status and the spouse is
    not a signer in the system: the consent line prints, but e-sign cannot
-   capture it and nothing gates payout on it. Confirm the s15 formalities
-   (including any witness requirement in s15(5)) and whether the s15(6)
+   capture it and nothing gates payout on it (README gap 18). The wording now
+   requires two witnesses (s15(5)); confirm and whether the s15(6)
    business exception can apply to a director's suretyship.
 3. **Surety's address.** The data carries only the surety's name and ID
    number, so the domicilium is "the residential address last notified".
@@ -154,13 +164,13 @@ quoted; obligations are paraphrased and cited.
    cost scale and the renounced evidential exceptions. It **keeps** the
    renunciation of excussion and division and the co-principal-debtor
    liability as common-law terms. Confirm these are lawful under s90(2) for a
-   credit guarantee. The variant is selected by `ncaApplies`, which only
-   `nca-entity-signing.ts` sets; no integration test covers that wiring.
-5. **Early settlement without rebate (7.10).** The code's settlement figure is
-   every remaining scheduled payment including unearned interest. That is
-   aggressive and the acceleration remedy (7.8) uses the same figure; consider
-   the Conventional Penalties Act 15 of 1962 and whether to rebate future
-   interest (the code would have to change).
+   credit guarantee. `ncaApplies` is derived in `loadDealDocumentData` from the
+   application's NCA regime (anything but NON_NCA, so an unclassified deal gets
+   the NCA variant).
+5. **Early settlement (7.10).** The wording now defines the Settlement Amount
+   without unearned interest, and damages after cancellation as that amount
+   less the net proceeds (Conventional Penalties Act 15 of 1962). The code
+   still quotes every remaining payment (README gap 15).
 6. **CPA.** CPA scope is computed only for leases. A small juristic purchaser
    (below the CPA threshold) under a NON_NCA instalment sale may be a CPA
    consumer. The no-warranty and no-set-off terms rely on a CPA savings line
@@ -183,9 +193,10 @@ quoted; obligations are paraphrased and cited.
     date has passed or the rate on it differs from the signed rate. The wording
     gives the Seller a right to cancel in those cases; there is no cancellation
     notice in the system.
-12. **VAT (7.3).** One tax invoice at the payout date; interest exempt under
-    VAT Act ss 2 and 12(a). Supply timing (DESIGN D7) was signed off by the
-    tax adviser on 2026-10-17.
+12. **VAT (7.3).** A tax invoice for the cash price; the agreement no longer
+    states a time of supply (VAT Act s9(3)(c) is for the tax adviser); interest
+    exempt under VAT Act ss 2 and 12(a). Supply timing (DESIGN D7) was signed off
+    (see DESIGN.md sign-off record 2026-10-17).
 13. **Insurance premium recovery (7.6).** The Seller may insure and recover the
     premium, but the system has no way to debit it to the loan.
 14. **Resolution signers.** The resolution is signed by the authorised
@@ -193,8 +204,7 @@ quoted; obligations are paraphrased and cited.
     system does not check a quorum, that all trustees sign, or that an
     authorised signatory who is not a director may sign a board resolution.
     Trustees must act jointly unless the trust deed provides otherwise.
-15. **Business rescue.** Enforcement against a purchaser in business rescue is
-    subject to the moratorium in Companies Act s133; the wording does not try
-    to override it.
+15. **Business rescue.** Not an event of default in the instalment sale or the
+    lease (aligned 2026-10-17); both note the Companies Act s133 moratorium.
 16. **Section citations to verify:** NCA s4(2)(c) (credit guarantee scope),
     s101(1)(g) (collection costs), MPA s15(2)(h), VAT Act ss 2 and 12(a).
