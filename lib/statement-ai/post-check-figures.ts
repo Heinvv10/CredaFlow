@@ -20,20 +20,22 @@ const NUMBER_WORDS: Record<string, number> = {
 const isNumberWord = (w: string | undefined) => w !== undefined && Object.prototype.hasOwnProperty.call(NUMBER_WORDS, w)
 
 /** Words after an amount that make it a month's figure. */
-const MONTHLY = /^[^.;:!?]{0,12}?\b(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
+const MONTHLY = /^[^.;:!?,()]{0,6}?\b(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
+const OTHER_PERIOD = /^[^.;:!?,()]{0,6}?\b(weekly|daily|yearly|annually|fortnightly|a (week|day|year|fortnight)|per (week|day|year|annum|fortnight)|each (week|day|year|fortnight)|every (week|day|year|fortnight))\b/i
+
 /** The same words before an amount, in its clause: "monthly rent of R8 500.00". */
 const MONTHLY_BEFORE = /\b(monthly|per month|a month|each month|every month)\b[^.;:!?,]{0,25}$/i
 const IN_WORDS = /\b(received|receives|receiving|earned|earns|credited|deposited|came in|paid in)\b/i
 const OUT_WORDS = /\b(spent|paid to|paid out|debited|withdrew|withdrawn|went to|sent to)\b/i
 
-/** "one" as a pronoun ("no one", "matched to one.", "one of"), not a count. */
+/** "one" as a pronoun ("no one", "the one", "one of"), not a count. A bare "one." is a count. */
 function isPronoun(before: string | undefined, after: string | undefined): boolean {
-  return ["no", "the", "this", "that", "each", "any", "every", "which", "to", "a", "another"].includes(before ?? "") ||
-    after === undefined || /^[.,;:!?]$/.test(after) || ["of", "another", "or"].includes(after)
+  return ["no", "the", "this", "that", "each", "any", "another"].includes(before ?? "") || after === "of"
 }
 
-function sentencesOf(text: string): string[] {
-  return text.split(/(?<=[.!?;])\s+/).filter((s) => s.trim())
+/** Clauses: a sentence split at commas, semicolons and joining words, so "money in X, and money out Y" is two. */
+function clausesOf(text: string): string[] {
+  return text.split(/[.!?;,]\s+|\s(?:and|while|whereas|but)\s/i).filter((s) => s.trim())
 }
 
 /** Every given figure as the token the model must copy, longest first. */
@@ -78,6 +80,7 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     // "twenty-one", "forty two": a compound is never read as its parts.
     const joined = (words[i + 1] === "-" && isNumberWord(words[i + 2])) || isNumberWord(words[i + 1]) || (words[i - 1] === "-" && isNumberWord(words[i - 2])) || isNumberWord(words[i - 1])
     if (joined) return fail(`compound figure in words: "${w}"`)
+    if (["percent", "percentage", "pc", "per"].includes(words[i + 1] ?? "")) return fail(`percentage in words: "${w}"`)
     if (!numbers.has(NUMBER_WORDS[w])) return fail(`figure in words not given: "${w}"`)
   }
 
@@ -91,9 +94,11 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     text = text.replace(re, (m, offset: number, whole: string) => {
       const calledMonthly = MONTHLY.test(whole.slice(offset + m.length, offset + m.length + 30)) || MONTHLY_BEFORE.test(whole.slice(Math.max(0, offset - 30), offset))
       if (calledMonthly && !monthly.has(a.cents)) bad = true
+      // No fact is weekly, daily or yearly: an amount called so is never the figure given.
+      if (OTHER_PERIOD.test(whole.slice(offset + m.length, offset + m.length + 30))) bad = true
       return " "
     })
-    if (bad) return fail(`amount called monthly is not a monthly figure: "${a.text}"`)
+    if (bad) return fail(`amount given another period than its own: "${a.text}"`)
   }
   for (const s of [...t.dates, ...t.months].sort((x, y) => y.length - x.length)) {
     text = text.replace(new RegExp(`(?<![\\w-])${escape(s)}(?![\\w-])`, "g"), " ")
@@ -104,18 +109,18 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
   for (const n of t.numbers.map(String).sort((x, y) => y.length - x.length)) {
     // Not when a percentage sign or word follows: a count is not a percentage.
     // Nor beside another digit group ("3 92" is not two counts): space-grouped digits read as one figure.
-    text = text.replace(new RegExp(`(?<![\\w.,/-])(?<!\\d )${escape(n)}(?![\\w%/]|[.,]\\d| \\d|\\s?(%|percent\\b|per cent\\b))`, "gi"), " ")
+    text = text.replace(new RegExp(`(?<![\\w.,/-])(?<!\\d )${escape(n)}(?![\\w%/]|[.,]\\d| \\d|\\s?(%|percent\\b|percentage\\b|pc\\b|per ?cent\\b))`, "gi"), " ")
   }
   const left = text.match(/\S*\d\S*/)
   if (left) return fail(`figure not given as written: "${left[0]}"`)
   return OK
 }
 
-/** A sentence about money coming in may not cite an amount that went out, nor the reverse. */
+/** A clause about money coming in may not cite an amount that went out, nor the reverse. */
 function checkDirections(text: string, allowed: Allowed, amounts: Array<{ cents: number; text: string }>): CheckResult {
   const ins = new Set([...(allowed.inAmountsCents ?? [])].map((c) => Math.round(c)))
   const outs = new Set([...(allowed.outAmountsCents ?? [])].map((c) => Math.round(c)))
-  for (const s of sentencesOf(text)) {
+  for (const s of clausesOf(text)) {
     const saysIn = IN_WORDS.test(s)
     const saysOut = OUT_WORDS.test(s)
     if (saysIn === saysOut) continue

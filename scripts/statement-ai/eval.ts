@@ -148,6 +148,9 @@ function scoreAnswer(text: string, expected: string): "exact" | "wrong" {
   return shown.includes(expected) || asWord ? "exact" : "wrong"
 }
 
+/** A rejection reason, figures blanked; a vocabulary miss keeps its word (the calibration needs it). */
+const reasonKey = (r: string) => (r.startsWith("word outside") ? r : r.replace(/"[^"]*"/g, "\"…\""))
+
 const pctOf = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : 0)
 const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] : 0)
 
@@ -176,7 +179,7 @@ async function main() {
       for (const plan of plans) {
         const res = await produce(plan, asker(plan.kind))
         if (plan.kind === "SUMMARY") { ab.summaries++; if (res.status === "OK") ab.summariesOk++ } else { ab.explanations++; if (res.status === "OK") ab.explanationsOk++ }
-        if (res.status !== "OK") ab.reasons[res.rejectReason!.replace(/"[^"]*"/g, "\"…\"")] = (ab.reasons[res.rejectReason!.replace(/"[^"]*"/g, "\"…\"")] ?? 0) + 1
+        if (res.status !== "OK") ab.reasons[reasonKey(res.rejectReason!)] = (ab.reasons[reasonKey(res.rejectReason!)] ?? 0) + 1
         if (run === 0 && examples.length < 12) examples.push({ app: app.id, kind: plan.kind, flag: plan.flagCode, status: res.status, reason: res.rejectReason, text: res.text })
       }
       const rows = askRows([{ ref: "S1", transactions: read.transactions.map((t, index) => ({ index, t })) }], app.clientName)
@@ -188,7 +191,7 @@ async function main() {
         if (res.status !== "OK") {
           c.rejected++
           t.rejected++
-          const reason = res.rejectReason!.replace(/"[^"]*"/g, "\"…\"")
+          const reason = reasonKey(res.rejectReason!)
           c.reasons[reason] = (c.reasons[reason] ?? 0) + 1
         } else if (scoreAnswer(res.text, q.expected) === "exact") {
           c.exact++

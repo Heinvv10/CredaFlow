@@ -61,7 +61,7 @@ describe("safeKey", () => {
 describe("allowedFrom", () => {
   it("sorts every figure by kind; strings with digits are literals", () => {
     expect(allowedFrom({ a: "R1 234.56", b: "2026-09-25", c: "2026-09", d: 3, sharePercent: 12.5, e: "S1-R12", f: "-R4.50" })).toEqual({
-      amountsCents: [123_456, -450], monthlyAmountsCents: [], inAmountsCents: [], outAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"],
+      amountsCents: [123_456, -450], monthlyAmountsCents: [], inAmountsCents: [], outAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"], names: [],
     })
   })
   it("tags a month's amounts, and money in and out by direction or key", () => {
@@ -88,10 +88,10 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-p3", "a196b56ae984e3be"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-p4", "e8dd6bc50bdd0b7f"])
   })
   it("pins the explanation prompt to its version", () => {
     const built = explanationFacts(flags[0], [], ["GAMBLING"], "T TESTER")
-    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p4", "b71e7e8615a9e7cb"])
+    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p5", "22a661565093a99e"])
   })
 })
