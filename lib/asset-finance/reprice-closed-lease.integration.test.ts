@@ -32,6 +32,7 @@ suite.sequential("closed booked lease late rates preserve ex-VAT capital and mai
     ["OPERATING_LEASE",-.02,true,false,false], ["OPERATING_LEASE",.02,true,false,false], ["FULL_MAINTENANCE_LEASE",-.02,true,false,false], ["FULL_MAINTENANCE_LEASE",.02,true,false,false],
     ["OPERATING_LEASE",-.02,true,true,false], ["OPERATING_LEASE",.02,true,true,false], ["FULL_MAINTENANCE_LEASE",-.02,true,true,false], ["FULL_MAINTENANCE_LEASE",.02,true,true,false],
     ["OPERATING_LEASE",-.02,true,true,true], ["FULL_MAINTENANCE_LEASE",.02,true,true,true],
+    ["OPERATING_LEASE",-.02,true,false,true], ["FULL_MAINTENANCE_LEASE",.02,true,false,true],
   ] as const)("%s signed adjustment %s, active %s future-only %s cancellation %s", async (contractType, change, active, futureOnly, cancel) => {
     process.env.TRUSTED_PROXY = "1"; fx = await createLeaseFixture(db, randomUUID().replaceAll("-", "").slice(0,16)); fixtures.push(fx)
     const dealId = await approveLease(fx,staff,leaseBody(fx,{ assetId:fx.assets[0], contractType,rentalTiming:"ARREARS",entityId:fx.evidenced,preset:{kind:"MONTHLY",periods:12},escalationRate:"0" }))

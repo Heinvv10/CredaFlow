@@ -211,3 +211,12 @@ changed. `/tmp/cf-rate-deferred-mutation-red.log` proves that removing this actu
 invoice hook makes eight cases fail; source was restored. The 206 focused
 schema/notice/unit checks pass (`/tmp/cf-rate-deferred-units.log`). The existing
 zero-rental CHECK remains unchanged and its separate confirmation remains pending.
+
+After merging frozen commercial cancellation implementation `c7f23c60`, a fresh
+migrated PostgreSQL run passed all 56 rate/source/notice/NCA/cap/payoff/lease
+checks across eight suites (`/tmp/cf-rate-combined-c-pg.log`). The expanded lease
+suite passed all 16 cases (`/tmp/cf-rate-deferred-c-final16.log`), including mixed
+issued/unmade cancellations that retain prior issued-supply notes. All temporary
+containers were removed. The latest 215 focused schema, dispatch, repricing and
+charge-replay checks pass (`/tmp/cf-rate-combined-c-focused.log`). These remain
+focused checks; the final full gate and independent reviews belong to root.
