@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 import { POST as cancellationRoute } from "@/app/api/asset-finance/loans/[loanId]/commercial-cancellation/route"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "./dates"
-import { newValuation } from "./recovery.integration-fixture"
+import { newValuation, saleInvoice } from "./recovery.integration-fixture"
 import { PATCH as reverseReceipt } from "@/app/api/payments/[id]/reverse/route"
 import { newRecovery, cleanupRecoveryFixture, today, type RecoveryLoan } from "./recovery.integration-fixture"
 import { repriceLoanForReference } from "./reprice-loan"
@@ -133,12 +133,23 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       const missing = await readJson(await routes.completeSale(recoveryId, saleId, { completedOn: "2026-03-01" }))
       expect(missing.status).toBe(409)
       expect((await load()).commercialCancelledAt).toBeNull()
+      const rawInvoice = await saleInvoice(db!, second, proceeds)
+      await expect(db!.remarketingSale.update({ where: { id: saleId }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: rawInvoice } })).rejects.toThrow(/evidenced actual cancellation/)
       await expect(db!.loan.update({ where: { id: second.loanId }, data: { commercialCancelledAt: new Date("2026-01-01T00:00:00+02:00") } })).rejects.toThrow(/independently evidenced/)
       const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: original.entityId, dealId: second.dealId,
         docType: "LEGAL_DOCUMENT", fileName: "TEST-effective-cancellation-2026-01-01.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-cancellation.pdf", contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
       const request = () => new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: "2026-01-01", evidenceDocumentId: evidence.id, basis: "TEST verified written cancellation effective January 1", cancellationConfirmed: true }) })
       expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
       session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const authorizedSession = session.current
+      session.current = null
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(401)
+      session.current = { user: { ...authorizedSession!.user, tenantId: fx.tenantId } }
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
+      session.current = { user: { ...authorizedSession!.user, totpEnrolmentRequired: true } } as typeof session.current
+      expect((await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })).status).toBe(403)
+      expect(await db!.commercialCancellation.count({ where: { loanId: second.loanId } })).toBe(0)
+      session.current = authorizedSession
       const recorded = await cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })
       expect(recorded.status, await recorded.text()).toBe(201)
       const cancelled = await load()
@@ -173,6 +184,111 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(remaining)
       expect((await load()).commercialCancellationSaleId).toBe(saleId)
     } finally { vi.useRealTimers(); await cleanupRecoveryFixture(db!, second.tenantId) }
+  }, 120000)
+
+  it("independent edge: delayed cancellation after an existing partial receipt conserves cash through concurrent requests and reversal", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    try {
+      const load = () => db!.loan.findUniqueOrThrow({ where: { id: second.loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" as const } } } })
+      const booked = await load()
+      const shiftDays = Math.round((booked.startDate.getTime() - new Date("2025-12-01T00:00:00+02:00").getTime()) / 86400000)
+      await testSetup(db!,
+        [`UPDATE "Loan" SET "startDate" = "startDate" - $2::int * INTERVAL '1 day', "maturityDate" = "maturityDate" - $2::int * INTERVAL '1 day' WHERE "id" = $1`, second.loanId, shiftDays],
+        [`UPDATE "RepaymentSchedule" SET "dueDate" = "dueDate" - $2::int * INTERVAL '1 day' WHERE "loanId" = $1`, second.loanId, shiftDays])
+      const original = await load()
+      let previous = Date.parse(sastCalendarDate(original.startDate)) / 86400000
+      const cutoff = Date.parse("2026-01-01") / 86400000
+      const earned = original.repaymentSchedule.reduce((sum, row) => {
+        const due = Date.parse(sastCalendarDate(row.dueDate)) / 86400000
+        const part = Math.round(row.interestDue * Math.max(0, Math.min(1, (cutoff - previous) / (due - previous))))
+        previous = due
+        return sum + part
+      }, 0)
+      const amount = Math.floor(original.principal / 2)
+      const cash = await applyManualReceipt(db! as unknown as PaymentDb, { tenantId: second.tenantId, loanId: second.loanId, amount, capturedById: second.adminA })
+      const beforeRecording = await load()
+      const paidInterestBeforeRecording = beforeRecording.repaymentSchedule.reduce((sum, row) => sum + Math.min(row.interestDue, Math.max(0, row.totalPaid - row.feesDue)), 0)
+      expect(paidInterestBeforeRecording).toBeGreaterThan(earned)
+      expect(beforeRecording.status).not.toBe("COMPLETED")
+      const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: original.entityId, dealId: second.dealId,
+        docType: "LEGAL_DOCUMENT", fileName: "TEST-edge-delayed-cancellation.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-edge.pdf", contentSha256: "e".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
+      session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const request = () => new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: "2026-01-01", evidenceDocumentId: evidence.id, basis: "TEST actual earlier cancellation recorded after partial cash arrived", cancellationConfirmed: true }) })
+      const results = await Promise.all([cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) }), cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })])
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+      expect(await db!.commercialCancellation.count({ where: { loanId: second.loanId } })).toBe(1)
+      expect(await db!.payment.findUniqueOrThrow({ where: { id: cash.payment.id } })).toMatchObject({ amount, reversedAt: null })
+      expect(await load()).toMatchObject({ totalInterest: earned, totalPaid: amount })
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(original.principal + earned - amount)
+      const reversed = await reverseReceipt(new NextRequest(`http://${second.host}/api/payments/${cash.payment.id}/reverse`, { method: "PATCH", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ reason: "TEST independent returned partial EFT after delayed cancellation" }) }), { params: Promise.resolve({ id: cash.payment.id }) })
+      expect(reversed.status, await reversed.text()).toBe(200)
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(original.principal + earned)
+      expect(await load()).toMatchObject({ totalPaid: 0, contractualTotalInterest: original.totalInterest })
+    } finally { await cleanupRecoveryFixture(db!, second.tenantId) }
+  }, 120000)
+
+  it.each(["staff route", "direct database"])("independent code review: concurrent evidence deletion before %s cannot invalidate cancellation", async (writer) => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let updated!: () => void
+    const ready = new Promise<void>((resolve) => { updated = resolve })
+    let deletion: Promise<unknown> | undefined
+    let deletionPid = 0
+    try {
+      const loan = await db!.loan.findUniqueOrThrow({ where: { id: second.loanId } })
+      const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: loan.entityId, dealId: second.dealId, docType: "LEGAL_DOCUMENT", fileName: "TEST-review-concurrent.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-review.pdf", contentSha256: "c".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
+      deletion = db!.$transaction(async (tx) => { deletionPid = (await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`)[0].pid; await tx.entityDocument.update({ where: { id: evidence.id }, data: { deletedAt: new Date() } }); updated(); await held }, { timeout: 30000 })
+      await ready
+      session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const responsePending = writer === "direct database" ? db!.$transaction(async (tx) => {
+        await tx.commercialCancellation.create({ data: { tenantId: second.tenantId, loanId: loan.id, cancelledOn: dbDate(sastCalendarDate(loan.startDate)), evidenceDocumentId: evidence.id, basis: "TEST actual cancellation while evidence deletion is pending", cancellationConfirmed: true, recordedById: second.adminA } })
+        await tx.loan.update({ where: { id: loan.id }, data: { commercialCancelledAt: new Date(`${sastCalendarDate(loan.startDate)}T00:00:00+02:00`) } })
+        return { status: 201 }
+      }).catch((error: Error) => { expect(error.message).toMatch(/live staff legal evidence/); return { status: 409 } }) : cancellationRoute(new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: sastCalendarDate(loan.startDate), evidenceDocumentId: evidence.id, basis: "TEST concurrent deletion of actual cancellation evidence", cancellationConfirmed: true }) }), { params: Promise.resolve({ loanId: second.loanId }) })
+      await Promise.race([responsePending, vi.waitFor(async () => {
+        const [row] = await db!.$queryRaw<{ blocked: boolean }[]>`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ${deletionPid} = ANY(pg_blocking_pids(pid))) AS blocked`
+        expect(row.blocked).toBe(true)
+      }, { timeout: 10000 })])
+      release()
+      await deletion
+      const response = await responsePending
+      const event = await db!.commercialCancellation.findUnique({ where: { loanId: second.loanId } })
+      const retained = await db!.entityDocument.findUniqueOrThrow({ where: { id: evidence.id } })
+      expect({ status: response.status, eventExists: !!event, deleted: retained.deletedAt !== null }).toEqual({ status: 409, eventExists: false, deleted: true })
+    } finally { release(); if (deletion) await deletion.catch(() => {}); await cleanupRecoveryFixture(db!, second.tenantId) }
+  }, 120000)
+
+  it("direct database cancellation protects evidence against a later concurrent deletion", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let inserted!: () => void
+    const ready = new Promise<void>((resolve) => { inserted = resolve })
+    let recording: Promise<unknown> | undefined
+    try {
+      const loan = await db!.loan.findUniqueOrThrow({ where: { id: second.loanId } })
+      const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: loan.entityId, dealId: second.dealId, docType: "LEGAL_DOCUMENT", fileName: "TEST-review-insert-first.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-review.pdf", contentSha256: "d".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
+      let recordingPid = 0
+      recording = db!.$transaction(async (tx) => {
+        recordingPid = (await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`)[0].pid
+        await tx.commercialCancellation.create({ data: { tenantId: second.tenantId, loanId: loan.id, cancelledOn: dbDate(sastCalendarDate(loan.startDate)), evidenceDocumentId: evidence.id, basis: "TEST actual evidenced cancellation inserted before concurrent deletion", cancellationConfirmed: true, recordedById: second.adminA } })
+        await tx.loan.update({ where: { id: loan.id }, data: { commercialCancelledAt: new Date(`${sastCalendarDate(loan.startDate)}T00:00:00+02:00`) } })
+        inserted()
+        await held
+      }, { timeout: 30000 })
+      await ready
+      const deletion = db!.entityDocument.update({ where: { id: evidence.id }, data: { deletedAt: new Date() } }).then(() => "deleted", (error: Error) => error.message)
+      await vi.waitFor(async () => {
+        const [row] = await db!.$queryRaw<{ blocked: boolean }[]>`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ${recordingPid} = ANY(pg_blocking_pids(pid))) AS blocked`
+        expect(row.blocked).toBe(true)
+      }, { timeout: 10000 })
+      release()
+      await recording
+      expect(await deletion).toMatch(/evidence is immutable/)
+      expect((await db!.entityDocument.findUniqueOrThrow({ where: { id: evidence.id } })).deletedAt).toBeNull()
+      expect(await db!.commercialCancellation.count({ where: { loanId: loan.id } })).toBe(1)
+    } finally { release(); if (recording) await recording.catch(() => {}); await cleanupRecoveryFixture(db!, second.tenantId) }
   }, 120000)
 
 })

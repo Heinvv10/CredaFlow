@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dbDate } from "./dates"
 import { advance, saleData } from "./recovery-path.integration-fixture"
 import {
-  cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, recoveryFixtureTenantId, saleInvoice, today, type RecoveryFixture, type RecoveryLoan,
+  recordFixtureCommercialCancellation, cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, recoveryFixtureTenantId, saleInvoice, today, type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { clauseOff, PASS_DELETE, raiseOff, rules, triggersOff, triggersOn, type Tx } from "./recovery-rules.integration-fixture"
 
@@ -55,6 +55,7 @@ const listed = async (regime: "NCA" | "NON_NCA"): Promise<Rec> => {
   const loan = await newLoan(database(), fx, regime)
   const id = await newRecovery(database(), fx, loan, regime === "NCA" ? "NCA_S131_ATTACHMENT" : "NON_NCA_VOLUNTARY", regime === "NCA" ? { legalMatterId: await courtMatter(database(), fx, loan) } : {})
   await advance(database(), fx, loan, id, "LISTED")
+  await recordFixtureCommercialCancellation(database(), fx, loan.loanId)
   return { loan, id }
 }
 suite("slice 4a remarketing sale database rules", () => {
@@ -68,6 +69,7 @@ suite("slice 4a remarketing sale database rules", () => {
     const unlistedLoan = await newLoan(database(), fx, "NON_NCA")
     R.unlisted = { loan: unlistedLoan, id: await newRecovery(database(), fx, unlistedLoan, "NON_NCA_VOLUNTARY") }
     await advance(database(), fx, unlistedLoan, R.unlisted.id, "VALUED")
+    await recordFixtureCommercialCancellation(database(), fx, unlistedLoan.loanId)
     pendingSale = (await database().remarketingSale.create({ data: (await saleData(database(), fx, R.non.loan, R.non.id)) as never })).id
     completedSale = (await database().remarketingSale.create({ data: (await saleData(database(), fx, R.done.loan, R.done.id)) as never })).id
     await database().remarketingSale.update({ where: { id: completedSale }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(database(), fx) } })
@@ -208,7 +210,12 @@ suite("slice 4a remarketing sale database rules", () => {
   describe("completion", () => {
     it("records when it completed and the tax invoice (CHECK RemarketingSale_completed_columns)", async () => {
       const check = { table: "RemarketingSale", constraint: "RemarketingSale_completed_columns" }
-      await refuses(check, /RemarketingSale_completed_columns/, (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { status: "COMPLETED", completedAt: new Date() } }),
+      // Isolate the null-invoice CHECK from the independent cancellation/date
+      // guard, which also needs an invoice to verify the actual sale date.
+      await refuses(check, /RemarketingSale_completed_columns/, async (tx) => {
+        await tx.$executeRawUnsafe('ALTER TABLE "RemarketingSale" DISABLE TRIGGER "RemarketingSale_commercial_cancellation_guard"')
+        return tx.remarketingSale.update({ where: { id: pendingSale }, data: { status: "COMPLETED", completedAt: new Date() } })
+      },
         [raiseOff(G, "A sale's tax invoice is for its price, issued to the buyer outside the loan")])
       await refuses(check, /RemarketingSale_completed_columns/, (tx) => tx.remarketingSale.update({ where: { id: pendingSale }, data: { completedAt: new Date() } }))
     })

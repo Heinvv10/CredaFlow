@@ -23,13 +23,18 @@ BEGIN
  SELECT * INTO agreement FROM "Loan" WHERE "id" = NEW."loanId" AND "tenantId" = NEW."tenantId" FOR UPDATE;
  IF agreement."id" IS NULL OR agreement."ncaRegime" <> 'NON_NCA' OR agreement."contractType" <> 'INSTALMENT_SALE'
     OR agreement."status" NOT IN ('ACTIVE','DEFAULTED','PENDING_WRITE_OFF')
+    OR NOT EXISTS (SELECT 1 FROM "RepaymentSchedule" WHERE "loanId" = agreement."id" AND "tenantId" = agreement."tenantId")
     OR NEW."cancelledOn" < (agreement."startDate" + INTERVAL '2 hours')::date OR NEW."cancelledOn" > (CURRENT_TIMESTAMP + INTERVAL '2 hours')::date THEN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Cancellation needs an open commercial instalment sale and an actual date from contract start through today'; END IF;
  IF NOT EXISTS (SELECT 1 FROM "User" WHERE "id" = NEW."recordedById" AND "tenantId" = NEW."tenantId" AND "active" AND "role" IN ('LOAN_ADMIN','ADMIN','SUPER_ADMIN')) THEN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Commercial cancellation needs an authorised staff verifier'; END IF;
- IF NOT EXISTS (SELECT 1 FROM "EntityDocument" evidence WHERE evidence."id" = NEW."evidenceDocumentId" AND evidence."tenantId" = NEW."tenantId"
+ -- Lock after the agreement, before validating live evidence. A concurrent
+ -- soft deletion must either commit first and be refused here, or wait and
+ -- be refused by the evidence immutability guard after this event commits.
+ PERFORM 1 FROM "EntityDocument" evidence WHERE evidence."id" = NEW."evidenceDocumentId" AND evidence."tenantId" = NEW."tenantId"
    AND evidence."entityId" = agreement."entityId" AND evidence."docType" = 'LEGAL_DOCUMENT' AND evidence."uploadedByType" = 'staff' AND evidence."deletedAt" IS NULL
-   AND (evidence."dealId" IS NULL OR EXISTS (SELECT 1 FROM "AssetFinanceDeal" deal WHERE deal."id" = evidence."dealId" AND deal."loanId" = agreement."id" AND deal."tenantId" = agreement."tenantId"))) THEN
+   AND (evidence."dealId" IS NULL OR EXISTS (SELECT 1 FROM "AssetFinanceDeal" deal WHERE deal."id" = evidence."dealId" AND deal."loanId" = agreement."id" AND deal."tenantId" = agreement."tenantId")) FOR UPDATE OF evidence;
+ IF NOT FOUND THEN
   RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Cancellation needs live staff legal evidence of the same borrower and agreement'; END IF;
  RETURN NEW;
 END; $$;
@@ -77,3 +82,17 @@ CREATE TRIGGER "EntityDocument_commercial_cancellation_evidence" BEFORE UPDATE O
 ALTER TABLE "CommercialCancellation" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "CommercialCancellation" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "CommercialCancellation" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+CREATE FUNCTION "guardCommercialSaleCancellation"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW."status" = 'COMPLETED' AND EXISTS (
+  SELECT 1 FROM "Recovery" recovery JOIN "Loan" agreement ON agreement."id" = recovery."loanId"
+   WHERE recovery."id" = NEW."recoveryId" AND agreement."ncaRegime" = 'NON_NCA' AND agreement."contractType" = 'INSTALMENT_SALE'
+ ) AND NOT EXISTS (
+  SELECT 1 FROM "Recovery" recovery JOIN "CommercialCancellation" event ON event."loanId" = recovery."loanId" AND event."tenantId" = NEW."tenantId"
+   JOIN "TaxInvoice" invoice ON invoice."id" = NEW."taxInvoiceId"
+   WHERE recovery."id" = NEW."recoveryId" AND event."cancelledOn" <= invoice."supplyDate"
+ ) THEN RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A commercial sale needs its independently evidenced actual cancellation first'; END IF;
+ RETURN NEW;
+END; $$;
+CREATE TRIGGER "RemarketingSale_commercial_cancellation_guard" BEFORE INSERT OR UPDATE ON "RemarketingSale" FOR EACH ROW EXECUTE FUNCTION "guardCommercialSaleCancellation"();
