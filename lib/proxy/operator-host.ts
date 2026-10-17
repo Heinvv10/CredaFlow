@@ -16,6 +16,7 @@
  * action is refused everywhere on this host: the console has none.
  */
 import { NextResponse } from "next/server"
+import { operatorAppHost, requireOperatorBaseUrl } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { isReadMethod } from "./operator-read-only"
 
@@ -64,6 +65,17 @@ function crossSiteWrite(req: GateRequest): boolean {
   return false
 }
 
+// Auth.js may canonicalise req.url to NEXTAUTH_URL (the lender origin).
+// This gate is reached only after proxy.ts matches the configured console host.
+// Never derive a redirect destination from client-controlled forwarded headers.
+function operatorRedirectUrl(path: string, req: GateRequest): URL {
+  if (process.env.NEXTAUTH_URL?.trim()) return new URL(path, requireOperatorBaseUrl())
+  const base = new URL(req.url)
+  const host = operatorAppHost()
+  if (host) base.hostname = host
+  return new URL(path, base)
+}
+
 const isJson = (req: GateRequest) => /^application\/json(\s*;|$)/i.test(req.headers.get("content-type") ?? "")
 
 const notFound = (api: boolean) =>
@@ -81,7 +93,7 @@ export function operatorHostGate(req: GateRequest, session: GateSession, forward
 
   // A client-audience container never serves the console.
   if (appMode === "client") return notFound(isApi)
-  if (path === "/") return NextResponse.redirect(new URL(OPERATOR_HOME, req.url))
+  if (path === "/") return NextResponse.redirect(operatorRedirectUrl(OPERATOR_HOME, req))
 
   const isPublic =
     path === OPERATOR_LOGIN || path === OPERATOR_SET_PASSWORD || NEXTAUTH_API.test(path) || path === SET_PASSWORD_API
@@ -101,14 +113,14 @@ export function operatorHostGate(req: GateRequest, session: GateSession, forward
   const user = session?.user
   if (isPublic) {
     if (user && isOperatorRole(user.role) && path === OPERATOR_LOGIN) {
-      return NextResponse.redirect(new URL(OPERATOR_HOME, req.url))
+      return NextResponse.redirect(operatorRedirectUrl(OPERATOR_HOME, req))
     }
     return next()
   }
 
   if (!user) {
     if (isApi) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    const login = new URL(OPERATOR_LOGIN, req.url)
+    const login = operatorRedirectUrl(OPERATOR_LOGIN, req)
     login.searchParams.set("callbackUrl", path)
     return NextResponse.redirect(login)
   }
@@ -123,7 +135,7 @@ export function operatorHostGate(req: GateRequest, session: GateSession, forward
       const allowed = path === OPERATOR_ENROLMENT_API && (req.method === "GET" || req.method === "POST")
       return allowed ? next() : NextResponse.json({ error: "Two-factor enrolment required", code: "totp_enrolment_required" }, { status: 403 })
     }
-    return path === OPERATOR_ENROLMENT_PAGE ? next() : NextResponse.redirect(new URL(OPERATOR_ENROLMENT_PAGE, req.url))
+    return path === OPERATOR_ENROLMENT_PAGE ? next() : NextResponse.redirect(operatorRedirectUrl(OPERATOR_ENROLMENT_PAGE, req))
   }
 
   if (path.startsWith(OPERATOR_SUPPORT_API_PREFIX) && !isReadMethod(req.method)) {
