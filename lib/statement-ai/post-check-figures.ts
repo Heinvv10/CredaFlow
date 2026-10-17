@@ -20,8 +20,8 @@ const NUMBER_WORDS: Record<string, number> = {
 const isNumberWord = (w: string | undefined) => w !== undefined && Object.prototype.hasOwnProperty.call(NUMBER_WORDS, w)
 
 /** Words after an amount that make it a month's figure. */
-const MONTHLY = /^[^.;:!?,()]{0,6}?\b(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
-const OTHER_PERIOD = /^[^.;:!?,()]{0,6}?\b(weekly|daily|yearly|annually|fortnightly|a (week|day|year|fortnight)|per (week|day|year|annum|fortnight)|each (week|day|year|fortnight)|every (week|day|year|fortnight))\b/i
+const MONTHLY = /^(?:[^.;:!?,()]{0,8}?\b|[ ,(]{0,3})(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
+const OTHER_PERIOD = /^(?:[^.;:!?,()]{0,8}?\b|[ ,(]{0,3})(weekly|daily|yearly|annually|fortnightly|a (week|day|year|fortnight)|per (week|day|year|annum|fortnight)|each (week|day|year|fortnight)|every (week|day|year|fortnight))\b/i
 
 /** The same words before an amount, in its clause: "monthly rent of R8 500.00". */
 const MONTHLY_BEFORE = /\b(monthly|per month|a month|each month|every month)\b[^.;:!?,]{0,25}$/i
