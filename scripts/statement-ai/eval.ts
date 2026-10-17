@@ -205,6 +205,7 @@ async function main() {
           t.rejected++
           const reason = reasonKey(res.rejectReason!)
           c.reasons[reason] = (c.reasons[reason] ?? 0) + 1
+          examples.push({ app: app.id, run, rejected: true, question: q.question, expected: q.expected, reason: res.rejectReason, text: res.text })
         } else if (scoreAnswer(res.text, q.expected) === "exact") {
           c.exact++
           t.exact++
