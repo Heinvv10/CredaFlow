@@ -150,6 +150,7 @@ describe("tenant-scope — ALS primitives", () => {
       // Operating and full-maintenance lease rentals (slice 3) — non-null tenantId.
       "LeaseRental",
       // Recovery and remarketing (slice 4a) — non-null tenantId.
+      "CommercialCancellation",
       "LegalMatter",
       "LegalMatterStep",
       "Recovery",

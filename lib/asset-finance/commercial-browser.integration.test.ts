@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs"
 import bcrypt from "bcryptjs"
 import { PrismaClient, type PayoutChecklistItemKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { createBookedContractFixture, cleanupBookedContractFixture } from "./portal-contract.integration-fixture"
 import { generateTotpSecret } from "@/lib/totp"
 import { createBookingFixture, cleanupBookingFixture, bookingRoutes, dealDocument, type BookingFixture, type SessionUser } from "./payout-booking.integration-fixture"
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -43,4 +44,18 @@ suite("synthetic commercial browser acceptance setup", () => {
       writeFileSync("/tmp/cf-commercial-browser.json", JSON.stringify({ dealId: fx.dealId, signerId: signer.id, clientId: signer.clientId, tenantSlug: tenant.slug, email: user.email, clientEmail: client.email, password, totpSecret }))
     }
   })
+  it("prepares a booked agreement with cancellation evidence for staff acceptance", async () => {
+    const booked = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    try {
+      const documentId = await dealDocument(db!, booked, booked.dealId, "LEGAL_DOCUMENT")
+      const document = await db!.entityDocument.findUniqueOrThrow({ where: { id: documentId } })
+      const password = "SyntheticLegalAcceptance2026!"
+      const totpSecret = generateTotpSecret()
+      const user = await db!.user.update({ where: { id: booked.adminA }, data: { password: await bcrypt.hash(password, 10), totpEnabled: true, totpSecret } })
+      const tenant = await db!.tenant.findUniqueOrThrow({ where: { id: booked.tenantId } })
+      if (keep) writeFileSync("/tmp/cf-commercial-cancellation-browser.json", JSON.stringify({ loanId: booked.loanId, tenantSlug: tenant.slug, email: user.email, password, totpSecret, documentId, documentName: document.fileName }))
+      expect(await db!.commercialCancellation.count({ where: { loanId: booked.loanId } })).toBe(0)
+    } finally { if (!keep) await cleanupBookedContractFixture(db!, booked) }
+  }, 120000)
+
 })

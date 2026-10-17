@@ -57,6 +57,7 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
     outstanding: result.interestOutstanding,
   }
   let feesPaid = result.feesPaid
+  let feesOutstanding = result.feesOutstanding
   for (const posting of result.postings) {
     if (posting.type === "DEFAULT_INTEREST") continue
     const bucket = isOptional(posting.type)
@@ -66,7 +67,9 @@ export function summariseCharges(result: DefaultChargeResult): ChargesSummary {
     feesPaid -= paid
     bucket.accrued += posting.amount
     bucket.paid += paid
-    bucket.outstanding += posting.amount - paid
+    const outstanding = Math.min(feesOutstanding, posting.amount - paid)
+    feesOutstanding -= outstanding
+    bucket.outstanding += outstanding
   }
   return {
     buckets,
@@ -101,7 +104,7 @@ export interface LoanChargesView extends ChargesSummary {
 /** The live charges view of one loan, or null while charges are off for its tenant. */
 export async function loadLoanCharges(db: ChargesTx, ref: LoanRef, asOf: Date): Promise<LoanChargesView | null> {
   const replay = await loadChargesReplay(db, ref, asOf)
-  if (!replay) return null
+  if (!replay || replay.defaultChargesLive === false) return null
   return {
     ...summariseCharges(replay.result),
     goLive: replay.goLive,

@@ -132,6 +132,9 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       include: { application: true, payout: true, signers: { include: { client: true } }, asset: true },
     })
     expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 69_000_000, decision: "APPROVE" })
+    const consents = await fresh().suretyConsent.findMany({ where: { tenantId: deal.tenantId, signer: { dealId: deal.id } } })
+    expect(consents.length).toBe(deal.signers.filter((s) => s.document === "SURETYSHIP").length)
+    expect(consents.every((c) => c.maritalRegime === "UNMARRIED")).toBe(true)
     expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 300_000_000, vatCents: 45_000_000, vin: "MBX00000000000001" })
     const consents = await fresh().suretyConsent.findMany({ where: { tenantId: deal.tenantId, signer: { dealId: deal.id } } })
     expect(consents.length).toBe(deal.signers.filter((s) => s.document === "SURETYSHIP").length)

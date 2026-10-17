@@ -62,3 +62,47 @@ on, and after the stop, with no later receipts, and checks the unpaid-interest
 ceiling and preserved paid shares. Daily accrual remains bounded by SAST days;
 this correction preserves recorded intraday paid shares without inventing
 post-stop default accrual or negative unpaid charges.
+
+Full integration follow-up repaired existing synthetic account fixtures exposed
+by unconditional NON_NCA replay: accounting loans now have their required
+classified, approved/disbursed application and entity parents; recovery
+accounts carry a repayment schedule matching their agreed loan money instead
+of only a rewritten loan total. Existing agreed interest is copied to rows,
+not erased. The concurrent-receipt recovery test now records actual cash and
+its allocation rather than changing only Loan.totalPaid. An overdue fixture
+replaces its prior schedule rather than appending a duplicate instalment.
+Portal privacy checks cover every own-client wet-ink scan across both fixture
+deals, still refusing another surety's scan. Repricing settlement assertions
+now use earned-period settlement rather than collecting future interest.
+
+A production read-model correction keeps the legal-cap replay independent of
+the optional charge switch while reporting `chargesLive` from the actual switch.
+SuretyConsent Prisma referential actions now explicitly match the migration's
+NO ACTION defaults; migrated PostgreSQL reports `No difference detected`.
+
+Actual-cancellation correction: cancellation is independently evidenced and can
+precede repossession and sale. An authorised staff verifier records the actual
+effective date, a live legal document of the borrower/agreement, a factual basis
+and explicit actual-cancellation confirmation. This is permanent, audited,
+tenant-bound and enforced in PostgreSQL. Possession, voluntary return and a sale
+never supply an inferred cancellation date. A NON_NCA instalment-sale asset
+cannot be sold before the cancellation event is recorded; a later sale links to
+that existing event without moving its effective date. The staff loan page has
+the evidence/date/confirmation form and the recorded cancellation read model.
+
+The contractual-interest cutoff follows the actual cancellation date even if
+proceeds are insufficient. Original signed terms survive in row snapshots and
+the cancellation audit. Later quotes, receipts, receipt reversal and repricing
+cannot revive future contractual interest. Contractual default interest on the
+remaining debt continues to obey demand grace and the common-law ceiling.
+
+The actual-booked PostgreSQL scenario independently calculates interest earned
+by January 1 (1549310 cents on 155250000 capital; original interest32970583),
+records possession February 1 and sale March 1, and proves March interest would
+be higher. The loan stays at the January contractual debt156799310 before and
+after the later sale, partial proceeds, future2035 quotes, another cash receipt
+and its real staff-route reversal. Missing evidence refuses sale; an officer
+cannot record cancellation. Direct forged cutoff, event edit/delete and evidence
+soft deletion are rejected by PostgreSQL. Repricing answers contract_cancelled
+without a new rate row. Replacing the actual cutoff with maturity failed the
+real PostgreSQL oracle (188220583 versus156799310), then source was restored.

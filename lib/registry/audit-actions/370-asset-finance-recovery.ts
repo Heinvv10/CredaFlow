@@ -2,6 +2,7 @@ import { defineAuditActions } from "../define"
 
 export default defineAuditActions({
   // Asset finance slice 4a: legal matters, recovery and remarketing.
+  ASSET_COMMERCIAL_CANCELLATION_RECORDED: "ASSET_COMMERCIAL_CANCELLATION_RECORDED",
   LEGAL_MATTER_OPENED: "LEGAL_MATTER_OPENED",
   LEGAL_MATTER_ATTORNEY_APPOINTED: "LEGAL_MATTER_ATTORNEY_APPOINTED",
   LEGAL_MATTER_STEP_RECORDED: "LEGAL_MATTER_STEP_RECORDED",

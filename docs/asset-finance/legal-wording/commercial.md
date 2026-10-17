@@ -152,6 +152,12 @@ record the implementation for review.
 2. **Spouse's consent — resolved in code.** Staff record the surety's marital
    regime for the deed. An UNKNOWN regime or an IN_COMMUNITY surety without a
    verified wet-ink spouse consent blocks payout in the server and database.
+   The verification records the actual dates of spouse consent and surety
+   execution, with staff attesting that witnessed consent preceded execution
+   (including signature order on the same day). MPA s15(4) excludes paragraph
+   (h) from subsequent ratification: consent after surety execution cannot
+   cure that suretyship. Late recording of genuinely earlier consent is
+   allowed. Missing legacy timing blocks payout; no historical date is assumed.
    The verification names the spouse and two distinct witnesses, binds a
    staff-uploaded legal document of the deal, and is audited. No s15(6)
    business exception is assumed.

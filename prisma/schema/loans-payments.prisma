@@ -190,6 +190,7 @@ model Loan {
   bureauSubmissionRecords    BureauSubmissionRecord[]
   charges                    LoanCharge[]
   collectionInstructions     CollectionInstruction[]
+  commercialCancellationEvent CommercialCancellation? @relation("CommercialCancellationEvent")
   contractRates              ContractRate[]
   conversations              Conversation[]
   debitMandates              DebitMandate[]

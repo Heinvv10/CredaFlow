@@ -89,6 +89,7 @@ model Tenant {
   collectionBatches          CollectionBatch[]
   collectionInstructions     CollectionInstruction[]
   collectionResults          CollectionResult[]
+  commercialCancellations    CommercialCancellation[]
   commsSettings              CommsSettings?
   complaints                 Complaint[]
   complianceRecords          ComplianceRecord[]

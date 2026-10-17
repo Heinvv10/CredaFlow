@@ -9,6 +9,8 @@
  */
 import { randomUUID } from "node:crypto"
 import type { ContractType, PrismaClient, RecoveryRoute, ValuationSource } from "@prisma/client"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { recordCommercialCancellation } from "./commercial-cancellation"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, type DealFixture } from "./deal.integration-fixture"
 import { dbDate, fromDayNumber, toDayNumber } from "./dates"
@@ -208,4 +210,28 @@ export async function cleanupRecoveryRows(db: PrismaClient, tenantId: string): P
 export async function cleanupRecoveryFixture(db: PrismaClient, tenantId: string): Promise<void> {
   await cleanupRecoveryRows(db, tenantId)
   await cleanupDealFixture(db, { tenantId })
+}
+
+/** Align a synthetic recovery account's cash schedule with its loan snapshot. */
+export async function alignRecoveryFixtureSchedule(db: PrismaClient, loanId: string): Promise<void> {
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { ncaRegime: true } })
+  if (loan.ncaRegime !== "NON_NCA") return
+  await testSetup(db,
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
+    [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
+      SELECT $2, "tenantId", "id", 1, "maturityDate", "principal", "totalInterest", "totalRepayable" - "principal" - "totalInterest", "totalRepayable" FROM "Loan" WHERE "id" = $1`, loanId, `rs_${randomUUID().replaceAll("-", "").slice(0, 18)}`],
+  )
+}
+
+
+/** Explicit cancellation evidence for synthetic recovery accounts, before their sale. */
+export async function recordFixtureCommercialCancellation(db: PrismaClient, fx: DealFixture, loanId: string, cancelledOn = today()): Promise<void> {
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, include: { assetFinanceDeal: { select: { id: true } }, commercialCancellationEvent: true } })
+  if (loan.ncaRegime !== "NON_NCA" || loan.contractType !== "INSTALMENT_SALE" || loan.commercialCancellationEvent) return
+  const evidence = await db.entityDocument.create({ data: { tenantId: fx.tenantId, entityId: loan.entityId, dealId: loan.assetFinanceDeal?.id,
+    docType: "LEGAL_DOCUMENT", fileName: "TEST-cancellation-evidence.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-cancellation.pdf",
+    contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: fx.adminA } })
+  const result = await runWithTenant(fx.tenantId, () => recordCommercialCancellation({ tenantId: fx.tenantId, userId: fx.adminA }, loanId,
+    { cancelledOn, evidenceDocumentId: evidence.id, basis: "TEST written termination effective on the recorded date", cancellationConfirmed: true }))
+  if (result.kind !== "done") throw new Error(`Synthetic cancellation failed: ${JSON.stringify(result)}`)
 }

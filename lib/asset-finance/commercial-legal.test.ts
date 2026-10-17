@@ -4,6 +4,22 @@ import { currentSettlementAmount, projectReceipt } from "@/lib/loan/settlement"
 import { portalSignatureProblem } from "./signing-esign"
 
 const d = (s: string) => new Date(`${s}T12:00:00+02:00`)
+it("a default-interest receipt on the permanent stop day cannot inflate later contractual headroom", () => {
+  const stop = d("2021-01-01")
+  const result = computeNonNcaCharges({
+    startDate: d("2019-01-01"),
+    schedule: [
+      { dueDate: d("2020-01-01"), principalDue: 5000, interestDue: 1000, feesDue: 0, totalDue: 6000 },
+      { dueDate: d("2025-01-01"), principalDue: 5000, interestDue: 20000, feesDue: 0, totalDue: 25000 },
+    ],
+    receipts: [{ id: "paid-before-disable", amount: 5000, receivedAt: stop }],
+    interestRatePm: 1, maturityDate: d("2025-01-01"), asOf: d("2026-01-01"),
+    defaultInterestMargin: 0, collectionFeeCents: null,
+    stoppedCharges: { at: stop, receipts: [{ id: "paid-before-disable", defaultInterestAllocated: 5000, chargeFeesAllocated: 0 }] },
+  })
+  expect.soft(result.interestOutstanding).toBe(0)
+  expect.soft(result.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0)).toBeLessThanOrEqual(10000)
+})
 describe("commercial legal safeguards", () => {
   it("requires wet ink for every suretyship", () => {
     expect(portalSignatureProblem("SURETYSHIP")).toMatch(/wet ink/i)
@@ -112,4 +128,29 @@ it.each([-1, 0, 1])("stop boundary preserves the ceiling with two receipts value
   expect(result.feesOutstanding).toBe(0)
   expect(unpaidInterest).toBeLessThanOrEqual(capital)
   expect(result.receiptSplits.reduce((sum, r) => sum + r.toDefaultInterest, 0)).toBe(offset <= 0 ? 5000 : 0)
+})
+
+it("a completed sale freezes earned contractual debt even when proceeds pay only part", () => {
+  const schedule = ["2026-02-01", "2026-03-01"].map((date) => ({ dueDate: d(date), principalDue: 50000, interestDue: 10000, feesDue: 0, totalDue: 60000 }))
+  const input = { startDate: d("2026-01-01"), contractualInterestUntil: d("2026-01-01"), schedule,
+    receipts: [{ id: "proceeds", amount: 60000, receivedAt: d("2026-01-01") }], interestRatePm: 0.01,
+    maturityDate: d("2026-03-01"), defaultInterestMargin: null, collectionFeeCents: null }
+  for (const asOf of [d("2026-01-01"), d("2026-02-01"), d("2026-04-01")]) {
+    const result = computeNonNcaCharges({ ...input, asOf })
+    expect(result.lawfulSchedule!.reduce((sum, row) => sum + row.totalDue, 0) - result.scheduleAllocated).toBe(40000)
+    expect(result.lawfulSchedule!.map((row) => row.contractualInterestDue)).toEqual([10000, 10000])
+  }
+})
+
+it("cancelled shortfall keeps the demand grace and common-law default-interest ceiling", () => {
+  const input = { startDate: d("2026-01-01"), contractualInterestUntil: d("2026-01-01"),
+    schedule: ["2026-02-01", "2026-03-01"].map((date) => ({ dueDate: d(date), principalDue: 50000, interestDue: 10000, feesDue: 0, totalDue: 60000 })),
+    receipts: [{ id: "proceeds", amount: 60000, receivedAt: d("2026-01-01") }], interestRatePm: 0.01,
+    maturityDate: d("2026-03-01"), defaultInterestMargin: 0.02, collectionFeeCents: null,
+    pauses: [{ from: d("2026-01-01"), until: d("2026-01-11") }] }
+  expect(computeNonNcaCharges({ ...input, asOf: d("2026-01-10") }).interestOutstanding).toBe(0)
+  const later = computeNonNcaCharges({ ...input, asOf: d("2035-01-01") })
+  expect(later.interestOutstanding).toBeGreaterThan(0)
+  expect(later.interestOutstanding).toBeLessThanOrEqual(40000)
+  expect(later.lawfulSchedule!.reduce((sum, row) => sum + row.interestDue, 0)).toBe(0)
 })

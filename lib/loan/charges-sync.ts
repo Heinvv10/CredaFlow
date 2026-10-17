@@ -165,7 +165,9 @@ export async function syncLoanCharges(
   }
 
   const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
-  const capped = loan.ncaRegime === "NON_NCA" && rows.some((r, i) => r.interestDue !== loan.repaymentSchedule[i].interestDue)
+  const capped = loan.ncaRegime === "NON_NCA" && (rows.some((r, i) => r.interestDue !== loan.repaymentSchedule[i].interestDue)
+    || loan.totalInterest !== rows.reduce((sum, r) => sum + r.interestDue, 0)
+    || loan.totalRepayable !== rows.reduce((sum, r) => sum + r.totalDue, 0))
   const next = {
     ...(capped ? { totalInterest: rows.reduce((sum, r) => sum + r.interestDue, 0), totalRepayable: rows.reduce((sum, r) => sum + r.totalDue, 0),
       contractualTotalInterest: loan.contractualTotalInterest ?? loan.totalInterest,

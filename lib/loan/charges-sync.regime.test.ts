@@ -17,6 +17,7 @@ vi.mock("@/lib/asset-finance/non-nca-charges", async (importOriginal) => {
 })
 
 import { syncLoanCharges } from "./charges-sync"
+import { loadChargesReplay } from "./charges-replay"
 
 // Midday SAST so a date never straddles the SAST/UTC day boundary.
 const d = (ymd: string) => new Date(`${ymd}T12:00:00+02:00`)
