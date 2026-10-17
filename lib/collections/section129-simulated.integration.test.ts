@@ -132,9 +132,12 @@ suite.sequential("simulated Section 129 notices (real Postgres)", () => {
   })
 
   it("reads the latest not-sent attempt's reason per loan (the queue's query)", async () => {
-    const { ids } = await reservedNotice("DISPATCHING")
+    const { ids, record } = await reservedNotice("DISPATCHING")
     await db.complianceRecord.create({
       data: {
+        // Explicitly newer: two inserts can land in the same millisecond, and
+        // a createdAt tie leaves DISTINCT ON free to pick either row.
+        createdAt: new Date(record.createdAt.getTime() + 1_000),
         tenantId: ids.tenantId, type: "SECTION_129_NOTICE", referenceId: ids.loanId, status: "OVERDUE",
         data: { lifecycle: "FAILED", failedAt: "2026-09-26T08:00:00.000Z", failureReason: "Email not configured for this tenant. Go to Settings → Email." },
       },
