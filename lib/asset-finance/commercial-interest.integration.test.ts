@@ -186,4 +186,45 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
     } finally { vi.useRealTimers(); await cleanupRecoveryFixture(db!, second.tenantId) }
   }, 120000)
 
+  it("independent edge: delayed cancellation after an existing partial receipt conserves cash through concurrent requests and reversal", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    try {
+      const load = () => db!.loan.findUniqueOrThrow({ where: { id: second.loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" as const } } } })
+      const booked = await load()
+      const shiftDays = Math.round((booked.startDate.getTime() - new Date("2025-12-01T00:00:00+02:00").getTime()) / 86400000)
+      await testSetup(db!,
+        [`UPDATE "Loan" SET "startDate" = "startDate" - $2::int * INTERVAL '1 day', "maturityDate" = "maturityDate" - $2::int * INTERVAL '1 day' WHERE "id" = $1`, second.loanId, shiftDays],
+        [`UPDATE "RepaymentSchedule" SET "dueDate" = "dueDate" - $2::int * INTERVAL '1 day' WHERE "loanId" = $1`, second.loanId, shiftDays])
+      const original = await load()
+      let previous = Date.parse(sastCalendarDate(original.startDate)) / 86400000
+      const cutoff = Date.parse("2026-01-01") / 86400000
+      const earned = original.repaymentSchedule.reduce((sum, row) => {
+        const due = Date.parse(sastCalendarDate(row.dueDate)) / 86400000
+        const part = Math.round(row.interestDue * Math.max(0, Math.min(1, (cutoff - previous) / (due - previous))))
+        previous = due
+        return sum + part
+      }, 0)
+      const amount = Math.floor(original.principal / 2)
+      const cash = await applyManualReceipt(db! as unknown as PaymentDb, { tenantId: second.tenantId, loanId: second.loanId, amount, capturedById: second.adminA })
+      const beforeRecording = await load()
+      const paidInterestBeforeRecording = beforeRecording.repaymentSchedule.reduce((sum, row) => sum + Math.min(row.interestDue, Math.max(0, row.totalPaid - row.feesDue)), 0)
+      expect(paidInterestBeforeRecording).toBeGreaterThan(earned)
+      expect(beforeRecording.status).not.toBe("COMPLETED")
+      const evidence = await db!.entityDocument.create({ data: { tenantId: second.tenantId, entityId: original.entityId, dealId: second.dealId,
+        docType: "LEGAL_DOCUMENT", fileName: "TEST-edge-delayed-cancellation.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-edge.pdf", contentSha256: "e".repeat(64), uploadedByType: "staff", uploadedById: second.adminA } })
+      session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const request = () => new NextRequest(`http://${second.host}/api/asset-finance/loans/${second.loanId}/commercial-cancellation`, { method: "POST", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ cancelledOn: "2026-01-01", evidenceDocumentId: evidence.id, basis: "TEST actual earlier cancellation recorded after partial cash arrived", cancellationConfirmed: true }) })
+      const results = await Promise.all([cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) }), cancellationRoute(request(), { params: Promise.resolve({ loanId: second.loanId }) })])
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409])
+      expect(await db!.commercialCancellation.count({ where: { loanId: second.loanId } })).toBe(1)
+      expect(await db!.payment.findUniqueOrThrow({ where: { id: cash.payment.id } })).toMatchObject({ amount, reversedAt: null })
+      expect(await load()).toMatchObject({ totalInterest: earned, totalPaid: amount })
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(original.principal + earned - amount)
+      const reversed = await reverseReceipt(new NextRequest(`http://${second.host}/api/payments/${cash.payment.id}/reverse`, { method: "PATCH", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ reason: "TEST independent returned partial EFT after delayed cancellation" }) }), { params: Promise.resolve({ id: cash.payment.id }) })
+      expect(reversed.status, await reversed.text()).toBe(200)
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(original.principal + earned)
+      expect(await load()).toMatchObject({ totalPaid: 0, contractualTotalInterest: original.totalInterest })
+    } finally { await cleanupRecoveryFixture(db!, second.tenantId) }
+  }, 120000)
+
 })
