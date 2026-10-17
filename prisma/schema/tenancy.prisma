@@ -171,7 +171,7 @@ model Tenant {
   statementAnalyses          StatementAnalysis[]
   suppliers                  Supplier[]
   supportGrants              TenantSupportGrant[]
-  suretyConsents SuretyConsent[]
+  suretyConsents              SuretyConsent[]
   surrenderRequests          SurrenderRequest[]
   suspiciousReportAccesses   SuspiciousReportAccess[]
   suspiciousReportCases      SuspiciousReportCase[]

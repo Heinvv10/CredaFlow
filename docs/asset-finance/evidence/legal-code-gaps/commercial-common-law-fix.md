@@ -32,3 +32,11 @@ interest, partial cash persists effective balances and original evidence, the
 next quote never revives blocked interest, and the final receipt closes at the
 lawful total. Three real-PostgreSQL tests passed. Full CI and fresh re-review
 are required on the final candidate.
+
+Fresh review follow-up: the reviewer's permanent-stop regression failed before
+correction (posting deletion and changed receipt split), then passed. A stopped
+NON_NCA tenant now keeps stored charge postings and the charge shares already
+paid by historical receipts; only net schedule cash enters the contractual
+replay. Unpaid default charges remain uncollectible after the permanent stop,
+and no new default charge accrues. Contractual-interest protection still runs.
+Current main was merged; revised synthetic seed deal amounts from main remain.
