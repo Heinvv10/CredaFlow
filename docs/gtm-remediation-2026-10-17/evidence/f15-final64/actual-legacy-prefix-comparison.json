@@ -1,0 +1,41 @@
+{
+  "source": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "baselinePages": 5,
+  "actualPages": 6,
+  "sameCeremonyOriginalPages": [
+    {
+      "page": 1,
+      "decodedContentStreamsEqual": true,
+      "textEqual": true,
+      "pixels72dpiEqual": true
+    },
+    {
+      "page": 2,
+      "decodedContentStreamsEqual": true,
+      "textEqual": true,
+      "pixels72dpiEqual": true
+    },
+    {
+      "page": 3,
+      "decodedContentStreamsEqual": true,
+      "textEqual": true,
+      "pixels72dpiEqual": true
+    },
+    {
+      "page": 4,
+      "decodedContentStreamsEqual": true,
+      "textEqual": true,
+      "pixels72dpiEqual": true
+    },
+    {
+      "page": 5,
+      "decodedContentStreamsEqual": true,
+      "textEqual": true,
+      "pixels72dpiEqual": true
+    }
+  ],
+  "appendedCertificatePages": 1,
+  "actualStoredExecutedSha256": "e1de7eb7b0a5083f31a552c8d463c3217021d254c841d7ec3a7432f276565836",
+  "legalApproval": false,
+  "scope": "pure local original renderer with same stored unsigned bytes and actual signature/identity/time/anchor inputs; database evidence unchanged"
+}

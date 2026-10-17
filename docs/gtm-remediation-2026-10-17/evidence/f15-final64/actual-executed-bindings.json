@@ -1,0 +1,23 @@
+{
+  "executedDocumentId": "9c88f5b9-f0b1-43cf-8fe8-054af55de27d",
+  "executedDocumentSha256": "e1de7eb7b0a5083f31a552c8d463c3217021d254c841d7ec3a7432f276565836",
+  "counterAuditPresent": true,
+  "providerCountersignEnvelopeValid": true,
+  "unsignedDocumentPreserved": true,
+  "scope": "actual normal synthetic legal proposal CLIENT ceremony, read-only verification; not legal approval",
+  "source": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "receiptCount": 1,
+  "acceptedIds": [
+    "pasq_read",
+    "schedule_read",
+    "settlement_right",
+    "terms_accepted",
+    "information_true"
+  ],
+  "version": "portal-agreement-declarations-v1",
+  "documentSignaturePasqIdentityTimeSetDigestBindings": true,
+  "otpDeliveryStatus": "ACCEPTED",
+  "otpVerifiedConsumed": true,
+  "strictSigningAuditPresent": true,
+  "signedAt": "2026-10-17T16:31:56.029Z"
+}

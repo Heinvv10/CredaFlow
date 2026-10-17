@@ -160,6 +160,8 @@ describe("tenant-scope — ALS primitives", () => {
       // nightly cron writes inside runWithTenant.
       "LoanArrearsSnapshot",
       "ArrearsSnapshotRun",
+      // Append-only electronic declaration receipts: required tenant/application binding.
+      "AgreementDeclarationAcceptance",
       // Statement AI (lib/statement-ai) — non-null tenantId, passed explicitly:
       // the worker runs after its request has returned.
       "StatementAiOutput",

@@ -189,6 +189,7 @@ model LoanApplication {
   // migration.
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  agreementDeclarationAcceptances AgreementDeclarationAcceptance[]
   assetFinanceDeal          AssetFinanceDeal?
   checkFlags                ApplicationCheckFlag[]
   conversations             Conversation[]
