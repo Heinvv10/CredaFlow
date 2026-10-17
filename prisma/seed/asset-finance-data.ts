@@ -115,11 +115,12 @@ export interface AfAsset {
   lenderNotedConfirmed: boolean
 }
 
-// R1 725 000.00 incl. VAT: R1 500 000.00 + 15% VAT. Unregistered: no eNaTIS item.
+// R3 450 000.00 incl. VAT: R3 000 000.00 + 15% VAT. Unregistered: no eNaTIS item.
+// A larger performing machine balances the demo book alongside its recovery cases.
 export const EXCAVATOR: AfAsset = {
-  assetClass: "EXCAVATOR", make: "Mabula", model: "EX-300", year: 2025,
+  assetClass: "EXCAVATOR", make: "Mabula", model: "EX-600", year: 2025,
   serialNumber: "MBEX0000000001", vin: "MBX00000000000001", engineNumber: "MBENG0000001", hours: 12,
-  cashPriceExclVatCents: 150_000_000, vatCents: 22_500_000,
+  cashPriceExclVatCents: 300_000_000, vatCents: 45_000_000,
   insurer: "Umoya Insurance Ltd", policyNumber: "UMY-POL-0001", trackerProvider: "Kudu Tracking", trackerId: "KDT-0001",
   lenderNotedConfirmed: true,
 }
@@ -144,8 +145,8 @@ export const TLB: AfAsset = {
 
 /** The company deal: 10% deposit, 20% balloon, 60 months, harvest Apr–Jun ×3, others ×0.5, PRIME + 1.00%. */
 export const COMPANY_DEAL = {
-  depositCents: 17_250_000,
-  balloonCents: 34_500_000,
+  depositCents: 34_500_000,
+  balloonCents: 69_000_000,
   preset: { kind: "ANNUAL_SEASONAL", periods: 60, seasonMonths: [4, 5, 6], seasonWeight: 3, offWeight: 0.5 },
   rateBasis: "PRIME",
   rateMargin: "0.0100",

@@ -13,6 +13,7 @@ import {
   PAYOUT_BLOCK_LABELS,
   payoutBlock,
   PIPELINE_COLUMNS,
+  pipelineColumnOf,
   presentBlockReasons,
   readyCount,
   sortApplications,
@@ -503,5 +504,13 @@ describe("sort keys from a URL", () => {
     const b = app({ id: "b", approvedAt: new Date("2026-08-18T08:00:00.000Z") })
     expect(sortApplications([b, a], "garbage" as never).map((x) => x.id))
       .toEqual(["b", "a"])
+  })
+})
+
+describe("booked legacy applications", () => {
+  it("places a booked draft in servicing rather than the actionable draft lane", () => {
+    expect(pipelineColumnOf(app({ status: "DRAFT", loan: { status: "ACTIVE" } }))).toBe("DISBURSED")
+    expect(pipelineColumnOf(app({ status: "DRAFT", loan: { status: "COMPLETED" } }))).toBeNull()
+    expect(pipelineColumnOf(app({ status: "DRAFT", loan: null }))).toBe("DRAFT")
   })
 })
