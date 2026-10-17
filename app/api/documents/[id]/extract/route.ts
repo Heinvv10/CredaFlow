@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { readFile } from "@/lib/storage"
 import { readStatementInBackground } from "@/lib/statement-analysis/persist"
+import { enqueueClientApplications } from "@/lib/statement-ai/worker"
 import { recomputeClientApplications } from "@/lib/credit-checks/recompute"
 import { hasMinRole } from "@/lib/permissions"
 import { extractDocumentData } from "@/lib/vlm-extract"
@@ -254,7 +255,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Discarding a failed read is for credit staff, not every staff role.
           retryFailed: hasMinRole(caller.role, "CREDIT_OFFICER"),
           actorUserId: caller.userId,
-          onRead: () => recomputeClientApplications(tenant.id, clientId),
+          onRead: async () => {
+            await recomputeClientApplications(tenant.id, clientId)
+            await enqueueClientApplications(tenant.id, clientId)
+          },
         })
       }
 
