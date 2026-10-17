@@ -18,7 +18,7 @@ const REFERENCE_DEFINITIONS: Record<Exclude<ReferenceRateBasis, "FIXED">, string
   PRIME: "the predominant prime overdraft rate of South African banks as published by the South African Reserve Bank",
   REPO: "the repurchase rate set by the Monetary Policy Committee of the South African Reserve Bank",
   ZARONIA:
-    "the South African Rand Overnight Index Average published by the South African Reserve Bank; a change in ZARONIA is applied only when the published value differs by 0.25 percentage points or more from the value last applied",
+    "the South African Rand Overnight Index Average published by the South African Reserve Bank; each published change applies from its benchmark effective date",
   JIBAR: "the three-month Johannesburg Interbank Average Rate as published, or any rate that officially replaces it",
   LENDER_BASE: "the base lending rate that the Seller sets and publishes from time to time for all agreements linked to it",
 }

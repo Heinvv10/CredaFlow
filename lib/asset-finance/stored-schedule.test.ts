@@ -74,10 +74,10 @@ describe("storedScheduleForReprice refuses what it cannot read back exactly", ()
     expect(readBack(partly)).toEqual({ error: "schedule_not_contiguous" })
   })
 
-  it("fees it would drop, a hand-edited row, or a rate path the rows were not solved under", () => {
+  it("a hand-edited row or a rate path the rows were not solved under", () => {
     const fees = storedRows(result, 11)
     fees[20] = { ...fees[20], feesDue: 6_900, totalDue: fees[20].totalDue + 6_900 }
-    expect(readBack(fees)).toEqual({ error: "unsupported_schedule" })
+    expect("error" in readBack(fees)).toBe(false)
     const edited = storedRows(result, 11)
     edited[20] = { ...edited[20], principalDue: edited[20].principalDue + 1, interestDue: edited[20].interestDue - 1 }
     expect(readBack(edited)).toEqual({ error: "unsupported_schedule" })
@@ -197,5 +197,19 @@ describe("a paid row reopened after a backdated reprice", () => {
       ratePath: [...ratePath, { effectiveDate: result.rows[12].dueDate, annualRate: 0.16 }],
       balloonCents: BASE.balloonCents,
     })).not.toThrow()
+  })
+})
+
+describe("NCA fixed charges stay outside the interest-bearing capital view", () => {
+  it("reads real service/initiation fees and credit-life premiums without capitalising or dropping them", () => {
+    const result = solvePattern(PATTERNS.MONTHLY)
+    const charged = storedRows(result, 11).map((row, i) => {
+      const feesDue = 6_000 + (i === 0 ? 120_750 : 0)
+      return { ...row, feesDue: feesDue + 4_500, creditLifePremiumDue: 4_500, totalDue: row.totalDue + feesDue + 4_500, assetFinanceOpeningBalanceCents: result.rows[i].openingBalanceCents }
+    })
+    const read = readBack(charged, BASE.ratePath, result.baseInstalmentCents)
+    if ("error" in read) throw new Error(read.error)
+    expect(read.capitalOutstandingCents).toBe(result.rows[11].closingBalanceCents)
+    expect(read.rows.slice(12).map((row) => [row.totalCents, row.interestCents, row.feesCents])).toEqual(result.rows.slice(12).map((row) => [row.totalCents, row.interestCents, 0]))
   })
 })

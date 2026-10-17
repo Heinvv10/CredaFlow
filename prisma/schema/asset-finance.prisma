@@ -224,6 +224,10 @@ model ContractRate {
   createdById        String?
   createdAt          DateTime           @default(now())
 
+  rateCorrection AssetFinanceRateCorrection?
+  rateNotice AssetFinanceRateNotice?
+
+  @@unique([tenantId, loanId, id])
   @@unique([loanId, effectiveDate])
   @@index([tenantId])
 }
@@ -870,4 +874,51 @@ model Payout {
   createdAt             DateTime            @default(now())
 
   @@unique([tenantId, dealId])
+}
+
+// A written rate-change notice is reserved in the same transaction as the
+// repricing. Dispatch happens after commit through messaging/send.ts.
+model AssetFinanceRateNotice {
+  id                      String       @id @default(cuid())
+  tenantId                String
+  loanId                  String
+  contractRateId          String       @unique
+  contractRate            ContractRate @relation(fields: [tenantId, loanId, contractRateId], references: [tenantId, loanId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanReference           String
+  effectiveDate           DateTime     @db.Date
+  firstChangedPaymentDate DateTime     @db.Date
+  resultingRate           Decimal      @db.Decimal(9, 6)
+  oldInstalmentCents       Int
+  newInstalmentCents       Int
+  historicalBalanceAdjustmentCents Int @default(0)
+  totalInterestCents      Int
+  monthlyInterestCents    Int
+  recipientClientIds      String[]
+  lastOutcomes            Json?
+  completedAt             DateTime?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  @@unique([tenantId, loanId, contractRateId])
+  @@index([tenantId, completedAt, createdAt])
+}
+
+// A late rate change on a fully paid contract, or an unchanged final notice
+// window. Historical receipts are immutable; this separate liability must be
+// executed/reconciled manually before it can be treated as cash.
+model AssetFinanceRateCorrection {
+  id String @id @default(cuid())
+  tenantId String
+  loanId String
+  contractRateId String @unique
+  contractRate ContractRate @relation(fields: [tenantId, loanId, contractRateId], references: [tenantId, loanId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents Int
+  cumulativeAmountCents Int
+  contractualRows Json
+  reason String
+  status String @default("PENDING_MANUAL_EXECUTION")
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, loanId, contractRateId])
+  @@index([tenantId, loanId, createdAt])
 }

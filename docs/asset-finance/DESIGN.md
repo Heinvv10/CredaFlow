@@ -45,10 +45,10 @@ accounting system; CredaFlow exports journals — decision D3).
   (`lib/asset-finance/rate-feed-sync.ts`) and recorded PENDING with source
   `SARB_FEED` and no requester; the feed stands in for the recording person,
   so a fetched value needs one approver (a manual value still needs two
-  people). Its effective date is the day the feed showed it, which can trail
-  the real change; the approver checks it against the Reserve Bank's
-  announcement. ZARONIA is recorded only when it moves 25 bp or
-  more from the latest live value. JIBAR and the lender's base rate stay manual.
+  people). Effective dates come from the SARB dated change series for PRIME
+  and REPO and benchmark periods for ZARONIA, with full history for outage
+  catch-up. Every changed ZARONIA value is recorded, without a minimum-move
+  threshold. JIBAR and the lender's base rate stay manual.
 - **D5 NCA classifier.** A pure function
   `classifyNcaRegime(input) → { regime: NCA | NON_NCA, rule, evidence }`.
   Decided once, at application, on documents (AFS or management accounts;
@@ -501,6 +501,16 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - Whether a funder or securitisation vehicle needs its own reporting.
 
 ## Sign-off record
+
+- **Changed 2026-10-17 to comply with NCA s104 and the contractual rate-change
+  notices:** repricing reserves a durable written notice in the same commit;
+  the cron delivers it after commit through the existing email pipeline.
+  The NCA notice also states the ascertainable Rand interest figures required
+  by Regulation 36. The notice states the exact annual rate and the actual first changed
+  scheduled payment, including applicable fees, maintenance and VAT.
+- **Changed 2026-10-17 to comply with the reference-rate effective-date rule:**
+  SARB dated change series replace homepage observation dates, full history
+  preserves outage catch-up, and every changed ZARONIA value is recorded.
 
 - **2026-10-17** — Hein (owner) confirmed the lender's legal team and tax
   adviser signed off the calculations and rules as built; the document wording

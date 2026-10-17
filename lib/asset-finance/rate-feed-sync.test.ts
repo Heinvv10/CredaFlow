@@ -5,7 +5,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 const { logAudit } = vi.hoisted(() => ({ logAudit: vi.fn() }))
 vi.mock("@/lib/audit", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/audit")>()), logAudit }))
 
-import { feedSkipReason, runReferenceRateFeed, syncReferenceRatesFromFeed, ZARONIA_MIN_MOVE } from "./rate-feed-sync"
+import { feedSkipReason, runReferenceRateFeed, syncReferenceRatesFromFeed } from "./rate-feed-sync"
 import type { SarbObservation } from "./sarb-rate-feed"
 
 // The decision rules and the write path against an in-memory stand-in. What
@@ -30,6 +30,7 @@ function fakeDb(rows: Row[], opts: { flagged?: string[]; uniqueClash?: boolean; 
     Object.entries(where).every(([key, want]) => {
       const have = (row as unknown as Record<string, unknown>)[key]
       if (want && typeof want === "object" && "in" in want) return (want.in as unknown[]).includes(have)
+      if (want instanceof Date) return (have as Date).getTime() === want.getTime()
       if (want instanceof Prisma.Decimal) return (have as Prisma.Decimal).equals(want)
       return have === want
     })
@@ -91,13 +92,12 @@ describe("feedSkipReason", () => {
     expect(feedSkipReason(latest("0.0725"), obs("REPO", "0.0700"))).toBeNull()
   })
 
-  it("records ZARONIA from exactly 25 bp away, in either direction, and not from 24.9 bp", () => {
-    expect(ZARONIA_MIN_MOVE.toString()).toBe("0.0025")
+  it("records every ZARONIA change, including sub-basis-point moves", () => {
     expect(feedSkipReason(latest("0.07"), obs("ZARONIA", "0.0725"))).toBeNull()
     expect(feedSkipReason(latest("0.0725"), obs("ZARONIA", "0.07"))).toBeNull()
-    expect(feedSkipReason(latest("0.07"), obs("ZARONIA", "0.072499"))).toBe("below_threshold")
-    expect(feedSkipReason(latest("0.0725"), obs("ZARONIA", "0.070001"))).toBe("below_threshold")
-    expect(feedSkipReason(latest("0.07"), obs("ZARONIA", "0.07097"))).toBe("below_threshold")
+    expect(feedSkipReason(latest("0.07"), obs("ZARONIA", "0.072499"))).toBeNull()
+    expect(feedSkipReason(latest("0.0725"), obs("ZARONIA", "0.070001"))).toBeNull()
+    expect(feedSkipReason(latest("0.07"), obs("ZARONIA", "0.07097"))).toBeNull()
   })
 
   it("does not apply the 25 bp threshold to PRIME or REPO", () => {
@@ -117,7 +117,7 @@ describe("syncReferenceRatesFromFeed", () => {
     const { db, created, audits, bell, referenceRate } = fakeDb([])
     const [run] = await syncReferenceRatesFromFeed(db, feed)
     expect(run.recorded.map((r) => [r.basis, r.effectiveDate, r.rate])).toEqual([
-      ["REPO", "2026-10-16", "0.0725"], ["PRIME", "2026-10-16", "0.1075"], ["ZARONIA", "2026-10-15", "0.07097"],
+      ["PRIME", "2026-10-16", "0.1075"], ["REPO", "2026-10-16", "0.0725"], ["ZARONIA", "2026-10-15", "0.07097"],
     ])
     expect(created).toHaveLength(3)
     for (const [{ data }] of referenceRate.create.mock.calls) {
@@ -128,8 +128,8 @@ describe("syncReferenceRatesFromFeed", () => {
     expect(audits.map((a) => [a.tenantId, a.userId, a.userEmail, a.action, a.entityId])).toEqual(
       created.map((r) => ["t1", null, "system@sarb-rate-feed", "REFERENCE_RATE_RECORDED", r.id]),
     )
-    expect(audits[0].newValue).toMatchObject({ basis: "REPO", source: "SARB_FEED", rate: "0.0725", status: "PENDING" })
-    expect(bell.filter((b) => b.entityId === created[1].id).map((b) => [b.userId, b.type, b.title])).toEqual([
+    expect(audits[0].newValue).toMatchObject({ basis: "PRIME", source: "SARB_FEED", rate: "0.1075", status: "PENDING" })
+    expect(bell.filter((b) => b.entityId === created[0].id).map((b) => [b.userId, b.type, b.title])).toEqual([
       ["admin-1", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% observed 2026-10-16 awaits approval"],
       ["admin-2", "REFERENCE_RATE_FEED_PENDING", "SARB feed: PRIME 10.75% observed 2026-10-16 awaits approval"],
     ])
@@ -149,13 +149,13 @@ describe("syncReferenceRatesFromFeed", () => {
     expect(run.skipped).toEqual({ unchanged: 3 })
   })
 
-  it("records a changed PRIME and REPO, and a ZARONIA 25 bp away, but not a ZARONIA 24 bp away", async () => {
+  it("records a changed PRIME and REPO and ZARONIA regardless of move size", async () => {
     const moved = fakeDb([existing("REPO", "0.07"), existing("PRIME", "0.11"), existing("ZARONIA", "0.0684")])
-    expect((await syncReferenceRatesFromFeed(moved.db, feed))[0].recorded.map((r) => r.basis)).toEqual(["REPO", "PRIME", "ZARONIA"])
+    expect((await syncReferenceRatesFromFeed(moved.db, feed))[0].recorded.map((r) => r.basis)).toEqual(["PRIME", "REPO", "ZARONIA"])
     const near = fakeDb([existing("REPO", "0.0725"), existing("PRIME", "0.1075"), existing("ZARONIA", "0.0686")])
     const [run] = await syncReferenceRatesFromFeed(near.db, feed)
-    expect(run.recorded).toEqual([])
-    expect(run.skipped).toEqual({ unchanged: 2, below_threshold: 1 })
+    expect(run.recorded.map((r) => r.basis)).toEqual(["ZARONIA"])
+    expect(run.skipped).toEqual({ unchanged: 2 })
   })
 
   it("compares with the LATEST live value, not an older one", async () => {
@@ -173,21 +173,22 @@ describe("syncReferenceRatesFromFeed", () => {
     expect(created).toHaveLength(0)
   })
 
-  it("does not record a second PENDING feed row with the same value", async () => {
+  it("records a later dated event even if an older equal value is pending", async () => {
     // The latest live value (0.12, a later date) differs from the feed, but a feed row for 0.1075 already waits.
     const { db, created } = fakeDb([
       existing("PRIME", "0.1075", { status: "PENDING", source: "SARB_FEED", effectiveDate: day("2026-10-01") }),
       existing("PRIME", "0.12", { status: "PENDING", source: "MANUAL", effectiveDate: day("2026-10-10") }),
     ])
     const [run] = await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.1075", "2026-10-16")])
-    expect(created).toHaveLength(0)
-    expect(run.skipped).toEqual({ already_pending: 1 })
+    expect(created).toHaveLength(1)
+    expect(run.recorded.map((r) => r.rate)).toEqual(["0.1075"])
+    expect(run.skipped).toEqual({})
   })
 
   it("does not re-ask a value whose latest feed row was REJECTED", async () => {
     const rejected = existing("PRIME", "0.1100", { id: "rej", source: "SARB_FEED", status: "REJECTED", effectiveDate: day("2026-10-10"), createdAt: day("2026-10-10") })
     const { db, created } = fakeDb([existing("PRIME", "0.1075"), rejected])
-    const [run] = await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.1100")])
+    const [run] = await syncReferenceRatesFromFeed(db, [obs("PRIME", "0.1100", "2026-10-10")])
     expect(created).toHaveLength(0)
     expect(run.skipped).toEqual({ rejected: 1 })
   })

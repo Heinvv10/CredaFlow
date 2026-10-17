@@ -41,6 +41,8 @@ export interface StoredScheduleRow extends ScheduleRecordAmounts {
   id: string
   status: string
   totalPaid: number
+  commonLawContractualInterestDue?: number | null
+  collectibleTotalDue?: number
   assetFinanceOpeningBalanceCents?: number | null
 }
 
@@ -74,8 +76,8 @@ function openingBefore(target: number, rateDays: number): number | null {
 }
 
 const sameAmounts = (a: ScheduleRecordAmounts, b: ScheduleRecordAmounts): boolean =>
-  a.principalDue === b.principalDue && a.interestDue === b.interestDue && a.totalDue === b.totalDue
-  && a.feesDue === b.feesDue && a.creditLifePremiumDue === b.creditLifePremiumDue
+  a.principalDue === b.principalDue && a.interestDue === b.interestDue
+  && a.totalDue === b.totalDue - b.feesDue
 
 export function storedScheduleForReprice(input: StoredScheduleInput): StoredSchedule | { error: StoredScheduleError } {
   const { stored, balloonCents } = input
@@ -90,7 +92,7 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
 
   const last = stored.length - 1
   const balloonOf = (i: number) => (i === last ? balloonCents : 0)
-  const payments = stored.map((row, i) => row.totalDue - balloonOf(i))
+  const payments = stored.map((row, i) => row.totalDue - balloonOf(i) - row.feesDue)
   const tail = stored.slice(first)
   if (tail.some((row, k) => payments[first + k] < 0 || row.principalDue < balloonOf(first + k))) {
     return { error: "unsupported_schedule" }
@@ -142,8 +144,8 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
     if (i < first) {
       rows.push({
         index: i, dueDate, weight: 0, openingBalanceCents: 0, interestCents: row.interestDue,
-        principalCents: row.principalDue - balloonOf(i), feesCents: row.feesDue, balloonCents: balloonOf(i),
-        totalCents: row.totalDue, closingBalanceCents: 0,
+        principalCents: row.principalDue - balloonOf(i), feesCents: 0, balloonCents: balloonOf(i),
+        totalCents: row.totalDue - row.feesDue, closingBalanceCents: 0,
       })
       continue
     }
@@ -157,7 +159,7 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
     const closing = opening - principal - balloonOf(i)
     const solverRow: ScheduleRow = {
       index: i, dueDate, weight: weights[i - first], openingBalanceCents: opening, interestCents: interest,
-      principalCents: principal, feesCents: 0, balloonCents: balloonOf(i), totalCents: row.totalDue, closingBalanceCents: closing,
+      principalCents: principal, feesCents: 0, balloonCents: balloonOf(i), totalCents: row.totalDue - row.feesDue, closingBalanceCents: closing,
     }
     if (!sameAmounts(toScheduleRecord(solverRow), row)) return { error: "unsupported_schedule" }
     rows.push(solverRow)

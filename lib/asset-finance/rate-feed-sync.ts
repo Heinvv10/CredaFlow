@@ -12,14 +12,12 @@
  *   - none yet: record it.
  *   - same value: nothing to record.
  *   - PRIME and REPO: any other value is recorded.
- *   - ZARONIA moves daily by basis points: recorded only from 25 bp away.
+ *   - ZARONIA: every changed value is recorded, including sub-basis-point moves.
  *   - an observation dated before the latest live value is stale (a value
  *     pre-recorded for a coming date is not undone by the feed): skipped.
- *   - a PENDING feed row with the same value already waits: skipped.
- *   - the basis's latest feed row is this value and was REJECTED: skipped, so a
- *     rejection is not re-asked every morning. A different value since then
- *     (the feed moved and came back) is asked again.
- * The observation date is the row's effectiveDate. A concurrent run, or a
+ *   - a PENDING feed row for the same dated event already waits: skipped.
+ *   - a REJECTED feed row for the same dated event is not asked again.
+ * The dated change series supplies PRIME/REPO effective dates; ZARONIA uses its benchmark Period. A concurrent run, or a
  * value already recorded for that date, hits the live-value unique index
  * (P2002) and counts as already recorded. Each row is written with its audit
  * entry and the loan-admin bell items in one transaction. Every query passes
@@ -30,16 +28,15 @@ import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAudit, logAuditStrict } from "@/lib/audit"
 import { dbDate, isoOfDbDate } from "./dates"
 import { alertLoanAdmins } from "./reprice-notice"
-import { fetchSarbObservations, type FeedBasis, type SarbFeedError, type SarbFeedResult, type SarbObservation } from "./sarb-rate-feed"
+import { type FeedBasis, type SarbFeedError, type SarbFeedResult, type SarbObservation } from "./sarb-rate-feed"
+
+import { fetchSarbEffectiveObservations } from "./sarb-effective-rates"
 
 type SyncDb = Pick<typeof prisma, "tenantConfig" | "referenceRate" | "user" | "notification" | "auditLog" | "$transaction">
 
 export const FEED_ACTOR_EMAIL = "system@sarb-rate-feed"
 
-/** ZARONIA is recorded only when it differs from the latest live value by at least this (25 bp). */
-export const ZARONIA_MIN_MOVE = new Prisma.Decimal("0.0025")
-
-export type FeedSkip = "unchanged" | "below_threshold" | "stale" | "already_pending" | "rejected" | "already_recorded"
+export type FeedSkip = "unchanged" | "stale" | "already_pending" | "rejected" | "already_recorded"
 
 export interface RecordedRate {
   id: string
@@ -69,7 +66,6 @@ interface LiveValue {
 export function feedSkipReason(latest: LiveValue | null, observation: SarbObservation): Exclude<FeedSkip, "already_pending" | "rejected" | "already_recorded"> | null {
   if (!latest) return null
   if (latest.rate.equals(observation.rate)) return "unchanged"
-  if (observation.basis === "ZARONIA" && latest.rate.minus(observation.rate).abs().lessThan(ZARONIA_MIN_MOVE)) return "below_threshold"
   if (observation.effectiveDate < isoOfDbDate(latest.effectiveDate)) return "stale"
   return null
 }
@@ -94,7 +90,7 @@ async function recordObservation(db: SyncDb, tenantId: string, observation: Sarb
       await alertLoanAdmins(tx, tenantId, {
         type: "REFERENCE_RATE_FEED_PENDING",
         title: `SARB feed: ${basis} ${percentText(row.rate)} observed ${effectiveDate} awaits approval`,
-        body: `The Reserve Bank feed shows a new ${basis} value. It is dated ${effectiveDate}, the day the feed showed it, which can be later than the day the rate changed: check the date against the Reserve Bank's announcement before approving. Loans reprice from that date once a user with the decide permission approves it on the Reference rates page; a wrong date is rejected and the value re-entered by hand.`,
+        body: `The Reserve Bank feed shows a new ${basis} value. It is dated ${effectiveDate}, the effective date in the Reserve Bank dated series. Loans reprice from that date once a user with the decide permission approves it on the Reference rates page; a wrong date is rejected and the value re-entered by hand.`,
         entityType: "ReferenceRate",
         entityId: row.id,
       })
@@ -109,7 +105,12 @@ async function recordObservation(db: SyncDb, tenantId: string, observation: Sarb
 async function syncTenant(db: SyncDb, tenantId: string, observations: SarbObservation[]): Promise<TenantFeedRun> {
   const run: TenantFeedRun = { tenantId, recorded: [], skipped: {}, failed: 0 }
   const skip = (reason: FeedSkip) => { run.skipped[reason] = (run.skipped[reason] ?? 0) + 1 }
-  for (const observation of observations) {
+  // Full historical feeds recover changes missed during outages. Bootstrap a
+  // basis with its current value only: a tenant without an approved baseline
+  // cannot yet book a linked contract, and needs no obsolete approvals.
+  const chronological = [...observations].sort((a, b) => a.basis.localeCompare(b.basis) || a.effectiveDate.localeCompare(b.effectiveDate))
+  const bootstrapped = new Set<FeedBasis>()
+  for (const observation of chronological) {
     try {
       const { basis, rate } = observation
       const latest = await db.referenceRate.findFirst({
@@ -117,15 +118,20 @@ async function syncTenant(db: SyncDb, tenantId: string, observations: SarbObserv
         orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
         select: { rate: true, effectiveDate: true },
       })
+      if (!latest && !bootstrapped.has(basis)) {
+        const newest = chronological.filter((entry) => entry.basis === basis).at(-1)
+        if (newest !== observation) continue
+        bootstrapped.add(basis)
+      }
       const reason = feedSkipReason(latest, observation)
       if (reason) { skip(reason); continue }
       const waiting = await db.referenceRate.findFirst({
-        where: { tenantId, basis, status: "PENDING", source: "SARB_FEED", rate },
+        where: { tenantId, basis, status: "PENDING", source: "SARB_FEED", rate, effectiveDate: dbDate(observation.effectiveDate) },
         select: { id: true },
       })
       if (waiting) { skip("already_pending"); continue }
       const lastFeed = await db.referenceRate.findFirst({
-        where: { tenantId, basis, source: "SARB_FEED" },
+        where: { tenantId, basis, source: "SARB_FEED", effectiveDate: dbDate(observation.effectiveDate) },
         orderBy: [{ effectiveDate: "desc" }, { createdAt: "desc" }],
         select: { rate: true, status: true },
       })
@@ -157,7 +163,7 @@ export async function syncReferenceRatesFromFeed(db: SyncDb, observations: SarbO
  * One feed run: fetch, then sync. A feed that cannot be read is audited
  * (REFERENCE_RATE_FEED_FAILED, no tenant) and logged, and nothing is recorded.
  */
-export async function runReferenceRateFeed(db: SyncDb, fetchFeed: () => Promise<SarbFeedResult> = fetchSarbObservations): Promise<RateFeedRun> {
+export async function runReferenceRateFeed(db: SyncDb, fetchFeed: () => Promise<SarbFeedResult> = fetchSarbEffectiveObservations): Promise<RateFeedRun> {
   const feed = await fetchFeed()
   if (!feed.ok) {
     console.error("[reference-rate-feed] feed unavailable", { reason: feed.reason, detail: feed.detail })

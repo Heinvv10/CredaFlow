@@ -35,6 +35,16 @@ export type DefaultMessageTemplate = {
 
 export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
   {
+    key: "asset_finance_rate_notice_email", event: "asset_finance_rate_notice", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}",
+    statutoryOverride: false,
+  },
+  {
+    key: "asset_finance_rate_notice_nca_email", event: "asset_finance_rate_notice_nca", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}",
+    statutoryOverride: true,
+  },
+  {
     key: "agent_reengagement_whatsapp", event: "agent_reengagement", channel: "WHATSAPP", category: "SERVICE",
     body: WABA_BODY_TEMPLATES.agent_reengagement, bodyTemplate: WABA_BODY_TEMPLATES.agent_reengagement,
     wabaTemplateName: "agent_reengagement",

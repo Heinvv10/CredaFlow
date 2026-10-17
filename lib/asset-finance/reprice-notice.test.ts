@@ -5,6 +5,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 import { queueRepriceNotice, type NoticeDb } from "./reprice-notice"
 
 const notice = {
+  contractRateId: "rate-1", resultingRate: "0.13", totalInterestCents: 90000, monthlyInterestCents: 1200,
   tenantId: "t1", loanId: "loan-1", loanReference: "AF-1", entityId: "ent-1",
   effectiveDate: "2026-11-01", firstChangedPaymentDate: "2026-12-01",
   oldInstalmentCents: 1_000_000, newInstalmentCents: 1_050_000,
@@ -14,6 +15,8 @@ function db(rows: Array<{ client: { id: string } }>) {
   const relFindMany = vi.fn(async () => rows.map((r) => ({ client: { ...r.client, firstName: "TEST", lastName: "X", email: "x@client.invalid", whatsapp: null } })))
   const notifications = vi.fn()
   const handle = {
+    assetFinanceRateNotice: { create: vi.fn() },
+    loan: { findFirst: vi.fn(async () => null) },
     entityRelationship: { findMany: relFindMany },
     user: { findMany: vi.fn(async () => [{ id: "admin-1" }]) },
     notification: { createMany: notifications },
@@ -44,6 +47,7 @@ describe("queueRepriceNotice recipients", () => {
   it("distinguishes the rate effective date from the first changed payment", async () => {
     const createMany = vi.fn(async () => ({ count: 1 }))
     const db = {
+      assetFinanceRateNotice: { create: vi.fn() },
       entityRelationship: { findMany: vi.fn(async () => [{
         client: { id: "client-1", firstName: "TEST", lastName: "CLIENT", email: "test@client.invalid", whatsapp: null },
       }]) },
@@ -52,6 +56,7 @@ describe("queueRepriceNotice recipients", () => {
     } as unknown as NoticeDb
 
     await queueRepriceNotice(db, {
+      contractRateId: "rate-2", resultingRate: "0.13", totalInterestCents: 90000, monthlyInterestCents: 1200,
       tenantId: "tenant-1",
       loanId: "loan-1",
       loanReference: "LN-TEST",
@@ -66,4 +71,24 @@ describe("queueRepriceNotice recipients", () => {
       body: expect.stringContaining("rate changes from 2026-10-01. From the payment due 2026-11-15"),
     })] })
   })
+})
+
+it("durably queues the written rate and instalment notice inside the repricing transaction", async () => {
+  const { handle } = db([{ client: { id: "c-1" } }])
+  const create = vi.fn()
+  Object.assign(handle, { assetFinanceRateNotice: { create } })
+  await queueRepriceNotice(handle, { ...notice, contractRateId: "rate-1", resultingRate: "0.13" })
+  expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+    tenantId: "t1", loanId: "loan-1", contractRateId: "rate-1", resultingRate: "0.13",
+    recipientClientIds: ["c-1"], oldInstalmentCents: 1_000_000, newInstalmentCents: 1_050_000,
+  }) })
+})
+
+
+it("queues the natural borrower for a loan without an entity", async () => {
+  const { handle } = db([])
+  const create = vi.fn()
+  Object.assign(handle, { loan: { findFirst: vi.fn(async () => ({ clientId: "natural-1" })) }, assetFinanceRateNotice: { create } })
+  expect(await queueRepriceNotice(handle, { ...notice, entityId: null })).toEqual(["natural-1"])
+  expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ recipientClientIds: ["natural-1"] }) })
 })

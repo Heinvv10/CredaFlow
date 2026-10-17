@@ -22,6 +22,7 @@ const { session } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 import { prisma } from "@/lib/prisma"
+import { parseSarbHistory } from "./sarb-effective-rates"
 import { referenceRateOn } from "./rates-store"
 import { runReferenceRateFeed, syncReferenceRatesFromFeed } from "./rate-feed-sync"
 import type { SarbObservation } from "./sarb-rate-feed"
@@ -169,6 +170,14 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
     })
     const feedRun = (observations: SarbObservation[]) => runReferenceRateFeed(scoped, async () => ({ ok: true, observations }))
 
+    it("stores the SARB change date when it precedes the polling date", async () => {
+      const history = parseSarbHistory([{ Period: "2026-09-25T00:00:00", Value: 7.25 }], "REPO", "MRDREPOR", "2026-10-17")
+      if (!history.ok) throw new Error(history.detail)
+      const run = await feedRun(history.observations)
+      expect(run).toMatchObject({ ok: true, perTenant: [{ recorded: [{ basis: "REPO", effectiveDate: "2026-09-25", rate: "0.0725" }] }] })
+      expect(await db.referenceRate.findFirst({ where: { tenantId, basis: "REPO", source: "SARB_FEED", effectiveDate: new Date("2026-09-25") } })).not.toBeNull()
+    })
+
     it("records PENDING feed rows for a tenant with asset finance on and none for one without", async () => {
       const run = await feedRun([obs("PRIME", "0.1075"), obs("ZARONIA", "0.07097", "2026-10-15")])
       expect(run.ok).toBe(true)
@@ -198,14 +207,20 @@ suite.sequential("SARB reference-rate feed (real Postgres)", () => {
       expect(await db.notification.count({ where: { tenantId } })).toBe(before)
     })
 
-    it("a value changed since is recorded; a ZARONIA move under 25 bp is not", async () => {
+    it("every changed value is recorded, including daily ZARONIA moves", async () => {
       const [run] = await syncReferenceRatesFromFeed(scoped, [obs("PRIME", "0.11", "2026-10-18"), obs("ZARONIA", "0.0725", "2026-10-18")])
-      expect(run.recorded.map((r) => [r.basis, r.rate])).toEqual([["PRIME", "0.11"]])
-      expect(run.skipped).toEqual({ below_threshold: 1 })
+      expect(run.recorded.map((r) => [r.basis, r.rate])).toEqual([["PRIME", "0.11"], ["ZARONIA", "0.0725"]])
+      expect(run.skipped).toEqual({})
       const [zaronia] = await syncReferenceRatesFromFeed(scoped, [obs("ZARONIA", "0.0723", "2026-10-19")]) // 22.97 bp above 0.07097... still under
-      expect(zaronia.recorded).toEqual([])
+      expect(zaronia.recorded.map((r) => r.rate)).toEqual(["0.0723"])
       const [moved] = await syncReferenceRatesFromFeed(scoped, [obs("ZARONIA", "0.0735", "2026-10-20")]) // 25.03 bp
       expect(moved.recorded.map((r) => r.rate)).toEqual(["0.0735"])
+    })
+
+    it("records a return to an earlier ZARONIA value on its new effective date despite an older pending equal value", async () => {
+      const [run] = await syncReferenceRatesFromFeed(scoped, [obs("ZARONIA", "0.07097", "2026-10-21")])
+      expect(run.recorded.map((r) => [r.effectiveDate, r.rate])).toEqual([["2026-10-21", "0.07097"]])
+      expect((await rows("ZARONIA")).filter((r) => r.rate.toString() === "0.07097")).toHaveLength(2)
     })
 
     it("a value already recorded for that date is the live-key P2002: skipped, not failed", async () => {

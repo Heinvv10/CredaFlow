@@ -42,7 +42,7 @@ function expectedTail(effectiveDate: string) {
   const solved = repriceTail({
     rows: BOOKED.rows,
     paidThroughIndex: PAID_ROWS - 1,
-    balanceAtRepriceCents: BOOKED.rows[PAID_ROWS - 1].closingBalanceCents,
+    balanceAtRepriceCents: oracleReplay(oracleDealFromInput({ ...DEAL, ratePath }), BOOKED.rows.map((row) => row.totalCents - row.balloonCents))[PAID_ROWS - 1].balanceAfterPaymentCents,
     repriceDate: BOOKED.rows[PAID_ROWS - 1].dueDate,
     ratePath,
     balloonCents: DEAL.balloonCents,
@@ -66,7 +66,7 @@ suite("repriceLoanForReference against a migrated database", () => {
     await db.$disconnect()
   })
 
-  it("re-solves the PENDING rows in place and leaves the paid rows alone", async () => {
+  it("re-solves pending rows and restates paid allocations without changing cash", async () => {
     const expected = expectedTail(effectiveDate)
     expect(first).toMatchObject({ kind: "repriced", resultingRate: "0.13", newInstalmentCents: expected.baseInstalmentCents, rowsRepriced: 48 })
     expect(expected.baseInstalmentCents).toBeGreaterThan(BOOKED.baseInstalmentCents)
@@ -75,20 +75,25 @@ suite("repriceLoanForReference against a migrated database", () => {
     expect(rows).toHaveLength(60)
     const amounts = (r: { installmentNo: number; dueDate: Date; principalDue: number; interestDue: number; feesDue: number; creditLifePremiumDue: number; totalDue: number }) =>
       ({ installmentNo: r.installmentNo, dueDate: r.dueDate, principalDue: r.principalDue, interestDue: r.interestDue, feesDue: r.feesDue, creditLifePremiumDue: r.creditLifePremiumDue, totalDue: r.totalDue })
-    expect(rows.slice(0, PAID_ROWS).map(amounts)).toEqual(BOOKED.rows.slice(0, PAID_ROWS).map(toScheduleRecord))
+    const replay = oracleReplay(oracleDealFromInput({ ...DEAL, ratePath: expected.ratePath }), BOOKED.rows.map((row) => row.totalCents - row.balloonCents))
+    for (let i = 0; i < PAID_ROWS; i++) {
+      expect(rows[i].totalDue).toBe(BOOKED.rows[i].totalCents)
+      expect(rows[i].totalPaid).toBe(BOOKED.rows[i].totalCents)
+      expect(rows[i].interestDue).toBe(replay[i].interestCents)
+      expect(rows[i].principalDue).toBe(BOOKED.rows[i].totalCents - replay[i].interestCents)
+    }
     expect(rows.slice(PAID_ROWS).map(amounts)).toEqual(expected.rows.map(toScheduleRecord))
     expect(rows.slice(PAID_ROWS).every((r) => r.status === "PENDING" && r.totalPaid === 0)).toBe(true)
   })
 
   it("keeps the balloon as its own final payment, and the oracle's day walk agrees on every row's interest", async () => {
     const expected = expectedTail(effectiveDate)
-    expectRowIdentities(expected.rows, BOOKED.rows[PAID_ROWS - 1].closingBalanceCents, DEAL.balloonCents)
+    expectRowIdentities(expected.rows, expected.rows[0].openingBalanceCents, DEAL.balloonCents)
     const rows = await scheduleOf(loanId)
     const regular = rows.map((r, i) => r.totalDue - (i === rows.length - 1 ? DEAL.balloonCents : 0))
-    // E is row 12's own due date, a day the paid row 12 already charged at the
-    // old rate; repricing never reopens a settled row, so over the whole
-    // contract the new rate runs from the day after.
-    const wholeContractPath = [...DEAL.ratePath, { effectiveDate: "2027-01-16", annualRate: 0.13 }]
+    // The effective day belongs to the new rate even if it was already paid;
+    // historical cash stays fixed, while its interest/principal split is restated.
+    const wholeContractPath = [...DEAL.ratePath, { effectiveDate, annualRate: 0.13 }]
     expect(effectiveDate).toBe("2027-01-15")
     const replay = oracleReplay(oracleDealFromInput({ ...DEAL, ratePath: wholeContractPath }), regular)
     expect(replay.map((r) => r.interestCents)).toEqual(rows.map((r) => r.interestDue))

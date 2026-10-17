@@ -1,0 +1,17 @@
+89 of 1991. Any fee under this Agreement bears value-added tax where that Act requires it.
+
+DR
+
+7.4 Interest and changes to the contract rate
+Interest accrues daily on the outstanding capital at the contract rate ("the Contract Rate"), calculated on the actual number of
+days elapsed in a year of 365 days, and is payable as part of each payment in the Schedule.
+The Contract Rate is linked to a reference rate: it is ZARONIA plus 1.00% a year. On the schedule start date the reference
+rate is 10.75% (effective 29 May 2026), so the Contract Rate is 11.75% a year (nominal). "ZARONIA" means the South
+African Rand Overnight Index Average published by the South African Reserve Bank; each published change applies from its
+benchmark effective date.
+
+Ref AF-TEST-0001
+
+Page 3 of 6
+
+Whenever the reference rate changes, the Contract Rate changes by the same number of percentage points with effect from
