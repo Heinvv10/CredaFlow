@@ -59,3 +59,15 @@ Removing only the database evidence lock also fails the direct-write race
 regression (`/tmp/cf-commercial-evidence-lock-mutation.log`); the function was
 restored before the broad recovery rerun. Eight commercial integration tests
 passed after the fix (`/tmp/cf-commercial-evidence-race-green.log`).
+
+Post-fix recovery integration checkpoint: the commercial suite and all 51
+`recovery*.integration.test.ts` suites passed against the fresh migrated
+PostgreSQL database: 52 suites, 433 tests, zero skips (93.73 seconds;
+`/tmp/cf-commercial-fixture-final52-pg.log`). Older raw-rule fixtures now record
+actual cancellation evidence before attacking sale rules, and replacement
+schedule fixtures remove the prior synthetic row rather than double the debt.
+The exact-settlement fixture explicitly preserves its signed one-cent interest
+snapshot while collecting zero unearned interest; all four freeze tests pass
+with that assertion (`/tmp/cf-commercial-fixture-history-pg.log`). Relevant
+unit tests passed 26/26, with TypeScript and scoped ESLint also passing. The
+root-owned exact-head full CI and final review acknowledgements remain pending.

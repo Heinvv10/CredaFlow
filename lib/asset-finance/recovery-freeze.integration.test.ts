@@ -146,6 +146,8 @@ suite.sequential("charge freeze, outcome and deadline sweep (real Postgres)", ()
     officer()
     // The signed extra cent is unearned at actual cancellation; exact proceeds
     // therefore settle the lawful capital, while signed history remains intact.
+    expect(await database().loan.findUniqueOrThrow({ where: { id: rec.loan.loanId } })).toMatchObject({ contractualTotalInterest: 1, totalInterest: 0 })
+    expect(await database().repaymentSchedule.findMany({ where: { loanId: rec.loan.loanId } })).toMatchObject([{ commonLawContractualInterestDue: 1, interestDue: 0, totalDue: 150_000_000 }])
     const sale = (await readJson(await routes().propose(rec.id, saleBody(rec.valuationId, 150_000_000)))).body.id as string
     expect((await readJson(await routes().completeSale(rec.id, sale))).status).toBe(200)
     expect(await readJson(await routes().proceeds(rec.id))).toMatchObject({ status: 200, body: { paymentCents: 150_000_000, shortfallCents: 0, surplusCents: 0 } })
