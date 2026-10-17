@@ -1,0 +1,146 @@
+{
+  "implementation": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "image": "sha256:37c45525bf192f11dca2882858a7602894498cbec7be24f3188910ce47a2e91f",
+  "syntheticOnly": true,
+  "fullIntegration": {
+    "status": "PASS",
+    "exitCode": 0,
+    "selectedSuites": 336,
+    "passedFiles": 334,
+    "passedTests": 2932,
+    "skippedAccuracyFiles": 2,
+    "skippedAccuracyTests": 2,
+    "seconds": 613.82,
+    "baselineExclusions": 0,
+    "dockerOptInNotRun": [
+      "lib/documents/html-to-pdf.image.integration.test.ts",
+      "scripts/lender/build-context.integration.test.ts"
+    ],
+    "ownedContainer": "credaflow-ci-2899988",
+    "removedWithVolumes": true
+  },
+  "files": [
+    {
+      "file": "ceremony-results.json",
+      "sha256": "5f805d244fbecfba6c74c58512f903df3e9d2af884b42792b326b69bd978180a",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/ceremony-187ea2b5-c68c-4669-88da-fe27b654aee6/results.json"
+    },
+    {
+      "file": "consumer-signed.png",
+      "sha256": "af11a0f5572738da8bee10d89ee75652a31591fca6b75a06c02a9610e50866e5",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/ceremony-187ea2b5-c68c-4669-88da-fe27b654aee6/consumer-signed.png"
+    },
+    {
+      "file": "client-download-results.json",
+      "sha256": "59691a87d526395d3cf01764824a0ed0929af8973a6f827b982987c92f5c6fd8",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/client-download-c2ecfd3b-d649-47e5-8cb6-3ead129e8f4f/results.json"
+    },
+    {
+      "file": "executed-agreement-card.png",
+      "sha256": "86d3e4afd661b891f0a2c6bb3aaf8af9c599222a13946cdee8230ed5cc671484",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/client-download-c2ecfd3b-d649-47e5-8cb6-3ead129e8f4f/executed-agreement-card.png"
+    },
+    {
+      "file": "actual-executed.pdf",
+      "sha256": "e1de7eb7b0a5083f31a552c8d463c3217021d254c841d7ec3a7432f276565836",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/client-download-c2ecfd3b-d649-47e5-8cb6-3ead129e8f4f/executed.pdf"
+    },
+    {
+      "file": "actual-certificate.png",
+      "sha256": "d89fa600d6fedbc3cec4053502b462b28630d8fb00b1a330da9c8a9a48fea6a0",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/executed-download-c03c3640-e980-4abf-9cad-324cb4054b51/certificate.png"
+    },
+    {
+      "file": "actual-executed.txt",
+      "sha256": "9103fdb0b11286b7579c2b936d2fe270496d3aed0a20133d7cc7baef049a76e9",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/executed-download-c03c3640-e980-4abf-9cad-324cb4054b51/executed.txt"
+    },
+    {
+      "file": "qpdf-check.txt",
+      "sha256": "1f0a51f454fec57cc96f92ca19bf24416ecc0038cf74ac46d0c658774a445e6a",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/executed-download-c03c3640-e980-4abf-9cad-324cb4054b51/qpdf-check.txt"
+    },
+    {
+      "file": "installed-rls-proof.json",
+      "sha256": "392ee1377057d5de0ad90389b7e1ea65a7a52e96b9cc8a9a256a44796434fad8",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/installed-rls-proof.json"
+    },
+    {
+      "file": "actual-legacy-prefix-comparison.json",
+      "sha256": "c504bb4c4462e394e20966d92ed198246d9c3b1f68c3c6e20f495b7fa3f02552",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/actual-final64-pdf-review/comparison.json"
+    },
+    {
+      "file": "first-receipt-preserved.json",
+      "sha256": "81da9256c00cb391eb2f3e1ea08eb7e100f5ed52052284e0d451d4bc17627509",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/first-receipt-final-unchanged.json"
+    },
+    {
+      "file": "client-document-access.json",
+      "sha256": "2095dfc54bd36f4c4e193113d3cffb748866f938ae5af2e63d22ed2ab955811a",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/actual-client-document-access.json"
+    },
+    {
+      "file": "counter-results.json",
+      "sha256": "001a7270f811b3bc236cb2c1718f51748bcd0ddc2a2c78105512657760821bb8",
+      "privateSource": "/tmp/cf-gtm-f15-b-20261017/countersign-2b516e1f-0e55-4793-b780-275c3fa11db5/results.json",
+      "sanitized": "Only real counter response/control/session; incorrect initial artifact claim excluded"
+    },
+    {
+      "file": "actual-original-page-5.png",
+      "sha256": "b560843e36e273a3dd36d2337cd3347575050c45e8628e01a197667115b9cac6",
+      "source": "Rendered from same actual stored/native-downloaded executed PDF; preserved legacy signature-line crowding, no altered legal presentation"
+    },
+    {
+      "file": "actual-receipt-bindings.json",
+      "sha256": "636b517a4f609360ddd1984b06556957fcbcaaa4fc1e94181adb359b801b490c",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/actual-final64-receipt-bindings.json"
+    },
+    {
+      "file": "actual-executed-bindings.json",
+      "sha256": "2fbdc38f873652fba03c7aee9c018d6c6ed1aac27007478190dcce682158146b",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/actual-final64-executed-bindings.private.json",
+      "sanitized": "Exclude storagePath; only explicit reviewed public-proof fields retained"
+    },
+    {
+      "file": "actual-pdf-binding.json",
+      "sha256": "c78d6c9f8201890c7d9d20de0245e3b1325b639a848f4352cba212ea0ca63f4b",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/legal-runtime/evidence/actual-final64-pdf-review/binding.json"
+    },
+    {
+      "file": "quality.log",
+      "sha256": "603c52a7728dcdbd6027516b854aad52049def9ea31bea39db27c6d32dd11ec4",
+      "privateSource": "/tmp/gtm-b-f15-rls-quality.log"
+    },
+    {
+      "file": "quality.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "privateSource": "/tmp/gtm-b-f15-rls-quality.exit"
+    },
+    {
+      "file": "integration.log",
+      "sha256": "8cd08265588482e5f0e4fe97153ac8a3ef4ce5dc438708c9d75e3a9db38cfca4",
+      "privateSource": "/tmp/gtm-b-f15-rls-integration.log"
+    },
+    {
+      "file": "integration.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "privateSource": "/tmp/gtm-b-f15-rls-integration.exit"
+    }
+  ],
+  "limitations": [
+    "No legal approval, queue, merge, provider operation or payout",
+    "Staff native attachment unproved due preserved natural rate limit; actual CLIENT native attachment passed",
+    "Original provider signature line crowding preserved by exact legacy prefix comparison; needs named-lender legal presentation review"
+  ],
+  "fullQuality": {
+    "status": "PASS",
+    "exitCode": 0,
+    "passedUnitFiles": 1522,
+    "passedUnitTests": 19687,
+    "skippedUnitFiles": 339,
+    "skippedUnitTests": 2955,
+    "actualFaceModelChecks": 14,
+    "productionBuild": "PASS"
+  }
+}

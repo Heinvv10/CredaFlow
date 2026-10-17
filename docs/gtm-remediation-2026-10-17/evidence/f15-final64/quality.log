@@ -1,0 +1,897 @@
+
+> credaflow@0.1.0 ci:quality
+> bash scripts/ci-local.sh quality
+
+>> Generate Prisma client
+Prisma schema loaded from prisma/schema
+
+✔ Generated Prisma Client (v5.22.0) to ./node_modules/@prisma/client in 3.17s
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+>> Generate registries
+>> Typecheck
+>> Typecheck demo simulator
+
+> credaflow@0.1.0 demo:typecheck
+> npm run --silent gen:registries && tsc --noEmit -p scripts/demo/tsconfig.json
+
+>> Lint
+
+> credaflow@0.1.0 lint
+> eslint
+
+
+/home/hein/Workspace/CredaFlow-gtm-b/app/(dashboard)/clients/[id]/page.tsx
+  14:10  warning  'Button' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (0 errors, 1 warning)
+
+>> Agent-doc gates
+
+> credaflow@0.1.0 claude-md:check
+> tsx scripts/check-claude-md-paths.ts
+
+[claude-md:check] OK — all path references in CLAUDE.md, nested .claude.md, and .claude/skills exist.
+
+> credaflow@0.1.0 agents:check
+> tsx scripts/mirror-agents-md.ts --check
+
+[agents:check] OK — 23 AGENTS.md mirror(s) match their canonical source.
+>> Date gates
+
+> credaflow@0.1.0 dates:check
+> tsx scripts/check-date-boundaries.ts
+
+ℹ 13 date formatters with no timeZone (advisory — see the header):
+    app/(dashboard)/settings/whatsapp/WhatsAppBridgeTab.tsx:358  new Date(pairing.expiresAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", second: "2-digit
+    app/api/applications/[id]/disburse/route.ts:1906  new Intl.DateTimeFormat("en-ZA")
+    app/api/applications/[id]/disburse/route.ts:1907  new Intl.DateTimeFormat("en-ZA")
+    lib/automation/actions.ts:279  new Intl.DateTimeFormat("en-ZA")
+    lib/collections/reminders.ts:481  dueDate.toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric" })
+    components/applications/PayoutBlockBadge.tsx:25  block.refusedAt.toLocaleString("en-ZA")
+    components/applications/StatementAiCard.tsx:48  new Date(o.createdAt).toLocaleString("en-ZA")
+    components/applications/SelfieLinkSection.tsx:88  new Date(latestToken.usedAt).toLocaleString("en-ZA")
+    components/applications/SelfieLinkSection.tsx:89  new Date(latestToken.expiresAt).toLocaleString("en-ZA")
+    components/applications/SelfieLinkSection.tsx:91  new Date(latestToken.usedAt).toLocaleString("en-ZA")
+    components/applications/SelfieLinkSection.tsx:96  new Date(latestToken.expiresAt).toLocaleString("en-ZA")
+    components/crm/LeadModalFooter.tsx:30  new Date(lead.createdAt).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })
+    components/crm/RecoverLeadApplicationForm.tsx:71  new Date(candidate.submittedAt).toLocaleDateString("en-ZA")
+
+… 5 known ambient-zone boundaries still pending a fix:
+    components/crm/LeadAppointmentTab.tsx:45  current.getFullYear()
+    components/crm/LeadAppointmentTab.tsx:45  current.getMonth()
+    components/crm/LeadAppointmentTab.tsx:45  current.getDate()
+    components/crm/LeadAppointmentTab.tsx:47  current.getHours()
+    components/crm/LeadAppointmentTab.tsx:47  current.getMinutes()
+
+✓ no unmarked ambient-zone calendar boundaries
+
+> credaflow@0.1.0 test:tz
+> for z in UTC Africa/Johannesburg America/New_York Pacific/Kiritimati; do echo "-- TZ=$z"; TZ=$z vitest run --config vitest.tz.config.ts lib/date/ || exit 1; done
+
+-- TZ=UTC
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.tz.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  16:28:23
+   Duration  779ms (transform 31ms, setup 0ms, import 39ms, tests 6ms, environment 0ms)
+
+-- TZ=Africa/Johannesburg
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.tz.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  18:28:24
+   Duration  779ms (transform 38ms, setup 0ms, import 46ms, tests 6ms, environment 0ms)
+
+-- TZ=America/New_York
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.tz.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  12:28:25
+   Duration  745ms (transform 21ms, setup 0ms, import 30ms, tests 6ms, environment 0ms)
+
+-- TZ=Pacific/Kiritimati
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.tz.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  06:28:26
+   Duration  857ms (transform 25ms, setup 0ms, import 34ms, tests 6ms, environment 0ms)
+
+>> Unit tests
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+Sourcemap for "/home/hein/Workspace/CredaFlow-gtm-b/node_modules/node-cron/dist/esm/node-cron.js" points to missing source files
+
+[statement-accuracy] SKIPPED — reader accuracy was NOT measured in this run.
+
+ Test Files  1522 passed | 339 skipped (1861)
+      Tests  19687 passed | 2955 skipped (22642)
+   Start at  16:28:28
+   Duration  194.39s (transform 27.96s, setup 0ms, import 181.04s, tests 238.81s, environment 14.55s)
+
+>> Face models
+
+> credaflow@0.1.0 face-models:fetch
+> tsx scripts/fetch-face-models.ts
+
+[face-models] face_detection_yunet_2023mar.onnx present, checksum OK
+[face-models] face_recognition_sface_2021dec.onnx present, checksum OK
+[face-models] LICENSE-face_detection_yunet present, checksum OK
+[face-models] LICENSE-face_recognition_sface present, checksum OK
+[face-models] LICENSE-onnxruntime present, checksum OK
+[face-models] NOTICE copied
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  16:31:43
+   Duration  3.26s (transform 132ms, setup 0ms, import 179ms, tests 2.31s, environment 0ms)
+
+>> Production build
+
+> credaflow@0.1.0 prebuild
+> npm run --silent gen:registries
+
+
+> credaflow@0.1.0 build
+> next build
+
+▲ Next.js 16.4.1 (Turbopack)
+✓ Running next.config.ts took 23ms
+- Experiments (use with caution):
+  · serverActions
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.1s
+  Running TypeScript ...
+  Finished TypeScript in 53s ...
+  Collecting page data using 31 workers ...
+  Generating static pages using 31 workers (0/281) ...
+  Generating static pages using 31 workers (70/281) 
+  Generating static pages using 31 workers (140/281) 
+  Generating static pages using 31 workers (210/281) 
+✓ Generating static pages using 31 workers (281/281) in 510ms
+Turbopack build encountered 3 warnings:
+./lib/manual/media.ts:9:30
+Warning: The file pattern (<dynamic> '/' <dynamic> | '/ROOT/public/' <dynamic> | <dynamic> | '/ROOT/public' <dynamic>) matches 11376 files in [project]/
+  [90m 7 |[0m   [36mconst[0m declared = lessonAssets(slug)
+  [90m 8 |[0m   [36mconst[0m available = [36masync[0m (url: string) => {
+[33m[1m>[0m [90m 9 |[0m     [36mtry[0m { [36mreturn[0m ([36mawait[0m stat(path.join(publicRoot, url))).isFile() ? url : [36mnull[0m } [36mcatch[0m { [36m...[0m
+  [90m   |[0m                              [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m10 |[0m   }
+  [90m11 |[0m   [36mconst[0m [video, poster] = [36mawait[0m [33mPromise[0m.all([available(declared.video), available(declared...
+  [90m12 |[0m   [36mreturn[0m { video, poster }
+
+Overly broad patterns can lead to build performance issues and over bundling.
+
+Import trace:
+  Server Component:
+    ./lib/manual/media.ts
+    ./app/(dashboard)/learn/[lesson]/page.tsx
+
+
+./lib/manual/media.ts:9:25
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m 7 |[0m   [36mconst[0m declared = lessonAssets(slug)
+  [90m 8 |[0m   [36mconst[0m available = [36masync[0m (url: string) => {
+[33m[1m>[0m [90m 9 |[0m     [36mtry[0m { [36mreturn[0m ([36mawait[0m stat(path.join(publicRoot, url))).isFile() ? url : [36mnull[0m } [36mcatch[0m { [36m...[0m
+  [90m   |[0m                         [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m10 |[0m   }
+  [90m11 |[0m   [36mconst[0m [video, poster] = [36mawait[0m [33mPromise[0m.all([available(declared.video), available(declared...
+  [90m12 |[0m   [36mreturn[0m { video, poster }
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.stat(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  Server Component:
+    ./lib/manual/media.ts
+    ./app/(dashboard)/learn/[lesson]/page.tsx
+
+
+./lib/manual/media.ts:9:30
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m 7 |[0m   [36mconst[0m declared = lessonAssets(slug)
+  [90m 8 |[0m   [36mconst[0m available = [36masync[0m (url: string) => {
+[33m[1m>[0m [90m 9 |[0m     [36mtry[0m { [36mreturn[0m ([36mawait[0m stat(path.join(publicRoot, url))).isFile() ? url : [36mnull[0m } [36mcatch[0m { [36m...[0m
+  [90m   |[0m                              [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m10 |[0m   }
+  [90m11 |[0m   [36mconst[0m [video, poster] = [36mawait[0m [33mPromise[0m.all([available(declared.video), available(declared...
+  [90m12 |[0m   [36mreturn[0m { video, poster }
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  Server Component:
+    ./lib/manual/media.ts
+    ./app/(dashboard)/learn/[lesson]/page.tsx
+
+
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /api/[...unmatched]
+├ ƒ /api/accounting/batches/[id]/csv
+├ ƒ /api/accounting/batches/[id]/isaflow
+├ ƒ /api/accounting/batches/[id]/xero
+├ ƒ /api/accounting/mappings
+├ ƒ /api/accounting/periods
+├ ƒ /api/accounting/preview
+├ ƒ /api/accounting/settings
+├ ƒ /api/admin/tenants
+├ ƒ /api/admin/tenants/[tenantId]
+├ ƒ /api/agent-hub/agents
+├ ƒ /api/agent-hub/agents/[id]
+├ ƒ /api/agent-hub/referral-codes
+├ ƒ /api/agent-hub/referral-codes/[id]
+├ ƒ /api/agent-hub/referral-events/[id]
+├ ƒ /api/agent-hub/statement/export
+├ ƒ /api/agent-tasks
+├ ƒ /api/agent-tasks/[id]
+├ ƒ /api/applications
+├ ƒ /api/applications/[id]
+├ ƒ /api/applications/[id]/affordability
+├ ƒ /api/applications/[id]/agreement
+├ ƒ /api/applications/[id]/agreement/countersign
+├ ƒ /api/applications/[id]/agreement/email
+├ ƒ /api/applications/[id]/agreement/send-link
+├ ƒ /api/applications/[id]/agreement/sign
+├ ƒ /api/applications/[id]/avs-check
+├ ƒ /api/applications/[id]/bureau-override
+├ ƒ /api/applications/[id]/checks
+├ ƒ /api/applications/[id]/checks/[flagId]/clear
+├ ƒ /api/applications/[id]/compliance
+├ ƒ /api/applications/[id]/debit-mandate
+├ ƒ /api/applications/[id]/debit-mandate/sign
+├ ƒ /api/applications/[id]/decide
+├ ƒ /api/applications/[id]/disburse
+├ ƒ /api/applications/[id]/pasq
+├ ƒ /api/applications/[id]/pasq/acknowledge
+├ ƒ /api/applications/[id]/pasq/send-link
+├ ƒ /api/applications/[id]/review
+├ ƒ /api/applications/[id]/selfie/send-link
+├ ƒ /api/applications/[id]/signing-packet
+├ ƒ /api/applications/[id]/signing-packet/email
+├ ƒ /api/applications/[id]/statement-ai
+├ ƒ /api/applications/[id]/statement-ai/ask
+├ ƒ /api/applications/[id]/statement-export
+├ ƒ /api/applications/[id]/statement-insights
+├ ƒ /api/asset-finance/applications/[id]/classify
+├ ƒ /api/asset-finance/applications/[id]/nca-overrides
+├ ƒ /api/asset-finance/assets
+├ ƒ /api/asset-finance/assets/[id]
+├ ƒ /api/asset-finance/assets/[id]/valuations
+├ ƒ /api/asset-finance/deals
+├ ƒ /api/asset-finance/deals/[id]/affordability
+├ ƒ /api/asset-finance/deals/[id]/book
+├ ƒ /api/asset-finance/deals/[id]/bureau-checks
+├ ƒ /api/asset-finance/deals/[id]/cancel
+├ ƒ /api/asset-finance/deals/[id]/checklist/[item]
+├ ƒ /api/asset-finance/deals/[id]/contract
+├ ƒ /api/asset-finance/deals/[id]/decide
+├ ƒ /api/asset-finance/deals/[id]/documents
+├ ƒ /api/asset-finance/deals/[id]/documents/[documentId]
+├ ƒ /api/asset-finance/deals/[id]/financials
+├ ƒ /api/asset-finance/deals/[id]/nca-agreement
+├ ƒ /api/asset-finance/deals/[id]/nca-agreement/countersign
+├ ƒ /api/asset-finance/deals/[id]/nca-quote
+├ ƒ /api/asset-finance/deals/[id]/payout
+├ ƒ /api/asset-finance/deals/[id]/payout/approve
+├ ƒ /api/asset-finance/deals/[id]/signers/[signerId]/confirm
+├ ƒ /api/asset-finance/deals/[id]/signers/[signerId]/document
+├ ƒ /api/asset-finance/deals/[id]/signers/[signerId]/wet-ink
+├ ƒ /api/asset-finance/deals/[id]/signing
+├ ƒ /api/asset-finance/deals/[id]/submit
+├ ƒ /api/asset-finance/deals/preview
+├ ƒ /api/asset-finance/entities
+├ ƒ /api/asset-finance/entities/[id]
+├ ƒ /api/asset-finance/entities/[id]/documents
+├ ƒ /api/asset-finance/entities/[id]/documents/[documentId]
+├ ƒ /api/asset-finance/entities/[id]/documents/[documentId]/verify
+├ ƒ /api/asset-finance/entities/[id]/financials-evidence
+├ ƒ /api/asset-finance/entities/[id]/people
+├ ƒ /api/asset-finance/entities/[id]/people/[relationshipId]
+├ ƒ /api/asset-finance/entities/[id]/screening
+├ ƒ /api/asset-finance/leases/[loanId]/claims
+├ ƒ /api/asset-finance/leases/[loanId]/claims/[claimId]/[action]
+├ ƒ /api/asset-finance/leases/[loanId]/documents/[kind]
+├ ƒ /api/asset-finance/leases/[loanId]/end-of-term/[action]
+├ ƒ /api/asset-finance/leases/[loanId]/readings
+├ ƒ /api/asset-finance/leases/[loanId]/termination-quotes
+├ ƒ /api/asset-finance/leases/[loanId]/termination-quotes/[quoteId]/accept
+├ ƒ /api/asset-finance/legal-matters/[id]
+├ ƒ /api/asset-finance/legal-matters/[id]/attorney
+├ ƒ /api/asset-finance/legal-matters/[id]/steps
+├ ƒ /api/asset-finance/legal-matters/[id]/steps/[stepId]/document
+├ ƒ /api/asset-finance/loans/[loanId]/legal-matter
+├ ƒ /api/asset-finance/loans/[loanId]/recoveries
+├ ƒ /api/asset-finance/loans/[loanId]/surrender
+├ ƒ /api/asset-finance/nca-overrides/[overrideId]/decide
+├ ƒ /api/asset-finance/recoveries/[id]
+├ ƒ /api/asset-finance/recoveries/[id]/close
+├ ƒ /api/asset-finance/recoveries/[id]/costs
+├ ƒ /api/asset-finance/recoveries/[id]/costs/[costId]/decide
+├ ƒ /api/asset-finance/recoveries/[id]/documents/[kind]
+├ ƒ /api/asset-finance/recoveries/[id]/final-notice
+├ ƒ /api/asset-finance/recoveries/[id]/list
+├ ƒ /api/asset-finance/recoveries/[id]/outcome
+├ ƒ /api/asset-finance/recoveries/[id]/proceeds
+├ ƒ /api/asset-finance/recoveries/[id]/refund
+├ ƒ /api/asset-finance/recoveries/[id]/refund/approve
+├ ƒ /api/asset-finance/recoveries/[id]/refund/document
+├ ƒ /api/asset-finance/recoveries/[id]/refund/release
+├ ƒ /api/asset-finance/recoveries/[id]/sales
+├ ƒ /api/asset-finance/recoveries/[id]/sales/[saleId]/approve
+├ ƒ /api/asset-finance/recoveries/[id]/sales/[saleId]/cancel
+├ ƒ /api/asset-finance/recoveries/[id]/sales/[saleId]/complete
+├ ƒ /api/asset-finance/recoveries/[id]/valuation
+├ ƒ /api/asset-finance/recoveries/[id]/valuation-notice
+├ ƒ /api/asset-finance/recoveries/[id]/withdraw
+├ ƒ /api/asset-finance/reference-rates
+├ ƒ /api/asset-finance/reference-rates/[id]/decide
+├ ƒ /api/asset-finance/suppliers
+├ ƒ /api/asset-finance/suppliers/[id]
+├ ƒ /api/asset-finance/suppliers/[id]/bank-accounts
+├ ƒ /api/asset-finance/suppliers/bank-accounts/[accountId]/decide
+├ ƒ /api/asset-finance/surrenders/[id]/documents/[kind]
+├ ƒ /api/asset-finance/surrenders/[id]/final-notice
+├ ƒ /api/asset-finance/surrenders/[id]/proceeds
+├ ƒ /api/asset-finance/surrenders/[id]/valuation
+├ ƒ /api/asset-finance/surrenders/[id]/valuation-notice
+├ ƒ /api/asset-finance/tax-invoices/[id]
+├ ƒ /api/asset-finance/vat-config
+├ ƒ /api/audit
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/auth/expired
+├ ƒ /api/auth/forgot-password
+├ ƒ /api/auth/reset-password
+├ ƒ /api/automation/logs
+├ ƒ /api/automation/logs/[id]/replay
+├ ƒ /api/automation/pauses
+├ ƒ /api/automation/pauses/[id]
+├ ƒ /api/automation/rules
+├ ƒ /api/automation/rules/[id]
+├ ƒ /api/branches
+├ ƒ /api/clients
+├ ƒ /api/clients/[id]
+├ ƒ /api/clients/[id]/apply-extraction
+├ ƒ /api/clients/[id]/channel-availability
+├ ƒ /api/clients/[id]/comms/threads/[conversationId]/note
+├ ƒ /api/clients/[id]/comms/threads/[conversationId]/note/[noteId]
+├ ƒ /api/clients/[id]/comms/threads/[conversationId]/reply
+├ ƒ /api/clients/[id]/consent
+├ ƒ /api/clients/[id]/documents
+├ ƒ /api/clients/[id]/documents/[docId]/verify
+├ ƒ /api/clients/[id]/fais-disclosures
+├ ƒ /api/clients/[id]/kyc-exception
+├ ƒ /api/clients/[id]/kyc-in-person-verification
+├ ƒ /api/clients/[id]/kyc-override-requests
+├ ƒ /api/clients/[id]/kyc-override-requests/[requestId]
+├ ƒ /api/clients/[id]/kyc-rederive
+├ ƒ /api/clients/[id]/messages
+├ ƒ /api/clients/[id]/messages/[messageId]
+├ ƒ /api/clients/[id]/own-lender-debts
+├ ƒ /api/clients/[id]/referral-impact
+├ ƒ /api/clients/[id]/risk
+├ ƒ /api/clients/[id]/screening
+├ ƒ /api/clients/[id]/signing-packets
+├ ƒ /api/clients/[id]/status
+├ ƒ /api/clients/lookup
+├ ƒ /api/collections-engine/review
+├ ƒ /api/collections/[loanId]/reminder
+├ ƒ /api/complaints
+├ ƒ /api/complaints/[id]
+├ ƒ /api/compliance
+├ ƒ /api/compliance/breach-log
+├ ƒ /api/compliance/breach-log/[id]
+├ ƒ /api/compliance/bureau-submissions
+├ ƒ /api/compliance/bureau-submissions/[id]/download
+├ ƒ /api/compliance/bureau-submissions/adverse-confirmations
+├ ƒ /api/compliance/fic/ctr
+├ ƒ /api/compliance/fic/export
+├ ƒ /api/compliance/fic/rmcp
+├ ƒ /api/compliance/fic/rmcp/[id]
+├ ƒ /api/compliance/fic/str
+├ ƒ /api/compliance/fic/str/[id]
+├ ƒ /api/compliance/fsca-return
+├ ƒ /api/compliance/ncr-return
+├ ƒ /api/compliance/tcf
+├ ƒ /api/compliance/tcf/[period]
+├ ƒ /api/crm/activities
+├ ƒ /api/crm/analytics
+├ ƒ /api/crm/leads
+├ ƒ /api/crm/leads/[id]
+├ ƒ /api/crm/leads/[id]/calculate-score
+├ ƒ /api/crm/leads/[id]/callback
+├ ƒ /api/crm/leads/[id]/channel-availability
+├ ƒ /api/crm/leads/[id]/convert
+├ ƒ /api/crm/leads/[id]/detail
+├ ƒ /api/crm/leads/[id]/lost
+├ ƒ /api/crm/leads/[id]/messages
+├ ƒ /api/crm/leads/[id]/messages/[messageId]
+├ ƒ /api/crm/leads/[id]/outreach
+├ ƒ /api/crm/leads/check-duplicates
+├ ƒ /api/crm/opportunities
+├ ƒ /api/crm/opportunities/[id]
+├ ƒ /api/crm/re-engagement
+├ ƒ /api/crm/whatsapp/send
+├ ƒ /api/cron/arrangement-check
+├ ƒ /api/cron/arrears-snapshot
+├ ƒ /api/cron/asset-finance-lease-invoices
+├ ƒ /api/cron/asset-finance-recovery-deadlines
+├ ƒ /api/cron/asset-finance-reprice
+├ ƒ /api/cron/automation-engine
+├ ƒ /api/cron/bureau-daily
+├ ƒ /api/cron/bureau-monthly
+├ ƒ /api/cron/check-wa-bridge-status
+├ ƒ /api/cron/cleanup-disclosures
+├ ƒ /api/cron/cleanup-notifications
+├ ƒ /api/cron/collections-results
+├ ƒ /api/cron/collections-submit
+├ ƒ /api/cron/cross-sell
+├ ƒ /api/cron/default-charges
+├ ƒ /api/cron/dormant-clients
+├ ƒ /api/cron/dpd-update
+├ ƒ /api/cron/email-poll
+├ ƒ /api/cron/escalations
+├ ƒ /api/cron/insurance-renewal
+├ ƒ /api/cron/lead-task-reminders
+├ ƒ /api/cron/lender-api-retention
+├ ƒ /api/cron/licence-expiry
+├ ƒ /api/cron/messaging-retry
+├ ƒ /api/cron/payment-reminders
+├ ƒ /api/cron/poll-wa-templates
+├ ƒ /api/cron/reference-rate-feed
+├ ƒ /api/cron/reminders
+├ ƒ /api/cron/screening-refresh
+├ ƒ /api/cron/stale-leads-alert
+├ ƒ /api/cron/sweep-stuck-selfies
+├ ƒ /api/cron/webhook-deliveries
+├ ƒ /api/cron/website-chat-close
+├ ƒ /api/cron/website-chat-handoffs
+├ ƒ /api/documents
+├ ƒ /api/documents/[id]
+├ ƒ /api/documents/[id]/extract
+├ ƒ /api/documents/[id]/request-signature
+├ ƒ /api/documents/[id]/sign
+├ ƒ /api/documents/[id]/view
+├ ƒ /api/documents/generate
+├ ƒ /api/documents/selfie
+├ ƒ /api/documents/templates
+├ ƒ /api/documents/templates/[id]
+├ ƒ /api/documents/templates/[id]/preview
+├ ƒ /api/documents/templates/[id]/versions
+├ ƒ /api/documents/templates/[id]/versions/[versionId]/approve
+├ ƒ /api/documents/templates/[id]/versions/[versionId]/publish
+├ ƒ /api/dsar
+├ ƒ /api/dsar/[id]
+├ ƒ /api/email/config
+├ ƒ /api/email/inbox
+├ ƒ /api/email/logs
+├ ƒ /api/email/test
+├ ƒ /api/email/test-imap
+├ ƒ /api/health
+├ ƒ /api/inbox/canned-replies
+├ ƒ /api/inbox/canned-replies/[id]
+├ ƒ /api/inbox/conversations
+├ ƒ /api/inbox/conversations/[id]
+├ ƒ /api/inbox/conversations/[id]/assignment
+├ ƒ /api/inbox/conversations/[id]/note
+├ ƒ /api/inbox/conversations/[id]/note/[noteId]
+├ ƒ /api/inbox/conversations/[id]/reply
+├ ƒ /api/inbox/deltas
+├ ƒ /api/inbox/roster
+├ ƒ /api/inbox/settings
+├ ƒ /api/insurance/claims
+├ ƒ /api/insurance/claims/[id]
+├ ƒ /api/insurance/commissions
+├ ƒ /api/insurance/commissions/[id]
+├ ƒ /api/insurance/disclosures/[token]
+├ ƒ /api/insurance/eligibility-rules
+├ ƒ /api/insurance/eligibility-rules/[id]
+├ ƒ /api/insurance/policies
+├ ƒ /api/insurance/policies/[id]
+├ ƒ /api/insurance/policies/[id]/beneficiaries
+├ ƒ /api/insurance/policies/[id]/beneficiaries/[beneficiaryId]
+├ ƒ /api/insurance/policies/[id]/cancel
+├ ƒ /api/insurance/policies/[id]/ppr
+├ ƒ /api/insurance/policies/draft
+├ ƒ /api/insurance/quotes
+├ ƒ /api/insurance/quotes/[id]
+├ ƒ /api/insurance/quotes/[id]/advice
+├ ƒ /api/insurance/quotes/[id]/bind
+├ ƒ /api/insurance/quotes/[id]/disclosure
+├ ƒ /api/insurance/quotes/[id]/status
+├ ƒ /api/insurance/rate-tables
+├ ƒ /api/insurance/rate-tables/[id]
+├ ƒ /api/insurance/rate-tables/[id]/activate
+├ ƒ /api/insurance/rate-tables/[id]/bands
+├ ƒ /api/insurance/rate-tables/[id]/bands/[bandId]
+├ ƒ /api/insurance/rate-tables/[id]/retire
+├ ƒ /api/insurers
+├ ƒ /api/insurers/[id]
+├ ƒ /api/integrations/isaflow
+├ ƒ /api/integrations/xero
+├ ƒ /api/integrations/xero/callback
+├ ƒ /api/loans/[id]/arrangement-status
+├ ƒ /api/loans/[id]/attorney-referral
+├ ƒ /api/loans/[id]/certificate-of-balance
+├ ƒ /api/loans/[id]/collections-mandate
+├ ƒ /api/loans/[id]/collections-mandate/[mandateId]/cancel
+├ ƒ /api/loans/[id]/collections-stage
+├ ƒ /api/loans/[id]/debit-mandate
+├ ƒ /api/loans/[id]/default-charges-exemption
+├ ƒ /api/loans/[id]/notes
+├ ƒ /api/loans/[id]/payment-arrangement
+├ ƒ /api/loans/[id]/payment-plan
+├ ƒ /api/loans/[id]/payout
+├ ƒ /api/loans/[id]/schedule/[scheduleId]
+├ ƒ /api/loans/[id]/section129-pdf
+├ ƒ /api/loans/[id]/section129-reconcile
+├ ƒ /api/loans/[id]/section129-recover
+├ ƒ /api/loans/[id]/small-balance-waiver
+├ ƒ /api/loans/[id]/statement
+├ ƒ /api/loans/[id]/write-off
+├ ƒ /api/loans/section129
+├ ƒ /api/loans/section129/bulk
+├ ƒ /api/messaging/reconciliation/[id]
+├ ƒ /api/messaging/unsubscribe
+├ ƒ /api/notifications
+├ ƒ /api/notifications/application
+├ ƒ /api/notifications/payment
+├ ƒ /api/notifications/read
+├ ƒ /api/operator/lenders
+├ ƒ /api/operator/lenders/[id]/admin-reset
+├ ƒ /api/operator/lenders/[id]/status
+├ ƒ /api/operator/totp
+├ ƒ /api/operator/users
+├ ƒ /api/operator/users/[id]/deactivate
+├ ƒ /api/operator/users/[id]/reset
+├ ƒ /api/operator/users/[id]/totp-reset
+├ ƒ /api/pasq-link/[token]/acknowledge
+├ ƒ /api/pasq-link/[token]/document
+├ ƒ /api/payment-notifications/[id]
+├ ƒ /api/payments
+├ ƒ /api/payments/[id]/reconcile
+├ ƒ /api/payments/[id]/reverse
+├ ƒ /api/payments/bulk-upload
+├ ƒ /api/payouts/[id]
+├ ƒ /api/payouts/reports/[id]
+├ ƒ /api/portal/applications
+├ ƒ /api/portal/asset-finance/deal-signers/[signerId]/document
+├ ƒ /api/portal/asset-finance/deal-signers/[signerId]/sign
+├ ƒ /api/portal/asset-finance/deals/[id]/credit-life
+├ ƒ /api/portal/asset-finance/deals/[id]/nca-agreement/sign
+├ ƒ /api/portal/asset-finance/deals/[id]/nca-quote/acknowledge
+├ ƒ /api/portal/asset-finance/entities
+├ ƒ /api/portal/asset-finance/entities/[id]
+├ ƒ /api/portal/asset-finance/entities/[id]/documents
+├ ƒ /api/portal/asset-finance/entities/[id]/documents/[documentId]
+├ ƒ /api/portal/asset-finance/leases/[loanId]/documents/[kind]
+├ ƒ /api/portal/asset-finance/leases/[loanId]/end-of-term
+├ ƒ /api/portal/asset-finance/leases/[loanId]/readings
+├ ƒ /api/portal/asset-finance/leases/[loanId]/tax-invoices/[invoiceId]
+├ ƒ /api/portal/asset-finance/leases/[loanId]/termination-quotes
+├ ƒ /api/portal/asset-finance/leases/[loanId]/termination-quotes/[quoteId]/accept
+├ ƒ /api/portal/asset-finance/loans/[loanId]
+├ ƒ /api/portal/asset-finance/loans/[loanId]/documents/[signerId]
+├ ƒ /api/portal/asset-finance/loans/[loanId]/recovery
+├ ƒ /api/portal/asset-finance/loans/[loanId]/statement
+├ ƒ /api/portal/asset-finance/loans/[loanId]/surrender
+├ ƒ /api/portal/asset-finance/loans/[loanId]/tax-invoice
+├ ƒ /api/portal/asset-finance/surrenders/[id]/documents/[kind]
+├ ƒ /api/portal/consent
+├ ƒ /api/portal/forgot-password
+├ ƒ /api/portal/insurance/policies/[id]/ppr-acknowledge
+├ ƒ /api/portal/password
+├ ƒ /api/portal/payment/callback
+├ ƒ /api/portal/payment/initiate
+├ ƒ /api/portal/payment/manual
+├ ƒ /api/portal/payment/webhook
+├ ƒ /api/portal/profile
+├ ƒ /api/portal/register
+├ ƒ /api/portal/reset-password
+├ ƒ /api/portal/selfie-link
+├ ƒ /api/products/insurance
+├ ƒ /api/products/insurance/[id]
+├ ƒ /api/products/loan
+├ ƒ /api/products/loan/[id]
+├ ƒ /api/reports/advisor
+├ ƒ /api/reports/export
+├ ƒ /api/screening/blocks/[blockId]/lift
+├ ƒ /api/screening/checks/[checkId]/review
+├ ƒ /api/selfie-link/[token]/capture
+├ ƒ /api/settings/api-keys
+├ ƒ /api/settings/api-keys/[id]
+├ ƒ /api/settings/asset-finance
+├ ƒ /api/settings/attorneys
+├ ƒ /api/settings/attorneys/[id]
+├ ƒ /api/settings/bank-sync
+├ ƒ /api/settings/bureau
+├ ƒ /api/settings/credit-policy
+├ ƒ /api/settings/identity
+├ ƒ /api/settings/identity/logo
+├ ƒ /api/settings/ims
+├ ƒ /api/settings/integrations
+├ ƒ /api/settings/integrations/test
+├ ƒ /api/settings/languages
+├ ƒ /api/settings/login-log
+├ ƒ /api/settings/notifications
+├ ƒ /api/settings/notifications/waba
+├ ƒ /api/settings/payouts
+├ ƒ /api/settings/portal-policy
+├ ƒ /api/settings/referral-commission
+├ ƒ /api/settings/screening
+├ ƒ /api/settings/security-policy
+├ ƒ /api/settings/segregation-of-duties
+├ ƒ /api/settings/staff-access
+├ ƒ /api/settings/statement-ai
+├ ƒ /api/settings/support-access
+├ ƒ /api/settings/support-access/[id]/revoke
+├ ƒ /api/settings/totp
+├ ƒ /api/settings/users
+├ ƒ /api/settings/users/[id]
+├ ƒ /api/settings/users/[id]/totp
+├ ƒ /api/settings/webhooks
+├ ƒ /api/settings/webhooks/[id]
+├ ƒ /api/settings/whatsapp
+├ ƒ /api/settings/whatsapp-bridge/numbers
+├ ƒ /api/settings/whatsapp-bridge/numbers/[slotId]
+├ ƒ /api/settings/whatsapp-bridge/numbers/[slotId]/pause
+├ ƒ /api/settings/whatsapp-bridge/numbers/[slotId]/promote
+├ ƒ /api/settings/whatsapp-bridge/numbers/[slotId]/relink
+├ ƒ /api/settings/whatsapp/embedded-signup
+├ ƒ /api/settings/whatsapp/test
+├ ƒ /api/signing-otp
+├ ƒ /api/signing-otp/[id]/verify
+├ ƒ /api/staff/mentionable
+├ ƒ /api/users/[id]/coi
+├ ƒ /api/users/[id]/fit-and-proper
+├ ƒ /api/v1/applications
+├ ƒ /api/v1/applications/[id]
+├ ƒ /api/v1/clients
+├ ƒ /api/v1/clients/[id]
+├ ƒ /api/v1/loans
+├ ƒ /api/v1/loans/[id]
+├ ƒ /api/v1/loans/[id]/schedule
+├ ƒ /api/v1/openapi.json
+├ ƒ /api/v1/payments
+├ ƒ /api/v1/payments/[id]
+├ ƒ /api/webhooks/payouts/[provider]
+├ ƒ /api/webhooks/whatsapp
+├ ƒ /api/webhooks/whatsapp-cloud
+├ ƒ /api/website/apply
+├ ƒ /api/website/apply/v1
+├ ƒ /api/website/chat/message
+├ ƒ /api/website/chat/poll
+├ ƒ /api/website/chat/start
+├ ƒ /api/website/chat/status
+├ ƒ /api/website/contact
+├ ƒ /api/website/insurance-enquiry
+├ ƒ /api/website/loan-pricing
+├ ƒ /api/website/logo
+├ ƒ /applications
+├ ƒ /applications/[id]
+├ ƒ /applications/new
+├ ƒ /asset-finance/assets
+├ ƒ /asset-finance/assets/[id]
+├ ƒ /asset-finance/assets/new
+├ ƒ /asset-finance/deals
+├ ƒ /asset-finance/deals/[id]
+├ ƒ /asset-finance/deals/new
+├ ƒ /asset-finance/entities
+├ ƒ /asset-finance/entities/[id]
+├ ƒ /asset-finance/entities/[id]/edit
+├ ƒ /asset-finance/entities/[id]/people/new
+├ ƒ /asset-finance/entities/new
+├ ƒ /asset-finance/reference-rates
+├ ƒ /asset-finance/suppliers
+├ ƒ /asset-finance/suppliers/[id]
+├ ƒ /asset-finance/suppliers/new
+├ ƒ /clients
+├ ƒ /clients/[id]
+├ ƒ /clients/[id]/edit
+├ ƒ /clients/new
+├ ƒ /collections
+├ ƒ /collections/[loanId]
+├ ƒ /collections/batches
+├ ƒ /compliance
+├ ƒ /compliance/breach-log
+├ ƒ /compliance/bureau-overrides
+├ ƒ /compliance/bureau-submissions
+├ ƒ /compliance/coi
+├ ƒ /compliance/complaints
+├ ƒ /compliance/dsar
+├ ƒ /compliance/fic
+├ ƒ /compliance/fsca-return
+├ ƒ /compliance/ncr-return
+├ ƒ /compliance/screening
+├ ƒ /compliance/tcf
+├ ƒ /contacts
+├ ƒ /contacts/[id]
+├ ƒ /crm
+├ ƒ /crm/agent-hub
+├ ƒ /crm/leads
+├ ƒ /crm/leads/[id]
+├ ƒ /crm/leads/[id]/convert
+├ ƒ /crm/leads/[id]/duplicates
+├ ƒ /crm/leads/new
+├ ƒ /crm/leads/queue
+├ ƒ /crm/opportunities
+├ ƒ /crm/re-engagement
+├ ƒ /dashboard
+├ ƒ /disbursements
+├ ƒ /disbursements/payouts
+├ ƒ /forgot-password
+├ ƒ /inbox
+├ ƒ /inbox/reconciliation
+├ ƒ /insurance
+├ ƒ /insurance/[id]
+├ ƒ /insurance/claims
+├ ƒ /insurance/claims/new
+├ ƒ /insurance/new
+├ ƒ /learn
+├ ƒ /learn/[lesson]
+├ ƒ /llms.txt
+├ ƒ /loans
+├ ƒ /loans/[id]
+├ ƒ /login
+├ ƒ /no-access
+├ ƒ /operator
+├ ƒ /operator/grants
+├ ƒ /operator/lenders/[id]
+├ ƒ /operator/lenders/[id]/support
+├ ƒ /operator/lenders/new
+├ ƒ /operator/login
+├ ƒ /operator/security
+├ ƒ /operator/set-password
+├ ƒ /operator/usage
+├ ƒ /operator/users
+├ ƒ /pasq/[token]
+├ ƒ /payments
+├ ƒ /payments/bank-reconciliation
+├ ƒ /portal
+├ ƒ /portal/[...rest]
+├ ƒ /portal/agreement/[applicationId]
+├ ƒ /portal/applications
+├ ƒ /portal/applications/[id]
+├ ƒ /portal/apply
+├ ƒ /portal/apply/[product]
+├ ƒ /portal/business
+├ ƒ /portal/business/[entityId]
+├ ƒ /portal/business/[entityId]/contracts/[loanId]
+├ ƒ /portal/continue
+├ ƒ /portal/documents
+├ ƒ /portal/forgot-password
+├ ƒ /portal/insurance
+├ ƒ /portal/insurance/[id]
+├ ƒ /portal/loans
+├ ƒ /portal/loans/[id]
+├ ƒ /portal/login
+├ ƒ /portal/mandate/[applicationId]
+├ ƒ /portal/notifications
+├ ƒ /portal/payment
+├ ƒ /portal/payment/failure
+├ ƒ /portal/payment/success
+├ ƒ /portal/profile
+├ ƒ /portal/register
+├ ƒ /portal/sign/deal-signers/[signerId]
+├ ƒ /portal/statement
+├ ƒ /quote
+├ ƒ /reports
+├ ƒ /reports/accounting
+├ ƒ /reports/advisor
+├ ƒ /reports/arrears-aging
+├ ƒ /reports/board-pack
+├ ƒ /reports/default-charges
+├ ƒ /reset-password
+├ ƒ /robots.txt
+├ ƒ /selfie/[token]
+├ ƒ /settings
+├ ƒ /settings/api
+├ ƒ /settings/asset-finance
+├ ƒ /settings/attorneys
+├ ƒ /settings/audit-log
+├ ƒ /settings/automation
+├ ƒ /settings/bank-sync
+├ ƒ /settings/branches
+├ ƒ /settings/comms
+├ ƒ /settings/credit-policy
+├ ƒ /settings/documents
+├ ƒ /settings/documents/[id]/edit
+├ ƒ /settings/email
+├ ƒ /settings/email/logs
+├ ƒ /settings/identity
+├ ƒ /settings/insurance
+├ ƒ /settings/insurers
+├ ƒ /settings/integrations
+├ ƒ /settings/languages
+├ ƒ /settings/login-log
+├ ƒ /settings/notifications
+├ ƒ /settings/products
+├ ƒ /settings/products/insurance
+├ ƒ /settings/products/insurance/[id]
+├ ƒ /settings/products/insurance/[id]/eligibility
+├ ƒ /settings/products/insurance/[id]/rates
+├ ƒ /settings/products/insurance/new
+├ ƒ /settings/products/loan
+├ ƒ /settings/products/loan/[id]
+├ ƒ /settings/products/loan/new
+├ ƒ /settings/repo-rate
+├ ƒ /settings/security
+├ ƒ /settings/security-policy
+├ ƒ /settings/support-access
+├ ƒ /settings/users
+├ ƒ /settings/whatsapp
+├ ƒ /site/apply
+├ ƒ /site/calculators
+├ ƒ /site/contact
+├ ƒ /site/privacy
+├ ƒ /site/products/insurance
+├ ƒ /site/products/insurance/quotes
+├ ƒ /site/qualify
+├ ƒ /site/regulatory-information
+├ ƒ /site/terms
+└ ○ /sitemap.xml
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

@@ -1,0 +1,389 @@
+
+> credaflow@0.1.0 ci:integration
+> bash scripts/ci-local.sh integration
+
+>> Start disposable PostgreSQL 16 container credaflow-ci-2899988
+>> Apply migrations
+Prisma schema loaded from prisma/schema
+Datasource "db": PostgreSQL database "postgres", schema "public" at "127.0.0.1:38030"
+
+114 migrations found in prisma/migrations
+
+Applying migration `20261009000000_baseline`
+Applying migration `20261009120000_neutral_tenant_palette`
+Applying migration `20261009150000_remove_outage_disbursement_exception`
+Applying migration `20261010120000_application_amount_positive`
+Applying migration `20261010180000_attach_credit_life_guards`
+Applying migration `20261011060000_face_match_v2_evidence`
+Applying migration `20261011070000_breach_log_tenant_scope`
+Applying migration `20261011080000_face_match_v3_evidence`
+Applying migration `20261012090000_loan_product_amount_bounds`
+Applying migration `20261013090000_asset_finance_foundation`
+Applying migration `20261013100000_asset_finance_rates_vat`
+Applying migration `20261013100500_asset_finance_reprice`
+Applying migration `20261013100700_asset_finance_tenant_keys`
+Applying migration `20261013110000_asset_finance_origination`
+Applying migration `20261013110028_staff_totp_policy`
+Applying migration `20261013110500_asset_finance_assets_suppliers`
+Applying migration `20261013111000_asset_finance_bigint_figures`
+Applying migration `20261013112000_asset_finance_signing`
+Applying migration `20261013113000_asset_finance_payout_booking`
+Applying migration `20261013114000_asset_finance_review_fixes`
+Applying migration `20261013114100_asset_finance_review_assets`
+Applying migration `20261013114200_asset_finance_review_signing`
+Applying migration `20261013114300_asset_finance_review_payout`
+Applying migration `20261013114400_asset_finance_review_checklist`
+Applying migration `20261013114500_asset_finance_review_round3`
+Applying migration `20261013120000_credit_checks_v1`
+Applying migration `20261013121000_asset_finance_optional_default_interest`
+Applying migration `20261013122000_credit_note_vat_remainder`
+Applying migration `20261013122500_asset_finance_weights`
+Applying migration `20261013122600_asset_finance_schedule_openings`
+Applying migration `20261013123000_asset_finance_entity_identity`
+Applying migration `20261013130000_asset_finance_nca_borrower`
+Applying migration `20261013131000_asset_finance_nca_signing`
+Applying migration `20261013131100_asset_finance_nca_signed_terms`
+Applying migration `20261013131200_asset_finance_nca_contract_rates`
+Applying migration `20261013131300_asset_finance_nca_booking_guard`
+Applying migration `20261013132000_asset_finance_s127`
+Applying migration `20261013133000_asset_finance_nca_entity`
+Applying migration `20261013133100_asset_finance_nca_entity_ledger`
+Applying migration `20261013133200_asset_finance_nca_entity_pasq_lock`
+Applying migration `20261013133300_asset_finance_nca_schedule_dates`
+Applying migration `20261013133400_asset_finance_natural_documents`
+Applying migration `20261013213000_kyc_override_policy`
+Applying migration `20261014080000_bureau_simulated_fingerprint`
+Applying migration `20261014090000_asset_finance_lease_foundation`
+Applying migration `20261014100000_asset_finance_lease_servicing`
+Applying migration `20261014120000_in_person_lapse_on_adverse_verdict`
+Applying migration `20261014120000_operator_and_support_grants`
+Applying migration `20261014120100_client_per_tenant_uniqueness`
+Applying migration `20261014120200_tenant_provider_credentials`
+Applying migration `20261014130000_replacement_id_pending_not_verified`
+Applying migration `20261014130000_tenant_rls`
+Applying migration `20261014140000_tenant_root_operator_default`
+Applying migration `20261014150000_bureau_framework`
+Applying migration `20261014150000_collections_engine`
+Applying migration `20261014150000_lender_api_webhooks`
+Applying migration `20261014150000_w4_screening_fic`
+Applying migration `20261014160000_w4_screening_review_fixes`
+Applying migration `20261014170000_w4_screening_carry_policy`
+Applying migration `20261014170000_webhook_breaker_outbox_guard`
+Applying migration `20261014180000_w4_screening_round2`
+Applying migration `20261014183625_i18n_languages`
+Applying migration `20261014184548_w3_signing_otp_access_control`
+Applying migration `20261014190000_credit_check_expense_understated`
+Applying migration `20261014190000_w4_screening_sod`
+Applying migration `20261014200000_w4_screening_sod_approver`
+Applying migration `20261014203259_i18n_language_reviews`
+Applying migration `20261015090000_accounting_payouts`
+Applying migration `20261015090000_collections_engine_round2`
+Applying migration `20261015120000_client_expenses_declared_at`
+Applying migration `20261015120000_collections_mandate_provider_end`
+Applying migration `20261015120000_w6_round1_enum_values`
+Applying migration `20261015120100_w6_round1`
+Applying migration `20261015130000_identical_id_reupload_not_replacement`
+Applying migration `20261015130000_tenant_rls_new_scoped_models`
+Applying migration `20261015140000_collections_engine_round4`
+Applying migration `20261015180000_w6_round2_loan_cancellation_guard`
+Applying migration `20261015190000_w6_round2_payout_conflicts`
+Applying migration `20261015200000_w6_round2_conflict_send_guard`
+Applying migration `20261015210000_w6_round3_schedule_cancelled`
+Applying migration `20261015210100_w6_round3_recovery_cases`
+Applying migration `20261015220000_w6_round3_recovery_unrecoverable_enum`
+Applying migration `20261015220100_w6_round3_recovery_unrecoverable`
+Applying migration `20261015230000_w6_round3_conflict_reports`
+Applying migration `20261015240000_w6_round3_paid_then_returned`
+Applying migration `20261015250000_w6_round3_provider_events`
+Applying migration `20261015260000_w6_round3_reopen_by_event`
+Applying migration `20261015270000_w6_round3_unapplied_reports`
+Applying migration `20261015300000_collections_engine_rls`
+Applying migration `20261015400000_asset_finance_recovery`
+Applying migration `20261015500000_accounting_af_roles`
+Applying migration `20261015500000_statement_model_categories`
+Applying migration `20261016100000_isaflow_connection_push`
+Applying migration `20261016120000_client_document_verified_not_refused`
+Applying migration `20261016130000_reference_rate_sarb_feed`
+Applying migration `20261016150000_payment_notifications`
+Applying migration `20261016151000_po_funding_facts`
+Applying migration `20261016152000_credit_life_no_offer_below_threshold`
+Applying migration `20261016190000_decline_internal_note`
+Applying migration `20261016190100_selfie_link_portal_handoff`
+Applying migration `20261016200000_countersign_after_mandate`
+Applying migration `20261016200000_product_type_asset_finance`
+Applying migration `20261016200000_s125_instalment_settlement`
+Applying migration `20261016200100_segregation_of_duties`
+Applying migration `20261016200200_segregation_of_duties_review`
+Applying migration `20261016200300_consumer_signature_clear_on_return`
+Applying migration `20261016210000_retype_asset_finance_products`
+Applying migration `20261016210500_tenant_demo_lender_marker`
+Applying migration `20261016220000_asset_finance_party_and_product_guards`
+Applying migration `20261017090000_loan_arrears_snapshot`
+Applying migration `20261017090000_settlement_evidence_daily_key`
+Applying migration `20261017100000_statement_ai`
+Applying migration `20261017160000_agreement_declaration_evidence`
+Applying migration `20261017200000_agreement_declaration_rls`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20261009000000_baseline/
+    └─ migration.sql
+  └─ 20261009120000_neutral_tenant_palette/
+    └─ migration.sql
+  └─ 20261009150000_remove_outage_disbursement_exception/
+    └─ migration.sql
+  └─ 20261010120000_application_amount_positive/
+    └─ migration.sql
+  └─ 20261010180000_attach_credit_life_guards/
+    └─ migration.sql
+  └─ 20261011060000_face_match_v2_evidence/
+    └─ migration.sql
+  └─ 20261011070000_breach_log_tenant_scope/
+    └─ migration.sql
+  └─ 20261011080000_face_match_v3_evidence/
+    └─ migration.sql
+  └─ 20261012090000_loan_product_amount_bounds/
+    └─ migration.sql
+  └─ 20261013090000_asset_finance_foundation/
+    └─ migration.sql
+  └─ 20261013100000_asset_finance_rates_vat/
+    └─ migration.sql
+  └─ 20261013100500_asset_finance_reprice/
+    └─ migration.sql
+  └─ 20261013100700_asset_finance_tenant_keys/
+    └─ migration.sql
+  └─ 20261013110000_asset_finance_origination/
+    └─ migration.sql
+  └─ 20261013110028_staff_totp_policy/
+    └─ migration.sql
+  └─ 20261013110500_asset_finance_assets_suppliers/
+    └─ migration.sql
+  └─ 20261013111000_asset_finance_bigint_figures/
+    └─ migration.sql
+  └─ 20261013112000_asset_finance_signing/
+    └─ migration.sql
+  └─ 20261013113000_asset_finance_payout_booking/
+    └─ migration.sql
+  └─ 20261013114000_asset_finance_review_fixes/
+    └─ migration.sql
+  └─ 20261013114100_asset_finance_review_assets/
+    └─ migration.sql
+  └─ 20261013114200_asset_finance_review_signing/
+    └─ migration.sql
+  └─ 20261013114300_asset_finance_review_payout/
+    └─ migration.sql
+  └─ 20261013114400_asset_finance_review_checklist/
+    └─ migration.sql
+  └─ 20261013114500_asset_finance_review_round3/
+    └─ migration.sql
+  └─ 20261013120000_credit_checks_v1/
+    └─ migration.sql
+  └─ 20261013121000_asset_finance_optional_default_interest/
+    └─ migration.sql
+  └─ 20261013122000_credit_note_vat_remainder/
+    └─ migration.sql
+  └─ 20261013122500_asset_finance_weights/
+    └─ migration.sql
+  └─ 20261013122600_asset_finance_schedule_openings/
+    └─ migration.sql
+  └─ 20261013123000_asset_finance_entity_identity/
+    └─ migration.sql
+  └─ 20261013130000_asset_finance_nca_borrower/
+    └─ migration.sql
+  └─ 20261013131000_asset_finance_nca_signing/
+    └─ migration.sql
+  └─ 20261013131100_asset_finance_nca_signed_terms/
+    └─ migration.sql
+  └─ 20261013131200_asset_finance_nca_contract_rates/
+    └─ migration.sql
+  └─ 20261013131300_asset_finance_nca_booking_guard/
+    └─ migration.sql
+  └─ 20261013132000_asset_finance_s127/
+    └─ migration.sql
+  └─ 20261013133000_asset_finance_nca_entity/
+    └─ migration.sql
+  └─ 20261013133100_asset_finance_nca_entity_ledger/
+    └─ migration.sql
+  └─ 20261013133200_asset_finance_nca_entity_pasq_lock/
+    └─ migration.sql
+  └─ 20261013133300_asset_finance_nca_schedule_dates/
+    └─ migration.sql
+  └─ 20261013133400_asset_finance_natural_documents/
+    └─ migration.sql
+  └─ 20261013213000_kyc_override_policy/
+    └─ migration.sql
+  └─ 20261014080000_bureau_simulated_fingerprint/
+    └─ migration.sql
+  └─ 20261014090000_asset_finance_lease_foundation/
+    └─ migration.sql
+  └─ 20261014100000_asset_finance_lease_servicing/
+    └─ migration.sql
+  └─ 20261014120000_in_person_lapse_on_adverse_verdict/
+    └─ migration.sql
+  └─ 20261014120000_operator_and_support_grants/
+    └─ migration.sql
+  └─ 20261014120100_client_per_tenant_uniqueness/
+    └─ migration.sql
+  └─ 20261014120200_tenant_provider_credentials/
+    └─ migration.sql
+  └─ 20261014130000_replacement_id_pending_not_verified/
+    └─ migration.sql
+  └─ 20261014130000_tenant_rls/
+    └─ migration.sql
+  └─ 20261014140000_tenant_root_operator_default/
+    └─ migration.sql
+  └─ 20261014150000_bureau_framework/
+    └─ migration.sql
+  └─ 20261014150000_collections_engine/
+    └─ migration.sql
+  └─ 20261014150000_lender_api_webhooks/
+    └─ migration.sql
+  └─ 20261014150000_w4_screening_fic/
+    └─ migration.sql
+  └─ 20261014160000_w4_screening_review_fixes/
+    └─ migration.sql
+  └─ 20261014170000_w4_screening_carry_policy/
+    └─ migration.sql
+  └─ 20261014170000_webhook_breaker_outbox_guard/
+    └─ migration.sql
+  └─ 20261014180000_w4_screening_round2/
+    └─ migration.sql
+  └─ 20261014183625_i18n_languages/
+    └─ migration.sql
+  └─ 20261014184548_w3_signing_otp_access_control/
+    └─ migration.sql
+  └─ 20261014190000_credit_check_expense_understated/
+    └─ migration.sql
+  └─ 20261014190000_w4_screening_sod/
+    └─ migration.sql
+  └─ 20261014200000_w4_screening_sod_approver/
+    └─ migration.sql
+  └─ 20261014203259_i18n_language_reviews/
+    └─ migration.sql
+  └─ 20261015090000_accounting_payouts/
+    └─ migration.sql
+  └─ 20261015090000_collections_engine_round2/
+    └─ migration.sql
+  └─ 20261015120000_client_expenses_declared_at/
+    └─ migration.sql
+  └─ 20261015120000_collections_mandate_provider_end/
+    └─ migration.sql
+  └─ 20261015120000_w6_round1_enum_values/
+    └─ migration.sql
+  └─ 20261015120100_w6_round1/
+    └─ migration.sql
+  └─ 20261015130000_identical_id_reupload_not_replacement/
+    └─ migration.sql
+  └─ 20261015130000_tenant_rls_new_scoped_models/
+    └─ migration.sql
+  └─ 20261015140000_collections_engine_round4/
+    └─ migration.sql
+  └─ 20261015180000_w6_round2_loan_cancellation_guard/
+    └─ migration.sql
+  └─ 20261015190000_w6_round2_payout_conflicts/
+    └─ migration.sql
+  └─ 20261015200000_w6_round2_conflict_send_guard/
+    └─ migration.sql
+  └─ 20261015210000_w6_round3_schedule_cancelled/
+    └─ migration.sql
+  └─ 20261015210100_w6_round3_recovery_cases/
+    └─ migration.sql
+  └─ 20261015220000_w6_round3_recovery_unrecoverable_enum/
+    └─ migration.sql
+  └─ 20261015220100_w6_round3_recovery_unrecoverable/
+    └─ migration.sql
+  └─ 20261015230000_w6_round3_conflict_reports/
+    └─ migration.sql
+  └─ 20261015240000_w6_round3_paid_then_returned/
+    └─ migration.sql
+  └─ 20261015250000_w6_round3_provider_events/
+    └─ migration.sql
+  └─ 20261015260000_w6_round3_reopen_by_event/
+    └─ migration.sql
+  └─ 20261015270000_w6_round3_unapplied_reports/
+    └─ migration.sql
+  └─ 20261015300000_collections_engine_rls/
+    └─ migration.sql
+  └─ 20261015400000_asset_finance_recovery/
+    └─ migration.sql
+  └─ 20261015500000_accounting_af_roles/
+    └─ migration.sql
+  └─ 20261015500000_statement_model_categories/
+    └─ migration.sql
+  └─ 20261016100000_isaflow_connection_push/
+    └─ migration.sql
+  └─ 20261016120000_client_document_verified_not_refused/
+    └─ migration.sql
+  └─ 20261016130000_reference_rate_sarb_feed/
+    └─ migration.sql
+  └─ 20261016150000_payment_notifications/
+    └─ migration.sql
+  └─ 20261016151000_po_funding_facts/
+    └─ migration.sql
+  └─ 20261016152000_credit_life_no_offer_below_threshold/
+    └─ migration.sql
+  └─ 20261016190000_decline_internal_note/
+    └─ migration.sql
+  └─ 20261016190100_selfie_link_portal_handoff/
+    └─ migration.sql
+  └─ 20261016200000_countersign_after_mandate/
+    └─ migration.sql
+  └─ 20261016200000_product_type_asset_finance/
+    └─ migration.sql
+  └─ 20261016200000_s125_instalment_settlement/
+    └─ migration.sql
+  └─ 20261016200100_segregation_of_duties/
+    └─ migration.sql
+  └─ 20261016200200_segregation_of_duties_review/
+    └─ migration.sql
+  └─ 20261016200300_consumer_signature_clear_on_return/
+    └─ migration.sql
+  └─ 20261016210000_retype_asset_finance_products/
+    └─ migration.sql
+  └─ 20261016210500_tenant_demo_lender_marker/
+    └─ migration.sql
+  └─ 20261016220000_asset_finance_party_and_product_guards/
+    └─ migration.sql
+  └─ 20261017090000_loan_arrears_snapshot/
+    └─ migration.sql
+  └─ 20261017090000_settlement_evidence_daily_key/
+    └─ migration.sql
+  └─ 20261017100000_statement_ai/
+    └─ migration.sql
+  └─ 20261017160000_agreement_declaration_evidence/
+    └─ migration.sql
+  └─ 20261017200000_agreement_declaration_rls/
+    └─ migration.sql
+      
+All migrations have been successfully applied.
+>> Generate Prisma client
+Prisma schema loaded from prisma/schema
+
+✔ Generated Prisma Client (v5.22.0) to ./node_modules/@prisma/client in 1.70s
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Help us improve the Prisma ORM for everyone. Share your feedback in a short 2-min survey: https://pris.ly/orm/survey/release-5-22
+
+>> Integration gate
+>> 336 integration suites: 336 gated, 0 baselined, 2 opt-in (not run here)
+>>   opt-in, NOT run by this gate: lib/documents/html-to-pdf.image.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)
+>>   opt-in, NOT run by this gate: scripts/lender/build-context.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)
+>> running gated suites (these MUST pass)
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.5 /home/hein/Workspace/CredaFlow-gtm-b
+
+
+[statement-accuracy] SKIPPED — reader accuracy was NOT measured in this run.
+
+ Test Files  334 passed | 2 skipped (336)
+      Tests  2932 passed | 2 skipped (2934)
+   Start at  16:33:36
+   Duration  613.82s (transform 7.58s, setup 0ms, import 54.25s, tests 533.37s, environment 15ms)
+
+>> integration gate OK
+>> Remove disposable PostgreSQL container credaflow-ci-2899988

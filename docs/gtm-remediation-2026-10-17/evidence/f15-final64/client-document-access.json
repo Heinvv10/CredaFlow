@@ -1,0 +1,15 @@
+{
+  "source": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "actualExecutedDocumentBound": true,
+  "actualConsumerAccessorIdBound": true,
+  "accessRows": [
+    {
+      "accessorType": "client",
+      "action": "download",
+      "createdAt": "2026-10-17T16:39:47.227",
+      "ownClientBound": true
+    }
+  ],
+  "browserEvidence": "client-download-c2ecfd3b-d649-47e5-8cb6-3ead129e8f4f actual CLIENT session/card/CDP attachment",
+  "boundary": "DocumentAccessLog has accessor/document/time, no persisted session identifier column; actual browser session identity corroborates accessor"
+}

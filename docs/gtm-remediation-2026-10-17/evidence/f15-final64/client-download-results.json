@@ -1,0 +1,28 @@
+{
+  "candidate": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "health": {
+    "status": "ok",
+    "mode": "all",
+    "commit": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+    "builtAt": "2026-10-17T16:27:02Z",
+    "checkedAt": "2026-10-17T16:39:44.859Z"
+  },
+  "browser": "Chrome/154.0.8037.92",
+  "driverSha256": "b465af0950f3b662a95a73740efd0dd30ed501e8b45870b1794416a4507354fd",
+  "results": [
+    {
+      "scenario": "actual assigned consumer session",
+      "role": "CLIENT",
+      "clientId": "cmv6bzpgd098k5f4g3gl0v2sd"
+    },
+    {
+      "scenario": "actual CLIENT Chrome attachment download through ExecutedAgreementCard",
+      "applicationId": "cmv6cpf5t09955f4g1wgig9t5",
+      "documentId": "9c88f5b9-f0b1-43cf-8fe8-054af55de27d",
+      "guid": "81aab4ae-0850-42da-9941-3f068f0d2be2",
+      "bytes": 14757,
+      "sha256": "e1de7eb7b0a5083f31a552c8d463c3217021d254c841d7ec3a7432f276565836"
+    }
+  ],
+  "limitation": "Actual owning consumer attachment download. Does not replace blocked staff-native download or waive its natural authentication rate limit; no payout/legal approval."
+}
