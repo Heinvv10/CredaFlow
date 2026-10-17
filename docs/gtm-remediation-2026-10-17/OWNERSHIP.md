@@ -40,3 +40,5 @@ Coordinator owns ROUTE-ACCEPTANCE.csv for the19previously uncaptured routes and 
 A owns A-REVIEW-B-WAVE-B.md; B proposed F15 append-only AgreementDeclarationAcceptance evidence model approved in principle only, exact writable paths still pending. No F15 merge/queue authorization without lender legal approval.
 
 Coordinator owns VALIDATION.md for exact-candidate failed/passed gate iterations. MQ must preserve frozen source during checks; new reviewed source corrections require new SHA/new logs.
+
+A correction ownership approved app/(portal)/portal/loans/page.locale.test.tsx for exact native principal labels, already-owned six locale catalogs and A-WAVE-B evidence. Root independently APPROVE243b95ec with215targeted tests; MQ candidate2 acceptance pending.
