@@ -98,6 +98,7 @@ beforeEach(() => {
   mkdirSync(snap, { recursive: true })
   writeFileSync(join(snap, 'meta.json'), JSON.stringify({ image: IMAGE, tenantSlug: 'acme', tenantId: TENANT, counts: { ...COUNTS, uploadFiles: 9 } }))
   writeFileSync(join(snap, 'db.dump'), 'x')
+  writeFileSync(join(root, 'data', 'secrets.env'), 'CRON_SECRET=test-cron-secret\n')
   writeFileSync(join(snap, 'uploads.tar.gz'), 'x')
 })
 
@@ -118,8 +119,9 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
     const idx = (needle: string) => r.calls.findIndex((c) => c.includes(needle))
     expect(idx('UPDATE "User"')).toBeGreaterThan(idx('RENAME TO "demo"'))
     expect(idx('UPDATE "User"')).toBeGreaterThan(idx('docker-compose'))
-    expect(r.calls.filter((c) => c.startsWith('curl ')).length).toBe(2)
-    expect(idx('UPDATE "User"')).toBeGreaterThan(r.calls.map((c) => c.startsWith('curl ')).lastIndexOf(true))
+    const health = (c: string) => c.startsWith('curl ') && c.includes('/api/health')
+    expect(r.calls.filter(health).length).toBe(2)
+    expect(idx('UPDATE "User"')).toBeGreaterThan(r.calls.map(health).lastIndexOf(true))
     expect(idx('UPDATE "User"')).toBeLessThan(idx('DROP DATABASE "demo_old_'))
   })
 
@@ -165,6 +167,18 @@ describe('restore.sh demo staff TOTP', { timeout: TEST_TIMEOUT_MS }, () => {
 
   it('does not touch segregation of duties when the restore fails before the swap', () => {
     expect(sodCalls(run({ STUB_COUNTS: '{}' }).calls)).toHaveLength(0)
+  })
+
+  it('refreshes arrears days on the restored stack once it is healthy, without the secret on the command line', () => {
+    const live = run()
+    const dpd = live.calls.filter((c) => c.includes('/api/cron/dpd-update'))
+    expect(dpd).toHaveLength(1)
+    expect(dpd[0]).not.toContain('test-cron-secret')
+    expect(live.out).toMatch(/arrears days refreshed/)
+  })
+
+  it('does not refresh arrears days when the restore fails before the swap', () => {
+    expect(run({ STUB_COUNTS: '{}' }).calls.filter((c) => c.includes('dpd-update'))).toHaveLength(0)
   })
 
   it('reads the container env whole: env printed after the match is no SIGPIPE refusal or skipped clear', () => {

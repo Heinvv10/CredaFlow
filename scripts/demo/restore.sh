@@ -312,6 +312,16 @@ live_sql "$db" "$TENANT_TOTP_POLICY_OFF_SQL" >/dev/null \
 live_sql "$db" "$TENANT_SOD_OFF_SQL" >/dev/null \
   && note "demo segregation of duties switched off (TenantConfig.requireSegregationOfDuties)" \
   || warn "could not switch off segregation of duties; the approver cannot pay out in the demo"
+# Nothing schedules the nightly dpd-update on a demo stack (an "external" cron,
+# lib/registry/cron-jobs/), so arrears days would stay as baked while the
+# calendar moves on: "27 days in arrears" on an instalment 30 days overdue.
+cron_secret="$(env_get "$SHARED_SECRETS" CRON_SECRET 2>/dev/null)"
+if [ -n "$cron_secret" ] \
+  && curl -sf -o /dev/null -H @<(printf 'x-cron-secret: %s\n' "$cron_secret") "http://$staff_addr/api/cron/dpd-update"; then
+  note "arrears days refreshed for today (dpd-update)"
+else
+  warn "could not refresh arrears days (dpd-update); they stay as baked"
+fi
 if $had_live_db; then
   live_sql postgres "DROP DATABASE \"$old_db\" WITH (FORCE)" || warn "could not drop $old_db"
 fi
