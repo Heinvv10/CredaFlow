@@ -144,15 +144,28 @@ describe("model labels", () => {
   })
 })
 
+describe("public brand names (za-brands.ts)", () => {
+  it("categorise a brand no hand-written word names", () => {
+    expect(categorise(tx("Card Purchase: ECONO FOODS 4411", -10_000), { clientName: null })).toEqual({ category: "FOOD", rule: "brand:FOOD" })
+    expect(cat("POS PURCHASE BLUE BOTTLE LIQUORS")).toBe("ENTERTAINMENT")
+    expect(cat("CARD PURCHASE GALITOS")).toBe("FOOD")
+  })
+
+  it("let a hand-written word win over a brand", () => {
+    expect(categorise(tx("Card Purchase: SHOPRITE 4411", -10_000), { clientName: null }).rule).toBe("merchant:FOOD")
+  })
+})
+
 describe("CATEGORISER_VERSION names the rules", () => {
   // A changed word list, rule or policy list changes figures and flag keys: bump
   // the version, then re-pin. Categories are never stored, so a bump re-reads nothing.
   it("is bumped whenever the rules change", () => {
     const rules = JSON.stringify({
       merchants, categorise: readFileSync(join(__dirname, "categorise.ts"), "utf8"), living: LIVING_CATEGORIES,
+      brands: readFileSync(join(__dirname, "za-brands.ts"), "utf8"),
       policy: [policy.CREDIT_PROVIDERS, policy.CREDIT_WORD_MARKERS.source, policy.GAMBLING_MERCHANTS, policy.PAYDAY_LENDERS, policy.RETURNED_DEBIT_MARKERS.source],
     })
     const hash = createHash("sha256").update(rules).digest("hex").slice(0, 16)
-    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v3", hash: "cc7e08f3c830464d" })
+    expect({ version: CATEGORISER_VERSION, hash }).toEqual({ version: "categoriser-v4", hash: "0d7d40e084975c75" })
   })
 })

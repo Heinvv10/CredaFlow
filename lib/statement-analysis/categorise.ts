@@ -8,7 +8,8 @@
  * Rules run in order and the first match decides; `rule` says which. Words
  * match whole, upper-cased (policy.ts mentions()). The checks' own lists come
  * from lib/credit-checks/policy.ts; merchants.ts adds names only the
- * categoriser uses.
+ * categoriser uses, and za-brands.ts (generated from public brand data) is
+ * tried last.
  */
 import {
   CREDIT_PROVIDERS, CREDIT_WORD_MARKERS, GAMBLING_MERCHANTS, PAYDAY_LENDERS, RETURNED_DEBIT_MARKERS,
@@ -19,11 +20,12 @@ import {
 } from "./merchants"
 import { modelLabelFor } from "./model-labels"
 import type { StatementTransaction } from "./types"
+import { ZA_BRANDS } from "./za-brands"
 
 export { isLiving, LIVING_CATEGORIES, type Category, type LivingCategory } from "./categories"
 
 /** Bump when a rule or a word list changes what a transaction is categorised as. */
-export const CATEGORISER_VERSION = "categoriser-v3"
+export const CATEGORISER_VERSION = "categoriser-v4"
 
 export interface CategoriseContext {
   /** The client's name: a transfer to it is a transfer between their own accounts. */
@@ -55,6 +57,7 @@ const FEES = words(BANK_FEE_WORDS)
 const CASH = words(CASH_WORDS)
 const SALARY = words(SALARY_WORDS)
 const LIVING = LIVING_MERCHANTS.map(([category, names]) => [category, words(names)] as const)
+const BRANDS = ZA_BRANDS.map(([category, names]) => [category, words(names)] as const)
 const EDUCATION = LIVING.find(([c]) => c === "EDUCATION")![1]
 
 /** Every word of the client's name (3+ letters) appears in the description. */
@@ -91,5 +94,6 @@ function categoriseByRules(tx: StatementTransaction, ctx: CategoriseContext): Ca
   if (FEES.test(d)) return is("BANK_FEES", "merchant:BANK_FEES")
   if (CASH.test(d)) return is("CASH_WITHDRAWAL", "merchant:CASH")
   for (const [category, pattern] of LIVING) if (pattern.test(d)) return is(category, `merchant:${category}`)
+  for (const [category, pattern] of BRANDS) if (pattern.test(d)) return is(category, `brand:${category}`)
   return is("UNCATEGORISED", "none")
 }
