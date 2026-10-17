@@ -5,7 +5,7 @@ import { BoardPackDefaultCharges } from "./BoardPackDefaultCharges"
 
 const base = {
   lenderName: "Acme Lending", ncrNumber: "NCRCP99999",
-  book: 0, activeLoans: 0, clients: 0, collectionsRate: null, arrearsRate: null,
+  book: 0, bookLoans: 0, clients: 0, collectionsRate: null, arrearsRate: null,
   totalArrears: 0, totalDisbursed: 0, topLoans: [], productMix: [], insurancePolicies: 0, monthlyPremiums: 0,
 }
 const account = { clientName: "Thandi Mocktest", daysInArrears: 45, arrearsAmount: 216_900, outstandingPrincipal: 200_000, reference: "LN-000000000001" }
