@@ -263,6 +263,7 @@ export async function bookDeal(actor: SigningActor, dealId: string, today: strin
         balloonCents: deal.balloonCents, instalments: plan.records.length,
         arrearsMarginRate: signed.arrearsMarginRate?.toString() ?? null, collectionFeeCents: signed.collectionFeeCents,
         taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, interestModel: "REDUCING_BALANCE",
+        ...(deal.arrearsGrownSinceApproval?.length ? { arrearsGrownSinceApproval: deal.arrearsGrownSinceApproval } : {}),
       },
     }, tx)
     await tx.$executeRawUnsafe("SET CONSTRAINTS ALL IMMEDIATE")

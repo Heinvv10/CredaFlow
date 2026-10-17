@@ -16,7 +16,7 @@ const m = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: (fn: (tx: unknown) => unknown) => fn(m.tx) } }))
 // The post-approval credit gate reads its own rows; it is proven against Postgres in deal-party-guards.integration.test.ts.
-vi.mock("./deal-credit-gate", () => ({ dealCreditGateProblem: vi.fn(async () => null) }))
+vi.mock("./deal-credit-gate", () => ({ dealCreditGate: vi.fn(async () => ({ problem: null, arrearsGrown: [] })) }))
 
 import { bookDeal } from "./booking"
 import { solveDealStructure } from "./deal-structure"
