@@ -16,7 +16,8 @@ Each submission requires finding IDs, reproduced failure, base/submitted SHAs, e
 | 1 | F01/F04/F05 | `cb35643d5442a7532a0e169c98a05e8db4ce456e` (base `3a0a17e3`) | B APPROVE: independently re-ran 6 suites/53 tests; registry subject/role/tenant inspection; coordinator admission authorized | `a679a71c` | branch quick passed; MQ exact 6 suites/53 tests PASS exit0; combined full gates/browser pending | integrated, not accepted |
 | 2 | F02/F03/F10 | `aea9f3b4` then `9891a0ef` (base `3a0a17e3`) | A APPROVE exact final SHA; independent 6 suites/28 tests, B quick PASS | `3a337585` then `f7c72d67` | combined core 13 files/83 tests and ci:quick PASS | integrated, not accepted |
 | 3 | F06/F07/F12 | `314a9321` then `34040560` | B APPROVE independent 4 files/34 tests; root payment-label blocker resolved | `0803b838` then `87516c0f` | MQ 4 files/34 affected portal tests PASS; final full gates/browser pending | integrated, not accepted |
-| 4 | F09/F11/F13/F14 | `81d92ef2` | A APPROVE exact SHA; independent 11 files/55 tests; final quick PASS; root admission | `ab63b35d` | MQ changed suites running; full gates/browser pending | integrated, not accepted |
+| 4 | F09/F11/F13/F14 | `81d92ef2` | A APPROVE exact SHA; independent 11 files/55 tests; final quick PASS; root admission | `ab63b35d` | MQ changed 11 files/55 tests PASS; full gates/browser pending | integrated, not accepted |
+| 5 | F08 | `9f2ba03e` | B APPROVE source +23 tests; A quick PASS and239 targeted; root admission | `1dd25343` | final full gates starting; browser pending | integrated, not accepted |
 
 ## Resource and runtime ownership
 
@@ -52,3 +53,5 @@ B final submission `9891a0efb2f30726cbdc056c20b8a94d8824a8a0`, base `3a0a17e38b3
 Coordinator approved final full quality invocation under `taskset -c 0-3` (host allowed CPUs 0-31), preserving every quality step/test while bounding workers. Record Node22 availableParallelism=4 in evidence. No heavy run yet; wait reviewed experience/F08 candidate.
 
 Origin/main refreshed via git fetch after experience integration preparation: still exact `3a0a17e38b393d0c0707ed24e615be2b016f604e`, no upstream delta. Recheck before final source freeze.
+
+Final source freeze preparation: origin/main freshly re-fetched after F08 integration, still exact initial base3a0a17e3; no upstream source/migration delta. B supplemental review recorddc02dfb7 integrated. All F01-F14 remediation code integrated; F15 legal proposal deliberately excluded and externally gated. Coordinator authorized uninterrupted ci:quality then ci:integration under four-CPU affinity, followed by fresh immutable image/private browser acceptance. Stop queue on any regression.
