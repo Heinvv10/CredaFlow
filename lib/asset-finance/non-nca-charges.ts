@@ -35,7 +35,7 @@ import {
 //    CONTRACT's allocation clause, not NCA s126(3), which does not apply.
 //    Before `accrueFrom`, receipts replay in the order they were booked in:
 //    the schedule instalment by instalment (the same go-live rule as NCA).
-//  - None of the NCA rules apply: no in duplum cap (s103(5)), no Section 129
+//  - None of the NCA rules apply: no statutory in duplum cap (s103(5)); common law still caps interest, no Section 129
 //    letter charge, no post-maturity service fee.
 //  - Terms unset on the agreement (null) mean that component is zero: no margin
 //    means NO default interest (a margin of 0 means the contract rate alone);
@@ -169,7 +169,31 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     const dailyRate = input.defaultInterestMargin === null
       ? 0
       : (contractAnnualRateOn(day) + input.defaultInterestMargin) / 365
-    if (chargeable(day)) interestExact += overdueBase * dailyRate
+    // Common-law in duplum: unpaid arrear interest (contractual and default)
+    // cannot grow past the unpaid capital. Payments reopen only the headroom
+    // they actually create; fees are outside this interest-only ceiling.
+    let unpaidCapital = 0
+    let unpaidDueInterest = 0
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      unpaidCapital += Math.min(row.principalDue, Math.max(0, row.totalDue - paid[i]))
+      if (row.dueDay < day) unpaidDueInterest += Math.max(0, row.interestDue - paid[i])
+    }
+    // A newly due contractual-interest row can consume headroom already
+    // occupied by default interest. Reconcile the replay's derived default
+    // postings too, so the total unpaid interest never crosses the ceiling.
+    interestExact = Math.min(interestExact, interestPaid + Math.max(0, unpaidCapital - unpaidDueInterest))
+    let reversePosted = Math.max(0, interestPosted - Math.round(interestExact))
+    for (let i = postings.length - 1; i >= 0 && reversePosted > 0; i--) {
+      if (postings[i].type !== "DEFAULT_INTEREST") continue
+      const reduction = Math.min(reversePosted, postings[i].amount)
+      postings[i].amount -= reduction
+      interestPosted -= reduction
+      reversePosted -= reduction
+      if (postings[i].amount === 0) postings.splice(i, 1)
+    }
+    const headroom = Math.max(0, unpaidCapital - unpaidDueInterest - (interestExact - interestPaid))
+    if (chargeable(day)) interestExact += Math.min(overdueBase * dailyRate, headroom)
     if (isLastDayOfMonth(day) && day < untilDay) postInterestTo(day)
   }
   const lastPostingDay = Math.min(endDay, untilDay) - 1
@@ -191,7 +215,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     }),
     unallocated,
     receiptSplits: splits,
-    // No in duplum on a NON_NCA agreement.
+    // The common-law ceiling is applied daily above; this field describes NCA s103(5) only.
     inDuplum: null,
   }
 }

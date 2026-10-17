@@ -98,6 +98,7 @@ export async function cleanupSigningFixture(db: PrismaClient, fx: Pick<SigningFi
   await db.$transaction([
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
     db.documentAccessLog.deleteMany({ where: { documentId: { in: [...signers, ...documents].map((r) => r.id) } } }),
+    db.suretyConsent.deleteMany({ where: { tenantId } }),
     db.dealSigner.deleteMany({ where: { tenantId } }),
     db.entityDocument.deleteMany({ where: { tenantId } }),
   ])

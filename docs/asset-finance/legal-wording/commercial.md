@@ -139,26 +139,25 @@ quoted; obligations are paraphrased and cited.
 
 ## Points for the lender's legal team
 
-Gaps between this wording and the code (suretyship e-sign, surety address,
-spouse consent, settlement, in duplum, CPA classification of instalment sales)
-are listed in [`README.md`](README.md), "Code changes required before
-approval".
+Remaining gaps between the wording and code are listed in
+[`README.md`](README.md), "Code changes required before approval". The
+resolved signing, spouse-consent, settlement, address and CPA items below
+record the implementation for review.
 
-1. **Electronic signature of the suretyship.** A suretyship must be in
-   writing and signed by the surety (General Law Amendment Act 50 of 1956
-   s6). ECTA 25 of 2002 s13(1) requires an *advanced* electronic signature
-   where a law requires a signature and names no type. The portal e-sign is
-   not an advanced electronic signature, so an e-signed suretyship may be
-   unenforceable. Consider wet ink only for suretyships. The wording does not
-   address this because the code allows e-sign.
-2. **Spouse's consent.** The data has no marital status and the spouse is
-   not a signer in the system: the consent line prints, but e-sign cannot
-   capture it and nothing gates payout on it (README gap 18). The wording now
-   requires two witnesses (s15(5)); confirm and whether the s15(6)
-   business exception can apply to a director's suretyship.
-3. **Surety's address.** The data carries only the surety's name and ID
-   number, so the domicilium is "the residential address last notified".
-   Recommend adding the surety's address to the document data.
+1. **Electronic signature of the suretyship — resolved in code.** GLAA s6
+   and ECTA s13(1) require wet ink or an advanced electronic signature. No AES
+   provider is configured. Both the portal signature endpoint and database
+   refuse electronic signing of a suretyship; staff upload and independently
+   confirm its wet-ink scan.
+2. **Spouse's consent — resolved in code.** Staff record the surety's marital
+   regime for the deed. An UNKNOWN regime or an IN_COMMUNITY surety without a
+   verified wet-ink spouse consent blocks payout in the server and database.
+   The verification names the spouse and two distinct witnesses, binds a
+   staff-uploaded legal document of the deal, and is audited. No s15(6)
+   business exception is assumed.
+3. **Surety's address — resolved in code.** The deed prints the physical
+   address from the client record in section 1 and in the domicilium clause.
+   Staff must complete that address before execution.
 4. **NCA suretyship (s4(2)(c), s90).** The NCA variant drops the certificate
    of balance as proof, the jurisdiction consent, the attorney-and-own-client
    cost scale and the renounced evidential exceptions. It **keeps** the
@@ -169,12 +168,10 @@ approval".
    the NCA variant).
 5. **Early settlement (7.10).** The wording now defines the Settlement Amount
    without unearned interest, and damages after cancellation as that amount
-   less the net proceeds (Conventional Penalties Act 15 of 1962). The code
-   still quotes every remaining payment (README gap 15).
-6. **CPA.** CPA scope is computed only for leases. A small juristic purchaser
+   less the net proceeds (Conventional Penalties Act 15 of 1962). Settlement quotes and their settling receipts now remove future unearned interest and keep the original rows as audited evidence. Recovery proceeds are credited against that settlement.
+6. **CPA.** CPA scope is now snapshotted for instalment sales using the same evidenced classifier as leases. A small juristic purchaser
    (below the CPA threshold) under a NON_NCA instalment sale may be a CPA
-   consumer. The no-warranty and no-set-off terms rely on a CPA savings line
-   (7.1). Confirm against CPA s48, s51 and Reg 44.
+   consumer. The CPA variant expressly preserves the statutory remedies for defective goods, qualifies exclusions and indemnity, and prominently draws attention to risk and indemnity under s49. Confirm the variant against CPA s48, s51 and Reg 44.
 7. **Rate-change effective date (7.4).** Fetched SARB rates are recorded with
    the date the feed showed them, which can trail the real change, and
    ZARONIA moves are recorded only at 0.25 points or more from the latest live

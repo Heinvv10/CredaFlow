@@ -11,6 +11,7 @@ import type { DealDocumentData } from "../deal-document-data"
 import { percentPdf } from "../document-parts"
 import { formatIsoDatePdf } from "../pdf-layout"
 import { contractRateFormula, referenceDefinition, type WordingClause } from "./commercial-common"
+import { cpaInstalmentSaleClauses } from "./instalment-sale-cpa"
 import { instalmentSaleEnforcementClauses } from "./instalment-sale-enforcement"
 
 function saleAndOwnership(): WordingClause {
@@ -121,7 +122,7 @@ The Purchaser must immediately notify the Seller in writing if any person attach
 
 /** Clauses 7.1 to 7.13 in printed order. */
 export function instalmentSaleClauses(data: DealDocumentData): WordingClause[] {
-  return [
+  const clauses = [
     saleAndOwnership(),
     deliveryAndRisk(),
     payment(data),
@@ -131,4 +132,5 @@ export function instalmentSaleClauses(data: DealDocumentData): WordingClause[] {
     goodsUseAndLocation(data),
     ...instalmentSaleEnforcementClauses(data),
   ]
+  return data.isaCpaApplies !== false ? cpaInstalmentSaleClauses(clauses) : clauses
 }

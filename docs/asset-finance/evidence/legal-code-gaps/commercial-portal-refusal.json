@@ -1,0 +1,6 @@
+{
+  "status": 409,
+  "body": {
+    "error": "Suretyships require wet ink; upload and verify the signed deed"
+  }
+}
