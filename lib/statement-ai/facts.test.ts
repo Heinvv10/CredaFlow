@@ -62,6 +62,7 @@ describe("allowedFrom", () => {
   it("sorts every figure by kind; strings with digits are literals", () => {
     expect(allowedFrom({ a: "R1 234.56", b: "2026-09-25", c: "2026-09", d: 3, sharePercent: 12.5, e: "S1-R12", f: "-R4.50" })).toEqual({
       amountsCents: [123_456, -450], monthlyAmountsCents: [], inAmountsCents: [], outAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"], names: [], payees: [],
+      periodAmountsCents: [123_456, -450], relations: { below: false },
     })
   })
   it("tags a month's amounts, and money in and out by direction or key", () => {

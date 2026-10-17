@@ -99,6 +99,8 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   const names: string[] = []
   const payees: string[] = []
   const ins: number[] = []
+  const period: number[] = []
+  let below = false
   const outs: number[] = []
   type Ctx = { perMonth: boolean; direction: "in" | "out" | null }
   // An amount is a month's when its key says so or it sits in a per-month entry
@@ -121,11 +123,14 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     if (amount) {
       const cents = (amount[1] ? -1 : 1) * (Number(amount[2].replace(/ /g, "")) * 100 + Number(amount[3]))
       if (ctx.perMonth || /monthly|permonth/i.test(key)) monthly.push(cents)
+      else period.push(cents)
       const way = /moneyIn|income|salary/i.test(key) ? "in" : /moneyOut|spend|payments?To/i.test(key) ? "out" : ctx.direction
       if (way === "in") ins.push(cents)
       if (way === "out") outs.push(cents)
       return void amounts.push(cents)
     }
+    // The facts say something is below another ("below" what was declared, a figure "below what is expected").
+    if (/^below\b/.test(v)) below = true
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return void dates.push(v)
     if (/^\d{4}-\d{2}$/.test(v)) return void months.push(v)
     // Any other string with a digit (a row reference, a code) may be copied whole, never read as a figure.
@@ -134,7 +139,7 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
     if (/^[A-Z][A-Z0-9_&' -]*$/.test(v)) (/payee/i.test(key) ? payees : names).push(v)
   }
   visit(facts, "", { perMonth: false, direction: null })
-  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals, names, payees }
+  return { amountsCents: amounts, monthlyAmountsCents: monthly, inAmountsCents: ins, outAmountsCents: outs, percents, numbers, dates, months, literals, names, payees, periodAmountsCents: period, relations: { below } }
 }
 
 type PayeeRow = Pick<CountedRow, "t">
