@@ -55,3 +55,9 @@ Coordinator approved final full quality invocation under `taskset -c 0-3` (host 
 Origin/main refreshed via git fetch after experience integration preparation: still exact `3a0a17e38b393d0c0707ed24e615be2b016f604e`, no upstream delta. Recheck before final source freeze.
 
 Final source freeze preparation: origin/main freshly re-fetched after F08 integration, still exact initial base3a0a17e3; no upstream source/migration delta. B supplemental review recorddc02dfb7 integrated. All F01-F14 remediation code integrated; F15 legal proposal deliberately excluded and externally gated. Coordinator authorized uninterrupted ci:quality then ci:integration under four-CPU affinity, followed by fresh immutable image/private browser acceptance. Stop queue on any regression.
+
+## Candidate 1 regression and reviewed correction
+
+Frozen `e1d5cff947488c2d97c7deb47add507b52112a4d` full ci:quality stopped at real locale mismatch: 1505 files/19557 tests passed; app/(portal)/portal/loans/page.locale.test.tsx had 3 failures for af/zu/xh; 333 files/2932 tests skipped. Integration and image did not start. Original log/exit/archive retained privately without overwrite.
+
+A correction `243b95ecd2bedd0330d97a1ecc35a86b169b39ea` adds precise native-language draft principal terms consistently across list/detail/statement and strengthens exact locale assertions. Coordinator independently APPROVED exact SHA with 5 suites/215 tests PASS; this is source review, not native-speaker/legal approval. Existing MACHINE DRAFT, language review/hash gates remain unchanged. MQ integrated the isolated correction without conflicts, re-fetched main (unchanged initial3a0a17e3), and prepares candidate2 full quality/integration under the same fourCPU affinity. New logs use candidate2-* so the failed first run remains immutable.
