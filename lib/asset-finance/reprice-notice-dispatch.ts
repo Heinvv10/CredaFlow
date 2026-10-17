@@ -10,6 +10,7 @@ import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/ident
 import { SendBlockedError, sendMessage } from "@/lib/messaging/send"
 import { reconciliationMessageFromError } from "@/lib/messaging/dispatch-control"
 import { escapeHtml } from "@/lib/utils"
+import { rateTaxDocuments, rateTaxDocumentText } from "./rate-tax-documents"
 import { isoOfDbDate } from "./dates"
 
 export type RateNoticeDb = Pick<typeof prisma, "assetFinanceRateNotice" | "client" | "messageTemplate" | "auditLog" | "$transaction" | "contact" | "contactIdentity" | "loan">
@@ -23,10 +24,11 @@ export function rateNoticeVars(notice: AssetFinanceRateNotice, recipient: Recipi
   const lines = [
     `Dear ${recipient.firstName} ${recipient.lastName},`,
     `The annual contract rate on account ${notice.loanReference} changes to ${rate}% from ${isoOfDbDate(notice.effectiveDate)}.`,
-    notice.correctionPendingManual ? "The recorded scheduled payments are unchanged. Any separate balance correction is set out below." : `From the payment due ${isoOfDbDate(notice.firstChangedPaymentDate)}, the instalment or rental changes from R${(notice.oldInstalmentCents / 100).toFixed(2)} to R${(notice.newInstalmentCents / 100).toFixed(2)}.`,
-    ...(notice.historicalBalanceAdjustmentCents ? [`Prior-period balance correction: ${notice.historicalBalanceAdjustmentCents < 0 ? "credit" : "debit"} R${(Math.abs(notice.historicalBalanceAdjustmentCents) / 100).toFixed(2)}. Your recorded payment amounts are unchanged; ${notice.correctionPendingManual ? "this separate correction is pending manual execution. Any credit is recorded separately for reconciliation; no refund or debit has been executed" : "this correction is included in the recalculated balance"}.`] : []),
+    notice.correctionPendingManual ? notice.newInstalmentCents === 0 && notice.oldInstalmentCents > 0 ? "The revised rate pays off your account. No further scheduled payments are due. Your cash payments are preserved in total; excess cash is held separately pending refund execution." : "The recorded scheduled payments are unchanged. Any separate balance correction is set out below." : `From the payment due ${isoOfDbDate(notice.firstChangedPaymentDate)}, the instalment or rental changes from R${(notice.oldInstalmentCents / 100).toFixed(2)} to R${(notice.newInstalmentCents / 100).toFixed(2)}.`,
+    ...(notice.historicalBalanceAdjustmentCents ? [`Prior-period balance correction: ${notice.historicalBalanceAdjustmentCents < 0 ? "credit" : "debit"} R${(Math.abs(notice.historicalBalanceAdjustmentCents) / 100).toFixed(2)}. Your recorded cash payments are preserved in total; ${notice.correctionPendingManual ? "this separate correction is pending manual execution. Any credit is recorded separately for reconciliation; no refund or debit has been executed" : "this correction is included in the recalculated balance"}.`] : []),
     ...(statutory ? [`The total interest payable under the agreement is R${(notice.totalInterestCents / 100).toFixed(2)}; interest payable in the first changed monthly scheduled period is R${(notice.monthlyInterestCents / 100).toFixed(2)}, assuming the reference rate does not change again and payments are made as scheduled.`] : []),
     "This is the scheduled payment including fees, maintenance charges and VAT, where applicable. Please refer to the updated schedule for any irregular payments or final balloon amount.",
+    ...rateTaxDocuments(notice.taxDocuments).map(rateTaxDocumentText),
     "Please contact your lender if you need an updated schedule or have a question about this change.",
   ]
   return { subject: `Rate and payment change: ${notice.loanReference}`, text: lines.join("\n\n"), html: lines.map((x) => `<p>${escapeHtml(x)}</p>`).join("") }

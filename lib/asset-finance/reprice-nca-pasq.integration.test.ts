@@ -10,7 +10,7 @@ import { affordabilityCalculatorFingerprint, affordabilityContractFingerprint } 
 import { createPasqEvidence, pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { assetCalculatorEvidence } from "./nca-evidence"
 import { repriceLoanForReference } from "./reprice-loan"
-import { BOOKED, DEAL, PAID_ROWS, approvedPrime, createRepriceLoan, createRepriceTenant } from "./reprice.integration-fixture"
+import { BOOKED, DEAL, approvedPrime, createRepriceLoan, createRepriceTenant } from "./reprice.integration-fixture"
 import { dbDate, isoOfDbDate } from "./dates"
 
 import { NextRequest } from "next/server"
@@ -26,9 +26,9 @@ const suite = process.env.RUN_ASSET_FINANCE_REPRICE_IT === "1" ? describe : desc
 const db = new PrismaClient()
 suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
   afterAll(async () => { vi.useRealTimers(); await db.$disconnect() })
-  it("reprices the real billing model without capitalising or dropping its fees/premiums, preserving the original PASQ", async () => {
+  it.each([12, 59])("reprices the real billing model after %s paid periods, preserving the original PASQ", async (paidRows) => {
     const tenant = await createRepriceTenant(db)
-    const loanId = await createRepriceLoan(db, tenant)
+    const loanId = await createRepriceLoan(db, tenant, { paidRows })
     const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId } })
     const service = 6_900, initiation = 120_750, premium = 4_500
     const bare = assetCalculatorEvidence({ ok: true, result: BOOKED, startDate: DEAL.startDate, termDays: 1800 } as never, 0)
@@ -53,33 +53,46 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
         creditLifeElection: "DECLINED", creditLifeMonthlyPremiumCents: 0, creditLifeDisclosureVersion: "credit-life-no-offer-v1", creditLifeDisclosureSha256: "a".repeat(64), creditLifeDisclosureAcknowledgedAt: new Date(), creditLifeDisclosureAcknowledgedBy: tenant.directorId } })
       await tx.loan.update({ where: { id: loanId }, data: { ncaRegime: "NCA", monthlyServiceFee: service, initiationFee: initiation,
         creditLifePremiums: evidence.creditLife.totalPremiumCents, totalRepayable: evidence.billing.totalRepayableCents, contractualTotalRepayable: evidence.billing.totalRepayableCents,
-        totalPaid: evidence.billing.schedule.slice(0, PAID_ROWS).reduce((sum, row) => sum + row.totalDueCents, 0) } })
+        totalPaid: evidence.billing.schedule.slice(0, paidRows).reduce((sum, row) => sum + row.totalDueCents, 0) } })
       const rows = await tx.repaymentSchedule.findMany({ where: { loanId }, orderBy: { installmentNo: "asc" } })
       for (let i = 0; i < rows.length; i++) {
         const row = evidence.billing.schedule[i]
-        await tx.repaymentSchedule.update({ where: { id: rows[i].id }, data: { feesDue: row.feesDueCents, creditLifePremiumDue: row.creditLifePremiumDueCents, totalDue: row.totalDueCents, totalPaid: i < PAID_ROWS ? row.totalDueCents : 0 } })
+        await tx.repaymentSchedule.update({ where: { id: rows[i].id }, data: { feesDue: row.feesDueCents, creditLifePremiumDue: row.creditLifePremiumDueCents, totalDue: row.totalDueCents, totalPaid: i < paidRows ? row.totalDueCents : 0 } })
       }
       const receipts = await tx.payment.findMany({ where: { loanId }, orderBy: { receivedAt: "asc" } })
-      for (let i = 0; i < PAID_ROWS; i++) await tx.payment.update({ where: { id: receipts[i].id }, data: { amount: evidence.billing.schedule[i].totalDueCents } })
+      for (let i = 0; i < paidRows; i++) await tx.payment.update({ where: { id: receipts[i].id }, data: { amount: evidence.billing.schedule[i].totalDueCents } })
       const firstRate = await tx.contractRate.findFirstOrThrow({ where: { loanId } })
       await tx.contractRate.update({ where: { id: firstRate.id }, data: { newInstalmentCents: BOOKED.baseInstalmentCents + service } })
     })
     const repo = await db.referenceRate.create({ data: { tenantId: tenant.tenantId, basis: "REPO", effectiveDate: dbDate(DEAL.startDate), rate: "0.08", requestedById: tenant.adminId } })
     await db.referenceRate.update({ where: { id: repo.id }, data: { status: "APPROVED", decidedById: tenant.approverId, decidedAt: new Date() } })
-    const effectiveDate = BOOKED.rows[9].dueDate
-    await approvedPrime(db, tenant, effectiveDate, "0.10")
+    const effectiveDate = paidRows === 59 ? "2026-01-16" : BOOKED.rows[9].dueDate
+    await approvedPrime(db, tenant, effectiveDate, paidRows === 59 ? "0.001" : "0.10")
     const before = await db.repaymentSchedule.findMany({ where: { loanId }, orderBy: { installmentNo: "asc" } })
-    const outcome = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate, runDate: BOOKED.rows[PAID_ROWS - 1].dueDate }))
+    const outcome = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate, runDate: BOOKED.rows[paidRows - 1].dueDate }))
+    if (paidRows === 59) {
+      expect(outcome).toMatchObject({ kind: "repriced", resultingRate: "0.011", newInstalmentCents: 0 })
+      const paidOff = await db.loan.findUniqueOrThrow({ where: { id: loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+      expect(paidOff).toMatchObject({ status: "COMPLETED", outstandingPrincipal: 0, principal: evidence.calculator.principalCents })
+      expect(paidOff.repaymentSchedule.at(-1)!.totalDue).toBe(0)
+      const refunded = await db.payment.aggregate({ where: { loanId, reversed: false, allocationStatus: "UNAPPLIED" }, _sum: { amount: true } })
+      expect(refunded._sum.amount).toBeGreaterThan(0)
+      const originalCash = before.reduce((sum,row) => sum + row.totalPaid,0)
+      expect(paidOff.totalRepayable + refunded._sum.amount!).toBe(originalCash)
+      expect((await db.payment.aggregate({ where: { loanId, reversed: false }, _sum: { amount: true } }))._sum.amount).toBe(originalCash)
+      expect((await db.loanApplication.findUniqueOrThrow({ where: { id: loan.applicationId } })).pasqEvidence).toEqual(evidence)
+      return
+    }
     expect(outcome).toMatchObject({ kind: "repriced", resultingRate: "0.11" })
     const after = await db.repaymentSchedule.findMany({ where: { loanId }, orderBy: { installmentNo: "asc" } })
     expect(after.map((row) => [row.feesDue, row.creditLifePremiumDue])).toEqual(before.map((row) => [row.feesDue, row.creditLifePremiumDue]))
-    expect(after.slice(0, PAID_ROWS).map((row) => [row.totalDue, row.totalPaid, row.paidAt, row.status])).toEqual(before.slice(0, PAID_ROWS).map((row) => [row.totalDue, row.totalPaid, row.paidAt, row.status]))
+    expect(after.slice(0, paidRows).map((row) => [row.totalDue, row.totalPaid, row.paidAt, row.status])).toEqual(before.slice(0, paidRows).map((row) => [row.totalDue, row.totalPaid, row.paidAt, row.status]))
     expect(after[10].interestDue).toBeLessThan(before[10].interestDue)
     const changed = await db.loan.findUniqueOrThrow({ where: { id: loanId } })
     expect(changed.principal).toBe(evidence.calculator.principalCents)
     expect(changed.totalInterest).toBe(after.reduce((sum, row) => sum + row.interestDue, 0))
     expect(changed.totalRepayable).toBe(after.reduce((sum, row) => sum + row.totalDue, 0))
-    expect(changed.outstandingPrincipal).toBe(after.slice(PAID_ROWS).reduce((sum, row) => sum + row.principalDue, 0))
+    expect(changed.outstandingPrincipal).toBe(after.slice(paidRows).reduce((sum, row) => sum + row.principalDue, 0))
     // The asset-only exemption does not authorize an arbitrary monetary edit.
     await expect(db.$transaction(async (tx) => {
       await tx.repaymentSchedule.update({ where: { id: after[15].id }, data: { interestDue: { increment: 1 }, totalDue: { increment: 1 } } })
@@ -91,14 +104,14 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     })).rejects.toThrow()
     expect((await db.loanApplication.findUniqueOrThrow({ where: { id: loan.applicationId } })).pasqEvidence).toEqual(evidence)
     // Actual receipt and HTTP reversal paths must consume the revised contract.
-    const settleDay = new Date(BOOKED.rows[PAID_ROWS].dueDate + "T10:00:00+02:00")
+    const settleDay = new Date(BOOKED.rows[paidRows].dueDate + "T10:00:00+02:00")
     vi.useFakeTimers({ toFake: ["Date"], now: settleDay })
     const settlement = currentSettlementAmount({ loan: changed, schedule: after, asOf: settleDay })
     const receipt = await runWithTenant(tenant.tenantId, () => applyManualReceipt(prisma, { tenantId: tenant.tenantId, loanId, amount: settlement, capturedById: tenant.adminId }))
     expect((await db.loan.findUniqueOrThrow({ where: { id: loanId } })).status).toBe("COMPLETED")
-    const lateDate = BOOKED.rows[PAID_ROWS - 1].dueDate
+    const lateDate = BOOKED.rows[paidRows - 1].dueDate
     await approvedPrime(db, tenant, lateDate, "0.09")
-    const corrected = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: lateDate, runDate: BOOKED.rows[PAID_ROWS].dueDate }))
+    const corrected = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: lateDate, runDate: BOOKED.rows[paidRows].dueDate }))
     expect(corrected.kind).toBe("repriced")
     const correction = await db.assetFinanceRateCorrection.findFirstOrThrow({ where: { loanId } })
     const proof = correction.contractualRows as unknown as { events: Array<{ day: string; capitalCashCents: number }>; billedPath: Array<{ effectiveDate: string; annualRate: number }>; correctedPath: Array<{ effectiveDate: string; annualRate: number }> }
@@ -123,7 +136,7 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     expect(correction.amountCents).toBeLessThan(0)
     expect(correction.status).toBe("PENDING_MANUAL_EXECUTION")
     expect((await db.assetFinanceRateNotice.findUniqueOrThrow({ where: { contractRateId: correction.contractRateId } })).correctionPendingManual).toBe(true)
-    expect(await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: lateDate, runDate: BOOKED.rows[PAID_ROWS].dueDate }))).toEqual({ kind: "already_repriced" })
+    expect(await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: lateDate, runDate: BOOKED.rows[paidRows].dueDate }))).toEqual({ kind: "already_repriced" })
     expect(await db.assetFinanceRateCorrection.count({ where: { loanId } })).toBe(1)
     ctx.tenantId = tenant.tenantId; ctx.userId = tenant.adminId
     const response = await reversePayment(new NextRequest("http://localhost/api/payments/synthetic/reverse", { method: "PATCH", body: JSON.stringify({ reason: "Synthetic bank return" }) }), { params: Promise.resolve({ id: receipt.payment.id }) })
@@ -138,7 +151,7 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     expect(await db.assetFinanceRateCorrection.count({ where: { loanId } })).toBe(2)
     const restored = await db.repaymentSchedule.findMany({ where: { loanId }, orderBy: { installmentNo: "asc" } })
     expect(restored.map((row) => [row.principalDue, row.interestDue, row.feesDue, row.creditLifePremiumDue, row.totalDue])).toEqual(after.map((row) => [row.principalDue, row.interestDue, row.feesDue, row.creditLifePremiumDue, row.totalDue]))
-    const nextDate = BOOKED.rows[PAID_ROWS].dueDate
+    const nextDate = BOOKED.rows[paidRows].dueDate
     await approvedPrime(db, tenant, nextDate, "0.095")
     const resumed = await prisma.$transaction((tx) => repriceLoanForReference(tx, { tenantId: tenant.tenantId, loanId, basis: "PRIME", effectiveDate: nextDate, runDate: nextDate }))
     expect(resumed.kind).toBe("repriced")

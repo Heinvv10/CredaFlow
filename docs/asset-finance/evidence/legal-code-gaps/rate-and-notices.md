@@ -131,3 +131,45 @@ Recent local evidence (all PostgreSQL 16 containers removed after the checks):
 These focused checks are not a claim that the final full gate or independent
 review has passed. Root owns the final exact-candidate `ci:full`, review and fixes.
 
+
+## Large-cut payoff and closed lease checkpoint
+
+A real signed and booked commercial instalment sale with 59 actual receipt
+applications now accepts a large historical rate cut: capital and future debt
+end at zero. The independent daily oracle proves the refund amount. Reallocation
+conserves every cash cent and value date; excess is classified UNAPPLIED, with an
+append-only pending-refund correction. No refund is executed. The corresponding
+59-paid-period genuine NCA PASQ regression preserves its original signed PASQ,
+fees and premium history while waiving charges after the corrected payoff.
+
+Closed operating and full-maintenance leases use the original ex-VAT capital,
+rental-only consideration and lessor's retained residual. Maintenance and VAT
+are excluded from capital replay. Four real-route signed/booked/paid cases
+(up and down for both lease types) prove the signed amount against independent
+daily arithmetic, unchanged receipts and maintenance funds, original-invoice VAT,
+rental-only accounting credits and retry idempotency. Credit and debit notes
+identify the original transaction; debit posting occurs in the adjustment period.
+Rendered tax-document access is logged. The queued written notice contains the
+complete immutable supplier, recipient, original invoice, reason and value/tax
+particulars. VAT Act s21 guidance checked against [SARS Interpretation Note 83,
+Issue 3](https://www.sars.gov.za/wp-content/uploads/Legal/Notes/Legal-IntR-IN-83-Application-of-sections-207-and-215.pdf).
+
+Checkpoint evidence:
+
+- `/tmp/cf-rate-payoff-pg1.log`: real booked commercial payoff with 59 receipts passed.
+- `/tmp/cf-rate-payoff-nca3.log`: both genuine PASQ repricing/payoff cases passed.
+- `/tmp/cf-rate-lease-tax7.log`: all four closed lease up/down cases passed.
+- `/tmp/cf-rate-tax-focused.log`: 200 focused schema/notice/PDF checks passed.
+- `/tmp/cf-rate-tax-tsc2.log` and `/tmp/cf-rate-new-lint.log`: TypeScript and focused lint passed.
+
+### Pending confirmation: active lease zero-rental floor
+
+Active operating/full-maintenance leases can require a zero future rental after
+a sufficiently large late cut. Existing `LeaseRental_amounts` requires a strictly
+positive rental. The narrow proposed replacement changes only
+`rentalExclVatCents > 0` to `rentalExclVatCents >= 0`, preserving every maintenance,
+VAT, total and identity condition. This is a non-additive constraint replacement
+under goal §8. It has **not** been implemented or applied; user confirmation is
+pending through root. Active lease floor acceptance remains unfinished and this
+checkpoint does not close item 26 or authorize PR queueing. No full gate has been
+launched for this changing source.

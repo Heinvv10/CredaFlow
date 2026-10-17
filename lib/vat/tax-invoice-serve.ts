@@ -19,14 +19,14 @@ export async function serveTaxInvoicePdf(
 ): Promise<NextResponse | null> {
   const invoice = await db.taxInvoice.findFirst({
     where: { id: target.invoiceId, tenantId: target.tenantId },
-    include: { lines: { orderBy: { lineNo: "asc" } } },
+    include: { lines: { orderBy: { lineNo: "asc" } }, adjustedInvoice: { select: { invoiceNumber: true } } },
   })
   if (!invoice) return null
   const isDownload = new URL(req.url).searchParams.get("download") === "1"
   await logDocumentAccess(db, {
     documentId: invoice.id, accessorType: accessor.type, accessorId: accessor.id, action: isDownload ? "download" : "view", req,
   })
-  const pdf = await generateTaxInvoicePdf(invoice)
+  const pdf = await generateTaxInvoicePdf({ ...invoice, originalInvoiceNumber: invoice.adjustedInvoice?.invoiceNumber })
   return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {

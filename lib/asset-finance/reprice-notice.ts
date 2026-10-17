@@ -11,6 +11,7 @@
  * MEMBER or BENEFICIAL_OWNER alone is not a recipient.
  */
 import type { prisma } from "@/lib/prisma"
+import type { RateTaxDocument } from "./rate-tax-documents"
 import type { NotificationType } from "@/lib/notifications/bell"
 import { dbDate } from "./dates"
 import { entityContactRecipients } from "./entity-contacts"
@@ -28,6 +29,7 @@ export interface RepriceNotice {
   resultingRate: string
   effectiveDate: string
   firstChangedPaymentDate: string
+  taxDocuments?: RateTaxDocument[]
   correctionPendingManual?: boolean
   historicalBalanceAdjustmentCents?: number
   totalInterestCents: number
@@ -70,6 +72,7 @@ export async function queueRepriceNotice(db: NoticeDb, notice: RepriceNotice): P
     oldInstalmentCents: notice.oldInstalmentCents, newInstalmentCents: notice.newInstalmentCents,
     historicalBalanceAdjustmentCents: notice.historicalBalanceAdjustmentCents ?? 0,
     correctionPendingManual: notice.correctionPendingManual ?? false,
+    ...(notice.taxDocuments ? { taxDocuments: notice.taxDocuments as unknown as import("@prisma/client").Prisma.InputJsonValue } : {}),
     recipientClientIds, totalInterestCents: notice.totalInterestCents, monthlyInterestCents: notice.monthlyInterestCents,
   } })
 

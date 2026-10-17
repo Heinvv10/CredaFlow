@@ -34,7 +34,7 @@ export interface LeaseCapitalView {
   rows: StoredScheduleRow[]
   residualCents: number
   advance: boolean
-  rentals: Map<number, { id: string; maintenanceExclVatCents: number; vatRate: Prisma.Decimal; taxInvoiceId: string | null }>
+  rentals: Map<number, { id: string; rentalExclVatCents: number; maintenanceExclVatCents: number; vatRate: Prisma.Decimal; taxInvoiceId: string | null }>
 }
 
 export async function leaseCapitalRows(

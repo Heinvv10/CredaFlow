@@ -52,6 +52,17 @@ describe("generateTaxInvoicePdf", () => {
     expect(page.join(" ")).toContain("TEST0000000000001")
   })
 
+  it.each(["DEBIT_NOTE", "CREDIT_NOTE"])("prints s21 identity, original transaction and reason for %s", async (adjustmentKind) => {
+    const pages = await texts(await generateTaxInvoicePdf({ ...INVOICE, adjustmentKind, invoiceNumber: "ADJ-000043", originalInvoiceNumber: "INV-000042", adjustmentReason: "Rental reference-rate correction effective 2025-08-17" }))
+    const text = pages.flat().join(" ")
+    expect(text).toContain(adjustmentKind.replace("_", " "))
+    expect(text).toContain("INV-000042")
+    expect(text).toContain("Rental reference-rate correction effective")
+    expect(text).toContain("2025-08-17")
+    expect(text).toContain(INVOICE.supplierVatNumber)
+    expect(text).toContain(INVOICE.recipientVatNumber!)
+  })
+
   it("omits the recipient VAT number line for an unregistered recipient", async () => {
     const [page] = await texts(await generateTaxInvoicePdf({ ...INVOICE, recipientVatNumber: null }))
     expect(page.filter((t) => t === "VAT Reg No:")).toHaveLength(1)

@@ -23,6 +23,9 @@ export interface TaxInvoicePdfLine {
 }
 
 export interface TaxInvoicePdfInput {
+  adjustmentKind?: string | null
+  adjustmentReason?: string | null
+  originalInvoiceNumber?: string | null
   invoiceNumber: string
   issueDate: Date
   supplyDate: Date
@@ -99,7 +102,8 @@ function ratePercent(rate: Prisma.Decimal | string): string {
 
 export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: { logo?: Uint8Array } = {}): Promise<Buffer> {
   const doc = await PDFDocument.create()
-  doc.setTitle(`Tax Invoice ${invoice.invoiceNumber}`)
+  const title = invoice.adjustmentKind === "DEBIT_NOTE" ? "DEBIT NOTE" : invoice.adjustmentKind === "CREDIT_NOTE" ? "CREDIT NOTE" : "TAX INVOICE"
+  doc.setTitle(`${invoice.adjustmentKind ? title : "Tax Invoice"} ${invoice.invoiceNumber}`)
   doc.setCreationDate(invoice.createdAt)
   doc.setModificationDate(invoice.createdAt)
   const regular = await doc.embedFont(StandardFonts.Helvetica)
@@ -120,7 +124,7 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
   }
 
   let y = A4_HEIGHT - 100
-  drawText(first, "TAX INVOICE", MARGIN, y, bold, 18, ACCENT)
+  drawText(first, title, MARGIN, y, bold, 18, ACCENT)
   const meta: [string, string][] = [
     ["Invoice No:", invoice.invoiceNumber],
     ["Date of issue:", formatDatePdf(invoice.issueDate)],
@@ -165,6 +169,8 @@ export async function generateTaxInvoicePdf(invoice: TaxInvoicePdfInput, opts: {
     ["Address:", invoice.recipientAddress],
     ...(invoice.recipientVatNumber ? [["VAT Reg No:", invoice.recipientVatNumber] as [string, string]] : []),
   ])
+
+  if (invoice.adjustmentKind) party("ADJUSTMENT", [["Original invoice:", invoice.originalInvoiceNumber ?? ""], ["Reason:", invoice.adjustmentReason ?? ""]])
 
   const drawHeaders = (page: PDFPage, top: number): number => {
     const headers: [keyof typeof COLUMNS, string][] = [

@@ -72,6 +72,9 @@ import { leaseCapitalRows, writeLeaseRepricedRows } from "./lease-reprice"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { dueDateInstant, toScheduleRecord } from "./schedule-records"
 import { assetRateRepriceBaseline } from "./reprice-baseline"
+import { writeClosedLeaseRateCorrection } from "./reprice-closed-lease"
+import { ratePayoffPlan } from "./reprice-payoff"
+import { writeRatePayoff } from "./reprice-payoff-write"
 import { lawfulRateCorrection } from "./lawful-rate-correction"
 import { correctionCashEvents, correctionBalance } from "./rate-correction"
 import { commonLawContractualRows } from "./common-law-interest"
@@ -83,8 +86,8 @@ import { writeRestatedRows, writeRepricedRows } from "./reprice-writes"
 
 export type RepriceTx = Pick<
   typeof prisma,
-  "$queryRaw" | "$executeRawUnsafe" | "loan" | "repaymentSchedule" | "contractRate" | "referenceRate" | "auditLog" | "entityRelationship" | "user" | "notification"
-  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge" | "assetFinanceRateCorrection" | "bankTransaction"
+  "$queryRaw" | "$executeRaw" | "$executeRawUnsafe" | "loan" | "repaymentSchedule" | "contractRate" | "referenceRate" | "auditLog" | "entityRelationship" | "user" | "notification"
+  | "leaseRental" | "assetFinanceDeal" | "client" | "assetFinanceRateNotice" | "payment" | "complianceRecord" | "loanCharge" | "assetFinanceRateCorrection" | "bankTransaction" | "taxInvoice" | "creditNote" | "vatConfig" | "vatRate"
 >
 
 export interface RepriceRequest {
@@ -207,9 +210,10 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const history = await contractRatePath(tx, tenantId, loanId) // all before effectiveDate: none later, none on it
   const correctionLedger = await tx.assetFinanceRateCorrection.findMany({ where: { tenantId, loanId }, include: { contractRate: { select: { effectiveDate: true } } } })
   const appliedDates = correctionLedger.filter((row) => row.reason === "APPLIED_TO_SCHEDULE").map((row) => isoOfDbDate(row.contractRate.effectiveDate))
-  const ledgerOnlyDates = new Set(correctionLedger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE"].includes(row.reason) && !appliedDates.some((day) => day > isoOfDbDate(row.contractRate.effectiveDate))).map((row) => isoOfDbDate(row.contractRate.effectiveDate)))
+  const ledgerOnlyDates = new Set(correctionLedger.filter((row) => ["LATE_CLOSED_BOOK_RATE", "FIXED_NOTICE_WINDOW_RATE", "LATE_CLOSED_LEASE_RATE"].includes(row.reason) && !appliedDates.some((day) => day > isoOfDbDate(row.contractRate.effectiveDate))).map((row) => isoOfDbDate(row.contractRate.effectiveDate)))
   const billedHistory = history.filter((point) => !ledgerOnlyDates.has(point.effectiveDate))
   const monthlyServiceFee = loan.ncaRegime === "NCA" ? loan.monthlyServiceFee ?? 0 : 0
+  if (loan.status === "COMPLETED" && lease) return writeClosedLeaseRateCorrection(tx, { request, view: lease, startDate, oldPath: billedHistory, newPath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }], resultingRate, margin: prior.margin, loan })
   const pendingCashRows = rawStored.filter((row) => row.totalDue > row.totalPaid)
   const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + REPRICE_NOTICE_DAYS)
   if (loan.status === "COMPLETED" || fixedFinalWindow) {
@@ -252,6 +256,24 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     stored: lease ? lease.rows : stored, paidThroughIndex: paid, originalClosingBalanceCents: schedule.capitalOutstandingCents,
     startDate, oldPath: billedHistory, newPath, effectiveDate: [...ledgerOnlyDates, effectiveDate].sort()[0],
   })
+  if (!lease && restatement.closingBalanceCents <= 0) {
+    const financedAmountCents = stored[0].assetFinanceOpeningBalanceCents ?? restateSettledSchedule({ stored, paidThroughIndex: paid, originalClosingBalanceCents: schedule.capitalOutstandingCents, startDate, oldPath: billedHistory, newPath: billedHistory, effectiveDate: startDate }).rows[0].openingBalanceCents
+    let plan = ratePayoffPlan({ rows: stored, paidThroughIndex: paid, financedAmountCents, startDate, ratePath: newPath })
+    if (loan.ncaRegime === "NON_NCA") {
+      const replay = await loadChargesReplay(tx, { tenantId, loanId }, dueDateInstant(request.runDate), { decidingStatus: true })
+      if (!replay) throw new Error("Rate payoff needs its common-law replay")
+      let stable = false
+      for (let attempt = 0; attempt <= stored.length + 1; attempt++) {
+        const result = replay.replayAt(dueDateInstant(request.runDate), [], { schedule: plan.rows.map((row) => ({ ...row, commonLawContractualInterestDue: null })), contractRateHistory: newPath.map((point) => ({ effectiveDate: dbDate(point.effectiveDate), annualRate: point.annualRate })) })
+        const next = ratePayoffPlan({ rows: stored, paidThroughIndex: paid, financedAmountCents, startDate, ratePath: newPath, lawfulInterestCents: result.lawfulSchedule!.map((row) => row.interestDue) })
+        stable = next.amountDue === plan.amountDue && next.payoffIndex === plan.payoffIndex
+        plan = next
+        if (stable) break
+      }
+      if (!stable) throw new Error("Common-law payoff did not reconcile")
+    }
+    return writeRatePayoff(tx, { request, loan, rows: stored, plan, resultingRate, margin: prior.margin, oldInstalmentCents: schedule.referenceInstalmentCents + monthlyServiceFee, path: newPath })
+  }
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
   if (kept >= schedule.rows.length - 1) return notEligible("within_notice_period")
   let solved = repriceTail({

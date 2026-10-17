@@ -12,6 +12,7 @@ import type { Prisma } from "@prisma/client"
 import { sastDayStart } from "@/lib/date/sast-period"
 import { groupCharges, type AccountingDb } from "./store"
 import type { SourceAssetFinance, SourceCreditNote, SourceInvoice, SourceLoan, SourceRecovery } from "./source-types"
+import { rateTaxDocuments } from "@/lib/asset-finance/rate-tax-documents"
 import { creditShares } from "./sources-asset-finance"
 
 const AF_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const
@@ -20,21 +21,24 @@ const AF_TYPES = ["INSTALMENT_SALE", "FINANCE_LEASE", "OPERATING_LEASE", "FULL_M
 const dayOf = (d: Date) => sastDayStart(d.toISOString().slice(0, 10))
 
 const INVOICE = {
-  id: true, number: true, supplyDate: true, issueDate: true, totalExclVatCents: true, vatCents: true, totalInclVatCents: true,
+  adjustmentKind: true, id: true, number: true, supplyDate: true, issueDate: true, totalExclVatCents: true, vatCents: true, totalInclVatCents: true,
 } satisfies Prisma.TaxInvoiceSelect
 
 const CREDIT_NOTE = { id: true, invoiceId: true, issueDate: true, exclVatCents: true, vatCents: true, inclVatCents: true } satisfies Prisma.CreditNoteSelect
 
-type InvoiceRow = { id: string; supplyDate: Date; issueDate: Date; totalExclVatCents: number; vatCents: number; totalInclVatCents: number }
+type InvoiceRow = { adjustmentKind?: string | null; id: string; supplyDate: Date; issueDate: Date; totalExclVatCents: number; vatCents: number; totalInclVatCents: number }
 
 function toInvoice(row: InvoiceRow, assetSaleExclVatCents = 0, fundBilledExclVatCents = 0): SourceInvoice {
   return {
-    id: row.id, supplyDate: dayOf(row.supplyDate), issueDate: dayOf(row.issueDate),
+    // An s21 debit adjusts consideration when issued; its document retains
+    // the original supply date solely to identify that supply and tax rate.
+    id: row.id, supplyDate: dayOf(row.adjustmentKind === "DEBIT_NOTE" ? row.issueDate : row.supplyDate), issueDate: dayOf(row.issueDate),
     exclVatCents: row.totalExclVatCents, vatCents: row.vatCents, inclVatCents: row.totalInclVatCents, assetSaleExclVatCents, fundBilledExclVatCents,
   }
 }
 
 const LOAN_SELECT = {
+  contractRates: { select: { rateCorrections: { where: { reason: "LATE_CLOSED_LEASE_RATE" }, select: { contractualRows: true } } } },
   id: true, reference: true, principal: true, initiationFee: true, startDate: true, status: true, writeOffAt: true, closedAt: true, contractType: true,
   repaymentSchedule: {
     orderBy: { installmentNo: "asc" },
@@ -122,6 +126,10 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
   const deal = loan.assetFinanceDeal
   const released = deal?.payout?.status === "RELEASED" && deal.payout.releasedAt ? { amountCents: deal.payout.amountCents, releasedAt: deal.payout.releasedAt } : null
   const asset = { exclVatCents: loan.asset?.cashPriceExclVatCents ?? 0, vatCents: loan.asset?.vatCents ?? 0 }
+  const rentalCreditNotes = new Map(loan.contractRates.flatMap(rate => rate.rateCorrections.flatMap(correction => {
+    const value = correction.contractualRows
+    return value && typeof value === "object" && !Array.isArray(value) ? rateTaxDocuments(value.taxDocuments).filter(doc => doc.kind === "CREDIT_NOTE").map(doc => [doc.id, doc.invoiceId] as const) : []
+  })))
   const byId = new Map(loan.taxInvoices.map((i) => [i.id, i]))
   const eot = loan.leaseEndOfTerm
   const assetSale = (invoiceId: string) => (eot?.outcome === "PURCHASE" && eot.taxInvoiceId === invoiceId ? eot.purchasePriceExclVatCents ?? 0 : 0)
@@ -161,7 +169,9 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
     })) : loan.taxInvoices.flatMap((i) => i.creditNotes.map((n): SourceCreditNote => {
       const note: SourceCreditNote = {
         id: n.id, invoiceId: n.invoiceId, issueDate: dayOf(n.issueDate), exclVatCents: n.exclVatCents, vatCents: n.vatCents, inclVatCents: n.inclVatCents,
-        invoiceIncome: i.leaseRental
+        invoiceIncome: i.leaseRental && rentalCreditNotes.get(n.id) === i.id
+          ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }]
+          : i.leaseRental
           ? [{ role: "RENTAL_INCOME", exclVatCents: i.leaseRental.rentalExclVatCents }, { role: "MAINTENANCE_INCOME", exclVatCents: i.leaseRental.maintenanceExclVatCents }]
           : [
             { role: "ASSET_DISPOSAL_PROCEEDS", exclVatCents: assetSale(i.id) }, { role: "MAINTENANCE_FUND_LIABILITY", exclVatCents: billed(i.id) },

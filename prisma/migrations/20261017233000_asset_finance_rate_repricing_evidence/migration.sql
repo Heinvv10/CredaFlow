@@ -4,7 +4,7 @@ CREATE FUNCTION public."assetRateIsLedgerOnly"(p_rate_id TEXT) RETURNS BOOLEAN L
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM "AssetFinanceRateCorrection" correction JOIN "ContractRate" rate ON rate."id" = correction."contractRateId"
-    WHERE correction."contractRateId" = p_rate_id AND correction."reason" IN ('LATE_CLOSED_BOOK_RATE','FIXED_NOTICE_WINDOW_RATE')
+    WHERE correction."contractRateId" = p_rate_id AND correction."reason" IN ('LATE_CLOSED_BOOK_RATE','FIXED_NOTICE_WINDOW_RATE','LATE_CLOSED_LEASE_RATE')
       AND NOT EXISTS (SELECT 1 FROM "AssetFinanceRateCorrection" applied JOIN "ContractRate" applied_rate ON applied_rate."id" = applied."contractRateId"
         WHERE applied."tenantId" = correction."tenantId" AND applied."loanId" = correction."loanId"
           AND applied."reason" = 'APPLIED_TO_SCHEDULE' AND applied_rate."effectiveDate" > rate."effectiveDate")
@@ -22,6 +22,7 @@ DECLARE
   baseline JSONB;
   expected JSONB;
   original_row JSONB;
+  after_payoff BOOLEAN;
   ordinal BIGINT;
   previous_day DATE;
   due_day DATE;
@@ -76,11 +77,11 @@ BEGIN
   previous_day := (booked."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::DATE;
   FOR expected, ordinal IN SELECT value, ordinality FROM JSONB_ARRAY_ELEMENTS(baseline -> 'rows') WITH ORDINALITY LOOP
     original_row := p_original #> ARRAY['billing', 'schedule', (ordinal - 1)::TEXT];
+    after_payoff := baseline ? 'payoff' AND ((expected ->> 'dueDate')::TIMESTAMPTZ AT TIME ZONE 'Africa/Johannesburg')::DATE > (baseline #>> '{payoff,date}')::DATE;
     IF expected ->> 'installmentNo' IS DISTINCT FROM original_row ->> 'installmentNo'
       OR expected ->> 'dueDate' IS DISTINCT FROM original_row ->> 'dueDate'
-      OR expected ->> 'feesDueCents' IS DISTINCT FROM original_row ->> 'feesDueCents'
-      OR expected ->> 'baseFeesDueCents' IS DISTINCT FROM original_row ->> 'baseFeesDueCents'
-      OR expected ->> 'creditLifePremiumDueCents' IS DISTINCT FROM original_row ->> 'creditLifePremiumDueCents'
+      OR (NOT COALESCE(after_payoff,FALSE) AND (expected ->> 'feesDueCents' IS DISTINCT FROM original_row ->> 'feesDueCents' OR expected ->> 'baseFeesDueCents' IS DISTINCT FROM original_row ->> 'baseFeesDueCents' OR expected ->> 'creditLifePremiumDueCents' IS DISTINCT FROM original_row ->> 'creditLifePremiumDueCents'))
+      OR (after_payoff AND ((expected ->> 'totalDueCents')::BIGINT <> 0 OR (expected ->> 'feesDueCents')::BIGINT <> 0 OR (expected ->> 'creditLifePremiumDueCents')::BIGINT <> 0))
       OR EXISTS (SELECT 1 FROM unnest(ARRAY['principalDueCents','interestDueCents','totalDueCents','openingBalanceCents','closingBalanceCents']) key
         WHERE NOT COALESCE(expected ->> key ~ '^[0-9]+$', FALSE))
       OR (expected ->> 'totalDueCents')::BIGINT <> (expected ->> 'principalDueCents')::BIGINT
@@ -121,6 +122,10 @@ BEGIN
     OR payment_sum <> (baseline ->> 'totalRepayableCents')::BIGINT THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Asset repricing baseline totals must reconcile to its contractual rows';
   END IF;
+  IF baseline ? 'payoff' AND (
+    NOT EXISTS (SELECT 1 FROM "AssetFinanceRateCorrection" correction WHERE correction."contractRateId" = latest."id" AND correction."reason" = 'RATE_PAYOFF_CREDIT')
+    OR (baseline #>> '{payoff,refundDueCents}')::BIGINT <> (SELECT COALESCE(SUM(p."amount"),0) FROM "Payment" p WHERE p."tenantId" = booked."tenantId" AND p."loanId" = p_loan_id AND NOT p."reversed" AND p."allocationStatus" = 'UNAPPLIED' AND p."reconciliationReason" = 'asset_rate_payoff_credit' AND p."reconciliationReference" = latest."id")
+  ) THEN RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Rate payoff needs its conserved pending cash refund'; END IF;
   RETURN baseline;
 END;
 $function$;
@@ -195,6 +200,10 @@ BEGIN
       booked."pasqEvidence" := JSONB_SET(booked."pasqEvidence", '{calculator,totalInterestCents}', revised_asset_baseline -> 'totalInterestCents');
       booked."pasqEvidence" := JSONB_SET(booked."pasqEvidence", '{billing,totalRepayableCents}', revised_asset_baseline -> 'totalRepayableCents');
       booked."pasqEvidence" := JSONB_SET(booked."pasqEvidence", '{billing,schedule}', revised_asset_baseline -> 'rows');
+      IF revised_asset_baseline ? 'payoff' THEN
+        SELECT COALESCE(SUM((item ->> 'creditLifePremiumDueCents')::BIGINT),0) INTO booked."creditLifePremiums" FROM JSONB_ARRAY_ELEMENTS(revised_asset_baseline -> 'rows') item;
+        booked."pasqEvidence" := JSONB_SET(booked."pasqEvidence", '{creditLife,totalPremiumCents}', TO_JSONB(booked."creditLifePremiums"));
+      END IF;
     END IF;
   END IF;
 

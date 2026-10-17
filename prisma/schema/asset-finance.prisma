@@ -281,7 +281,13 @@ model TaxInvoice {
   createdById        String?
   createdAt          DateTime @default(now())
 
+  adjustmentKind String?
+  adjustmentReason String?
+  adjustedInvoiceId String?
+  adjustedInvoice TaxInvoice? @relation("TaxInvoiceAdjustments", fields: [tenantId, adjustedInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  adjustments TaxInvoice[] @relation("TaxInvoiceAdjustments")
   creditNotes      CreditNote[]
   fundMovement     MaintenanceFundMovement?
   leaseEndOfTerm   LeaseEndOfTerm?          @relation("LeaseEndOfTermInvoice")
@@ -898,6 +904,7 @@ model AssetFinanceRateNotice {
   newInstalmentCents       Int
   historicalBalanceAdjustmentCents Int @default(0)
   correctionPendingManual Boolean @default(false)
+  taxDocuments Json?
   totalInterestCents      Int
   monthlyInterestCents    Int
   recipientClientIds      String[]

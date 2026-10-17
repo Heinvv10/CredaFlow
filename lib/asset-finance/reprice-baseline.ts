@@ -14,6 +14,7 @@ interface BaselineRow {
 }
 export interface AssetRateRepriceBaseline {
   version: "asset-rate-reprice-v1"
+  payoff?: { date: string; refundDueCents: number }
   originalEvidenceSha256: string
   contractRateId: string
   annualRate: string
@@ -35,10 +36,12 @@ export function assetRateRepriceBaseline(input: {
   effectiveDate: string
   recurringPaymentCents: number
   rows: BaselineRow[]
+  payoff?: { date: string; refundDueCents: number }
 }): AssetRateRepriceBaseline | null {
   if (!pasqEvidenceIsIntact(input.original)) return null
   const original = input.original
   return {
+    ...(input.payoff ? { payoff: input.payoff } : {}),
     version: "asset-rate-reprice-v1", originalEvidenceSha256: input.original.evidenceSha256,
     contractRateId: input.contractRateId, annualRate: input.annualRate, effectiveDate: input.effectiveDate,
     totalInterestCents: input.rows.reduce((sum, row) => sum + row.interestDue, 0),
