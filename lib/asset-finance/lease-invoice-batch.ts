@@ -34,7 +34,7 @@ export async function runLeaseInvoiceBatch(db: BatchDb, day: string): Promise<Le
     await runCpaContinuations(db, tenantId, day, run)
     await runLeaseExtensions(db, tenantId, day, run)
     const due = await db.leaseRental.findMany({
-      where: { tenantId, taxInvoiceId: null, cancelledAt: null, dueDate: { lte: dbDate(day) }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } },
+      where: { tenantId, taxInvoiceId: null, cancelledAt: null, OR: [{ rentalExclVatCents: { gt: 0 } }, { maintenanceExclVatCents: { gt: 0 } }], dueDate: { lte: dbDate(day) }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } },
       orderBy: [{ dueDate: "asc" }, { periodNo: "asc" }],
       select: { id: true, dueDate: true },
     })

@@ -46,6 +46,7 @@ export type LeaseInvoiceTx = TaxInvoiceDb & Pick<VatTransaction, "$queryRaw" | "
 export type IssueRentalResult =
   | { kind: "issued"; invoiceId: string; invoiceNumber: string; vatAdjusted?: boolean }
   | { kind: "already_invoiced"; invoiceId: string }
+  | { kind: "no_charge" }
   | { kind: "not_found" }
   | { kind: "refused"; reason: string; error: string }
 
@@ -79,6 +80,7 @@ export async function issueLeaseRentalInvoice(
   if (input.supplyDate > dueDate || input.supplyDate > input.today) {
     return { kind: "refused", reason: "supply_date", error: `A rental's supply date is the earlier of its due date ${dueDate} and the receipt, and not after today` }
   }
+  if (rental.rentalExclVatCents === 0 && rental.maintenanceExclVatCents === 0) return { kind: "no_charge" }
   const { loan } = rental
   const lessee = loan.entity ?? loan.client
   const address = lessee ? recipientAddress(lessee) : null

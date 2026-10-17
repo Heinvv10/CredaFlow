@@ -53,6 +53,7 @@ export interface StoredScheduleInput {
   ratePath: RatePoint[] // the contract rate path the pending rows were solved under
   startDate: string // contract start: row 1's period runs from the day after it
   /** Original deal weights. Unlike stored final payments, these contain no rounding residue. */
+  allowZeroReference?: boolean
   contractualWeights?: unknown
 }
 
@@ -64,7 +65,8 @@ export interface StoredSchedule {
 }
 
 /** A pending row: PENDING and nothing paid against it. Every other row is settled history. */
-const isPending = (row: StoredScheduleRow): boolean => (row.status === "PENDING" || row.totalDue === 0) && row.totalPaid === 0
+const isPending = (row: StoredScheduleRow): boolean =>
+  (row.status === "PENDING" || row.totalDue === 0) && row.totalPaid === 0
 
 /** The opening balance x with x + interest(x) = target, or null when no integer has it. */
 function openingBefore(target: number, rateDays: number): number | null {
@@ -76,8 +78,7 @@ function openingBefore(target: number, rateDays: number): number | null {
 }
 
 const sameAmounts = (a: ScheduleRecordAmounts, b: ScheduleRecordAmounts): boolean =>
-  a.principalDue === b.principalDue && a.interestDue === b.interestDue
-  && a.totalDue === b.totalDue - b.feesDue
+  a.principalDue === b.principalDue && a.interestDue === b.interestDue && a.totalDue === b.totalDue - b.feesDue
 
 export function storedScheduleForReprice(input: StoredScheduleInput): StoredSchedule | { error: StoredScheduleError } {
   const { stored, balloonCents } = input
@@ -88,7 +89,8 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
   })
   const first = lastSettled + 1
   if (first === stored.length) return { error: "no_pending_rows" }
-  if (stored.slice(0, Math.max(0, lastSettled)).some((row) => isPending(row) && row.totalDue > 0)) return { error: "schedule_not_contiguous" }
+  if (stored.slice(0, Math.max(0, lastSettled)).some((row) => isPending(row) && row.totalDue > 0))
+    return { error: "schedule_not_contiguous" }
 
   const last = stored.length - 1
   const balloonOf = (i: number) => (i === last ? balloonCents : 0)
@@ -102,7 +104,9 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
   const dueDays = stored.map((row) => toDayNumber(sastCalendarDate(row.dueDate)))
   const startDay = toDayNumber(input.startDate, "startDate")
   const segments = rateSegments(input.ratePath, startDay)
-  const rateDays = dueDays.map((day, i) => (i < first ? 0 : rateDaySum(segments, i === 0 ? startDay : dueDays[i - 1], day)))
+  const rateDays = dueDays.map((day, i) =>
+    i < first ? 0 : rateDaySum(segments, i === 0 ? startDay : dueDays[i - 1], day)
+  )
 
   const snapshots = tail.map((row) => row.assetFinanceOpeningBalanceCents)
   const hasSnapshots = snapshots.every((value) => Number.isSafeInteger(value) && (value as number) >= 0)
@@ -124,13 +128,22 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
   const regulars = payments.slice(first)
   const referenceInstalmentCents =
     input.recordedBaseCents ?? modalPositive(regulars.slice(0, -1)) ?? regulars[regulars.length - 1]
-  if (!(referenceInstalmentCents > 0)) return { error: "unsupported_schedule" }
-  let weights = deriveWeights(regulars, referenceInstalmentCents, stored.length)
+  if (
+    !(referenceInstalmentCents > 0) &&
+    !(input.allowZeroReference && referenceInstalmentCents === 0 && input.contractualWeights != null)
+  )
+    return { error: "unsupported_schedule" }
+  let weights =
+    referenceInstalmentCents === 0
+      ? regulars.map(() => 1)
+      : deriveWeights(regulars, referenceInstalmentCents, stored.length)
   if (input.contractualWeights != null) {
-    if (!Array.isArray(input.contractualWeights)
-        || input.contractualWeights.length !== stored.length
-        || input.contractualWeights.some((weight) => typeof weight !== "number" || !Number.isFinite(weight) || weight < 0)
-        || !(input.contractualWeights[input.contractualWeights.length - 1] > 0)) {
+    if (
+      !Array.isArray(input.contractualWeights) ||
+      input.contractualWeights.length !== stored.length ||
+      input.contractualWeights.some((weight) => typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) ||
+      !(input.contractualWeights[input.contractualWeights.length - 1] > 0)
+    ) {
       return { error: "unsupported_schedule" }
     }
     weights = input.contractualWeights.slice(first)
@@ -143,9 +156,16 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
     const dueDate = sastCalendarDate(row.dueDate)
     if (i < first) {
       rows.push({
-        index: i, dueDate, weight: 0, openingBalanceCents: 0, interestCents: row.interestDue,
-        principalCents: row.principalDue - balloonOf(i), feesCents: 0, balloonCents: balloonOf(i),
-        totalCents: row.totalDue - row.feesDue, closingBalanceCents: 0,
+        index: i,
+        dueDate,
+        weight: 0,
+        openingBalanceCents: 0,
+        interestCents: row.interestDue,
+        principalCents: row.principalDue - balloonOf(i),
+        feesCents: 0,
+        balloonCents: balloonOf(i),
+        totalCents: row.totalDue - row.feesDue,
+        closingBalanceCents: 0,
       })
       continue
     }
@@ -158,8 +178,16 @@ export function storedScheduleForReprice(input: StoredScheduleInput): StoredSche
     const principal = payments[i] - interest
     const closing = opening - principal - balloonOf(i)
     const solverRow: ScheduleRow = {
-      index: i, dueDate, weight: weights[i - first], openingBalanceCents: opening, interestCents: interest,
-      principalCents: principal, feesCents: 0, balloonCents: balloonOf(i), totalCents: row.totalDue - row.feesDue, closingBalanceCents: closing,
+      index: i,
+      dueDate,
+      weight: weights[i - first],
+      openingBalanceCents: opening,
+      interestCents: interest,
+      principalCents: principal,
+      feesCents: 0,
+      balloonCents: balloonOf(i),
+      totalCents: row.totalDue - row.feesDue,
+      closingBalanceCents: closing,
     }
     if (!sameAmounts(toScheduleRecord(solverRow), row)) return { error: "unsupported_schedule" }
     rows.push(solverRow)

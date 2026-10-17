@@ -36,7 +36,8 @@ describe("independent lease late-rate capital boundary", () => {
       },
     ]
     const tx = {
-      assetFinanceDeal: { findFirst: async () => ({ balloonCents: 80000, rentalTiming: "ARREARS" }) },
+      assetFinanceRateCorrection: { findFirst: async () => null },
+  assetFinanceDeal: { findFirst: async () => ({ balloonCents: 80000, rentalTiming: "ARREARS" }) },
       leaseRental: {
         findMany: async () =>
           stored.map((row, i) => ({

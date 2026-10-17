@@ -21,37 +21,71 @@
  * admits the amount change only inside this transaction's
  * credaflow.lease_reprice flag.
  */
-import type { Prisma } from "@prisma/client"
+import type { Prisma, ScheduleStatus } from "@prisma/client"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 import { rateTenThousandthsOf } from "@/lib/vat/vat-rate"
 import type { StoredScheduleRow } from "./stored-schedule"
 import type { ScheduleRow } from "./types"
 import type { RepriceTx } from "./reprice-loan"
 
-type LeaseDb = Pick<RepriceTx, "$executeRawUnsafe" | "repaymentSchedule" | "leaseRental" | "assetFinanceDeal">
+type LeaseDb = Pick<
+  RepriceTx,
+  "$executeRawUnsafe" | "repaymentSchedule" | "leaseRental" | "assetFinanceDeal" | "assetFinanceRateCorrection"
+>
 
 export interface LeaseCapitalView {
   rows: StoredScheduleRow[]
+  lessorFundingDifferenceCents?: number
   residualCents: number
   advance: boolean
-  rentals: Map<number, { id: string; rentalExclVatCents: number; maintenanceExclVatCents: number; vatRate: Prisma.Decimal; taxInvoiceId: string | null }>
+  rentals: Map<
+    number,
+    {
+      id: string
+      rentalExclVatCents: number
+      maintenanceExclVatCents: number
+      vatRate: Prisma.Decimal
+      taxInvoiceId: string | null
+    }
+  >
 }
 
 export async function leaseCapitalRows(
   tx: LeaseDb,
   tenantId: string,
   loanId: string,
-  stored: StoredScheduleRow[],
+  stored: StoredScheduleRow[]
 ): Promise<LeaseCapitalView | { error: "unsupported_schedule" }> {
   const [deal, rentals] = await Promise.all([
     tx.assetFinanceDeal.findFirst({ where: { tenantId, loanId }, select: { balloonCents: true, rentalTiming: true } }),
     tx.leaseRental.findMany({
       where: { tenantId, loanId },
       orderBy: { periodNo: "asc" },
-      select: { id: true, periodNo: true, scheduleId: true, rentalExclVatCents: true, maintenanceExclVatCents: true, vatRate: true, taxInvoiceId: true },
+      select: {
+        id: true,
+        periodNo: true,
+        scheduleId: true,
+        rentalExclVatCents: true,
+        maintenanceExclVatCents: true,
+        vatRate: true,
+        taxInvoiceId: true,
+      },
     }),
   ])
   if (!deal || rentals.length !== stored.length) return { error: "unsupported_schedule" }
+  const floor = await tx.assetFinanceRateCorrection.findFirst({
+    where: { tenantId, loanId, reason: "RATE_PAYOFF_CREDIT", cause: { startsWith: "LEASE_FLOOR:" } },
+    orderBy: { contractRate: { effectiveDate: "desc" } },
+    select: { contractualRows: true },
+  })
+  const floorEvidence = floor?.contractualRows
+  const fundingAdjustments =
+    floorEvidence &&
+    typeof floorEvidence === "object" &&
+    !Array.isArray(floorEvidence) &&
+    Array.isArray(floorEvidence.fundingAdjustments)
+      ? floorEvidence.fundingAdjustments
+      : []
   const last = stored.length - 1
   const rows: StoredScheduleRow[] = []
   for (let i = 0; i <= last; i++) {
@@ -59,15 +93,29 @@ export async function leaseCapitalRows(
     const rental = rentals[i]
     const opening = row.assetFinanceOpeningBalanceCents
     const nextOpening = i === last ? 0 : stored[i + 1].assetFinanceOpeningBalanceCents
-    if (rental.scheduleId !== row.id || rental.periodNo !== row.installmentNo || opening == null || nextOpening == null) {
+    if (
+      rental.scheduleId !== row.id ||
+      rental.periodNo !== row.installmentNo ||
+      opening == null ||
+      nextOpening == null
+    ) {
       return { error: "unsupported_schedule" }
     }
     const balloon = i === last ? deal.balloonCents : 0
-    const payment = rental.rentalExclVatCents
+    const adjustment = fundingAdjustments.find(
+      (part) => part && typeof part === "object" && !Array.isArray(part) && part.periodNo === rental.periodNo
+    )
+    const payment =
+      rental.rentalExclVatCents +
+      (adjustment && typeof adjustment === "object" && !Array.isArray(adjustment)
+        ? Number(adjustment.capitalCashAdjustmentCents ?? 0)
+        : 0)
+    if (!Number.isSafeInteger(payment) || payment < 0) return { error: "unsupported_schedule" }
     const interest = nextOpening - opening + payment + balloon
     const interestDue = Math.min(Math.max(interest, 0), payment)
     rows.push({
       ...row,
+      status: row.totalDue === 0 && row.totalPaid === 0 ? "PENDING" : row.status,
       principalDue: payment - interestDue + balloon,
       interestDue,
       feesDue: 0,
@@ -80,6 +128,10 @@ export async function leaseCapitalRows(
   }
   return {
     rows,
+    lessorFundingDifferenceCents:
+      floorEvidence && typeof floorEvidence === "object" && !Array.isArray(floorEvidence)
+        ? Number(floorEvidence.lessorFundingDifferenceCents ?? floorEvidence.lessorRoundingCents ?? 0)
+        : 0,
     residualCents: deal.balloonCents,
     advance: deal.rentalTiming === "ADVANCE",
     rentals: new Map(rentals.map((r) => [r.periodNo, r])),
@@ -93,14 +145,15 @@ export async function writeLeaseRepricedRows(
   loanId: string,
   view: LeaseCapitalView,
   stored: StoredScheduleRow[],
-  solvedRows: ScheduleRow[],
+  solvedRows: ScheduleRow[]
 ): Promise<number> {
   await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_reprice', 'on', true)")
   let change = 0
   for (const row of solvedRows) {
     const before = stored[row.index]
     const rental = view.rentals.get(before.installmentNo)
-    if (!rental || rental.taxInvoiceId !== null) throw new Error(`lease reprice: rental ${before.installmentNo} of loan ${loanId} is invoiced or missing`)
+    if (!rental || rental.taxInvoiceId !== null)
+      throw new Error(`lease reprice: rental ${before.installmentNo} of loan ${loanId} is invoiced or missing`)
     const rate = rateTenThousandthsOf(rental.vatRate)
     const rentalExclVatCents = row.totalCents - row.balloonCents
     const vatCents = vatOnExclusive(rentalExclVatCents, rate) + vatOnExclusive(rental.maintenanceExclVatCents, rate)
@@ -110,8 +163,19 @@ export async function writeLeaseRepricedRows(
       data: { rentalExclVatCents, vatCents, totalCents },
     })
     const schedule = await tx.repaymentSchedule.updateMany({
-      where: { id: before.id, tenantId, loanId, status: "PENDING", totalPaid: 0 },
-      data: { principalDue: totalCents, interestDue: 0, totalDue: totalCents, assetFinanceOpeningBalanceCents: row.openingBalanceCents },
+      where: {
+        id: before.id,
+        tenantId,
+        loanId,
+        status: before.totalDue === 0 ? (before.status as ScheduleStatus) : "PENDING",
+        totalPaid: 0,
+      },
+      data: {
+        principalDue: totalCents,
+        interestDue: 0,
+        totalDue: totalCents,
+        assetFinanceOpeningBalanceCents: row.openingBalanceCents,
+      },
     })
     if (updated.count !== 1 || schedule.count !== 1) {
       throw new Error(`reprice: rental ${before.installmentNo} of loan ${loanId} changed underneath the repricing`)

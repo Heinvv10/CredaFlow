@@ -347,3 +347,54 @@ This new regression is explicitly **not run** while migration approval is held.
 Affected unit checks (19), TypeScript and lint pass in
 `/tmp/cf-rate-legacy-unit.log`, `/tmp/cf-rate-legacy-typecheck.log`, and
 `/tmp/cf-rate-legacy-lint.log`.
+
+## Zero-rental source candidate — PostgreSQL acceptance held
+
+The source candidate now handles a sufficiently large late cut for an active
+operating/full-maintenance lease by replaying rental-only funding, flooring the
+changeable future rental at zero and retaining the lessor's residual outside the
+borrower's bills. Historical excess is attributed to the affected supplied
+rentals, with their own original-invoice VAT credit/debit documents and a durable
+pending reconciliation/execution liability. It does not report a bank refund or
+change cash amounts/value dates. Earlier valid tax documents remain immutable;
+source evidence records any face reconciliation separately from funding cash.
+Integer rounding belongs to the lessor. A larger residual funding difference
+where no affected historical payment can be credited is recorded separately and
+never becomes a borrower top-up or invented refund.
+
+Maintenance remains outside the funding calculation and remains chargeable at
+actual supply-date VAT. Superseded unmade rental adjustments are consumed once
+without inventing a supply, so a later zero-rental/maintenance-only supply cannot
+receive an obsolete rental CN. A completely zero supply produces no tax invoice;
+maintenance-only supplies continue through the ordinary invoice path. Signed
+weights permit reconstruction of a zero-rental tail; generic consumer schedule
+validation remains strict. Previously applied floor corrections are excluded
+from the later closed-book ledger-only correction subtraction.
+
+`/tmp/cf-rate-floor-red.log` records the pure plan regression before the new
+implementation. `/tmp/cf-rate-floor-focused4.log` records 64 passing focused
+checks; `/tmp/cf-rate-floor-broad-unit.log` records 141 passing checks across 14
+unit suites. The tests cover rental-only capital, affected-supply attribution,
+conservative lessor rounding, no refund for payments before effectiveness,
+notice-kept rentals, deferred-tax consumption/retry, zero-value invoice
+suppression and zero-tail signed-weight reconstruction.
+
+`lease-rental-floor.integration.test.ts` prepares four real-booked acceptance
+cases: operating/FML, booked VAT 15% and synthetic booked VAT 16% with actual
+supply VAT 15%. They exercise 59 actual paid rentals, independent daily funding
+and per-supply tax oracles, original cash/ownership/residual preservation,
+maintenance-only supply, no zero invoice and repricing retry. **These four tests
+have not run.** The final legacy-notice/timestamp migration regression also
+remains unrun under the consolidated SQL gate. The existing strictly-positive
+`LeaseRental_amounts` CHECK has not been edited or applied. No new migration
+or PostgreSQL run was executed after root's hold instruction; no full CI or
+whole-goal acceptance is claimed for this candidate.
+
+Final source checkpoint verification: TypeScript completed successfully in
+`/tmp/cf-rate-floor-exact-typecheck.log`; touched-source lint and the final
+zero-status write lint passed (`/tmp/cf-rate-floor-exact-lint.log`,
+`/tmp/cf-rate-floor-zero-status-lint.log`). After the final status guard change,
+`/tmp/cf-rate-floor-freeze-unit.log` records 12 passing tests in four affected
+suites. `git diff --check` passed. No migration source was changed by this
+zero-floor checkpoint. All PostgreSQL cases named above remain explicitly
+unrun pending approval.

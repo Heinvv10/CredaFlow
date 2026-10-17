@@ -8,21 +8,39 @@ import type { StoredScheduleRow } from "./stored-schedule"
 
 // A booked 12-month lease (arrears, 11.75%, R300k residual) as booking stores it.
 const lease = priceLease({
-  cashPriceExclVatCents: 150_000_000, residualCents: 30_000_000, periods: 12, rentalTiming: "ARREARS", escalationRate: "0",
-  startDate: "2027-01-15", ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }], maintenance: null, vatRateTenThousandths: 1500,
+  cashPriceExclVatCents: 150_000_000,
+  residualCents: 30_000_000,
+  periods: 12,
+  rentalTiming: "ARREARS",
+  escalationRate: "0",
+  startDate: "2027-01-15",
+  ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }],
+  maintenance: null,
+  vatRateTenThousandths: 1500,
 })
 const plan = planLeaseBooking({ lease, startDate: "2027-01-15", vatRate: "0.1500", payoutCents: 1 })
 const stored: StoredScheduleRow[] = plan.records.map((r, i) => ({
-  ...r, id: `s${i + 1}`, status: "PENDING", totalPaid: 0, assetFinanceOpeningBalanceCents: plan.openingBalances[i],
+  ...r,
+  id: `s${i + 1}`,
+  status: "PENDING",
+  totalPaid: 0,
+  assetFinanceOpeningBalanceCents: plan.openingBalances[i],
 }))
 const rentals = plan.rentals.map((r, i) => ({
-  id: `r${i + 1}`, periodNo: r.periodNo, scheduleId: `s${i + 1}`, rentalExclVatCents: r.rentalExclVatCents,
-  maintenanceExclVatCents: r.maintenanceExclVatCents, vatRate: new Prisma.Decimal(r.vatRate), taxInvoiceId: null,
+  id: `r${i + 1}`,
+  periodNo: r.periodNo,
+  scheduleId: `s${i + 1}`,
+  rentalExclVatCents: r.rentalExclVatCents,
+  maintenanceExclVatCents: r.maintenanceExclVatCents,
+  vatRate: new Prisma.Decimal(r.vatRate),
+  taxInvoiceId: null,
 }))
-const tx = (rows = rentals, residual = 30_000_000) => ({
-  assetFinanceDeal: { findFirst: async () => ({ balloonCents: residual, rentalTiming: "ARREARS" }) },
-  leaseRental: { findMany: async () => rows },
-}) as never
+const tx = (rows = rentals, residual = 30_000_000) =>
+  ({
+    assetFinanceRateCorrection: { findFirst: async () => null },
+    assetFinanceDeal: { findFirst: async () => ({ balloonCents: residual, rentalTiming: "ARREARS" }) },
+    leaseRental: { findMany: async () => rows },
+  }) as never
 
 describe("leaseCapitalRows: the capital view a lease reprices on", () => {
   it("rebuilds the solver rows exactly: stored-schedule accepts them and lands on the residual", async () => {
@@ -34,8 +52,11 @@ describe("leaseCapitalRows: the capital view a lease reprices on", () => {
       expect(row.interestDue).toBe(Math.min(solver.interestCents, solver.totalCents - solver.balloonCents))
     })
     const schedule = storedScheduleForReprice({
-      stored: view.rows, balloonCents: view.residualCents, recordedBaseCents: lease.baseRentalCents,
-      ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }], startDate: "2027-01-15",
+      stored: view.rows,
+      balloonCents: view.residualCents,
+      recordedBaseCents: lease.baseRentalCents,
+      ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }],
+      startDate: "2027-01-15",
     })
     expect("error" in schedule).toBe(false)
     if (!("error" in schedule)) expect(schedule.capitalOutstandingCents).toBe(150_000_000)
@@ -51,9 +72,47 @@ describe("leaseCapitalRows: the capital view a lease reprices on", () => {
     const view = await leaseCapitalRows(tx(rentals, 29_000_000), "t1", "l1", stored)
     if ("error" in view) throw new Error(view.error)
     const schedule = storedScheduleForReprice({
-      stored: view.rows, balloonCents: view.residualCents, recordedBaseCents: lease.baseRentalCents,
-      ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }], startDate: "2027-01-15",
+      stored: view.rows,
+      balloonCents: view.residualCents,
+      recordedBaseCents: lease.baseRentalCents,
+      ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0.1175 }],
+      startDate: "2027-01-15",
     })
     expect(schedule).toEqual({ error: "unsupported_schedule" })
   })
+})
+
+it("can reprice a zero-rental tail using signed weights without turning the residual into cash", async () => {
+  const zeroStored = stored.map((row, index) =>
+    index < stored.length - 1
+      ? { ...row, status: "PAID", totalPaid: row.totalDue }
+      : {
+          ...row,
+          principalDue: 0,
+          totalDue: 0,
+          totalPaid: 0,
+          status: "PAID",
+          assetFinanceOpeningBalanceCents: 30_000_000,
+        }
+  )
+  const zeroRentals = rentals.map((row, index) =>
+    index === rentals.length - 1 ? { ...row, rentalExclVatCents: 0 } : row
+  )
+  const view = await leaseCapitalRows(tx(zeroRentals), "t1", "l1", zeroStored)
+  if ("error" in view) throw new Error(view.error)
+  const input = {
+    stored: view.rows,
+    balloonCents: view.residualCents,
+    recordedBaseCents: 0,
+    contractualWeights: lease.weights,
+    ratePath: [{ effectiveDate: "2027-01-15", annualRate: 0 }],
+    startDate: "2027-01-15",
+  }
+  expect(storedScheduleForReprice(input)).toEqual({ error: "unsupported_schedule" })
+  const accepted = storedScheduleForReprice({ ...input, allowZeroReference: true })
+  expect("error" in accepted).toBe(false)
+  if (!("error" in accepted)) {
+    expect(accepted.referenceInstalmentCents).toBe(0)
+    expect(accepted.rows.at(-1)!.totalCents - accepted.rows.at(-1)!.balloonCents).toBe(0)
+  }
 })

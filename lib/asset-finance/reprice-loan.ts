@@ -73,6 +73,8 @@ import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { dueDateInstant, toScheduleRecord } from "./schedule-records"
 import { assetRateRepriceBaseline } from "./reprice-baseline"
 import { writeClosedLeaseRateCorrection } from "./reprice-closed-lease"
+import { leaseRentalFloorPlan } from "./lease-rental-floor"
+import { writeLeaseRentalFloor } from "./lease-rental-floor-write"
 import { ratePayoffPlan } from "./reprice-payoff"
 import { writeRatePayoff } from "./reprice-payoff-write"
 import { lawfulRateCorrection } from "./lawful-rate-correction"
@@ -217,7 +219,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   const monthlyServiceFee = loan.ncaRegime === "NCA" ? loan.monthlyServiceFee ?? 0 : 0
   const pendingCashRows = rawStored.filter((row) => row.totalDue > row.totalPaid)
   const fixedFinalWindow = pendingCashRows.length === 0 || pendingCashRows.every((row) => toDayNumber(sastCalendarDate(row.dueDate)) < toDayNumber(request.runDate) + REPRICE_NOTICE_DAYS)
-  if (lease && (loan.status === "COMPLETED" || fixedFinalWindow)) return writeClosedLeaseRateCorrection(tx, { request, view: lease, startDate, oldPath: billedHistory, newPath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }], resultingRate, margin: prior.margin, loan })
+  if (lease && (loan.status === "COMPLETED" || fixedFinalWindow)) return writeClosedLeaseRateCorrection(tx, { request, view: lease, startDate, oldPath: billedHistory, newPath: [...history, { effectiveDate, annualRate: resultingRate.toNumber() }], resultingRate, margin: prior.margin, ledgerOnlyDates, loan })
   if (loan.status === "COMPLETED" || fixedFinalWindow) {
     const newPath = [...history, { effectiveDate, annualRate: resultingRate.toNumber() }]
     const receipts = await tx.payment.findMany({ where: { tenantId, loanId, reversed: false, allocationStatus: "ALLOCATED" }, orderBy: [{ receivedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { amount: true, receivedAt: true, defaultInterestAllocated: true, chargeFeesAllocated: true } })
@@ -248,7 +250,7 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   }
   const schedule = storedScheduleForReprice({
     stored: lease ? lease.rows : stored, balloonCents, recordedBaseCents: recordedBase?.newInstalmentCents == null ? null : recordedBase.newInstalmentCents - monthlyServiceFee, ratePath: billedHistory, startDate,
-    contractualWeights: loan.assetFinanceWeights,
+    contractualWeights: loan.assetFinanceWeights, allowZeroReference: lease !== null,
   })
   if ("error" in schedule) return notEligible(schedule.error)
 
@@ -278,6 +280,16 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
   }
   const kept = noticeKeptThroughIndex(schedule.rows, paid, request.runDate)
   if (kept >= schedule.rows.length - 1) return notEligible("within_notice_period")
+  if (lease) {
+    const openingCents = stored[0].assetFinanceOpeningBalanceCents
+    if (openingCents == null) return notEligible("unsupported_schedule")
+    const plan = leaseRentalFloorPlan({
+      openingCents, residualCents: lease.residualCents, startDate, effectiveDate,
+      paidThroughIndex: paid, keptThroughIndex: kept, ratePath: newPath,
+      rentals: stored.map(row => ({ dueDate: isoOfDbDate(row.dueDate), rentalExclVatCents: lease.rentals.get(row.installmentNo)!.rentalExclVatCents })),
+    })
+    if (plan) return writeLeaseRentalFloor(tx, { request, loan, view: lease, stored, plan, paid, kept, path: newPath, resultingRate, margin: prior.margin })
+  }
   let solved = repriceTail({
     rows: schedule.rows,
     paidThroughIndex: paid,
