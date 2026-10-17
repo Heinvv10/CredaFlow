@@ -56,7 +56,7 @@ describe("safeKey", () => {
 describe("allowedFrom", () => {
   it("sorts every figure by kind; strings with digits are literals", () => {
     expect(allowedFrom({ a: "R1 234.56", b: "2026-09-25", c: "2026-09", d: 3, sharePercent: 12.5, e: "S1-R12" })).toEqual({
-      amountsCents: [123_456], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"],
+      amountsCents: [123_456], monthlyAmountsCents: [], dates: ["2026-09-25"], months: ["2026-09"], numbers: [3], percents: [12.5], literals: ["S1-R12"],
     })
   })
 })

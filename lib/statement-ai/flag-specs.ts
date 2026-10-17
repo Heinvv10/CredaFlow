@@ -58,7 +58,7 @@ const SPECS: Record<string, Spec> = {
 
 const manual = (rule: string): Spec => ({ rule, direction: null, thresholds: {} })
 Object.assign(SPECS, {
-  NO_PAYSLIP: manual("No recent payslip is on file, so the salary on the statement could not be matched to one."),
+  NO_PAYSLIP: manual("No recent payslip is on file, so the salary on the statement could not be matched to a payslip."),
   PAYSLIP_UNVALIDATED: manual("The payslip's figures could not be validated, so the salary was not matched to it."),
   PAYSLIP_NOT_CLIENTS: manual("The payslip's name or ID number does not match the client."),
   SALARY_NOT_CHECKED: manual("No statement covers a whole pay window around the payslip's pay day, so the salary could not be matched."),

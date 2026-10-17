@@ -3,6 +3,7 @@ import { checkFigures, checkFlagExplanation, checkNoContradiction, postCheck, ty
 
 const allowed: Allowed = {
   amountsCents: [123_456, 850_000, 12_500_00, -45_000],
+  monthlyAmountsCents: [12_500_00],
   percents: [12.5, 5],
   numbers: [3, 92],
   dates: ["2026-09-25"],
@@ -37,6 +38,15 @@ describe("checkFigures: anything else is rejected", () => {
   it("rejects an altered amount", () => {
     expect(rejected("Living spend R12 600 a month.")).toMatch(/amount not given/)
     expect(rejected("Average balance R8 500.01.")).toMatch(/amount not given/)
+  })
+  it("rejects a figure given as a total but called monthly", () => {
+    expect(rejected("Rent of R8 500.00 a month.")).toMatch(/called monthly/)
+    expect(rejected("Debit orders totaling -R450.00 monthly.")).toMatch(/called monthly/)
+    ok("Living spend R12 500 a month; rent R8 500.00 over the period.")
+  })
+  it("reads 'one' as a pronoun where it is one", () => {
+    ok("The salary could not be matched to one. No one paid. One of the payees.")
+    expect(rejected("One payment was returned.")).toMatch(/words not given/)
   })
   it("rejects an extra date", () => {
     expect(rejected("Salary landed on 2026-09-26.")).toMatch(/date not given/)
@@ -104,7 +114,7 @@ describe("checkFlagExplanation", () => {
     expect(checkFlagExplanation("GAMBLING is above 5% here. GAMBLING spend is below the threshold of 5%.", gambling)).toMatchObject({ ok: false, reason: expect.stringMatching(/opposite/) })
   })
   it("allows other figures beside the threshold", () => {
-    const allowed = { amountsCents: [150_000], percents: [5] }
+    const allowed = { amountsCents: [150_000], monthlyAmountsCents: [150_000], percents: [5] }
     const text = "GAMBLING: betting of R1 500.00 a month is above the policy threshold of 5% of income."
     expect(postCheck({ text, allowed, raisedFlagCodes: ["GAMBLING"], flag: gambling })).toEqual({ ok: true })
   })

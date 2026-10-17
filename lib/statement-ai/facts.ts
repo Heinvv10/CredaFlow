@@ -74,21 +74,30 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   const dates: string[] = []
   const months: string[] = []
   const literals: string[] = [...extraLiterals]
-  const visit = (v: unknown, key: string) => {
+  const monthly: number[] = []
+  // A figure is a month's when its key says so, or it sits in a per-month entry (an object with a month).
+  const visit = (v: unknown, key: string, perMonth: boolean) => {
     if (v === null || v === undefined) return
-    if (Array.isArray(v)) return v.forEach((x) => visit(x, key))
-    if (typeof v === "object") return Object.entries(v as Record<string, unknown>).forEach(([k, x]) => visit(x, k))
+    if (Array.isArray(v)) return v.forEach((x) => visit(x, key, perMonth || key === "months"))
+    if (typeof v === "object") {
+      const o = v as Record<string, unknown>
+      return Object.entries(o).forEach(([k, x]) => visit(x, k, perMonth || typeof o.month === "string"))
+    }
     if (typeof v === "number") return void (/percent/i.test(key) ? percents : numbers).push(v)
     if (typeof v !== "string") return
     const amount = v.match(/^-?R([\d ]+)\.(\d{2})$/)
-    if (amount) return void amounts.push(Number(amount[1].replace(/ /g, "")) * 100 + Number(amount[2]))
+    if (amount) {
+      const cents = Number(amount[1].replace(/ /g, "")) * 100 + Number(amount[2])
+      if (perMonth || /monthly|permonth/i.test(key)) monthly.push(cents)
+      return void amounts.push(cents)
+    }
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return void dates.push(v)
     if (/^\d{4}-\d{2}$/.test(v)) return void months.push(v)
     // Any other string with a digit (a row reference, a code) may be copied whole, never read as a figure.
     if (/\d/.test(v)) literals.push(v)
   }
-  visit(facts, "")
-  return { amountsCents: amounts, percents, numbers, dates, months, literals }
+  visit(facts, "", false)
+  return { amountsCents: amounts, monthlyAmountsCents: monthly, percents, numbers, dates, months, literals }
 }
 
 type PayeeRow = Pick<CountedRow, "t">

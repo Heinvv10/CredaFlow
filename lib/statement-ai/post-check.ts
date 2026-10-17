@@ -16,6 +16,8 @@
 export interface Allowed {
   /** Amounts in cents (sign ignored: "overdrawn by R500" is -50000 written as a size). */
   amountsCents: Iterable<number>
+  /** The amounts that are a month's figure: only these may be called monthly ("R500.00 a month"). */
+  monthlyAmountsCents?: Iterable<number>
   /** Percentages as written, e.g. 12.5 for "12.5%". */
   percents?: Iterable<number>
   /** Plain numbers: counts, days, years. */
@@ -61,6 +63,15 @@ const NUMBER_WORDS: Record<string, number> = {
 const SCALE_WORDS = /\b(hundreds?|thousands?|millions?|billions?|trillions?|half|halves|quarters?|thirds|dozens?|twice|thrice|double[sd]?|tripled?|quadrupled?|couple of|tens of|percentage points?)\b/i
 const RELATIVE_DATES = /\b(yesterday|today|tomorrow|(last|next|this|previous|coming) (week|month|year|quarter)|\d+ (days?|weeks?|months?|years?) ago|ago)\b/i
 const ABBREVIATED = /\d\s*(k|m|bn|mn|mil|thousand|million|billion)\b/i
+
+/** Words after an amount that make it a month's figure. */
+const MONTHLY = /^[^.;:!?]{0,12}?\b(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
+
+/** "one" as a pronoun ("no one", "matched to one.", "one of"), not a count. */
+function isPronoun(before: string | undefined, after: string | undefined): boolean {
+  return ["no", "the", "this", "that", "each", "any", "every", "which", "to", "a", "another"].includes(before ?? "") ||
+    after === undefined || /^[.,;:!?]$/.test(after) || ["of", "another", "or"].includes(after)
+}
 
 /** Every ISO date in text, removed as checked. */
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g
@@ -145,12 +156,15 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     const mi = monthIndex(word.replace(/\.$/, ""))
     if (mi !== null && !monthNums.has(mi)) return fail(`month not given: "${word}"`)
   }
-  for (const word of text.toLowerCase().match(/\b[a-z]+\b/g) ?? []) {
-    if (Object.prototype.hasOwnProperty.call(NUMBER_WORDS, word) && !numbers.has(NUMBER_WORDS[word])) {
-      return fail(`figure in words not given: "${word}"`)
-    }
+  const words = text.toLowerCase().match(/[a-z]+|[.,;:!?]/g) ?? []
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]
+    if (!Object.prototype.hasOwnProperty.call(NUMBER_WORDS, word)) continue
+    if (word === "one" && isPronoun(words[i - 1], words[i + 1])) continue
+    if (!numbers.has(NUMBER_WORDS[word])) return fail(`figure in words not given: "${word}"`)
   }
 
+  const monthly = new Set([...(allowed.monthlyAmountsCents ?? [])].map((v) => Math.abs(Math.round(v))))
   for (const m of text.matchAll(FIGURE)) {
     const [whole, , currency, , intPart, frac, unitRaw] = m
     const unit = (unitRaw ?? "").trim().toLowerCase()
@@ -164,6 +178,9 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     } else if (currency || unit === "rand") {
       if (frac && frac.length !== 3) return fail(`amount not in rand and cents: "${whole.trim()}"`)
       if (!amounts.has(Math.round(value * 100))) return fail(`amount not given: "${whole.trim()}"`)
+      // A total called a month's figure is the wrong figure, however exact its digits.
+      const after = text.slice(m.index + whole.length, m.index + whole.length + 30)
+      if (MONTHLY.test(after) && !monthly.has(Math.round(value * 100))) return fail(`amount called monthly is not a monthly figure: "${whole.trim()}"`)
     } else if (!numbers.has(value)) {
       return fail(`number not given: "${whole.trim()}"`)
     }
