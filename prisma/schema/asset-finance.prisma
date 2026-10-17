@@ -924,6 +924,10 @@ model AssetFinanceRateNotice {
   taxDocuments Json?
   taxAdjustmentPending Boolean @default(false)
   taxAdjustmentRevision Int @default(0)
+  statutoryDueOn DateTime? @db.Date
+  firstDispatchedAt DateTime?
+  deadlineExceptionAt DateTime?
+  deadlineEscalationLevel Int @default(0)
   totalInterestCents      Int
   monthlyInterestCents    Int
   recipientClientIds      String[]

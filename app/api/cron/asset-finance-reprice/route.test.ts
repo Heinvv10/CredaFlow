@@ -1,10 +1,16 @@
 import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { runRepriceBatch, dispatchRepriceNotices } = vi.hoisted(() => ({ runRepriceBatch: vi.fn(), dispatchRepriceNotices: vi.fn() }))
+const { runRepriceBatch, dispatchRepriceNotices } = vi.hoisted(() => ({
+  runRepriceBatch: vi.fn(),
+  dispatchRepriceNotices: vi.fn(),
+}))
 vi.mock("@/lib/asset-finance/reprice-notice-dispatch", () => ({ dispatchRepriceNotices }))
 vi.mock("@/lib/asset-finance/reprice-batch", () => ({ runRepriceBatch }))
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceRateNotice: { findMany: vi.fn(async () => []) } } }))
+vi.mock("@/lib/asset-finance/rate-notice-deadline", () => ({
+  scanRateNoticeDeadlines: vi.fn(async () => ({ escalated: 0 })),
+}))
 
 import { GET } from "./route"
 
@@ -44,7 +50,7 @@ describe("GET /api/cron/asset-finance-reprice", () => {
   it("runs for today's SAST date and returns the counts", async () => {
     const response = await GET(request())
     expect(response.status).toBe(200)
-    expect(runRepriceBatch).toHaveBeenCalledWith(expect.anything(), "2027-01-16")
+    expect(runRepriceBatch).toHaveBeenCalledWith(expect.anything(), "2027-01-16", expect.any(Function))
     expect(await response.json()).toEqual({ ...run(0), notices: [{ tenantId: "t1", completed: 1, pending: 0 }] })
   })
 

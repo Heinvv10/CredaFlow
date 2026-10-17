@@ -286,3 +286,53 @@ and failed before the fixes (`/tmp/cf-rate-review-red2.log`); all 15 pass after
 (`/tmp/cf-rate-review-green.log`). Two real booked paid-lease tests independently
 replay daily rental-only capital and preserve receipts, issued invoices, paid
 bills, maintenance and correct per-line VAT (`/tmp/cf-rate-paid-lease-green2.log`).
+
+## NCA s104(3) written notice deadline and escalation
+
+The statutory due date is 30 South African business days after the actual rate
+change's effective day, not its discovery, approval or outbox creation date.
+Primary source: [National Credit Act, s104(3), Government Gazette](https://www.gov.za/sites/default/files/gcis_document/201409/a34-050.pdf).
+The existing SA public-holiday calendar is used in TypeScript and PostgreSQL.
+`statutoryDueOn` is immutable; `firstDispatchedAt` retains the last required
+recipient's actual provider acceptance timestamp on first fully accepted dispatch.
+Per-recipient accepted timestamps and Message IDs remain in outcomes/audits.
+Dispatch completion and timely compliance are separate facts. Missing contacts,
+missing templates, blocked, failed, simulated and uncertain provider outcomes
+leave delivery pending. Reconciliation preserves an earlier actual acceptance
+time instead of substituting the retry date.
+
+An independent authenticated `asset-finance-rate-notices` worker is registered
+for every 15 minutes with a one-hour freshness budget. It scans durable NCA
+obligations regardless of the feature flag, loan eligibility or repricing queue,
+then retries pending tenant notices. The repricing worker also scans before
+calculation and dispatches each new notice after its financial commit. This is
+source configuration only; no deployed scheduler or real provider is activated.
+The deadline scan writes transactional staff bell/audit escalation once at two
+business days before due, on the due day, and after the deadline. A late-created
+notice already past due escalates directly to an unverified deadline exception.
+Later authentic provider timestamps distinguish timely dispatch from actual late
+dispatch; the immutable exception/escalation record remains. Provider acceptance
+proves dispatch, not reader receipt or agreed-channel delivery.
+
+`/tmp/cf-rate-deadline-red.log` records the missing deadline-control test before
+implementation. `/tmp/cf-rate-deadline-pg3.log` records 10 passing actual-PG tests
+across deadline/outbox/paid-lease suites: Easter/weekend/public-holiday counting,
+a late-created already-overdue notice, deadline immutability, partial-recipient
+pending state, idempotent staff escalation and later completion retaining the
+earlier exception. The final source renames these new fields to
+`firstDispatchedAt` and `deadlineExceptionAt`, refuses to invent missing provider
+timestamps, and binds the obligation to the actual ContractRate date; that exact
+migration/extra tamper regression awaits SQL gate approval before rerunning
+PostgreSQL.
+`/tmp/cf-rate-deadline-schema-diff.log` records no migrated-schema difference at
+the preceding field-name checkpoint.
+The disposable database was removed before the parent's later gate audit.
+Further migration runs are held for that approval; no full CI or whole-goal
+acceptance is claimed, and the positive-rental CHECK remains unchanged.
+
+Latest source checks: 43 focused unit/route/registry tests pass in
+`/tmp/cf-rate-deadline-final-unit.log`; TypeScript and focused lint pass in
+`/tmp/cf-rate-deadline-final-typecheck.log` and
+`/tmp/cf-rate-deadline-final-lint.log`. The staff panel distinguishes timely
+dispatch, late dispatch and overdue-unverified evidence without claiming reader
+receipt.

@@ -15,7 +15,9 @@ function fakeDb(loanIds: string[]) {
   const transaction = vi.fn(async (fn: (tx: string) => Promise<unknown>) => fn("tx"))
   const fakes = {
     tenantConfig: { findMany: vi.fn(async () => [{ tenantId: "t1" }]) },
-    referenceRate: { findMany: vi.fn(async () => [{ basis: "PRIME", effectiveDate: new Date("2027-01-15T00:00:00Z") }]) },
+    referenceRate: {
+      findMany: vi.fn(async () => [{ basis: "PRIME", effectiveDate: new Date("2027-01-15T00:00:00Z") }]),
+    },
     loan: { findMany: vi.fn(async () => loanIds.map((id) => ({ id }))) },
     $transaction: transaction,
   }
@@ -41,7 +43,13 @@ describe("runRepriceBatch", () => {
 
     expect(transaction).toHaveBeenCalledTimes(4)
     expect(repriceLoanForReference.mock.calls.map(([, request]) => request)).toEqual(
-      ["l1", "l2", "l3", "l4"].map((loanId) => ({ tenantId: "t1", loanId, basis: "PRIME", effectiveDate: "2027-01-15", runDate: "2027-01-16" })),
+      ["l1", "l2", "l3", "l4"].map((loanId) => ({
+        tenantId: "t1",
+        loanId,
+        basis: "PRIME",
+        effectiveDate: "2027-01-15",
+        runDate: "2027-01-16",
+      }))
     )
     expect(run).toEqual({
       ok: false,
@@ -88,18 +96,40 @@ describe("runRepriceBatch", () => {
     repriceLoanForReference.mockResolvedValue({ kind: "repriced" })
     const { db, fakes } = fakeDb(["l1"])
     await runRepriceBatch(db, "2027-01-16")
-    expect(fakes.tenantConfig.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { featureAssetFinance: true } }))
-    expect(fakes.referenceRate.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "t1", status: "APPROVED", effectiveDate: { lte: new Date("2027-01-16T00:00:00.000Z") } },
-    }))
+    expect(fakes.tenantConfig.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { featureAssetFinance: true } })
+    )
+    expect(fakes.referenceRate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: "t1", status: "APPROVED", effectiveDate: { lte: new Date("2027-01-16T00:00:00.000Z") } },
+      })
+    )
     const effectiveDate = new Date("2027-01-15T00:00:00.000Z")
-    expect(fakes.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        tenantId: "t1",
-        status: { in: ["ACTIVE", "COMPLETED"] },
-        contractType: { not: "LOAN" },
-        contractRates: { some: { basis: "PRIME", effectiveDate: { lt: effectiveDate } }, none: { effectiveDate } },
-      },
-    }))
+    expect(fakes.loan.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: "t1",
+          status: { in: ["ACTIVE", "COMPLETED"] },
+          contractType: { not: "LOAN" },
+          contractRates: { some: { basis: "PRIME", effectiveDate: { lt: effectiveDate } }, none: { effectiveDate } },
+        },
+      })
+    )
   })
+})
+
+it("dispatches each notice only after its financial transaction commits", async () => {
+  repriceLoanForReference.mockResolvedValue({ kind: "repriced" })
+  const { db, transaction } = fakeDb(["l1", "l2"])
+  const events: string[] = []
+  transaction.mockImplementation(async (fn) => {
+    const result = await fn("tx")
+    events.push("commit")
+    return result
+  })
+  await runRepriceBatch(db, "2027-01-16", async (tenantId) => {
+    expect(tenantId).toBe("t1")
+    events.push("dispatch")
+  })
+  expect(events).toEqual(["commit", "dispatch", "commit", "dispatch"])
 })

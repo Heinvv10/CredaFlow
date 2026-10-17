@@ -580,3 +580,10 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   schedule capital excludes fees; total cost of credit retains principal debt
   and the duplicate asset-document total row is removed. Consumer PASQ output
   and consumer PDF pins are unchanged.
+
+Written variable-rate notice controls retain the NCA s104(3) deadline from the
+actual effective date plus 30 SA business days. Durable provider acceptance and
+historical deadline exceptions are distinct from outbox completion. Independent notice cron
+scans/retries existing obligations even if repricing is stalled or a feature is
+disabled; staff escalation is transactional and idempotent at due minus two
+business days, due and overdue. Later dispatch cannot remove historical escalation records.

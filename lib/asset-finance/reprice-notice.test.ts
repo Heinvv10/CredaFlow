@@ -48,6 +48,7 @@ describe("queueRepriceNotice recipients", () => {
     const createMany = vi.fn(async () => ({ count: 1 }))
     const db = {
       assetFinanceRateNotice: { create: vi.fn() },
+      loan: { findFirst: vi.fn(async () => null) },
       entityRelationship: { findMany: vi.fn(async () => [{
         client: { id: "client-1", firstName: "TEST", lastName: "CLIENT", email: "test@client.invalid", whatsapp: null },
       }]) },
