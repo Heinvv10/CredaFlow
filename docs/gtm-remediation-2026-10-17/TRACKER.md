@@ -8,52 +8,52 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F01 — Payouts require AVS while the AVS action is hidden/disabled by the collections flag
 
-- Priority/status/owner: P1 / review / A.
+- Priority/status/owner: P1 / integrated / A.
 - Current reproduction/root cause: AVS is gated only by collections, while payouts require it. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Allow AVS when payout OR collection engine requires it; retain permissions and account binding.
 - Acceptance: Four flag combinations, API refusal/authorization, browser ready-to-payout journey. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent review assigned. Full combined/database/browser closure evidence pending.
+- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent APPROVE (53 rerun tests); MQ integrated as a679a71c. Full combined/database/browser closure evidence pending.
 
 ## F02 — Product editor claims rates are within NCA caps when the server's own rule rejects them
 
-- Priority/status/owner: P1 / implementing / B.
+- Priority/status/owner: P1 / integrated / B.
 - Current reproduction/root cause: Product form has fixed proxy caps; current server cap helper was subsequently changed. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Share implemented cap semantics with explicit rate/date/classification assumptions; no contract repricing.
 - Acceptance: Boundary amounts/terms, monthly/daily annualization, changed repo rate, editor browser. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission/integration: aea9f3b4 +9891a0ef ->3a337585 +f7c72d67. A independent APPROVE9891a0ef with28 tests; B final ci:quick PASS. Combined quality/database/browser remain pending.
 
 ## F03 — Board-pack portfolio composition does not cover the headline collectible book
 
-- Priority/status/owner: P1 / implementing / B.
+- Priority/status/owner: P1 / integrated / B.
 - Current reproduction/root cause: Composition groups ACTIVE only versus broader collectible headline. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Common collectible scope and explicit description.
 - Acceptance: Product rows sum to headline including defaulted and entity loans; browser reconcile. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission/integration: aea9f3b4 +9891a0ef ->3a337585 +f7c72d67. A independent APPROVE9891a0ef with28 tests; B final ci:quick PASS. Combined quality/database/browser remain pending.
 
 ## F04 — Sole-proprietor asset deals render the consumer application workflow and misleading blockers
 
-- Priority/status/owner: P2 / review / A.
+- Priority/status/owner: P2 / integrated / A.
 - Current reproduction/root cause: Application view branches on borrower shape instead of linked asset deal. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Deal-aware presentation for entity and natural-person deals; stored contractual term and decision evidence.
 - Acceptance: Both natural-person contract types and completed deal pages without misleading prebooking blockers. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent review assigned. Full combined/database/browser closure evidence pending.
+- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent APPROVE (53 rerun tests); MQ integrated as a679a71c. Full combined/database/browser closure evidence pending.
 
 ## F05 — Non-NCA leases are offered a Section 129 action that the backend correctly refuses
 
-- Priority/status/owner: P2 / review / A.
+- Priority/status/owner: P2 / integrated / A.
 - Current reproduction/root cause: Collections action eligibility uses arrears without NCA regime. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Explain regime and suppress unavailable statutory action; retain backend refusal.
 - Acceptance: Non-NCA lease, NCA asset and ordinary loan row/browser + refused direct request. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent review assigned. Full combined/database/browser closure evidence pending.
+- Submission: cb35643d5442a7532a0e169c98a05e8db4ce456e; ci:quick PASS and targeted 6 files/53 tests PASS per A-WAVE-A.md. B independent APPROVE (53 rerun tests); MQ integrated as a679a71c. Full combined/database/browser closure evidence pending.
 
 ## F06 — Mobile portal loses global access to several features and sign-out
 
-- Priority/status/owner: P2 / pending / A.
+- Priority/status/owner: P2 / implementing / A.
 - Current reproduction/root cause: Mobile hides desktop navigation and lacks complete global session controls. Current-source and runtime verification pending.
 - Intended smallest change: Accessible mobile navigation from same enabled/authorized links.
 - Acceptance: 390px borrower without/with loan and business rep; keyboard, touch, sign-out. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -80,7 +80,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F09 — READONLY users receive editable client forms whose writes are forbidden
 
-- Priority/status/owner: P2 / pending / B.
+- Priority/status/owner: P2 / implementing / B.
 - Current reproduction/root cause: Source confirmed: client detail gates edits/New Application on showLoanBook; edit page only requires loan-book viewing. Actual READONLY browser pending.
 - Intended smallest change: Render action permissions consistently; explanatory direct-link read-only state.
 - Acceptance: Actual READONLY session controls/direct URL/PATCH 403; eligible staff retained. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -89,16 +89,16 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F10 — Accounting preview stays stale after configuration is saved
 
-- Priority/status/owner: P2 / implementing / B.
+- Priority/status/owner: P2 / integrated / B.
 - Current reproduction/root cause: Settings changes do not invalidate sibling accounting preview. A/B confirmed present in current source; runtime pending.
 - Intended smallest change: Shared invalidation and race-safe response handling; updated initial period.
 - Acceptance: Confirm mappings/edit/go-live/VAT then close without reload; stale response regression. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
-- Closure evidence: none yet.
+- Submission/integration: aea9f3b4 +9891a0ef ->3a337585 +f7c72d67. A independent APPROVE9891a0ef with28 tests; B final ci:quick PASS. Combined quality/database/browser remain pending.
 
 ## F11 — “100% / Good Standing” implies broader compliance coverage than measured
 
-- Priority/status/owner: P2 / pending / B.
+- Priority/status/owner: P2 / implementing / B.
 - Current reproduction/root cause: Source confirmed: Good Standing and statutory obligations complete headline represent stored subset. Browser/configuration scope verification pending.
 - Intended smallest change: Name tracked scope and clarify excluded/unconfigured/not-due/unverified areas.
 - Acceptance: Partial and complete tracked rows, absent config and browser labels. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -107,7 +107,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F12 — Customer “Outstanding Balance” needs a clearer financial definition
 
-- Priority/status/owner: P2 / pending / A.
+- Priority/status/owner: P2 / implementing / A.
 - Current reproduction/root cause: Current source confirmed: portalOutstanding is principal with charges off and totalToSettle with charges on. Conditional labels required; browser remains pending.
 - Intended smallest change: Explain existing ledger amounts without changing financial calculations or legal documents.
 - Acceptance: Part-paid asset and live default charges; staff/portal amount definitions and dated settlement distinction. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -116,7 +116,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F13 — Customer-facing operator screens expose internal paths and development-phase copy
 
-- Priority/status/owner: P3 / pending / B.
+- Priority/status/owner: P3 / implementing / B.
 - Current reproduction/root cause: Source confirmed internal buildTemplate/lib paths/migration instructions in notification client and Phase 7 go-live in IntegrationsTab. Browser pending.
 - Intended smallest change: Replace internal implementation instructions with operational meaning.
 - Acceptance: Settings browser copy retains prerequisites and simulation warnings. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
@@ -125,7 +125,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 
 ## F14 — Academy lesson references missing video and poster assets
 
-- Priority/status/owner: P3 / pending / B.
+- Priority/status/owner: P3 / implementing / B.
 - Current reproduction/root cause: Source confirmed lessonAssets constructs all video/poster paths and lesson page unconditionally renders LessonPlayer. Clean-build/browser request proof pending.
 - Intended smallest change: Deliberate text-only lessons unless packaged media exists.
 - Acceptance: Clean-build all declared lesson assets no missing requests; browser text-only state. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
