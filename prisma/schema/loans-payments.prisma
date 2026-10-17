@@ -261,6 +261,8 @@ enum LoanStatus {
 }
 
 model RepaymentSchedule {
+  // Full signed/rate-adjusted interest before common-law accrual stopped.
+  commonLawContractualInterestDue Int?
   id                              String         @id @default(cuid())
   tenantId                        String
   tenant                          Tenant         @relation(fields: [tenantId], references: [id])
