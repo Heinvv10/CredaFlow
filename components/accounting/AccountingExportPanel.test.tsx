@@ -100,6 +100,26 @@ describe("AccountingExportPanel loading", () => {
     expect(text).not.toContain("Journal entries")
   })
 
+  it("invalidates a successful preview immediately when settings change and ignores the older response", async () => {
+    let releaseOld: (() => void) | undefined
+    let request = 0
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (!url.startsWith("/api/accounting/preview")) return reply({ batches: [] })
+      const thisRequest = ++request
+      if (thisRequest === 2) await new Promise<void>(resolve => { releaseOld = resolve })
+      return reply({ ...preview("2026-08"), refusal: thisRequest >= 3 ? { code: "MAPPING_NOT_CONFIRMED", message: "Mapping must be confirmed again" } : null })
+    }))
+    const renderer = await render()
+    expect(renderedText(renderer)).toContain("Close Label 2026-08")
+    await act(async () => { renderer.update(<AccountingExportPanel initialPeriod="2026-08" canClose xeroConnected={false} isaflowConnected={false} revision={1} />) })
+    expect(renderedText(renderer)).not.toContain("Close Label")
+    await act(async () => { renderer.update(<AccountingExportPanel initialPeriod="2026-08" canClose xeroConnected={false} isaflowConnected={false} revision={2} />) })
+    await act(async () => { releaseOld?.() })
+    expect(renderedText(renderer)).toContain("Mapping must be confirmed again")
+    const close = renderer.root.findAll(n => n.type === "button" && Array.isArray(n.props.children) && n.props.children[0] === "Close ")[0]
+    expect(close.props.disabled).toBe(true)
+  })
+
   it("ignores a response for a month the user has already left", async () => {
     let releaseAugust: (() => void) | undefined
     const fetchMock = vi.fn(async (url: string) => {
@@ -124,6 +144,27 @@ describe("AccountingExportPanel loading", () => {
 })
 
 describe("AccountingExportPanel closing a month", () => {
+  it("does not let a delayed POST refresh restore a preview from before settings invalidation", async () => {
+    let releasePost!: () => void
+    let newer = false
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: { method?: string }) => {
+      if (init?.method === "POST") { await new Promise<void>(resolve => { releasePost = resolve }); return reply({}) }
+      if (!url.startsWith("/api/accounting/preview")) return reply({ batches: [] })
+      return reply({ ...preview("2026-08"), refusal: newer ? { code: "MAPPING_NOT_CONFIRMED", message: "New mapping requires confirmation" } : null })
+    }))
+    const renderer = await render()
+    const close = renderer.root.findAll(n => n.type === "button" && Array.isArray(n.props.children) && n.props.children[0] === "Close ")[0]
+    let posting!: Promise<void>
+    await act(async () => { posting = close.props.onClick() })
+    newer = true
+    await act(async () => { renderer.update(<AccountingExportPanel initialPeriod="2026-08" canClose xeroConnected={false} isaflowConnected={false} revision={1} />) })
+    expect(renderedText(renderer)).toContain("New mapping requires confirmation")
+    newer = false // the delayed refresh carries the earlier snapshot
+    await act(async () => { releasePost(); await posting })
+    expect(renderedText(renderer)).toContain("New mapping requires confirmation")
+    expect(renderer.root.findAll(n => n.type === "button" && Array.isArray(n.props.children) && n.props.children[0] === "Close ")[0].props.disabled).toBe(true)
+  })
+
   it("posts the close, then reloads and shows the closed month", async () => {
     let closed = false
     const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {

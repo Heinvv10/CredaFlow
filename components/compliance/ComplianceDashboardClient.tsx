@@ -59,7 +59,7 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 
 const GROUP_TABS: { key: ComplianceGroup | null; label: string; hint: string }[] = [
   { key: null, label: "All", hint: "Every compliance record" },
-  { key: "OBLIGATION", label: "Obligations", hint: "Statutory duties — these drive the health score" },
+  { key: "OBLIGATION", label: "Obligations", hint: "Recorded duties — these drive the completion score" },
   { key: "EXCEPTION", label: "Exceptions", hint: "Items awaiting a human decision" },
   { key: "REGISTER", label: "Registers", hint: "Evidence of what the system did" },
   { key: "LEGACY", label: "Legacy", hint: "Types nothing in the app writes — the evidence lives elsewhere" },
@@ -179,23 +179,23 @@ export function ComplianceDashboardClient({
         <div className="flex items-center gap-5 rounded-2xl bg-white p-6 shadow-sm">
           <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full text-2xl font-extrabold"
             style={{ backgroundColor: scoreBg, color: scoreColor, border: `4px solid ${scoreColor}` }}>
-            {health.score}%
+            {health.total === 0 ? "—" : `${health.score}%`}
           </div>
           <div>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
-              Compliance Health
+              Recorded obligation completion
             </p>
             <p className="text-xl font-bold" style={{ color: scoreColor }}>
               {health.total === 0
-                ? "No obligations"
-                : health.score >= 80 ? "Good Standing" : health.score >= 60 ? "Needs Attention" : "At Risk"}
+                ? "No tracked obligations"
+                : health.complete === health.total ? "Recorded items complete" : "Recorded items incomplete"}
             </p>
             {/* The denominator is stated because the percentage alone cannot
                 distinguish "nothing outstanding" from "nothing recorded". */}
             <p className="mt-1 text-xs text-gray-400">
               {health.total === 0
-                ? "No statutory filings recorded yet — consent, affordability, pre-agreement and complaint evidence is held on client and application records"
-                : `${health.complete} of ${health.total} statutory obligations complete`}
+                ? "No tracked obligation records yet — consent, affordability, pre-agreement and complaint evidence is held on client and application records"
+                : `${health.complete} of ${health.total} tracked obligation records complete`}
             </p>
           </div>
         </div>
@@ -203,7 +203,7 @@ export function ComplianceDashboardClient({
         {/* Open items */}
         <div className="rounded-2xl bg-white p-6 shadow-sm"
           style={{ borderLeft: health.overdue > 0 ? "4px solid #b71c1c" : health.openWithoutDueDate > 0 ? "4px solid #e65100" : "4px solid #1e6b3f" }}>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Overdue Items</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Overdue tracked items</p>
           <p className="text-3xl font-extrabold"
             style={{ color: health.overdue > 0 ? "#b71c1c" : "#1e6b3f" }}>
             {health.overdue}
@@ -216,7 +216,7 @@ export function ComplianceDashboardClient({
               ? "Require immediate action"
               : health.openWithoutDueDate > 0
                 ? `${health.openWithoutDueDate} open with no due date`
-                : "All items on track"}
+                : "No tracked items overdue"}
           </p>
           {health.openExceptions > 0 && (
             <p className="mt-1 text-xs font-semibold text-amber-700">
@@ -245,6 +245,12 @@ export function ComplianceDashboardClient({
             </Link>
           </div>
         ) : null}
+      </div>
+
+      <div className="mb-6 rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-4 text-sm text-[var(--cf-text-secondary)]">
+        <p>The score counts only existing obligation records: Section 129 notices, NCR and FSCA quarterly returns, and FAIS disclosures. Missing records are outside the denominator; check the return card and the relevant register separately.</p>
+        <p className="mt-2"><strong>Outside this score:</strong> COI and TCF registers, FIC/screening readiness, complaints, POPIA, borrower consent, affordability and signing evidence. Their completion and configuration are unverified by this metric. A disabled feature does not establish that an obligation is not applicable.</p>
+        <p className="mt-2">Pending records may be not yet due, overdue, or missing a due date. A completed record is a recorded workflow state; it does not establish regulatory approval or the lender&apos;s overall compliance.</p>
       </div>
 
       {/* Quick links to compliance sub-tools not covered by the records table below */}

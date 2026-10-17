@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sendEmail } from "@/lib/email/service"
 import { sendMessage } from "@/lib/messaging/send"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
@@ -97,7 +98,18 @@ export async function POST(req: NextRequest) {
 
     const otp = generateOtp()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
-    const otpRecord = await prisma.clientOtp.create({ data: { email: normalised, otp, expiresAt } })
+    const otpRecord = await prisma.$transaction(async (tx) => {
+      const record = await tx.clientOtp.create({ data: { email: normalised, otp, expiresAt } })
+      await logAuditStrict({
+        tenantId,
+        action: AuditAction.CLIENT_UPDATED,
+        entity: "Client",
+        entityId: client.id,
+        newValue: { passwordResetRequested: true },
+        ipAddress: ip,
+      }, tx)
+      return record
+    })
 
     if (whatsappLeg && clientReachableOnWhatsApp(client)) {
       // Detached: awaiting the provider round-trip would make a matched email

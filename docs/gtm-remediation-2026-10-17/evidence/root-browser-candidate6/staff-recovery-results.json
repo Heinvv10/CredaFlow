@@ -1,0 +1,35 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "mode": "staff",
+  "results": [
+    {
+      "route": "/forgot-password",
+      "status": 200,
+      "scenario": "actual recovery entry"
+    },
+    {
+      "scenario": "resume actual prior forgot UI issuance after MIME HTML-href parser correction",
+      "receivedAt": "2026-10-17T15:06:54.244950+00:00",
+      "limitation": "No new recovery request issued by this resumed run; prior UI request and original MIME retained"
+    },
+    {
+      "scenario": "wrong staff recovery token renders refused state",
+      "ok": true
+    },
+    {
+      "scenario": "fresh delivered recovery accepted by actual UI",
+      "status": 200
+    },
+    {
+      "scenario": "used recovery refuses replay",
+      "status": 400,
+      "expected": 400
+    },
+    {
+      "scenario": "recovered password authenticates actual account",
+      "ok": true,
+      "staffTotpVerified": true
+    }
+  ],
+  "limitation": "Local SMTP delivery and synthetic recovery; bot challenge/provider configuration is recorded separately. Wrong/expired and concurrent-claim cases require their own evidence."
+}

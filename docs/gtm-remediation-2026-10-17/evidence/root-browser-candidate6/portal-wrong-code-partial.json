@@ -1,0 +1,21 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "mode": "portal",
+  "results": [
+    {
+      "route": "/portal/forgot-password",
+      "status": 200,
+      "scenario": "actual recovery entry"
+    },
+    {
+      "scenario": "fresh actual forgot UI request",
+      "status": 200
+    },
+    {
+      "scenario": "wrong portal recovery code refused without consuming valid delivered code",
+      "status": 400
+    }
+  ],
+  "completed": false,
+  "error": "Error: Controlled OTP input does not match privately delivered code"
+}

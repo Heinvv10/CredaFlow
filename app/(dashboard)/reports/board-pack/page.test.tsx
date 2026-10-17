@@ -62,6 +62,22 @@ describe("Board pack", () => {
     expect(bookAggregates).toEqual([])
   })
 
+  it("composes the whole collectible book, including defaulted and entity accounts", async () => {
+    getBookArrears.mockResolvedValue(bookOf(3, 600_000))
+    answers.set("loan.groupBy", (args: Record<string, unknown>) => {
+      const where = args.where as { status: unknown }
+      return typeof where.status === "object"
+        ? [{ productId: "consumer", _count: 2, _sum: { outstandingPrincipal: 300_000 } }, { productId: "asset", _count: 1, _sum: { outstandingPrincipal: 300_000 } }]
+        : [{ productId: "consumer", _count: 1, _sum: { outstandingPrincipal: 100_000 } }]
+    })
+    answers.set("loanProduct.findMany", [{ id: "consumer", name: "Personal", productType: "PERSONAL" }, { id: "asset", name: "Entity asset", productType: "ASSET_FINANCE" }])
+    const html = text(renderToStaticMarkup(await BoardPackPage()))
+    expect(calls.find(c => c.op === "loan.groupBy")?.args.where).toEqual({ tenantId: "tenant-1", status: { in: [...COLLECTIBLE_STATUSES] } })
+    expect(html).toContain("Entity asset")
+    expect(html).toContain("Composition total: 3 loans")
+    expect(html).toContain("R 6,000.00")
+  })
+
   it("leaves a reversed loan's CANCELLED instalments out of the collection-rate denominator", async () => {
     calls.length = 0
     await BoardPackPage()

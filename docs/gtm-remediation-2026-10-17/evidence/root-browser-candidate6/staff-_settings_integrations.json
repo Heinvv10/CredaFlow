@@ -1,0 +1,181 @@
+{
+  "route": "/settings/integrations",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/settings/integrations",
+    "title": "Integrations — Settings",
+    "headings": [
+      "Integrations",
+      "Payouts",
+      "Xero",
+      "IsaFlow"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nSettings\nIntegrations\nIntegrations\n\nConfigure external service integrations for SMS, payments, credit checks, and ID verification.\n\nBulkSMS\nNetcash\nTransUnion\nSmile Identity\nCollections\nBulkSMS\nSMS and WhatsApp messaging via BulkSMS API\nNot configured\nAPI Credentials (username:password)\nSave\nTest Connection\nExperian (Sigma) Credit Bureau\nBureau enquiries for application decisioning. Credentials are managed in the server environment (.env) and cannot be edited here.\nUAT\nNot configured\n\nSet EXPERIAN_USERNAME and EXPERIAN_PASSWORD in the server environment to enable bureau enquiries.\n\nRecent Notifications\nLast 20 notification events\nEVENT\tCHANNEL\tSTATUS\tERROR\tDATE\nNo notifications yet\nPayouts\n\nWhen on, disbursing a loan sends the payout to the client's verified bank account through this channel. An unknown outcome is never retried; staff resolve it on the loan page.\n\nOFF\nChannel\nNone\nNetcash EFT\nSimulated (no money moves)\nCapitec Pay (not available yet)\nPayShap (not available yet)\nCash-out / wallet voucher (not available yet)\nTurn payouts on\nXero\n\nPush each closed month's journals to Xero as a draft manual journal (Reports → Accounting export).\n\nNOT CONNECTED\nXero is not set up on this deployment (XERO_CLIENT_ID and XERO_REDIRECT_URI). It needs a Xero developer app.\nConnect Xero\nIsaFlow\n\nPush each closed month's journals to IsaFlow as one draft journal (Reports → Accounting export). Nothing is posted in IsaFlow until your accountant posts it.\n\nNOT CONNECTED\nIsaFlow is not set up on this deployment (ISAFLOW_ALLOWED_ORIGINS).",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": []
+}

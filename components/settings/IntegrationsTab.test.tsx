@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // Config and the notification log load on mount; a save re-reads the config.
+import { createRoot } from "react-dom/client"
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { IntegrationsTab } from "./IntegrationsTab"
@@ -59,6 +60,24 @@ describe("IntegrationsTab", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/settings/integrations?logs=true")
     expect(text).toContain("Configured")
     expect(text).toContain("LOAN_APPROVED")
+  })
+
+  it("names collection setup prerequisites without development-phase instructions", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("logs=true") ? reply({ logs: [] }) : reply(config())))
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    try {
+      await act(async () => { root.render(<IntegrationsTab />) })
+      const tab = [...host.querySelectorAll("button")].find(b => b.textContent === "Collections")!
+      await act(async () => { tab.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })) })
+      expect(host.textContent).toContain("provider and mandate setup is verified")
+      expect(host.textContent).not.toContain("Phase 7")
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+    }
   })
 
   it("leaves the defaults when the routes refuse", async () => {

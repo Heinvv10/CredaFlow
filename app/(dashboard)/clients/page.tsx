@@ -1,3 +1,4 @@
+import { hasMinRole } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { ClientsPageClient } from "@/components/clients/ClientsPageClient"
 import { getStaffTenantId } from "@/lib/session-tenant"
@@ -32,7 +33,9 @@ export default async function ClientsPage() {
   const tenantId = await getStaffTenantId()
   // A role without the loan book (INSURANCE_OFFICER) is sent no loan,
   // application or income figure (lib/security/client-redaction.ts).
-  const loanBook = !lacksLoanBook((await auth())?.user?.role)
+  const role = (await auth())?.user?.role
+  const loanBook = !lacksLoanBook(role)
+  const canCreate = !!role && role !== "CLIENT" && hasMinRole(role, "CREDIT_OFFICER")
   const loaded = await getClients(tenantId)
 
   const unread = await prisma.conversation.findMany({
@@ -63,7 +66,7 @@ export default async function ClientsPage() {
 
   return (
     <div className="p-6 lg:p-8">
-      <ClientsPageClient clients={clientsWithUnread} loanBook={loanBook} />
+      <ClientsPageClient clients={clientsWithUnread} loanBook={loanBook} canCreate={canCreate} />
     </div>
   )
 }

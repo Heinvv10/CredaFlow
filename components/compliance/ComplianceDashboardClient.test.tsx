@@ -121,40 +121,49 @@ describe("NCR quarterly return card", () => {
 })
 
 describe("compliance health card", () => {
+  it("names the tracked subset without certifying broader compliance", () => {
+    const out = render()
+    expect(out).toContain("Recorded obligation completion")
+    expect(out).toContain("Outside this score")
+    expect(out).toContain("FIC")
+    expect(out).toContain("COI")
+    expect(out).not.toContain("Good Standing")
+  })
+
   it("states the obligation denominator, not just a percentage", () => {
     const out = render({ health: { ...HEALTH, score: 50, complete: 1, total: 2 } })
-    expect(out).toContain("1 of 2 statutory obligations complete")
+    expect(out).toContain("1 of 2 tracked obligation records complete")
   })
 
   it("distinguishes an empty obligation register from full compliance", () => {
     // 100% with nothing recorded is not evidence of compliance.
     const out = render({ health: { ...HEALTH, score: 100, complete: 0, total: 0 } })
-    expect(out).toContain("No obligations")
-    expect(out).toContain("No statutory filings recorded yet")
+    expect(out).toContain("No tracked obligations")
+    expect(out).toContain("No tracked obligation records yet")
     // Absence here is not absence of evidence: consent, affordability and
     // pre-agreement records live on the client and application, not in this table.
     expect(out).toContain("client and application records")
     expect(out).not.toContain("Good Standing")
   })
 
-  it("reads Good Standing only at or above 80%", () => {
-    expect(render({ health: { ...HEALTH, score: 80, complete: 4, total: 5 } })).toContain("Good Standing")
-    expect(render({ health: { ...HEALTH, score: 79, complete: 79, total: 100 } })).toContain("Needs Attention")
-    expect(render({ health: { ...HEALTH, score: 59, complete: 59, total: 100 } })).toContain("At Risk")
+  it("uses completion states rather than an overall compliance verdict", () => {
+    expect(render({ health: { ...HEALTH, score: 80, complete: 4, total: 5 } })).toContain("Recorded items incomplete")
+    expect(render()).toContain("Recorded items complete")
+    expect(render({ health: { ...HEALTH, total: 0, complete: 0 } })).not.toContain("100%")
   })
 })
 
 describe("overdue card", () => {
   it("claims all items on track only when nothing is open", () => {
     const out = render({ health: { ...HEALTH, overdue: 0, openWithoutDueDate: 0 } })
-    expect(out).toContain("All items on track")
+    expect(out).toContain("No tracked items overdue")
   })
 
   it("does not claim all on track while obligations sit open with no due date", () => {
     // Such a record can never age into overdue, so a bare zero was an
     // unearned assurance.
     const out = render({ health: { ...HEALTH, overdue: 0, openWithoutDueDate: 3 } })
-    expect(out).not.toContain("All items on track")
+    expect(out).not.toContain("No tracked items overdue")
     expect(out).toContain("3 open with no due date")
   })
 

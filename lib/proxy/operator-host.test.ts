@@ -170,3 +170,32 @@ describe("every other host — no console, no operator session", () => {
     expect(passes(await visit(STAFF_HOST, "/dashboard", STAFF))).toBe(true)
   })
 })
+
+
+describe("operator redirects with a canonical staff request URL", () => {
+  it("preserves request scheme and port when the canonical URL is unset, with a configured console hostname", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "")
+    const req = new NextRequest(`http://${STAFF_HOST}:44213/operator/users`, { headers: { host: `${CONSOLE}:44213`, "x-forwarded-host": "attacker.invalid" } }) as NextRequest & { auth: unknown }
+    req.auth = OPERATOR_HELD
+    const target = new URL((await handler(req)).headers.get("location")!)
+    expect(target.href).toBe(`http://${CONSOLE}:44213/operator/security`)
+  })
+
+  it.each([
+    ["/", null, "/operator"],
+    ["/operator/login", OPERATOR, "/operator"],
+    ["/operator/lenders/t1", null, "/operator/login"],
+    ["/operator/users", OPERATOR_HELD, "/operator/security"],
+  ])("keeps %s on the configured console origin", async (path, session, destination) => {
+    vi.stubEnv("NEXTAUTH_URL", `https://${STAFF_HOST}:8443`)
+    const req = new NextRequest(`https://${STAFF_HOST}:8443${path}`, {
+      headers: { host: `${CONSOLE}:8443`, "x-forwarded-host": "attacker.invalid", "x-forwarded-proto": "http", origin: "https://attacker.invalid" },
+    }) as NextRequest & { auth: unknown }
+    req.auth = session
+    const response = await handler(req)
+    const target = new URL(response.headers.get("location")!)
+    expect(target.origin).toBe(`https://${CONSOLE}:8443`)
+    expect(target.pathname).toBe(destination)
+    if (destination === "/operator/login") expect(target.searchParams.get("callbackUrl")).toBe(path)
+  })
+})

@@ -83,7 +83,7 @@ export default async function BoardPackPage() {
     : null
 
   const byProduct = await prisma.loan.groupBy({
-    by: ["productId"], where: { tenantId, status: "ACTIVE" },
+    by: ["productId"], where: { tenantId, status: { in: [...COLLECTIBLE_STATUSES] } },
     _count: true, _sum: { outstandingPrincipal: true },
   })
   const products = await prisma.loanProduct.findMany({ where: { tenantId }, select: { id: true, name: true, productType: true } })

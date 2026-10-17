@@ -16,7 +16,7 @@ export const portalStatement: Catalog["portalStatement"] = {
   print: "Phrinta",
   paymentReference: "Inkomba yenkokhelo",
   quoteReference: "Sebenzisa le nkomba kuzo zonke izinkokhelo noma amadiphozithi ukuze yabelwe kule malimboleko.",
-  outstanding: "Okusele",
+  outstanding: "Okusele emalini eyinhloko",
   totalPaid: "Okukhokhiwe sekukonke",
   totalRepayable: "Okuzobuyiselwa sekukonke",
   noPaymentsTitle: "Azikho izinkokhelo ezibhalisiwe okwamanje",

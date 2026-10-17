@@ -1,0 +1,914 @@
+{
+  "route": "/compliance",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/compliance",
+    "title": "Client and staff workspace",
+    "headings": [
+      "Compliance Dashboard"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM ADMIN\n\nADMIN\n\nSA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nCompliance Dashboard\n\nNCR · FSCA · POPIA compliance management\n\nNCR Return\n100%\n\nRECORDED OBLIGATION COMPLETION\n\nRecorded items complete\n\n4 of 4 tracked obligation records complete\n\nOVERDUE TRACKED ITEMS\n\n0\n\nNo tracked items overdue\n\nNCR QUARTERLY RETURN\n\nNOT PREPARED\n\nNo return on record for Q3 2026.\n\nPrepare return →\n\nBUREAU S.81 OVERRIDES\n\n0\n\nAll time\n\nView overrides →\n\nThe score counts only existing obligation records: Section 129 notices, NCR and FSCA quarterly returns, and FAIS disclosures. Missing records are outside the denominator; check the return card and the relevant register separately.\n\nOutside this score: COI and TCF registers, FIC/screening readiness, complaints, POPIA, borrower consent, affordability and signing evidence. Their completion and configuration are unverified by this metric. A disabled feature does not establish that an obligation is not applicable.\n\nPending records may be not yet due, overdue, or missing a due date. A completed record is a recorded workflow state; it does not establish regulatory approval or the lender's overall compliance.\n\nFSCA Return\n\nConduct-of-business quarterly return (LOAN_ADMIN+ to submit)\n\n→\n\nBreach Log\n\nPOPIA · FSCA data breach incidents\n\n→\n\nConflict of Interest\n\nFSCA Code of Conduct self-attestation\n\n→\n\nTreating Customers Fairly\n\nFSCA TCF outcomes self-assessment\n\n→\nAll173\nObligations4\nExceptions38\nRegisters131\nLegacy0\nTYPE\tSTATUS\tREFERENCE\tDUE DATE\tCOMPLETED\tACTION\n\nCredit Agreement Artifact\n\tCOMPLETED\tr3ju6ujd\t17 Oct 2026\t17 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t1wgig9t5\t15 Oct 2026\t15 Oct 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tzmc9mnjj\t15 Oct 2026\t15 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tzmc9mnjj\t15 Oct 2026\t15 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t1wgig9t5\t—\t14 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tzmc9mnjj\t14 Oct 2026\t14 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\t3gl0v2sd\t—\t14 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tzmc9mnjj\t—\t13 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\tev1l5hoc\t—\t13 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tqpavxn8w\t—\t12 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\ti4r91jm4\t—\t12 Oct 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\t8ar8la1r\t09 Oct 2026\t09 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t8ar8la1r\t09 Oct 2026\t09 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tr3ju6ujd\t—\t08 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t8ar8la1r\t08 Oct 2026\t08 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\tnws3q3mv\t—\t08 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t8ar8la1r\t—\t07 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\t1ac5qosh\t—\t07 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tb7yebi1z\t—\t06 Oct 2026\t\n\nKYC Exception\n\tCOMPLETED\t3b7xg3ty\t—\t06 Oct 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tq4awhobs\t02 Oct 2026\t02 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tq4awhobs\t02 Oct 2026\t02 Oct 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tq4awhobs\t01 Oct 2026\t01 Oct 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tq4awhobs\t—\t30 Sept 2026\t\n\nKYC Exception\n\tCOMPLETED\teptucn2k\t—\t30 Sept 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tojp3vrnj\t23 Sept 2026\t23 Sept 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tojp3vrnj\t23 Sept 2026\t23 Sept 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tcu8ugj0c\t—\t22 Sept 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tojp3vrnj\t22 Sept 2026\t22 Sept 2026\t\n\nKYC Exception\n\tCOMPLETED\tcm3uptr4\t—\t22 Sept 2026\t\n\nS.129 Notice\n\tCOMPLETED\tieie28po\t—\t21 Sept 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tojp3vrnj\t—\t21 Sept 2026\t\n\nKYC Exception\n\tCOMPLETED\tkbth5k0m\t—\t21 Sept 2026\t\n\nS.129 Notice\n\tCOMPLETED\tap85ony6\t—\t16 Sept 2026\t\n\nS.129 Notice\n\tCOMPLETED\tqmw20gqy\t—\t14 Sept 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\to84vx6j4\t28 Aug 2026\t28 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\to84vx6j4\t28 Aug 2026\t28 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\to84vx6j4\t27 Aug 2026\t27 Aug 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\to84vx6j4\t—\t26 Aug 2026\t\n\nKYC Exception\n\tCOMPLETED\trm7gtoib\t—\t26 Aug 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tzycpfgga\t14 Aug 2026\t14 Aug 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tjbvo01e1\t14 Aug 2026\t14 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tzycpfgga\t14 Aug 2026\t14 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tjbvo01e1\t14 Aug 2026\t14 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tzycpfgga\t13 Aug 2026\t13 Aug 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tjbvo01e1\t13 Aug 2026\t13 Aug 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tzycpfgga\t—\t12 Aug 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tjbvo01e1\t—\t12 Aug 2026\t\n\nKYC Exception\n\tCOMPLETED\trdk9p46p\t—\t12 Aug 2026\t\n\nKYC Exception\n\tCOMPLETED\tthr4z1x9\t—\t12 Aug 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\ta1jkmv7d\t—\t07 Aug 2026\t\n\nKYC Exception\n\tCOMPLETED\tvn6muy9r\t—\t07 Aug 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\t1e5ill01\t17 Jul 2026\t17 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t1e5ill01\t17 Jul 2026\t17 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t1e5ill01\t16 Jul 2026\t16 Jul 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tamughi5w\t16 Jul 2026\t16 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tamughi5w\t16 Jul 2026\t16 Jul 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t1e5ill01\t—\t15 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tamughi5w\t15 Jul 2026\t15 Jul 2026\t\n\nKYC Exception\n\tCOMPLETED\tdendz1m4\t—\t15 Jul 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tamughi5w\t—\t14 Jul 2026\t\n\nKYC Exception\n\tCOMPLETED\tpcwgy95r\t—\t14 Jul 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tcjfgn158\t03 Jul 2026\t03 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tcjfgn158\t03 Jul 2026\t03 Jul 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tcjfgn158\t02 Jul 2026\t02 Jul 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tcjfgn158\t—\t01 Jul 2026\t\n\nKYC Exception\n\tCOMPLETED\t45ecu435\t—\t01 Jul 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t7kqtjtyr\t—\t29 Jun 2026\t\n\nKYC Exception\n\tCOMPLETED\tmdeh6us6\t—\t29 Jun 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tsx1g509w\t19 Jun 2026\t19 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tsx1g509w\t19 Jun 2026\t19 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tsx1g509w\t18 Jun 2026\t18 Jun 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tsx1g509w\t—\t17 Jun 2026\t\n\nKYC Exception\n\tCOMPLETED\tpwk2q733\t—\t17 Jun 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\th0nmj299\t17 Jun 2026\t17 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\th0nmj299\t17 Jun 2026\t17 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\th0nmj299\t15 Jun 2026\t15 Jun 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\th0nmj299\t—\t12 Jun 2026\t\n\nKYC Exception\n\tCOMPLETED\toeqz5c3i\t—\t12 Jun 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tjl284tec\t12 Jun 2026\t12 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tjl284tec\t12 Jun 2026\t12 Jun 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tjl284tec\t11 Jun 2026\t11 Jun 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tjl284tec\t—\t10 Jun 2026\t\n\nKYC Exception\n\tCOMPLETED\twkivgvvc\t—\t10 Jun 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t1rn98a8o\t—\t08 Jun 2026\t\n\nKYC Exception\n\tCOMPLETED\tigci5tfq\t—\t08 Jun 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tiv8jowm9\t29 May 2026\t29 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tiv8jowm9\t29 May 2026\t29 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tiv8jowm9\t28 May 2026\t28 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tiv8jowm9\t—\t27 May 2026\t\n\nKYC Exception\n\tCOMPLETED\tuf10njup\t—\t27 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\txvqx73f5\t22 May 2026\t22 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\txvqx73f5\t22 May 2026\t22 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\txvqx73f5\t21 May 2026\t21 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\txvqx73f5\t—\t20 May 2026\t\n\nKYC Exception\n\tCOMPLETED\tkxtq7ejp\t—\t20 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tejwoq9ps\t19 May 2026\t19 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tejwoq9ps\t19 May 2026\t19 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tejwoq9ps\t18 May 2026\t18 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\t51sf8731\t18 May 2026\t18 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t51sf8731\t18 May 2026\t18 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tejwoq9ps\t—\t15 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t51sf8731\t15 May 2026\t15 May 2026\t\n\nKYC Exception\n\tCOMPLETED\t5xnze5hn\t—\t15 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tuhnpccns\t15 May 2026\t15 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tuhnpccns\t15 May 2026\t15 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t51sf8731\t—\t14 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tuhnpccns\t14 May 2026\t14 May 2026\t\n\nKYC Exception\n\tCOMPLETED\tdywr5tp7\t—\t14 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tuhnpccns\t—\t13 May 2026\t\n\nKYC Exception\n\tCOMPLETED\tjqge9w4l\t—\t13 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\t0ac26cuo\t13 May 2026\t13 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t0ac26cuo\t13 May 2026\t13 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t0ac26cuo\t12 May 2026\t12 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t0ac26cuo\t—\t11 May 2026\t\n\nKYC Exception\n\tCOMPLETED\tb0fv80xi\t—\t11 May 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t5m6y9r3f\t—\t05 May 2026\t\n\nKYC Exception\n\tCOMPLETED\togsuohbv\t—\t05 May 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tx14cisgn\t04 May 2026\t04 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tx14cisgn\t04 May 2026\t04 May 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tx14cisgn\t30 Apr 2026\t30 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tx14cisgn\t—\t29 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\t1q5n2sd8\t—\t29 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\trz2sqqbt\t24 Apr 2026\t24 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\trz2sqqbt\t24 Apr 2026\t24 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\trz2sqqbt\t23 Apr 2026\t23 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\trz2sqqbt\t—\t22 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\tijjau8y7\t—\t22 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tpzfn30ze\t21 Apr 2026\t21 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tcbmtbjae\t21 Apr 2026\t21 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tpzfn30ze\t21 Apr 2026\t21 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tcbmtbjae\t21 Apr 2026\t21 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tpzfn30ze\t20 Apr 2026\t20 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tcbmtbjae\t20 Apr 2026\t20 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tu5opzbxh\t20 Apr 2026\t20 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tu5opzbxh\t20 Apr 2026\t20 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tpzfn30ze\t—\t17 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tcbmtbjae\t—\t17 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tu5opzbxh\t17 Apr 2026\t17 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\tlecfwzp8\t—\t17 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\txm0vuxfy\t—\t17 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tfuckptj8\t17 Apr 2026\t17 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tfuckptj8\t17 Apr 2026\t17 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tu5opzbxh\t—\t16 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tfuckptj8\t16 Apr 2026\t16 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\tw7vjg0dc\t—\t16 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tagiba7ig\t16 Apr 2026\t16 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tq54ai0wc\t16 Apr 2026\t16 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tagiba7ig\t16 Apr 2026\t16 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tq54ai0wc\t16 Apr 2026\t16 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tfuckptj8\t—\t15 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tagiba7ig\t15 Apr 2026\t15 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tq54ai0wc\t15 Apr 2026\t15 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\td974aujf\t—\t15 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tagiba7ig\t—\t14 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tq54ai0wc\t—\t14 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\t1tidg54w\t—\t14 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\twvezla9u\t—\t14 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\tz7c3foo6\t13 Apr 2026\t13 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tz7c3foo6\t13 Apr 2026\t13 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tz7c3foo6\t10 Apr 2026\t10 Apr 2026\t\n\nDebit Mandate Artifact\n\tCOMPLETED\t9j6lcxuv\t10 Apr 2026\t10 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t9j6lcxuv\t10 Apr 2026\t10 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\tz7c3foo6\t—\t09 Apr 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\t9j6lcxuv\t09 Apr 2026\t09 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\twbnf4vl7\t—\t09 Apr 2026\t\n\nCredit Bureau Check\n\tCOMPLETED\t9j6lcxuv\t—\t08 Apr 2026\t\n\nKYC Exception\n\tCOMPLETED\tfgbnk2zo\t—\t08 Apr 2026\t\n\nS.129 Notice\n\tCOMPLETED\tigs9nmpv\t—\t02 Mar 2026\t\n\nCredit Agreement Artifact\n\tCOMPLETED\tmaxua3zl\t—\t01 Apr 2026\t\n\nCredit Bureau Check\n\tPENDING\tmaxua3zl\t—\t—\t\n\nCredit Bureau Check\n\tACKNOWLEDGED\t1uplcbzv\t—\t01 Apr 2026\t\n\nCredit Bureau Check\n\tACKNOWLEDGED\t1uplcbzv\t—\t01 Apr 2026\t",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Reports",
+        "href": "/reports"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Disbursements",
+        "href": "/disbursements"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Bank Reconciliation",
+        "href": "/payments/bank-reconciliation"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Agent Hub",
+        "href": "/crm/agent-hub"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Claims",
+        "href": "/insurance/claims"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Complaints",
+        "href": "/compliance/complaints"
+      },
+      {
+        "text": "DSAR",
+        "href": "/compliance/dsar"
+      },
+      {
+        "text": "Screening",
+        "href": "/compliance/screening"
+      },
+      {
+        "text": "FIC Act",
+        "href": "/compliance/fic"
+      },
+      {
+        "text": "Bureau Submissions",
+        "href": "/compliance/bureau-submissions"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Security & KYC policy",
+        "href": "/settings/security-policy"
+      },
+      {
+        "text": "Support access",
+        "href": "/settings/support-access"
+      },
+      {
+        "text": "Users",
+        "href": "/settings/users"
+      },
+      {
+        "text": "Repo rate",
+        "href": "/settings/repo-rate"
+      },
+      {
+        "text": "Audit Trail",
+        "href": "/settings/audit-log"
+      },
+      {
+        "text": "Login Activity",
+        "href": "/settings/login-log"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Prepare return →",
+        "href": "/compliance/ncr-return?quarter=2026-Q3"
+      },
+      {
+        "text": "View overrides →",
+        "href": "/compliance/bureau-overrides"
+      },
+      {
+        "text": "FSCA Return\n\nConduct-of-business quarterly return (LOAN_ADMIN+ to submit)\n\n→",
+        "href": "/compliance/fsca-return"
+      },
+      {
+        "text": "Breach Log\n\nPOPIA · FSCA data breach incidents\n\n→",
+        "href": "/compliance/breach-log"
+      },
+      {
+        "text": "Conflict of Interest\n\nFSCA Code of Conduct self-attestation\n\n→",
+        "href": "/compliance/coi"
+      },
+      {
+        "text": "Treating Customers Fairly\n\nFSCA TCF outcomes self-assessment\n\n→",
+        "href": "/compliance/tcf"
+      },
+      {
+        "text": "All173",
+        "href": "/compliance"
+      },
+      {
+        "text": "Obligations4",
+        "href": "/compliance?group=OBLIGATION"
+      },
+      {
+        "text": "Exceptions38",
+        "href": "/compliance?group=EXCEPTION"
+      },
+      {
+        "text": "Registers131",
+        "href": "/compliance?group=REGISTER"
+      },
+      {
+        "text": "Legacy0",
+        "href": "/compliance?group=LEGACY"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "S.129 Notice",
+        "href": "/compliance?type=SECTION_129_NOTICE"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "S.129 Notice",
+        "href": "/compliance?type=SECTION_129_NOTICE"
+      },
+      {
+        "text": "S.129 Notice",
+        "href": "/compliance?type=SECTION_129_NOTICE"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Debit Mandate Artifact",
+        "href": "/compliance?type=DEBIT_MANDATE_ARTIFACT"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "KYC Exception",
+        "href": "/compliance?type=KYC_EXCEPTION"
+      },
+      {
+        "text": "S.129 Notice",
+        "href": "/compliance?type=SECTION_129_NOTICE"
+      },
+      {
+        "text": "Credit Agreement Artifact",
+        "href": "/compliance?type=AGREEMENT_ARTIFACT"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      },
+      {
+        "text": "Credit Bureau Check",
+        "href": "/compliance?type=CREDIT_BUREAU_CHECK"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": []
+}

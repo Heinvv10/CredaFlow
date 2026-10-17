@@ -24,6 +24,7 @@ function loan(overrides: Partial<Parameters<typeof CollectionsTabs>[0]["loans"][
     id: "l1",
     reference: "COL-AAA",
     clientId: "c1",
+    ncaRegime: "NCA" as const,
     daysInArrears: 5,
     arrearsAmount: 200_000, // R2,000.00 in cents
     client: { firstName: "Lesedi", lastName: "Mabtest", phone: "0820000000", whatsapp: null },
@@ -303,5 +304,15 @@ describe("CollectionsTabs rows", () => {
   it("shows why the last Section 129 notice was not sent", () => {
     render([loan({ daysInArrears: 95, section129Failure: { failedAt: "2026-10-16T10:00:00.000Z", reason: "Email not configured for this tenant. Go to Settings → Email." } })])
     expect(renderedText()).toContain("S.129 not sent: Email not configured for this tenant. Go to Settings → Email.")
+  })
+
+  it("explains why Section 129 is unavailable for a non-NCA operating lease", () => {
+    render([loan({ daysInArrears: 137, ncaRegime: "NON_NCA", contractType: "OPERATING_LEASE" })])
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('"S129"')
+    expect(JSON.stringify(renderer.toJSON())).toContain("Non-NCA — Section 129 does not apply")
+  })
+  it.each(["INSTALMENT_SALE", null])("retains the notice action for NCA loans (%s)", (contractType) => {
+    render([loan({ daysInArrears: 95, ncaRegime: "NCA", contractType })])
+    expect(JSON.stringify(renderer.toJSON())).toContain('"S129"')
   })
 })

@@ -1,0 +1,255 @@
+{
+  "base": "http://localhost:44213",
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "at": "2026-10-17T15:15:14.363Z",
+  "results": [
+    {
+      "scenario": "actual authenticated role",
+      "role": "ADMIN",
+      "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+    },
+    {
+      "route": "/compliance",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "scope no broad Good Standing certification",
+          "ok": true
+        },
+        {
+          "label": "no broad statutory denominator",
+          "ok": true
+        },
+        {
+          "label": "tracked scope explained",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance.json"
+    },
+    {
+      "route": "/compliance/coi",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_coi.json"
+    },
+    {
+      "route": "/compliance/fic",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_fic.json"
+    },
+    {
+      "route": "/compliance/screening",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_screening.json"
+    },
+    {
+      "route": "/settings/notifications",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "implementation paths absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_notifications.json"
+    },
+    {
+      "route": "/settings/integrations",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "phase go-live copy absent",
+          "ok": true
+        }
+      ],
+      "evidence": "_settings_integrations.json"
+    },
+    {
+      "route": "/learn/agreement-signing",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "no missing advertised training media",
+          "ok": true
+        },
+        {
+          "label": "written learning content remains",
+          "ok": true
+        }
+      ],
+      "evidence": "_learn_agreement_signing.json"
+    },
+    {
+      "route": "/compliance/complaints",
+      "status": 200,
+      "authenticated": true,
+      "checks": [
+        {
+          "label": "authenticated page HTTP200",
+          "ok": true
+        },
+        {
+          "label": "previous actual created complaint shows acknowledged status",
+          "ok": true
+        }
+      ],
+      "evidence": "_compliance_complaints.json"
+    },
+    {
+      "scenario": "dsar form ready",
+      "form": {
+        "valid": true,
+        "controls": [
+          {
+            "tag": "SELECT",
+            "type": "select-one",
+            "required": true,
+            "valid": true,
+            "empty": false
+          },
+          {
+            "tag": "SELECT",
+            "type": "select-one",
+            "required": false,
+            "valid": true,
+            "empty": false
+          },
+          {
+            "tag": "TEXTAREA",
+            "type": "textarea",
+            "required": false,
+            "valid": true,
+            "empty": false
+          }
+        ],
+        "submitDisabled": false
+      }
+    },
+    {
+      "scenario": "dsar actual creation response",
+      "status": 201,
+      "id": "cmvcjfsf70008120tb5nlhnzp",
+      "reference": "DSAR-MVCJFSF7-4XQ6"
+    },
+    {
+      "scenario": "dsar actual update response",
+      "status": 200
+    },
+    {
+      "scenario": "dsar actual UI create and first permitted status transition",
+      "route": "/compliance/dsar",
+      "id": "cmvcjfsf70008120tb5nlhnzp",
+      "reference": "DSAR-MVCJFSF7-4XQ6",
+      "createStatus": 201,
+      "updateStatus": 200,
+      "limitation": "Synthetic local record only; does not claim resolved complaint, fulfilled DSAR or external communication"
+    },
+    {
+      "scenario": "normal exclusive PASQ generation",
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "status": 200,
+      "documentSha256": "1c954f830676da5754925b217e98dc14dcc8b719e8bcafa22bebd3b74f1e7124"
+    },
+    {
+      "scenario": "actual authenticated pasq EMAIL link issuance",
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "status": 200,
+      "delivery": "private local SMTP only"
+    },
+    {
+      "route": "/pasq/[token]",
+      "scenario": "fresh delivered eligible consumer token page",
+      "status": 200,
+      "applicationId": "cmuxs2auf08jv5f4gr3ju6ujd",
+      "authenticated": false,
+      "token": "redacted",
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTSELA LENDING\n\nYour Pre-Agreement Statement & Quotation\n\nPlease read this document in full, then confirm below that you received it. We are required to give you this quotation before you sign a credit agreement.\n\nOpen the quotation in a new tab if it does not display above.\n\nI have read this Pre-Agreement Statement & Quotation, including the instalment, the total cost of credit and my credit-life choice, and I confirm I received it.\nConfirm I received this quotation\n\nConfirming does not commit you to the loan. You will still be asked to sign the credit agreement separately."
+    },
+    {
+      "scenario": "actual PASQ view/hash/acknowledgement and consumed-token refusal",
+      "pdf": {
+        "status": 200,
+        "type": "application/pdf",
+        "sha256": "1c954f830676da5754925b217e98dc14dcc8b719e8bcafa22bebd3b74f1e7124"
+      },
+      "acknowledgeStatus": 200,
+      "replayStatus": 410,
+      "limitation": "Synthetic consumer ceremony only; no executed agreement or lender legal approval implied"
+    },
+    {
+      "scenario": "actual authenticated selfie EMAIL link issuance",
+      "applicationId": "cmnflx7m0003nay0c1r3mdkps",
+      "status": 200,
+      "delivery": "private local SMTP only"
+    },
+    {
+      "route": "/selfie/[token]",
+      "scenario": "fresh delivered eligible consumer token page",
+      "status": 200,
+      "applicationId": "cmnflx7m0003nay0c1r3mdkps",
+      "authenticated": false,
+      "token": "redacted",
+      "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\nHello Nomvula\n\nPlease take a photo of your face so we can check it against the photo on your ID document. Look straight at the camera in good light.\n\nTake a selfie\n\nYour camera will open — no file upload allowed\n\nOpen Camera\n• Face the camera directly in good lighting\n• Remove sunglasses or hats\n• Photo is used for identity verification only (POPIA)"
+    },
+    {
+      "scenario": "fresh selfie token route only",
+      "limitation": "Camera submission, biometric decision and provider acceptance not established by this page capture"
+    },
+    {
+      "route": "/portal/sign/deal-signers/[signerId]",
+      "scenario": "actual authorized existing signed document and wrong-client refusal",
+      "signerId": "cmnflx9ui007jay0crxbig948",
+      "status": 200,
+      "pdf": {
+        "status": 200,
+        "type": "application/pdf",
+        "sha256": "43eaf6624d931c577e9d2cb81f6c790522b72b7e16a34d6e4e67c7d07cde9e6a"
+      },
+      "wrongClientPageStatus": 404,
+      "wrongClientPdfStatus": 404,
+      "limitation": "Existing immutable signed ceremony view only; no new signing, signature verification, bank activation or legal approval implied"
+    }
+  ],
+  "failures": []
+}

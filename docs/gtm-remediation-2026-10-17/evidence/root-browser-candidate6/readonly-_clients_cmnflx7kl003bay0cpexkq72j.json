@@ -1,0 +1,118 @@
+{
+  "route": "/clients/cmnflx7kl003bay0cpexkq72j",
+  "status": 200,
+  "authenticated": true,
+  "snapshot": {
+    "url": "http://localhost:44213/clients/cmnflx7kl003bay0cpexkq72j",
+    "title": "Client and staff workspace",
+    "headings": [
+      "Sipho Nkosi"
+    ],
+    "text": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\nSynthetic GTM READONLY\n\nREADONLY\n\nSR\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\n\nSERVICING\n\nActive Loans\nPayments\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\n\nCOMPLIANCE\n\nCompliance\nNCR Return\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSign out\nClients\nSipho Nkosi\n\nWORKSPACE\n\nSipho Nkosi\n\nClient ID: CLI-SEED-0001\n\nPENDINGACTIVE\nMessage\nPersonal Details\n\nID: 8503015000081\n\nDOB: 01 Mar 1985\n\nGender: MALE\n\nContact\n\nsipho.nkosi@tsela-lending.invalid\n\n+27761234501\n\nWA: +27761234501\n\nEmployment\n\nEMPLOYED\n\nExample Employer (Pty) Ltd\n\nFinancial\n\nNet Income: R 28,000.00\n\nExpenses: R 12,000.00\n\nDisposable: R 16,000.00\n\nApplications (1)\nLoans (0)\nDocuments (0)\nKYC\nCompliance\nConsent\nComms\nBureau (0)\nREFERENCE\tPRODUCT\tAMOUNT\tTERM\tSTATUS\tDATE\nAPP-SEED-0001\t30-Day Micro Loan\tR 1,500.00\t30 days\tSUBMITTED\t31 Mar 2026",
+    "links": [
+      {
+        "text": "Executive Dashboard",
+        "href": "/dashboard"
+      },
+      {
+        "text": "Board Pack",
+        "href": "/reports/board-pack"
+      },
+      {
+        "text": "Academy",
+        "href": "/learn"
+      },
+      {
+        "text": "Inbox",
+        "href": "/inbox"
+      },
+      {
+        "text": "Applications\n10\n10 applications awaiting a decision",
+        "href": "/applications"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "Active Loans",
+        "href": "/loans"
+      },
+      {
+        "text": "Payments",
+        "href": "/payments"
+      },
+      {
+        "text": "Collections\n17\n17 loans in arrears",
+        "href": "/collections"
+      },
+      {
+        "text": "Entities",
+        "href": "/asset-finance/entities"
+      },
+      {
+        "text": "Deals",
+        "href": "/asset-finance/deals"
+      },
+      {
+        "text": "Assets",
+        "href": "/asset-finance/assets"
+      },
+      {
+        "text": "Suppliers",
+        "href": "/asset-finance/suppliers"
+      },
+      {
+        "text": "Reference rates",
+        "href": "/asset-finance/reference-rates"
+      },
+      {
+        "text": "CRM Dashboard",
+        "href": "/crm"
+      },
+      {
+        "text": "Leads\n4\n4 new leads awaiting contact",
+        "href": "/crm/leads"
+      },
+      {
+        "text": "Contacts",
+        "href": "/contacts"
+      },
+      {
+        "text": "Opportunities\n49\n49 open cross-sell opportunities",
+        "href": "/crm/opportunities"
+      },
+      {
+        "text": "Insurance",
+        "href": "/insurance"
+      },
+      {
+        "text": "Compliance",
+        "href": "/compliance"
+      },
+      {
+        "text": "NCR Return",
+        "href": "/compliance/ncr-return"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "Security & 2FA",
+        "href": "/settings/security"
+      },
+      {
+        "text": "Clients",
+        "href": "/clients"
+      },
+      {
+        "text": "APP-SEED-0001",
+        "href": "/applications/cmnflx7lh003lay0cki8snm0k"
+      }
+    ],
+    "viewport": 1440,
+    "width": 1440
+  },
+  "errors": []
+}

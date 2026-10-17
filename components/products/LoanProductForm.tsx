@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { interestGuidance, type InterestGuidanceBasis } from "@/lib/product-config/interest-guidance"
 import { annualisedInterestRate } from "@/lib/loan/annualised-rate"
 import { ncaInitiationFeeCap } from "@/lib/loan/nca-fee-cap"
 import { NonNcaArrearsFields } from "./NonNcaArrearsFields"
@@ -36,36 +37,6 @@ const EMPTY: LoanProduct = {
   interestRatePm: 3, interestModel: "REDUCING_BALANCE",
   initiationFeeModel: "FLAT_PCT",
   initiationFeePct: 0, initiationFeeMax: 0, monthlyServiceFee: 0, active: true,
-}
-
-// Advisory NCA per-month interest caps for the admin form (non-blocking guidance).
-// NOTE: the real NCA cap is set by CREDIT TYPE, not interest model — MICRO is
-// short-term credit (5%/month ceiling), so it's 5% across all models here (a FLAT
-// or reducing micro at 5% must not false-flag). PERSONAL (unsecured) stays a
-// conservative 3%/month proxy for its repo-linked annual cap. These figures are
-// guidance only; confirm the current statutory limits with legal.
-// An asset-finance deal carries its own contract rate, and an NCA deal is
-// capped per deal (lib/asset-finance/nca-caps.ts): no per-product guidance.
-const ASSET_FINANCE_CAP = { cap: Number.POSITIVE_INFINITY, label: "Rate set per deal", unit: "% per month" }
-const NCA_CAPS: Record<InterestModel, Record<ProductType, { cap: number; label: string; unit: string }>> = {
-  FLAT: {
-    MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
-    PERSONAL: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
-    PO_FUNDING: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
-    ASSET_FINANCE: ASSET_FINANCE_CAP,
-  },
-  REDUCING_BALANCE: {
-    MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
-    PERSONAL: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
-    PO_FUNDING: { cap: 3, label: "NCA cap: 3% p/m", unit: "% per month" },
-    ASSET_FINANCE: ASSET_FINANCE_CAP,
-  },
-  DAILY_ACCRUAL: {
-    MICRO: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
-    PERSONAL: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
-    PO_FUNDING: { cap: 5, label: "NCA cap: 5% p/m", unit: "% per month" },
-    ASSET_FINANCE: ASSET_FINANCE_CAP,
-  },
 }
 
 const MODEL_DESCRIPTIONS: Record<InterestModel, string> = {
@@ -139,7 +110,7 @@ function formatR(n: number) {
 // ── Component ────────────────────────────────────────────────────────────────
 
 /** `nonNcaArrears` is passed only when the tenant has asset finance on; otherwise the terms are neither shown nor sent. */
-export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProduct; nonNcaArrears?: NonNcaArrearsValues }) {
+export function LoanProductForm({ initial, nonNcaArrears, interestBasis }: { initial?: LoanProduct; nonNcaArrears?: NonNcaArrearsValues; interestBasis?: InterestGuidanceBasis }) {
   const router = useRouter()
   const [form, setForm] = useState<LoanProduct>(initial ?? EMPTY)
   const [arrears, setArrears] = useState<NonNcaArrearsValues | undefined>(nonNcaArrears)
@@ -154,8 +125,8 @@ export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProd
   const set = <K extends keyof LoanProduct>(k: K, v: LoanProduct[K]) =>
     setForm(f => ({ ...f, [k]: v }))
 
-  const ncaCap = NCA_CAPS[form.interestModel][form.productType]
-  const isOverCap = form.interestRatePm > ncaCap.cap
+  const guidance = interestGuidance({ productType: form.productType, amountRand: previewAmount, termDays: previewTerm, ratePercentPm: form.interestRatePm, interestModel: form.interestModel }, interestBasis)
+  const isOverCap = guidance.warning
 
   // NCA fee guardrails — guidance only (non-blocking, like the interest badge).
   // Thresholds mirror the field hints below and the values calculateLoan bills.
@@ -332,11 +303,17 @@ export function LoanProductForm({ initial, nonNcaArrears }: { initial?: LoanProd
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className={lbl}>Interest Rate ({displayRateLabel})</label>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isOverCap ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600"}`}>
-                {Number.isFinite(ncaCap.cap) && <>{isOverCap ? `⚠️ Exceeds NCA cap` : `✓ Within NCA cap`} — </>}{ncaCap.label}
-              </span>
+
             </div>
 
+            <div className={`mb-3 rounded-lg p-3 text-xs ${guidance.warning ? "bg-[var(--cf-surface-soft)] text-[var(--cf-danger)]" : "bg-[var(--cf-surface-soft)] text-[var(--cf-text-secondary)]"}`} role="status">
+              <p>{guidance.message}</p>
+              {guidance.classification && <>
+                <p className="mt-1">Illustrative transaction only: {formatR(previewAmount)}, {previewTerm} days; {guidance.classification}. Change the amount and term in the preview below to check another transaction.</p>
+                <p className="mt-1">Rate basis as at {interestBasis?.day ?? "unknown date"}: {interestBasis?.repo ? `repo applied ${(interestBasis.repo.rate * 100).toFixed(2)}%, approved ${(interestBasis.repo.approved * 100).toFixed(2)}% (a newer feed cut may lower the applied rate)` : "no approved repo rate available"}.</p>
+                <p className="mt-1">Approval checks the actual transaction and current rate records. Earlier short-term credit this calendar year can lower the permitted monthly rate to 3%; borrower history is not checked in this preview. This does not certify every amount or term offered by the product.</p>
+              </>}
+            </div>
             <div className="flex gap-3 items-start">
               <div className="flex-1">
                 <input

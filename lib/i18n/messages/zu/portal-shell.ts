@@ -5,6 +5,7 @@ export const portalShell: Catalog["portalShell"] = {
   clientPortal: "Iphothali Yamakhasimende",
   hi: "Sawubona {name}",
   hiThere: "Sawubona",
+  menu: "Imenyu",
   signOut: "Phuma",
   navOverview: "Uhlolojikelele",
   navBusiness: "Ibhizinisi",
