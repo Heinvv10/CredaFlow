@@ -72,7 +72,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 ## F08 — PO-funding promise and the displayed affordability process conflict
 
 - Priority/status/owner: P2 / pending / unassigned sequential policy wave.
-- Current reproduction/root cause: PO intake promises buyer-based rather than supported personal-affordability assessment. Current-source and runtime verification pending.
+- Current reproduction/root cause: Current source confirmed: translated poBusinessOnly promises buyer repayment/no salary sizing; PO qualification proxy checks interest only while review assesses scheduled full repayment. Runtime verification pending.
 - Intended smallest change: Truthful intake and repayment/assessment explanation; preserve affordability enforcement.
 - Acceptance: PO submission, review, affordable/declined scenarios; no new underwriting model. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
@@ -135,7 +135,7 @@ Closure requires regression results AND real browser acceptance on the integrate
 ## F15 — Executed agreement leaves declaration boxes visually empty after electronic acceptance
 
 - Priority/status/owner: P2 / pending / unassigned sequential policy wave.
-- Current reproduction/root cause: Executed PDF signature overlay leaves accepted declaration boxes empty. Current-source and runtime verification pending.
+- Current reproduction/root cause: Current source confirmed: five checks are UI-local; sign payload and AGREEMENT_SIGNED audit have no individual declaration record. Historical evidence cannot be inferred from a signature. Runtime/render verification pending; see POLICY-REVIEW.md.
 - Intended smallest change: Prepare legally reviewable representation preserving original document/signature hash binding.
 - Acceptance: Render before/after, signature/declaration audit binding and existing fingerprints; legal sign-off before merge. Targeted Vitest first; `npm run ci:quick`; combined `npm run ci:quality` + `npm run ci:integration`; browser evidence after integration.
 - Ownership/dependencies: see OWNERSHIP.md; wave B depends on reviewed wave A handoff; F15 separate legal gate.
