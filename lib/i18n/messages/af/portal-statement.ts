@@ -16,7 +16,7 @@ export const portalStatement: Catalog["portalStatement"] = {
   print: "Druk",
   paymentReference: "Betalingsverwysing",
   quoteReference: "Gebruik hierdie verwysing by elke betaling of deposito sodat dit aan hierdie lening toegewys word.",
-  outstanding: "Uitstaande",
+  outstanding: "Uitstaande hoofsom",
   totalPaid: "Totaal betaal",
   totalRepayable: "Totaal terugbetaalbaar",
   noPaymentsTitle: "Nog geen betalings aangeteken nie",

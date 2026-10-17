@@ -1,0 +1,21 @@
+/// Explicit portal declarations for one exact signature ceremony. Append-only in PostgreSQL.
+model AgreementDeclarationAcceptance {
+  id                      String          @id @default(cuid())
+  tenantId                String
+  applicationId           String
+  clientId                String
+  application             LoanApplication @relation(fields: [tenantId, applicationId, clientId], references: [tenantId, id, clientId], onDelete: Restrict, onUpdate: Restrict, map: "AgreementDeclarationAcceptance_application_fkey")
+  signerId                String
+  method                  String
+  version                 String
+  setSha256               String
+  acceptedIds             String[]
+  signedAt                DateTime
+  agreementDocumentSha256 String
+  pasqDocumentSha256      String
+  signatureSha256         String
+  recordedAt              DateTime        @default(now())
+
+  @@unique([tenantId, applicationId, signedAt, signatureSha256], map: "AgreementDeclarationAcceptance_ceremony_key")
+  @@index([tenantId, applicationId])
+}

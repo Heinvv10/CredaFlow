@@ -4,7 +4,7 @@ import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Banknote, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { accountTypeLabel } from "@/lib/validation/client-wizard"
 import { formatZAR } from "@/lib/utils"
 
@@ -152,9 +152,9 @@ export function DisburseForm({ applicationId, repaymentMethod, principalCents, d
             <div className="space-y-4 p-5">
               <div className="flex items-start gap-2 rounded-lg border border-[rgba(217,154,58,0.28)] bg-[rgba(217,154,58,0.08)] px-4 py-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--cf-warning)]" />
-                <p className="text-xs font-medium text-[var(--cf-warning)]">
+                <DialogDescription className="text-xs font-medium text-[var(--cf-warning)]">
                   This action is irreversible. The loan will be created and repayment schedule generated immediately.
-                </p>
+                </DialogDescription>
               </div>
 
               <div className="rounded-lg border border-[rgba(63,191,127,0.26)] bg-[rgba(63,191,127,0.07)] px-4 py-3">

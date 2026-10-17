@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-17T16:05:14.591Z",
+  "scope": "private synthetic acceptance; not production/legal/provider certification",
+  "source": {
+    "sha": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "tree": "1238ca5c22c31617cc388799984717b459542122",
+    "currentHead": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "trackedTreeClean": true,
+    "archiveSha256": "67db048a2d2c4113d7671618a323112f81066d74a835442e2ab341b12b413aef",
+    "initialMain": "3a0a17e38b393d0c0707ed24e615be2b016f604e",
+    "integratedMain": "685c86e951c0591324446af148d30d41ddc33652",
+    "auditBase": "5cb9279bc17d3c306e49c06c75b27660894eba73"
+  },
+  "gates": {
+    "prefix": "candidate8",
+    "qualityExit": "0",
+    "integrationExit": "0",
+    "qualitySummary": [
+      " Test Files  1 passed (1)",
+      "      Tests  44 passed (44)",
+      "   Duration  749ms (transform 33ms, setup 0ms, import 63ms, tests 5ms, environment 0ms)",
+      " Test Files  1 passed (1)",
+      "      Tests  44 passed (44)",
+      "   Duration  1.11s (transform 394ms, setup 0ms, import 404ms, tests 6ms, environment 0ms)",
+      " Test Files  1 passed (1)",
+      "      Tests  44 passed (44)",
+      "   Duration  760ms (transform 45ms, setup 0ms, import 54ms, tests 8ms, environment 0ms)",
+      " Test Files  1 passed (1)",
+      "      Tests  44 passed (44)",
+      "   Duration  793ms (transform 48ms, setup 0ms, import 58ms, tests 12ms, environment 0ms)",
+      " Test Files  1519 passed | 338 skipped (1857)",
+      "      Tests  19675 passed | 2953 skipped (22628)",
+      "   Duration  188.69s (transform 24.74s, setup 0ms, import 170.46s, tests 238.30s, environment 13.92s)",
+      " Test Files  1 passed (1)",
+      "      Tests  14 passed (14)",
+      "   Duration  3.26s (transform 178ms, setup 0ms, import 231ms, tests 2.32s, environment 0ms)"
+    ],
+    "integrationSummary": [
+      ">> 335 integration suites: 335 gated, 0 baselined, 2 opt-in (not run here)",
+      ">>   opt-in, NOT run by this gate: lib/documents/html-to-pdf.image.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)",
+      ">>   opt-in, NOT run by this gate: scripts/lender/build-context.integration.test.ts  (RUN_DOCKER_BUILD_IT=1)",
+      " Test Files  333 passed | 2 skipped (335)",
+      "      Tests  2930 passed | 2 skipped (2932)",
+      "   Duration  686.65s (transform 7.55s, setup 0ms, import 60.74s, tests 596.65s, environment 16ms)",
+      ">> integration gate OK"
+    ],
+    "affinity": {
+      "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+      "node": "v22.23.1",
+      "affinity": "4-7",
+      "availableParallelism": 4,
+      "memoryAvailableBoundary": "~62.9GB before run; Dockerbuilder0-3; B reports full-suite exit and lock released"
+    }
+  },
+  "syntheticRuntimeConfig": {
+    "inputs": null,
+    "SIMULATED_INTEGRATIONS": "simulated-payout,simulated-collections",
+    "outbound": "internal Docker network, loopback listener, non-relaying SMTP sink only",
+    "antiBot": "repository-supported Turnstile TEST configuration; no real Cloudflare defence claim"
+  },
+  "image": {
+    "id": "sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe",
+    "buildExit": "0",
+    "health": {
+      "status": "ok",
+      "mode": "all",
+      "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+      "builtAt": "2026-10-17T17:47:29+02:00",
+      "checkedAt": "2026-10-17T15:54:59.062Z"
+    }
+  },
+  "syntheticData": {
+    "snapshot": "20261016T084851Z",
+    "baselineCounts": {
+      "loans": 35,
+      "applications": 56,
+      "payments": 60,
+      "uploads": 443
+    },
+    "baselineBackupRestore": "passed counts/allocation invariant/byte-identical443files; repeat after final browser mutations",
+    "dbRole": {
+      "role": "postgres",
+      "database": "credaflow_rc",
+      "bypassRls": true,
+      "superuser": true
+    }
+  },
+  "openBoundaries": [
+    "F15 legal presentation code excluded pending lender legal sign-off",
+    "Actual lender identity/pricing/insurance/FIC/provider/scheduler/hosting acceptance remains external",
+    "Statement-reader accuracy explicitly not measured; existing model gates not upgraded",
+    "Private runtime RLS bypass differs from least-privileged real-target deployment",
+    "Future named target needs explicit authorization/configuration and exact-artifact acceptance"
+  ]
+}

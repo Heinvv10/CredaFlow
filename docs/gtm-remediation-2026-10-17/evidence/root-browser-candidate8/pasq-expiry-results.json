@@ -1,0 +1,46 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "base": "http://localhost:37543",
+  "kind": "pasq",
+  "health": {
+    "commit": "63a96479d290b215049b3a3e46977dc09305c21f",
+    "status": "ok"
+  },
+  "driverSha256": "9d8400c0669e9ec5dc1c7723dae290c5162ff8a07d902c4ede799258b23f3531",
+  "results": [
+    {
+      "scenario": "fresh actual delivered token remains eligible before controlled expiry",
+      "kind": "pasq",
+      "status": 200,
+      "anonymous": true
+    },
+    {
+      "scenario": "actual bound PASQ bytes before expiry",
+      "status": 200,
+      "sha256": "aac5e6c49e4a8de2357d23d4c98d6d9ae77590e56483b3daa1990a937c431be2"
+    },
+    {
+      "scenario": "wrong token refused without eligible document/capture surface",
+      "ok": true
+    },
+    {
+      "scenario": "actual same delivered token now expires with no document/capture surface",
+      "kind": "pasq",
+      "expiredUi": true,
+      "fixture": {
+        "fixtureDatabase": "credaflow_rc_accounting",
+        "kind": "pasq",
+        "rowIdHash": "94ec17db29a7611702f812c9289e72b04f840310f8b5e2230388a8280ce7481f",
+        "previousExpiry": "2026-10-19T15:55:34.219Z",
+        "fixtureExpiry": "2026-10-17T15:55:24.510Z",
+        "deliveredMessageBound": true,
+        "syntheticOnly": true
+      }
+    },
+    {
+      "scenario": "expired bound PASQ PDF access refused",
+      "status": 410
+    }
+  ],
+  "limitation": "Synthetic actual delivered token expiry only; no clock change, acknowledgement reset, biometric submission or provider operation."
+}

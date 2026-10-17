@@ -93,6 +93,7 @@ services:
       APP_MODE: all
       # The simulator signs agreements with the code DEMO_MODE reveals for .invalid mailboxes.
       DEMO_MODE: "true"
+      DEMO_SIM_MANUAL_CRON: "true"
     entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
     command: ["node", "server.js"]
     healthcheck:

@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/Header"
 import { prisma } from "@/lib/prisma"
@@ -24,6 +24,7 @@ import { ComplianceCapture } from "@/components/applications/ComplianceCapture"
 import { DisburseForm } from "@/components/applications/DisburseForm"
 import { CreditChecksPanel } from "@/components/applications/CreditChecksPanel"
 import { StatementInsightsPanel } from "@/components/applications/StatementInsightsPanel"
+import { StatementAiCard } from "@/components/applications/StatementAiCard"
 import { ApplicationApprovePanel } from "@/components/applications/ApplicationApprovePanel"
 import { canCancelApplication, showDebtEvidenceBlocker } from "@/lib/applications/decision-kind"
 import { ApplicationCancelButton } from "@/components/applications/ApplicationCancelButton"
@@ -109,6 +110,7 @@ async function getApplication(id: string, tenantId: string) {
       assignedTo: { select: { name: true, email: true } },
       approvedBy: { select: { name: true, email: true } },
       loan: true,
+      assetFinanceDeal: { select: { id: true } },
     },
   })
 }
@@ -203,15 +205,13 @@ async function getLatestAvsCheck(applicationId: string, clientId: string, tenant
   })
 }
 
-// Phase 7 AVS surface gate — dark behind TenantConfig.collectionsEngineEnabled.
-// When off, the AvsStatusCard must not render AND the latestAvsCheck query
-// must not run, so merge-day (flag-off) behavior stays byte-identical.
-async function getCollectionsEngineEnabled(tenantId: string): Promise<boolean> {
+// AVS is a prerequisite for both collections and payouts.
+async function getAvsEnabled(tenantId: string): Promise<boolean> {
   const config = await prisma.tenantConfig.findUnique({
     where: { tenantId },
-    select: { collectionsEngineEnabled: true },
+    select: { collectionsEngineEnabled: true, payoutsEngineEnabled: true },
   })
-  return config?.collectionsEngineEnabled ?? false
+  return !!(config?.collectionsEngineEnabled || config?.payoutsEngineEnabled)
 }
 
 interface PageProps { params: Promise<{ id: string }> }
@@ -219,13 +219,16 @@ interface PageProps { params: Promise<{ id: string }> }
 export default async function ApplicationDetailPage({ params }: PageProps) {
   const { id } = await params
   const tenantId = await getStaffTenantId()
-  const [application, session, collectionsEngineEnabled, segregationOfDuties] = await Promise.all([
+  const [application, session, avsEnabled, segregationOfDuties] = await Promise.all([
     getApplication(id, tenantId),
     auth(),
-    getCollectionsEngineEnabled(tenantId),
+    getAvsEnabled(tenantId),
     isSegregationOfDutiesRequired(tenantId),
   ])
   if (!application) notFound()
+  // The deal page owns the stored contractual term, regime and decision evidence
+  // for every asset borrower, including natural persons and sole proprietors.
+  if (application.assetFinanceDeal) redirect(`/asset-finance/deals/${application.assetFinanceDeal.id}`)
   if (!hasClientBorrower(application)) {
     return (
       <EntityBorrowerNotice
@@ -277,7 +280,7 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
       ? getReviewKycGate(application.client, tenantId)
       : Promise.resolve(null),
     listCannedReplies(tenantId),
-    collectionsEngineEnabled
+    avsEnabled
       ? getLatestAvsCheck(application.id, application.clientId, tenantId)
       : Promise.resolve(null),
     prisma.selfieCaptureToken.findFirst({
@@ -851,6 +854,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
           clientDebtTotal={clientDebtTotal}
           ownLenderDebts={affordabilityLocked ? null : ownLenderDebts}
           proposedInstalment={displayedProposedInstalment}
+          proposedPaymentLabel={application.product.productType === "PO_FUNDING" && loanCalc.schedule.length === 1 ? "Single scheduled repayment" : undefined}
+          proposedPaymentNote={application.product.productType === "PO_FUNDING" ? `${loanCalc.schedule.length === 1 ? "This assessment compares the full single repayment" : "This assessment compares the scheduled instalment"} with the borrower's disposable income. Purchase-order evidence does not replace borrower affordability or establish a buyer-funded repayment arrangement.` : undefined}
           affordabilityNDI={application.affordabilityNDI}
           done={!!application.affordabilityNDI}
           readOnly={affordabilityLocked}
@@ -923,6 +928,9 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
 
         {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 
+        {/* Statement AI: renders nothing while the lender has it off (its API 404s). READONLY reads it too. */}
+        <StatementAiCard applicationId={application.id} canAsk={canReadChecks} />
+
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (
           <DataPanel title="Credit Bureau Check">
@@ -935,9 +943,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
         )}
 
         {/* AVS bank-account verification — sits next to bank/financial details, ahead of
-            disbursement. Gated behind collectionsEngineEnabled: flag-off must be
-            byte-identical to pre-Phase-7 behavior (no card, no query). */}
-        {collectionsEngineEnabled && (
+            disbursement. Available when either collections or payouts needs AVS. */}
+        {avsEnabled && (
           <AvsStatusCard
             applicationId={application.id}
             latest={latestAvsCheck ? {

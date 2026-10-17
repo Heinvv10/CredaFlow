@@ -189,6 +189,7 @@ model LoanApplication {
   // migration.
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  agreementDeclarationAcceptances AgreementDeclarationAcceptance[]
   assetFinanceDeal          AssetFinanceDeal?
   checkFlags                ApplicationCheckFlag[]
   conversations             Conversation[]
@@ -197,6 +198,7 @@ model LoanApplication {
   ncaRegimeOverrides        NcaRegimeOverride[]
   pasqAcknowledgementTokens PasqAcknowledgementToken[]
   selfieCaptureTokens       SelfieCaptureToken[]
+  statementAiOutputs        StatementAiOutput[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, id, clientId])

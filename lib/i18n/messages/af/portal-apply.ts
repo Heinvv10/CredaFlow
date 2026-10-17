@@ -26,7 +26,7 @@ export const portalApply: Catalog["portalApply"] = {
   recentDeclineTitle: "Jou onlangse aansoek is afgekeur",
   recentDeclineBody: "Ons het aansoek {reference} op {date} afgekeur. Die syfers hieronder is skattings uit jou profiel, nie 'n aanbod nie. 'n Nuwe aansoek word weer volledig beoordeel, insluitend 'n kredietkontrole.",
   recentDeclineLink: "Sien die rede en jou volgende stappe →",
-  poBusinessOnly: "Vir 'n besigheid wat 'n bevestigde bestelling finansier. Dit word uit jou koper se betaling terugbetaal, dus word dit nie op jou salaris bereken nie.",
+  poBusinessOnly: "For a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.",
   amountOutOfRange: "Voer 'n bedrag tussen {min} en {max} in.",
   poNumberLabel: "Bestellingsnommer",
   poBuyerLabel: "Koper (wie die bestelling uitgereik het)",

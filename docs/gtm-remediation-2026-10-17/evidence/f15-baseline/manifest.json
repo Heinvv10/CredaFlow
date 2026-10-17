@@ -1,0 +1,36 @@
+{
+  "source": "Existing execution renderer from base3a0a17e3, unchanged in integrated candidate05007682",
+  "command": "Node22 tsx scripts/ops/render-executed-agreement-review.ts <private-output-dir>",
+  "result": "exit0, five PDFs; normal signature page4 rendered and visually inspected: signatures/dates present, all five declaration boxes blank; source has no individual declaration request/evidence",
+  "legalApproval": false,
+  "files": [
+    {
+      "file": "agreement-60-EXECUTED-stamped.pdf",
+      "sha256": "adf526368f772c8d45145c8f16766eb4f7db7116052b650f83042ef2e974b770"
+    },
+    {
+      "file": "agreement-60-UNSIGNED.pdf",
+      "sha256": "1668f96f0fac2893a80613e674a0adcb945214e4946ebbd46502f58450c44570"
+    },
+    {
+      "file": "agreement-EXECUTED-page.pdf",
+      "sha256": "02bedef184c13d9ed5ef3f2b7336bf0f49a9a6cfb3b61939cf932ba3706da4ce"
+    },
+    {
+      "file": "agreement-EXECUTED-stamped.pdf",
+      "sha256": "5ad9975076cc9e7b9248e6c2a0146964894b497c69f5871d12cd4a19126bcc2f"
+    },
+    {
+      "file": "agreement-EXECUTED-stamped.txt",
+      "sha256": "86d8a4611fd4992053b9ffb5c8ce17e9e963744cb2ae1d41dc66759a932648f5"
+    },
+    {
+      "file": "agreement-UNSIGNED.pdf",
+      "sha256": "d725e908234b812e07bf5f41a971d3cf4326a8f3e7abf267340ce73502bf5d1d"
+    },
+    {
+      "file": "signature-page.png",
+      "sha256": "8fe957a2fac1b78ff59c90ee61fedd67299cf1ad63ae1bc906ebd3f164752d2e"
+    }
+  ]
+}

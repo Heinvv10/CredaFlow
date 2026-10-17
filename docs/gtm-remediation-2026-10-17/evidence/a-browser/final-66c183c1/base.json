@@ -1,0 +1,732 @@
+{
+  "candidate": "66c183c1d316b2c8d696b56aa37a42de4700445e",
+  "baseUrl": "http://localhost:44213",
+  "immutableImage": "sha256:e4c12642a7013852aad870fe8da061c525100df186da359f03df2b1065563a1d",
+  "startedAt": "2026-10-17T15:27:50.016Z",
+  "driverSha256": "66440add98507fa8260d8c0d873a23f0c88501e70efb6869f97c23ac32ec4b09",
+  "scenarios": [
+    {
+      "finding": "F06",
+      "account": "no-loan",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 577,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    },
+    {
+      "finding": "F06",
+      "account": "consumer",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 577,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    },
+    {
+      "route": "/portal/business",
+      "finalPath": "/portal/business/cmnflx9j1005iay0ch7zfcvgd",
+      "evidence": "authenticated eligible representative entry UI only",
+      "text": "TEST Family Farming Trust\n\nTrust \u00b7 IT 000001/2099\n\nYou can see this business's applications and finance agreements and send us its documents.\n\nDocuments to sign\n\nYour own signatures on this business's finance documents\n\nAsset finance agreement\n\nagreement AF-MNFLX9M6-0ERM\n\nE-SIGNED\n\nResolution\n\nagreement AF-MNFLX9M6-0ERM\n\nE-SIGNED\n\nAsset finance agreement\n\nagreement AF-MNFLXC05-U5CA\n\nE-SIGNED\n\nResolution\n\nagreement AF-MNFLXC05-U5CA\n\nE-SIGNED\nNCA deal actions\n\nCredit-life disclosure and quotation acknowledgement\n\nNo NCA actions are waiting.\n\nDocuments\n\nEvery time a file is opened, the access is logged.\n\nDocument type\nChoose\u2026\nCIPC registration (CoR)\nTrust deed\nLetters of Authority\nResolution\nAnnual financial statements\nManagement accounts\nBank statement\nOther\nFile (PDF, JPEG, PNG or WebP, up to 10 MB)\nUpload\nTYPE\tFILE\tUPLOADED\tSTATUS\tACTIONS\nDelivery and acceptance\tdelivery_acceptance-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nTracker certificate\ttracker_certificate-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nInsurance noting\tinsurance_noting-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nBank statement\tbank_statement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSupplier invoice\tsupplier_invoice-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned resolution\tsigned_resolution-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned agreement\tsigned_agreement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nDelivery and acceptance\tdelivery_acceptance-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nTracker certificate\ttracker_certificate-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nInsurance noting\tinsurance_noting-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nBank statement\tbank_statement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSupplier invoice\tsupplier_invoice-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned resolution\tsigned_resolution-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nSigned agreement\tsigned_agreement-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nOther\tasset-pasq-AF-MNFLX9M6-0ERM.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nLetters of Authority\tletters_of_authority-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tVERIFIED\tViewDownload\nTrust deed\ttrust_deed-synthetic.pdf\t01 Apr 2026 \u00b7 staff\tUNVERIFIED\tViewDownload\nApplications\n\nScroll the table sideways to see every column.\n\nREFERENCE\tSTATUS\tNCA REGIME\tAMOUNT\tCAPTURED\nAF-MNFLXC05-U5CA\tDISBURSED\tNot regulated by the NCA\tR\u00a0200,000.00\t01 Apr 2026\nAF-MNFLX9M6-0ERM\tDISBURSED\tRegulated by the NCA\tR\u00a0310,500.00\t01 Apr 2026\nDeals\n\nScroll the table sideways to see every column.\n\nAPPLICATION\tASSET\tCONTRACT\tSTATUS\tCAPTURED\nAF-MNFLXC05-U5CA\t2025 TEST FL-35 Synthetic\tFull maintenance lease\tBOOKED\t01 Apr 2026\nAF-MNFLX9M6-0ERM\t2025 TEST TR-90 Synthetic\tFinance lease\tBOOKED\t01 Apr 2026\nLoans\n\nPrincipal is the capital the schedule repays: the amount financed plus any interest capitalised in lower- or no-payment months, so it can be more than the amount financed. Outstanding principal is what is left of it.\n\nScroll the table sideways to see every column.\n\nREFERENCE\tSTATUS\tPRINCIPAL\tOUTSTANDING PRINCIPAL\tSTARTED\nLN-MNFLXCB3-0NW9\tDEFAULTED\tR\u00a0138,443.95\tR\u00a0110,755.17\t31 Mar 2026\nLN-MNFLXA4Q-7C92\tDEFAULTED\tR\u00a0310,500.00\tR\u00a0304,930.05\t31 Mar 2026"
+    },
+    {
+      "finding": "F06",
+      "account": "business",
+      "destinations": [
+        {
+          "href": "/portal",
+          "label": "Overview"
+        },
+        {
+          "href": "/portal/business",
+          "label": "Business"
+        },
+        {
+          "href": "/portal/applications",
+          "label": "Applications"
+        },
+        {
+          "href": "/portal/apply",
+          "label": "Apply"
+        },
+        {
+          "href": "/portal/loans",
+          "label": "Loans"
+        },
+        {
+          "href": "/portal/insurance",
+          "label": "Insurance"
+        },
+        {
+          "href": "/portal/documents",
+          "label": "Documents"
+        },
+        {
+          "href": "/portal/statement",
+          "label": "Statements"
+        },
+        {
+          "href": "/portal/payment",
+          "label": "Payment"
+        },
+        {
+          "href": "/portal/notifications",
+          "label": "Notifications"
+        },
+        {
+          "href": "/portal/profile",
+          "label": "Profile"
+        }
+      ],
+      "bounds": {
+        "top": 16,
+        "bottom": 384,
+        "left": 16,
+        "right": 374,
+        "client": 366,
+        "scroll": 621,
+        "height": 400,
+        "width": 390
+      },
+      "signout": true
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "overview",
+      "text": "Account in Arrears\n\nDineo, your account is 7 days overdue\n\nPay R 531.43 to bring your account up to date.\n\nR 531.43\n\nCurrent account amount\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\nMake Payment\n\nCURRENT ACCOUNT AMOUNT\n\nR 531.43\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\n93%\n\nPAID TO DATE\n\nR 6,681.54\n\nLOAN REFERENCE\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan\n\nACCOUNT STATUS\n\nIn Arrears\n\nAction needed\nQuick Actions\n\nSecure shortcuts for the next client task.\n\nMake Payment\nView Schedule\nDownload Statement\nUpload Document\nTrack Application\nRecent Activity\nView all\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n16 Sept\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n17 Aug\n\nPayment allocated\n\nEFT\n\nR 1,630.00\n\n16 Jul\n\nPayment allocated\n\nDebit order\n\nR 1,791.54\n\n11 May\n\nMy Documents\nManage documents\nUploaded: 11\nVerified: 9\nAll required documents uploaded\nMy Insurance\nNo active insurance policies."
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "/portal/loans",
+      "text": "CLIENT PORTAL\n\nMy Loans\n\nReview active and historical loan accounts, balances and repayment schedules.\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan / Started 10 Apr 2026\n\nACTIVE\n\nOUTSTANDING PRINCIPAL\n\nR 531.43\n\nTOTAL PAID\n\nR 6,681.54\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nNEXT PAYMENT\n\n10 Oct 2026\n\nView Schedule"
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "view": "/portal/statement",
+      "text": "YOUR ACCOUNT\n\nPayment History & Statements\n\nView active loan balances, download official statements and track recorded repayments.\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan / ACTIVE\n\nPDF\nPrint\n\nPAYMENT REFERENCE\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nQuote this reference on every payment or deposit so it is allocated to this loan.\n\nOUTSTANDING PRINCIPAL\n\nR 531.43\n\nTOTAL PAID\n\nR 6,681.54\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n16 Sept 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n17 Aug 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n16 Jul 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n11 May 2026\tR 1,791.54\tDebit Order\tDO202605116LCXUV"
+    },
+    {
+      "finding": "F12",
+      "account": "consumer",
+      "loanId": "cmnsodku700fh5f4goin47id4",
+      "breakdown": {
+        "Outstanding principal": "R 531.43",
+        "Overdue now, including default charges": "R 531.43",
+        "Remaining contractual instalments": "R 531.43",
+        "Calculated settlement as of 17 Oct 2026": "R 531.43"
+      },
+      "expected": {
+        "loanId": "cmnsodku700fh5f4goin47id4",
+        "status": "ACTIVE",
+        "ncaRegime": "NCA",
+        "contractType": "LOAN",
+        "outstandingPrincipal": 53143,
+        "totalRepayable": 721297,
+        "totalPaid": 668154,
+        "currentAccountAmount": 53143,
+        "chargesOutstanding": 0,
+        "chargeLines": [],
+        "chargesLive": false,
+        "totalToSettle": 53143,
+        "isS125Priced": true,
+        "overdueNow": 53143,
+        "daysOverdue": 7,
+        "remainingContractual": 53143
+      },
+      "text": "Back to Loans\n\nLN-cmnoaheve00605f4g9j6lcxuv\n\nPersonal Loan\n\n7 days overdue\nACTIVE\n\nR 531.43\n\nOutstanding principal\n\nPrincipal still owed. This excludes future interest, fees and premiums and is not a settlement quote.\n\nPRINCIPAL\n\nR 5,500.00\n\nTOTAL REPAYABLE\n\nR 7,212.97\n\nTOTAL PAID\n\nR 6,681.54\n\nMONTHLY INSTALMENT\n\nR 1,084.29\n\nNEXT PAYMENT DATE\n\n10 Oct 2026\n\nNEXT PAYMENT AMOUNT\n\nR 531.43\n\nOutstanding principal\nR 531.43\nOverdue now, including default charges\nR 531.43\nRemaining contractual instalments\nR 531.43\nCalculated settlement as of 17 Oct 2026\nR 531.43\n\nUnpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.\n\nCalculated for this date using the same settlement rules as staff servicing and the certificate of balance. Later payments or charges can change it.\n\nYou have paid 93% of your loan\n93%\nPaid: R 6,681.54\nTotal: R 7,212.97\nDownload Statement\nMake a Payment\nRepayment Schedule\nNO.\tDUE DATE\tAMOUNT\tSTATUS\n1\t10 May 2026\tR 1,791.54\tPAID\n2\t10 Jun 2026\tR 1,084.29\tPAID\n3\t10 Jul 2026\tR 1,084.29\tPAID\n4\t10 Aug 2026\tR 1,084.29\tPAID\n5\t10 Sept 2026\tR 1,084.29\tPAID\n6\t10 Oct 2026\tR 1,084.27\tPARTIAL \u00b7 OVERDUE\nPayment History\nDownload Statement\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n16 Sept 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n17 Aug 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n16 Jul 2026\tR 1,630.00\tEFT\tLN-cmnoaheve00605f4g9j6lcxuv\n11 May 2026\tR 1,791.54\tDebit Order\tDO202605116LCXUV"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "theme": "dark",
+      "background": "color(srgb 0.134965 0.156031 0.194573)",
+      "reference": "rgb(236, 238, 243)",
+      "helper": "rgb(140, 147, 163)",
+      "referenceRatio": 12.761510696124795,
+      "helperRatio": 4.809177477596605,
+      "text": "LN-cmnoaheve00605f4g9j6lcxuv"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "theme": "light",
+      "background": "color(srgb 0.911686 0.930039 0.947137)",
+      "reference": "rgb(27, 29, 36)",
+      "helper": "rgb(95, 101, 115)",
+      "referenceRatio": 14.286476029600523,
+      "helperRatio": 4.9579863152949795,
+      "text": "LN-cmnoaheve00605f4g9j6lcxuv"
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "tenant",
+      "theme": "dark",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "actual tenant palette",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.809177477596605,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.761510696124795,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.809177477596605,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            34,
+            40,
+            50,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.761510696124795,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "tenant",
+      "theme": "light",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "actual tenant palette",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 4.9579863152949795,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.286476029600523,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 4.9579863152949795,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            232,
+            237,
+            242,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.286476029600523,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "default",
+      "theme": "dark",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "browser-only root CSS default palette override; database unchanged",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.761455648741144,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.634877268222702,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(140, 147, 163)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            140,
+            147,
+            163,
+            1
+          ],
+          "ratio": 4.761455648741144,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(236, 238, 243)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            36,
+            40,
+            54,
+            1
+          ],
+          "compositedForeground": [
+            236,
+            238,
+            243,
+            1
+          ],
+          "ratio": 12.634877268222702,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "finding": "F07",
+      "account": "consumer",
+      "palette": "default",
+      "theme": "light",
+      "viewport": 390,
+      "documentWidth": 390,
+      "paletteSubstitution": "browser-only root CSS default palette override; database unchanged",
+      "measured": {
+        "heading": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 5.022975785038948,
+          "fontSize": "10px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "reference": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.473743690830123,
+          "fontSize": "20px",
+          "fontWeight": "700",
+          "passesNormalAA": true
+        },
+        "help": {
+          "foreground": "rgb(95, 101, 115)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            95,
+            101,
+            115,
+            1
+          ],
+          "ratio": 5.022975785038948,
+          "fontSize": "12px",
+          "fontWeight": "400",
+          "passesNormalAA": true
+        },
+        "copy": {
+          "foreground": "rgb(27, 29, 36)",
+          "computedBackground": "rgba(0, 0, 0, 0)",
+          "compositedBackground": [
+            236,
+            237,
+            250,
+            1
+          ],
+          "compositedForeground": [
+            27,
+            29,
+            36,
+            1
+          ],
+          "ratio": 14.473743690830123,
+          "fontSize": "12px",
+          "fontWeight": "600",
+          "passesNormalAA": true
+        }
+      }
+    },
+    {
+      "route": "/portal/payment/success",
+      "evidence": "authenticated presentation only; no provider callback, transfer or settlement exercised",
+      "text": "Payment Initiated\n\nYour payment has been submitted via Stitch. It will be allocated to your loan account once the bank transfer is confirmed \u2014 this typically takes a few minutes.\n\nYou will receive an email confirmation once the payment is received.\n\nBack to Overview"
+    },
+    {
+      "route": "/portal/payment/failure",
+      "evidence": "authenticated presentation only; no provider callback, transfer or settlement exercised",
+      "text": "Payment not confirmed\n\nWe couldn't confirm your payment. If money left your account, it will be allocated to your loan once your bank confirms it \u2014 please don't pay again until you've checked your bank statement.\n\nBack to my loans\nContact Support\n\nMake a new payment\n\nIf you continue to experience issues, contact us at hello@tsela-lending.example or +27 11 000 0000."
+    },
+    {
+      "finding": "F08",
+      "account": "consumer",
+      "intakeCopy": "Back to Apply\n\nPURCHASE ORDER FUNDING\n\nApply for Purchase Order Funding\n\nWe already have your profile on file. Just tell us how much you need and what for.\n\nAPPLYING AS\nUpdate profile\n\nNAME\n\nDineo Ngcobo\n\nSA ID NUMBER\n\n*********7086\n\nPHONE\n\n+27600000027\n\nEMAIL\n\ndineo.ngcobo@tsela-lending.invalid\n\nMONTHLY INCOME\n\nR 7,924.75\n\nMONTHLY EXPENSES\n\nR 3,610.00\n\nAMOUNT (R) \u2014 BETWEEN R 10,000.00 AND R 500,000.00\nTERM (DAYS) \u2014 BETWEEN 30 AND 120\nWHAT IS THE LOAN FOR?\nBusiness\n\nFor a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.\n\nPURCHASE ORDER NUMBER\nBUYER (WHO ISSUED THE PURCHASE ORDER)\nPURCHASE ORDER DOCUMENT (PDF, JPEG OR PNG)\nDESCRIBE THE PURPOSE (required, 3\u2013500 chars)\n\nCredit life election\n\nEnter an amount to see your credit-life cover options.\n\nI confirm the income, expenses and debt obligations on my profile are accurate. I understand Tsela Lending will use this information to assess affordability under the National Credit Act.\nI understand I will receive a Pre-Agreement Statement & Quotation (PASQ) for review in this portal. I must open and acknowledge that exact document before approval; this checkbox is not the PASQ acknowledgement. This submission does not create a binding loan.\nCancel\nSubmit application\n\nRegistered credit provider (NCR Reg: NCRCP99999). Demo lender: registration numbers are fictional. Product reference: PO."
+    },
+    {
+      "finding": "F08",
+      "account": "consumer",
+      "existingReceipt": true,
+      "applicationId": "cmvcix8rh004daodbwgwh2uqz",
+      "text": "Back to Applications\n\nREFERENCE\n\nAPP-MVCIX8RG-SP17\n\nPurchase Order Funding\n\nSubmitted\n\nAPPLIED AMOUNT\n\nR 10,000.00\n\nTERM\n\n1 month\n\nPURPOSE\n\nSynthetic GTM acceptance purchase order\n\nSUBMITTED\n\n17 Oct 2026\n\nWhat happens next\n\nYour application is under review. We'll contact you within 2 business days. No action is required from you right now \u2014 keep an eye on your email and WhatsApp.\n\nApplication Timeline\n\nApplication submitted\n\n17 Oct 2026"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "overview",
+      "text": "Good evening, TEST\n\nYOUR NEXT PAYMENT\n\nR 15,957.11\n\nDue in 562 days / 1 May 2028\n\nPay Now\nView Schedule\n\nCURRENT ACCOUNT AMOUNT\n\nR 285,890.82\n\nPrincipal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.\n\n51%\n\nPAID TO DATE\n\nR 393,500.00\n\nLOAN REFERENCE\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale\n\nACCOUNT STATUS\n\nGood Standing\n\nClear\nQuick Actions\n\nSecure shortcuts for the next client task.\n\nMake Payment\nView Schedule\nDownload Statement\nUpload Document\nTrack Application\nRecent Activity\nView all\n\nPayment allocated\n\nEFT\n\nR 393,500.00\n\n01 Apr\n\nMy Documents\nManage documents\nUploaded: 2\nVerified: 1\nMissing required documents: ID Copy, Payslip, Bank Statement, Proof of Address\nMy Insurance\n\nCL-MNFLXAM1-DJ69\n\nCoverage: R 517,500.00\n\nACTIVE\n\nR 2,328.75/mo"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "/portal/loans",
+      "text": "CLIENT PORTAL\n\nMy Loans\n\nReview active and historical loan accounts, balances and repayment schedules.\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale / Started 01 Apr 2026\n\nACTIVE\n\nOUTSTANDING PRINCIPAL\n\nR 285,890.82\n\nTOTAL PAID\n\nR 393,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nNEXT PAYMENT\n\n01 May 2028\n\nView Schedule"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "view": "/portal/statement",
+      "text": "YOUR ACCOUNT\n\nPayment History & Statements\n\nView active loan balances, download official statements and track recorded repayments.\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale / ACTIVE\n\nPDF\nPrint\n\nPAYMENT REFERENCE\n\nLN-MNFLXALV-2C47\n\nQuote this reference on every payment or deposit so it is allocated to this loan.\n\nOUTSTANDING PRINCIPAL\n\nR 285,890.82\n\nTOTAL PAID\n\nR 393,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n01 Apr 2026\tR 393,500.00\tEFT\tREC-cmnflxcgw017eay0c82sbls8w"
+    },
+    {
+      "finding": "F12",
+      "account": "asset",
+      "loanId": "cmnflxalw00f7ay0cigs9nmpv",
+      "breakdown": {
+        "Outstanding principal": "R 285,890.82",
+        "Overdue now, including default charges": "R 0.00",
+        "Remaining contractual instalments": "R 374,769.94",
+        "Valuation": "R\u00a0450,000.00",
+        "Notices issued": "Valuation notice, Final notice",
+        "Sale proceeds": "R\u00a0400,000.00",
+        "Costs deducted from the proceeds": "R\u00a06,500.00",
+        "Net proceeds": "R\u00a0393,500.00",
+        "Costs charged to the account": "R\u00a00.00",
+        "Shortfall you owe": "R\u00a0374,769.94"
+      },
+      "expected": {
+        "loanId": "cmnflxalw00f7ay0cigs9nmpv",
+        "status": "ACTIVE",
+        "ncaRegime": "NCA",
+        "contractType": "INSTALMENT_SALE",
+        "outstandingPrincipal": 28589082,
+        "totalRepayable": 76826994,
+        "totalPaid": 39350000,
+        "currentAccountAmount": 28589082,
+        "chargesOutstanding": 0,
+        "chargeLines": [],
+        "chargesLive": false,
+        "totalToSettle": 37476994,
+        "isS125Priced": false,
+        "overdueNow": 0,
+        "daysOverdue": 0,
+        "remainingContractual": 37476994
+      },
+      "text": "Back to Loans\n\nLN-MNFLXALV-2C47\n\nPlant & Vehicle Instalment Sale\n\nACTIVE\n\nR 285,890.82\n\nOutstanding principal\n\nPrincipal still owed. This excludes future interest, fees and premiums and is not a settlement quote.\n\nPRINCIPAL\n\nR 517,500.00\n\nTOTAL REPAYABLE\n\nR 768,269.94\n\nTOTAL PAID\n\nR 393,500.00\n\nMONTHLY INSTALMENT\n\nR 15,957.11\n\nNEXT PAYMENT DATE\n\n01 May 2028\n\nNEXT PAYMENT AMOUNT\n\nR 7,756.50\n\nOutstanding principal\nR 285,890.82\nOverdue now, including default charges\nR 0.00\nRemaining contractual instalments\nR 374,769.94\n\nUnpaid instalments under the current schedule, including future contractual costs; default charges are shown separately. This is not an early-settlement quote.\n\nAsk your lender for a dated settlement quote for this contract.\n\nYou have paid 51% of your loan\n51%\nPaid: R 393,500.00\nTotal: R 768,269.94\nDownload Statement\nMake a Payment\nRepayment Schedule\nNO.\tDUE DATE\tAMOUNT\tSTATUS\n1\t01 May 2026\tR 18,285.86\tPAID\n2\t01 Jun 2026\tR 15,957.11\tPAID\n3\t01 Jul 2026\tR 15,957.11\tPAID\n4\t01 Aug 2026\tR 15,957.11\tPAID\n5\t01 Sept 2026\tR 15,957.11\tPAID\n6\t01 Oct 2026\tR 15,957.11\tPAID\n7\t01 Nov 2026\tR 15,957.11\tPAID\n8\t01 Dec 2026\tR 15,957.11\tPAID\n9\t01 Jan 2027\tR 15,957.11\tPAID\n10\t01 Feb 2027\tR 15,957.11\tPAID\n11\t01 Mar 2027\tR 15,957.11\tPAID\n12\t01 Apr 2027\tR 15,957.11\tPAID\n13\t01 May 2027\tR 15,957.11\tPAID\n14\t01 Jun 2027\tR 15,957.11\tPAID\n15\t01 Jul 2027\tR 15,957.11\tPAID\n16\t01 Aug 2027\tR 15,957.11\tPAID\n17\t01 Sept 2027\tR 15,957.11\tPAID\n18\t01 Oct 2027\tR 15,957.11\tPAID\n19\t01 Nov 2027\tR 15,957.11\tPAID\n20\t01 Dec 2027\tR 15,957.11\tPAID\n21\t01 Jan 2028\tR 15,957.11\tPAID\n22\t01 Feb 2028\tR 15,957.11\tPAID\n23\t01 Mar 2028\tR 15,957.11\tPAID\n24\t01 Apr 2028\tR 15,957.11\tPAID\n25\t01 May 2028\tR 15,957.11\tPARTIAL\u2190 NEXT\n26\t01 Jun 2028\tR 15,957.11\tUPCOMING\n27\t01 Jul 2028\tR 15,957.11\tUPCOMING\n28\t01 Aug 2028\tR 15,957.11\tUPCOMING\n29\t01 Sept 2028\tR 15,957.11\tUPCOMING\n30\t01 Oct 2028\tR 15,957.11\tUPCOMING\n31\t01 Nov 2028\tR 15,957.11\tUPCOMING\n32\t01 Dec 2028\tR 15,957.11\tUPCOMING\n33\t01 Jan 2029\tR 15,957.11\tUPCOMING\n34\t01 Feb 2029\tR 15,957.11\tUPCOMING\n35\t01 Mar 2029\tR 15,957.11\tUPCOMING\n36\t01 Apr 2029\tR 15,957.11\tUPCOMING\n37\t01 May 2029\tR 15,957.11\tUPCOMING\n38\t01 Jun 2029\tR 15,957.11\tUPCOMING\n39\t01 Jul 2029\tR 15,957.11\tUPCOMING\n40\t01 Aug 2029\tR 15,957.11\tUPCOMING\n41\t01 Sept 2029\tR 15,957.11\tUPCOMING\n42\t01 Oct 2029\tR 15,957.11\tUPCOMING\n43\t01 Nov 2029\tR 15,957.11\tUPCOMING\n44\t01 Dec 2029\tR 15,957.11\tUPCOMING\n45\t01 Jan 2030\tR 15,957.11\tUPCOMING\n46\t01 Feb 2030\tR 15,957.11\tUPCOMING\n47\t01 Mar 2030\tR 15,957.11\tUPCOMING\n48\t01 Apr 2030\tR 15,957.02\tUPCOMING\nPayment History\nDownload Statement\nDATE\tAMOUNT\tMETHOD\tREFERENCE\n01 Apr 2026\tR 393,500.00\tEFT\tREC-cmnflxcgw017eay0c82sbls8w\nRecovery of your asset\n\n2025 TEST TLB-4x4 Synthetic, recovered on 29 Mar 2026\n\nSHORTFALL OPEN\nValuation\nR\u00a0450,000.00\nNotices issued\nValuation notice, Final notice\nSale proceeds\nR\u00a0400,000.00\nCosts deducted from the proceeds\nR\u00a06,500.00\nNet proceeds\nR\u00a0393,500.00\nCosts charged to the account\nR\u00a00.00\nShortfall you owe\nR\u00a0374,769.94\n\nNo further charges accrue on the account until 17 Apr 2026.\n\nRECOVERY COSTS\n\nStorage\nDeducted from the proceeds\nR\u00a06,500.00"
+    },
+    {
+      "finding": "F07",
+      "account": "asset",
+      "theme": "dark",
+      "background": "color(srgb 0.134965 0.156031 0.194573)",
+      "reference": "rgb(236, 238, 243)",
+      "helper": "rgb(140, 147, 163)",
+      "referenceRatio": 12.761510696124795,
+      "helperRatio": 4.809177477596605,
+      "text": "LN-MNFLXALV-2C47"
+    },
+    {
+      "finding": "F07",
+      "account": "asset",
+      "theme": "light",
+      "background": "color(srgb 0.911686 0.930039 0.947137)",
+      "reference": "rgb(27, 29, 36)",
+      "helper": "rgb(95, 101, 115)",
+      "referenceRatio": 14.286476029600523,
+      "helperRatio": 4.9579863152949795,
+      "text": "LN-MNFLXALV-2C47"
+    },
+    {
+      "finding": "F08",
+      "account": "asset",
+      "intakeCopy": "Back to Apply\n\nPURCHASE ORDER FUNDING\n\nApply for Purchase Order Funding\n\nWe already have your profile on file. Just tell us how much you need and what for.\n\nAPPLYING AS\nUpdate profile\n\nNAME\n\nTEST Director One\n\nSA ID NUMBER\n\n*********0080\n\nPHONE\n\n+27700000103\n\nEMAIL\n\ntest.director.one@tsela-lending.invalid\n\nMONTHLY INCOME\n\nR 120,000.00\n\nMONTHLY EXPENSES\n\nR 30,000.00\n\nAMOUNT (R) \u2014 BETWEEN R 10,000.00 AND R 500,000.00\nTERM (DAYS) \u2014 BETWEEN 30 AND 120\nWHAT IS THE LOAN FOR?\nBusiness\n\nFor a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.\n\nPURCHASE ORDER NUMBER\nBUYER (WHO ISSUED THE PURCHASE ORDER)\nPURCHASE ORDER DOCUMENT (PDF, JPEG OR PNG)\nDESCRIBE THE PURPOSE (required, 3\u2013500 chars)\n\nCredit life election\n\nEnter an amount to see your credit-life cover options.\n\nI confirm the income, expenses and debt obligations on my profile are accurate. I understand Tsela Lending will use this information to assess affordability under the National Credit Act.\nI understand I will receive a Pre-Agreement Statement & Quotation (PASQ) for review in this portal. I must open and acknowledge that exact document before approval; this checkbox is not the PASQ acknowledgement. This submission does not create a binding loan.\nCancel\nSubmit application\n\nRegistered credit provider (NCR Reg: NCRCP99999). Demo lender: registration numbers are fictional. Product reference: PO."
+    }
+  ],
+  "errors": [],
+  "browserErrors": [],
+  "consoleMessages": [],
+  "httpFailures": [],
+  "endedAt": "2026-10-17T15:28:39.954Z"
+}

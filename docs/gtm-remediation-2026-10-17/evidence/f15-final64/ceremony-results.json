@@ -1,0 +1,61 @@
+{
+  "candidate": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+  "health": {
+    "status": "ok",
+    "mode": "all",
+    "commit": "64a1fd37ae58dc790cb7acc48ece476ac47ced10",
+    "builtAt": "2026-10-17T16:27:02Z",
+    "checkedAt": "2026-10-17T16:31:53.271Z"
+  },
+  "driverSha256": "f28743ddd2f31f60df58c86ef83461031a4fcaae4ea5ad5ea878da518ffb44a8",
+  "browser": "Chrome/154.0.8037.92",
+  "results": [
+    {
+      "scenario": "actual assigned consumer",
+      "role": "CLIENT",
+      "clientId": "cmv6bzpgd098k5f4g3gl0v2sd"
+    },
+    {
+      "scenario": "exact five displayed declarations",
+      "labels": [
+        "I have read and understood this Pre-Agreement Statement and Quotation",
+        "I have read and understood the Repayment Schedule",
+        "I have been informed of my right to settle this agreement in full at any time (NCA Section 125)",
+        "I accept the terms and conditions of this credit agreement",
+        "The information I have provided is true and correct"
+      ]
+    },
+    {
+      "scenario": "displayed signing packet",
+      "status": 200,
+      "sha256": "ba38980c0fc5ac45f55a7167c0761b2215e558745b596f58d762831da4660147"
+    },
+    {
+      "scenario": "four checks and missing OTP each prevent signing",
+      "ok": true
+    },
+    {
+      "scenario": "demo reveal ignored; actual SMTP remains required"
+    },
+    {
+      "scenario": "actual portal signing request/result",
+      "status": 200,
+      "declarations": {
+        "version": "portal-agreement-declarations-v1",
+        "setSha256": "94948b549e9415944b73909f0dce298c5b304e8ed4f832de4e14787e5452cfd7",
+        "acceptedIds": [
+          "pasq_read",
+          "schedule_read",
+          "settlement_right",
+          "terms_accepted",
+          "information_true"
+        ]
+      },
+      "agreementDocumentSha256": "c99a86748af1da3955af9fb1e44c8cbabf5de88cf74d180fafbf7922f13da902",
+      "pasqDocumentSha256": "2963a84ab3b0cba1c782dd97bdc7eda97e610fda2f9f20434535a723fe44e308",
+      "method": "portal",
+      "otpVerifiedStatus": 200
+    }
+  ],
+  "limitation": "Synthetic proposed declaration ceremony only; countersign/render and DB-bound receipt inspection remain separate, no legal approval."
+}

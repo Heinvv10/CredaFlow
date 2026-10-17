@@ -13,10 +13,11 @@
  * Exits 1 on any download or checksum failure, leaving no partial file.
  */
 import { createHash } from "node:crypto"
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import path from "node:path"
 import { FACE_MODELS, FACE_MODEL_LICENSES, faceModelUrl } from "../lib/kyc/face-model/models"
 import { faceModelDir } from "../lib/kyc/face-model/runtime.server"
+import { downloadPinnedFile } from "./fetch-face-models-download"
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
 
@@ -28,17 +29,8 @@ async function fetchPinned(dir: string, model: PinnedFile): Promise<void> {
     console.log(`[face-models] ${model.file} present, checksum OK`)
     return
   }
-  const response = await fetch(model.url)
-  if (!response.ok) throw new Error(`${model.file}: HTTP ${response.status} from ${model.url}`)
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  const digest = sha256(bytes)
-  if (digest !== model.sha256) {
-    throw new Error(`${model.file}: sha256 ${digest}, expected ${model.sha256} (an LFS pointer is ~130 bytes; got ${bytes.length})`)
-  }
-  const partial = `${target}.partial`
-  writeFileSync(partial, bytes)
-  renameSync(partial, target)
-  console.log(`[face-models] ${model.file} downloaded, ${bytes.length} bytes, checksum OK`)
+  const length = await downloadPinnedFile(target, model)
+  console.log(`[face-models] ${model.file} downloaded, ${length} bytes, checksum OK`)
 }
 
 async function main(): Promise<void> {

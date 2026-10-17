@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { callerIp } from "@/lib/rate-limit"
 import bcrypt from "bcryptjs"
 import { passwordPolicyError } from "@/lib/security/password-policy"
 
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { resetToken: token },
-    select: { id: true, resetTokenExp: true, active: true },
+    select: { id: true, tenantId: true, email: true, resetTokenExp: true, active: true },
   })
 
   if (!user || !user.active) {
@@ -31,15 +33,33 @@ export async function POST(req: NextRequest) {
   // Bumping tokenVersion invalidates any existing JWT sessions for this user
   // — important because a password reset implies the old credentials may be
   // compromised.
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      password: hashed,
-      resetToken: null,
-      resetTokenExp: null,
-      tokenVersion: { increment: 1 },
-    },
+  const consumed = await prisma.$transaction(async (tx) => {
+    // Hashing can overlap another reset. Only the still-live token may commit.
+    const written = await tx.user.updateMany({
+      where: { id: user.id, resetToken: token, active: true, resetTokenExp: { gt: new Date() } },
+      data: {
+        password: hashed,
+        resetToken: null,
+        resetTokenExp: null,
+        tokenVersion: { increment: 1 },
+      },
+    })
+    if (written.count !== 1) return false
+    await logAuditStrict({
+      tenantId: user.tenantId ?? undefined,
+      userId: user.id,
+      userEmail: user.email,
+      action: AuditAction.USER_UPDATED,
+      entity: "User",
+      entityId: user.id,
+      newValue: { passwordChanged: true, resetTokenConsumed: true, recoveryMethod: "staff_reset_token" },
+      ipAddress: callerIp(req),
+    }, tx)
+    return true
   })
+  if (!consumed) {
+    return NextResponse.json({ error: "Invalid or expired reset link" }, { status: 400 })
+  }
 
   return NextResponse.json({ ok: true })
 }

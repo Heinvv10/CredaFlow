@@ -1,3 +1,5 @@
+import { capRepoRate } from "@/lib/loan/nca-interest-cap.server"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
 import { notFound } from "next/navigation"
 import { LoanProductForm } from "@/components/products/LoanProductForm"
@@ -39,6 +41,8 @@ export default async function EditLoanProductPage({ params }: { params: Promise<
     active: product.active,
   }
 
+  const day = sastCalendarDate(new Date())
+  const interestBasis = { day, repo: await capRepoRate(prisma, tenantId, day) }
   return (
     <div className="p-6 lg:p-8">
       <Breadcrumbs
@@ -50,7 +54,7 @@ export default async function EditLoanProductPage({ params }: { params: Promise<
           { label: product.name },
         ]}
       />
-      <LoanProductForm initial={initial} nonNcaArrears={nonNcaArrears} />
+      <LoanProductForm interestBasis={interestBasis} initial={initial} nonNcaArrears={nonNcaArrears} />
     </div>
   )
 }

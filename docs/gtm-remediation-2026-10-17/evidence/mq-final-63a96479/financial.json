@@ -1,0 +1,175 @@
+{
+  "identity": {
+    "id": "cmnflx6y3002xay0cdmpo26zd",
+    "role": "ADMIN",
+    "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+  },
+  "sha": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "at": "2026-10-17T15:53:34.592Z",
+  "results": [
+    {
+      "finding": "F04",
+      "applicationId": "cmnflxc06011hay0c49x6ds2a",
+      "dealId": "cmnflxc08011jay0ccqj8ldjb",
+      "borrower": "entity",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflxc08011jay0ccqj8ldjb"
+    },
+    {
+      "finding": "F04",
+      "applicationId": "cmnflxbpb00vyay0czdb04pvg",
+      "dealId": "cmnflxbpd00w0ay0cw5c43zy7",
+      "borrower": "natural-person",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflxbpd00w0ay0cw5c43zy7"
+    },
+    {
+      "finding": "F04",
+      "applicationId": "cmnflxb5w00o0ay0c61z4zapw",
+      "dealId": "cmnflxb6000o2ay0coy5ybewo",
+      "borrower": "entity",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflxb6000o2ay0coy5ybewo"
+    },
+    {
+      "finding": "F04",
+      "applicationId": "cmnflxaql00i8ay0cixv9ayjm",
+      "dealId": "cmnflxaqn00iaay0cazlw7zp0",
+      "borrower": "entity",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflxaqn00iaay0cazlw7zp0"
+    },
+    {
+      "finding": "F04",
+      "applicationId": "cmnflxa8h00byay0cmaxua3zl",
+      "dealId": "cmnflxa8o00c0ay0cbzgmk14a",
+      "borrower": "natural-person",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflxa8o00c0ay0cbzgmk14a"
+    },
+    {
+      "finding": "F04",
+      "applicationId": "cmnflx9m7006fay0c1uplcbzv",
+      "dealId": "cmnflx9me006hay0cr1tm8xu2",
+      "borrower": "entity",
+      "status": 200,
+      "route": "/asset-finance/deals/cmnflx9me006hay0cr1tm8xu2"
+    },
+    {
+      "finding": "F03",
+      "headline": "LOAN BOOK\n\nR 3,543,918.83\n\n26 loans in the collectible book",
+      "composition": "Composition total: 26 loans — R 3,543,918.83",
+      "independentSQL": "board-pack-baseline-reconciliation.json"
+    },
+    {
+      "finding": "F05",
+      "nonNcaRows": 1,
+      "loanId": "cmnflxcb3014uay0czuzmhhit",
+      "dispatchRefusal": {
+        "status": 422,
+        "body": {
+          "error": "Cannot issue a Section 129 default notice: Section 129 applies to NCA credit agreements only; this agreement is not regulated by the NCA."
+        }
+      },
+      "pdfRefusal": {
+        "status": 409,
+        "body": {
+          "error": "No immutable issued Section 129 artifact is available. Issue the notice through the S.129 action; direct PDF generation is disabled."
+        }
+      }
+    },
+    {
+      "finding": "F01",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "collectionsEnabled": false,
+      "payoutsEnabled": false,
+      "status": 409,
+      "avsUi": null,
+      "applicationStatus": "SUBMITTED",
+      "payoutReadinessBoundary": "AVS gate only; existing application lifecycle and other guards remain, no payout dispatch",
+      "simulated": true,
+      "error": "Neither collections nor payouts is enabled for this tenant"
+    },
+    {
+      "finding": "F01",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "collectionsEnabled": true,
+      "payoutsEnabled": false,
+      "status": 200,
+      "passed": true,
+      "avsCheckId": "cmvckt28u005kji0re7vsyp3n",
+      "avsUi": "Bank Account Verification (AVS)\n\nAccount ending 0200\n\nVerified\n\nLast checked 17 Oct 2026 17:29.\n\nRun AVS check",
+      "applicationStatus": "SUBMITTED",
+      "payoutReadinessBoundary": "AVS gate only; existing application lifecycle and other guards remain, no payout dispatch",
+      "simulated": true
+    },
+    {
+      "finding": "F01",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "collectionsEnabled": false,
+      "payoutsEnabled": true,
+      "status": 200,
+      "passed": true,
+      "avsCheckId": "cmvckt370005zji0ry2p2rxsm",
+      "avsUi": "Bank Account Verification (AVS)\n\nAccount ending 0200\n\nVerified\n\nLast checked 17 Oct 2026 17:53.\n\nRun AVS check",
+      "applicationStatus": "SUBMITTED",
+      "payoutReadinessBoundary": "AVS gate only; existing application lifecycle and other guards remain, no payout dispatch",
+      "simulated": true
+    },
+    {
+      "finding": "F01",
+      "applicationId": "cmv7s59i409fo5f4g5hcu7iio",
+      "collectionsEnabled": true,
+      "payoutsEnabled": true,
+      "status": 200,
+      "passed": true,
+      "avsCheckId": "cmvckt42c006fji0r3m7bwk2f",
+      "avsUi": "Bank Account Verification (AVS)\n\nAccount ending 0200\n\nVerified\n\nLast checked 17 Oct 2026 17:53.\n\nRun AVS check",
+      "applicationStatus": "SUBMITTED",
+      "payoutReadinessBoundary": "AVS gate only; existing application lifecycle and other guards remain, no payout dispatch",
+      "simulated": true
+    },
+    {
+      "finding": "F01",
+      "context": "actual approved signed application",
+      "applicationId": "cmv4x9jsn091q5f4gzmc9mnjj",
+      "applicationStatus": "APPROVED",
+      "collectionsEnabled": false,
+      "payoutsEnabled": true,
+      "status": 200,
+      "avsCheckId": "cmvckt50l006uji0r5s2p0ctk",
+      "passed": true,
+      "ui": {
+        "avs": "Bank Account Verification (AVS)\n\nAccount ending 4784\n\nVerified\n\nLast checked 17 Oct 2026 17:29.\n\nRun AVS check",
+        "disburseTriggerAvailable": false,
+        "readinessText": "Tsela Lending demo — all data shown is sample data. Do not enter real personal information.\n\nTsela Lending\n\nSTAFF WORKSPACE\n\n1\n\nDemo Admin\n\nADMIN\n\nDA\n\nSTAFF NAVIGATION\n\nOVERVIEW\n\nExecutive Dashboard\nReports\nBoard Pack\nAcademy\n\nCOMMUNICATIONS\n\nInbox\n\nORIGINATION\n\nApplications\n10\n10 applications awaiting a decision\nClients\nDisbursements\n\nSERVICING\n\nActive Loans\nPayments\nBank Reconciliation\nCollections\n17\n17 loans in arrears\n\nASSET FINANCE\n\nEntities\nDeals\nAssets\nSuppliers\nReference rates\n\nCRM\n\nCRM Dashboard\nLeads\n4\n4 new leads awaiting contact\nAgent Hub\nContacts\nOpportunities\n49\n49 open cross-sell opportunities\n\nINSURANCE\n\nInsurance\nClaims\n\nCOMPLIANCE\n\nCompliance\nNCR Return\nComplaints\nDSAR\nScreening\nFIC Act\n\nCREDIT BUREAU\n\nBureau Submissions\n\nADMINISTRATION\n\nSettings\nSecurity & 2FA\nSecurity & KYC policy\nSupport access\nUsers\nRepo rate\nAudit Trail\nLogin Activity\nSign out\nApplications\nRefilwe Abrahams\n\nWORKSPACE\n\nApplication APP-MV4X9JSM-8F3G\n\nRefilwe Abrahams\n\nCASE FILE\n\nRefilwe Abrahams\n\nAPP-MV4X9JSM-8F3G · 30-Day Micro Loan\n\nAPPROVED\nSMALL\n\nAMOUNT\n\nR 1,700.00\n1 month\n\nTOTAL\n\nR 2,109.00\nRepayable\n\nID: 7303020045085\n\nEmail: refilwe.abrahams@tsela-lending.invalid\n\nPhone: +27600000045\n\nEmployment: EMPLOYED\n\nReview path\n\nDisbursement readiness\n\n✓\nIntake and identity\n✓\nAffordability\n✓\nCompliance\n✓\nAgreement\n5\nDisbursement\n\nCURRENT STAGE\n\nDisbursement readiness\n\nThe consumer signature and provider countersignature are complete. Confirm disbursement controls and create the active loan.\n\nNO BLOCKERS\nAPPROVED\n\nDecision Note: Approved\n\nSubmitted\n\nApplication captured\n\nKYC Verified\n\nDocuments cleared\n\nAffordability\n\nNDI assessed\n\nCredit Decision\n\nApproved / Declined\n\nAgreement\n\nSigned & accepted\n\n6\n\nDisbursed\n\nFunds released\n\nAPPROVED\nSMALL Agreement\nApproved 14 Oct 2026\n\nDecision Note: Approved\n\nSelfie capture link\n\nNo selfie link sent for this application yet.\n\nThe link is only ever sent to the number or address already on file for this client. It is valid for 24 hours, can be used once, and sending again cancels the previous link.\n\nSend link by WhatsApp\nSend link by SMS\nSend link by Email\nClient Information\n\nName: Refilwe Abrahams\n\nID Number: 7303020045085\n\nEmail: refilwe.abrahams@tsela-lending.invalid\n\nPhone: +27600000045\n\nEmployment: EMPLOYED\n\nLoan Purpose: HOUSEHOLD\n\nAffordability Assessment\nRisk Grade\nA\n\nMonthly Income\n\nR 11,474.33\n\nLiving Expenses\n\n- R 5,130.00\n\nExisting Debt\n\n- R 610.00\n\nNDI\n\nR 5,734.33\n\nProposed Instalment\n\n- R 2,109.00\n\nNDI After Loan\n\nR 3,625.33\n\nAFFORDABLE\n\nExisting Credit Obligations\n\nAdd creditor\nHome loan\nVehicle finance\nPersonal loan\nCredit card\nStore account\nClothing account\nMicrofinance\nOther\nR\nR\n\nColumns: Creditor / Type / Monthly Instalment (R) / Outstanding Balance (R)\n\nDecision Snapshot Locked\nLoan Details\n\nProduct\n\n30-Day Micro Loan\n\nPrincipal\n\nR 1,700.00\n\nTerm\n\n1 month\n\nTotal Repayable\n\nR 2,109.00\n\nInterest Rate\n\n5.0% p.m.\n\nInterest this term\n\n5.0% over 30d\n\nAnnual rate (nominal)\n\n60.8% p.a.\n\nTotal Interest\n\nR 85.00\n\nInitiation Fee\n\nR 255.00\n\nService Fees\n\nR 69.00\n\nPurpose\n\nHousehold expenses and repairs\n\nNCA Compliance Checks\nComplete\n\nReckless lending assessment completed\n\nAffordability has been assessed under NCA Sections 80-81. No reckless lending determination applies.\n\nClient affordability declaration captured\n\nThe client declared income, expenses, and obligations truthfully and accepted the affordability assessment.\n\nUpdate Assessment Checks\nCredit checks\n0 open\n\nCould not load credit checks.\n\nStatement insights\nFrom statement — estimate\nExport to Excel\n\nNo statement that reconciles has been read yet (1 not read).\n\nCredit Bureau Check\n\nSimulated result — not a real bureau check\n\nEvidence source: immutable approval snapshot\n\nProvider\n\nExperian\n\nCredit Score\n\n645\n\nRisk Grade\n\nAVERAGE RISK\n\nAdverse Records\n\n0\n\nBureau Obligations vs Self-Declared\n\nSelf-declared monthly debt\n\nR 610.00\n\nBureau monthly obligations\n\nR 0.00\n\nCheck run: 13 Oct 2026 10:30\n\nBank Account Verification (AVS)\n\nAccount ending 4784\n\nVerified\n\nLast checked 17 Oct 2026 17:29.\n\nRun AVS check\nCredit Agreement\n\nConsumer signed by portal on 15 October 2026; provider countersigned by Demo Admin on 15 October 2026.\n\nDownload Agreement\nEmail copy to client\nProjected Repayment Schedule\n#\tDUE DATE\tPRINCIPAL\tINTEREST\tFEES\tTOTAL\tBALANCE\n1\t14 Nov 2026\tR 1,700.00\tR 85.00\tR 324.00\tR 2,109.00\tR 0.00\nDecision rail\n\nPrimary controls, blockers, and audit history.\n\nSegregation of duties: you approved this application, so another staff member must disburse it.\n\nReturn to review\nMessage\nView Client Record\nReview Documents\n\nAUDIT TRAIL\n\nCreated 12 Oct 2026\n\nAPP-MV4X9JSM-8F3G\n\nAssigned advisor\n\nLindiwe Mahlangu\n\nApproved 14 Oct 2026\n\nDemo Admin • Debit-order repayment\n\nSigned 15 Oct 2026\n\nportal\n\nProvider countersigned 15 Oct 2026\n\nDemo Admin\n\nDebit mandate signed 15 Oct 2026\n\nCustomer portal signature recorded\n\nAVS check passed\nThe client's bank account details have been re-verified."
+      },
+      "simulated": true,
+      "payoutReadinessBoundary": "Existing DEBIT_ORDER contract, no repayment/approval/bank evidence rewrite. Actual action availability+verified subject or concrete refusal; no payout dispatch or universal readiness claim."
+    },
+    {
+      "gap": "G20",
+      "applicationId": "cmv4x9jsn091q5f4gzmc9mnjj",
+      "viewer": {
+        "id": "cmnflx7970031ay0c7dcxkip0",
+        "role": "LOAN_ADMIN",
+        "tenantId": "cmnflx6i00000ay0c6dpcsk1l"
+      },
+      "dialog": {
+        "describedBy": [
+          "radix-_R_9pn9bsnpft5udbH2_"
+        ],
+        "descriptions": [
+          "This action is irreversible. The loan will be created and repayment schedule generated immediately."
+        ],
+        "visible": true,
+        "text": "Disburse Loan - R 1,700.00 to Refilwe Abrahams\n\nThis action is irreversible. The loan will be created and repayment schedule generated immediately.\n\nClient bank details are locked for disbursement\n\nThese details match the customer’s verified bank statement and signed debit mandate. Change them only through a new customer-authorised mandate.\n\nBANK *\nACCOUNT TYPE\nACCOUNT NUMBER *\nBRANCH CODE\nPAYMENT REFERENCE (OPTIONAL)\n\nI confirm the disbursement details are correct\n\nDisbursing R 1,700.00 to Refilwe Abrahams at ABSA - Account 4090454784\n\nCancel\nConfirm - Disburse R 1,700.00\nClose"
+      },
+      "missingDescriptionWarnings": 0,
+      "escapeClosed": true,
+      "dispatchPerformed": false
+    }
+  ],
+  "pageErrors": [],
+  "boundary": "Private synthetic fixture-only simulation. No money movement or real provider."
+}

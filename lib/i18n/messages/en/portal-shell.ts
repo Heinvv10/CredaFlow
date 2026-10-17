@@ -3,6 +3,7 @@ export const portalShell = {
   clientPortal: "Client Portal",
   hi: "Hi {name}",
   hiThere: "Hi there",
+  menu: "Menu",
   signOut: "Sign out",
   navOverview: "Overview",
   navBusiness: "Business",

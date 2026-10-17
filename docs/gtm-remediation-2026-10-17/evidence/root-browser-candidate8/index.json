@@ -1,0 +1,68 @@
+{
+  "candidate": "63a96479d290b215049b3a3e46977dc09305c21f",
+  "image": "sha256:1d3ad6299b0054726ca80ac40776fce6663cc148a817029d27ad07794eb5c4fe",
+  "files": [
+    {
+      "file": "operator-results.json",
+      "sha256": "4e464d7cab07faf98e6b464073220703354ef9edfe3456559551d7ec50c6d4ad",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/browser-operator-1792252292264-cf5ee13c-b7fe-4b2a-b321-2dd353fdac95/results.json"
+    },
+    {
+      "file": "readonly-results.json",
+      "sha256": "160a14540c9c0ae0ce099ad8ff966ced1cdba181e445834fc9eca3d773058646",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/browser-readonly-1792252302691-adde36c8-b738-4060-a89d-620e4cf63128/results.json"
+    },
+    {
+      "file": "staff-results.json",
+      "sha256": "1592dd1631ac1b754928bc4a0f2357c5eaf4a595b103bf73833c953493e8d1f2",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/browser-staff-1792252361487-3b3191a9-c32e-48c1-b012-7efc6efb976a/results.json"
+    },
+    {
+      "file": "staff-recovery-results.json",
+      "sha256": "5354a8e432a2a86d6439e0140ecc5bced579d1af619a3824f18b0e42c3463568",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/recovery-staff-1792252388644/results.json"
+    },
+    {
+      "file": "portal-recovery-results.json",
+      "sha256": "b6b5f4d06377a6433d889ddeceffa028bf8af3d9730861e82cb0ba844178cada",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/recovery-portal-1792252389821/results.json"
+    },
+    {
+      "file": "staff-expiry-results.json",
+      "sha256": "5d89c0e9850eb4b3360e8dba6f55893bd23554e49d143affad72b03f5cd4525e",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/expiry-staff-1792252419357/results.json"
+    },
+    {
+      "file": "portal-expiry-results.json",
+      "sha256": "7d56f8bc07f514d4880bdad58b82b9d6cd90d52153380a8daf90a1f0e53e024b",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/evidence/expiry-portal-1792252420516/results.json"
+    },
+    {
+      "file": "pasq-expiry-results.json",
+      "sha256": "70aa6dc4987a0a944b09a4d9e2ba6566ce85e4d54b650328e3f76a377e03e0cd",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/accounting-runtime/evidence/token-expiry-pasq-1792252564100/results.json"
+    },
+    {
+      "file": "selfie-expiry-results.json",
+      "sha256": "c6dae4088c449430fbfbf577a88ac8850783ff40bd464c3ffda87094b3205f8d",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/accounting-runtime/evidence/token-expiry-selfie-1792252564100/results.json"
+    },
+    {
+      "file": "fresh-token-view-results.json",
+      "sha256": "f79c38766bdbc74b95faa34da8bc493baabc2ebca26cd2d5fa670a3de03d1780",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/accounting-runtime/evidence/browser-staff-1792252524065-e690c265-4bc4-4e0a-ae97-757bbc48a6bd/results.json"
+    },
+    {
+      "file": "pasq-ack-results.json",
+      "sha256": "9a8e66420e7de4ec8905ba38be348124fc8f8c4e3229102312ee1dd2451e5d3e",
+      "privateSource": "/tmp/cf-gtm-rc-20261017-mq-hMJamG/accounting-runtime/evidence/browser-staff-1792252609556-279a6c3a-1fd9-440e-a80e-21fafc52216b/results.json"
+    }
+  ],
+  "provenance": "Actual health checked before browser launch. Recovery records bind to the separately retained launch command and exact driver, rather than self-contained image metadata. MQ runtime ledger verifies baked source and image.",
+  "limitations": [
+    "Synthetic local SMTP only; no real provider operation",
+    "Selfie eligible landing/expiry only; no camera or biometric submission",
+    "Existing signed deal access only; no new deal-signing ceremony",
+    "Full candidate integration gate still pending when assembled"
+  ]
+}

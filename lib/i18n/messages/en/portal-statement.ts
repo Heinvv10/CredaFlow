@@ -17,7 +17,7 @@ export const portalStatement = {
   print: "Print",
   paymentReference: "Payment Reference",
   quoteReference: "Quote this reference on every payment or deposit so it is allocated to this loan.",
-  outstanding: "Outstanding",
+  outstanding: "Outstanding principal",
   totalPaid: "Total Paid",
   totalRepayable: "Total Repayable",
   noPaymentsTitle: "No payments recorded yet",

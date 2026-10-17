@@ -26,7 +26,7 @@ export const portalApply: Catalog["portalApply"] = {
   recentDeclineTitle: "Isicelo sakho samva nje sigatyiwe",
   recentDeclineBody: "Sisigatyile isicelo {reference} ngomhla we-{date}. Amanani angezantsi luqikelelo olusuka kwiprofayile yakho, asisosithembiso. Isicelo esitsha siphononongwa kwakhona ngokupheleleyo, kuquka ukuhlolwa kwetyala.",
   recentDeclineLink: "Bona isizathu kunye namanyathelo akho alandelayo →",
-  poBusinessOnly: "Elenzelwe ishishini elixhasa i-odolo yokuthenga eqinisekisiweyo. Ihlawulwa ngentlawulo yomthengi wakho, ngoko ayibalwa ngomvuzo wakho.",
+  poBusinessOnly: "For a business funding a confirmed purchase order. We assess your income, expenses and existing debts, including whether you can afford the full scheduled repayment. The amount range is not an approval or a promise that the buyer will repay the loan for you.",
   amountOutOfRange: "Faka isixa esiphakathi kwe-{min} ne-{max}.",
   poNumberLabel: "Inombolo ye-odolo yokuthenga",
   poBuyerLabel: "Umthengi (okhuphe i-odolo yokuthenga)",

@@ -101,24 +101,12 @@ export function NotificationsSettingsClient({ defaultEvents, templates, recentLo
               <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
               <div className="text-sm text-blue-900 space-y-1">
                 <p className="font-medium">This screen is read-only.</p>
-                <p className="text-xs text-blue-800">
-                  Every row here is created by a migration, and dispatch finds it by a{" "}
-                  <code className="font-mono">key</code> this screen cannot set. Where the customer&rsquo;s wording
-                  actually lives differs by row, so check the body below before assuming.
-                </p>
+                <p className="text-xs text-blue-800">These notification templates are managed by your service operator. This screen lets you review stored wording and delivery history; it does not edit templates or enable sending.</p>
                 <ul className="text-xs text-blue-800 list-disc pl-4 space-y-0.5">
-                  <li>
-                    A body that is a placeholder like <code className="font-mono">{"{{body}}"}</code> is only an
-                    envelope — that wording is composed in code, in{" "}
-                    <code className="font-mono">buildTemplate()</code> (<code className="font-mono">lib/notifications.ts</code>).
-                  </li>
-                  <li>
-                    The Section 129 row is the exception: its body IS the statutory letter sent to the customer. That
-                    text is NCA-mandated, lives with the notice in <code className="font-mono">lib/pdf/</code>, and needs
-                    legal sign-off to change.
-                  </li>
+                  <li>Placeholders such as <code className="font-mono">{"{{body}}"}</code> are filled with the event&apos;s message when a notification is prepared.</li>
+                  <li>The Section 129 row is the exception: its body is the statutory letter sent to the customer. Changes to that wording require legal sign-off.</li>
                 </ul>
-                <p className="text-xs text-blue-800">Change any of them with a migration.</p>
+                <p className="text-xs text-blue-800">Ask your service operator to arrange a reviewed template change. Sending also requires an enabled channel and its configured provider; a stored row alone does not prove delivery. SMS sending remains disabled by policy.</p>
               </div>
             </div>
 

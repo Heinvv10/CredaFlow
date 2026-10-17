@@ -1,9 +1,3 @@
-// app/api/applications/[id]/avs-check/route.test.ts
-//
-// Merge-blocker gate: every Phase 7 collections
-// surface must ship dark behind TenantConfig.collectionsEngineEnabled. This
-// covers the route's 409 refusal when the flag is off, and confirms
-// runAvsCheck is never reached in that case.
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
@@ -12,7 +6,7 @@ const applicationFindFirstMock = vi.fn()
 const tenantConfigFindUniqueMock = vi.fn()
 const runAvsCheckMock = vi.fn()
 
-vi.mock("@/lib/auth-guards", () => ({ requireApiRole: () => requireApiRoleMock() }))
+vi.mock("@/lib/auth-guards", () => ({ requireApiRole: (role: string) => requireApiRoleMock(role) }))
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (
     _req: unknown,
@@ -34,7 +28,7 @@ function makeRequest() {
   return new NextRequest("http://localhost/api/applications/app-1/avs-check", { method: "POST" })
 }
 
-describe("POST /api/applications/[id]/avs-check — collectionsEngineEnabled flag gate", () => {
+describe("POST /api/applications/[id]/avs-check — AVS feature flags", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "officer@acme-lending.example" } })
@@ -47,7 +41,7 @@ describe("POST /api/applications/[id]/avs-check — collectionsEngineEnabled fla
     const res = await POST(makeRequest(), ctx)
 
     expect(res.status).toBe(409)
-    expect((await res.json()).error).toBe("Collection engine is not enabled for this tenant")
+    expect((await res.json()).error).toBe("Neither collections nor payouts is enabled for this tenant")
     expect(runAvsCheckMock).not.toHaveBeenCalled()
   })
 
@@ -60,6 +54,34 @@ describe("POST /api/applications/[id]/avs-check — collectionsEngineEnabled fla
     expect(runAvsCheckMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [true, false],
+    [false, true],
+    [true, true],
+  ])("runs AVS when payouts=%s and collections=%s", async (payoutsEngineEnabled, collectionsEngineEnabled) => {
+    tenantConfigFindUniqueMock.mockResolvedValue({ payoutsEngineEnabled, collectionsEngineEnabled })
+    runAvsCheckMock.mockResolvedValue({ id: "avs-1", passed: true, checks: {} })
+    const res = await POST(makeRequest(), ctx)
+    expect(res.status).toBe(200)
+    expect(runAvsCheckMock).toHaveBeenCalledOnce()
+  })
+  it("retains the staff role refusal before any provider call", async () => {
+    requireApiRoleMock.mockResolvedValue({ error: new Response(null, { status: 403 }) })
+    expect((await POST(makeRequest(), ctx)).status).toBe(403)
+    expect(requireApiRoleMock).toHaveBeenCalledWith("CREDIT_OFFICER")
+    expect(runAvsCheckMock).not.toHaveBeenCalled()
+  })
+  it("retains tenant-scoped application lookup", async () => {
+    applicationFindFirstMock.mockResolvedValue(null)
+    expect((await POST(makeRequest(), ctx)).status).toBe(404)
+    expect(applicationFindFirstMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "app-1", tenantId: "tenant-1" } }))
+    expect(runAvsCheckMock).not.toHaveBeenCalled()
+  })
+  it("does not route entity bank verification through the consumer AVS flow", async () => {
+    applicationFindFirstMock.mockResolvedValue({ id: "app-1", clientId: null })
+    expect((await POST(makeRequest(), ctx)).status).toBe(409)
+    expect(runAvsCheckMock).not.toHaveBeenCalled()
+  })
   it("runs the check when the flag is on", async () => {
     tenantConfigFindUniqueMock.mockResolvedValue({ collectionsEngineEnabled: true })
     runAvsCheckMock.mockResolvedValue({ id: "avs-1", passed: true, checks: {} })

@@ -34,6 +34,8 @@ interface Props {
   clientDebtTotal: number
   ownLenderDebts?: import("@/lib/affordability/own-lender-debt").OwnLenderDebts | null // live only; null once locked
   proposedInstalment: number
+  proposedPaymentLabel?: string
+  proposedPaymentNote?: string
   affordabilityNDI?: number | null
   done: boolean
   readOnly?: boolean
@@ -55,7 +57,7 @@ interface Props {
 // from another vocabulary matched no <option>, so the select displayed its
 // FIRST entry — "Home Loan" — for every unmatched row. See lib/credit/debt-account-types.ts.
 
-export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
+export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpenses, existingDebts: initialDebts, clientDebtTotal, ownLenderDebts = null, proposedInstalment, proposedPaymentLabel = "Proposed Instalment", proposedPaymentNote, affordabilityNDI: _affordabilityNDI, done, readOnly = false, canEdit = true, snapshotUnavailable = false, debtEvidenceInvalid = false, clientDebtEvidenceInvalid = false, lockedAssessment }: Props) {
   const router = useRouter()
   const [debts, setDebts] = useState<DebtEntry[]>(initialDebts?.length > 0 ? initialDebts : [])
   // The type as STORED, before this panel rendered it canonically. Re-picking
@@ -219,8 +221,9 @@ export function AffordabilityCapture({ applicationId, monthlyIncome, monthlyExpe
             <Metric label="Existing Debt" value={`- ${formatZAR(totalExistingDebt)}`} tone="warning" />
             <Metric label="NDI" value={formatZAR(ndi)} tone={ndi >= 0 ? "success" : "danger"} />
           </div>
+          {proposedPaymentNote && <p className="mt-3 text-xs text-[var(--cf-text-muted)]">{proposedPaymentNote}</p>}
           <div className="mt-3 flex items-center justify-between border-t border-[var(--cf-border-subtle)] pt-3">
-            <Metric label="Proposed Instalment" value={`- ${formatZAR(proposedInstalment)}`} />
+            <Metric label={proposedPaymentLabel} value={`- ${formatZAR(proposedInstalment)}`} />
             <div className="text-right">
               <p className="text-xs text-[var(--cf-text-muted)]">NDI After Loan</p>
               <p className={`whitespace-nowrap text-lg font-bold ${ndiAfterLoan >= 0 ? "text-[var(--cf-success)]" : "text-[var(--cf-danger)]"}`}>

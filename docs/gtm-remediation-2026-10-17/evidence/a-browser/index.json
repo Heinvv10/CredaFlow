@@ -1,0 +1,211 @@
+{
+  "candidate": "aeacfc065b9b8234261c2158dd98271938671ad7",
+  "image": "sha256:9ab61b563f05b99071a0e96a32f55a4e63966c241d986eb52079d30e4b2f83cb",
+  "syntheticOnly": true,
+  "runs": [
+    {
+      "label": "navigation-initial",
+      "id": "1792249066583",
+      "baseUrl": "http://127.0.0.1:44213",
+      "startedAt": "2026-10-17T14:57:46.695Z",
+      "endedAt": "2026-10-17T14:58:37.785Z",
+      "driverSha256": "fe4bd77cf9d57cf5585a8b55b2066b636aa646512d32e5dd18f58b61999825d8",
+      "runErrors": 1,
+      "browserErrors": 0,
+      "consoleMessages": 4,
+      "httpFailures": 2,
+      "results": "navigation-initial.json"
+    },
+    {
+      "label": "personal-canonical",
+      "id": "1792249357088",
+      "baseUrl": "http://localhost:44213",
+      "startedAt": "2026-10-17T15:02:37.206Z",
+      "endedAt": "2026-10-17T15:02:47.302Z",
+      "driverSha256": "d33ccb0ae05e295a2645ecf26eb1ad884442e880232980e8a612b22e95bf974c",
+      "runErrors": 0,
+      "browserErrors": 0,
+      "consoleMessages": 0,
+      "httpFailures": 0,
+      "results": "personal-canonical.json"
+    },
+    {
+      "label": "charges-canonical",
+      "id": "1792249358194",
+      "baseUrl": "http://localhost:46203",
+      "startedAt": "2026-10-17T15:02:38.317Z",
+      "endedAt": "2026-10-17T15:02:47.118Z",
+      "driverSha256": "d33ccb0ae05e295a2645ecf26eb1ad884442e880232980e8a612b22e95bf974c",
+      "runErrors": 0,
+      "browserErrors": 0,
+      "consoleMessages": 0,
+      "httpFailures": 0,
+      "results": "charges-canonical.json"
+    },
+    {
+      "label": "fresh-po",
+      "id": "1792249229792",
+      "baseUrl": "http://127.0.0.1:44213",
+      "startedAt": "2026-10-17T15:00:29.906Z",
+      "endedAt": "2026-10-17T15:00:41.501Z",
+      "driverSha256": "46886bef67f3658936b81b3685acc9543d023168ae8acfbcdaf68bf2298e76af",
+      "runErrors": 1,
+      "browserErrors": 0,
+      "consoleMessages": 5,
+      "httpFailures": 1,
+      "results": "fresh-po.json"
+    },
+    {
+      "label": "asset-canonical",
+      "id": "1792249501248",
+      "baseUrl": "http://localhost:44213",
+      "startedAt": "2026-10-17T15:05:01.361Z",
+      "endedAt": "2026-10-17T15:05:09.382Z",
+      "driverSha256": "af3a11454755d8028a8fd67ee42e1f388aeada349c7c266ec400e817977a1660",
+      "runErrors": 0,
+      "browserErrors": 0,
+      "consoleMessages": 0,
+      "httpFailures": 0,
+      "results": "asset-canonical.json"
+    },
+    {
+      "label": "business-canonical",
+      "id": "1792249533469",
+      "baseUrl": "http://localhost:44213",
+      "startedAt": "2026-10-17T15:05:33.582Z",
+      "endedAt": "2026-10-17T15:05:43.741Z",
+      "driverSha256": "2fa979b8ef70853959aaf7c1ef51789c088fefe43c8d34fda881336e17dc8f7a",
+      "runErrors": 0,
+      "browserErrors": 0,
+      "consoleMessages": 1,
+      "httpFailures": 1,
+      "results": "business-canonical.json"
+    },
+    {
+      "label": "business-final-config",
+      "id": "1792249620743",
+      "baseUrl": "http://localhost:44213",
+      "startedAt": "2026-10-17T15:07:00.857Z",
+      "endedAt": "2026-10-17T15:07:10.883Z",
+      "driverSha256": "b72878d39d34cae197dcc5e99d46d2e310d74b30339bb405c9b63ca1ed5a6993",
+      "runErrors": 0,
+      "browserErrors": 0,
+      "consoleMessages": 0,
+      "httpFailures": 0,
+      "results": "business-final-config.json"
+    }
+  ],
+  "limitations": [
+    "Prior business login document404 is preserved in business-canonical.json; same image/source final runtime configuration rerun business-final-config.json passes with no console/network errors.",
+    "Initial navigation used127.0.0.1 and recorded staff-link prefetch CORS errors; canonical localhost reruns for personal/charges have none.",
+    "Payment return pages prove authenticated presentation only; no provider callback, money movement or settlement.",
+    "Positive charges come from MQ separate disposable audited fixture, not acceptance of a real activation workflow."
+  ],
+  "screenshots": [
+    {
+      "file": "no-loan-menu-390.png",
+      "sha256": "cfa548b3210ba3492b0b57438a0a1a5fc4269272f380d2b7fe6e9d13d326283d",
+      "attempt": "1792249066583"
+    },
+    {
+      "file": "no-loan-menu-short.png",
+      "sha256": "1f0db349b66bbe676b7ae7e88fece114d2adbde0dec63e980391f540123be6e5",
+      "attempt": "1792249066583"
+    },
+    {
+      "file": "consumer-menu-390.png",
+      "sha256": "f8b79e38a79d082a7c081ba62a34852f48e6654e00549f1e6fa3f58067716d78",
+      "attempt": "1792249066583"
+    },
+    {
+      "file": "consumer-menu-short.png",
+      "sha256": "ef52b43d02aff5a896a1d716ebd5713a50444b404aa90bfa2b812f58866d9cce",
+      "attempt": "1792249066583"
+    },
+    {
+      "file": "consumer-overview.png",
+      "sha256": "caa50062dce9ed6f5e086c02a39de32cddda8860013e28917fa9de6f4e11e1a9",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "consumer-loan.png",
+      "sha256": "e3a38eb9013b89e833e275ac7af2659e1db4c5d8e5a664e58ea5a4d5ec63a86c",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "consumer-statement.png",
+      "sha256": "1d2a64cc998c84122ea60097605ec227735518e209f1e62527f8606d4710e74c",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "consumer-payment-dark.png",
+      "sha256": "20f16407fc09f97adc08f07d97349441d7f697bede641624e5eec0a2c7d6b29e",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "consumer-payment-light.png",
+      "sha256": "e495804b3e5316a8903a5cad31da31db2ed2243b9d0315943e5f53d0f682ed2c",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "payment-success-ui.png",
+      "sha256": "fd80db14598b389c0f3c915bb904ccde2bdc07e14c6835f5709de1f0ce25de52",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "payment-failure-ui.png",
+      "sha256": "d5b0d08be6683c124ac4e8d57a6085ef8dde01a57175d8b8630f770b03253538",
+      "attempt": "1792249357088"
+    },
+    {
+      "file": "charges-overview.png",
+      "sha256": "1d0c5f3cedd4599be96db62142c36de100fbc51d1478a5f0d6f6e194f2bd1801",
+      "attempt": "1792249358194"
+    },
+    {
+      "file": "charges-loan.png",
+      "sha256": "e21049257b9f32ab1ff09bb01ed3bf146a5ef18e2b35b84a2c88028c6a5ec6e7",
+      "attempt": "1792249358194"
+    },
+    {
+      "file": "consumer-po-intake.png",
+      "sha256": "6d809513188b5295e8acb4580381607c836dae888902f4d58f0610fac4d45259",
+      "attempt": "1792249229792"
+    },
+    {
+      "file": "po-submitted.png",
+      "sha256": "29e47f93bcedac8c168d58715f96ae81583b1f26d8052539eedca7ac06c9d678",
+      "attempt": "1792249229792"
+    },
+    {
+      "file": "asset-overview.png",
+      "sha256": "ecb86065657ec2f77b80680e016ce2e029bffe9f558ea26dcccef4d4090d1a2d",
+      "attempt": "1792249501248"
+    },
+    {
+      "file": "asset-loan.png",
+      "sha256": "e5c2bce8c9eb8ede8db5dade797add3e03c3976d75315c1cdfdcff4f30c685f9",
+      "attempt": "1792249501248"
+    },
+    {
+      "file": "asset-statement.png",
+      "sha256": "e724b3ca0e192549d88c0b8cc369d2f782aad80f44478cccbb66a508be066f3b",
+      "attempt": "1792249501248"
+    },
+    {
+      "file": "business-menu-390.png",
+      "sha256": "d52f9ec7c56895548b6b17923ee0d284b78bf534a62e48c27afb5369cc6f5b73",
+      "attempt": "1792249620743"
+    },
+    {
+      "file": "business-menu-short.png",
+      "sha256": "337ea9f254bb050a4991a2db784b7307cc87e192986ff855cd2952ba651f3170",
+      "attempt": "1792249620743"
+    },
+    {
+      "file": "business-entry.png",
+      "sha256": "0d3bb1c77a12c28edf48bbe847170c2f655f51bb2ac58ad8a21dc04a87b6ea55",
+      "attempt": "1792249620743"
+    }
+  ]
+}

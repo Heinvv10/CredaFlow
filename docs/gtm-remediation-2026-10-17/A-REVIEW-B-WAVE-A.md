@@ -1,0 +1,9 @@
+# Independent review of Implementer B Wave A
+
+Reviewer: Implementer A. Reviewed `aea9f3b4e4df78201963713725e99e2c09f05f45` plus hooks correction `9891a0efb2f30726cbdc056c20b8a94d8824a8a0`, base `3a0a17e38b393d0c0707ed24e615be2b016f604e`.
+
+No substantive blockers found. F02 guidance calls the actual classification and rate-check functions, uses the server-approved/feed-lowered repo basis, states amount/term/date/model assumptions and explicitly excludes borrower repeat-credit history and product-wide certification. Pricing enforcement and historical agreements are unchanged. F03 product grouping now matches the exact collectible status population of the headline, without excluding entity borrowers; displayed row total exposes reconciliation. F10 shared revision/pending state invalidates the preview at write start and finish, disables close during setup writes, refreshes refusal/setup state and ignores stale GET/POST refreshes. The final hooks correction preserves committed-key checks without lint suppressions.
+
+Independent execution in B worktree at exact final SHA (clean tree): Node22 vitest targeted six suites / 28 tests PASS: product guidance, LoanProductForm, edit product page, board pack, accounting export, accounting workspace; maxWorkers=2. Inspected actual helpers `capRepoRate`, `ncaCreditType`, `checkNcaInterestRate`, `collectibleLoanWhere`, plus deferred close/settings and stale response tests.
+
+Source/test review APPROVED, queue admission contingent on final ci:quick green and integrated full gates. Browser acceptance remains pending: short-term/unsecured boundary and repo basis, composition total/headline equality with defaulted/entity rows, same-session accounting setup-to-close with deferred stale responses. No migration implications. No legal wording or policy changes in reviewed diff.

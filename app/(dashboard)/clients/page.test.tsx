@@ -31,7 +31,18 @@ describe("clients list", () => {
     }])
     renderToStaticMarkup(await ClientsPage())
     const { clients } = clientsProps.mock.calls[0][0] as { clients: Array<{ loans: Array<{ cashPaid: number }> }> }
+    expect(clientsProps.mock.calls[0][0]).toMatchObject({ canCreate: true })
     expect(clients[0].loans).toEqual([{ daysInArrears: 25, cashPaid: 50_000 }])
+  })
+
+  it("withdraws new-client affordances from READONLY while preserving its list", async () => {
+    session.role = "READONLY"
+    clientsProps.mockClear()
+    clientFindMany.mockResolvedValue([])
+    try {
+      renderToStaticMarkup(await ClientsPage())
+      expect(clientsProps.mock.calls[0][0]).toMatchObject({ canCreate: false, loanBook: true })
+    } finally { session.role = "CREDIT_OFFICER" }
   })
 
   // Security review of #145: the list is open to INSURANCE_OFFICER, but its

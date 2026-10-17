@@ -235,7 +235,7 @@ export default async function ClientPortalPage() {
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard t={t} label={t("statOutstanding")} value={formatZAR(portalOutstanding(totalOutstanding, data.charges))} />
+        <StatCard t={t} label={t("currentAccountAmount")} value={formatZAR(portalOutstanding(totalOutstanding, data.charges))} sub={t(data.charges.settlementAmount === null ? "accountPrincipalDefinition" : "accountLiveDefinition")} />
         <ProgressRingCard label={t("statPaid")} value={formatZAR(totalPaid)} percent={progressPct} />
         <StatCard t={t} label={t("statLoanRef")} value={primaryLoan?.reference || "---"} sub={primaryLoan?.product.name} />
         <StatCard
@@ -417,7 +417,8 @@ function ArrearsHero({ firstName, daysOverdue, overdue, outstanding, charges, wh
         <p className="mt-1 text-base font-semibold text-[var(--cf-danger)]">{t("overdueToPay", { amount: formatZAR(overdue) })}</p>
       )}
       <p className="mt-2 text-3xl font-semibold text-[var(--cf-text)] md:text-4xl">{formatZAR(outstanding)}</p>
-      <p className="mt-1 text-sm text-[var(--cf-text-muted)]">{t("outstandingBalance")}</p>
+      <p className="mt-1 text-sm text-[var(--cf-text-muted)]">{t("currentAccountAmount")}</p>
+      <p className="mt-2 text-xs text-[var(--cf-text-muted)]">{t(charges.settlementAmount === null ? "accountPrincipalDefinition" : "accountLiveDefinition")}</p>
       <ChargesBreakdown lines={charges.lines} className="mt-1" prefix={l("chargesIncludes")} />
       <div className="mt-5 flex flex-wrap gap-3">
         {whatsappE164 && (
