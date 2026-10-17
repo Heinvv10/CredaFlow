@@ -167,9 +167,9 @@ export async function PATCH(
 
         const balances = recomputeLoanBalances(loan.principal, postRows, asOf)
         const restoredTotalInterest =
-          loan.contractualTotalInterest ?? loan.totalInterest
+          loan.commercialCancelledAt ? loan.totalInterest : loan.contractualTotalInterest ?? loan.totalInterest
         const restoredTotalRepayable =
-          loan.contractualTotalRepayable ?? loan.totalRepayable
+          loan.commercialCancelledAt ? loan.totalRepayable : loan.contractualTotalRepayable ?? loan.totalRepayable
         const remainsCompleted = totalReceipts >= restoredTotalRepayable
 
         // Roll last-payment fields back to the most recent remaining receipt (or

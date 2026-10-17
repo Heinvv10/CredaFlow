@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto"
+import { NextRequest } from "next/server"
+import { PATCH as reverseReceipt } from "@/app/api/payments/[id]/reverse/route"
+import { newRecovery, cleanupRecoveryFixture, today, type RecoveryLoan } from "./recovery.integration-fixture"
+import { advance } from "./recovery-path.integration-fixture"
+import { saleRoutes, saleBody, readJson } from "./recovery-sale.integration-fixture"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { applyManualReceipt, type PaymentDb } from "@/lib/loan/apply-payment"
@@ -75,6 +80,44 @@ suite("common-law in duplum persisted through the real Postgres charge replay", 
       await applyManualReceipt(db! as unknown as PaymentDb, { tenantId: second.tenantId, loanId: second.loanId, amount: next.totalToSettle, paymentMethod: "EFT", reference: booked.reference, capturedById: second.adminA })
       expect(await load()).toMatchObject({ status: "COMPLETED", totalInterest: booked.principal, totalRepayable: 2 * booked.principal, outstandingPrincipal: 0 })
     } finally { await cleanupBookedContractFixture(db!, second) }
+  }, 120000)
+
+  it("a real booked agreement crystallises on sale before partial proceeds, later quotes and receipt reversal", async () => {
+    const second = await createBookedContractFixture(db!, randomUUID().replaceAll("-", "").slice(0, 16), (user) => { session.current = user && { user } })
+    try {
+      const load = () => db!.loan.findUniqueOrThrow({ where: { id: second.loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" as const } } } })
+      const original = await load()
+      expect(original.totalInterest).toBeGreaterThan(0)
+      const recoveryLoan: RecoveryLoan = { loanId: second.loanId, assetId: original.assetId!, regime: "NON_NCA", contractType: "INSTALMENT_SALE", borrowerKey: "TEST-CANCELLATION", entityId: original.entityId }
+      const recoveryId = await newRecovery(db!, second, recoveryLoan, "NON_NCA_VOLUNTARY")
+      const proceeds = Math.floor(original.principal / 2)
+      await advance(db!, second, recoveryLoan, recoveryId, "LISTED", { valuationCents: proceeds - 10000 })
+      const recovery = await db!.recovery.findUniqueOrThrow({ where: { id: recoveryId } })
+      session.current = { user: { id: second.officer, role: "CREDIT_OFFICER", email: `${second.officer}@test.invalid`, tenantId: second.tenantId } }
+      const routes = saleRoutes(second.host)
+      const proposed = await readJson(await routes.propose(recoveryId, saleBody(recovery.valuationId!, proceeds)))
+      expect(proposed.status, JSON.stringify(proposed.body)).toBe(201)
+      const saleId = proposed.body.id as string
+      const completed = await readJson(await routes.completeSale(recoveryId, saleId, { completedOn: today() }))
+      expect(completed.status, JSON.stringify(completed.body)).toBe(200)
+      const cancelled = await load()
+      expect(cancelled).toMatchObject({ commercialCancellationSaleId: saleId, totalInterest: 0, totalRepayable: original.principal, contractualTotalInterest: original.totalInterest })
+      expect(cancelled.commercialCancelledAt).not.toBeNull()
+      expect(cancelled.repaymentSchedule.some((row) => row.commonLawContractualInterestDue !== null)).toBe(true)
+      const applied = await readJson(await routes.proceeds(recoveryId))
+      expect(applied.status, JSON.stringify(applied.body)).toBe(200)
+      expect(applied.body).toMatchObject({ paymentCents: proceeds, shortfallCents: original.principal - proceeds })
+      const remaining = original.principal - proceeds
+      for (const at of [new Date(), new Date("2035-01-01")]) expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), at)).totalToSettle).toBe(remaining)
+      await expect(db!.repaymentSchedule.update({ where: { id: cancelled.repaymentSchedule[0].id }, data: { interestDue: cancelled.repaymentSchedule[0].interestDue + 1, totalDue: cancelled.repaymentSchedule[0].totalDue + 1 } })).rejects.toThrow(/cannot revive/)
+      const cash = await applyManualReceipt(db! as unknown as PaymentDb, { tenantId: second.tenantId, loanId: second.loanId, amount: 10000, paymentMethod: "EFT", reference: original.reference, capturedById: second.adminA })
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(remaining - 10000)
+      session.current = { user: { id: second.adminA, role: "LOAN_ADMIN", email: `${second.adminA}@test.invalid`, tenantId: second.tenantId } }
+      const reversed = await reverseReceipt(new NextRequest(`http://${second.host}/api/payments/${cash.payment.id}/reverse`, { method: "PATCH", headers: { host: second.host, "content-type": "application/json" }, body: JSON.stringify({ reason: "Synthetic returned EFT" }) }), { params: Promise.resolve({ id: cash.payment.id }) })
+      expect(reversed.status, await reversed.text()).toBe(200)
+      expect((await loanSettlementFigures(db! as unknown as ChargesTx, await load(), new Date("2035-01-01"))).totalToSettle).toBe(remaining)
+      expect((await load()).commercialCancellationSaleId).toBe(saleId)
+    } finally { await cleanupRecoveryFixture(db!, second.tenantId) }
   }, 120000)
 
 })

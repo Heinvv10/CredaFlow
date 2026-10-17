@@ -66,6 +66,7 @@ export interface ContractRatePeriod {
 export type NonNcaChargeInput = Omit<DefaultChargeInput, "adminCharges" | "monthlyServiceFee"> & NonNcaArrearsTerms & {
   /** Effective-dated contract rates; the booked Loan rate is the legacy fallback. */
   startDate?: Date
+  contractualInterestUntil?: Date
   contractRateHistory?: ContractRatePeriod[]
   stoppedCharges?: { at: Date; receipts: Array<{ id: string; defaultInterestAllocated: number; chargeFeesAllocated: number }> }
 }
@@ -79,6 +80,7 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     .sort((a, b) => a.dueDay - b.dueDay)
   if (rows.length === 0) return emptyResult(input.receipts)
   const endDay = sastCalendarDay(input.asOf)
+  const cancellationDay = input.contractualInterestUntil ? sastCalendarDay(input.contractualInterestUntil) : Infinity
   const accrueFromDay = input.accrueFrom ? sastCalendarDay(input.accrueFrom) : -Infinity
   const untilDay = input.accrueUntil ? sastCalendarDay(input.accrueUntil) : Infinity
   const stopDay = input.stoppedCharges ? sastCalendarDay(input.stoppedCharges.at) : Infinity
@@ -137,6 +139,17 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   }
 
   const startDay = input.startDate ? sastCalendarDay(input.startDate) : rows[0].dueDay
+  const originalDueDays = rows.map((row) => row.dueDay)
+  if (cancellationDay <= endDay) {
+    rows.forEach((row, i) => {
+      const periodStart = i === 0 ? startDay : originalDueDays[i - 1]
+      const earned = row.dueDay <= periodStart ? (cancellationDay >= row.dueDay ? row.originalInterest : 0)
+        : Math.round(row.originalInterest * Math.max(0, Math.min(1, (cancellationDay - periodStart) / (row.dueDay - periodStart))))
+      row.interestDue = earned
+      row.totalDue -= row.originalInterest - earned
+      row.dueDay = Math.min(row.dueDay, cancellationDay)
+    })
+  }
   const contractualEarned = rows.map(() => 0)
   const contractualTarget = rows.map(() => 0)
   const firstDay = Math.min(startDay, rows[0].dueDay, ...receipts.map((receipt) => receipt.day), ...costs.map((cost) => cost.day))
@@ -160,10 +173,11 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
     // Original signed/rate-adjusted amounts remain as replay inputs.
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
-      const periodStart = i === 0 ? startDay : rows[i - 1].dueDay
-      const target = row.dueDay <= periodStart
-        ? (day >= row.dueDay ? row.originalInterest : 0)
-        : Math.round(row.originalInterest * Math.max(0, Math.min(1, (day - periodStart) / (row.dueDay - periodStart))))
+      const periodStart = i === 0 ? startDay : originalDueDays[i - 1]
+      const earnedThrough = Math.min(day, cancellationDay)
+      const target = originalDueDays[i] <= periodStart
+        ? (earnedThrough >= originalDueDays[i] ? row.originalInterest : 0)
+        : Math.round(row.originalInterest * Math.max(0, Math.min(1, (earnedThrough - periodStart) / (originalDueDays[i] - periodStart))))
       const increment = target - contractualTarget[i]
       contractualTarget[i] = target
       if (increment <= 0) continue

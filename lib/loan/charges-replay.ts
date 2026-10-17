@@ -143,6 +143,7 @@ export async function loadChargesReplay(
     select: {
       principal: true,
       startDate: true,
+      commercialCancelledAt: true,
       totalInterest: true, totalRepayable: true, contractualTotalInterest: true, contractualTotalRepayable: true,
       interestRatePm: true,
       ncaRegime: true,
@@ -285,6 +286,7 @@ export async function loadChargesReplay(
       const result = computeNonNcaCharges({
         ...common,
         startDate: loan.startDate,
+        contractualInterestUntil: loan.commercialCancelledAt ?? undefined,
         defaultInterestMargin: (!defaultChargesLive && !stoppedHistory) || margin === null ? null : margin.toNumber(),
         collectionFeeCents: defaultChargesLive || stoppedHistory ? terms.nonNcaCollectionFeeCents : null,
         stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts } : undefined,

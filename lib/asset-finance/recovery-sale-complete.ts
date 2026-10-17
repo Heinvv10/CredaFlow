@@ -1,5 +1,7 @@
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
+import { lockLoanForUpdate } from "@/lib/loan/lock"
+import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { prisma } from "@/lib/prisma"
 import { describeAsset, issueTaxInvoice, VatNotConfiguredError } from "@/lib/vat/tax-invoice"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
@@ -40,12 +42,13 @@ async function lockRecovery(tx: SigningTx, id: string): Promise<void> {
 export async function completeSale(actor: RecoveryActor, recoveryId: string, saleId: string, input: CompleteSaleInput): Promise<NotFound | NotReady | SaleCompleted> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.completedOn)) return { kind: "not_ready", reason: "Provide the completion date as YYYY-MM-DD" }
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | SaleCompleted> => {
-    const head = await tx.remarketingSale.findFirst({ where: { id: saleId, recoveryId, tenantId: actor.tenantId }, select: { recoveryId: true } })
+    const head = await tx.remarketingSale.findFirst({ where: { id: saleId, recoveryId, tenantId: actor.tenantId }, select: { recoveryId: true, recovery: { select: { loanId: true } } } })
     if (!head) return { kind: "not_found" }
+    await lockLoanForUpdate(tx, head.recovery.loanId)
     await lockRecovery(tx, head.recoveryId)
     const sale = await tx.remarketingSale.findFirst({
       where: { id: saleId, tenantId: actor.tenantId },
-      include: { recovery: { include: { asset: true, loan: { select: { contractType: true, outstandingPrincipal: true, entity: { select: { vatNumber: true } } } } } } },
+      include: { recovery: { include: { asset: true, loan: { select: { ncaRegime: true, contractType: true, outstandingPrincipal: true, entity: { select: { vatNumber: true } } } } } } },
     })
     if (!sale) return { kind: "not_found" }
     const { recovery } = sale
@@ -95,6 +98,19 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
       where: { id: sale.id, tenantId: actor.tenantId },
       data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: invoice.id },
     })
+    let commercialCancellation = null
+    if (recovery.loan.ncaRegime === "NON_NCA" && contractType === "INSTALMENT_SALE") {
+      const before = await tx.loan.findUniqueOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+      await tx.loan.update({ where: { id: recovery.loanId, tenantId: actor.tenantId }, data: {
+        commercialCancelledAt: new Date(`${input.completedOn}T00:00:00+02:00`), commercialCancellationSaleId: sale.id,
+      } })
+      await syncLoanCharges(tx, { tenantId: actor.tenantId, loanId: recovery.loanId }, new Date(), { source: "commercial_sale_cancellation", userId: actor.userId, userEmail: actor.userEmail })
+      commercialCancellation = { loanId: recovery.loanId, cancelledOn: input.completedOn,
+        originalTotalInterest: before.contractualTotalInterest ?? before.totalInterest,
+        originalTotalRepayable: before.contractualTotalRepayable ?? before.totalRepayable,
+        originalRows: before.repaymentSchedule.map((row) => ({ id: row.id, installmentNo: row.installmentNo, dueDate: row.dueDate.toISOString(), principalDue: row.principalDue,
+          interestDue: row.commonLawContractualInterestDue ?? row.interestDue, feesDue: row.feesDue, totalDue: row.totalDue - row.interestDue + (row.commonLawContractualInterestDue ?? row.interestDue) })) }
+    }
     await advance(tx, actor, recovery.id, "LISTED", { status: "SOLD" })
     const event = await tx.recoveryVatEvent.create({ data: {
       tenantId: actor.tenantId, recoveryId: recovery.id, kind: vat.kind, eventDate: dbDate(eventDate), dealContractType: contractType,
@@ -105,7 +121,7 @@ export async function completeSale(actor: RecoveryActor, recoveryId: string, sal
     const audit = { tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined }
     await logAuditStrict({
       ...audit, action: AuditAction.ASSET_REMARKETING_SALE_COMPLETED, entity: "RemarketingSale", entityId: sale.id,
-      newValue: { recoveryId: recovery.id, taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, priceInclVatCents: sale.priceInclVatCents, completedOn: input.completedOn },
+      newValue: { recoveryId: recovery.id, taxInvoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, priceInclVatCents: sale.priceInclVatCents, completedOn: input.completedOn, commercialCancellation },
     }, tx)
     await logAuditStrict({
       ...audit, action: AuditAction.ASSET_RECOVERY_VAT_EVENT_RECORDED, entity: "Recovery", entityId: recovery.id,

@@ -5,6 +5,7 @@ const MS_PER_DAY = 86_400_000
 
 export interface SettlementLoanLike {
   status?: string | null
+  commercialCancelledAt?: Date | null
   principal: number
   totalInterest: number
   totalRepayable: number
@@ -217,6 +218,13 @@ function settlementTerms(args: {
     loan.contractualTotalInterest ?? loan.totalInterest
   const contractualTotalRepayable =
     loan.contractualTotalRepayable ?? loan.totalRepayable
+
+  if (loan.commercialCancelledAt && sastCalendarDay(asOf) >= sastCalendarDay(loan.commercialCancelledAt)) {
+    const settlementTotal = schedule.reduce((sum, row) => sum + row.totalDue, 0)
+    return { settlementDue: Math.max(0, settlementTotal - loan.totalPaid), settlementTotal,
+      isEarlyDailySettlement: false, instalment: null, accruedInterest: schedule.reduce((sum, row) => sum + row.interestDue, 0),
+      contractualTotalInterest, contractualTotalRepayable }
+  }
 
   // A commercial instalment sale owes accrued interest only (Conventional
   // Penalties Act), with the same earned-period repricing and audit evidence.
@@ -474,7 +482,8 @@ export function restoreContractualBulletSchedule(args: {
   const contractualInterest =
     args.loan.contractualTotalInterest ?? args.loan.totalInterest
   if (
-    args.loan.interestModel !== "DAILY_ACCRUAL"
+    args.loan.commercialCancelledAt != null
+    || args.loan.interestModel !== "DAILY_ACCRUAL"
     || args.schedule.length !== 1
     || args.loan.contractualTotalRepayable == null
     || args.loan.contractualTotalInterest == null

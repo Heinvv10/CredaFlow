@@ -73,7 +73,7 @@ export function readContractualRows(value: unknown): ContractualRow[] | null {
 
 /** An instalment loan whose rows an early settlement re-priced. */
 export function isRepricedInstalmentLoan(loan: SettlementLoanLike, schedule: SettlementScheduleRow[]): boolean {
-  return (isS125InstalmentLoan(loan, schedule) || (loan.ncaRegime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && loan.status === "COMPLETED"))
+  return !loan.commercialCancelledAt && (isS125InstalmentLoan(loan, schedule) || (loan.ncaRegime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && loan.status === "COMPLETED"))
     && loan.contractualTotalRepayable != null
     && loan.totalRepayable < loan.contractualTotalRepayable
 }
