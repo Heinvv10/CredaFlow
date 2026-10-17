@@ -464,7 +464,7 @@ function CollectionsCard(props: {
         <div className="flex items-center justify-between gap-4 pt-2">
           <div>
             <Label htmlFor="collectionsEngineEnabled">
-              Collection engine enabled (master flag — leave OFF until Phase 7 go-live)
+              Collection engine enabled (enable only after provider and mandate setup is verified)
             </Label>
           </div>
           <Switch

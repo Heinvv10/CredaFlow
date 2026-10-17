@@ -138,11 +138,15 @@ describe("the tab offers no write path", () => {
     expect(json).toContain("statutory")
   })
 
-  it("tells the operator why, naming the migration path", () => {
+  it("explains the operational change process without internal implementation details", () => {
     render()
     const json = JSON.stringify(renderer.toJSON())
     expect(json).toContain("read-only")
-    expect(json).toContain("buildTemplate")
-    expect(json).toContain("migration")
+    expect(json).toContain("service operator")
+    expect(json).toContain("legal sign-off")
+    expect(json).toContain("SMS sending remains disabled by policy")
+    expect(json).not.toContain("buildTemplate")
+    expect(json).not.toContain("lib/notifications.ts")
+    expect(json).not.toContain("migration")
   })
 })

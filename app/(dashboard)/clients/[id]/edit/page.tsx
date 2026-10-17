@@ -1,3 +1,5 @@
+import Link from "next/link"
+import { hasMinRole } from "@/lib/permissions"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
@@ -31,8 +33,12 @@ export default async function EditClientPage({
   // (INSURANCE_OFFICER, which cannot save it either) does not open it.
   await requireLoanBookPage()
   const { id } = await params
+  const session = await auth()
+  if (!session?.user?.role || session.user.role === "CLIENT" || !hasMinRole(session.user.role, "CREDIT_OFFICER")) {
+    return <div className="p-6 space-y-3"><h1 className="text-xl font-semibold">Client record is read-only</h1><p>Your role can view client records. Editing requires a credit officer or a role with higher permissions.</p><Link href={`/clients/${id}`} className="underline">Return to client</Link></div>
+  }
   const tenantId = await getStaffTenantId()
-  const [client, session] = await Promise.all([getClient(id, tenantId), auth()])
+  const client = await getClient(id, tenantId)
   if (!client) notFound()
 
   // Mirror the API's floor for re-pointing referral commission, so lower roles
