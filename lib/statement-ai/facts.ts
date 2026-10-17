@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto"
 import type { ApplicationCheckFlag } from "@prisma/client"
-import type { Insights } from "@/lib/statement-analysis/insights"
+import type { CountedRow, Insights } from "@/lib/statement-analysis/insights"
 import { labelKey } from "@/lib/statement-analysis/model-labels"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
 import type { Allowed } from "./post-check"
@@ -39,12 +39,16 @@ export interface SummaryFacts {
   coverageDays: number
   months: Array<{ month: string; moneyIn: string; moneyOut: string; salaryCredits: number }>
   monthCount: number
+  moneyInWholePeriod: string
+  moneyOutWholePeriod: string
   salaryPayDays: number[]
   uncategorisedPercentOfMoneyOut: number | null
   livingSpendPerMonth: string
   livingSpendPerMonthByCategory: Record<string, string>
   declaredExpensesPerMonth: string | null
-  livingSpendAboveDeclaredPerMonth: string | null
+  /** Whether living spend is above or below what was declared, so the prose need not infer it from a sign. */
+  livingSpendComparedWithDeclared: "above" | "below" | "equal" | null
+  livingSpendDifferenceFromDeclaredPerMonth: string | null
   topPayees: Array<{ payee: string; moneyOut: string; payments: number }>
   raisedFlags: RaisedFlag[]
   raisedFlagCount: number
@@ -87,7 +91,7 @@ export function allowedFrom(facts: unknown, extraLiterals: string[] = []): Allow
   return { amountsCents: amounts, percents, numbers, dates, months, literals }
 }
 
-interface PayeeRow { t: StatementTransaction }
+type PayeeRow = Pick<CountedRow, "t">
 
 function topPayees(rows: PayeeRow[]): SummaryFacts["topPayees"] {
   const by = new Map<string, { cents: number; n: number }>()
@@ -135,12 +139,15 @@ export function summaryFacts(
     coverageDays: insights.coverageDays,
     months: insights.months.map((m) => ({ month: m.month, moneyIn: rand(m.inCents), moneyOut: rand(m.outCents), salaryCredits: m.salaryCredits })),
     monthCount: insights.months.length,
+    moneyInWholePeriod: rand(insights.months.reduce((t, m) => t + m.inCents, 0)),
+    moneyOutWholePeriod: rand(insights.months.reduce((t, m) => t + m.outCents, 0)),
     salaryPayDays: insights.salary.payDays,
     uncategorisedPercentOfMoneyOut: insights.uncategorisedShare === null ? null : pct(insights.uncategorisedShare),
     livingSpendPerMonth: rand(insights.living.monthlyCents),
     livingSpendPerMonthByCategory: Object.fromEntries(Object.entries(insights.living.byCategoryMonthlyCents).map(([k, v]) => [k, rand(v ?? 0)])),
     declaredExpensesPerMonth: insights.declaredCents === null ? null : rand(insights.declaredCents),
-    livingSpendAboveDeclaredPerMonth: insights.gapCents === null ? null : rand(insights.gapCents),
+    livingSpendComparedWithDeclared: insights.gapCents === null ? null : insights.gapCents > 0 ? "above" : insights.gapCents < 0 ? "below" : "equal",
+    livingSpendDifferenceFromDeclaredPerMonth: insights.gapCents === null ? null : rand(Math.abs(insights.gapCents)),
     topPayees: topPayees(rows),
     raisedFlags: raised,
     raisedFlagCount: raised.length,
@@ -154,6 +161,8 @@ export interface ExplanationFacts {
   policyThresholds: FlagSpecFacts
   evidence: Record<string, string | number>
   evidenceRows: Array<{ ref: string; date: string; payee: string; amount: string }>
+  /** Code's total of the rows listed, so the prose need not add them. */
+  evidenceRowsTotal: string | null
 }
 
 /**
@@ -177,6 +186,7 @@ export function explanationFacts(
     flag: { code: flag.code, check: flag.check, whatTheRuleChecks: spec.rule, direction: spec.direction === "ABOVE" ? "above what is expected" : spec.direction === "BELOW" ? "below what is expected" : null },
     policyThresholds: spec.thresholds,
     evidence: Object.fromEntries(Object.entries(evidence).map(([k, v]) => [k.replace(/Cents$/, ""), v])),
+    evidenceRowsTotal: rows.length ? rand(rows.reduce((t, r) => t + r.t.amountCents, 0)) : null,
     evidenceRows: rows.map((r) => ({ ref: `${r.statementRef}-R${r.index}`, date: r.t.date, payee: safeKey(labelKey(r.t.description)) ? labelKey(r.t.description) : "(payee withheld)", amount: rand(r.t.amountCents) })),
   }
   return {

@@ -5,12 +5,12 @@
  */
 import type { ExplanationFacts, SummaryFacts } from "./facts"
 
-export const SUMMARY_PROMPT_VERSION = "summary-p1"
-export const EXPLANATION_PROMPT_VERSION = "explain-p1"
+export const SUMMARY_PROMPT_VERSION = "summary-p2"
+export const EXPLANATION_PROMPT_VERSION = "explain-p3"
 
 const FIGURE_RULES = `Rules for figures:
 - Copy every figure exactly as the facts write it: amounts like R1 234.56 (with the cents), percentages like 12.5%, dates as YYYY-MM-DD, months as YYYY-MM, counts as digits.
-- Never calculate, add, subtract, round, estimate or compare figures yourself, and never write a figure the facts do not contain.
+- Never calculate, add, subtract, multiply, round, estimate or compare figures yourself, and never write a figure the facts do not contain. When you want a total or a difference, use the one the facts give, or leave it out.
 - Never write a number in words, never abbreviate one (no "k" or "million"), never use a relative date such as "last month".`
 
 const JUDGEMENT_RULES = `Rules for judgement:
@@ -29,8 +29,14 @@ ${JSON.stringify(facts)}`
 }
 
 export function explanationPrompt(facts: ExplanationFacts): string {
+  const cite = facts.evidenceRows.length
+    ? `, cite the evidence rows by their ref exactly as given (for example ${facts.evidenceRows[0].ref})`
+    : ". There are no evidence rows: do not cite any row"
+  const threshold = Object.keys(facts.policyThresholds).length
+    ? " and state the policy threshold exactly as given"
+    : " and say that the officer reviews it"
   return `You explain one flag that a South African lender's credit-check rules raised on a loan applicant's bank statements, for a credit officer, in plain language.
-Write 2 to 4 plain sentences: name the flag by its code exactly as given (${facts.flag.code}), say what the rule checks${facts.flag.direction ? `, say that the figure is ${facts.flag.direction}` : ""}, cite the evidence rows by their ref (for example ${facts.evidenceRows[0]?.ref ?? "S1-R4"}) and${Object.keys(facts.policyThresholds).length ? " state the policy threshold exactly as given" : " say that the officer reviews it"}.
+Write 2 to 4 plain sentences: name the flag by its code exactly as given (${facts.flag.code}), say what the rule checks${facts.flag.direction ? `, say that the figure is ${facts.flag.direction}` : ""}${cite}${threshold}.
 Return only the sentences, no heading and no list.
 ${FIGURE_RULES}
 ${JUDGEMENT_RULES}

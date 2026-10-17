@@ -7,11 +7,11 @@ import { statementAiEnabled } from "@/lib/statement-ai/enabled"
 import { planOutputs } from "@/lib/statement-ai/generate"
 import { modelAvailable } from "@/lib/statement-ai/model"
 import { applicationAiView } from "@/lib/statement-ai/views"
-import { enqueueApplication } from "@/lib/statement-ai/worker"
+import { enqueueApplication, enqueueQuestion } from "@/lib/statement-ai/worker"
 
 /**
- * GET /api/applications/[id]/statement-ai — the advisory summary and flag
- * explanations (lib/statement-ai). Never calls the model: outputs the
+ * GET /api/applications/[id]/statement-ai — the advisory summary, flag
+ * explanations and asked questions' answers (lib/statement-ai). Never calls the model: outputs the
  * current facts lack are queued for the background worker, and the panel
  * polls. 404 while the lender has Statement AI off. The text cites the
  * statements' rows, so showing it is document access: each statement is logged.
@@ -29,8 +29,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params
     const planned = await planOutputs(tenant.id, id)
     if (!planned) return NextResponse.json({ error: "Application not found" }, { status: 404 })
-    const view = await applicationAiView(tenant.id, id, planned.plans)
+    const view = await applicationAiView(tenant.id, id, planned.plans, planned.rows)
     if (view.pending > 0) enqueueApplication(tenant.id, id)
+    // A question queued before a restart is queued again (the worker skips one already running or waiting).
+    for (const a of view.answers) if (a.status === "PENDING") enqueueQuestion(tenant.id, id, a.id)
     await logDocumentContentAccess({ documentIds: planned.documentIds, staffUserId: guard.user.id, action: "statement_ai", req })
     return NextResponse.json({ ...view, noStatements: planned.plans.length === 0, modelAvailable: modelAvailable() })
   })

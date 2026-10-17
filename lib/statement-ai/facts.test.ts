@@ -79,10 +79,10 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags).facts))]).toEqual(["summary-p1", "48bdc206e3fa546e"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags).facts))]).toEqual(["summary-p2", "ec9066f91ba85f77"])
   })
   it("pins the explanation prompt to its version", () => {
     const built = explanationFacts(flags[0], [], ["GAMBLING"])
-    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p1", "cf2c50e276553d8a"])
+    expect([EXPLANATION_PROMPT_VERSION, hash(explanationPrompt(built.facts))]).toEqual(["explain-p3", "802dc382c413f900"])
   })
 })

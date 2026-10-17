@@ -9,6 +9,7 @@
 import type { ApplicationCheckFlag, StatementAiKind } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { applicationStatementInsights } from "@/lib/credit-checks/statement-insights"
+import { distinctRows, type CountedRow, type Insights } from "@/lib/statement-analysis/insights"
 import type { StatementTransaction } from "@/lib/statement-analysis/types"
 import { allowedFrom, explanationFacts, summaryFacts, type Built } from "./facts"
 import { flagSpec } from "./flag-specs"
@@ -16,6 +17,7 @@ import { askModel } from "./model"
 import { postCheck, type FlagSpec } from "./post-check"
 import { cleanText, EXPLANATION_PROMPT_VERSION, explanationPrompt, SUMMARY_PROMPT_VERSION, summaryPrompt } from "./prompts"
 import { storeOutput } from "./store"
+import { askRows, type AskRow } from "./ask/tools"
 
 /** A rejected output is asked once more: the model is not deterministic at temperature 0. */
 export const ATTEMPTS = 2
@@ -30,28 +32,25 @@ export interface Planned {
   flag?: FlagSpec
 }
 
+
 /**
- * The outputs an application's current facts call for, with their keys.
- * Null when the application is not this tenant's; no plans while no statement is read.
+ * The outputs some facts call for, with their keys: a pure function, so the
+ * evaluation (scripts/statement-ai/eval.ts) plans exactly what the worker does.
+ * `rows` are the counted rows (insights.ts distinctRows); `txOf` each flag's
+ * evidence read, by analysis id.
  */
-export async function planOutputs(tenantId: string, applicationId: string): Promise<{ plans: Planned[]; documentIds: string[] } | null> {
-  const loaded = await applicationStatementInsights(tenantId, applicationId)
-  if (!loaded) return null
-  if (loaded.read.length === 0) return { plans: [], documentIds: [] }
-  const flags = await prisma.applicationCheckFlag.findMany({
-    where: { tenantId, applicationId, status: "OPEN" },
-    select: { code: true, check: true, evidence: true },
-    orderBy: [{ code: "asc" }, { raisedAt: "asc" }],
-  })
-  const used = loaded.read.filter((s) => s.balanceCheck === "PASS")
-  const rows = used.flatMap((s) => (s.read?.transactions ?? []).map((t) => ({ t })))
-  const summary = summaryFacts(loaded.insights, rows, flags)
+export function buildPlans(
+  insights: Insights,
+  rows: CountedRow[],
+  flags: Array<Pick<ApplicationCheckFlag, "code" | "check" | "evidence">>,
+  txOf: Map<string, StatementTransaction[]>,
+): Planned[] {
+  const summary = summaryFacts(insights, rows, flags)
   const plans: Planned[] = [{
     kind: "SUMMARY", flagCode: "", promptVersion: SUMMARY_PROMPT_VERSION, built: summary,
     prompt: summaryPrompt(summary.facts), maxTokens: 600,
   }]
-  const refOf = new Map(loaded.insights.statements.map((s, i) => [s.documentId, `S${i + 1}`]))
-  const txOf = await evidenceTransactions(tenantId, flags)
+  const refOf = new Map(insights.statements.map((s, i) => [s.documentId, `S${i + 1}`]))
   const seen = new Set<string>()
   for (const flag of flags) {
     // One explanation per code: two flags of one code (two statements) share it.
@@ -70,7 +69,51 @@ export async function planOutputs(tenantId: string, applicationId: string): Prom
       flag: { code: flag.code, direction: spec.direction, thresholds: allowedFrom(spec.thresholds) },
     })
   }
-  return { plans, documentIds: loaded.read.map((s) => s.documentId) }
+  return plans
+}
+
+export interface ApplicationPlan {
+  plans: Planned[]
+  /** The read statements: showing anything made from them is document access. */
+  documentIds: string[]
+  /** The rows a question may read (feature C), from the same load. */
+  rows: AskRow[]
+  raisedFlagCodes: string[]
+}
+
+/**
+ * The outputs an application's current facts call for, and the rows a
+ * question may read. Null when the application is not this tenant's; no plans
+ * and no rows while no statement is read.
+ */
+export async function planOutputs(tenantId: string, applicationId: string): Promise<ApplicationPlan | null> {
+  const loaded = await applicationStatementInsights(tenantId, applicationId)
+  if (!loaded) return null
+  if (loaded.read.length === 0) return { plans: [], documentIds: [], rows: [], raisedFlagCodes: [] }
+  const flags = await prisma.applicationCheckFlag.findMany({
+    where: { tenantId, applicationId, status: "OPEN" },
+    select: { code: true, check: true, evidence: true },
+    orderBy: [{ code: "asc" }, { raisedAt: "asc" }],
+  })
+  const statements = loaded.read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read!, modelLabels: s.modelLabels }))
+  const counted = distinctRows(statements.filter((s) => s.balanceCheck === "PASS"))
+  const plans = buildPlans(loaded.insights, counted, flags, await evidenceTransactions(tenantId, flags))
+  return {
+    plans,
+    documentIds: loaded.read.map((s) => s.documentId),
+    rows: countedAskRows(loaded.insights.statements.map((s) => s.documentId), counted, loaded.facts.clientName),
+    raisedFlagCodes: [...new Set(flags.map((f) => f.code))].sort(),
+  }
+}
+
+/** The counted rows as the question tools read them, each referenced as S<statement>-R<row index>. */
+export function countedAskRows(order: string[], counted: CountedRow[], clientName: string | null): AskRow[] {
+  return order.flatMap((documentId, i) => {
+    const mine = counted.filter((c) => c.s.documentId === documentId)
+    if (mine.length === 0) return []
+    const all = mine[0].s.read.transactions
+    return askRows([{ ref: `S${i + 1}`, transactions: mine.map((c) => ({ index: all.indexOf(c.t), t: c.t })), modelLabels: mine[0].s.modelLabels }], clientName)
+  })
 }
 
 async function evidenceTransactions(tenantId: string, flags: Array<Pick<ApplicationCheckFlag, "evidence">>): Promise<Map<string, StatementTransaction[]>> {
@@ -91,24 +134,39 @@ export async function missing(tenantId: string, applicationId: string, plans: Pl
   return plans.filter((p) => !stored.has(key({ ...p, inputHash: p.built.inputHash })))
 }
 
+/** Asks the model: production passes askModel (metered); the evaluation its own timed call. */
+export type Ask = (prompt: string, maxTokens: number) => Promise<string>
+
+export interface Produced {
+  status: "OK" | "REJECTED"
+  text: string
+  rejectReason?: string
+}
+
 /**
- * Asks the model for one planned output (up to ATTEMPTS times while the
- * post-check rejects it) and stores the result. Throws VlmUnavailableError
- * when the model cannot be asked: nothing is stored, and it is asked again
- * when the application is next viewed.
+ * One planned output, asked up to ATTEMPTS times while the post-check rejects
+ * it. Throws (VlmUnavailableError) when the model cannot be asked.
  */
-export async function generate(tenantId: string, applicationId: string, plan: Planned): Promise<void> {
+export async function produce(plan: Planned, ask: Ask): Promise<Produced> {
   let reason = ""
   let text = ""
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    const answer = await askModel({ tenantId, applicationId, kind: plan.kind, prompt: plan.prompt, maxTokens: plan.maxTokens })
-    text = cleanText(answer.content)
+    text = cleanText(await ask(plan.prompt, plan.maxTokens))
     const checked = postCheck({ text, allowed: plan.built.allowed, raisedFlagCodes: plan.built.raisedFlagCodes, flag: plan.flag })
-    if (checked.ok) {
-      await storeOutput({ tenantId, applicationId, kind: plan.kind, flagCode: plan.flagCode, inputHash: plan.built.inputHash, promptVersion: plan.promptVersion, status: "OK", text, citations: { facts: plan.built.facts } })
-      return
-    }
+    if (checked.ok) return { status: "OK", text }
     reason = checked.reason
   }
-  await storeOutput({ tenantId, applicationId, kind: plan.kind, flagCode: plan.flagCode, inputHash: plan.built.inputHash, promptVersion: plan.promptVersion, status: "REJECTED", rejectReason: reason, text, citations: { facts: plan.built.facts } })
+  return { status: "REJECTED", text, rejectReason: reason }
+}
+
+/**
+ * Produces and stores one planned output. When the model cannot be asked,
+ * nothing is stored, and it is asked again when the application is next viewed.
+ */
+export async function generate(tenantId: string, applicationId: string, plan: Planned): Promise<void> {
+  const out = await produce(plan, async (prompt, maxTokens) => (await askModel({ tenantId, applicationId, kind: plan.kind, prompt, maxTokens })).content)
+  await storeOutput({
+    tenantId, applicationId, kind: plan.kind, flagCode: plan.flagCode, inputHash: plan.built.inputHash, promptVersion: plan.promptVersion,
+    status: out.status, rejectReason: out.rejectReason, text: out.text, citations: { facts: plan.built.facts },
+  })
 }

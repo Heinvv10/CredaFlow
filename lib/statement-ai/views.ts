@@ -7,6 +7,8 @@
 import type { StatementAiOutput } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import type { Planned } from "./generate"
+import { askInputHash } from "./ask/answer"
+import type { AskRow } from "./ask/tools"
 
 export interface OutputView {
   id: string
@@ -22,6 +24,8 @@ export interface OutputView {
   stale: boolean
   /** OK outputs only: what the text was made from. */
   citations: unknown
+  /** ANSWER only. */
+  question: string | null
 }
 
 export function toView(o: StatementAiOutput, currentHash: string | null): OutputView {
@@ -37,12 +41,15 @@ export function toView(o: StatementAiOutput, currentHash: string | null): Output
     createdAt: o.updatedAt.toISOString(),
     stale: currentHash !== null && o.inputHash !== currentHash,
     citations: ok ? o.citations : null,
+    question: o.question,
   }
 }
 
 export interface ApplicationAiView {
   summary: OutputView | null
   explanations: OutputView[]
+  /** The newest answers first; a PENDING one is still being worked on. */
+  answers: OutputView[]
   /** Outputs the current facts call for that are not stored yet. */
   pending: number
 }
@@ -51,7 +58,9 @@ export interface ApplicationAiView {
  * Per (kind, flag): the output for the current facts and prompt if stored,
  * else the newest older one (stale). Flags no longer raised are not shown.
  */
-export async function applicationAiView(tenantId: string, applicationId: string, plans: Planned[]): Promise<ApplicationAiView> {
+export const ANSWERS_SHOWN = 10
+
+export async function applicationAiView(tenantId: string, applicationId: string, plans: Planned[], askRows: AskRow[]): Promise<ApplicationAiView> {
   const rows = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: { in: ["SUMMARY", "FLAG_EXPLANATION"] } },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -68,5 +77,12 @@ export async function applicationAiView(tenantId: string, applicationId: string,
   const summaryPlan = plans.find((p) => p.kind === "SUMMARY")
   const summary = summaryPlan ? pick(summaryPlan) : null
   const explanations = plans.filter((p) => p.kind === "FLAG_EXPLANATION").map(pick).filter((v): v is OutputView => v !== null)
-  return { summary, explanations, pending }
+  const asked = await prisma.statementAiOutput.findMany({
+    where: { tenantId, applicationId, kind: "ANSWER" },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: ANSWERS_SHOWN,
+  })
+  const answers = asked.map((a) => toView(a, askInputHash(a.question ?? "", askRows)))
+  pending += answers.filter((a) => a.status === "PENDING").length
+  return { summary, explanations, answers, pending }
 }
