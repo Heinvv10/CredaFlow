@@ -76,6 +76,7 @@ describe("checkFigures: any other figure, or a given one written another way, re
   })
   it("rejects a number not given, digits it cannot read, and a fabricated row reference", () => {
     expect(rejected("Across 4 statements.")).toMatch(/not given/)
+    expect(rejected("Across 3 92 statements.")).toMatch(/not given/)
     expect(rejected("Code A1B2.")).toMatch(/not given/)
     expect(rejected("Across ٣ statements.")).toMatch(/non-ASCII/)
     expect(rejected("See S1-R129.")).toMatch(/not given/)
@@ -85,6 +86,7 @@ describe("checkFigures: any other figure, or a given one written another way, re
   it("rejects a total called monthly, and money out called money in", () => {
     expect(rejected("Rent of R8 500.00 a month.")).toMatch(/called monthly/)
     expect(rejected("Debit orders totaling -R450.00 monthly.")).toMatch(/called monthly/)
+    expect(rejected("The monthly rent of R8 500.00 was paid.")).toMatch(/called monthly/)
     expect(rejected("The client received R500.00 from the payee.")).toMatch(/money out called money in/)
     expect(rejected("The client spent R1 234.56.")).toMatch(/money in called money out/)
     ok("Living spend R12 500.00 a month; R8 500.00 over the period.")
@@ -102,8 +104,10 @@ describe("checkNoContradiction", () => {
       "Nothing to be concerned about here.", "Not of concern.", "Signs of risk were not seen.",
     ]) calm(t)
   })
-  it("rejects a look-alike letter or an invisible character that would hide a word", () => {
-    expect(checkNoContradiction("It is fіne.", ["GAMBLING"])).toMatchObject({ ok: false, reason: expect.stringMatching(/Latin/) })
+  it("rejects a look-alike letter, an accent or an invisible character that would hide a word", () => {
+    expect(checkNoContradiction("It is fіne.", ["GAMBLING"])).toMatchObject({ ok: false, reason: expect.stringMatching(/A-Z/) })
+    calm("It is fine\u0301.")
+    calm("It is finé.")
     calm("It is fi​ne.")
     calm("It is norm­al.")
   })

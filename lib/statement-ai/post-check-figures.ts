@@ -21,6 +21,8 @@ const isNumberWord = (w: string | undefined) => w !== undefined && Object.protot
 
 /** Words after an amount that make it a month's figure. */
 const MONTHLY = /^[^.;:!?]{0,12}?\b(monthly|per month|a month|each month|every month|p\.?m\.?)(\b|$)/i
+/** The same words before an amount, in its clause: "monthly rent of R8 500.00". */
+const MONTHLY_BEFORE = /\b(monthly|per month|a month|each month|every month)\b[^.;:!?,]{0,25}$/i
 const IN_WORDS = /\b(received|receives|receiving|earned|earns|credited|deposited|came in|paid in)\b/i
 const OUT_WORDS = /\b(spent|paid to|paid out|debited|withdrew|withdrawn|went to|sent to)\b/i
 
@@ -87,7 +89,8 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
     const re = new RegExp(`(?<![\\w.,-])${escape(a.text)}(?!\\w|[.,]\\d)`, "g")
     let bad = false
     text = text.replace(re, (m, offset: number, whole: string) => {
-      if (MONTHLY.test(whole.slice(offset + m.length, offset + m.length + 30)) && !monthly.has(a.cents)) bad = true
+      const calledMonthly = MONTHLY.test(whole.slice(offset + m.length, offset + m.length + 30)) || MONTHLY_BEFORE.test(whole.slice(Math.max(0, offset - 30), offset))
+      if (calledMonthly && !monthly.has(a.cents)) bad = true
       return " "
     })
     if (bad) return fail(`amount called monthly is not a monthly figure: "${a.text}"`)
@@ -100,7 +103,8 @@ export function checkFigures(rawText: string, allowed: Allowed): CheckResult {
   }
   for (const n of t.numbers.map(String).sort((x, y) => y.length - x.length)) {
     // Not when a percentage sign or word follows: a count is not a percentage.
-    text = text.replace(new RegExp(`(?<![\\w.,/-])${escape(n)}(?![\\w%/]|[.,]\\d|\\s?(%|percent\\b|per cent\\b))`, "gi"), " ")
+    // Nor beside another digit group ("3 92" is not two counts): space-grouped digits read as one figure.
+    text = text.replace(new RegExp(`(?<![\\w.,/-])(?<!\\d )${escape(n)}(?![\\w%/]|[.,]\\d| \\d|\\s?(%|percent\\b|per cent\\b))`, "gi"), " ")
   }
   const left = text.match(/\S*\d\S*/)
   if (left) return fail(`figure not given as written: "${left[0]}"`)
