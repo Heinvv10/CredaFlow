@@ -21,7 +21,7 @@ const input: DealCreateInput = {
 function fakeTx() {
   const tx = {
     $queryRaw: vi.fn(async () => [{ id: "asset-1" }]),
-    businessEntity: { findFirst: vi.fn(async () => ({ id: "entity-1", legalName: "TEST Co" })) },
+    businessEntity: { findFirst: vi.fn(async () => ({ id: "entity-1", legalName: "TEST Co", type: "COMPANY", annualTurnover: null, totalAssetValue: null, financialsEvidenceIds: [] })) },
     client: { findFirst: vi.fn(async () => ({ id: "client-1", firstName: "TEST", lastName: "Owner" })) },
     supplier: { findFirst: vi.fn(async () => ({ active: true })) },
     loanProduct: {
@@ -71,6 +71,12 @@ describe("createDeal", () => {
       select: { id: true },
     })
     expect(fake.tx.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "ASSET_DEAL_CREATED", entityId: "deal-1" }) })
+  })
+
+  it("classifies an instalment sale to a small evidenced juristic purchaser for the CPA", async () => {
+    fake.tx.businessEntity.findFirst.mockResolvedValue({ id: "entity-1", legalName: "TEST Co", type: "COMPANY", annualTurnover: 100_000_000, totalAssetValue: 100_000_000, financialsEvidenceIds: ["synthetic-afs"] } as never)
+    expect(await run(fake.asTx)).toEqual({ kind: "created", dealId: "deal-1" })
+    expect(fake.tx.assetFinanceDeal.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isaCpaApplies: true, isaCpaRule: "CPA_JURISTIC_UNDER_THRESHOLD" }) }))
   })
 
   it("creates a sole-proprietor finance lease as an NCA client deal without classifying a juristic person", async () => {

@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, it, vi } from "vitest"
 import { dbDate } from "./dates"
 import { costData, proceedsKey, saleData } from "./recovery-path.integration-fixture"
 import {
-  addStep, cleanupRecoveryFixture, createRecoveryFixture, day, newLoan, newMatter, newRecovery, newSurrender, recoveryFixtureTenantId, saleInvoice, today,
+  addStep, recordFixtureCommercialCancellation, cleanupRecoveryFixture, createRecoveryFixture, day, newLoan, newMatter, newRecovery, newSurrender, recoveryFixtureTenantId, saleInvoice, today,
   type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { clauseOff, raiseOff, rules, triggersOff, type Tx } from "./recovery-rules.integration-fixture"
@@ -60,7 +60,9 @@ suite("slice 4a recovery rules: gaps found in review", () => {
     const plain = await newLoan(database(), fx, "NON_NCA")
     R.text = { loan: plain, id: await newRecovery(database(), fx, plain, "NON_NCA_VOLUNTARY") }
     R.listed = await ladderRecovery(database(), fx, false, "LISTED")
+    await recordFixtureCommercialCancellation(database(), fx, R.listed.loan.loanId)
     R.listed2 = await ladderRecovery(database(), fx, false, "LISTED")
+    await recordFixtureCommercialCancellation(database(), fx, R.listed2.loan.loanId)
     R.done = await ladderRecovery(database(), fx, false, "SOLD")
     R.sold = await ladderRecovery(database(), fx, false, "SOLD")
     R.s127 = await ladderRecovery(database(), fx, true, "VALUATION_NOTICE_ISSUED", {}, true)

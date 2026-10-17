@@ -17,7 +17,7 @@ import { PrismaClient, type RecoveryStatus } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { advance, saleData } from "./recovery-path.integration-fixture"
 import {
-  cleanupRecoveryFixture, courtMatter, createRecoveryFixture, newLoan, newRecovery, newSurrender, newValuation, recoveryFixtureTenantId, saleInvoice,
+  recordFixtureCommercialCancellation, cleanupRecoveryFixture, courtMatter, createRecoveryFixture, newLoan, newRecovery, newSurrender, newValuation, recoveryFixtureTenantId, saleInvoice,
   type RecoveryFixture, type RecoveryLoan,
 } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
@@ -77,6 +77,7 @@ suite("slice 4a recovery database rules: the status matrix", () => {
       for (const status of family === "nca" ? NCA_STATUSES : NON_NCA_STATUSES) at[family][status] = await ladder(family, status)
     }
     listedSold = await ladder("non", "LISTED")
+    await recordFixtureCommercialCancellation(database(), fx, listedSold.loan.loanId)
     const sale = await database().remarketingSale.create({ data: await saleData(database(), fx, listedSold.loan, listedSold.id) })
     await database().remarketingSale.update({ where: { id: sale.id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(database(), fx) } })
     const loan = await newLoan(database(), fx, "NCA")

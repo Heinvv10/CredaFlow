@@ -108,7 +108,7 @@ describe("computeNonNcaCharges", () => {
     expect(result.scheduleRows[0]).toEqual({ paid: 110_000, completedBy: "r1" })
   })
 
-  it("has no in duplum cap: charges run past the unpaid principal at default", () => {
+  it("applies common-law interest ceiling while fees remain outside the statutory NCA cap", () => {
     // R100 principal + R10 interest due 31 Jan 2025, never paid. 5% pm = 60%
     // a year + 40% margin = 100% a year on R110 for 730 days = R220, plus the
     // R50 fee: R270 against an in duplum cap of R100.
@@ -122,7 +122,7 @@ describe("computeNonNcaCharges", () => {
       collectionFeeCents: 5_000,
     }
     const nonNca = computeNonNcaCharges(input)
-    expect(nonNca.interestAccrued).toBe(22_000)
+    expect(nonNca.interestAccrued).toBe(9_000)
     expect(nonNca.feesAccrued).toBe(5_000)
     expect(nonNca.inDuplum).toBeNull()
 

@@ -9,6 +9,8 @@
  */
 import { randomUUID } from "node:crypto"
 import type { ContractType, PrismaClient, RecoveryRoute, ValuationSource } from "@prisma/client"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { recordCommercialCancellation } from "./commercial-cancellation"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, type DealFixture } from "./deal.integration-fixture"
 import { dbDate, fromDayNumber, toDayNumber } from "./dates"
@@ -175,16 +177,16 @@ export async function legalDocument(db: PrismaClient, fx: DealFixture, docType: 
   })).id
 }
 
-/** A tax invoice for a sale, to the buyer outside any loan (triggers off: numbering and the VAT-rate rule are not under test here). */
+/** A tax invoice for the SAST sale day, to the buyer outside any loan (triggers off: numbering and the VAT-rate rule are not under test here). */
 export async function saleInvoice(db: PrismaClient, fx: DealFixture, totalInclVatCents = 120_000_000, loanId: string | null = null): Promise<string> {
   const id = `inv_rcv_${randomUUID().replaceAll("-", "").slice(0, 12)}`
   const number = Math.floor(Math.random() * 1_000_000_000) + 1
   await testSetup(db, [
     `INSERT INTO "TaxInvoice" ("id", "tenantId", "number", "invoiceNumber", "issueDate", "supplyDate", "supplierName", "supplierAddress", "supplierVatNumber",
        "recipientName", "recipientAddress", "vatRate", "totalExclVatCents", "vatCents", "totalInclVatCents", "loanId")
-     VALUES ($1, $2, $3, $4, CURRENT_DATE, CURRENT_DATE, 'TEST Asset Credit (Pty) Ltd', '1 Synthetic Road', '4000000001', 'TEST Buyer', '2 Buyer Street', 0.15,
+     VALUES ($1, $2, $3, $4, $7::date, $7::date, 'TEST Asset Credit (Pty) Ltd', '1 Synthetic Road', '4000000001', 'TEST Buyer', '2 Buyer Street', 0.15,
        $5::int - $5::int * 15 / 115, $5::int * 15 / 115, $5::int, $6)`,
-    id, fx.tenantId, number, `INV-${number}`, totalInclVatCents, loanId,
+    id, fx.tenantId, number, `INV-${number}`, totalInclVatCents, loanId, dbDate(today()),
   ])
   return id
 }
@@ -208,4 +210,31 @@ export async function cleanupRecoveryRows(db: PrismaClient, tenantId: string): P
 export async function cleanupRecoveryFixture(db: PrismaClient, tenantId: string): Promise<void> {
   await cleanupRecoveryRows(db, tenantId)
   await cleanupDealFixture(db, { tenantId })
+}
+
+/** Align a synthetic recovery account's cash schedule with its loan snapshot. */
+export async function alignRecoveryFixtureSchedule(db: PrismaClient, loanId: string): Promise<void> {
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { ncaRegime: true } })
+  if (loan.ncaRegime !== "NON_NCA") return
+  await testSetup(db,
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
+    [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
+      SELECT $2, "tenantId", "id", 1, "maturityDate", "principal", "totalInterest", "totalRepayable" - "principal" - "totalInterest", "totalRepayable" FROM "Loan" WHERE "id" = $1`, loanId, `rs_${randomUUID().replaceAll("-", "").slice(0, 18)}`],
+  )
+}
+
+
+/** Explicit cancellation evidence for synthetic recovery accounts, before their sale. */
+export async function recordFixtureCommercialCancellation(db: PrismaClient, fx: DealFixture, loanId: string, cancelledOn = today()): Promise<void> {
+  const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, include: { assetFinanceDeal: { select: { id: true } }, commercialCancellationEvent: true } })
+  if (loan.ncaRegime !== "NON_NCA" || loan.contractType !== "INSTALMENT_SALE" || loan.commercialCancellationEvent) return
+  if (await db.repaymentSchedule.count({ where: { loanId } }) === 0) await alignRecoveryFixtureSchedule(db, loanId)
+  await testSetup(db, [`UPDATE "LoanApplication" SET "status" = 'DISBURSED', "approvedAt" = CURRENT_TIMESTAMP, "approvedById" = $2,
+    "disbursedAt" = CURRENT_TIMESTAMP, "repaymentMethod" = 'EFT' WHERE "id" = $1`, loan.applicationId, fx.adminA])
+  const evidence = await db.entityDocument.create({ data: { tenantId: fx.tenantId, entityId: loan.entityId, dealId: loan.assetFinanceDeal?.id,
+    docType: "LEGAL_DOCUMENT", fileName: "TEST-cancellation-evidence.pdf", mimeType: "application/pdf", fileSize: 1, storagePath: "/nonexistent/TEST-cancellation.pdf",
+    contentSha256: "0".repeat(64), uploadedByType: "staff", uploadedById: fx.adminA } })
+  const result = await runWithTenant(fx.tenantId, () => recordCommercialCancellation({ tenantId: fx.tenantId, userId: fx.adminA }, loanId,
+    { cancelledOn, evidenceDocumentId: evidence.id, basis: "TEST written termination effective on the recorded date", cancellationConfirmed: true }))
+  if (result.kind !== "done") throw new Error(`Synthetic cancellation failed: ${JSON.stringify(result)}`)
 }

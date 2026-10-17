@@ -3,8 +3,8 @@
 // legal team (the rules behind it are signed off: see DESIGN.md sign-off record 2026-10-17); see ./instalment-sale.ts.
 // The charges follow ../../non-nca-charges.ts and the recovery rules
 // ../../recovery-*.ts. The Settlement Amount is defined as the law allows
-// (capital and interest accrued to date); lib/loan/settlement.ts still quotes
-// the unrebated future payments: docs/asset-finance/legal-wording/README.md.
+// (capital and interest accrued to date); lib/loan/settlement.ts applies that
+// definition to NON_NCA instalment sales and reprices settling receipts.
 import { Prisma } from "@prisma/client"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import type { DealDocumentData } from "../deal-document-data"

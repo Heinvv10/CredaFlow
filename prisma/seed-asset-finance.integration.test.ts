@@ -132,6 +132,9 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       include: { application: true, payout: true, signers: { include: { client: true } }, asset: true },
     })
     expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 69_000_000, decision: "APPROVE" })
+    const consents = await fresh().suretyConsent.findMany({ where: { tenantId: deal.tenantId, signer: { dealId: deal.id } } })
+    expect(consents.length).toBe(deal.signers.filter((s) => s.document === "SURETYSHIP").length)
+    expect(consents.every((c) => c.maritalRegime === "UNMARRIED")).toBe(true)
     expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 300_000_000, vatCents: 45_000_000, vin: "MBX00000000000001" })
     expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NON_NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD" })
     const override = await fresh().ncaRegimeOverride.findFirstOrThrow({ where: { applicationId: deal.applicationId } })
@@ -141,7 +144,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     const signers = deal.signers.map((s) => [s.client.lastName, s.document, s.method]).sort()
     expect(signers).toEqual([
       ["Molefe", "SURETYSHIP", "WET_INK"], ["Mthethwa", "AGREEMENT", "E_SIGN"],
-      ["Mthethwa", "RESOLUTION", "E_SIGN"], ["Mthethwa", "SURETYSHIP", "E_SIGN"],
+      ["Mthethwa", "RESOLUTION", "E_SIGN"], ["Mthethwa", "SURETYSHIP", "WET_INK"],
     ])
     const wetInk = deal.signers.find((s) => s.method === "WET_INK")
     expect(wetInk?.scanUploadedById).toBe(await userId("credit.officer"))
