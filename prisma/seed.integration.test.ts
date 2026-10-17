@@ -18,6 +18,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
 import { LENDER_IDENTITY_SELECT, parseLenderIdentity } from "@/lib/config/identity-schema"
 import { DEFAULT_MESSAGE_TEMPLATES } from "@/lib/messaging/default-templates"
+import { productCreditType } from "@/lib/loan/nca-interest-cap"
+import { checkNcaInterestRateFor } from "@/lib/loan/nca-interest-cap.server"
 
 const RUN = process.env.RUN_SEED_DB_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -115,6 +117,18 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(parseLenderIdentity(tenant.config)).toEqual(ACME_LENDER)
     expect(await prisma.messageTemplate.count({ where: { tenantId: tenant.id } })).toBe(DEFAULT_MESSAGE_TEMPLATES.length)
     expect(await prisma.documentTemplate.count({ where: { tenantId: tenant.id } })).toBeGreaterThan(0)
+  })
+
+  it("prices every seeded product within the NCA interest-rate cap at its seeded repo rate", async () => {
+    const prisma = freshDb()
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: "acme" }, select: { id: true } })
+    const products = await prisma.loanProduct.findMany({ where: { tenantId: tenant.id } })
+    expect(products.map((p) => p.code)).toEqual(expect.arrayContaining(["MICRO30", "PERSONAL", "POFUND"]))
+    for (const product of products) {
+      // Approval reads the same approved REPO row (lib/loan/nca-interest-cap.server.ts).
+      const result = await checkNcaInterestRateFor(prisma as never, tenant.id, { creditType: productCreditType(product), ...product })
+      expect([product.code, result]).toEqual([product.code, { ok: true }])
+    }
   })
 
   it("enrols every seeded staff user in TOTP", async () => {

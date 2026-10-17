@@ -1,6 +1,9 @@
 import type { prisma } from "@/lib/prisma"
 import { allocateReceipts, recomputeLoanBalances, type ScheduleRowLike } from "@/lib/loan/balances"
-import { restoreContractualBulletSchedule, type SettlementLoanLike } from "@/lib/loan/settlement"
+import type { ContractualRow, SettlementLoanLike } from "@/lib/loan/settlement"
+import {
+  ContractualScheduleMissingError, isRepricedInstalmentLoan, loadSettlementEvidence, restoreContractualSchedule,
+} from "@/lib/loan/contractual-schedule"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 
 // The loan book as it stood at a past instant, rebuilt from receipts.
@@ -32,6 +35,8 @@ export interface AsOfReceipt {
 
 export interface AsOfLoan extends SettlementLoanLike {
   closedAt: Date | null
+  /** an early instalment settlement's recorded contractual rows (lib/loan/contractual-schedule.ts) */
+  contractualRows?: ContractualRow[] | null
   repaymentSchedule: Array<ScheduleRowLike & { id: string }>
   payments: AsOfReceipt[]
 }
@@ -48,10 +53,10 @@ function scheduleShareAsOf(receipts: AsOfReceipt[], asOf: Date): number {
 
 export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
   const schedule = [...loan.repaymentSchedule].sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
-  // An early settlement reprices the bullet row to the interest accrued; before
-  // the loan closed, the contractual row is what the receipts were paid against.
+  // An early settlement re-prices the schedule to what it earned; before the
+  // loan closed, the contractual rows are what the receipts were paid against.
   const settled = loan.closedAt !== null && loan.closedAt <= asOf
-  const rows = settled ? schedule : restoreContractualBulletSchedule({ loan, schedule })
+  const rows = settled ? schedule : restoreContractualSchedule({ loan, schedule, contractualRows: loan.contractualRows ?? null })
   const paid = allocateReceipts(rows, scheduleShareAsOf(loan.payments, asOf))
   return recomputeLoanBalances(
     loan.principal,
@@ -68,7 +73,11 @@ export function outstandingPrincipalAsOf(loan: AsOfLoan, asOf: Date): number {
  * known; leaving the book is dated, which is why the population is built from
  * the exits rather than from a status filter.
  */
-export async function loadBookAsOf(db: Pick<typeof prisma, "loan">, tenantId: string, asOf: Date): Promise<number> {
+export async function loadBookAsOf(
+  db: Pick<typeof prisma, "loan" | "auditLog" | "payment" | "repaymentSchedule" | "bankTransaction">,
+  tenantId: string,
+  asOf: Date,
+): Promise<number> {
   const loans = await db.loan.findMany({
     where: {
       tenantId,
@@ -80,12 +89,15 @@ export async function loadBookAsOf(db: Pick<typeof prisma, "loan">, tenantId: st
       ],
     },
     select: {
-      principal: true, totalInterest: true, totalRepayable: true,
+      id: true, principal: true, totalInterest: true, totalRepayable: true,
       contractualTotalInterest: true, contractualTotalRepayable: true,
       totalPaid: true, interestRatePm: true, interestModel: true,
-      startDate: true, maturityDate: true, closedAt: true,
+      startDate: true, maturityDate: true, closedAt: true, ncaRegime: true, contractType: true,
       repaymentSchedule: {
-        select: { id: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true, totalDue: true, totalPaid: true },
+        select: {
+          id: true, installmentNo: true, dueDate: true, principalDue: true, interestDue: true, feesDue: true,
+          creditLifePremiumDue: true, totalDue: true, totalPaid: true,
+        },
       },
       payments: {
         select: {
@@ -95,5 +107,10 @@ export async function loadBookAsOf(db: Pick<typeof prisma, "loan">, tenantId: st
       },
     },
   })
-  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf(loan, asOf), 0)
+  // An s125 re-priced loan without its settlement evidence is refused rather
+  // than rebuilt on the re-priced rows, which would understate the book.
+  const repriced = loans.filter((loan) => isRepricedInstalmentLoan(loan, loan.repaymentSchedule))
+  const evidence = await loadSettlementEvidence(db, tenantId, repriced.map((loan) => loan.id))
+  for (const loan of repriced) if (!evidence.has(loan.id)) throw new ContractualScheduleMissingError(loan.id)
+  return loans.reduce((sum, loan) => sum + outstandingPrincipalAsOf({ ...loan, contractualRows: evidence.get(loan.id)?.rows ?? null }, asOf), 0)
 }

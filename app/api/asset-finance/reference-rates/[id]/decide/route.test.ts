@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   decideReferenceRate: vi.fn(),
   auditRefusal: vi.fn(),
   requireAssetFinanceEnabled: vi.fn(),
+  basis: { value: "PRIME" as string | null },
 }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
@@ -19,7 +20,12 @@ vi.mock("@/lib/auth-guards", async (importOriginal) => ({
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: (_req: unknown, handler: (tenant: { id: string }) => unknown) => handler({ id: "t1" }),
 }))
-vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: (fn: (tx: unknown) => unknown) => fn("tx") } }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    $transaction: (fn: (tx: unknown) => unknown) => fn("tx"),
+    referenceRate: { findFirst: vi.fn(async () => (m.basis.value ? { basis: m.basis.value } : null)) },
+  },
+}))
 vi.mock("@/lib/asset-finance/reference-rate-decision", () => ({ decideReferenceRate: m.decideReferenceRate }))
 vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: m.auditRefusal }))
 
@@ -40,11 +46,26 @@ beforeEach(() => {
   m.auditRefusal.mockReset()
   m.requireAssetFinanceEnabled.mockReset().mockResolvedValue(null)
   m.decideReferenceRate.mockReset()
+  m.basis.value = "PRIME"
 })
 
 describe("POST /api/asset-finance/reference-rates/[id]/decide", () => {
   it("answers 404 and decides nothing when asset finance is off", async () => {
     m.requireAssetFinanceEnabled.mockResolvedValue(NextResponse.json({ error: "Not found" }, { status: 404 }))
+    expect((await decide({ decision: "APPROVE" })).status).toBe(404)
+    expect(m.decideReferenceRate).not.toHaveBeenCalled()
+  })
+
+  it("decides a REPO rate without asset finance, under manage_repo_rate", async () => {
+    m.requireAssetFinanceEnabled.mockResolvedValue(NextResponse.json({ error: "Not found" }, { status: 404 }))
+    m.basis.value = "REPO"
+    m.decideReferenceRate.mockResolvedValue({ kind: "decided", rate: { ...APPROVED, basis: "REPO" }, reach: null })
+    expect((await decide({ decision: "APPROVE" })).status).toBe(200)
+    expect(m.decideReferenceRate).toHaveBeenCalled()
+  })
+
+  it("answers 404 for a rate that is not this tenant's", async () => {
+    m.basis.value = null
     expect((await decide({ decision: "APPROVE" })).status).toBe(404)
     expect(m.decideReferenceRate).not.toHaveBeenCalled()
   })

@@ -6,6 +6,8 @@ import { NcrReturnClient } from "@/components/compliance/NcrReturnClient"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { getNcrReturnData } from "@/lib/compliance/ncr-return"
 import { listSelectableQuarters, parseQuarterParam } from "@/lib/compliance/quarters"
+import { BookDefinitions } from "@/components/reports/BookDefinitions"
+import { BOOK_DEFINITIONS } from "@/lib/reports/book-arrears"
 
 export const dynamic = "force-dynamic"
 
@@ -47,6 +49,8 @@ export default async function NcrReturnPage({
         selectableQuarters={selectableQuarters}
         canSubmit={canSubmit}
       />
+      {/* The same definitions the dashboard and collections label (lib/reports/book-arrears.ts). */}
+      <BookDefinitions scope={BOOK_DEFINITIONS.scopeNca} />
     </div>
   )
 }

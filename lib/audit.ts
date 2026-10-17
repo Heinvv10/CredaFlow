@@ -35,6 +35,17 @@ export async function logAudit(params: AuditParams): Promise<void> {
   }
 }
 
+// Settlement evidence (lib/loan/settlement.ts settlementAuditEvidence) is
+// written only by the receipt writers, straight to the table. Dropped here so
+// an audit of a raw request body can never carry it; the database refuses it on
+// any other action (AuditLog_settlement_evidence_receipts_only).
+const SETTLEMENT_EVIDENCE_KEYS = ["earlyInstalmentSettlement", "earlyDailySettlement", "contractualRows"]
+
+function withoutSettlementEvidence(value: Record<string, unknown> | null | undefined) {
+  if (!value || !SETTLEMENT_EVIDENCE_KEYS.some((key) => key in value)) return value
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !SETTLEMENT_EVIDENCE_KEYS.includes(key)))
+}
+
 /**
  * Use only where the audited operation must fail closed if evidence cannot be written.
  * Pass the transaction client to commit the row with the change it records.
@@ -49,7 +60,7 @@ export async function logAuditStrict(params: AuditParams, db: Pick<typeof prisma
       entity: params.entity,
       entityId: params.entityId ?? null,
       oldValue: (params.oldValue ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-      newValue: (params.newValue ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      newValue: (withoutSettlementEvidence(params.newValue) ?? Prisma.JsonNull) as Prisma.InputJsonValue,
       ipAddress: params.ipAddress ?? null,
     },
   })

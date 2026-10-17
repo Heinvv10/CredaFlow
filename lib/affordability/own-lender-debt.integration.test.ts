@@ -1,0 +1,246 @@
+/**
+ * Real-Postgres test that affordability counts the client's own loans with
+ * this lender, on Elize-shaped data from the Fair Score audit (2026-10-16): a
+ * declared R870 store account and her own R2,541-a-month loan, 27 days in
+ * arrears, which the assessment left out.
+ *
+ *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
+ *     npx vitest run lib/affordability/own-lender-debt.integration.test.ts
+ */
+import { randomUUID } from "node:crypto"
+import { Prisma, PrismaClient, type LoanStatus } from "@prisma/client"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
+import { calculateLoan } from "@/lib/loan-calculator"
+import { evaluateAffordabilityGate } from "@/lib/decision/affordability-gate"
+import {
+  APPROVAL_AFFORDABILITY_POLICY_VERSION,
+  createAffordabilityExpenseEvidence,
+  createAffordabilitySnapshot,
+  createBureauDecisionEvidence,
+  normaliseAffordabilityDebts,
+  totalAffordabilityDebt,
+  type AffordabilityDebtInput,
+} from "@/lib/affordability/snapshot"
+import { prisma } from "@/lib/prisma"
+import { ownLenderArrears, withOwnLenderDebts, type OwnLenderDebts } from "./own-lender-debt"
+import { liveOwnAwareDebtInputs, loadOwnLenderDebts, ownLenderDebtIncreasedSinceApproval } from "./own-lender-debt-load"
+import { createApprovedPasqV3Application } from "@/lib/compliance/pasq-v3-application.integration-fixture"
+
+const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
+const db = new PrismaClient()
+
+const INSTALMENT = 254_100 // R2,541.00
+const DECLARED = 87_000 // R870.00 store account
+
+async function bookLoan(tenant: ChargesTenant, clientId: string, status: LoanStatus, dpd = 0, arrears = 0) {
+  const n = randomUUID().replaceAll("-", "").slice(0, 12)
+  const product = await db.loanProduct.create({
+    data: {
+      tenantId: tenant.tenantId, code: `P-${n}`, name: "Personal", productType: "PERSONAL",
+      minAmount: 1, maxAmount: 10_000_000, minTermDays: 30, maxTermDays: 1_800,
+      interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", monthlyServiceFee: 6_900,
+    },
+  })
+  const app = await db.loanApplication.create({
+    data: { tenantId: tenant.tenantId, reference: `APP-${n}`, clientId, productId: product.id, appliedAmount: 3_000_000, appliedTermDays: 540 },
+  })
+  const loan = await db.loan.create({
+    data: {
+      tenantId: tenant.tenantId, reference: `LN-${n}`, applicationId: app.id, clientId, productId: product.id,
+      principal: 3_000_000, totalInterest: 1_573_800, initiationFee: 0, totalRepayable: 18 * INSTALMENT + 30_000,
+      outstandingPrincipal: 2_713_391, startDate: new Date("2026-04-17T10:00:00+02:00"), maturityDate: new Date("2027-10-17T10:00:00+02:00"),
+      interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", status, daysInArrears: dpd, arrearsAmount: arrears, monthlyServiceFee: 6_900,
+    },
+  })
+  // Instalment 1 carries the deferred initiation fee; the recurring instalment is row 2's.
+  await db.repaymentSchedule.createMany({
+    data: Array.from({ length: 18 }, (_, i) => ({
+      tenantId: tenant.tenantId, loanId: loan.id, installmentNo: i + 1,
+      dueDate: new Date(Date.UTC(2026, 4 + i, 17, 10)),
+      principalDue: 100_000, interestDue: INSTALMENT - 100_000 - 6_900, feesDue: 6_900 + (i === 0 ? 30_000 : 0),
+      totalDue: INSTALMENT + (i === 0 ? 30_000 : 0),
+    })),
+  })
+  return loan
+}
+
+suite.sequential("own-lender loans in affordability (real Postgres)", () => {
+  let tenant: ChargesTenant
+  let elize = ""
+  let activeRef = ""
+  let pendingRef = ""
+  let own: OwnLenderDebts
+  let declared: AffordabilityDebtInput[]
+
+  beforeAll(async () => {
+    tenant = await createChargesTenant(db, false)
+    const n = randomUUID().replaceAll("-", "").slice(0, 11)
+    elize = (await db.client.create({
+      data: {
+        tenantId: tenant.tenantId, idNumber: `85${n}`, firstName: "Elize", lastName: "Test",
+        email: `elize.${n}@client.invalid`, phone: "0820000000", monthlyIncome: 1_500_000, monthlyExpenses: 800_000,
+      },
+    })).id
+    await db.existingDebtObligation.create({
+      data: { clientId: elize, creditProvider: "Store account", accountType: "RETAIL", outstandingBalance: 400_000, monthlyInstalment: DECLARED },
+    })
+    activeRef = (await bookLoan(tenant, elize, "ACTIVE", 27, 84_330)).reference
+    // Settled, written off, or open with nothing left owing: no obligation.
+    await bookLoan(tenant, elize, "COMPLETED")
+    await bookLoan(tenant, elize, "WRITTEN_OFF", 200, 300_000)
+    const repaid = await bookLoan(tenant, elize, "ACTIVE")
+    await db.loan.update({ where: { id: repaid.id }, data: { outstandingPrincipal: 0, arrearsAmount: 0 } })
+    // Parked for write-off approval: still owed, still an obligation.
+    pendingRef = (await bookLoan(tenant, elize, "PENDING_WRITE_OFF", 95, 254_100)).reference
+    // Another lender's book: never this lender's own loan.
+    const other = await createChargesTenant(db, false)
+    const otherClient = await db.client.create({
+      data: { tenantId: other.tenantId, idNumber: `86${n}`, firstName: "Elize", lastName: "Test", email: `elize2.${n}@client.invalid`, phone: "0820000000" },
+    })
+    await bookLoan(other, otherClient.id, "ACTIVE", 5, 10_000)
+
+    own = await loadOwnLenderDebts(prisma, tenant.tenantId, elize)
+    declared = (await db.existingDebtObligation.findMany({ where: { clientId: elize } }))
+  })
+  afterAll(async () => {
+    await db.$disconnect()
+  })
+
+  it("finds every open loan of the client that still owes money, with its instalment and arrears", () => {
+    expect(own.lenderNames).toEqual(["Acme Lending", "Acme Lending (Pty) Ltd"])
+    expect(own.loans.map((loan) => loan.reference)).toEqual([activeRef, pendingRef])
+    expect(own.loans[0]).toMatchObject({ instalmentCents: INSTALMENT, daysInArrears: 27, arrearsAmount: 84_330 })
+    expect(own.loans[1]).toMatchObject({ status: "PENDING_WRITE_OFF", instalmentCents: INSTALMENT })
+    expect(ownLenderArrears(own)).toEqual({ days: 95, amountCents: 84_330 + 254_100 })
+  })
+
+
+  it("leaves out the loan booked from the application being viewed", async () => {
+    const loan = await db.loan.findFirstOrThrow({ where: { reference: activeRef } })
+    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, elize, loan.applicationId)).loans.map((l: { reference: string }) => l.reference)).toEqual([pendingRef])
+  })
+
+  it("counts them on top of the declared R870, once", () => {
+    const OWN = 2 * INSTALMENT
+    const total = (debts: AffordabilityDebtInput[]) => totalAffordabilityDebt(normaliseAffordabilityDebts(withOwnLenderDebts(debts, own)))
+    expect(total(declared)).toBe(DECLARED + OWN)
+    // Declared by reference, or against this lender's exact name: not counted
+    // again, and never below the lender's own instalments.
+    expect(total([...declared, { sourceId: activeRef, provider: "Acme", type: "LOAN", balance: 0, monthlyInstalment: INSTALMENT }])).toBe(DECLARED + OWN)
+    expect(total([...declared, { sourceId: activeRef, provider: "Acme", type: "LOAN", balance: 0, monthlyInstalment: 100 }])).toBe(DECLARED + OWN)
+    expect(total([...declared, { provider: "ACME LENDING", type: "LOAN", balance: 0, monthlyInstalment: 200_000 }])).toBe(DECLARED + OWN)
+    // A provider that merely contains the lender's name is another creditor.
+    expect(total([...declared, { provider: "ACME LENDING personal loan", type: "LOAN", balance: 0, monthlyInstalment: 200_000 }])).toBe(DECLARED + 200_000 + OWN)
+  })
+
+  it("turns an affordable-looking application into a refusal", () => {
+    const calc = calculateLoan({
+      principal: 1_000_000, termDays: 360, interestRatePm: 0.02, productType: "PERSONAL", interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "NCA_REG42", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900,
+    }, new Date("2026-10-16T10:00:00+02:00"))
+    const gate = (debts: AffordabilityDebtInput[]) => evaluateAffordabilityGate({
+      monthlyIncomeCents: 1_500_000,
+      // Discretionary income clears the instalment with the R870 alone, not with the R2,541 as well.
+      monthlyExpensesCents: 1_500_000 - (DECLARED + Math.ceil(calc.monthlyInstalment * 1.1) + 100_000),
+      declaredDebtCents: totalAffordabilityDebt(normaliseAffordabilityDebts(debts)),
+      bureauObligationsCents: 0,
+      proposedInstalmentCents: calc.monthlyInstalment,
+      ndiBufferPct: 110,
+    })
+    expect(gate(declared).blocked).toBe(false)
+    expect(gate(withOwnLenderDebts(declared, own)).blocked).toBe(true)
+  })
+
+  it("produces approval evidence the database's approval guard accepts", async () => {
+    const at = new Date("2026-10-16T10:00:00.000Z")
+    const calc = calculateLoan({
+      principal: 200_000, termDays: 90, interestRatePm: 0.02, productType: "PERSONAL", interestModel: "REDUCING_BALANCE",
+      initiationFeeModel: "NCA_REG42", initiationFeePct: 0.15, initiationFeeMax: 105_000, monthlyServiceFee: 6_900,
+    }, at)
+    const client = {
+      grossMonthlyIncome: 2_000_000, monthlyIncome: 1_800_000, monthlyExpenses: 800_000,
+      expenseBreakdown: {
+        id: "expense-1", updatedAt: at, housing: 400_000, transport: 150_000, food: 150_000, education: 0,
+        insurance: 50_000, clothing: 0, entertainment: 0, medical: 50_000, other: 0, belowMleJustification: null,
+      },
+    }
+    const applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts([], own))
+    const clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts(declared, own))
+    const inputs = {
+      monthlyIncomeCents: client.monthlyIncome, monthlyExpensesCents: client.monthlyExpenses,
+      applicationDebtCents: totalAffordabilityDebt(applicationDebts), clientDebtCents: totalAffordabilityDebt(clientDebts),
+      declaredDebtCents: Math.max(totalAffordabilityDebt(applicationDebts), totalAffordabilityDebt(clientDebts)),
+      bureauObligationsCents: 0, proposedInstalmentCents: calc.monthlyInstalment, creditLifePremiumCents: 0,
+      principalCents: 200_000, termDays: 90, productId: "product-1", interestRatePm: 0.02, productType: "PERSONAL",
+      interestModel: "REDUCING_BALANCE" as const, initiationFeeModel: "NCA_REG42" as const, initiationFeePct: 0.15,
+      initiationFeeMaxCents: 105_000, monthlyServiceFeeCents: 6_900, initiationFeePayment: "DEFERRED" as const, ndiBufferPct: 110,
+    }
+    expect(inputs.declaredDebtCents).toBe(DECLARED + 2 * INSTALMENT)
+    const gate = evaluateAffordabilityGate(inputs)
+    expect(gate.blocked).toBe(false)
+    const approval = createAffordabilitySnapshot({
+      stage: "APPROVAL", policyVersion: APPROVAL_AFFORDABILITY_POLICY_VERSION, capturedAt: at, capturedById: tenant.userId,
+      inputs, applicationDebts, clientDebts, expenseEvidence: createAffordabilityExpenseEvidence(client),
+      bureauEvidence: createBureauDecisionEvidence({ check: null, minimumScore: 450, blockAdverse: false, override: { reason: "IT", byId: tenant.userId, at } }),
+      calculation: calc, calculationStartDate: at,
+      outcome: { netDisposableIncomeCents: gate.ndi, ndiAfterLoanCents: gate.ndi - calc.monthlyInstalment, requiredNdiCents: gate.requiredNdi, isAffordable: true, reason: null },
+    })
+    const [row] = await db.$queryRaw<Array<{ intact: boolean; consistent: boolean }>>(Prisma.sql`
+      SELECT "approvalEvidenceIsIntact"(${JSON.stringify(approval)}::jsonb) AS intact,
+             "approvalFinancialsAreConsistent"(${JSON.stringify(approval)}::jsonb) AS consistent
+    `)
+    expect(row).toEqual({ intact: true, consistent: true })
+  })
+})
+
+suite.sequential("two applications for one client at once (real Postgres)", () => {
+  it("counts an approved, not yet paid out application as an obligation of the other, and fails a payout closed when one appears after approval", async () => {
+    // A: APPROVED and countersigned, not paid out; its approval recorded no obligation to this lender.
+    const a = await createApprovedPasqV3Application("own-debt-a")
+    const approvedA = await db.loanApplication.findUniqueOrThrow({ where: { id: a.applicationId } })
+    const instalmentA = (approvedA.affordabilityResult as { approval: { inputs: { proposedInstalmentCents: number } } }).approval.inputs.proposedInstalmentCents
+    const source = async (applicationId: string) => {
+      const app = await db.loanApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        include: { client: { include: { debtObligations: true } } },
+      })
+      // The fixture approves without an application-level declaration: read it as none.
+      return { ...app, existingDebtObligations: app.existingDebtObligations ?? [], client: { ...app.client!, id: app.clientId! } }
+    }
+
+    // One open application per client and product: B and C use their own products.
+    const product = async () => (await db.loanProduct.create({
+      data: {
+        tenantId: a.tenantId, code: `P-${randomUUID().slice(0, 8)}`, name: "Micro", productType: "MICRO", minAmount: 1, maxAmount: 1_000_000,
+        minTermDays: 1, maxTermDays: 365, interestRatePm: 0.05, interestModel: "FLAT", monthlyServiceFee: 0,
+      },
+    })).id
+    // B: a second application of the same client, being assessed now.
+    const b = await db.loanApplication.create({
+      data: { tenantId: a.tenantId, reference: `APP-B-${randomUUID().slice(0, 8)}`, clientId: a.clientId, productId: await product(), appliedAmount: 200_000, appliedTermDays: 30, existingDebtObligations: [] },
+    })
+    const debtsOfB = await liveOwnAwareDebtInputs(prisma, a.tenantId, b.id, await source(b.id))
+    expect(debtsOfB.client).toContainEqual(expect.objectContaining({ sourceId: `own-loan:application:${a.applicationId}`, monthlyInstalmentCents: instalmentA }))
+    expect(totalAffordabilityDebt(normaliseAffordabilityDebts(debtsOfB.application))).toBe(instalmentA)
+    // A's own assessment does not count A.
+    expect((await loadOwnLenderDebts(prisma, a.tenantId, a.clientId, a.applicationId)).loans).toEqual([])
+
+    // At A's payout nothing has changed: the live obligations equal what A's approval recorded.
+    expect(await ownLenderDebtIncreasedSinceApproval(prisma, a.tenantId, a.applicationId, await source(a.applicationId))).toBe(false)
+    // Another loan to the same client is paid out first.
+    const productC = await product()
+    const sibling = await db.loanApplication.create({
+      data: { tenantId: a.tenantId, reference: `APP-C-${randomUUID().slice(0, 8)}`, clientId: a.clientId, productId: productC, appliedAmount: 300_000, appliedTermDays: 90 },
+    })
+    await db.loan.create({
+      data: {
+        tenantId: a.tenantId, reference: `LN-C-${randomUUID().slice(0, 8)}`, applicationId: sibling.id, clientId: a.clientId, productId: productC,
+        principal: 300_000, totalInterest: 15_000, initiationFee: 0, totalRepayable: 315_000, outstandingPrincipal: 300_000,
+        startDate: new Date(), maturityDate: new Date(Date.now() + 90 * 86_400_000), interestRatePm: 0.05, interestModel: "FLAT", status: "ACTIVE",
+        repaymentSchedule: { create: [1, 2, 3].map((i) => ({ tenantId: a.tenantId, installmentNo: i, dueDate: new Date(Date.now() + i * 30 * 86_400_000), principalDue: 100_000, interestDue: 5_000, feesDue: 0, totalDue: 105_000 })) },
+      },
+    })
+    expect(await ownLenderDebtIncreasedSinceApproval(prisma, a.tenantId, a.applicationId, await source(a.applicationId))).toBe(true)
+  }, 60_000)
+})

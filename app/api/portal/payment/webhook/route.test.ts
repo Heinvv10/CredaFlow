@@ -98,6 +98,7 @@ function stitchPayment(overrides?: Partial<Record<string, unknown>>) {
     amount: 50_000,
     status: "PENDING",
     externalReference: "REF-1",
+    createdAt: new Date(),
     loan: { tenantId: "t1" },
     ...overrides,
   }
@@ -252,12 +253,12 @@ it("allocates the receipt earliest-first and updates loan balances on an ACTIVE 
   // 50_000 fills the remainder of sched-1 (100_000 due) partially -> PARTIAL
   expect(scheduleUpdateMock).toHaveBeenCalledWith(
     expect.objectContaining({
-      where: { id: "sched-1" },
+      where: { id: "sched-1", tenantId: "t1" },
       data: expect.objectContaining({ totalPaid: 150_000, status: "PARTIAL" }),
     })
   )
   expect(scheduleUpdateMock).not.toHaveBeenCalledWith(
-    expect.objectContaining({ where: { id: "sched-2" } })
+    expect.objectContaining({ where: { id: "sched-2", tenantId: "t1" } })
   )
   expect(loanUpdateMock).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -312,7 +313,7 @@ it("dates the receipt and the instalment it completes at the same instant", asyn
     expect(res.status).toBe(200)
     const receivedAt = paymentCreateMock.mock.calls[0][0].data.receivedAt as Date
     expect(scheduleUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "sched-1" },
+      where: { id: "sched-1", tenantId: "t1" },
       data: expect.objectContaining({ status: "PAID", paidAt: receivedAt }),
     }))
   } finally {

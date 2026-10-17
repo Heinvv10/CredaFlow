@@ -19,10 +19,10 @@ import {
   affordabilityExpenseEvidenceIsIntact,
   affordabilityExpenseEvidenceNeedsMleJustification,
   createAffordabilityExpenseEvidence,
-  createSubmissionAffordabilitySnapshot,
   readAffordabilitySnapshotStore,
   withAffordabilitySnapshot,
 } from "@/lib/affordability/snapshot"
+import { ownAwareSubmissionSnapshot } from "@/lib/affordability/own-lender-debt-load"
 import { AuditAction } from "@/lib/audit"
 import { verifyStoredCreditLifeDisclosure } from "@/lib/insurance/credit-life-election.server"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
@@ -256,9 +256,8 @@ export async function PATCH(
       const application = await tx.loanApplication.findUnique({
         where: { id, tenantId: tenant.id },
         select: {
-          id: true,
+          id: true, clientId: true,
           status: true,
-          clientId: true,
           appliedAmount: true,
           appliedTermDays: true,
           productId: true,
@@ -353,7 +352,7 @@ export async function PATCH(
         0,
       )
       const submittedAt = new Date()
-      const snapshot = createSubmissionAffordabilitySnapshot({
+      const snapshot = await ownAwareSubmissionSnapshot(tx, tenant.id, application.clientId, {
         capturedAt: submittedAt,
         capturedById: guard.user.id,
         client: application.client,

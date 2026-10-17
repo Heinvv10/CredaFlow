@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { COLLECTIONS_ELIGIBLE_STATUSES } from "@/lib/collections/section129-eligibility"
+import { inArrearsWhere } from "@/lib/reports/book-arrears"
 
 /**
  * The collections queue is a WORK LIST, not a reporting figure, so it uses
@@ -21,20 +22,7 @@ import { COLLECTIONS_ELIGIBLE_STATUSES } from "@/lib/collections/section129-elig
  * (Section 129 eligibility stays schedule-based; see section129-eligibility).
  */
 export function collectionsQueueWhere(tenantId: string, chargesLive: boolean): Prisma.LoanWhereInput {
-  const overdueOnSchedule = {
-    // Only genuinely-overdue accounts — a settled loan with stale DPD but R0
-    // arrears must NOT sit in the collections queue.
-    daysInArrears: { gt: 0 },
-    arrearsAmount: { gt: 0 },
-    // A fully-repaid loan carrying stale arrears (arrears > outstanding) must
-    // not sit in the collections queue or count toward S129 (audit N-03/N-05).
-    outstandingPrincipal: { gt: 0 },
-  }
-  return {
-    tenantId,
-    status: { in: [...COLLECTIONS_ELIGIBLE_STATUSES] },
-    ...(chargesLive
-      ? { OR: [overdueOnSchedule, { chargesOutstanding: { gt: 0 } }] }
-      : overdueOnSchedule),
-  }
+  // The book's "in arrears or owing default charges" (lib/reports/book-arrears.ts),
+  // narrowed to the statuses a collections action accepts.
+  return { ...inArrearsWhere(tenantId, chargesLive), status: { in: [...COLLECTIONS_ELIGIBLE_STATUSES] } }
 }

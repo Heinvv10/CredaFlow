@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
+import { countLoansInArrears } from "@/lib/reports/book-arrears"
 import { getSession } from "@/lib/auth-session"
 import { redirectStaleSession } from "@/lib/auth-guards"
 import { AppShell } from "@/components/app-shell/AppShell"
@@ -18,19 +18,9 @@ async function getSidebarData(tenantId: string) {
         status: { in: ["SUBMITTED", "UNDER_REVIEW"] },
       },
     }),
-    prisma.loan.count({
-      // Match the collections queue + dashboard count (the collectible book,
-      // actually in arrears) — the badge previously disagreed, and
-      // a settled R0 loan with stale DPD must not inflate it. The
-      // population moves with COLLECTIBLE_STATUSES so the badge cannot drift
-      // from the queue it counts.
-      where: {
-        tenantId,
-        status: { in: [...COLLECTIBLE_STATUSES] },
-        daysInArrears: { gt: 0 },
-        arrearsAmount: { gt: 0 },
-      },
-    }),
+    // The dashboard's and collections page's "accounts in arrears", from the
+    // one helper they read (lib/reports/book-arrears.ts).
+    countLoansInArrears(tenantId),
     prisma.crossSellOpportunity.count({
       where: { tenantId, status: { in: ["PENDING", "CONTACTED"] } },
     }),

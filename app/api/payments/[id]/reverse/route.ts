@@ -7,7 +7,8 @@ import { allocateReceipts, recomputeLoanBalances, nextPaymentDueDate } from "@/l
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { CHARGES_FLAG_INCLUDE, chargesEnabled } from "@/lib/loan/charges-replay"
 import { latestCashReceipt, resyncChargesIfLive, scheduleShareOfReceipts } from "@/lib/loan/receipt-charges"
-import { restoreContractualBulletSchedule } from "@/lib/loan/settlement"
+import { ContractualScheduleError, contractualScheduleOf } from "@/lib/loan/contractual-schedule"
+import { writeReceiptSchedule } from "@/lib/loan/write-schedule"
 import { guardSentence } from "@/lib/asset-finance/recovery-result"
 import { restampSchedulePaidAt } from "@/lib/loan/schedule-paid-at"
 
@@ -143,39 +144,18 @@ export async function PATCH(
         // are excluded (scheduleShareOfReceipts), flag on or off.
         const totalReceipts = await scheduleShareOfReceipts(tx, payment.loanId)
 
-        const contractualRows = restoreContractualBulletSchedule({
-          loan,
-          schedule: loan.repaymentSchedule,
-        })
+        // An early settlement re-priced the schedule; the reversal re-opens the
+        // contract as signed (lib/loan/contractual-schedule.ts).
+        const contractualRows = await contractualScheduleOf(tx, loan, loan.repaymentSchedule, id)
         const perRowPaid = allocateReceipts(contractualRows, totalReceipts)
         const postRows = contractualRows.map((row, i) => ({
           ...row,
           totalPaid: perRowPaid[i],
         }))
 
-        for (let i = 0; i < postRows.length; i++) {
-          const before = loan.repaymentSchedule[i]
-          const after = postRows[i]
-          const isPaid = after.totalPaid >= after.totalDue
-          const isPartial = after.totalPaid > 0 && !isPaid
-          const status = isPaid ? "PAID" : isPartial ? "PARTIAL" : "PENDING"
-          if (
-            after.totalPaid === before.totalPaid
-            && after.interestDue === before.interestDue
-            && after.totalDue === before.totalDue
-            && before.status === status
-          ) continue
-          await tx.repaymentSchedule.update({
-            where: { id: after.id },
-            data: {
-              totalPaid: after.totalPaid,
-              interestDue: after.interestDue,
-              totalDue: after.totalDue,
-              status,
-              paidAt: isPaid ? (before.paidAt ?? asOf) : null,
-            },
-          })
-        }
+        await writeReceiptSchedule(tx, loan.repaymentSchedule, postRows, {
+          tenantId: tenant.id, paidAt: asOf, keepEarlierPaidAt: true, pendingWhenNothingPaid: true,
+        })
         // The loop skips a row whose amounts held, but the receipt that paid it
         // may be the one just reversed: re-date every row from the replay.
         // Fast path, not correctness: on a charges-live loan the sync below re-dates every row anyway.
@@ -295,6 +275,9 @@ export async function PATCH(
       } catch (error) {
         if (error instanceof RecoveryProceedsKeptError || guardSentence(error)?.includes("sale-proceeds receipt is not reversed")) {
           return NextResponse.json({ error: PROCEEDS_KEPT }, { status: 409 })
+        }
+        if (error instanceof ContractualScheduleError) {
+          return NextResponse.json({ error: error.userMessage }, { status: 409 })
         }
         if (error instanceof PaymentAlreadyReversedError) {
           return NextResponse.json(

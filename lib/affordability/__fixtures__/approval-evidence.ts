@@ -16,6 +16,7 @@ import { bureauSubjectFingerprint } from "@/lib/compliance/bureau-subject"
 import { CREDIT_LIFE_DISCLOSURE_VERSION } from "@/lib/insurance/credit-life-election"
 import { createCreditLifeDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
 import { createPasqEvidence } from "@/lib/compliance/pasq"
+import { withOwnLenderDebts, type OwnLenderDebts } from "@/lib/affordability/own-lender-debt"
 
 /**
  * One APPROVED application whose approval evidence actually verifies.
@@ -144,6 +145,7 @@ export const creditLifeDisclosure = {
 
 export function buildEvidence(
   override: { reason: string; byId: string; at: Date } | null = null,
+  ownLenderDebts: OwnLenderDebts = { lenderNames: [], loans: [] },
 ) {
   const calculation = calculateLoan({
     principal: 500_000,
@@ -151,8 +153,8 @@ export function buildEvidence(
     ...product,
     initiationFeePayment: "DEFERRED",
   }, pasqGeneratedAt)
-  const applicationDebts = normaliseAffordabilityDebts([applicationDebt])
-  const clientDebts = normaliseAffordabilityDebts([debt])
+  const applicationDebts = normaliseAffordabilityDebts(withOwnLenderDebts([applicationDebt], ownLenderDebts))
+  const clientDebts = normaliseAffordabilityDebts(withOwnLenderDebts([debt], ownLenderDebts))
   const applicationDebtCents = totalAffordabilityDebt(applicationDebts)
   const clientDebtCents = totalAffordabilityDebt(clientDebts)
   const inputs = {
@@ -224,11 +226,12 @@ export function buildEvidence(
 export function applicationFixture(
   status: "UNDER_REVIEW" | "APPROVED",
   bureauOverrideReason: string | null = null,
+  ownLenderDebts?: OwnLenderDebts,
 ) {
   const override = bureauOverrideReason
     ? { reason: bureauOverrideReason, byId: "officer-1", at: capturedAt }
     : null
-  const { approval, submission } = buildEvidence(override)
+  const { approval, submission } = buildEvidence(override, ownLenderDebts)
   let affordabilityResult = withAffordabilitySnapshot(null, submission)
   if (status === "APPROVED") {
     affordabilityResult = withAffordabilitySnapshot(affordabilityResult, approval)
