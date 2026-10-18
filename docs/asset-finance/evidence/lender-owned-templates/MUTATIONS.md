@@ -30,7 +30,6 @@ PG = `lib/asset-finance/documents/templates/templates.integration.test.ts` (RUN_
 | s5 | SQL: version content mutable | PG | killed, 1 failed |
 | s6 | SQL: wrong variant for the deal accepted | PG | **survived** (test tripped an earlier check) → test now matches every other field |
 | s6 (rerun) | same | PG | killed, 1 failed |
-
 | m10 | Issued mark always NONE (demo approval loses its watermark) | the two rewritten NCA unit suites | killed, 2 failed |
 
 The two NCA unit suites (`legal-wording-flag-nca-*.test.ts`) were rewritten for
