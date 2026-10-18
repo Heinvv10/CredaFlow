@@ -10,6 +10,7 @@ import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
 import { isLoanBookPath, lacksLoanBook, NO_LOAN_BOOK_HOME, pathSegments } from "@/lib/security/loan-book-scope"
 import { isStaticAssetRead } from "@/lib/proxy/static-image"
+import { isCanonicalSignOutPost } from "@/lib/proxy/auth-endpoints"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { operatorHostGate, operatorOffHostRefusal } from "@/lib/proxy/operator-host"
 import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
@@ -38,6 +39,12 @@ const handle = auth((req) => applyDemoHeaders(route(req)))
 // as when the matcher skipped images. Everything else, image-suffixed or not,
 // reaches route() (lib/proxy/static-image.ts).
 export default function proxy(...args: Parameters<typeof handle>) {
+  // Auth.js's session-aware wrapper renews its cookie after the handler.
+  // Logout owns cookie deletion: retain routing/CSRF/demo gates without a
+  // competing renewal, and let the Auth.js route validate and clear it.
+  if (isCanonicalSignOutPost(args[0])) {
+    return applyDemoHeaders(route(Object.assign(args[0], { auth: null }) as NextAuthRequest))
+  }
   return isStaticAssetRead(args[0]) ? NextResponse.next() : handle(...args)
 }
 
