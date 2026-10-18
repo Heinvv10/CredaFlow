@@ -11,8 +11,8 @@
  * accuracy gate scores (scripts/statement-categoriser-accuracy.ts), so the
  * gate measures what production asks.
  *
- * The answer is constrained to MODEL_CATEGORIES; anything else is
- * UNCATEGORISED. A label can only add to what the rules found: it applies to a
+ * The answer is constrained to MODEL_CATEGORIES: an answer outside them is
+ * UNCATEGORISED, and a key left unanswered abstains (vote()). A label can only add to what the rules found: it applies to a
  * rule-UNCATEGORISED debit and nothing else, so it can raise living spend (an
  * officer referral) but never hide spend the rules counted.
  */
