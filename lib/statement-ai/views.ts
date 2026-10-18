@@ -74,13 +74,11 @@ export async function applicationAiView(
   tenantId: string,
   applicationId: string,
   plan: Pick<ApplicationPlan, "summary" | "explanations" | "rows" | "raisedFlagCodes">,
-  opts: { summaries: boolean },
 ): Promise<ApplicationAiView> {
   const { rows: askRows, raisedFlagCodes } = plan
   let pending = 0
   let summary: OutputView | null = null
-  // The summary and explanations restate the statement insights: shown only to those who see those (CREDIT_OFFICER and up).
-  if (opts.summaries && plan.summary) {
+  if (plan.summary) {
     const want = plan.summary
     const mine = await prisma.statementAiOutput.findMany({
       where: { tenantId, applicationId, kind: "SUMMARY" },
@@ -92,12 +90,10 @@ export async function applicationAiView(
     summary = shown ? toView(shown, want.built.inputHash, raisedFlagCodes) : null
   }
   const now = new Date().toISOString()
-  const explanations: OutputView[] = opts.summaries
-    ? plan.explanations.map((e, i) => ({
-        id: `flag:${i}:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
-        inputHash: e.inputHash, promptVersion: "template", createdAt: now, stale: false, citations: e.text === null ? null : { facts: e.facts }, question: null,
-      }))
-    : []
+  const explanations: OutputView[] = plan.explanations.map((e, i) => ({
+    id: `flag:${i}:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
+    inputHash: e.inputHash, promptVersion: "template", createdAt: now, stale: false, citations: e.text === null ? null : { facts: e.facts }, question: null,
+  }))
   const asked = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: "ANSWER" },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],

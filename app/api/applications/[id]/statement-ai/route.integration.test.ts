@@ -105,14 +105,13 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     expect(await prisma.statementAiUsage.count({ where: { tenantId: on.tenantId } })).toBe(2)
     expect(await prisma.auditLog.count({ where: { tenantId: on.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED" } })).toBe(1)
 
-    // READONLY reads answers only: the summary and explanations restate the insights (CREDIT_OFFICER and up).
-    const readonly = await (await get(on, "READONLY")).json()
-    expect(readonly).toMatchObject({ summary: null, explanations: [], answers: [], summaryWithheld: true })
+    // READONLY reads none of it: it all restates the statement insights (CREDIT_OFFICER and up). Refused, nothing logged.
+    expect((await get(on, "READONLY")).status).toBe(403)
     const second = await (await get(on, "CREDIT_OFFICER")).json()
     expect(second.pending).toBe(0)
     expect(second.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringContaining("Flags raised by the credit checks: GAMBLING") })
     // Viewed outputs cite the statement: each GET logs the access.
-    expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "statement_ai" } })).toBe(3)
+    expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "statement_ai" } })).toBe(2)
     await drained()
     expect(model.calls).toBe(2)
   })

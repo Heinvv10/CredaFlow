@@ -36,8 +36,9 @@ question. Goal: `.claude/handoffs/2026-10-17-statement-ai-goal.md`.
   nor one the language lists would flag; never an ID, account or reference number, nor a
   flag's summary text (it can quote the client's name). Third-party payee
   names do reach the model, as in `model-labels.ts`.
-- READONLY reads asked answers only; the summary and explanations restate the
-  statement insights and need CREDIT_OFFICER, like the insights route.
+- READONLY sees none of it (Hein, 2026-10-18): the summary, explanations and
+  answers restate the statement insights and need CREDIT_OFFICER, like the
+  insights route.
 - **Questions (C) use typed tools only** (`ask/tools.ts`, zod): sum, count,
   average, group by month or payee, list, over the application's counted rows
   (`insights.ts distinctRows`). No SQL from model text. A payee the rows do not
