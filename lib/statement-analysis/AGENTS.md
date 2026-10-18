@@ -28,7 +28,8 @@ for `lib/credit-checks/`; categories and insights on read. Pipeline: `analyse.ts
 - **A vision read is never tamper evidence**: its balance FAIL is MANUAL_REVIEW/UNVERIFIED_READ, never BALANCE_MISMATCH (a misread and a forgery look alike).
 - **Never call the vision reader or the label model inside a staff request** (`persist.ts` `allowVlm: false`; labels only in its background queue).
 - **Model labels** (`model-labels.ts`, off): `VOTE_RUNS` runs; living needs all, others a majority;
-  `NEVER_APPLIED` (credit, gambling) never applies; another prompt version's stored labels are ignored.
+  a refused or garbage batch and a key left out of the answer abstain (an echoed invalid value votes
+  UNCATEGORISED); `NEVER_APPLIED` (credit, gambling) never applies; another prompt version's stored labels are ignored.
 - **Bump `PARSER_VERSION`** when a reader's output changes for the same bytes, and
   `CATEGORISER_VERSION` when `categorise.ts`/`merchants.ts` do (checks' lists stay in policy.ts).
   Categories are computed on read; the one stored input is the model's label per masked debit key no
