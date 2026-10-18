@@ -11,6 +11,8 @@ export default defineTenantScopedModels([
   // national and TaxInvoiceLine is scoped through its invoice: neither is listed.
   "ReferenceRate",
   "ContractRate",
+  "AssetFinanceRateNotice",
+  "AssetFinanceRateCorrection",
   "TaxInvoice",
   "CreditNote",
   "VatConfig",

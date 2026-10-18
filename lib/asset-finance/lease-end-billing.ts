@@ -34,7 +34,7 @@ export async function billingRefusal(
     const valuation = await checkPurchaseValuation(tx, { tenantId, assetId: row.assetId, valuationId: row.purchaseValuationId, today: input.today, electorUserId: null })
     if (!valuation.ok) return refused(valuation.reason, `${valuation.error}: elect again on a current valuation`)
   }
-  const pending = await tx.leaseRental.findFirst({ where: { tenantId, loanId, cancelledAt: null, taxInvoiceId: null }, orderBy: { periodNo: "asc" }, select: { dueDate: true } })
+  const pending = await tx.leaseRental.findFirst({ where: { tenantId, loanId, cancelledAt: null, taxInvoiceId: null, OR: [{ rentalExclVatCents: { gt: 0 } }, { maintenanceExclVatCents: { gt: 0 } }] }, orderBy: { periodNo: "asc" }, select: { dueDate: true } })
   if (pending) return refused("rentals_pending", `The rental due ${isoOfDbDate(pending.dueDate)} is not invoiced yet`)
   const openClaim = await tx.maintenanceClaim.findFirst({ where: { tenantId, fund: { loanId }, status: { in: ["SUBMITTED", "APPROVED"] } }, select: { id: true } })
   if (openClaim) return refused("open_claims", "A maintenance claim is still open: pay or reject it first")

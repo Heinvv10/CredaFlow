@@ -175,6 +175,7 @@ export async function createRepriceLoan(db: PrismaClient, tenant: RepriceTenant,
       ...(settled(i) ? { status: "PAID" as const, totalPaid: record.totalDue, paidAt: record.dueDate } : {}),
     })),
   })
+  await db.payment.createMany({ data: records.flatMap((record, i) => settled(i) ? [{ tenantId, loanId: loan.id, amount: record.totalDue, receivedAt: record.dueDate, capturedBy: tenant.adminId }] : []) })
   if (rate) {
     await db.contractRate.create({
       data: {

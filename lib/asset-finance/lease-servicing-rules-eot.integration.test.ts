@@ -215,7 +215,7 @@ suite.sequential("lease servicing rules: end of term, clause by clause (each cla
 
   it("the extension's end, and the billed figures once invoiced, are fixed", async () => {
     const FIXED = /fixed once set/
-    await refuses(without(G, `OR (OLD."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" IS DISTINCT FROM OLD."extensionEndsOn")`), FIXED, async (tx) => {
+    await refuses(without(G, `OR (OLD."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" IS DISTINCT FROM OLD."extensionEndsOn"`, `OR (FALSE AND OLD."extensionEndsOn" IS NOT NULL AND NEW."extensionEndsOn" IS DISTINCT FROM OLD."extensionEndsOn"`), FIXED, async (tx) => {
       const { id } = await extending(tx, loans.expired)
       const endsOn = await extensionEnd(tx, loans.expired, today())
       await notice(tx, id, today(), endsOn)

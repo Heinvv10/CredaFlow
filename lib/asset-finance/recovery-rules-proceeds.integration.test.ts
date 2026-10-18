@@ -285,7 +285,7 @@ suite("slice 4a recovery database rules: proceeds, final notice, end states", ()
     })
 
     it("closes a held surplus once its refund is released", async () => {
-      await refuses(raiseOff(G, "A surplus closes when its refund is released"), /surplus closes when its refund is released/, move(R.ncaSurp, "CLOSED", { closedAt: new Date() }))
+      await refuses(raiseOff(G, "A surplus closes when its refund is released"), /surplus closes when its refund is released/, async tx => { await tx.$executeRawUnsafe('ALTER TABLE "Recovery" DISABLE TRIGGER "Recovery_actual_surplus_remittance"'); return move(R.ncaSurp, "CLOSED", { closedAt: new Date() })(tx) })
     })
   })
 })

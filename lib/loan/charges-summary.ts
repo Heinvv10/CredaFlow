@@ -104,9 +104,20 @@ export interface LoanChargesView extends ChargesSummary {
 /** The live charges view of one loan, or null while charges are off for its tenant. */
 export async function loadLoanCharges(db: ChargesTx, ref: LoanRef, asOf: Date): Promise<LoanChargesView | null> {
   const replay = await loadChargesReplay(db, ref, asOf)
-  if (!replay || replay.defaultChargesLive === false) return null
+  if (!replay) return null
+  let result = replay.result
+  if (replay.defaultChargesLive === false) {
+    // Optional charges remain stopped. Only a newly accepted, independently
+    // certified cancellation-cost allowance can still be collectible.
+    const certified = new Set(replay.certifiedCostIds ?? replay.stoppedCertifiedCostIds ?? [])
+    const postings = result.postings.filter((posting) => posting.type === "RECOVERY_COST" && posting.sourceId && certified.has(posting.sourceId))
+    if (!postings.length || result.feesOutstanding <= 0) return null
+    const accrued = postings.reduce((sum, posting) => sum + posting.amount, 0)
+    result = { ...result, postings, interestAccrued: 0, interestPaid: 0, interestOutstanding: 0,
+      feesAccrued: accrued, feesPaid: accrued - result.feesOutstanding }
+  }
   return {
-    ...summariseCharges(replay.result),
+    ...summariseCharges(result),
     goLive: replay.goLive,
     accrueFrom: replay.accrueFrom,
     exempt: replay.loan.defaultChargesExempt,
@@ -137,14 +148,13 @@ export interface SettlementFigures {
 
 /**
  * The loans whose settlement figure is priced under s125 (lib/loan/settlement.ts):
- * an NCA consumer loan of several instalments, or an NCA DAILY_ACCRUAL bullet.
- * For anything else — an asset-finance instalment sale, a NON_NCA loan, a
- * single instalment — currentSettlementAmount is the contractual remainder,
+ * an NCA loan, instalment sale or finance lease with several instalments, or
+ * an NCA consumer-loan DAILY_ACCRUAL bullet. For NON_NCA contracts and other
+ * single-instalment schedules, currentSettlementAmount is the contractual remainder,
  * unearned interest included, so no document certifies it as what settles.
  */
 export function isS125Priced(loan: SettlementLoanLike, schedule: SettlementScheduleRow[]): boolean {
-  if (loan.ncaRegime !== "NCA" || loan.contractType !== "LOAN") return false
-  return isS125InstalmentLoan(loan, schedule) || (loan.interestModel === "DAILY_ACCRUAL" && schedule.length === 1)
+  return isS125InstalmentLoan(loan, schedule) || (loan.ncaRegime === "NCA" && loan.contractType === "LOAN" && loan.interestModel === "DAILY_ACCRUAL" && schedule.length === 1)
 }
 
 /**

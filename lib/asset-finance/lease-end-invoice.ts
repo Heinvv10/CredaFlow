@@ -64,7 +64,9 @@ async function markFundSettled(tx: SigningTx, tenantId: string, loanId: string, 
   await logAuditStrict({ tenantId, userId, action: AuditAction.MAINTENANCE_FUND_SETTLED, entity: "MaintenanceFund", entityId: fund.fundId, newValue: { loanId, balanceCents: fund.balanceCents, settlement: fund.settlement } }, tx)
 }
 
-export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string; userId: string }, input: { loanId: string; today: string }): Promise<EndResult> {
+export interface ActualFundRefund { amountCents: number; paidOn: string; reference: string; documentId: string }
+
+export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string; userId: string }, input: { loanId: string; today: string; refund?: ActualFundRefund }): Promise<EndResult> {
   const { tenantId } = actor
   // Lock the end of term: a concurrent re-base waits, so the sale is invoiced at the price the row keeps.
   await tx.$queryRaw`SELECT "id" FROM "LeaseEndOfTerm" WHERE "loanId" = ${input.loanId} AND "tenantId" = ${tenantId} FOR UPDATE`
@@ -88,7 +90,8 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   const assetId = row?.loan.assetId
   if (!row || !asset || !assetId) return { kind: "not_found" }
   const purchase = row.outcome === "PURCHASE"
-  if (purchase ? row.status !== "ELECTED" : row.status !== "INSPECTED") return refused("not_ready", `The end of term is ${row.status}: ${purchase ? "elect" : "inspect"} first`)
+  const totalLoss = row.outcome === "TOTAL_LOSS"
+  if (purchase || totalLoss ? row.status !== "ELECTED" : row.status !== "INSPECTED") return refused("not_ready", `The end of term is ${row.status}: ${purchase ? "elect" : "inspect"} first`)
   const { loan } = row
   const refusal = await billingRefusal(tx, { tenantId, loanId: input.loanId, today: input.today, actorUserId: actor.userId, row: { ...row, assetId } })
   if (refusal) return refusal
@@ -98,7 +101,7 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   const lines: { description: string; quantity: number; unitExclVatCents: number }[] = []
   let excessUsageCents: number | null = null
   const deal = loan.assetFinanceDeal
-  const usageContracted = !purchase && !!deal?.usageAllowancePerYear && !!deal.excessRateCents && !!deal.usageUnit
+  const usageContracted = !purchase && !totalLoss && !!deal?.usageAllowancePerYear && !!deal.excessRateCents && !!deal.usageUnit
   // Fail closed: contracted usage is billed from the final reading, never skipped for want of one.
   if (usageContracted && !row.finalReading) return refused("final_reading", "Record the final meter reading at the inspection first")
   if (usageContracted && deal?.usageAllowancePerYear && deal.excessRateCents && deal.usageUnit && row.finalReading) {
@@ -111,9 +114,27 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
       lines.push({ description: `Excess usage: ${(usage.excessTwelfths / 12).toFixed(2)} ${unit} above the contracted ${deal.usageAllowancePerYear} ${unit} a year`, quantity: 1, unitExclVatCents: usage.excessCents })
     }
   }
-  for (const item of row.damageItems) lines.push({ description: `Damage: ${item.description}`, quantity: 1, unitExclVatCents: item.amountExclVatCents })
+  for (const item of totalLoss ? [] : row.damageItems) lines.push({ description: `Damage: ${item.description}`, quantity: 1, unitExclVatCents: item.amountExclVatCents })
   if (purchase && row.purchasePriceExclVatCents) lines.push({ description: `Sale of ${describeAsset(asset)}`, quantity: 1, unitExclVatCents: row.purchasePriceExclVatCents })
   const fund = await prepareFundSettlement(tx, tenantId, input.loanId)
+  let actualRefund: ActualFundRefund | null = null
+  if (totalLoss && fund?.settlement.kind === "REFUND") {
+    const proof = input.refund
+    if (!proof || proof.amountCents !== fund.settlement.amountCents || !Number.isSafeInteger(proof.amountCents)
+      || typeof proof.reference !== "string" || !proof.reference.trim() || proof.reference.trim().length > 120
+      || typeof proof.documentId !== "string" || !proof.documentId.trim()) return refused("refund_evidence", "Record the actual maintenance-fund refund: exact amount, payment date, bank reference and retained proof")
+    try { toDayNumber(proof.paidOn) } catch { return refused("refund_evidence", "Record a valid actual refund date") }
+    const loss = await tx.leaseTerminationQuote.findFirst({ where: { tenantId, loanId: input.loanId, totalLoss: true, status: "ACCEPTED" }, select: { terminationDate: true } })
+    if (!loss || proof.paidOn < isoOfDbDate(loss.terminationDate) || proof.paidOn > input.today) return refused("refund_evidence", "The actual refund date must be between the loss and today")
+    // Fund lock precedes proof lock. Re-read live ownership after a concurrent delete commits.
+    await tx.$queryRaw`SELECT "id" FROM "EntityDocument" WHERE "id" = ${proof.documentId} AND "tenantId" = ${tenantId} FOR UPDATE`
+    const document = await tx.entityDocument.findFirst({ where: { id: proof.documentId, tenantId, deletedAt: null, uploadedByType: "staff", fileSize: { gt: 0 }, deal: { loanId: input.loanId, tenantId } }, select: { id: true } })
+    if (!document) return refused("refund_evidence", "Use retained staff-uploaded refund proof from this lease's deal")
+    const reference = proof.reference.trim().toUpperCase()
+    const reused = await tx.maintenanceFundMovement.findFirst({ where: { tenantId, OR: [{ refundReference: reference }, { refundDocumentId: document.id }] }, select: { id: true } })
+    if (reused) return refused("refund_evidence", "This refund bank reference or proof was already recorded")
+    actualRefund = { ...proof, reference }
+  }
   if (fund && fund.billCents > 0) lines.push({ description: "Maintenance fund deficit settled by the lessee", quantity: 1, unitExclVatCents: fund.billCents })
 
   let taxInvoiceId: string | null = null
@@ -134,14 +155,14 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
     })
   }
   if (fund && fund.settlement.kind === "REFUND") {
-    await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.fundId, kind: "SETTLEMENT_REFUND", amountCents: fund.settlement.amountCents, occurredOn: dbDate(input.today), createdById: actor.userId, note: "Surplus refunded to the lessee (paid outside CredaFlow)" } })
+    await tx.maintenanceFundMovement.create({ data: { tenantId, fundId: fund.fundId, kind: "SETTLEMENT_REFUND", amountCents: fund.settlement.amountCents, occurredOn: dbDate(actualRefund?.paidOn ?? input.today), createdById: actor.userId, refundDocumentId: actualRefund?.documentId, refundReference: actualRefund?.reference, note: actualRefund ? `Actual external maintenance refund evidenced: ${actualRefund.reference}` : "Surplus refunded to the lessee (paid outside CredaFlow)" } })
   }
   if (fund) await markFundSettled(tx, tenantId, input.loanId, fund, actor.userId)
   await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId }, data: { status: "INVOICED", taxInvoiceId, scheduleId, excessUsageCents, fundSettlementCents: fund?.billCents ?? null } })
-  if (!purchase) await tx.financedAsset.update({ where: { id: assetId, tenantId }, data: { lessorStatus: "RETURNED_TO_STOCK", lessorStatusAt: new Date() } })
+  if (!purchase && !totalLoss) await tx.financedAsset.update({ where: { id: assetId, tenantId }, data: { lessorStatus: "RETURNED_TO_STOCK", lessorStatusAt: new Date() } })
   await logAuditStrict({
-    tenantId, userId: actor.userId, action: purchase ? AuditAction.LEASE_PURCHASED : AuditAction.LEASE_RETURNED, entity: "LeaseEndOfTerm", entityId: row.id,
-    newValue: { loanId: input.loanId, outcome: row.outcome, taxInvoiceId, scheduleId, excessUsageCents, lines },
+    tenantId, userId: actor.userId, action: totalLoss ? AuditAction.LEASE_TOTAL_LOSS_BILLED : purchase ? AuditAction.LEASE_PURCHASED : AuditAction.LEASE_RETURNED, entity: "LeaseEndOfTerm", entityId: row.id,
+    newValue: { loanId: input.loanId, outcome: row.outcome, taxInvoiceId, scheduleId, excessUsageCents, lines, ...(actualRefund ? { actualRefund } : {}) },
   }, tx)
   await completeEndOfTermIfSettled(tx, { tenantId, loanId: input.loanId, userId: actor.userId })
   return { kind: "ok", endOfTermId: row.id, status: "INVOICED" }
@@ -155,9 +176,10 @@ export async function completeEndOfTermIfSettled(tx: CompleteEndTx, input: { ten
   const { tenantId, loanId } = input
   const row = await tx.leaseEndOfTerm.findFirst({
     where: { tenantId, loanId, status: "INVOICED" },
-    select: { id: true, outcome: true, natisTransferConfirmedAt: true, loan: { select: { status: true, assetId: true, asset: { select: { registrationNumber: true } }, repaymentSchedule: { select: { totalDue: true, totalPaid: true } } } } },
+    select: { id: true, outcome: true, natisTransferConfirmedAt: true, loan: { select: { status: true, assetId: true, asset: { select: { registrationNumber: true } }, leaseTerminationQuotes: { where: { cpaCancellation: true, status: "QUOTED" }, select: { id: true } }, repaymentSchedule: { select: { totalDue: true, totalPaid: true } } } } },
   })
   if (!row) return false
+  if (row.loan.leaseTerminationQuotes.length > 0) return false
   if (row.loan.repaymentSchedule.some((r) => r.totalPaid < r.totalDue)) return false
   if (row.outcome === "PURCHASE" && row.loan.asset?.registrationNumber?.trim() && !row.natisTransferConfirmedAt) return false
   const now = new Date()

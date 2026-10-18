@@ -1,0 +1,2 @@
+TOTAL_LOSS|COMPLETED||TOTAL_LOSS|450000|SYN-FINAL-REFUND-1792299844660|64
+Loss Payment count and sum unchanged across refund closure: true

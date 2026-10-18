@@ -1,6 +1,7 @@
 import type { RecoveryRoute } from "@prisma/client"
 import { isNcaRoute } from "@/lib/asset-finance/recovery-input"
 import type { StaffRecovery } from "./recovery-panel-data"
+import { LessorCancellationAssessmentForm } from "./LessorCancellationAssessmentForm"
 import { StepButton } from "./StepButton"
 import { ValuationForm, type SurrenderLink } from "./ValuationForm"
 
@@ -13,11 +14,13 @@ const base = (id: string) => `/api/asset-finance/recoveries/${id}`
  * (record_payment), the final notice, opening the outcome, closing. The sale
  * itself and the surplus refund are the sections below it.
  */
-export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
+export function RecoveryNextStep({ view, surrender, today, canRecordPayment, cpaLease = false, canDecide = false }: {
   view: StaffRecovery
   surrender: (SurrenderLink & { status: string }) | null
   today: string
   canRecordPayment: boolean
+  cpaLease?: boolean
+  canDecide?: boolean
 }) {
   const route: RecoveryRoute = view.route
   const s127 = route === "NCA_S127_SURRENDER"
@@ -49,7 +52,7 @@ export function RecoveryNextStep({ view, surrender, today, canRecordPayment }: {
             </p>
           )}
           {canRecordPayment
-            ? <StepButton label="Apply the sale proceeds" busyLabel="Applying…" calls={[{ url: url("proceeds"), body: {} }]} />
+            ? cpaLease ? canDecide ? <LessorCancellationAssessmentForm url={url("proceeds")} /> : <p className="text-sm">A CPA cancellation assessment needs decide_asset_finance permission.</p> : <StepButton label="Apply the sale proceeds" busyLabel="Applying…" calls={[{ url: url("proceeds"), body: {} }]} />
             : <p className="text-sm text-[var(--cf-text-muted)]">Applying the sale proceeds needs the record_payment permission.</p>}
         </div>
       )

@@ -224,6 +224,10 @@ model ContractRate {
   createdById        String?
   createdAt          DateTime           @default(now())
 
+  rateCorrections AssetFinanceRateCorrection[]
+  rateNotice AssetFinanceRateNotice?
+
+  @@unique([tenantId, loanId, id])
   @@unique([loanId, effectiveDate])
   @@index([tenantId])
 }
@@ -277,7 +281,13 @@ model TaxInvoice {
   createdById        String?
   createdAt          DateTime @default(now())
 
+  adjustmentKind String?
+  adjustmentReason String?
+  adjustedInvoiceId String?
+  adjustedInvoice TaxInvoice? @relation("TaxInvoiceAdjustments", map: "TaxInvoice_adjustedInvoice_fkey", fields: [tenantId, adjustedInvoiceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  adjustments TaxInvoice[] @relation("TaxInvoiceAdjustments")
   creditNotes      CreditNote[]
   fundMovement     MaintenanceFundMovement?
   leaseEndOfTerm   LeaseEndOfTerm?          @relation("LeaseEndOfTermInvoice")
@@ -322,6 +332,9 @@ model CreditNote {
   createdById      String?
   createdAt        DateTime   @default(now())
 
+  leaseRentalCancellation LeaseRental? @relation("LeaseRentalCancellationCredit")
+
+  @@unique([tenantId, id])
   @@unique([tenantId, number])
 }
 
@@ -378,7 +391,11 @@ model EntityDocument {
   commercialCancellations CommercialCancellation[]
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
+  maintenanceRefunds MaintenanceFundMovement[] @relation("MaintenanceRefundEvidence")
   meterReadings     AssetMeterReading[]
+  ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
+  ncaSurplusExecutionEvidence NcaSurplusRemittance[] @relation("NcaSurplusExecutionEvidence")
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")
   suretyConsents SuretyConsent[]
@@ -387,6 +404,7 @@ model EntityDocument {
   @@index([tenantId, entityId])
   @@index([tenantId, clientId])
   @@index([dealId])
+
 }
 
 enum AssetClass {
@@ -482,6 +500,7 @@ model AssetValuation {
 }
 
 enum SurrenderStatus {
+  WITHDRAWN
   REQUESTED
   VALUED
   VALUATION_NOTICE_ISSUED
@@ -509,6 +528,13 @@ model SurrenderRequest {
   valuation             AssetValuation? @relation(fields: [valuationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   valuationNoticePath   String?
   valuationNoticeSha256 String?
+  valuationNoticeIssuedOn DateTime? @db.Date
+  valuationNoticeReceivedOn DateTime? @db.Date
+  valuationReceiptReference String?
+  goodsReturnedOn DateTime? @db.Date
+  goodsReturnReference String?
+  chargesFrozenFrom DateTime? @db.Date
+  chargesFrozenUntil DateTime? @db.Date
   saleProceedsCents     Int?
   proceedsPaymentId     String?         @unique
   proceedsPayment       Payment?        @relation("SurrenderProceedsPayment", fields: [tenantId, proceedsPaymentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -518,10 +544,12 @@ model SurrenderRequest {
   finalNoticeSha256     String?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
+  ncaSurplusRemittance NcaSurplusRemittance?
   recovery              Recovery?
 
   @@unique([tenantId, id])
   @@index([tenantId, loanId])
+
 }
 
 // A supplier paid out on asset deals; separate from clients (DESIGN D8).
@@ -877,6 +905,61 @@ model Payout {
   createdAt             DateTime            @default(now())
 
   @@unique([tenantId, dealId])
+}
+
+// A written rate-change notice is reserved in the same transaction as the
+// repricing. Dispatch happens after commit through messaging/send.ts.
+model AssetFinanceRateNotice {
+  id                      String       @id @default(cuid())
+  tenantId                String
+  loanId                  String
+  contractRateId          String       @unique
+  contractRate            ContractRate @relation(fields: [tenantId, loanId, contractRateId], references: [tenantId, loanId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanReference           String
+  effectiveDate           DateTime     @db.Date
+  firstChangedPaymentDate DateTime     @db.Date
+  resultingRate           Decimal      @db.Decimal(9, 6)
+  oldInstalmentCents       Int
+  newInstalmentCents       Int
+  historicalBalanceAdjustmentCents Int @default(0)
+  correctionPendingManual Boolean @default(false)
+  taxDocuments Json?
+  taxAdjustmentPending Boolean @default(false)
+  taxAdjustmentRevision Int @default(0)
+  statutoryDueOn DateTime? @db.Date
+  firstDispatchedAt DateTime?
+  deadlineExceptionAt DateTime?
+  deadlineEscalationLevel Int @default(0)
+  totalInterestCents      Int
+  monthlyInterestCents    Int
+  recipientClientIds      String[]
+  lastOutcomes            Json?
+  completedAt             DateTime?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  @@unique([tenantId, loanId, contractRateId])
+  @@index([tenantId, completedAt, createdAt])
+}
+
+// A late rate change on a fully paid contract, or an unchanged final notice
+// window. Historical receipts are immutable; this separate liability must be
+// executed/reconciled manually before it can be treated as cash.
+model AssetFinanceRateCorrection {
+  id String @id @default(cuid())
+  tenantId String
+  loanId String
+  contractRateId String
+  cause String @unique
+  contractRate ContractRate @relation(fields: [tenantId, loanId, contractRateId], references: [tenantId, loanId, id], onDelete: Restrict, onUpdate: Restrict)
+  amountCents Int
+  cumulativeAmountCents Int
+  contractualRows Json
+  reason String
+  status String @default("PENDING_MANUAL_EXECUTION")
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, loanId, createdAt])
 }
 
 // Per-deed verification of marital regime and wet-ink spouse consent.

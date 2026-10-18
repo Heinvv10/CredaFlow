@@ -10,7 +10,7 @@ import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { AnyDealDocumentData } from "@/lib/asset-finance/documents/deal-document-data"
 import type { LeaseDocumentTerms } from "@/lib/asset-finance/documents/lease/lease-document-data"
-import { LENDER, NOTICE, QUOTE, REPORT } from "@/lib/asset-finance/documents/lease/lease-docs.fixture"
+import { LENDER, NOTICE, QUOTE, COMMERCIAL_QUOTE, REPORT } from "@/lib/asset-finance/documents/lease/lease-docs.fixture"
 import { leaseScheduleView } from "@/lib/asset-finance/lease-view"
 import { priceLease } from "@/lib/asset-finance/lease-pricing"
 import { renderInstalmentSaleAgreement } from "@/lib/asset-finance/documents/agreement-pdf"
@@ -50,10 +50,11 @@ async function main(): Promise<void> {
   writeFileSync(`${LEASE}/expiry-notice.pdf`, await renderLeaseExpiryNotice(NOTICE, LENDER))
   writeFileSync(`${LEASE}/inspection-report.pdf`, await renderLeaseInspectionReport(REPORT, LENDER))
   writeFileSync(`${LEASE}/termination-quote-cpa.pdf`, await renderLeaseTerminationQuote(QUOTE, LENDER))
-  writeFileSync(`${LEASE}/termination-quote-commercial.pdf`, await renderLeaseTerminationQuote({ ...QUOTE, cpaCancellation: false, basis: "Present value of the rentals (ex VAT and maintenance) falling due after 2027-02-23, discounted at the contract rate, plus a penalty of 10.00% of that present value, plus the arrears. The asset is returned; no credit is given for its resale value.", terminationDate: "2027-02-23" }, LENDER))
+  writeFileSync(`${LEASE}/termination-quote-commercial.pdf`, await renderLeaseTerminationQuote(COMMERCIAL_QUOTE, LENDER))
   const d = syntheticDealDocumentData()
   const trust = syntheticDealDocumentData({ entity: { ...d.entity, type: "TRUST", legalName: "TEST Family Trust", registrationNumber: "IT0000/2099", mastersReference: "IT0000/2099" } })
   writeFileSync(join(COMMERCIAL, "instalment-sale-agreement.pdf"), await renderInstalmentSaleAgreement(d))
+  writeFileSync(join(COMMERCIAL, "instalment-sale-agreement-zaronia.pdf"), await renderInstalmentSaleAgreement({ ...d, pricing: { ...d.pricing, rateBasis: "ZARONIA" } }))
   writeFileSync(join(COMMERCIAL, "instalment-sale-agreement-cpa.pdf"), await renderInstalmentSaleAgreement({ ...d, isaCpaApplies: true }))
   writeFileSync(join(COMMERCIAL, "suretyship.pdf"), await renderSuretyship(d, "client-surety"))
   writeFileSync(join(COMMERCIAL, "suretyship-nca-principal.pdf"), await renderSuretyship({ ...d, ncaApplies: true }, "client-surety"))

@@ -1,0 +1,192 @@
+Synthetic Lessor (Pty) Ltd
+1 Test Street, Testville, 0001
+
+EARLY-TERMINATION QUOTE
+
+IO
+N
+
+Lease TEST-LSE-0001 · quoted 23 February 2027 · valid until 5 March 2027
+
+Lessee
+
+TEST Lessee Holdings (2020/000001/07)
+
+Lease reference
+
+TEST-LSE-0001
+
+Goods
+
+2025 Testmake Loader 9000, serial SN-TEST-001
+
+23 February 2027
+
+Termination date
+
+15 March 2027
+
+Valid until
+
+5 March 2027
+
+Status
+
+Charge assessed; cancellation stands
+
+Rentals still to fall due
+
+14
+
+EX
+
+Quoted on
+
+EC
+
+2. THE QUOTE
+
+UT
+
+1. THE LEASE
+
+R 412,345.67
+
+Less goods value
+
+R 120,000.00
+
+Actual cost: Recovery (synthetic-recovery.pdf)
+R 5,000.00
+
+FO
+
+PV of the remaining rentals
+
+R
+
+3. WHAT YOU PAY
+
+R 297,345.67
+
+Invoiced excl. VAT
+
+R 297,345.67
+
+VAT on cancellation charge
+
+R 44,601.85
+
+Arrears (incl. charges)
+
+R 12,345.00
+
+Total payable
+
+R 354,292.52
+
+4. BASIS OF THE QUOTE
+
+NO
+
+T
+
+Cancellation charge (capped)
+
+—
+
+Present value of the remaining rentals at the contract rate, less the net realisable or re-let value of the returned goods, plus actual
+documented recovery, refurbishment and re-letting costs. No percentage penalty. The charge is floored at zero and capped below
+undiscounted remaining rentals. CPA Regulation 5(2) applies; cancellation is effective on 20 business days notice without
+accepting this quote.
+
+T
+
+5. TERMS OF THIS QUOTE
+
+DR
+
+AF
+
+5.1 Your cancellation
+You gave us notice on 23 February 2027 to cancel your lease, as this agreement allows on 20 business days' notice. Section
+14(2)(b)(i)(bb) of the CPA does not apply to a juristic lessee, but this agreement gives you the same terms as the CPA gives a
+natural-person consumer. Your lease therefore ends on 15 March 2027, whether or not you accept or pay this quote. The 14
+rentals that would fall due after that date are cancelled. You return the goods on that date; they are inspected, and any
+damage beyond fair wear and tear, any usage above the contracted usage and, on a full-maintenance lease, the settlement of
+the maintenance fund are invoiced separately on the end-of-term tax invoice. They are not part of this quote.
+5.2 The cancellation charge
+You remain liable for the amounts owed up to 15 March 2027, and the lessor may charge only a reasonable cancellation
+penalty, as this agreement provides. This quote states that charge. The cancellation penalty is the lessor's reasonable loss: (a)
+the present value, on the cancellation date, of the rentals (excl. VAT and maintenance) that would have fallen due after it,
+
+Ref TEST-LSE-0001
+
+Page 1 of 2
+
+IO
+N
+
+discounted at the contract rate; less (b) the net amount the lessor realises, or can reasonably expect to realise, by selling or
+letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs, itemised with their
+evidence and evidence confirming those costs were not already deducted in the net goods valuation. A cost already deducted
+must not also be added to the charge. The charge is floored at zero and capped below the undiscounted remaining rentals, no
+percentage penalty is added, and it is determined having regard to regulation 5(2) of the CPA Regulations.
+The lessor issues one tax invoice for the charge, plus VAT, due on 15 March 2027. The arrears are already due. Default
+interest runs on any amount not paid by its due date, as the lease agreement provides.
+
+UT
+
+5.3 If you disagree with the charge
+Tell the lessor, using the contacts in section 6. You may also refer a dispute to the National Consumer Commission or a court.
+A dispute does not delay your cancellation.
+
+6. HOW TO REACH US
+
+EC
+
+Your cancellation does not depend on accepting this quote. Pay the invoice by its due date, or tell the lessor if you dispute the
+charge.
+Synthetic Lessor (Pty) Ltd (trading as Synthetic Lessor)
+
+Email
+
+info@lessor.test
+
+Telephone
+
++27 11 000 0001
+
+Collections email
+
+collections@lessor.test
+
+Collections telephone
+
++27 11 000 0002
+
+DR
+
+AF
+
+T
+
+—
+
+NO
+
+T
+
+FO
+
+R
+
+EX
+
+Lessor
+
+Ref TEST-LSE-0001
+
+Page 2 of 2
+
+

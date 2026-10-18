@@ -76,8 +76,41 @@ suite.sequential("every acceptance recovery deal, to the cent, through the real 
         debtorVatVendor: d.debtorVatVendor, debtorVatNumber: d.debtorVatVendor ? VENDOR_VAT_NUMBER : null, vatRateTenThousandths: 1500,
       })
 
-      // the proceeds: costs, net, the receipt, the shortfall or surplus
-      const proceeds = await readJson(await routes().proceeds(recovery.id))
+      // These legacy lease accounts contain an already-earned settlement claim,
+      // with no unearned rental rows. CPA still requires an explicit staff
+      // assessment; zero new net charge retains the independent cash oracle.
+      const lease = d.contractType === "OPERATING_LEASE" || d.contractType === "FULL_MAINTENANCE_LEASE"
+      const originalCosts = await database().recoveryCost.findMany({ where: { recoveryId: recovery.id }, orderBy: { id: "asc" } })
+      const assessment = {
+        assessedChargeCents: 0,
+        factors: {
+          amountOwed: `Existing earned claim ${d.settlementDueCents} cents remains separate`,
+          transactionValue: `Actual completed sale ${d.grossProceedsCents} cents`,
+          retainedGoods: "No separate goods retention beyond the recorded sale",
+          returnedGoods: `Actual net goods value ${d.expected.netProceedsCents} cents is credited once`,
+          originalDuration: "No remaining unearned rental periods in this earned-claim account",
+          consumerLossesBenefits: "No new net cancellation charge; all existing cash remains credited",
+          natureOfGoods: "Industrial plant sold through the recorded remarketing process",
+          noticeLength: `Retained ${d.route} cancellation and possession record`,
+          alternativeConsumer: "Replacement buyer completed the actual recorded sale",
+          industryPractice: "Only actual approved costs, funded by goods value; no percentage penalty",
+        },
+        rationale: "No future rentals remain: waive any new net cancellation charge, with earned arrears separate",
+        fairnessReason: "No disproportionate new breach charge; actual goods proceeds credit the claim once",
+      }
+      if (lease) {
+        expect(await readJson(await routes().proceeds(recovery.id))).toMatchObject({ status: 409, body: { error: "A case-specific lessor cancellation assessment is required" } })
+        expect(await database().payment.count({ where: { loanId: recovery.loan.loanId } })).toBe(0)
+        expect(await readJson(await routes().proceeds(recovery.id, { assessment }))).toMatchObject({ status: 403 })
+        as(fx.adminA, "LOAN_ADMIN")
+      }
+      const proceeds = await readJson(await routes().proceeds(recovery.id, lease ? { assessment } : {}))
+      if (lease) {
+        const quote = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { recoveryId: recovery.id } })
+        expect(quote.reasonableAssessment).toMatchObject({ assessedChargeCents: 0, ceilingCents: 0, pvExclVatCents: 0, undiscountedRentalsCents: 0,
+          actualCostsCents: d.expected.chargedCostsCents, chargedCostsCents: d.expected.chargedCostsCents, costConcessionCents: 0 })
+        expect(await database().recoveryCost.findMany({ where: { recoveryId: recovery.id }, orderBy: { id: "asc" } })).toEqual(originalCosts)
+      }
       expect(proceeds).toMatchObject({ status: 200, body: { paymentCents: d.expected.paymentCents, shortfallCents: d.expected.shortfallCents, surplusCents: d.expected.surplusCents, replay: false } })
       const row = await database().recovery.findUniqueOrThrow({ where: { id: recovery.id } })
       expect(row).toMatchObject({

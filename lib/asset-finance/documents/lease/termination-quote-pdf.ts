@@ -25,15 +25,22 @@ export async function renderLeaseTerminationQuote(data: TerminationQuoteData, le
     ["Quoted on", formatIsoDatePdf(data.quotedOn)],
     ["Termination date", formatIsoDatePdf(data.terminationDate)],
     ["Valid until", formatIsoDatePdf(data.validUntil)],
-    ["Status", data.status === "ACCEPTED" ? "Accepted" : "Open for acceptance"],
+    ["Status", data.cpaCancellation ? (data.status === "ACCEPTED" ? "Charge assessed; cancellation stands" : "Cancellation notified; charge awaiting valuation") : data.status === "ACCEPTED" ? "Accepted" : "Open for acceptance"],
     ["Rentals still to fall due", String(data.remainingRentals)],
   ])
   w.section("3. WHAT YOU PAY")
   w.labelValues([
     ["PV of the remaining rentals", formatZarPdf(data.pvCents)],
-    ["Early-termination penalty", formatZarPdf(data.penaltyCents)],
+    ...(data.cpaCancellation ? [
+      ["Less goods value", data.goodsValueCents == null ? "Awaiting valuation" : formatZarPdf(data.goodsValueCents)],
+      ...(data.documentedCosts ?? []).flatMap((c) => [
+        ["Actual cost", `${c.description}: ${formatZarPdf(c.amountCents)}`],
+        ["Cost evidence", c.evidence],
+      ]),
+      ["Cancellation charge (capped)", formatZarPdf(data.invoiceExclVatCents)],
+    ] as [string, string][] : [["Early-termination penalty", formatZarPdf(data.penaltyCents)]] as [string, string][]),
     ["Invoiced excl. VAT", formatZarPdf(data.invoiceExclVatCents)],
-    ["VAT on the PV and penalty", formatZarPdf(data.invoiceVatCents)],
+    [data.cpaCancellation ? "VAT on cancellation charge" : "VAT on the PV and penalty", formatZarPdf(data.invoiceVatCents)],
     ["Arrears (incl. charges)", formatZarPdf(data.arrearsCents)],
     ["Total payable", formatZarPdf(data.totalCents)],
   ])

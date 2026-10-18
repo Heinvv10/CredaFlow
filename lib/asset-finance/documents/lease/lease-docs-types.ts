@@ -38,6 +38,8 @@ export interface TerminationQuoteData extends LeaseDocBase {
   terminationDate: string
   validUntil: string
   cpaCancellation: boolean
+  goodsValueCents?: number | null
+  documentedCosts?: { description: string; amountCents: number; evidence: string }[]
   remainingRentals: number
   pvCents: number
   penaltyCents: number

@@ -17,16 +17,21 @@
  *                     credaflow.lease_terminate flag only).
  * The loan is locked first (lib/loan/lock.ts), so receipts serialise with these.
  */
+import { consumeDeferredLeaseRateTax, cancelSuppliedLeaseRateAdjustments } from "./lease-rate-tax-adjustment"
+import type { RepriceTx } from "./reprice-loan"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { nextPaymentDueDate, recomputeLoanBalances } from "@/lib/loan/balances"
+import { issueCreditNote } from "@/lib/vat/credit-note"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { replayLeaseCancellationCredit } from "./lease-credit-replay"
 import { vatOnExclusive } from "@/lib/vat/amounts"
 import type { VatRateInForce } from "@/lib/vat/vat-rate"
 import { addMonthsClamped, dbDate, isoOfDbDate } from "./dates"
 import { dueDateInstant } from "./schedule-records"
 import type { SigningTx } from "./signing-prepare"
 
-async function refreshLoan(tx: SigningTx, tenantId: string, loanId: string, delta: number, actorUserId: string | null, why: string): Promise<void> {
+export async function refreshLoan(tx: SigningTx, tenantId: string, loanId: string, delta: number, actorUserId: string | null, why: string): Promise<void> {
   const loan = await tx.loan.findFirstOrThrow({
     where: { id: loanId, tenantId },
     select: { status: true, principal: true, repaymentSchedule: { orderBy: { installmentNo: "asc" } } },
@@ -115,19 +120,43 @@ export async function cancelFutureRentals(
 ): Promise<{ cancelled: number; totalCents: number }> {
   await lockLoanForUpdate(tx, input.loanId)
   const rentals = await tx.leaseRental.findMany({
-    where: { tenantId: input.tenantId, loanId: input.loanId, cancelledAt: null, taxInvoiceId: null, dueDate: { gt: dbDate(input.terminationDate) } },
-    select: { id: true, scheduleId: true, totalCents: true, schedule: { select: { totalPaid: true } } },
+    where: { tenantId: input.tenantId, loanId: input.loanId, cancelledAt: null, dueDate: { gt: dbDate(input.terminationDate) } },
+    select: { id: true, scheduleId: true, totalCents: true, taxInvoiceId: true, taxInvoice: { select: { totalExclVatCents: true } }, schedule: { select: { totalPaid: true } } },
   })
-  if (rentals.some((r) => r.schedule.totalPaid > 0)) throw new RangeError("a rental to be cancelled has money against it")
+  const credits = new Map<string, string>()
+  // Credit every superseded supply before changing rows: the credit-note
+  // issuer forces deferred checks, so the existing ledger must still balance.
+  for (const rental of rentals) {
+    if (!rental.taxInvoiceId || !rental.taxInvoice) continue
+    const prior = await tx.creditNote.aggregate({ where: { tenantId: input.tenantId, invoiceId: rental.taxInvoiceId }, _sum: { exclVatCents: true } })
+    const remaining = rental.taxInvoice.totalExclVatCents - (prior._sum.exclVatCents ?? 0)
+    const credit = remaining > 0 ? await issueCreditNote(tx, { tenantId: input.tenantId, invoiceId: rental.taxInvoiceId, issueDate: sastCalendarDate(new Date()),
+      reason: `Lease cancellation effective ${input.terminationDate}`, exclVatCents: remaining, createdById: input.actorUserId })
+      : await tx.creditNote.findFirstOrThrow({ where: { tenantId: input.tenantId, invoiceId: rental.taxInvoiceId }, orderBy: { createdAt: "desc" } })
+    credits.set(rental.id, credit.id)
+    await logAuditStrict({ tenantId: input.tenantId, userId: input.actorUserId ?? undefined, action: AuditAction.LEASE_EARLY_TERMINATION_ACCEPTED, entity: "CreditNote", entityId: credit.id,
+      newValue: { loanId: input.loanId, rentalId: rental.id, invoiceId: rental.taxInvoiceId, terminationDate: input.terminationDate, amountCents: credit.inclVatCents } }, tx)
+  }
+  await cancelSuppliedLeaseRateAdjustments(tx as unknown as RepriceTx, { tenantId: input.tenantId, loanId: input.loanId, rentalIds: rentals.map(rental => rental.id), today: input.terminationDate, actorUserId: input.actorUserId })
   await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_terminate', 'on', true)")
   const now = new Date()
   for (const rental of rentals) {
-    await tx.leaseRental.update({ where: { id: rental.id, tenantId: input.tenantId }, data: { cancelledAt: now } })
+    await tx.leaseRental.update({ where: { id: rental.id, tenantId: input.tenantId }, data: { cancelledAt: now, cancellationCreditNoteId: credits.get(rental.id) ?? null } })
     await tx.repaymentSchedule.update({ where: { id: rental.scheduleId, tenantId: input.tenantId }, data: { principalDue: 0, totalDue: 0 } })
+    const contribution = credits.has(rental.id) ? await tx.maintenanceFundMovement.findFirst({ where: { tenantId: input.tenantId, leaseRentalId: rental.id, kind: "CONTRIBUTION" } }) : null
+    if (contribution) await tx.maintenanceFundMovement.create({ data: {
+      tenantId: input.tenantId, fundId: contribution.fundId, kind: "CONTRIBUTION_CREDIT", amountCents: contribution.amountCents,
+      creditedLeaseRentalId: rental.id, occurredOn: dbDate(sastCalendarDate(new Date())), createdById: input.actorUserId,
+      note: `Future maintenance supply credited on cancellation ${input.terminationDate}`,
+    } })
   }
   await tx.$executeRawUnsafe("SELECT set_config('credaflow.lease_terminate', 'off', true)")
   const totalCents = rentals.reduce((sum, r) => sum + r.totalCents, 0)
-  if (rentals.length > 0) await refreshLoan(tx, input.tenantId, input.loanId, -totalCents, input.actorUserId, "lease_early_termination")
+  if (rentals.length > 0) {
+    await consumeDeferredLeaseRateTax(tx as unknown as RepriceTx, { tenantId: input.tenantId, loanId: input.loanId, rentalIds: rentals.map(rental => rental.id), today: input.terminationDate, actorUserId: input.actorUserId })
+    await refreshLoan(tx, input.tenantId, input.loanId, -totalCents, input.actorUserId, "lease_early_termination")
+    await replayLeaseCancellationCredit(tx, { tenantId: input.tenantId, loanId: input.loanId, userId: input.actorUserId, reference: input.terminationDate })
+  }
   return { cancelled: rentals.length, totalCents }
 }
 

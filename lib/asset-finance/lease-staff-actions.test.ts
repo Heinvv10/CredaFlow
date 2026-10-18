@@ -9,6 +9,10 @@ const eot = (over: Partial<EndOfTermState>): EndOfTermState => ({
 const TODAY = "2030-06-15"
 
 describe("nextEndStep", () => {
+  it("settles an evidenced total loss directly without offering an inspection", () => {
+    expect(nextEndStep(eot({ outcome: "TOTAL_LOSS" }), TODAY)).toEqual({ step: "invoice", needs: "decide" })
+    expect(nextEndStep(eot({ outcome: "TOTAL_LOSS", status: "INVOICED" }), TODAY)).toBeNull()
+  })
   it("offers the inspection after a return is elected, then the invoice, then nothing", () => {
     expect(nextEndStep(eot({}), TODAY)).toEqual({ step: "inspection", needs: "manage" })
     expect(nextEndStep(eot({ status: "INSPECTED" }), TODAY)).toEqual({ step: "invoice", needs: "decide" })

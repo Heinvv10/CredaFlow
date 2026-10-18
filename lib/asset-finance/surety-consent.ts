@@ -62,6 +62,8 @@ export async function recordSuretyConsent(actor: SigningActor, dealId: string, s
       if (input.suretySignedOn > sastCalendarDate(new Date()) || (signer.scanUploadedAt && input.suretySignedOn > sastCalendarDate(signer.scanUploadedAt))) return { error: "Actual surety signing must precede upload and cannot be in the future", status: 422 }
       const problem = consentTimingProblem(input.consentSignedOn ?? null, input.consentBeforeSurety === true, new Date(`${input.suretySignedOn}T12:00:00Z`))
       if (problem) return { error: problem, status: 422 }
+      // Keep the database's deal → proof order and read after a pending edit.
+      await tx.$queryRaw`SELECT "id" FROM "EntityDocument" WHERE "id" = ${input.evidenceDocumentId} AND "tenantId" = ${actor.tenantId} FOR UPDATE`
       const evidence = await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId!, tenantId: actor.tenantId, dealId, uploadedByType: "staff", docType: "LEGAL_DOCUMENT", deletedAt: null } })
       if (!evidence) return { error: "Upload the wet-ink spouse consent as a legal document of this deal first", status: 422 }
     }

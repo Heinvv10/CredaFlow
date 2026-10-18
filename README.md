@@ -123,3 +123,10 @@ The lender's identity is not environment: an ADMIN enters it in
 `Dockerfile` builds a standalone Next.js image; `docker-compose.yml` runs the
 staff app, the client portal (same image, `APP_MODE=client`) and Postgres.
 There is no deploy path yet: hosting is an open decision.
+
+NCA variable-rate written notices retain the actual effective-date deadline
+(30 South African business days), provider acceptance evidence and historical
+late-dispatch/uncertainty status. The independent `asset-finance-rate-notices` worker scans
+and retries durable obligations every 15 minutes, with staff escalation before,
+on and after the deadline. Repricing sends only after its financial commit;
+late dispatch completes the workflow without erasing its timing or escalation history.

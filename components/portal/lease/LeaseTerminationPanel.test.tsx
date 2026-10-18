@@ -16,7 +16,7 @@ beforeEach(() => {
 })
 
 const quote: PortalLeaseQuote = {
-  id: "q1", quotedOn: "2027-05-10", terminationDate: "2027-06-08", validUntil: "2027-05-20", status: "QUOTED", cpaCancellation: true,
+  id: "q1", quotedOn: "2027-05-10", terminationDate: "2027-06-08", validUntil: "2027-05-20", status: "QUOTED", cpaCancellation: false,
   remainingRentals: 20, pvCents: 1_000_000, penaltyCents: 100_000, arrearsCents: 0, invoiceVatCents: 165_000, totalCents: 1_265_000,
   basis: "Synthetic basis text for the quote.",
 }
@@ -102,3 +102,9 @@ describe("LeaseTerminationPanel", () => {
     expect(links(await mount({ quote: null, actions: { state: "NONE", canRequest: true, canAccept: false } }))).toEqual([])
   })
 })
+
+ it("CPA cancellation has no acceptance action and states that notice already ends the lease", async () => {
+   const r = await mount({ quote: { ...quote, cpaCancellation: true }, actions: valid })
+   expect(labelled(r, "Accept this quote")).toBeUndefined()
+   expect(JSON.stringify(r.toJSON())).toContain("No acceptance is required")
+ })

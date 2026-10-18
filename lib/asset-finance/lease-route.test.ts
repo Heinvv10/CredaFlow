@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const m = vi.hoisted(() => ({ outcomes: [] as string[], auditRefusal: vi.fn(async () => undefined) }))
+const m = vi.hoisted(() => ({ outcomes: [] as string[], execute: vi.fn(async () => 0), tx: {} as Record<string, unknown>, auditRefusal: vi.fn(async () => undefined) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     // A transaction commits when its callback returns and rolls back when it throws.
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
       try {
-        const result = await fn({})
+        m.tx = { $executeRawUnsafe: m.execute }
+        const result = await fn(m.tx)
         m.outcomes.push("committed")
         return result
       } catch (error) {
@@ -48,6 +49,7 @@ describe("leasePortalAction: the body, the transaction, the response", () => {
   beforeEach(() => {
     m.outcomes.length = 0
     m.auditRefusal.mockClear()
+    m.execute.mockClear()
   })
 
   it("a body that is not JSON, or not an object, is a 400 and the action never runs", async () => {
@@ -63,7 +65,8 @@ describe("leasePortalAction: the body, the transaction, the response", () => {
     const { action, response } = portal("  ", { kind: "ok", id: "x" })
     const res = await response
     expect([res.status, await res.json()]).toEqual([200, { kind: "ok", id: "x" }])
-    expect(action).toHaveBeenCalledWith({}, { tenantId: "t1", clientId: "c1" }, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), {})
+    expect(action).toHaveBeenCalledWith(m.tx, { tenantId: "t1", clientId: "c1" }, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), {})
+    expect(m.execute).toHaveBeenCalledWith("SET CONSTRAINTS ALL IMMEDIATE")
     expect(m.outcomes).toEqual(["committed"])
   })
 

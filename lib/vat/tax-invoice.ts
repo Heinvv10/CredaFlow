@@ -73,6 +73,8 @@ export interface IssueTaxInvoiceInput {
   recipient: TaxInvoiceRecipient
   lines: readonly TaxInvoiceLineInput[]
   createdById?: string | null
+  debitNoteForInvoiceId?: string
+  adjustmentReason?: string
 }
 
 export type TaxInvoiceDb = Pick<VatTransaction, "vatConfig" | "vatRate" | "taxInvoice" | "$executeRawUnsafe">
@@ -145,19 +147,23 @@ export async function issueTaxInvoice(tx: TaxInvoiceDb, input: IssueTaxInvoiceIn
   if (!config) throw new VatNotConfiguredError(input.tenantId)
   const rate = await loadRateOn(tx, input.supplyDate)
   const invoice = computeTaxInvoice(input.lines, rate.rateTenThousandths)
+  const original = input.debitNoteForInvoiceId ? await tx.taxInvoice.findFirstOrThrow({ where: { tenantId: input.tenantId, id: input.debitNoteForInvoiceId } }) : null
+  const adjustmentReason = original ? requireText(input.adjustmentReason ?? "", "adjustmentReason") : null
+  if (original && (!original.vatRate.equals(rate.rate) || original.loanId !== (input.loanId ?? null))) throw new RangeError("Debit note must retain its original supply, account and VAT rate")
 
   const issued = await tx.taxInvoice.create({
     data: {
       tenantId: input.tenantId,
       // Placeholders: the TaxInvoice_assign_number trigger overwrites both.
       number: 0,
+      ...(original ? { adjustmentKind: "DEBIT_NOTE", adjustmentReason, adjustedInvoiceId: original.id } : {}),
       invoiceNumber: "",
       issueDate,
       supplyDate,
       loanId: input.loanId ?? null,
-      supplierName: config.registeredName,
-      supplierAddress: config.address,
-      supplierVatNumber: config.vatNumber,
+      supplierName: original?.supplierName ?? config.registeredName,
+      supplierAddress: original?.supplierAddress ?? config.address,
+      supplierVatNumber: original?.supplierVatNumber ?? config.vatNumber,
       recipientName,
       recipientAddress,
       recipientVatNumber,

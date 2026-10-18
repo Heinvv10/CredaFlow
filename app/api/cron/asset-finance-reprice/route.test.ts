@@ -1,9 +1,16 @@
 import { NextRequest } from "next/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { runRepriceBatch } = vi.hoisted(() => ({ runRepriceBatch: vi.fn() }))
+const { runRepriceBatch, dispatchRepriceNotices } = vi.hoisted(() => ({
+  runRepriceBatch: vi.fn(),
+  dispatchRepriceNotices: vi.fn(),
+}))
+vi.mock("@/lib/asset-finance/reprice-notice-dispatch", () => ({ dispatchRepriceNotices }))
 vi.mock("@/lib/asset-finance/reprice-batch", () => ({ runRepriceBatch }))
-vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceRateNotice: { findMany: vi.fn(async () => []) } } }))
+vi.mock("@/lib/asset-finance/rate-notice-deadline", () => ({
+  scanRateNoticeDeadlines: vi.fn(async () => ({ escalated: 0 })),
+}))
 
 import { GET } from "./route"
 
@@ -26,6 +33,7 @@ describe("GET /api/cron/asset-finance-reprice", () => {
     process.env.CRON_SECRET = SECRET
     // 16 Jan 2027, 00:30 SAST, still 15 Jan in UTC.
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2027-01-15T22:30:00.000Z") })
+    dispatchRepriceNotices.mockReset().mockResolvedValue({ completed: 1, pending: 0 })
     runRepriceBatch.mockReset().mockResolvedValue(run(0))
   })
   afterEach(() => {
@@ -42,8 +50,17 @@ describe("GET /api/cron/asset-finance-reprice", () => {
   it("runs for today's SAST date and returns the counts", async () => {
     const response = await GET(request())
     expect(response.status).toBe(200)
-    expect(runRepriceBatch).toHaveBeenCalledWith(expect.anything(), "2027-01-16")
-    expect(await response.json()).toEqual(run(0))
+    expect(runRepriceBatch).toHaveBeenCalledWith(expect.anything(), "2027-01-16", expect.any(Function))
+    expect(await response.json()).toEqual({ ...run(0), notices: [{ tenantId: "t1", completed: 1, pending: 0 }] })
+  })
+
+  it("retries committed notices even when no loan reprices on this run", async () => {
+    runRepriceBatch.mockResolvedValue({ ...run(0), perTenant: [{ ...run(0).perTenant[0], repriced: 0 }] })
+    dispatchRepriceNotices.mockResolvedValue({ completed: 0, pending: 1 })
+    const response = await GET(request())
+    expect(dispatchRepriceNotices).toHaveBeenCalledWith(expect.anything(), "t1")
+    expect(response.status).toBe(503)
+    expect((await response.json()).ok).toBe(false)
   })
 
   it("answers 503 with the counts when any loan failed", async () => {

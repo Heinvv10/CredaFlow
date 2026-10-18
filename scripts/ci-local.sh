@@ -29,6 +29,8 @@ fi
 
 export TZ=UTC
 export PUPPETEER_SKIP_DOWNLOAD=1
+# Root tsc and Next's TypeScript worker need 6 GiB. Preserve caller options.
+ROOT_TYPES_NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 
 run_quick() {
@@ -37,7 +39,7 @@ run_quick() {
   echo ">> Generate registries"
   npm run --silent gen:registries
   echo ">> Typecheck"
-  npx tsc --noEmit
+  NODE_OPTIONS="$ROOT_TYPES_NODE_OPTIONS" npx tsc --noEmit
   echo ">> Typecheck demo simulator"
   npm run demo:typecheck
   echo ">> Lint"
@@ -76,7 +78,7 @@ run_quality() {
   npm run face-models:fetch
   FACE_MODEL_TESTS=1 npx vitest run lib/kyc/face-model/compare.models.test.ts
   echo ">> Production build"
-  npm run build
+  NODE_OPTIONS="$ROOT_TYPES_NODE_OPTIONS" npm run build
 }
 
 CI_CONTAINER=""

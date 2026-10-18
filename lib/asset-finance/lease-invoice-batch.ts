@@ -14,7 +14,7 @@
 import type { prisma } from "@/lib/prisma"
 import { dbDate, isoOfDbDate } from "./dates"
 import { issueLeaseRentalInvoice } from "./lease-invoices"
-import { runExpiryNotices, runLeaseExtensions, type DailyRun } from "./lease-daily"
+import { runCpaContinuations, runExpiryNotices, runLeaseExtensions, type DailyRun } from "./lease-daily"
 
 type BatchDb = Pick<typeof prisma, "tenantConfig" | "leaseRental" | "$transaction" | "leaseEndOfTerm" | "loan">
 
@@ -31,9 +31,10 @@ export async function runLeaseInvoiceBatch(db: BatchDb, day: string): Promise<Le
   const run: LeaseInvoiceRun = { ok: true, day, issued: 0, alreadyInvoiced: 0, refused: {}, failed: 0, extensionRentals: 0, expiryNotices: 0 }
   const tenants = await db.tenantConfig.findMany({ where: { featureAssetFinance: true }, orderBy: { tenantId: "asc" }, select: { tenantId: true } })
   for (const { tenantId } of tenants) {
+    await runCpaContinuations(db, tenantId, day, run)
     await runLeaseExtensions(db, tenantId, day, run)
     const due = await db.leaseRental.findMany({
-      where: { tenantId, taxInvoiceId: null, cancelledAt: null, dueDate: { lte: dbDate(day) }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } },
+      where: { tenantId, taxInvoiceId: null, cancelledAt: null, OR: [{ rentalExclVatCents: { gt: 0 } }, { maintenanceExclVatCents: { gt: 0 } }], dueDate: { lte: dbDate(day) }, loan: { status: { in: ["ACTIVE", "DEFAULTED"] } } },
       orderBy: [{ dueDate: "asc" }, { periodNo: "asc" }],
       select: { id: true, dueDate: true },
     })

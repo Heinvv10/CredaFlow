@@ -1,0 +1,271 @@
+TEST Credit Provider (Pty) Ltd
+NCR NCRCP00000
+1 Test Road
+Johannesburg
+2000
+
+
+PRE-AGREEMENT STATEMENT AND QUOTATION
+
+
+
+
+                                                                                                    N
+Asset finance reference AF-NCA-SAMPLE-1 · prepared 31 December 2026
+DRAFT legal wording — figures are generated from the proposed agreement
+
+
+
+
+                                                                                                  IO
+ CREDIT PROVIDER AND CONSUMER
+
+
+
+
+                                                                                           UT
+Credit provider                        TEST Credit Provider (Pty) Ltd
+NCR registration                       NCRCP00000
+Consumer                               TEST Sole Proprietor
+
+
+
+
+                                                                              EC
+Identity / registration                0000000000000
+Consumer address                       2 Synthetic Street
+                                       Johannesburg
+                                       2001
+
+
+
+
+                                                                         EX
+ COST OF CREDIT DISCLOSURE
+
+Agreement                              Instalment sale
+Asset                                  2026 TEST TLB 4x4 · TESTSERIAL0001
+                                                              R
+Cash price                             R 1,150,000.00
+Deposit                                R 150,000.00
+                                                     FO
+Principal debt                         R 1,000,000.00
+Annual interest rate                   Prime plus 1.25%, linked to Prime (Prime of 10.50% effective 1 September 2026):
+                                       11.75% a year (nominal)
+Initiation fee                         R 1,207.50
+Monthly service fee                    R 60.00
+Credit-life premium                    R 0.00
+                                             T
+
+
+Base instalment                        R 28,493.99
+                                   NO
+
+
+
+
+Residual / balloon                     R 200,000.00
+Total interest                         R 223,623.66
+Total cost of credit                   R 1,226,991.16
+
+
+ PROPOSED REPAYMENT SCHEDULE
+                            —
+
+
+
+
+No.     Due date                          Capital             Interest             Fees               Payment
+1       31 January 2027               R 18,454.54           R 9,979.45        R 1,267.50            R 29,701.49
+2       28 February 2027              R 19,586.64           R 8,847.35           R 60.00            R 28,493.99
+3       31 March 2027                 R 18,834.17           R 9,599.82           R 60.00            R 28,493.99
+                       T
+
+
+
+
+4       30 April 2027                 R 19,325.73           R 9,108.26           R 60.00            R 28,493.99
+5       31 May 2027                   R 19,214.98           R 9,219.01           R 60.00            R 28,493.99
+           AF
+
+
+
+
+6       30 June 2027                  R 19,697.94           R 8,736.05           R 60.00            R 28,493.99
+7       31 July 2027                  R 19,603.31           R 8,830.68           R 60.00            R 28,493.99
+8       31 August 2027                R 19,798.94           R 8,635.05           R 60.00            R 28,493.99
+9       30 September 2027             R 20,268.70           R 8,165.29           R 60.00            R 28,493.99
+DR
+
+
+
+
+10      31 October 2027               R 20,198.80           R 8,235.19           R 60.00            R 28,493.99
+11      30 November 2027              R 20,659.52           R 7,774.47           R 60.00            R 28,493.99
+12      31 December 2027              R 20,606.54           R 7,827.45           R 60.00            R 28,493.99
+13      31 January 2028               R 20,812.18           R 7,621.81           R 60.00            R 28,493.99
+14      29 February 2028              R 21,498.21           R 6,935.78           R 60.00            R 28,493.99
+15      31 March 2028                 R 21,234.42           R 7,199.57           R 60.00            R 28,493.99
+
+
+
+
+Ref AF-NCA-SAMPLE-1                                                                                               Page 1 of 3
+
+ PROPOSED REPAYMENT SCHEDULE (continued)
+
+No.      Due date                                Capital               Interest              Fees                  Payment
+16       30 April 2028                      R 21,671.73             R 6,762.26             R 60.00              R 28,493.99
+17       31 May 2028                        R 21,662.60             R 6,771.39             R 60.00              R 28,493.99
+
+
+
+
+                                                                                                                N
+18       30 June 2028                       R 22,090.24             R 6,343.75             R 60.00              R 28,493.99
+19       31 July 2028                       R 22,099.23             R 6,334.76             R 60.00              R 28,493.99
+
+
+
+
+                                                                                                              IO
+20       31 August 2028                     R 22,319.76             R 6,114.23             R 60.00              R 28,493.99
+21       30 September 2028                  R 22,732.55             R 5,701.44             R 60.00              R 28,493.99
+22       31 October 2028                    R 22,769.36             R 5,664.63             R 60.00              R 28,493.99
+23       30 November 2028                   R 23,171.99             R 5,262.00             R 60.00              R 28,493.99
+
+
+
+
+                                                                                                     UT
+24       31 December 2028                   R 23,227.83             R 5,206.16             R 60.00              R 28,493.99
+25       31 January 2029                    R 23,459.63             R 4,974.36             R 60.00              R 28,493.99
+26       28 February 2029                   R 24,152.48             R 4,281.51             R 60.00              R 28,493.99
+27       31 March 2029                      R 23,934.77             R 4,499.22             R 60.00              R 28,493.99
+28       30 April 2029                      R 24,311.06             R 4,122.93             R 60.00              R 28,493.99
+
+
+
+
+                                                                                         EC
+29       31 May 2029                        R 24,416.24             R 4,017.75             R 60.00              R 28,493.99
+30       30 June 2029                       R 24,781.65             R 3,652.34             R 60.00              R 28,493.99
+31       31 July 2029                       R 24,907.21             R 3,526.78             R 60.00              R 28,493.99
+32       31 August 2029                     R 25,155.77             R 3,278.22             R 60.00              R 28,493.99
+
+
+
+
+                                                                                  EX
+33       30 September 2029                  R 25,504.46             R 2,929.53             R 60.00              R 28,493.99
+34       31 October 2029                    R 25,661.33             R 2,772.66             R 60.00              R 28,493.99
+35       30 November 2029                   R 25,998.60             R 2,435.39             R 60.00              R 28,493.99
+36       31 December 2029                  R 226,176.89             R 2,257.12             R 60.00             R 228,494.01
+
+
+
+ ACKNOWLEDGEMENT
+                                                                      R
+1 Statutory disclosures and validity period
+                                                           FO
+
+   1.1 In this quotation "the Act" means the National Credit Act 34 of 2005, "the Credit Provider" means TEST Credit Provider
+   (Pty) Ltd, registered credit provider NCRCP00000, and "the Consumer" means TEST Sole Proprietor. This is the
+   pre-agreement statement and quotation that section 92 of the Act requires before the Credit Provider may enter into an
+   instalment agreement with the Consumer. On these figures the proposed agreement would be a large agreement under
+   section 9 of the Act.
+                                                    T
+
+
+     1.2 This quotation is not a credit agreement. It does not bind the Consumer, and signing the acknowledgement below records
+     only that the Consumer received it. A credit agreement comes into existence only when both parties sign the agreement itself.
+                                         NO
+
+
+
+
+     1.3 The Credit Provider is bound by this quotation for five business days after the date on which it is delivered to the
+     Consumer, as section 92 of the Act provides. Because the proposed rate is variable, a change in the reference rate before the
+     agreement is signed changes the rate, the instalments and the total cost of credit by the corresponding amount; any other
+     change needs a new quotation.
+     1.4 Interest is charged on the outstanding principal debt at Prime plus 1.25%, linked to Prime (Prime of 10.50% effective 1
+     September 2026): 11.75% a year (nominal). It accrues daily on the reducing balance, on the actual number of days over a
+                              —
+
+
+
+
+     365-day year, and is payable with each instalment. The rate is variable: it is linked to Prime, and when Prime changes the rate
+     changes by the same amount from the date the change takes effect. The Credit Provider then recalculates the instalment so
+     that the agreement still ends on 31 December 2029 and the residual amount does not change, and gives the Consumer
+     written notice of the new rate and instalment as section 104 of the Act requires. The rate will never exceed the maximum
+                       T
+
+
+
+
+     prescribed under section 105 of the Act for this type of agreement: a change that would take it above that maximum is not
+     applied.
+             AF
+
+
+
+
+     1.5 The total cost of credit of R 1,226,991.16 shown above is the principal debt together with the interest, the initiation fee, the
+     monthly service fees and any credit-life premiums, and the total repayable is R 1,226,991.16. No other fee or charge is
+     payable, except the default charges and collection costs that section 101 of the Act permits if the Consumer does not pay on
+     time, and the premium of any insurance the Credit Provider arranges under section 106 of the Act if the Consumer does not
+     keep the asset insured as the proposed agreement requires. The interest rate, the initiation fee and the monthly service fee do
+DR
+
+
+
+
+     not exceed the maxima prescribed under section 105 of the Act.
+     1.6 The proposed agreement will require the Consumer to keep the asset described above comprehensively insured until
+     ownership passes. The Consumer may choose the insurer and the policy; under section 106 of the Act the Credit Provider
+     may not require the Consumer to use a particular insurer. No credit-life premium is included in these figures.
+
+
+
+
+Ref AF-NCA-SAMPLE-1                                                                                                           Page 2 of 3
+
+   1.7 Under the Act the Consumer will have the right to: settle the agreement early under section 125; terminate it and
+   surrender the goods under section 127; receive the notice required by section 129 before any legal proceedings to enforce it;
+   rescind it within 5 business days if it is signed at a place other than the Credit Provider's registered business premises, under
+   section 121; receive statements of account under section 108; and apply for debt review under section 86. The proposed
+   agreement sets out these rights in full.
+
+
+
+
+                                                                                                             N
+Consumer acknowledgement
+
+
+
+
+                                                                                                           IO
+TEST Sole Proprietor                                                         Date
+Acknowledges receipt; this is not acceptance of the agreement
+
+
+
+
+                                                                                                 UT
+                                                                                      EC
+                                                                           EX
+                                                                    R
+                                                                FO
+                                                     T
+                                         NO
+                              —
+                       T
+            AF
+DR
+
+
+
+
+Ref AF-NCA-SAMPLE-1                                                                                                       Page 3 of 3

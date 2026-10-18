@@ -59,11 +59,11 @@ jobs:
       - name: Generate registries
         run: npm run gen:registries
 
-      # The project's type graph exceeds Node's default heap on the runner.
+      # A cold root typecheck exceeds 4 GiB; demo keeps its own budget.
       - name: Typecheck
         run: npx tsc --noEmit
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
 
       # scripts/demo is excluded from the root tsconfig and has its own gate.
       - name: Typecheck demo simulator
@@ -115,7 +115,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          # Next runs the root TypeScript graph again in its build worker.
+          NODE_OPTIONS: --max-old-space-size=6144
 
   integration:
     # Main is tested as a candidate merge by the PR event and again nightly.

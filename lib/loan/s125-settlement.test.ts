@@ -90,9 +90,16 @@ describe("the receipt path settles at the s125 figure (lib/loan/settlement.ts)",
     expect(currentSettlementAmount({ loan: elize, schedule: rows, asOf })).toBe(2_789_634)
   })
 
-  it("keeps the contractual figure for an agreement s125 does not cover here (asset finance, NON_NCA)", () => {
+  it("keeps the contractual figure for a NON_NCA cash loan", () => {
     expect(currentSettlementAmount({ loan: { ...elize, ncaRegime: "NON_NCA" }, schedule: rows, asOf })).toBe(3_387_751)
-    expect(currentSettlementAmount({ loan: { ...elize, contractType: "INSTALMENT_SALE" }, schedule: rows, asOf })).toBe(3_387_751)
+
+  })
+
+  it.each(["INSTALMENT_SALE", "FINANCE_LEASE"])("rebates unearned charges on an NCA %s", (contractType) => {
+    expect(currentSettlementAmount({ loan: { ...elize, contractType }, schedule: rows, asOf })).toBe(2_789_634)
+    const projection = projectReceipt({ loan: { ...elize, contractType }, schedule: rows, amount: 2_789_634, asOf })
+    expect(projection.isCompleted).toBe(true)
+    expect(projection.isEarlyInstalmentSettlement).toBe(true)
   })
 
   it("closes the loan on a receipt of exactly that figure, re-pricing the rows and recording the contract", () => {

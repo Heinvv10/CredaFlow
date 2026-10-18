@@ -121,7 +121,7 @@ suite.sequential("slice 4a recovery rules under concurrency", () => {
       const loan = await newLoan(database(), fx, "NCA")
       const surrenderId = await newSurrender(database(), fx, loan)
       const valuationId = await newValuation(database(), fx, loan.assetId)
-      await testSetup(database(), [`UPDATE "SurrenderRequest" SET "status" = 'VALUATION_NOTICE_ISSUED', "valuationId" = $1, "valuationNoticePath" = '/nonexistent/vn.pdf', "valuationNoticeSha256" = $2 WHERE "id" = $3`, valuationId, "b".repeat(64), surrenderId])
+      await testSetup(database(), [`UPDATE "SurrenderRequest" SET "status" = 'VALUATION_NOTICE_ISSUED', "valuationId" = $1, "valuationNoticePath" = '/nonexistent/vn.pdf', "valuationNoticeSha256" = $2, "valuationNoticeIssuedOn"=CURRENT_DATE-30, "valuationNoticeReceivedOn"=CURRENT_DATE-30, "valuationReceiptReference"='Synthetic received notice; clock advanced' WHERE "id" = $3`, valuationId, "b".repeat(64), surrenderId])
       const credit = async (tx: Tx) => {
         const payment = await tx.payment.create({ data: { tenantId: fx.tenantId, loanId: loan.loanId, amount: 50_000_000, capturedBy: fx.officer } })
         await tx.surrenderRequest.update({ where: { id: surrenderId }, data: { status: "PROCEEDS_CREDITED", saleProceedsCents: 50_000_000, proceedsPaymentId: payment.id, shortfallCents: 0, refundCents: 0 } })

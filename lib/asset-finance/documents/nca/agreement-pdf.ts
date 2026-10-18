@@ -20,10 +20,12 @@ export async function renderNcaAssetAgreement(data: NcaAssetDocumentData): Promi
   const p = data.pricing
   w.section("FINANCIAL TERMS")
   w.labelValues([
+    ["Cash price", formatZarPdf(p.cashPriceCents)], ["Deposit", formatZarPdf(p.depositCents)],
+    ["Credit-life premium", formatZarPdf(p.creditLifePremiumCents)],
     ["Principal debt", formatZarPdf(p.principalCents)], ["Annual interest", rateDescription(p)],
     ["Instalment", formatZarPdf(p.instalmentCents)], ["Residual / balloon", formatZarPdf(p.balloonCents)],
     ["Initiation fee", formatZarPdf(p.initiationFeeCents)], ["Monthly service fee", formatZarPdf(p.monthlyServiceFeeCents)],
-    ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)], ["Total repayable", formatZarPdf(p.totalRepayableCents)],
+    ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)],
   ])
   w.section("TERMS AND CONDITIONS")
   ncaAgreementClauses(data).forEach((c, i) => w.clause(String(i + 1), c.heading, c.text))

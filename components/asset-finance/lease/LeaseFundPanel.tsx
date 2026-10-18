@@ -13,7 +13,7 @@ import type { FundView } from "./lease-staff-data"
 // The maintenance fund of a full-maintenance lease: its balance, the claims
 // with their approval steps, and the movements the balance is derived from.
 
-const MOVEMENT_LABELS = { CONTRIBUTION: "Rental contribution", CLAIM: "Claim paid", SETTLEMENT_REFUND: "Refund to lessee", SETTLEMENT_BILLED: "Deficit billed" } as const
+const MOVEMENT_LABELS = { CONTRIBUTION_CREDIT: "Credited future rental contribution", CONTRIBUTION: "Rental contribution", CLAIM: "Claim paid", SETTLEMENT_REFUND: "Refund to lessee", SETTLEMENT_BILLED: "Deficit billed" } as const
 const RISK_LABELS = { LENDER_RISK: "Lender risk", LESSEE_SETTLED: "Lessee settled" } as const
 const CLAIM_TONE = { SUBMITTED: "warning", APPROVED: "info", PAID: "success", REJECTED: "neutral" } as const
 const metric = (text: string) => <span className="block text-xl tabular-nums">{text}</span>

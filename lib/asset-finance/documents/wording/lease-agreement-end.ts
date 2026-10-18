@@ -58,10 +58,9 @@ function endOptions(i: LeaseWordingInput): string {
 }
 
 /** The CPA variant's cancellation charge: the lessor's reasonable loss, crediting the returned goods (s14(3)(b)(ii), Reg 5(2)). */
-export const CPA_CANCELLATION_CHARGE = "The cancellation penalty is the lessor's reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT "
+export const CPA_CANCELLATION_CHARGE = "The financial ceiling for the cancellation penalty is the lessor's reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT "
   + "and maintenance) that would have fallen due after it, discounted at the contract rate; less (b) the net amount the lessor realises, or can reasonably expect to "
-  + "realise, by selling or letting the returned goods, after the reasonable costs of doing so. It is never more than the lessee would have paid had the lease run its "
-  + "full term, no further penalty is added, and it is determined having regard to regulation 5(2) of the CPA Regulations."
+  + "realise, by selling or letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs, itemised with their evidence and evidence confirming those costs were not already deducted in the net goods valuation. A cost already deducted must not also be added to the charge. The charge is floored at zero and capped below the undiscounted remaining rentals, no percentage penalty is added, and it is only a ceiling. The lessor must record a case-specific assessment of every applicable factor in regulation 5(2) of the CPA Regulations and a justified reasonable amount at or below that ceiling, including a reduction or waiver where appropriate. Under regulation 5(3), the charge may not negate the consumer’s right to cancel."
 
 function earlyTermination(i: LeaseWordingInput): string {
   if (i.cpa) {
@@ -82,7 +81,7 @@ function earlyTermination(i: LeaseWordingInput): string {
     "The amount is: (a) the present value, on the termination date, of the rentals (excl. VAT and maintenance) that would fall due after it, discounted at the "
     + `contract rate; plus (b) an early-termination penalty of ${penalty} of that present value; plus VAT on (a) and (b); plus (c) the arrears, including charges. `
     + "The lessor gives no credit for the resale value of the goods, which it keeps.",
-    "The quote is valid for the period stated on it, and lapses if a rental is invoiced or changed before it is accepted. When the lessee accepts it, the rentals "
+    "The quote remains valid for the period stated on it. On acceptance the amount is recalculated at the contract rate using the acceptance date and the rentals then remaining, including rentals already invoiced or prepaid; the acceptance acknowledges that recalculated amount. Superseded invoices are credited and prepaid cash is allocated separately, with excess recorded for reconciliation and refund. The rentals "
     + "falling due after the termination date are cancelled, (a) and (b) are invoiced on one tax invoice due on the termination date, and the goods are returned and inspected "
     + "under clause 9.8 (the end-of-term invoice for usage and damage follows separately).",
   )

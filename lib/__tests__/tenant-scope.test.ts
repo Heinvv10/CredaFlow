@@ -103,6 +103,7 @@ describe("tenant-scope — ALS primitives", () => {
       // national and TaxInvoiceLine is scoped through its invoice: neither is listed.
       "ReferenceRate",
       "ContractRate",
+      "AssetFinanceRateNotice", "AssetFinanceRateCorrection",
       "TaxInvoice",
       "CreditNote",
       "VatConfig",
@@ -167,6 +168,9 @@ describe("tenant-scope — ALS primitives", () => {
       // the worker runs after its request has returned.
       "StatementAiOutput",
       "StatementAiUsage",
+      "NcaSurplusAccount",
+      "NcaSurplusDetermination",
+      "NcaSurplusRemittance",
     ])
   })
 

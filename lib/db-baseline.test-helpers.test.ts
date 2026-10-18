@@ -253,6 +253,13 @@ describe("CREATE forms and unqualified coverage", () => {
 })
 
 describe("DO blocks", () => {
+  it("reads an explicitly bounded predecessor without claiming a later dynamic patch is parsed", async () => {
+    const h = await load({ "1_a": fn("CREATE FUNCTION f1()"), "2_patch": 'DO $$ BEGIN PERFORM f1(); END $$;' })
+    expect(() => h.baselineFunctionSql("f1")).toThrow(/DO block/)
+    expect(h.baselineFunctionSql("f1", { beforeMigration: "2_patch" })).toContain("CREATE FUNCTION f1()")
+    expect(() => h.baselineFunctionSql("f1", { beforeMigration: "missing" })).toThrow(/Unknown migration boundary/)
+  })
+
   it("refuses to guess about an object named inside a DO block, dynamic DDL included", async () => {
     const h = await load({
       "1_a": `ALTER TABLE "T" ADD CONSTRAINT "c1" CHECK (a > 0);\nCREATE TRIGGER "t1" BEFORE INSERT ON "T" FOR EACH ROW EXECUTE FUNCTION f();\n` +

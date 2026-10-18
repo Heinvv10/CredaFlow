@@ -20,7 +20,7 @@ export type RecoveryPanelData =
   | { kind: "none" }
   /** No live recovery: `canRecord` says whether one can be recorded (an NCA loan needs a surrender without a recovery), `withdrawn` is the history. */
   | { kind: "record"; regime: "NCA" | "NON_NCA"; lease: boolean; surrenders: ChoiceOption[]; canRecord: boolean; withdrawn: WithdrawnRecovery[] }
-  | { kind: "recovery"; view: StaffRecovery; regime: "NCA" | "NON_NCA"; lease: boolean; surrender: (SurrenderLink & { status: string }) | null }
+  | { kind: "recovery"; view: StaffRecovery; regime: "NCA" | "NON_NCA"; lease: boolean; cpaLease?: boolean; surrender: (SurrenderLink & { status: string }) | null }
 
 /**
  * The loan's current recovery (its open one, else the latest that is not
@@ -29,7 +29,7 @@ export type RecoveryPanelData =
  * refund carry its account for the people who approve it. Everything is tenant-scoped.
  */
 export async function loadRecoveryPanelData(tenantId: string, loanId: string, opts: { bankDetails?: boolean } = {}): Promise<RecoveryPanelData> {
-  const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId, contractType: { not: "LOAN" } }, select: { ncaRegime: true, contractType: true } })
+  const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId, contractType: { not: "LOAN" } }, select: { ncaRegime: true, contractType: true, cpaApplies: true } })
   if (!loan) return { kind: "none" }
   const regime = loan.ncaRegime === "NCA" ? "NCA" : "NON_NCA"
   const lease = isLeaseContract(loan.contractType)
@@ -41,7 +41,7 @@ export async function loadRecoveryPanelData(tenantId: string, loanId: string, op
     const surrender = view.surrenderRequestId
       ? await prisma.surrenderRequest.findFirst({ where: { id: view.surrenderRequestId, tenantId }, select: { id: true, status: true, valuationId: true } })
       : null
-    return { kind: "recovery", view, regime, lease, surrender: surrender ? { id: surrender.id, status: surrender.status, hasValuation: surrender.valuationId !== null } : null }
+    return { kind: "recovery", view, regime, lease, cpaLease: lease && loan.cpaApplies === true, surrender: surrender ? { id: surrender.id, status: surrender.status, hasValuation: surrender.valuationId !== null } : null }
   }
   const withdrawn = (await prisma.recovery.findMany({
     where: { tenantId, loanId, status: "WITHDRAWN" }, orderBy: { createdAt: "desc" }, take: 5, select: { id: true, route: true, recoveredOn: true, withdrawnReason: true },

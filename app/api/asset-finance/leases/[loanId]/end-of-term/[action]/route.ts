@@ -46,8 +46,10 @@ export async function POST(req: NextRequest, { params }: Params) {
         }
         return recordInspection(tx, actor, { loanId, inspectedOn, condition, finalReading: cents(body, "finalReading"), damage: items, today })
       }
-      case "invoice":
-        return invoiceEndOfTerm(tx, actor, { loanId, today })
+      case "invoice": {
+        const refund = typeof body.refund === "object" && body.refund !== null ? body.refund as Record<string, unknown> : null
+        return invoiceEndOfTerm(tx, actor, { loanId, today, ...(refund ? { refund: { amountCents: cents(refund, "amountCents") ?? -1, paidOn: isoDate(refund, "paidOn") ?? "", reference: text(refund, "reference") ?? "", documentId: text(refund, "documentId") ?? "" } } : {}) })
+      }
       default:
         return confirmPurchaseNatis(tx, actor, loanId)
     }

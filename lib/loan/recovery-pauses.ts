@@ -16,6 +16,8 @@ export interface RecoveryFreezeRow {
   chargesFrozenFrom: Date | null
   chargesFrozenUntil: Date | null
   /** The recovery's APPROVED costs charged to the account (CHARGE_TO_ACCOUNT). */
+  chargedCostsCents?: number | null
+  leaseTerminationQuote?: { status: string; quotedOn: Date; acceptedAt?: Date | null; reasonableAssessment: unknown } | null
   costs?: Array<{ id: string; grossCents: number }>
 }
 
@@ -33,7 +35,20 @@ export function recoveryChargePauses(rows: readonly RecoveryFreezeRow[] | undefi
  * there are none. The engines post them outside the freeze (a fixed cost, not
  * an accruing charge); the NCA engine keeps them inside the in duplum headroom.
  */
-export function recoveryCostCharges(rows: readonly RecoveryFreezeRow[] | undefined): AdminChargeEvent[] | undefined {
-  const charges = (rows ?? []).flatMap((row) => (row.chargesFrozenFrom ? (row.costs ?? []).map((cost) => ({ id: cost.id, date: row.chargesFrozenFrom as Date, amount: cost.grossCents })) : []))
+export function recoveryCostCharges(rows: readonly RecoveryFreezeRow[] | undefined, permanentStop?: Date | null): AdminChargeEvent[] | undefined {
+  const charges = (rows ?? []).flatMap((row) => {
+    const quote = row.leaseTerminationQuote
+    const assessment = quote?.reasonableAssessment as { context?: string; chargedCostsCents?: number } | null | undefined
+    const certified = quote?.status === "ACCEPTED" && assessment?.context === "lessor_breach_cpa48_contract9_10"
+      && (!permanentStop || (quote.acceptedAt ?? quote.quotedOn).getTime() > permanentStop.getTime())
+    const day = row.chargesFrozenFrom ?? (certified ? quote!.quotedOn : null)
+    if (!day) return []
+    let budget = row.chargedCostsCents ?? (certified ? assessment!.chargedCostsCents! : (row.costs ?? []).reduce((sum, cost) => sum + cost.grossCents, 0))
+    return [...(row.costs ?? [])].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).flatMap((cost) => {
+      const amount = Math.min(cost.grossCents, budget)
+      budget -= amount
+      return amount > 0 ? [{ id: cost.id, date: day, amount, ...(certified ? { assessedLeaseCancellation: true } : {}) }] : []
+    })
+  })
   return charges.length > 0 ? charges : undefined
 }

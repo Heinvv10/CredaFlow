@@ -204,8 +204,8 @@ migration `20261014090000_asset_finance_lease_foundation`.
 - **Tax invoices** (`lease-invoices.ts`): one per rental, supply date = the
   earlier of the due date (daily cron) and a receipt that reaches it (all
   three receipt paths). Exactly once: row lock + unique `taxInvoiceId`. No
-  inception invoice. Signed off (see the sign-off record 2026-10-17 below). // PARTIAL: a VAT-rate
-  change after booking is refused (`vat_rate_changed`), not re-priced.
+  inception invoice. VAT Act s67: VAT is recomputed at the supply-date rate;
+  the invoice, rental, schedule and loan totals move together in one transaction.
 - **Repricing** (`lease-reprice.ts`): term and residual unchanged; the
   uninvoiced rentals outside the notice window take the new rental, their
   VAT and total; maintenance never changes. The `LeaseRental` amounts change
@@ -249,10 +249,30 @@ trigger or CHECK, each proven by an IT that removes it
 - **Early termination** (`lease-termination*.ts`): a quote (staff, or the
   lessee in the portal), valid `TenantConfig.leaseTerminationQuoteValidDays`
   (10): PV of the remaining rentals ex VAT and maintenance at the contract
-  rate + the deal's penalty % + arrears; a CPA lessee's on 20 business days'
-  notice, its basis naming the Reg 5(2) factors. Accepting cancels the
-  uninvoiced rentals after the termination date (their rows go to 0),
-  invoices PV and penalty, and opens a RETURN end of term. Signed off (see the sign-off record 2026-10-17 below).
+  rate + the deal's penalty % + arrears for a commercial lessee, repriced on
+  acceptance. A CPA lessee's notice itself cancels rentals after 20 South African
+  business days and opens the return; no acceptance is needed. Staff later record
+  the goods value and each actual documented recovery, refurbishment and re-letting
+  cost. The CPA financial ceiling is PV less goods value plus those costs, floored
+  at zero and capped below undiscounted remaining rentals, with no percentage
+  penalty. Staff record all applicable Regulation 5 factors and a reasoned charge
+  at or below the ceiling that preserves the consumer’s right to cancel.
+- **Continuation:** a CPA lease without an election automatically continues month
+  to month at expiry, including a defaulted or paid-up lease. The lessee ends it
+  on 20 South African business days' notice, independently of rental dates.
+- **Prepaid supplies:** cancellation fully credits superseded invoices, replays
+  receipts without changing cash received, and keeps unused cash in UNAPPLIED
+  reconciliation/refund credits. The later assessed charge consumes only its
+  share. An immutable CONTRIBUTION_CREDIT reverses future maintenance fund
+  contributions; its accounting entry reverses income/liability, never BANK.
+- **Total loss:** staff records the write-off evidence and insurer proceeds. Future
+  rentals stop; a PV charge, without a penalty, replaces them. The insurer's actual
+  cash is credited through the ordinary payment ledger; arrears remain collectible.
+  A separate TOTAL_LOSS end outcome settles the maintenance fund without a fabricated
+  physical inspection, meter reading or stock return. The unavailable asset remains
+  TOTAL_LOSS and cannot be financed again. A positive LESSEE_SETTLED maintenance
+  balance is refunded only on recorded evidence of the exact actual external payment:
+  date, unique bank reference and retained proof from the original lease deal.
 - **Charges** (end of term, purchase, termination) are schedule rows of their
   own: the row's total is its tax invoice's total, never a rental's row or
   invoice, and a closed loan is reopened for it. Receipts settle them like
@@ -502,6 +522,56 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 
 ## Sign-off record
 
+- **Changed 2026-10-17 to comply with NCA s104 and the contractual rate-change
+  notices:** repricing reserves a durable written notice in the same commit;
+  the cron delivers it after commit through the existing email pipeline.
+  The NCA notice also states the ascertainable Rand interest figures required
+  by Regulation 36. The notice states the exact annual rate and the actual first changed
+  scheduled payment, including applicable fees, maintenance and VAT.
+- **Changed 2026-10-17 to comply with the reference-rate effective-date rule:**
+  SARB dated change series replace homepage observation dates, full history
+  preserves outage catch-up, and every changed ZARONIA value is recorded.
+
+- **Changed 2026-10-18 to give effect to clause 9.10 and CPA s48 after lessor
+  cancellation:** all ten factor findings inform a recorded fair, reasonable final
+  net charge at or below the financial ceiling, including lower/zero amounts.
+  Arrears stay separate. Gross taxable damages and collectible costs are reduced
+  through explicit noncash concessions; actual vendor expense evidence, cash and
+  the single net-goods receipt remain intact. Surplus goods proceeds remain due
+  to the lessee. Certified costs become collectible before the proceeds receipt
+  even if capital is already settled; this does not enable optional default
+  interest/fees. Consumer-initiated cancellation retains its separate Reg5(3)
+  right-to-cancel finding.
+
+- **Changed 2026-10-18 to comply with CPA Regulations 5(2) and 5(3):** the
+  PV less goods plus actual costs calculation is a financial ceiling. Staff must
+  record case-specific findings on all ten statutory factors, a reasoned charge
+  at or below that ceiling (including reduction or waiver), and why cancellation
+  remains available. Billing and raw database acceptance require the retained
+  assessment. Prior accepted charges are not silently backfilled or repriced.
+- **Changed 2026-10-18 to give effect to total-loss clause 9.5:** closure has an
+  evidenced TOTAL_LOSS outcome, with no physical-return/inspection prerequisite or
+  stock return. Full-maintenance fund settlement preserves genuine cash: a refund
+  needs retained proof of the exact actual external payment before its BANK movement
+  is recorded. This implements the signed-off total-loss rule; the loan calculation
+  and insurer receipt rules are unchanged.
+
+- **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
+  cancellation, valuation credit and documented actual costs, automatic continuation
+  despite default, and 20-business-day lessee notice during continuation. Added-cost
+  assessments require recorded evidence that the cost was not already deducted
+  from the net goods valuation, enforced in the server and database.
+- **Changed 2026-10-17 to comply with the Conventional Penalties Act and lease
+  clauses 9.5/9.11:** cancellation damages discount unearned rentals at the contract
+  rate; total loss ends the lease on the evidenced write-off or confirmed unrecovered
+  theft-loss date, values PV on that date, and credits actual insurer receipts, including
+  later receipts, without a penalty or physical-return condition. Staff records the evidenced
+  historical event date (commencement through today); PV uses the contract rate effective
+  on that date, and arrears/cancellation use that date independently of actual receipt dates. Commercial acceptance
+  recalculates the amount at the acceptance date even if rentals were invoiced/prepaid.
+- **Changed 2026-10-17 to comply with VAT Act s67:** rentals use supply-date VAT,
+  adjusting the rental and schedule ledger in the same transaction as their invoice.
+
 - **2026-10-17** — Hein (owner) confirmed the lender's legal team and tax
   adviser signed off the calculations and rules as built; the document wording
   is separate and remains DRAFT until
@@ -512,6 +582,26 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   [`legal-wording/README.md`](legal-wording/README.md) is empty: the drafted
   wording states the law where the code does not yet do what it says.
 
+- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
+  settlement rebates unearned interest; recorded valuation-notice receipt
+  starts the statutory sale wait; timely withdrawal records goods returned;
+  standalone surrender shortfalls freeze charges.
+- **Changed 2026-10-18 to comply with NCA s127(6)(a) and (b):** an
+  evidence-backed same-consumer/same-goods registered-credit-agreement
+  determination selects consumer or Tribunal remittance; unknown refuses
+  disposal. Independently authorised treasury instructions precede actual
+  external bank execution, and ordinary final notices require exact retained
+  execution proof. The authorised held-account exception preserves an unpaid
+  surplus, no statutory termination and a staff escalation. Later execution
+  retains the original statement and appends a supplemental confirmation.
+  NCA recovery closure requires actual remittance, including when a legacy
+  refund row says released. Financial Loan COMPLETED is separate from surplus
+  discharge; staff and consumer views identify outstanding surplus.
+- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
+  agreement disclosures include cash price, deposit and credit-life premium;
+  schedule capital excludes fees; total cost of credit retains principal debt
+  and the duplicate asset-document total row is removed. Consumer PASQ output
+  and consumer PDF pins are unchanged.
 - **Changed 2026-10-17 to comply with the Conventional Penalties Act:** a
   NON_NCA instalment sale settlement excludes future interest; settling
   receipts reprice the schedule and preserve contractual rows as audit evidence.
@@ -528,3 +618,10 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   scope; the CPA agreement preserves statutory goods remedies and prominently
   draws attention to risk and indemnity. The surety's existing client physical
   address is included in the deed and its domicilium clause.
+
+Written variable-rate notice controls retain the NCA s104(3) deadline from the
+actual effective date plus 30 SA business days. Durable provider acceptance and
+historical deadline exceptions are distinct from outbox completion. Independent notice cron
+scans/retries existing obligations even if repricing is stalled or a feature is
+disabled; staff escalation is transactional and idempotent at due minus two
+business days, due and overdue. Later dispatch cannot remove historical escalation records.

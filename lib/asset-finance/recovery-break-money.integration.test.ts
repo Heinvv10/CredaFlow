@@ -1,3 +1,4 @@
+import { determineSurplusRecipient } from "./nca-surplus.integration-fixture"
 /**
  * BREAK TEST 6 (RUN_ASSET_FINANCE_RECOVERY_IT): applying proceeds twice, creating two Payments, refunding twice,
  * refunding something other than the surplus, and other money-moving oddities.
@@ -21,14 +22,14 @@ const adminA = () => asUser(fx, fx.adminA, "LOAN_ADMIN")
 const adminB = () => asUser(fx, fx.adminB, "LOAN_ADMIN")
 const R = () => bundle(fx)
 
-/** A fresh NCA s131 recovery taken through the routes to SURPLUS_HELD (price above settlement). */
-async function surplusHeld() {
-  const rec = await plainListed(db, fx, "NCA", 100_000_000)
+/** A fresh NON_NCA recovery taken through the routes (NCA uses evidenced remittance) to SURPLUS_HELD (price above settlement). */
+async function surplusHeld(nca = false) {
+  const rec = await plainListed(db, fx, nca ? "NCA" : "NON_NCA", 100_000_000)
   officer()
   const sale = (await readJson(await R().s.propose(rec.id, saleBody(rec.valuationId, 200_000_000)))).body.id as string
   expect((await readJson(await R().s.completeSale(rec.id, sale))).status).toBe(200)
   expect((await readJson(await R().s.proceeds(rec.id))).status).toBe(200)
-  expect((await R().r.finalNotice(rec.id)).status).toBe(200)
+  if (nca) { await determineSurplusRecipient(fx,rec.loan.loanId); expect((await R().r.finalNotice(rec.id)).status).toBe(200) }
   expect((await readJson(await R().s.outcome(rec.id))).body).toMatchObject({ status: "SURPLUS_HELD" })
   return rec
 }
@@ -120,7 +121,7 @@ suite.sequential("break 6: double application and double refund", () => {
   }, 120_000)
 
   it("6f. reversing the proceeds Payment (existing route) after a surplus is held must not leave a refundable surplus", async () => {
-    const rec = await surplusHeld()
+    const rec = await surplusHeld(true)
     const payment = await db.payment.findFirstOrThrow({ where: { loanId: rec.loan.loanId } })
     adminA()
     const reversed = await reversePayment(new NextRequest(`http://${fx.host}/api/payments/${payment.id}/reverse`, {

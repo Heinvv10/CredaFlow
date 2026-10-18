@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { repriceLoanForReference, type NotEligibleReason, type RepriceTx } from "./reprice-loan"
 import { BASE, PATTERNS, solvePattern, storedRows } from "./__tests__/schedule-fixtures"
-import { fromDayNumber, toDayNumber } from "./dates"
 import { dueDateInstant } from "./schedule-records"
 import type { StoredScheduleRow } from "./stored-schedule"
 
@@ -57,6 +56,7 @@ function fakeTx(state: {
     referenceRate: { findFirst: referenceFindFirst },
     repaymentSchedule: { findMany: vi.fn(async () => state.stored ?? storedRows(BOOKED, state.paidRows ?? 11)), updateMany: writes.scheduleUpdate },
     auditLog: { create: writes.auditCreate },
+    assetFinanceRateCorrection: { findMany: vi.fn(async () => []) },
     entityRelationship: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => []) },
     notification: { createMany: writes.notificationCreate },
@@ -73,7 +73,7 @@ describe("repriceLoanForReference eligibility guards", () => {
   const cases: Array<[NotEligibleReason, Parameters<typeof fakeTx>[0], string?]> = [
     ["loan_not_found", { loan: null }],
     ["contract_cancelled", { loan: { ...ACTIVE_LOAN, commercialCancelledAt: new Date("2026-01-01Z") } }],
-    ["not_active", { loan: { ...ACTIVE_LOAN, status: "COMPLETED" } }],
+    ["not_active", { loan: { ...ACTIVE_LOAN, status: "CANCELLED" } }],
     ["not_asset_finance", { loan: { ...ACTIVE_LOAN, contractType: "LOAN" } }],
     ["nca_regime", { loan: { ...ACTIVE_LOAN, ncaRegime: null } }],
     ["superseded", { later: true }],
@@ -81,8 +81,6 @@ describe("repriceLoanForReference eligibility guards", () => {
     ["not_linked_to_basis", { prior: { ...PRIOR, basis: "FIXED", margin: null } }],
     ["not_linked_to_basis", { prior: null }],
     ["no_reference_rate", { reference: false }],
-    // One pending row left, due the day after the run: inside the notice window.
-    ["within_notice_period", { paidRows: 58 }, fromDayNumber(toDayNumber(BOOKED.rows[59].dueDate) - 1)],
   ]
   it.each(cases)("%s, writing nothing", async (reason, state, runDate) => {
     fake = fakeTx(state)

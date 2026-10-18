@@ -164,7 +164,7 @@ export interface SourceAssetFinance {
   sundryInvoices: SourceInvoice[]
   /** Credit notes against the rental and other lease invoices, or against an instalment sale's or finance lease's inception invoice. */
   creditNotes: SourceCreditNote[]
-  fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
+  fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION_CREDIT" | "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
   recoveries: SourceRecovery[]
 }
 

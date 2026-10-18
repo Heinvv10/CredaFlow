@@ -1,3 +1,4 @@
+import { requireNcaSaleWindow } from "./surrender-lifecycle"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { applyManualReceipt, PaymentApplicationError, type PaymentDb } from "@/lib/loan/apply-payment"
@@ -9,6 +10,8 @@ import { dbDate, isoOfDbDate, toDayNumber } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
 import { isNcaRoute } from "./recovery-input"
 import { recoveryChargeFreeze } from "./recovery-deadline"
+import { leaseRecoveryBaseSettlement } from "./lease-recovery-base-settlement"
+import { prepareLeaseRecoveryDamages } from "./lease-recovery-damages"
 import { costTotals, recoveryOutcome } from "./recovery-outcome"
 import { advance, RecoveryRefusal, refusable, type NotFound, type NotReady } from "./recovery-result"
 import type { SigningTx } from "./signing-prepare"
@@ -32,7 +35,7 @@ export type ProceedsApplied = {
 const idempotencyKey = (recoveryId: string) => `asset-recovery:${recoveryId}:proceeds`
 const lockRecovery = (tx: SigningTx, id: string) => tx.$queryRaw`SELECT 1 FROM "Recovery" WHERE id = ${id} FOR UPDATE`
 
-export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string): Promise<NotFound | NotReady | ProceedsApplied> {
+export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string, assessment?: unknown): Promise<NotFound | NotReady | ProceedsApplied> {
   return refusable(() => prisma.$transaction(async (tx): Promise<NotFound | ProceedsApplied> => {
     // Proceeds are applied as of now: the database dates the charge freeze from today, so a back-dated receipt could not be honest.
     const receivedAt = new Date()
@@ -55,20 +58,32 @@ export async function applySaleProceeds(actor: RecoveryActor, recoveryId: string
       return {
         kind: "done", id: recovery.id, paymentId: recovery.proceedsPaymentId, replay: true, shortfallCents: recovery.shortfallCents ?? 0, surplusCents: recovery.surplusCents ?? 0,
         unrecoverableCostsCents: recovery.unrecoverableCostsCents ?? 0,
-        paymentCents: Math.min(recovery.netProceedsCents, recovery.settlementDueCents),
+        paymentCents: Math.min(recovery.netProceedsCents, recovery.settlementDueCents + (recovery.loan.cpaApplies && ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(recovery.loan.contractType) ? recovery.chargedCostsCents ?? 0 : 0)),
       }
     }
     const sale = recovery.sales[0]
     if (recovery.status !== "SOLD" || !sale) throw new RecoveryRefusal("Proceeds are applied to a sold recovery")
+    await requireNcaSaleWindow(tx, actor.tenantId, recoveryId, "recovery", receivedAt)
     const receivedOn = sastCalendarDate(receivedAt)
     if (toDayNumber(receivedOn) < toDayNumber(isoOfDbDate(recovery.recoveredOn))) throw new RecoveryRefusal("The proceeds cannot be dated before the recovery")
 
     if (recovery.costs.some((cost) => cost.status === "PENDING")) throw new RecoveryRefusal("Proceeds are applied once every cost is decided")
-    const { deducted, charged } = costTotals(recovery.costs.filter((cost) => cost.status === "APPROVED"))
-    const settlementDueCents = (await loanSettlementFigures(tx, recovery.loan, receivedAt)).totalToSettle
+    const { deducted, charged: actualCharged } = costTotals(recovery.costs.filter((cost) => cost.status === "APPROVED"))
+    let charged: number
+    try {
+      const damages = await prepareLeaseRecoveryDamages(tx, { tenantId: actor.tenantId, userId: actor.userId, loanId: recovery.loanId, recoveredOn: isoOfDbDate(recovery.recoveredOn), today: receivedOn, netProceedsCents: Math.max(0, sale.priceInclVatCents - deducted), chargedCostsCents: actualCharged, recoveryId: recovery.id, assessment })
+      charged = damages.chargedCostsCents
+    } catch (error) {
+      if (error instanceof RangeError) throw new RecoveryRefusal(error.message)
+      throw error
+    }
+    const pricedLoan = await tx.loan.findFirstOrThrow({ where: { id: recovery.loanId, tenantId: actor.tenantId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
+    const assessedCpaLease = recovery.loan.cpaApplies && ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"].includes(recovery.loan.contractType)
+    const settlementDueCents = assessedCpaLease ? await leaseRecoveryBaseSettlement(tx, pricedLoan, receivedAt, recovery.id) : (await loanSettlementFigures(tx, pricedLoan, receivedAt)).totalToSettle
     let outcome
     try {
       outcome = recoveryOutcome({ settlementDueCents, grossProceedsCents: sale.priceInclVatCents, deductedCostsCents: deducted, chargedCostsCents: charged })
+      if (assessedCpaLease) outcome.paymentCents = Math.min(outcome.netProceedsCents, settlementDueCents + charged)
     } catch (error) {
       if (error instanceof RangeError) throw new RecoveryRefusal(error.message)
       throw error

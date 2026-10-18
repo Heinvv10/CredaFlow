@@ -10,9 +10,21 @@ import { baselineConstraintSql, baselineFunctionSql, baselineIndexSql, baselineT
 const DIR = path.join(process.cwd(), "prisma", "migrations", "20261015400000_asset_finance_recovery")
 const sql = fs.readFileSync(path.join(DIR, "migration.sql"), "utf8")
 const handWritten = sql.slice(sql.indexOf("-- Hand-written rules"))
+const ASSESSMENT_PATCH = "20261018110000_cpa_lessor_cancellation_assessment"
 const TABLES = ["LegalMatter", "LegalMatterStep", "Recovery", "RecoveryCost", "RemarketingSale", "RecoveryVatEvent", "RecoveryRefund"]
 
 describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
+  it("patches the current recovery guard at unique reviewed anchors, preserving its predecessor rules", () => {
+    const patch = fs.readFileSync(path.join(process.cwd(), "prisma/migrations", ASSESSMENT_PATCH, "migration.sql"), "utf8")
+    expect(() => baselineFunctionSql("guardRecovery")).toThrow(/DO block/)
+    expect(patch).toContain(`pg_get_functiondef('public."guardRecovery"()'::regprocedure)`)
+    expect(patch).toContain("requires each reviewed anchor exactly once")
+    expect(patch).toContain("EXECUTE definition")
+    expect(patch).not.toMatch(/CREATE OR REPLACE FUNCTION public\."guardRecovery"/)
+    expect(patch).toContain(`expected_receipt := LEAST(NEW."netProceedsCents", NEW."settlementDueCents" + NEW."chargedCostsCents")`)
+    expect(patch).toContain(`q."recoveryId" = NEW."id"`)
+  })
+
   it("is additive: no drop, rename or column removal of anything that existed", () => {
     expect(sql).not.toMatch(/^\s*DROP\s+(TABLE|COLUMN|TYPE)/im)
     expect(sql).not.toMatch(/ALTER\s+TABLE\s+"[A-Za-z]+"\s+(DROP\s+COLUMN|RENAME)/i)
@@ -76,7 +88,7 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
   })
 
   it("holds the recovery to its status matrix, its write-once columns and the costs it is owed", () => {
-    const guard = baselineFunctionSql("guardRecovery")
+    const guard = baselineFunctionSql("guardRecovery", { beforeMigration: ASSESSMENT_PATCH })
     expect(guard).toContain(`IF EXISTS (SELECT 1 FROM unnest(changed) AS k WHERE k <> ALL (allowed)) THEN`)
     expect(guard).toContain(`format('A recovery cannot go from %s to %s', OLD."status", NEW."status")`)
     expect(guard).toContain(`IF NEW."deductedCostsCents" <> costs.deducted OR NEW."chargedCostsCents" <> costs.charged THEN`)
@@ -137,7 +149,7 @@ describe("migration 20261015400000: slice 4a recovery schema and rules", () => {
   it("requires two people for the surplus refund and for closing the surplus", () => {
     expect(baselineConstraintSql("RecoveryRefund_approver_differs")).toContain(`"approvedById" <> "createdById"`)
     expect(baselineFunctionSql("guardRecoveryRefund")).toContain(`'A refund is the whole surplus of a recovery that holds one'`)
-    expect(baselineFunctionSql("guardRecovery")).toContain(`'A surplus closes when its refund is released'`)
+    expect(baselineFunctionSql("guardRecovery", { beforeMigration: ASSESSMENT_PATCH })).toContain(`'A surplus closes when its refund is released'`)
   })
 
   it("has the database write the asset's status, and refuses every other route to it", () => {

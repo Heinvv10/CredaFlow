@@ -13,6 +13,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { prisma } from "@/lib/prisma"
 import { fromDayNumber, toDayNumber } from "./dates"
+import { oracleDealFromInput, oracleReplay } from "./__tests__/structure-oracle"
 import { noticeKeptThroughIndex, repriceTail } from "./reprice"
 import { repriceLoanForReference } from "./reprice-loan"
 import { runRepriceBatch } from "./reprice-batch"
@@ -50,9 +51,9 @@ async function expectLoanTotalsAreScheduleSums(loanId: string) {
 }
 
 /** The independent expectation: the solver's own rows (true weights) re-solved at `ratePath`. */
-function truthAfter(rows: ScheduleRow[], settled: number, balance: number, ratePath: typeof DEAL.ratePath, runDate: string) {
+function truthAfter(rows: ScheduleRow[], settled: number, _balance: number, ratePath: typeof DEAL.ratePath, runDate: string) {
   return repriceTail({
-    rows, paidThroughIndex: settled, keptThroughIndex: noticeKeptThroughIndex(rows, settled, runDate), balanceAtRepriceCents: balance,
+    rows, paidThroughIndex: settled, keptThroughIndex: noticeKeptThroughIndex(rows, settled, runDate), balanceAtRepriceCents: oracleReplay(oracleDealFromInput({ ...DEAL, ratePath }), rows.map((row) => row.totalCents - row.balloonCents))[settled].balanceAfterPaymentCents,
     repriceDate: rows[settled].dueDate, ratePath, balloonCents: DEAL.balloonCents,
   })
 }

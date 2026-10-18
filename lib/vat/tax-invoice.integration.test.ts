@@ -125,7 +125,9 @@ suite("tax invoices and credit notes (real DB)", () => {
       await expect(db.creditNote.delete({ where: { id: creditNoteId } })).rejects.toThrow(IMMUTABLE)
       // Rolled back either way, so a missing guard cannot wipe other suites' rows.
       await expect(db.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe('TRUNCATE "CreditNote"')
+        // CASCADE reaches the immutable trigger despite new incoming FKs.
+        // The sentinel below forces rollback if enforcement is ever absent.
+        await tx.$executeRawUnsafe('TRUNCATE "CreditNote" CASCADE')
         throw new Error("TRUNCATE was not refused")
       })).rejects.toThrow(IMMUTABLE)
       expect(await db.creditNote.count({ where: { id: creditNoteId } })).toBe(1)

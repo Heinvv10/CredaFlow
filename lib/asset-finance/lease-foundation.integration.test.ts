@@ -199,6 +199,20 @@ suite.sequential("lease foundation SQL rules (real Postgres)", () => {
       expectRejected(replica(`UPDATE "LeaseRental" SET "vatCents" = "vatCents" + 1 WHERE "id" = '${ids.rental}'`), "LeaseRental_amounts")
     })
 
+    it("permits zero consideration but retains every amount CHECK", () => {
+      const update = (fields: string) => `BEGIN; SET LOCAL session_replication_role = replica; UPDATE "LeaseRental" SET ${fields} WHERE "id" = '${ids.rental}'; ROLLBACK;`
+      sql(update('"rentalExclVatCents" = 0, "maintenanceExclVatCents" = 0, "vatCents" = 0, "totalCents" = 0'))
+      for (const fields of [
+        '"rentalExclVatCents" = -1',
+        '"maintenanceExclVatCents" = -1',
+        '"vatCents" = -1',
+        '"periodNo" = 0',
+        '"vatRate" = -0.01',
+        '"vatRate" = 1',
+        '"totalCents" = "totalCents" + 1',
+      ]) expectRejected(update(fields), "LeaseRental_amounts")
+    })
+
     it("a rental belongs to a lease loan; an operating lease's carries no maintenance; it is written uninvoiced", () => {
       const insert = (loan: string, schedule: string, maintenance: number, invoice = "NULL") => `INSERT INTO "LeaseRental" ("id", "tenantId", "loanId",
         "scheduleId", "periodNo", "dueDate", "rentalExclVatCents", "maintenanceExclVatCents", "vatCents", "totalCents", "vatRate", "taxInvoiceId")

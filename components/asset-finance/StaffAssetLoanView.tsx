@@ -1,3 +1,5 @@
+import { RateNoticePanel } from "./RateNoticePanel"
+import { RateCorrectionPanel } from "./RateCorrectionPanel"
 import Link from "next/link"
 import { CreditCard, Download } from "lucide-react"
 import type { ContractType } from "@prisma/client"
@@ -96,6 +98,8 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
   return (
     <div className="space-y-6 p-4 lg:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <RateNoticePanel tenantId={tenantId} loanId={loan.id} />
+        <RateCorrectionPanel tenantId={tenantId} loanId={loan.id} status={loan.status} />
         <Breadcrumbs items={[{ label: "Loans", href: "/loans" }, { label: name }]} />
         <div className="flex flex-wrap gap-2 text-sm">
           <a href={`/api/loans/${loan.id}/statement`} className="inline-flex items-center gap-1 rounded-md border border-[var(--cf-border-strong)] px-3 py-1.5 text-[var(--cf-text)] hover:bg-[var(--cf-surface-strong)]">

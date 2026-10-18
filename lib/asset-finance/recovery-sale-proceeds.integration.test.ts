@@ -122,7 +122,30 @@ suite.sequential("sale, VAT event, proceeds and outcome (real Postgres, real rou
     })
 
     officer()
-    expect(await readJson(await routes().proceeds(recovery.id))).toMatchObject({ status: 200, body: { paymentCents: d.expected.paymentCents, shortfallCents: 0, surplusCents: d.expected.surplusCents } })
+    expect(await readJson(await routes().proceeds(recovery.id))).toMatchObject({ status: 409, body: { error: "A case-specific lessor cancellation assessment is required" } })
+    expect(await database().payment.count({ where: { loanId: recovery.loan.loanId } })).toBe(0)
+    const assessment = {
+      assessedChargeCents: 0,
+      factors: {
+        amountOwed: "The separately earned claim remains 8765432 cents",
+        transactionValue: "Actual completed goods sale is 30000000 cents",
+        retainedGoods: "No separate retained goods beyond the recorded sale",
+        returnedGoods: "Actual net goods value 28275000 cents is credited once",
+        originalDuration: "No remaining unearned rental periods in this earned-claim account",
+        consumerLossesBenefits: "No new net cancellation charge and the genuine surplus remains refundable",
+        natureOfGoods: "Industrial plant sold through the recorded remarketing process",
+        noticeLength: "Retained voluntary possession and cancellation record",
+        alternativeConsumer: "Actual replacement buyer completed the recorded sale",
+        industryPractice: "Only the evidenced auction deduction; no percentage cancellation penalty",
+      },
+      rationale: "No future rentals remain: waive the new net cancellation charge",
+      fairnessReason: "Earned arrears only, with actual goods proceeds credited once and genuine surplus refundable",
+    }
+    expect(await readJson(await routes().proceeds(recovery.id, { assessment }))).toMatchObject({ status: 403 })
+    adminA()
+    expect(await readJson(await routes().proceeds(recovery.id, { assessment }))).toMatchObject({ status: 200, body: { paymentCents: d.expected.paymentCents, shortfallCents: 0, surplusCents: d.expected.surplusCents } })
+    const quote = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { recoveryId: recovery.id } })
+    expect(quote.reasonableAssessment).toMatchObject({ assessedChargeCents: 0, ceilingCents: 0, pvExclVatCents: 0, actualCostsCents: 0, chargedCostsCents: 0 })
     const row = await database().recovery.findUniqueOrThrow({ where: { id: recovery.id } })
     expect(row).toMatchObject({ status: "PROCEEDS_APPLIED", netProceedsCents: d.expected.netProceedsCents, deductedCostsCents: d.expected.deductedCostsCents, surplusCents: d.expected.surplusCents })
     // A NON_NCA freeze is the demand period (default 10 days) from the proceeds date, fixed with the proceeds.

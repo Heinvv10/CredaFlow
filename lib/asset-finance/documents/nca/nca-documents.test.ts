@@ -50,6 +50,17 @@ describe("asset-finance NCA documents", () => {
     expectDraftMarks(await texts(await render({ ...data, legalWordingApproved: true })), true)
   })
 
+  it("prints cash price, deposit and credit-life on the agreement", async () => {
+    const all = await texts(await renderNcaAssetAgreement(data))
+    expect(all).toEqual(expect.arrayContaining(["Cash price", "R 17,250.00", "Deposit", "R 2,250.00", "Credit-life premium", "R 75.00"]))
+  })
+
+  it.each([renderNcaAssetQuote, renderNcaAssetAgreement])("discloses the inclusive total cost once", async (render) => {
+    const all = await texts(await render(data))
+    expect(all).toContain("Total cost of credit")
+    expect(all).not.toContain("Total repayable")
+  })
+
   it("renders agreement-specific titles with the same real figures", async () => {
     expect(await texts(await renderNcaAssetAgreement(data))).toContain("NCA FINANCE LEASE AGREEMENT")
     expect(await texts(await renderNcaAssetAgreement({ ...data, contractType: "INSTALMENT_SALE" }))).toContain("NCA INSTALMENT SALE AGREEMENT")

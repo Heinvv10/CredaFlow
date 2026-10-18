@@ -36,7 +36,7 @@ number, not to an instalment sale.
    cash price (no statutory time of supply asserted); interest exempt.
 4. **Interest and changes to the contract rate.** Daily actual/365 on the
    reducing balance. Fixed: no change. Linked: reference + margin, the
-   reference defined per basis (Prime, Repo, ZARONIA with its 0.25-point rule,
+   reference defined per basis (Prime, Repo, ZARONIA with each published change,
    JIBAR, the lender's base rate), changes follow the reference.
 5. **Commencement and recalculation of the schedule.** Schedule runs from the
    printed start date; if the Seller has not paid the Supplier by then, or the
@@ -178,20 +178,23 @@ record the implementation for review.
 6. **CPA.** CPA scope is now snapshotted for instalment sales using the same evidenced classifier as leases. A small juristic purchaser
    (below the CPA threshold) under a NON_NCA instalment sale may be a CPA
    consumer. The CPA variant expressly preserves the statutory remedies for defective goods, qualifies exclusions and indemnity, and prominently draws attention to risk and indemnity under s49. Confirm the variant against CPA s48, s51 and Reg 44.
-7. **Rate-change effective date (7.4).** Fetched SARB rates are recorded with
-   the date the feed showed them, which can trail the real change, and
-   ZARONIA moves are recorded only at 0.25 points or more from the latest live
-   value. The wording says the change takes effect "from the date on which the
-   changed reference rate takes effect". Decide whether to word it as "the date
-   the Seller records" (README gap 26).
+7. **Rate-change effective date (7.4) — resolved in code.** The feed uses
+   SARB's dated change series (`MRDPRIME`, `MRDREPOR`) and ZARONIA benchmark
+   periods, rather than HomePageRates observation dates. Every changed ZARONIA
+   value is recorded, without a minimum-move threshold. Full dated history
+   recovers intervening events after an outage; human approval still applies.
 8. **Lender's own base rate.** A rate set by one party is open to challenge
    as a potestative condition. The wording ties it to a rate published for all
    linked agreements, which matches the per-tenant rate table.
 9. **JIBAR tenor and cessation.** The code does not record a tenor; the wording
    says three-month JIBAR "or any rate that officially replaces it".
-10. **Rate-change notice (7.5).** The code alerts staff to send the notice but
-    does not send it (`reprice-notice.ts`, PARTIAL). The wording promises
-    written notice (README gap 24).
+10. **Rate-change notice (7.5) — resolved in code.** Repricing atomically
+    queues a written notice with the new annual rate, effective date, first
+    changed payment date and actual scheduled amount (including applicable
+    fees, maintenance and VAT). The repricing cron dispatches committed notices
+    by email through the audited send pipeline. Missing contacts, blocked,
+    simulated and uncertain sends remain pending with recorded outcomes; they
+    are not treated as delivered. No SMS is used.
 11. **Cancellation before payout (7.5).** Booking is refused when the start
     date has passed or the rate on it differs from the signed rate. The wording
     gives the Seller a right to cancel in those cases; there is no cancellation

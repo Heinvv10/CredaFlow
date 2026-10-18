@@ -108,6 +108,19 @@ describe("loanSettlementFigures", () => {
     expect(documentLoanFigures({ ...loan, status: "ACTIVE", daysInArrears: 3 })).toEqual({ totalRepayable: 216_900, outstandingPrincipal: 174_900, daysInArrears: 3 })
   })
 
+  it("includes newly certified cost debt after a permanent default-charge stop", async () => {
+    loadChargesReplay.mockResolvedValue({
+      defaultChargesLive: false, stoppedCertifiedCostIds: ["cost-new"],
+      result: result({ postings: [{ type: "COLLECTION_FEE", day: "2026-09-01", amount: 40_000 }, { type: "RECOVERY_COST", sourceId: "cost-new", day: "2026-09-25", amount: 15_000 }], feesAccrued: 55_000, feesPaid: 10_000, feesOutstanding: 15_000, scheduleAllocated: 42_000,
+        scheduleRows: [{ paid: 42_000, completedBy: null }] }),
+      goLive: new Date("2026-01-01"), accrueFrom: null,
+      loan: { defaultChargesExempt: false, defaultChargesExemptReason: null, repaymentSchedule: loan.repaymentSchedule },
+    })
+    const figures = await loanSettlementFigures(db as never, { ...loan, ncaRegime: "NON_NCA" }, new Date("2026-09-26"))
+    expect(figures).toMatchObject({ chargesOutstanding: 15_000, totalToSettle: 189_900,
+      chargeLines: [{ label: "Costs of recovering the goods", amount: 15_000 }] })
+  })
+
   it("is the plain contractual settlement while charges are off", async () => {
     loadChargesReplay.mockResolvedValue(null)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,7 +204,9 @@ describe("the certificate's settlement block", () => {
   it("is s125-priced only for an NCA consumer loan of several instalments, or an NCA bullet", () => {
     expect(isS125Priced(loan, instalments)).toBe(true)
     expect(isS125Priced({ ...loan, interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(true)
-    expect(isS125Priced({ ...loan, contractType: "INSTALMENT_SALE" }, instalments)).toBe(false)
+    expect(isS125Priced({ ...loan, contractType: "INSTALMENT_SALE" }, instalments)).toBe(true)
+    expect(isS125Priced({ ...loan, contractType: "FINANCE_LEASE" }, instalments)).toBe(true)
+    expect(isS125Priced({ ...loan, contractType: "FINANCE_LEASE", interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(false)
     expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA" }, instalments)).toBe(false)
     expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA", interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(false)
     expect(isS125Priced(loan, [row("r1")])).toBe(false)

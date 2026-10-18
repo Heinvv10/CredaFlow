@@ -33,7 +33,12 @@ export interface RepriceBatchRun {
   perTenant: TenantRepriceRun[]
 }
 
-async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<TenantRepriceRun> {
+async function runTenant(
+  db: BatchDb,
+  tenantId: string,
+  day: string,
+  onCommitted?: (tenantId: string) => Promise<unknown>
+): Promise<TenantRepriceRun> {
   const run: TenantRepriceRun = { tenantId, repriced: 0, alreadyRepriced: 0, notEligible: {}, failed: 0 }
   const failedLoanIds = new Set<string>()
   const references = await db.referenceRate.findMany({
@@ -45,7 +50,7 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
     const loans = await db.loan.findMany({
       where: {
         tenantId,
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "COMPLETED"] },
         contractType: { not: "LOAN" },
         contractRates: {
           some: { basis: reference.basis, effectiveDate: { lt: reference.effectiveDate } },
@@ -63,28 +68,47 @@ async function runTenant(db: BatchDb, tenantId: string, day: string): Promise<Te
       if (failedLoanIds.has(loan.id)) continue
       try {
         const outcome = await db.$transaction((tx) =>
-          repriceLoanForReference(tx, { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate, runDate: day }),
+          repriceLoanForReference(tx, {
+            tenantId,
+            loanId: loan.id,
+            basis: reference.basis,
+            effectiveDate,
+            runDate: day,
+          })
         )
-        if (outcome.kind === "repriced") run.repriced++
-        else if (outcome.kind === "already_repriced") run.alreadyRepriced++
+        if (outcome.kind === "repriced") {
+          run.repriced++
+          // The financial transaction is committed before any provider I/O.
+          if (onCommitted) await onCommitted(tenantId)
+        } else if (outcome.kind === "already_repriced") run.alreadyRepriced++
         else run.notEligible[outcome.reason] = (run.notEligible[outcome.reason] ?? 0) + 1
       } catch (error) {
         failedLoanIds.add(loan.id)
         run.failed++
-        console.error("[asset-finance-reprice] loan failed", { tenantId, loanId: loan.id, basis: reference.basis, effectiveDate, error })
+        console.error("[asset-finance-reprice] loan failed", {
+          tenantId,
+          loanId: loan.id,
+          basis: reference.basis,
+          effectiveDate,
+          error,
+        })
       }
     }
   }
   return run
 }
 
-export async function runRepriceBatch(db: BatchDb, day: string): Promise<RepriceBatchRun> {
+export async function runRepriceBatch(
+  db: BatchDb,
+  day: string,
+  onCommitted?: (tenantId: string) => Promise<unknown>
+): Promise<RepriceBatchRun> {
   const tenants = await db.tenantConfig.findMany({
     where: { featureAssetFinance: true },
     orderBy: { tenantId: "asc" },
     select: { tenantId: true },
   })
   const perTenant: TenantRepriceRun[] = []
-  for (const tenant of tenants) perTenant.push(await runTenant(db, tenant.tenantId, day))
+  for (const tenant of tenants) perTenant.push(await runTenant(db, tenant.tenantId, day, onCommitted))
   return { ok: perTenant.every((run) => run.failed === 0), day, perTenant }
 }

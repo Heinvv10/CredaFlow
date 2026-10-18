@@ -6,7 +6,8 @@
  *
  *   RETURN    ELECTED → INSPECTED (condition, damage, final reading) → INVOICED → COMPLETED
  *   EXTEND    EXTENDING (month to month; the daily run, ./lease-daily.ts,
- *             appends each rental) → notice by either party ends it one month later →
+ *             appends each rental) → notice ends it (CPA lessee: 20 SA business days;
+ *             otherwise the contractual month and rental-date rule) →
  *             INSPECTED → INVOICED → COMPLETED, as a return
  *   PURCHASE  ELECTED (price ≥ a market valuation, ./lease-term-end.ts; if that
  *             valuation ages out before the sale, staff re-base it on a current
@@ -30,6 +31,7 @@ import { recordMeterReading } from "./meter-readings"
 import { bestMarketValuation, checkPurchaseValuation, leaseTermEnd, purchaseMaxAgeDays } from "./lease-term-end"
 import { clientLeaseRefusal } from "./lease-portal-route"
 import type { SigningTx } from "./signing-prepare"
+import { cpaCancellationDate } from "./lease-termination"
 import { ELECTION_WINDOW_MONTHS, EXTENSION_NOTICE_MONTHS } from "./lease-periods"
 
 export type EndActor = { tenantId: string; userId: string; clientId?: undefined } | { tenantId: string; clientId: string; userId?: undefined }
@@ -54,13 +56,14 @@ export interface ElectInput {
 
 export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: ElectInput): Promise<EndResult> {
   const { tenantId } = actor
+  if (input.outcome === "TOTAL_LOSS") return refused("total_loss", "Record a total loss with its retained loss evidence")
   // A portal client acts only on a lease they are the lessee of, or have authority for.
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied
   const loan = await tx.loan.findFirst({
     where: { id: input.loanId, tenantId, contractType: { in: ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] } },
     select: {
-      status: true, assetId: true, maturityDate: true,
+      status: true, assetId: true, maturityDate: true, cpaApplies: true,
       leaseEndOfTerm: { select: { id: true, outcome: true, status: true, purchasePriceExclVatCents: true, purchaseValuationId: true, electedById: true, electedByClientId: true } },
     },
   })
@@ -82,7 +85,7 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
     if (!best || best.id !== input.purchase?.valuationId) return refused("valuation", "Re-base on the highest current assessor's or dealer's valuation")
   }
   if (loan.status !== "ACTIVE" && loan.status !== "COMPLETED" && loan.status !== "DEFAULTED") return refused("lease_closed", `The lease is ${loan.status}`)
-  if (input.outcome === "EXTEND" && loan.status === "DEFAULTED") return refused("defaulted", "A lease in default is not extended")
+  if (input.outcome === "EXTEND" && loan.status === "DEFAULTED" && !loan.cpaApplies) return refused("defaulted", "A lease in default is not extended")
   const lastRental = sastCalendarDate(loan.maturityDate)
   if (input.today < addMonthsClamped(lastRental, -ELECTION_WINDOW_MONTHS)) {
     return refused("too_early", `The end-of-term choice opens ${ELECTION_WINDOW_MONTHS} months before the last rental (${lastRental})`)
@@ -118,9 +121,10 @@ export async function electEndOfTerm(tx: SigningTx, actor: EndActor, input: Elec
 
 /** Either party ends a month-to-month extension: on the first rental date at least EXTENSION_NOTICE_MONTHS after the notice and after the billed period. */
 export async function endExtension(tx: SigningTx, actor: EndActor, input: { loanId: string; noticeOn: string; today: string }): Promise<EndResult> {
+  if (actor.clientId && input.noticeOn !== input.today) return refused("invalid_notice_date", "Client notice takes effect from the date it is received")
   const denied = await clientLeaseRefusal(actor, input.loanId)
   if (denied) return denied
-  const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true, electedAt: true } })
+  const row = await tx.leaseEndOfTerm.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId }, select: { id: true, status: true, extensionNoticeOn: true, electedAt: true, loan: { select: { cpaApplies: true } } } })
   if (!row) return { kind: "not_found" }
   if (row.status !== "EXTENDING") return refused("not_extending", "The lease is not on a month-to-month extension")
   if (row.extensionNoticeOn) return refused("notice_given", `Notice was given on ${isoOfDbDate(row.extensionNoticeOn)}`)
@@ -131,12 +135,14 @@ export async function endExtension(tx: SigningTx, actor: EndActor, input: { loan
   const termEnd = await leaseTermEnd(tx, actor.tenantId, input.loanId)
   const lastRental = await tx.leaseRental.findFirst({ where: { tenantId: actor.tenantId, loanId: input.loanId, cancelledAt: null }, orderBy: { periodNo: "desc" }, select: { dueDate: true } })
   if (!termEnd || !lastRental) return { kind: "not_found" }
-  const noticeEnds = addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
+  const cpaLessee = !!actor.clientId && row.loan?.cpaApplies === true
+  const noticeEnds = cpaLessee ? cpaCancellationDate(input.noticeOn) : addMonthsClamped(input.noticeOn, EXTENSION_NOTICE_MONTHS)
   const floor = termEnd > noticeEnds ? termEnd : noticeEnds
   // Step a month at a time from the last rental, as the daily run appends them (./lease-charges.ts), so the end is one of its dates.
   let endsOn = isoOfDbDate(lastRental.dueDate)
   while (endsOn < floor) endsOn = addMonthsClamped(endsOn, 1)
-  await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { extensionNoticeOn: dbDate(input.noticeOn), extensionEndsOn: dbDate(endsOn) } })
+  if (cpaLessee) endsOn = noticeEnds
+  await tx.leaseEndOfTerm.update({ where: { id: row.id, tenantId: actor.tenantId }, data: { extensionNoticeOn: dbDate(input.noticeOn), extensionEndsOn: dbDate(endsOn), extensionNoticeByClientId: actor.clientId ?? null } })
   await audit(tx, actor, AuditAction.LEASE_EXTENSION_ENDED, row.id, { loanId: input.loanId, noticeOn: input.noticeOn, endsOn })
   return { kind: "ok", endOfTermId: row.id, status: "EXTENDING" }
 }
@@ -157,7 +163,7 @@ export async function recordInspection(tx: SigningTx, actor: { tenantId: string;
     where: { tenantId, loanId: input.loanId },
     select: {
       id: true, status: true, outcome: true, origin: true, electedAt: true, extensionEndsOn: true,
-      loan: { select: { assetFinanceDeal: { select: { usageUnit: true } }, leaseTerminationQuotes: { where: { status: "ACCEPTED" }, select: { terminationDate: true } } } },
+      loan: { select: { assetFinanceDeal: { select: { usageUnit: true } }, leaseTerminationQuotes: { where: { OR: [{ status: "ACCEPTED" }, { cpaCancellation: true }, { totalLoss: true }] }, select: { terminationDate: true } } } },
     },
   })
   if (!row) return { kind: "not_found" }
