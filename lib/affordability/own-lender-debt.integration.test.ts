@@ -33,7 +33,12 @@ const db = new PrismaClient()
 const INSTALMENT = 254_100 // R2,541.00
 const DECLARED = 87_000 // R870.00 store account
 
-async function bookLoan(tenant: ChargesTenant, clientId: string, status: LoanStatus, dpd = 0, arrears = 0) {
+const START = new Date("2026-04-17T10:00:00+02:00")
+
+async function bookLoan(
+  tenant: ChargesTenant, clientId: string, status: LoanStatus, dpd = 0, arrears = 0,
+  { startDate = START, id, reference }: { startDate?: Date; id?: string; reference?: string } = {},
+) {
   const n = randomUUID().replaceAll("-", "").slice(0, 12)
   const product = await db.loanProduct.create({
     data: {
@@ -47,9 +52,9 @@ async function bookLoan(tenant: ChargesTenant, clientId: string, status: LoanSta
   })
   const loan = await db.loan.create({
     data: {
-      tenantId: tenant.tenantId, reference: `LN-${n}`, applicationId: app.id, clientId, productId: product.id,
+      id, tenantId: tenant.tenantId, reference: reference ?? `LN-${n}`, applicationId: app.id, clientId, productId: product.id,
       principal: 3_000_000, totalInterest: 1_573_800, initiationFee: 0, totalRepayable: 18 * INSTALMENT + 30_000,
-      outstandingPrincipal: 2_713_391, startDate: new Date("2026-04-17T10:00:00+02:00"), maturityDate: new Date("2027-10-17T10:00:00+02:00"),
+      outstandingPrincipal: 2_713_391, startDate, maturityDate: new Date("2027-10-17T10:00:00+02:00"),
       interestRatePm: 0.02, interestModel: "REDUCING_BALANCE", status, daysInArrears: dpd, arrearsAmount: arrears, monthlyServiceFee: 6_900,
     },
   })
@@ -92,7 +97,7 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
     const repaid = await bookLoan(tenant, elize, "ACTIVE")
     await db.loan.update({ where: { id: repaid.id }, data: { outstandingPrincipal: 0, arrearsAmount: 0 } })
     // Parked for write-off approval: still owed, still an obligation.
-    pendingRef = (await bookLoan(tenant, elize, "PENDING_WRITE_OFF", 95, 254_100)).reference
+    pendingRef = (await bookLoan(tenant, elize, "PENDING_WRITE_OFF", 95, 254_100, { startDate: new Date("2026-05-17T10:00:00+02:00") })).reference
     // Another lender's book: never this lender's own loan.
     const other = await createChargesTenant(db, false)
     const otherClient = await db.client.create({
@@ -115,6 +120,20 @@ suite.sequential("own-lender loans in affordability (real Postgres)", () => {
     expect(ownLenderArrears(own)).toEqual({ days: 95, amountCents: 84_330 + 254_100 })
   })
 
+
+  it("returns loans that started at the same moment in reference order, whatever order they were written or indexed in", async () => {
+    const n = randomUUID().replaceAll("-", "").slice(0, 11)
+    const client = (await db.client.create({
+      data: { tenantId: tenant.tenantId, idNumber: `87${n}`, firstName: "Tie", lastName: "Test", email: `tie.${n}@client.invalid`, phone: "0820000000" },
+    })).id
+    // Ids and write order both run opposite to the references, so a read that
+    // falls back to either (the planner walks Loan_tenantId_id_key) comes back reversed.
+    const refs = ["A", "B", "C"].map((x) => `LN-TIE-${n}-${x}`)
+    for (const [i, reference] of [...refs].reverse().entries()) {
+      await bookLoan(tenant, client, "ACTIVE", 0, 0, { id: `loan_tie_${n}_${i}`, reference })
+    }
+    expect((await loadOwnLenderDebts(prisma, tenant.tenantId, client)).loans.map((loan) => loan.reference)).toEqual(refs)
+  })
 
   it("leaves out the loan booked from the application being viewed", async () => {
     const loan = await db.loan.findFirstOrThrow({ where: { reference: activeRef } })
@@ -242,5 +261,36 @@ suite.sequential("two applications for one client at once (real Postgres)", () =
       },
     })
     expect(await ownLenderDebtIncreasedSinceApproval(prisma, a.tenantId, a.applicationId, await source(a.applicationId))).toBe(true)
+  }, 60_000)
+
+  it("returns applications approved at the same moment in reference order, whatever order they were written or indexed in", async () => {
+    const a = await createApprovedPasqV3Application("own-debt-tie")
+    const approved = await db.loanApplication.findUniqueOrThrow({ where: { id: a.applicationId } })
+    const n = randomUUID().replaceAll("-", "").slice(0, 8)
+    // The approval evidence binds one application to its own id, client and
+    // product, so siblings approved at the same instant are written with the
+    // approval triggers off, carrying A's recorded instalment; only the read order is under test.
+    // References after A's; ids before A's and, like the write order, opposite to the references.
+    const refs = [`${approved.reference}-C`, `${approved.reference}-B`]
+    const ids = [`aaa_tie_1_${n}`, `aaa_tie_2_${n}`]
+    // One open application per client and product.
+    const products = await Promise.all(ids.map(async (id) => (await db.loanProduct.create({
+      data: {
+        tenantId: a.tenantId, code: `P-${id}`, name: "Micro", productType: "MICRO", minAmount: 1, maxAmount: 1_000_000,
+        minTermDays: 1, maxTermDays: 365, interestRatePm: 0.05, interestModel: "FLAT", monthlyServiceFee: 0,
+      },
+    })).id))
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      ...ids.map((id, i) => db.loanApplication.create({
+        data: {
+          id, tenantId: a.tenantId, reference: refs[i], clientId: a.clientId, productId: products[i], appliedAmount: 200_000,
+          appliedTermDays: 90, status: "APPROVED", repaymentMethod: "DEBIT_ORDER", approvedAt: approved.approvedAt, approvedById: approved.approvedById,
+          approvedAmount: 200_000, affordabilityResult: approved.affordabilityResult as Prisma.InputJsonValue,
+        },
+      })),
+    ])
+    const loaded = await loadOwnLenderDebts(prisma, a.tenantId, a.clientId)
+    expect(loaded.loans.map((loan) => loan.reference)).toEqual([approved.reference, ...[...refs].reverse()])
   }, 60_000)
 })
