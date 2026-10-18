@@ -64,7 +64,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     if (error instanceof TemplateNotIssuableError) return { kind: "not_ready", reason: error.message }
     throw error
   }
-  const quoteProblem = ncaQuoteMarkProblem(template, approved)
+  const quoteProblem = await ncaQuoteMarkProblem(prisma, actor.tenantId, dealId, app.pasqDocumentSha256, template)
   if (quoteProblem) return { kind: "not_ready", reason: quoteProblem }
   const wording = issuedWording(template)
   const generatedAt = new Date(evidence.calculator.startDate)

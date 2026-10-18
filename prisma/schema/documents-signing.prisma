@@ -77,6 +77,10 @@ model DocumentTemplateVersion {
   contentSha256         String?
   approvalBasis         DocumentTemplateApprovalBasis?
   approvedContentSha256 String?
+  // The fingerprint of the protected system output of this variant when it was
+  // approved (lib/asset-finance/documents/templates/fingerprint.ts): an
+  // approval covers the protected wording too, and lapses when it changes.
+  approvedSystemSha256  String?
   legalSignOffReference String?
   issuances             AssetDocumentIssuance[]
 

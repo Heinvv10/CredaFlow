@@ -35,6 +35,7 @@ const { session } = vi.hoisted(() => ({ session: { current: null as null | { use
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 import { POST as cancelRoute } from "@/app/api/asset-finance/deals/[id]/cancel/route"
+import { draftApprovePublish, edited } from "./documents/templates/templates-it.helpers"
 
 const RUN = process.env.RUN_ASSET_FINANCE_TERMS_IT === "1"
 const suite = RUN ? describe : describe.skip
@@ -183,6 +184,19 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     expect(await database().auditLog.count({ where: { entityId: dealC, action: "ASSET_DEAL_SIGNING_REFUSED" } })).toBe(1)
     expect((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC } })).status).toBe("APPROVED")
     await tamper(issuance.lenderIdentity as object)
+    // The deal's own data no longer matches what was signed (the entity renamed past the triggers): refused too.
+    const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, select: { entityId: true } })
+    const entity = await database().businessEntity.findUniqueOrThrow({ where: { id: deal.entityId! }, select: { legalName: true } })
+    const rename = (legalName: string) => database().$transaction([
+      database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      database().businessEntity.update({ where: { id: deal.entityId! }, data: { legalName } }),
+    ])
+    await rename("TEST Renamed Borrower (Pty) Ltd")
+    expect((await signingRoutes(fx.host).contract(dealC)).status).toBe(409)
+    await rename(entity.legalName)
+    // A newer published template version does not change what was signed: contracting re-renders with the issued one.
+    const isa = await database().documentTemplate.findFirstOrThrow({ where: { tenantId: fx.tenantId, key: issuance.templateKey } })
+    await draftApprovePublish(database(), fx.tenantId, isa.id, edited(issuance.templateKey, "AFTER-SIGNING"), fx.adminA)
     // The lender renaming itself after signing does not change what was signed.
     const config = await database().tenantConfig.findUniqueOrThrow({ where: { tenantId: fx.tenantId } })
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: "TEST Changed Signing Lender (Pty) Ltd" } })

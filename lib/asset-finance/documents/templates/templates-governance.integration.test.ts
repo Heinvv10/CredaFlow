@@ -20,6 +20,7 @@ import { SYNTHETIC_IDENTITY } from "../../deal-signing.integration-fixture"
 import { TemplateUnavailableError, generateDocument } from "@/lib/documents/render"
 import { canonicalContent, starterContent } from "./content"
 import { parseTemplateKey } from "./families"
+import { systemFingerprint } from "./fingerprint"
 import { selectIssuableTemplate } from "./issuance"
 import { adoptStarter, approveVersion, createDraftVersion, publishVersion, type TemplateActor } from "./store"
 import { draftApprovePublish, edited, latest, legalActor, legalInput, sqlError, templateOf, templateRoutes } from "./templates-it.helpers"
@@ -145,7 +146,11 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
     expect(await approveVersion(legal, isa.id, v.id, { ...legalInput(v.contentSha256), legalSignOffReference: "x" })).toMatchObject({ ok: false, status: 422, error: expect.stringMatching(/written sign-off/) })
     // Database: the author, a wrong hash, a demo basis on a real lender, another lender's user, a LOAN_ADMIN's legal approval.
     const raw = (data: object) => database().documentTemplateVersion.update({ where: { id: v.id }, data })
-    const base = { approvedAt: new Date(), approvedContentSha256: v.contentSha256, approvalBasis: "LENDER_LEGAL" as const, legalSignOffReference: "TEST FIXTURE ONLY" }
+    const base = {
+      approvedAt: new Date(), approvedContentSha256: v.contentSha256, approvalBasis: "LENDER_LEGAL" as const, legalSignOffReference: "TEST FIXTURE ONLY",
+      approvedSystemSha256: await systemFingerprint("af.isa.commercial"),
+    }
+    expect(await sqlError(() => raw({ ...base, approvedById: legal.userId, approvedSystemSha256: null }))).toMatch(/binds the fingerprint of the protected wording/)
     expect(await sqlError(() => raw({ ...base, approvedById: a.adminA }))).toMatch(/author of an asset-finance template version cannot approve it/)
     expect(await sqlError(() => raw({ ...base, approvedById: legal.userId, approvedContentSha256: "1".repeat(64) }))).toMatch(/approval binds the exact content hash/)
     expect(await sqlError(() => raw({ ...base, approvedById: legal.userId, approvalBasis: "SYNTHETIC_DEMO", legalSignOffReference: null }))).toMatch(/demo lender's approval is SYNTHETIC_DEMO/)
@@ -156,7 +161,7 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
     const [ok, again] = await Promise.all([routes.approve(isa.id, v.id, legalInput(v.contentSha256)), approveVersion(legal, isa.id, v.id, legalInput(v.contentSha256))])
     expect([ok.status === 200, again.ok].filter(Boolean)).toHaveLength(1)
     const approved = await latest(database(), isa.id)
-    expect(approved).toMatchObject({ approvalBasis: "LENDER_LEGAL", approvedById: legal.userId, approvedContentSha256: approved.contentSha256 })
+    expect(approved).toMatchObject({ approvalBasis: "LENDER_LEGAL", approvedById: legal.userId, approvedContentSha256: approved.contentSha256, approvedSystemSha256: base.approvedSystemSha256 })
     expect(await sqlError(() => raw({ approvedById: a.adminA }))).toMatch(/approval is recorded once and never changed/)
     const audit = await database().auditLog.findFirstOrThrow({ where: { tenantId: a.tenantId, action: "DOCUMENT_TEMPLATE_VERSION_APPROVED", entityId: v.id } })
     expect(audit.newValue).toMatchObject({ approvedContentSha256: v.contentSha256, approvalBasis: "LENDER_LEGAL", attestation: true, legalSignOff: true, approverRole: "SUPER_ADMIN" })

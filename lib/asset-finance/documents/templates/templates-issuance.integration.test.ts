@@ -26,6 +26,7 @@ import { prose, texts } from "../nca/nca-wording.test-helpers"
 import { DRAFT_WATERMARK, SYNTHETIC_DEMO_WATERMARK } from "../pdf-layout"
 import { canonicalContent, contentSha256, starterContent } from "./content"
 import { parseTemplateKey } from "./families"
+import { systemFingerprint } from "./fingerprint"
 import { expectReproducibleIssuances, publishStarterTemplates } from "./templates.integration-fixture"
 import { draftApprovePublish, edited, legalActor, sha, sqlError, templateOf } from "./templates-it.helpers"
 
@@ -96,26 +97,37 @@ suite.sequential("issuing asset-finance documents from lender templates (real Po
     expect(await database().assetDocumentIssuance.count({ where: { dealId: a.dealId } })).toBe(0)
   })
 
-  it("refuses a published version whose wording breaks the template rules (written past the store)", async () => {
+  it("refuses a published version whose wording breaks the rules, or whose approval predates the current protected wording (written past the store)", async () => {
     await publishStarterTemplates(database(), a.tenantId, a.adminA, a.adminB, ["af.isa", "af.suretyship", "af.resolution"])
     const res = await tpl(a, "af.resolution.standard")
     const legal = await legalActor(database(), a.tenantId)
-    const content = canonicalContent({ ...starterContent(parseTemplateKey("af.resolution.standard")!), additionalTerms: [{ heading: "Fee", text: "An administration fee of R 500 is payable." }] })
-    const bad = await database().documentTemplateVersion.create({ data: {
-      templateId: res.id, version: 50, bodyHtml: "", tokensUsed: [], content, contentSha256: contentSha256(content), createdById: a.adminA,
-    } })
-    await database().documentTemplateVersion.update({ where: { id: bad.id }, data: {
-      approvedById: legal.userId, approvedAt: new Date(), approvalBasis: "LENDER_LEGAL", approvedContentSha256: bad.contentSha256, legalSignOffReference: "TEST FIXTURE ONLY",
-    } })
-    await database().$transaction([
-      database().documentTemplateVersion.updateMany({ where: { templateId: res.id, status: "ACTIVE" }, data: { status: "ARCHIVED" } }),
-      database().documentTemplateVersion.update({ where: { id: bad.id }, data: { status: "ACTIVE", activatedById: a.adminA, activatedAt: new Date() } }),
-      database().documentTemplate.update({ where: { id: res.id }, data: { currentVersionId: bad.id } }),
-    ])
-    const response = await prepare(a, a.dealId)
+    const forcePublish = async (version: number, contentText: string, approvedSystemSha256: string) => {
+      const row = await database().documentTemplateVersion.create({ data: {
+        templateId: res.id, version, bodyHtml: "", tokensUsed: [], content: contentText, contentSha256: contentSha256(contentText), createdById: a.adminA,
+      } })
+      await database().documentTemplateVersion.update({ where: { id: row.id }, data: {
+        approvedById: legal.userId, approvedAt: new Date(), approvalBasis: "LENDER_LEGAL", approvedContentSha256: row.contentSha256,
+        approvedSystemSha256, legalSignOffReference: "TEST FIXTURE ONLY",
+      } })
+      await database().$transaction([
+        database().documentTemplateVersion.updateMany({ where: { templateId: res.id, status: "ACTIVE" }, data: { status: "ARCHIVED" } }),
+        database().documentTemplateVersion.update({ where: { id: row.id }, data: { status: "ACTIVE", activatedById: a.adminA, activatedAt: new Date() } }),
+        database().documentTemplate.update({ where: { id: res.id }, data: { currentVersionId: row.id } }),
+      ])
+    }
+    const starter = starterContent(parseTemplateKey("af.resolution.standard")!)
+    const current = await systemFingerprint("af.resolution.standard")
+    await forcePublish(50, canonicalContent({ ...starter, additionalTerms: [{ heading: "Fee", text: "An administration fee of R 500 is payable." }] }), current)
+    let response = await prepare(a, a.dealId)
     expect(response.status).toBe(422)
     expect((await response.json()).error).toMatch(/no longer passes the template rules/)
-    await draftApprovePublish(database(), a.tenantId, res.id, starterContent(parseTemplateKey("af.resolution.standard")!), a.adminA)
+    // Approved against protected wording CredaFlow has since changed: the approval has lapsed.
+    await forcePublish(51, canonicalContent(starter), "0".repeat(64))
+    response = await prepare(a, a.dealId)
+    expect(response.status).toBe(422)
+    expect((await response.json()).error).toMatch(/protected wording for your Entity resolution changed after your approval/)
+    expect(await database().assetDocumentIssuance.count({ where: { dealId: a.dealId } })).toBe(0)
+    await draftApprovePublish(database(), a.tenantId, res.id, starter, a.adminA)
   })
 
   it("issues every document from the lender's published version, reproducibly, with the lender's own term and no mark for a legal approval", async () => {
@@ -126,7 +138,7 @@ suite.sequential("issuing asset-finance documents from lender templates (real Po
       "af.isa.commercial", "af.resolution.standard", "af.suretyship.commercial", "af.suretyship.commercial", "af.suretyship.commercial",
     ])
     const agreement = await current(a.dealId, "AGREEMENT")
-    expect(agreement).toMatchObject({ templateVersionId: published, approvalBasis: "LENDER_LEGAL", lenderIdentity: expect.objectContaining({ legalName: SYNTHETIC_IDENTITY.legalName }) })
+    expect(agreement).toMatchObject({ templateVersionId: published, approvalBasis: "LENDER_LEGAL", systemSha256: await systemFingerprint("af.isa.commercial"), lenderIdentity: expect.objectContaining({ legalName: SYNTHETIC_IDENTITY.legalName }) })
     for (const signer of await database().dealSigner.findMany({ where: { dealId: a.dealId } })) {
       const issuance = await database().assetDocumentIssuance.findUniqueOrThrow({ where: { id: signer.issuanceId! } })
       expect(issuance.pdfSha256).toBe(signer.documentSha256)

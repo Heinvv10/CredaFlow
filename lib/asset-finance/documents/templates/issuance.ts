@@ -16,6 +16,7 @@ import type { NcaAssetDocumentData } from "../nca/types"
 import type { AppliedWording } from "./apply"
 import { contentSha256, parseContent, type AssetTemplateContent } from "./content"
 import { SYSTEM_REVISION, parseTemplateKey } from "./families"
+import { systemFingerprint } from "./fingerprint"
 import { validContent } from "./validate"
 
 type Db = Pick<typeof prisma, "documentTemplate" | "documentTemplateVersion" | "tenantConfig">
@@ -39,6 +40,8 @@ export interface SelectedTemplate {
   approvedById: string
   approvedAt: Date
   legalSignOffReference: string | null
+  /** The protected-output fingerprint the approval covers (= the current one). */
+  systemSha256: string
 }
 
 /** The template variant a deal document is issued from. */
@@ -93,21 +96,40 @@ export async function selectIssuableTemplate(db: Db, tenantId: string, templateK
   }
   const checked = validContent(templateKey, version.content)
   if (!checked.ok) throw new TemplateNotIssuableError(`Your published ${name} template no longer passes the template rules: ${checked.problems[0].message}.`)
+  const system = await systemFingerprint(templateKey)
+  if (version.approvedSystemSha256 !== system) {
+    throw new TemplateNotIssuableError(`CredaFlow's protected wording for your ${name} changed after your approval. Approve and publish a new version.`)
+  }
   return {
     templateId: template.id, templateKey, versionId: version.id, versionNumber: version.version, content: checked.content,
     contentSha256: version.contentSha256, approvalBasis: version.approvalBasis, approvedById: version.approvedById,
-    approvedAt: version.approvedAt, legalSignOffReference: version.legalSignOffReference,
+    approvedAt: version.approvedAt, legalSignOffReference: version.legalSignOffReference, systemSha256: system,
   }
 }
 
 /**
  * An NCA agreement under a lender's legal approval may not follow a quotation
- * still stamped DRAFT: the quotation's wording is governed by
- * TenantConfig.assetFinanceLegalWordingApproved (system notices and quotations).
+ * that printed DRAFT (its wording is governed by
+ * TenantConfig.assetFinanceLegalWordingApproved). What decides is the mark of
+ * the quotation actually issued and acknowledged, recorded on its
+ * ASSET_NCA_QUOTE_ISSUED audit row; a quotation without that record counts as
+ * DRAFT.
  */
-export function ncaQuoteMarkProblem(selected: Pick<SelectedTemplate, "approvalBasis">, quoteWordingApproved: boolean): string | null {
-  return selected.approvalBasis === "LENDER_LEGAL" && !quoteWordingApproved
-    ? "The NCA quotation wording is not yet approved for your lender, so an unwatermarked agreement cannot follow it. CredaFlow records that approval once your legal team signs off the quotation and notices."
+export async function ncaQuoteMarkProblem(
+  db: Pick<typeof prisma, "auditLog">,
+  tenantId: string,
+  dealId: string,
+  quoteSha256: string | null,
+  selected: Pick<SelectedTemplate, "approvalBasis">,
+): Promise<string | null> {
+  if (selected.approvalBasis !== "LENDER_LEGAL") return null
+  const issued = quoteSha256 === null ? null : await db.auditLog.findFirst({
+    where: { tenantId, entity: "AssetFinanceDeal", entityId: dealId, action: "ASSET_NCA_QUOTE_ISSUED", newValue: { path: ["documentSha256"], equals: quoteSha256 } },
+    orderBy: { createdAt: "desc" }, select: { newValue: true },
+  })
+  const draft = (issued?.newValue as { draftLegalWording?: unknown } | null)?.draftLegalWording !== false
+  return draft
+    ? "The quotation this consumer acknowledged printed DRAFT legal wording, so an unwatermarked agreement cannot follow it. Issue a new quotation once CredaFlow has recorded your legal team's approval of the quotation and notices."
     : null
 }
 
@@ -167,7 +189,7 @@ export async function recordIssuance(tx: Tx, tenantId: string, dealId: string, i
       tenantId, dealId, document: prepared.input.document, clientId: prepared.input.document === "SURETYSHIP" ? prepared.input.clientId : null,
       templateKey: s.templateKey, templateId: s.templateId, templateVersionId: s.versionId, templateVersionNumber: s.versionNumber,
       templateContentSha256: s.contentSha256, approvalBasis: s.approvalBasis, approvedById: s.approvedById, approvedAt: s.approvedAt,
-      legalSignOffReference: s.legalSignOffReference, systemRevision: SYSTEM_REVISION, lenderIdentity: prepared.lenderIdentity,
+      legalSignOffReference: s.legalSignOffReference, systemRevision: SYSTEM_REVISION, systemSha256: s.systemSha256, lenderIdentity: prepared.lenderIdentity,
       inputSha256: prepared.inputSha256, inputStoragePath: prepared.inputStoragePath, pdfSha256: prepared.pdfSha256,
       pdfStoragePath: prepared.pdfStoragePath, issuedById,
     },

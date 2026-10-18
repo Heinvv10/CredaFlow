@@ -15,8 +15,9 @@ export async function ensureSyntheticTemplates(tenantId: string, staff: Pick<See
   if (await approvalBasisFor(prisma, tenantId) !== "SYNTHETIC_DEMO") {
     throw new Error("Seed: asset-finance templates are approved only for a synthetic demo lender (TenantConfig.isDemoLender)")
   }
-  const author = { tenantId, userId: staff.adminOne.id, userEmail: staff.adminOne.email, totpVerified: true }
-  const approver = { tenantId, userId: staff.adminTwo.id, userEmail: staff.adminTwo.email, totpVerified: true }
+  // Scripted, not signed in: every audit row says via "seed".
+  const author = { tenantId, userId: staff.adminOne.id, userEmail: staff.adminOne.email, totpVerified: true, via: "seed" as const }
+  const approver = { tenantId, userId: staff.adminTwo.id, userEmail: staff.adminTwo.email, totpVerified: true, via: "seed" as const }
   for (const { family } of ASSET_TEMPLATE_FAMILIES) {
     const adopted = await adoptStarter(author, family)
     if (!adopted.ok) throw new Error(`Seed: adopt ${family}: ${adopted.error}`)

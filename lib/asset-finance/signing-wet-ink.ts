@@ -90,6 +90,8 @@ export async function confirmWetInkScan(
 ): Promise<ConfirmResult> {
   const signer = await findSigner(actor.tenantId, dealId, signerId)
   if (!signer) return { kind: "not_found" }
+  // Prepared before lender templates: the database refuses the confirmation; say why first.
+  if (!signer.issuanceId) return { kind: "not_open", reason: "This document was prepared before the lender's templates and cannot be confirmed; cancel the deal and originate it again" }
   if (signer.deal.status !== "APPROVED") return { kind: "not_open", reason: "Scans are confirmed only while the deal is APPROVED" }
   if (signerState(signer) !== "AWAITING_CONFIRMATION" || !signer.scanDocumentId) {
     return { kind: "not_open", reason: "There is no unconfirmed scan for this signer" }

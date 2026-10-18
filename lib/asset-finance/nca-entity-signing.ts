@@ -114,7 +114,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       if (stored.has(documentKey)) continue
       if (signer.document === "AGREEMENT") {
         const chosen = await template(ncaTemplateKey(deal.contractType))
-        const quoteProblem = ncaQuoteMarkProblem(chosen, authorityData.legalWordingApproved)
+        const quoteProblem = await ncaQuoteMarkProblem(prisma, actor.tenantId, dealId, deal.application.pasqDocumentSha256, chosen)
         if (quoteProblem) throw new TemplateNotIssuableError(quoteProblem)
         const bytes = await renderNcaAssetAgreement(ncaData, issuedWording(chosen))
         stored.set(documentKey, await storeIssuanceFiles(chosen, { kind: "nca", document: "AGREEMENT", clientId: signer.clientId, data: ncaData }, bytes))

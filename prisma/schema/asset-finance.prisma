@@ -1015,8 +1015,10 @@ model AssetDocumentIssuance {
   approvedById          String
   approvedAt            DateTime
   legalSignOffReference String?
-  // The protected renderer revision (templates/families.ts SYSTEM_REVISION).
+  // The protected renderer revision (templates/families.ts SYSTEM_REVISION) and
+  // the fingerprint of its output for this variant, as approved (fingerprint.ts).
   systemRevision        String
+  systemSha256          String
   // The lender identity printed: company particulars, no personal data.
   lenderIdentity        Json
   inputSha256           String

@@ -13,6 +13,7 @@ ADD COLUMN     "assetVariant" TEXT;
 -- AlterTable
 ALTER TABLE "DocumentTemplateVersion" ADD COLUMN     "approvalBasis" "DocumentTemplateApprovalBasis",
 ADD COLUMN     "approvedContentSha256" TEXT,
+ADD COLUMN     "approvedSystemSha256" TEXT,
 ADD COLUMN     "content" TEXT,
 ADD COLUMN     "contentSha256" TEXT,
 ADD COLUMN     "legalSignOffReference" TEXT;
@@ -34,6 +35,7 @@ CREATE TABLE "AssetDocumentIssuance" (
     "approvedAt" TIMESTAMP(3) NOT NULL,
     "legalSignOffReference" TEXT,
     "systemRevision" TEXT NOT NULL,
+    "systemSha256" TEXT NOT NULL,
     "lenderIdentity" JSONB NOT NULL,
     "inputSha256" TEXT NOT NULL,
     "inputStoragePath" TEXT,
@@ -114,6 +116,7 @@ ALTER TABLE "DocumentTemplateVersion" ADD CONSTRAINT "DocumentTemplateVersion_ap
   AND ("approvalBasis" IS DISTINCT FROM 'LENDER_LEGAL' OR length(btrim(COALESCE("legalSignOffReference", ''))) >= 5)
   AND ("approvalBasis" IS DISTINCT FROM 'SYNTHETIC_DEMO' OR "legalSignOffReference" IS NULL)
   AND ("contentSha256" IS NULL OR "contentSha256" ~ '^[0-9a-f]{64}$')
+  AND ("approvedSystemSha256" IS NULL OR ("approvedSystemSha256" ~ '^[0-9a-f]{64}$' AND "approvedById" IS NOT NULL))
 );
 
 -- The template a version belongs to (the store and issuance lock its row).
@@ -153,7 +156,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A template version changes only with its template visible';
   END IF;
   IF t."kind" IS DISTINCT FROM 'ASSET_FINANCE' THEN
-    IF TG_OP <> 'DELETE' AND (NEW."content" IS NOT NULL OR NEW."contentSha256" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL
+    IF TG_OP <> 'DELETE' AND (NEW."content" IS NOT NULL OR NEW."contentSha256" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL OR NEW."approvedSystemSha256" IS NOT NULL
       OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'Only an asset-finance template version carries lender wording and an approval basis';
     END IF;
@@ -166,6 +169,7 @@ BEGIN
 
   IF TG_OP = 'INSERT' THEN
     IF NEW."status" <> 'DRAFT' OR NEW."content" IS NULL OR NEW."createdById" IS NULL
+      OR NEW."approvedSystemSha256" IS NOT NULL
       OR NEW."approvedById" IS NOT NULL OR NEW."approvedAt" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL
       OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL
       OR NEW."activatedById" IS NOT NULL OR NEW."activatedAt" IS NOT NULL THEN
@@ -192,7 +196,8 @@ BEGIN
   IF OLD."approvedById" IS NOT NULL THEN
     IF NEW."approvedById" IS DISTINCT FROM OLD."approvedById" OR NEW."approvedAt" IS DISTINCT FROM OLD."approvedAt"
       OR NEW."approvalBasis" IS DISTINCT FROM OLD."approvalBasis" OR NEW."approvedContentSha256" IS DISTINCT FROM OLD."approvedContentSha256"
-      OR NEW."legalSignOffReference" IS DISTINCT FROM OLD."legalSignOffReference" THEN
+      OR NEW."legalSignOffReference" IS DISTINCT FROM OLD."legalSignOffReference"
+      OR NEW."approvedSystemSha256" IS DISTINCT FROM OLD."approvedSystemSha256" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An asset-finance template approval is recorded once and never changed';
     END IF;
   ELSIF NEW."approvedById" IS NOT NULL THEN
@@ -208,6 +213,9 @@ BEGIN
     IF NEW."approvedAt" IS NULL OR NEW."approvedContentSha256" IS DISTINCT FROM OLD."contentSha256" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval binds the exact content hash of the version';
     END IF;
+    IF NEW."approvedSystemSha256" IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval binds the fingerprint of the protected wording it covers';
+    END IF;
     IF NEW."approvalBasis" IS DISTINCT FROM public."assetTemplateBasisFor"(t."tenantId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A demo lender''s approval is SYNTHETIC_DEMO and every other lender''s is LENDER_LEGAL';
     END IF;
@@ -216,7 +224,7 @@ BEGIN
     ) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A legal approval is recorded by a SUPER_ADMIN of the lender';
     END IF;
-  ELSIF NEW."approvedAt" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL THEN
+  ELSIF NEW."approvedAt" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL OR NEW."approvedSystemSha256" IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval names its approver';
   END IF;
 
@@ -280,7 +288,7 @@ FOR EACH ROW EXECUTE FUNCTION public."guardAssetTemplate"();
 -- Issuance: only from the lender's current, approved version of the template
 -- that matches the deal, with the approval copied exactly.
 ALTER TABLE "AssetDocumentIssuance" ADD CONSTRAINT "AssetDocumentIssuance_shape" CHECK (
-  "templateContentSha256" ~ '^[0-9a-f]{64}$' AND "inputSha256" ~ '^[0-9a-f]{64}$' AND "pdfSha256" ~ '^[0-9a-f]{64}$'
+  "templateContentSha256" ~ '^[0-9a-f]{64}$' AND "inputSha256" ~ '^[0-9a-f]{64}$' AND "pdfSha256" ~ '^[0-9a-f]{64}$' AND "systemSha256" ~ '^[0-9a-f]{64}$'
   AND ("supersededAt" IS NOT NULL OR ("inputStoragePath" IS NOT NULL AND "pdfStoragePath" IS NOT NULL))
   AND (("document" = 'SURETYSHIP') = ("clientId" IS NOT NULL))
   AND CASE "document"
@@ -341,7 +349,8 @@ BEGIN
   IF v."approvedById" IS NULL OR v."approvedContentSha256" IS DISTINCT FROM v."contentSha256"
     OR NEW."templateContentSha256" IS DISTINCT FROM v."contentSha256" OR NEW."templateVersionNumber" IS DISTINCT FROM v."version"
     OR NEW."approvalBasis" IS DISTINCT FROM v."approvalBasis" OR NEW."approvedById" IS DISTINCT FROM v."approvedById"
-    OR NEW."approvedAt" IS DISTINCT FROM v."approvedAt" OR NEW."legalSignOffReference" IS DISTINCT FROM v."legalSignOffReference" THEN
+    OR NEW."approvedAt" IS DISTINCT FROM v."approvedAt" OR NEW."legalSignOffReference" IS DISTINCT FROM v."legalSignOffReference"
+    OR NEW."systemSha256" IS DISTINCT FROM v."approvedSystemSha256" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An issuance carries the exact approved content and approval of its version';
   END IF;
   IF v."approvalBasis" IS DISTINCT FROM public."assetTemplateBasisFor"(NEW."tenantId") THEN

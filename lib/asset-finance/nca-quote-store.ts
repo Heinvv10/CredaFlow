@@ -118,7 +118,8 @@ export async function issueAssetNcaQuote(
     } })
     await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail,
       action: AuditAction.ASSET_NCA_QUOTE_ISSUED, entity: "AssetFinanceDeal", entityId: deal.id,
-      newValue: { applicationId: deal.application.id, documentId, documentSha256: sha256, evidenceSha256: evidence.evidenceSha256 },
+      // draftLegalWording: whether this quotation printed DRAFT; an agreement under a lender's legal approval may follow only one that did not.
+      newValue: { applicationId: deal.application.id, documentId, documentSha256: sha256, evidenceSha256: evidence.evidenceSha256, draftLegalWording: !approved },
     }, tx)
   } catch (error) {
     await deleteFile(stored.storagePath)

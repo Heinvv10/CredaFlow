@@ -9,6 +9,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { demoStaffWithoutTotp, isDemoMode } from "@/lib/config/demo-mode"
 import { canonicalContent, contentSha256, parseContent, starterContent, type AssetTemplateContent } from "./content"
 import { familyDef, parseTemplateKey } from "./families"
+import { systemFingerprint } from "./fingerprint"
 import { tokensIn } from "./tokens"
 import { contentProblems, validContent, type ContentProblem } from "./validate"
 
@@ -19,6 +20,8 @@ export interface TemplateActor {
   totpVerified?: boolean
   /** The approver's role: a legal approval is a SUPER_ADMIN's. */
   role?: string
+  /** A script acting for a demo lender (prisma/seed, ensure-demo-templates): recorded on every audit row. */
+  via?: "seed"
 }
 
 export type StoreResult<T> =
@@ -80,7 +83,7 @@ export async function adoptStarter(actor: TemplateActor, family: string): Promis
         await logAuditStrict({
           tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined, action: AuditAction.ASSET_TEMPLATE_ADOPTED,
           entity: "DocumentTemplate", entityId: template.id,
-          newValue: { key: key.key, versionId: version.id, version: 1, contentSha256: version.contentSha256, starterRevision: content.starterRevision },
+          newValue: { key: key.key, versionId: version.id, version: 1, contentSha256: version.contentSha256, starterRevision: content.starterRevision, ...(actor.via ? { via: actor.via } : {}) },
         }, tx)
         return template.id
       })
@@ -170,19 +173,20 @@ export async function approveVersion(
     if (reference.length < 5 || reference.length > 200) return refuse(422, "Give the reference of your legal team's written sign-off (5 to 200 characters)")
   }
   const approvedAt = new Date()
+  const system = await systemFingerprint(template.key)
   const done = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "DocumentTemplate" WHERE "id" = ${templateId} AND "tenantId" = ${actor.tenantId} FOR UPDATE`)
     const { count } = await tx.documentTemplateVersion.updateMany({
       where: { id: versionId, templateId, status: "DRAFT", approvedById: null, contentSha256: version.contentSha256 },
-      data: { approvedById: actor.userId, approvedAt, approvalBasis: basis, approvedContentSha256: version.contentSha256, legalSignOffReference: reference },
+      data: { approvedById: actor.userId, approvedAt, approvalBasis: basis, approvedContentSha256: version.contentSha256, approvedSystemSha256: system, legalSignOffReference: reference },
     })
     if (count !== 1) return false
     await logAuditStrict({
       tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined, action: AuditAction.DOCUMENT_TEMPLATE_VERSION_APPROVED,
       entity: "DocumentTemplateVersion", entityId: versionId, oldValue: { approvedById: null },
       newValue: {
-        templateId, key: template.key, version: version.version, approvedContentSha256: version.contentSha256, approvalBasis: basis,
-        legalSignOffReference: reference, attestation: true, ...(basis === "LENDER_LEGAL" ? { legalSignOff: true, approverRole: actor.role } : {}), ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }),
+        templateId, key: template.key, version: version.version, approvedContentSha256: version.contentSha256, approvedSystemSha256: system, approvalBasis: basis,
+        legalSignOffReference: reference, attestation: true, ...(basis === "LENDER_LEGAL" ? { legalSignOff: true, approverRole: actor.role } : {}), ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }), ...(actor.via ? { via: actor.via } : {}),
       },
     }, tx)
     return true
@@ -197,6 +201,7 @@ export async function publishVersion(actor: TemplateActor, templateId: string, v
   const template = await loadTemplate(actor.tenantId, templateId)
   if (!template) return refuse(404, "Not found")
   const basis = await approvalBasisFor(prisma, actor.tenantId)
+  const system = await systemFingerprint(template.key)
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "DocumentTemplate" WHERE "id" = ${templateId} AND "tenantId" = ${actor.tenantId} FOR UPDATE`)
     const version = await tx.documentTemplateVersion.findFirst({ where: { id: versionId, templateId } })
@@ -208,6 +213,7 @@ export async function publishVersion(actor: TemplateActor, templateId: string, v
     }
     if (version.approvedById === actor.userId) return refuse(409, "The approver cannot also publish; a different admin must publish")
     if (version.approvalBasis !== basis) return refuse(409, "This approval no longer matches your lender's approval basis; approve a new draft")
+    if (version.approvedSystemSha256 !== system) return refuse(409, "CredaFlow's protected wording for this document changed after this approval; save it as a new draft and approve it again")
     const checked = validContent(template.key, version.content ?? "")
     if (!checked.ok) return refuse(422, "This version's wording no longer passes the template rules", checked.problems)
     const previous = await tx.documentTemplateVersion.findMany({ where: { templateId, status: "ACTIVE" }, select: { id: true, version: true } })
@@ -225,7 +231,7 @@ export async function publishVersion(actor: TemplateActor, templateId: string, v
       entity: "DocumentTemplateVersion", entityId: versionId,
       newValue: {
         templateId, key: template.key, version: version.version, contentSha256: version.contentSha256, approvalBasis: version.approvalBasis,
-        archived: previous.map((p) => p.id), ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }),
+        archived: previous.map((p) => p.id), ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }), ...(actor.via ? { via: actor.via } : {}),
       },
     }, tx)
     return { ok: true as const, value: { archived: previous.map((p) => p.id) } }
