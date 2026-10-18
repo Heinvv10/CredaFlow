@@ -1,6 +1,6 @@
 # Final CPA assessment and total-loss browser acceptance
 
-Synthetic local stack at union `88dea40e`, Node22, isolated clone with its own
+Synthetic local stack at final union `437c29f5`, Node22, isolated clone with its own
 npm install and fresh disposable PostgreSQL16 migrations. Password+TOTP staff
 login; lender legal approval remained false. Cron secret unset; no provider,
 external payment, real message, deployment or lender activation occurred.
@@ -22,6 +22,6 @@ Optional repeat seed: `LEASE_FINAL_BROWSER_SEED=1 npx vitest run
 lib/asset-finance/lease-final-browser-seed.test.ts` on an owned migrated DB only.
 It writes private fixture metadata to /tmp, never repository credentials.
 Browser runner is `browser.cjs` (uses local metadata and installed Playwright).
-These screenshots precede final proof-lock/amended-rental fix integration;
-the relevant unchanged UI paths are accepted here. Final source/DB reviews and
+These screenshots repeat the accepted flows after the final proof-lock and
+amended-rental migrations on a new disposable database. Final source/DB reviews and
 full CI are recorded separately; no whole-goal completion claim is made here.
