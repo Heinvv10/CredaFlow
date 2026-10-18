@@ -284,7 +284,13 @@ suite.sequential("lender-owned asset-finance templates (real Postgres)", () => {
     const insert = (data: object) => database().assetDocumentIssuance.create({ data: { ...copy, lenderIdentity: copy.lenderIdentity as object, ...data } })
     expect(await sqlError(() => insert({ templateVersionId: archived.id }))).toMatch(/published version/)
     const cpa = await templateOf(a, "af.isa.cpa")
-    expect(await sqlError(() => insert({ templateId: cpa.id, templateKey: "af.isa.cpa", templateVersionId: cpa.currentVersionId! }))).toMatch(/does not fit the deal|exact approved content/)
+    const cpaVersion = await database().documentTemplateVersion.findUniqueOrThrow({ where: { id: cpa.currentVersionId! } })
+    // Every other field matches the CPA version exactly: only the deal's CPA status refuses it.
+    expect(await sqlError(() => insert({
+      templateId: cpa.id, templateKey: "af.isa.cpa", templateVersionId: cpaVersion.id, templateVersionNumber: cpaVersion.version,
+      templateContentSha256: cpaVersion.contentSha256, approvalBasis: cpaVersion.approvalBasis, approvedById: cpaVersion.approvedById,
+      approvedAt: cpaVersion.approvedAt, legalSignOffReference: cpaVersion.legalSignOffReference,
+    }))).toMatch(/does not fit the deal/)
     const bTemplate = await templateOf(b, "af.resolution.standard")
     expect(await sqlError(() => insert({ templateId: bTemplate.id }))).toMatch(/foreign key|published version/i)
     expect(await sqlError(() => database().assetDocumentIssuance.update({ where: { id: issued.id }, data: { pdfSha256: "2".repeat(64) } }))).toMatch(/immutable/)
@@ -341,6 +347,10 @@ suite.sequential("lender-owned asset-finance templates (real Postgres)", () => {
     expect(old.pdfStoragePath).toBeNull()
     expect(old.pdfSha256).toBe(first.pdfSha256)
     await expect(readFile(first.pdfStoragePath!)).rejects.toThrow()
+    // The superseded render input (personal data) is deleted too; its hash stays.
+    expect(old.inputStoragePath).toBeNull()
+    expect(old.inputSha256).toBe(first.inputSha256)
+    await expect(readFile(first.inputStoragePath!)).rejects.toThrow()
     const current = await database().assetDocumentIssuance.findFirstOrThrow({ where: { dealId: b.dealId, document: "AGREEMENT", supersededAt: null } })
     expect(current.templateVersionId).toBe(next.value.id)
     expect(current.pdfSha256).not.toBe(first.pdfSha256)

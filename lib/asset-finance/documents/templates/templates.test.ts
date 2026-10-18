@@ -106,6 +106,12 @@ describe("rendering lender wording", () => {
     expect(text).toContain("The Seller applies every amount it receives under this Agreement in this order")
   })
 
+  it("the CPA appendix of 7.11 still prints after the lender replaces the clause it is appended to", async () => {
+    const content = withEdits("af.isa.cpa", { clauses: { ...starter("af.isa.cpa").clauses, cession: "ALPHA CESSION: the Seller may cede this Agreement to its funder on written notice to the Purchaser." } })
+    const text = await words(await renderInstalmentSaleAgreement(data, { templateKey: "af.isa.cpa", content, mark: "DRAFT" }))
+    expect(text).toContain("ALPHA CESSION: the Seller may cede this Agreement to its funder on written notice to the Purchaser. No cession or delegation reduces a right or remedy the Purchaser has under the Consumer Protection Act.")
+  })
+
   it("prints the synthetic demo watermark, never the draft one, for a demo approval; nothing for a legal approval", async () => {
     const demo = await texts(await renderInstalmentSaleAgreement(data, { templateKey: "af.isa.cpa", content: own, mark: "SYNTHETIC_DEMO" }))
     expect(demo).toContain(SYNTHETIC_DEMO_WATERMARK)
