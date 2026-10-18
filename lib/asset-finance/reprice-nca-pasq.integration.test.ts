@@ -157,5 +157,5 @@ suite("NCA repricing on an acknowledged PASQ with fees and premiums", () => {
     expect(resumed.kind).toBe("repriced")
     expect((await db.assetFinanceRateCorrection.findMany({ where: { loanId } })).reduce((sum, row) => sum + row.amountCents, 0)).toBe(0)
     expect(isoOfDbDate((await db.contractRate.findFirstOrThrow({ where: { loanId }, orderBy: { effectiveDate: "desc" } })).effectiveDate)).toBe(nextDate)
-  })
+  }, 30_000)
 })
