@@ -129,7 +129,7 @@ function isaShapes(cpa: boolean): DealShape[] {
     { id: "repo-partnership", label: "Partnership, repo-linked", deal: (d) => v(rate(entity(d, "PARTNERSHIP"), "REPO")) },
     { id: "jibar", label: "JIBAR-linked", deal: (d) => v(rate(d, "JIBAR")) },
     { id: "lender-base", label: "Linked to the lender's base rate", deal: (d) => v(rate(d, "LENDER_BASE")) },
-    { id: "below-reference", label: "Margin below the reference rate, default interest at the contract rate", deal: (d) => v({ ...d, pricing: { ...d.pricing, rateMargin: "-0.005", arrearsMarginRate: "0" } }) },
+    { id: "below-reference", label: "Margin below the reference rate, default interest at the contract rate, purchaser address not recorded", deal: (d) => v({ ...d, entity: { ...d.entity, addressLines: [] }, pricing: { ...d.pricing, rateMargin: "-0.005", arrearsMarginRate: "0" } }) },
   ]
 }
 

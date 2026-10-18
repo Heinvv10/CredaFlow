@@ -6,7 +6,8 @@
  * CredaFlow can change that sentence without any fingerprint changing and
  * without the lender re-approving.
  *
- * DEFECT tests fail on feat/lender-owned-templates 1ca53233.
+ * DEFECT tests failed on feat/lender-owned-templates 1ca53233 and pass since
+ * the shapes added in 4d00131d and the no-address shape after it.
  */
 import { describe, expect, it } from "vitest"
 import { renderNcaAssetAgreement } from "../nca/agreement-pdf"
@@ -49,7 +50,7 @@ const NCA_WITH_CREDIT_LIFE: NcaAssetDocumentData = {
 const base = () => syntheticDealDocumentData({ lender: LENDER })
 const isa = (d: DealDocumentData): DealDocumentData => ({ ...d, isaCpaApplies: false })
 
-describe("DEFECT: protected sentences that no preview shape (so no fingerprint) reaches", () => {
+describe("FIXED: protected sentences a preview shape (so the fingerprint) now reaches", () => {
   it("af.nca.finance_lease: the credit-life clause 4.3 of a consumer who elected cover", async () => {
     const sentence = "The Consumer has elected credit-life cover"
     const key = "af.nca.finance_lease"

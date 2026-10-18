@@ -16,8 +16,8 @@ import { previewShapes, renderTemplatePreview } from "./preview"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
 
 const PINNED: Record<string, string> = {
-  "af.isa.commercial": "eaa18d5e6975d1c61c01eddf00278944bfe69022694fdf1d6364a146cf7fa0cd",
-  "af.isa.cpa": "d00def8714fb50d147df48515555b1b239f3f46438708a6c6f29eaa48ee555cb",
+  "af.isa.commercial": "99337242e1014e6e62265185e669b1604b0183f453b463c97533a697621f2910",
+  "af.isa.cpa": "ebe0d4c172fd638bca5073e05d47994761966fb927c2d58b3f6732636c909cec",
   "af.lease.operating.commercial": "35e5aa47a9a7000009689ab7311b1e7db496ab36401427034d5298fc8fd424aa",
   "af.lease.operating.cpa": "71a374227ddba1b2c26b80e7160c6b5356fd62ebbeb2710ed47f6a9cc61ec13e",
   "af.lease.fml.commercial": "48a1b86406ebb48d01f5646e4bbf9e663e83984d5d3e5e7c7ec4030d98fb248b",
@@ -58,7 +58,7 @@ describe("protected-output fingerprints", () => {
   // appear in some fingerprinted shape, or a change to it would not lapse
   // approvals. Add a marker (and a shape) when adding a branch.
   const BRANCHES: Record<string, string[]> = {
-    "af.isa.commercial": ["fixed for the whole term", "ZARONIA", "Repo", "JIBAR", "below the reference rate", "the Contract Rate in force from time to time.", "No default interest is charged", "No collection fee is charged"],
+    "af.isa.commercial": ["fixed for the whole term", "ZARONIA", "Repo", "JIBAR", "below the reference rate", "the Contract Rate in force from time to time.", "No default interest is charged", "No collection fee is charged", "address notified to the Seller in writing"],
     "af.lease.fml.commercial": ["The rental does not escalate", "which does not escalate", "km a year", "hours a year", "No default interest is charged on late payments", "monthly in advance", "keeps any surplus in the fund"],
     "af.lease.operating.cpa": ["section 14", "No usage limit is contracted", "km a year"],
     "af.nca.instalment_sale": ["Credit Life Insurance Regulations", "No credit-life premium is payable", "a small agreement", "a large agreement", "fixed for the whole term"],
