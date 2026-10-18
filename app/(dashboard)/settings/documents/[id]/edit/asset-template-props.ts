@@ -2,11 +2,11 @@
 // the family's editable surface, read for the signed-in lender only.
 import { prisma } from "@/lib/prisma"
 import { parseContent } from "@/lib/asset-finance/documents/templates/content"
-import { additionalTermNumber, parseTemplateKey, STARTER_REVISION } from "@/lib/asset-finance/documents/templates/families"
+import { additionalTermNumber, editableClauses, parseTemplateKey, STARTER_REVISION, takesLenderText } from "@/lib/asset-finance/documents/templates/families"
 import { ASSET_TEMPLATE_TOKENS } from "@/lib/asset-finance/documents/templates/tokens"
 import type { AssetTemplateEditorProps } from "./asset-template-types"
 
-export async function assetTemplateEditorProps(tenantId: string, templateId: string, templateKey: string, currentUserId: string): Promise<AssetTemplateEditorProps> {
+export async function assetTemplateEditorProps(tenantId: string, templateId: string, templateKey: string, currentUserId: string, currentUserRole: string): Promise<AssetTemplateEditorProps> {
   const key = parseTemplateKey(templateKey)
   if (!key) throw new Error(`Not an asset-finance template: ${templateKey}`)
   // DocumentTemplateVersion has no tenantId: scoped by the caller's verified template.
@@ -17,15 +17,19 @@ export async function assetTemplateEditorProps(tenantId: string, templateId: str
   const ids = [...new Set(versions.flatMap((v) => [v.createdById, v.approvedById, v.activatedById]).filter((u): u is string => !!u))]
   const users = await prisma.user.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true, email: true } })
   const who = (id: string | null) => (id ? users.find((u) => u.id === id)?.name?.trim() || users.find((u) => u.id === id)?.email || "Unknown user" : null)
-  const editableNumbers = key.family.editable.map((c) => c.number)
+  const editableNumbers = editableClauses(key).map((c) => c.number)
   return {
     templateId, templateKey,
     variantLabel: key.family.variants.find((v) => v.variant === key.variant)?.label ?? key.variant,
-    editable: key.family.editable.map((c) => ({ id: c.id, number: c.number, heading: c.heading, starter: c.starter, requiredTokens: [...c.requiredTokens] })),
-    protectedSummary: `Every section, particular, figure and schedule, the statutory and Consumer Protection Act notices, and every numbered clause${editableNumbers.length ? ` except ${editableNumbers.join(", ")}` : ""} are printed by the system from the deal.`,
+    editable: editableClauses(key).map((c) => ({ id: c.id, number: c.number, heading: c.heading, starter: c.starter, requiredTokens: [...c.requiredTokens] })),
+    protectedSummary: takesLenderText(key)
+      ? `Every section, particular, figure and schedule, the statutory and Consumer Protection Act notices, and every numbered clause except ${editableNumbers.join(", ")} are printed by the system from the deal.`
+      : "This document takes no lender text: its wording is the protected starter (Consumer Protection Act, National Credit Act, suretyship and resolution formalities). Your version approves that wording for your lender.",
+    takesLenderText: takesLenderText(key),
     tokens: key.family.tokens.map((token) => ({ token, label: ASSET_TEMPLATE_TOKENS[token] })),
     firstAdditionalNumber: additionalTermNumber(key.family, key.variant, 0),
     currentUserId,
+    currentUserRole,
     isDemoLender: config?.isDemoLender === true,
     starterRevision: STARTER_REVISION,
     versions: versions.flatMap((v) => {

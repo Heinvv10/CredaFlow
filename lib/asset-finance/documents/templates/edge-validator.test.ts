@@ -3,8 +3,8 @@
  * feeds (docs/asset-finance/evidence/lender-owned-templates/SPEC.md §2
  * "Lender text validation"). Pure unit tests: no database.
  *
- * DEFECT tests fail on feat/lender-owned-templates db87ae79; GUARD tests pass
- * and pin attacks that did not break the code.
+ * DEFECT tests failed on feat/lender-owned-templates db87ae79 and pass since
+ * the review-round-1 fixes; GUARD tests pin attacks that did not break the code.
  */
 import { PDFDocument, StandardFonts } from "pdf-lib"
 import { describe, expect, it } from "vitest"
@@ -56,24 +56,27 @@ describe("DEFECT: references to clauses that do not exist (SPEC: `clause N.M` mu
 })
 
 describe("DEFECT: approved lender text the renderer cannot show", () => {
-  it("a 3,990-character unbroken word passes validation but prints off the page, so the signer never sees most of it", async () => {
-    const content = withTerm("A".repeat(3990), "Long reference", "af.resolution.standard")
-    expect(contentProblems("af.resolution.standard", content)).toEqual([])
-    const pdf = await renderTemplatePreview("af.resolution.standard", content, lender)
+  it("FIXED: a 3,990-character unbroken word is refused, and the longest word allowed prints whole", async () => {
+    expect(contentProblems(KEY, withTerm("A".repeat(3990), "Long reference")).map((p) => p.message).join()).toMatch(/word may be at most 30 characters/)
+    const content = withTerm(`${"W".repeat(30)} is the longest word a lender may write.`, "Long reference")
+    expect(contentProblems(KEY, content)).toEqual([])
+    const pdf = await renderTemplatePreview(KEY, content, lender)
     const font = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica)
+    expect((await texts(pdf)).some((run) => run.includes("W".repeat(30)))).toBe(true)
     const widest = Math.max(...(await texts(pdf)).map((run) => font.widthOfTextAtSize(run, 9)))
     expect(widest).toBeLessThanOrEqual(A4_WIDTH)
   }, 60_000)
 
-  it("an 80-character heading (the maximum the validator allows) is never wrapped and runs off the page", async () => {
-    const heading = "W".repeat(80)
-    const content = withTerm("A perfectly ordinary additional term of the lender.", heading, "af.resolution.standard")
-    expect(contentProblems("af.resolution.standard", content)).toEqual([])
-    const pdf = await renderTemplatePreview("af.resolution.standard", content, lender)
+  it("FIXED: an 80-character heading is refused, and the longest heading allowed prints within the page", async () => {
+    expect(contentProblems(KEY, withTerm("A perfectly ordinary additional term of the lender.", "W".repeat(80))).map((p) => p.message).join()).toMatch(/At most 50 characters/)
+    const heading = "W".repeat(50)
+    const content = withTerm("A perfectly ordinary additional term of the lender.", heading)
+    expect(contentProblems(KEY, content)).toEqual([])
+    const pdf = await renderTemplatePreview(KEY, content, lender)
     const bold = await (await PDFDocument.create()).embedFont(StandardFonts.HelveticaBold)
     const run = (await texts(pdf)).find((t) => t.includes(heading))!
     expect(run).toBeDefined()
-    expect(40 + bold.widthOfTextAtSize(run, 9)).toBeLessThanOrEqual(A4_WIDTH)
+    expect(40 + bold.widthOfTextAtSize(run, 9)).toBeLessThanOrEqual(A4_WIDTH - 40)
   }, 60_000)
 })
 

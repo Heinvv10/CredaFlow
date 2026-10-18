@@ -100,6 +100,17 @@ export async function selectIssuableTemplate(db: Db, tenantId: string, templateK
   }
 }
 
+/**
+ * An NCA agreement under a lender's legal approval may not follow a quotation
+ * still stamped DRAFT: the quotation's wording is governed by
+ * TenantConfig.assetFinanceLegalWordingApproved (system notices and quotations).
+ */
+export function ncaQuoteMarkProblem(selected: Pick<SelectedTemplate, "approvalBasis">, quoteWordingApproved: boolean): string | null {
+  return selected.approvalBasis === "LENDER_LEGAL" && !quoteWordingApproved
+    ? "The NCA quotation wording is not yet approved for your lender, so an unwatermarked agreement cannot follow it. CredaFlow records that approval once your legal team signs off the quotation and notices."
+    : null
+}
+
 type Tx = Pick<Parameters<Parameters<typeof prisma.$transaction>[0]>[0], "$queryRaw" | "assetDocumentIssuance">
 
 /** Inside the issuing transaction: the version selected is still the one published (shared lock against a concurrent publish). */

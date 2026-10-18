@@ -43,9 +43,14 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
       actions={actions}
       density="loose"
     >
-      {!panel.legalWordingApproved && (
+      {panel.syntheticDemo && (
         <p className="mb-3 rounded-md border border-[var(--cf-warning)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-warning)]">
-          The lender&apos;s legal wording is not approved: every document carries placeholder clauses and a DRAFT — NOT FOR EXECUTION watermark.
+          Issued from a synthetic demo approval: every page carries SYNTHETIC DEMO — NOT LEGALLY APPROVED. Not for execution with a real borrower.
+        </p>
+      )}
+      {panel.preparedBeforeTemplates && (
+        <p className="mb-3 rounded-md border border-[var(--cf-warning)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-warning)]">
+          Some documents were prepared before your lender templates. Prepare them again before they are signed.
         </p>
       )}
       {panel.signers.length === 0 ? (
@@ -70,7 +75,12 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
                 const awaiting = s.state === "AWAITING_CONFIRMATION"
                 return (
                   <tr key={s.id} className="border-b border-[var(--cf-border-subtle)] align-top">
-                    <td className="py-2 pr-3 text-[var(--cf-text)]">{DEAL_DOCUMENT_LABELS[s.document]}</td>
+                    <td className="py-2 pr-3 text-[var(--cf-text)]">
+                      {DEAL_DOCUMENT_LABELS[s.document]}
+                      <p className="mt-1 text-xs text-[var(--cf-text-muted)]">
+                        {s.template ? `Template version ${s.template.version}${s.template.approvalBasis === "SYNTHETIC_DEMO" ? " (synthetic demo)" : ""}` : "Prepared before templates"}
+                      </p>
+                    </td>
                     <td className="py-2 pr-3 text-[var(--cf-text)]">{s.name}</td>
                     <td className="py-2 pr-3">
                       <StatusPill tone={STATE_TONE[s.state]}>{SIGNER_STATE_LABELS[s.state]}</StatusPill>

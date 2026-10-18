@@ -51,7 +51,8 @@ function textProblems(field: string, text: string, limits: { min: number; max: n
   for (const match of text.matchAll(CLAUSE_REFERENCE)) for (const n of [match[1], ...(match[2].match(/\d+(?:\.\d+)?/g) ?? [])]) cited.add(n)
   for (const match of text.matchAll(DOTTED_NUMBER)) cited.add(match[0])
   for (const n of cited) if (!citable.has(n)) add(`Clause ${n} does not exist in this document`)
-  if (text.split(/\s+/).some((word) => word.length > MAX_WORD)) add(`A word may be at most ${MAX_WORD} characters, or it would run off the page`)
+  // A heading is bounded by its own length (MAX_HEADING); body text by word.
+  if (!field.endsWith(".heading") && text.split(/\s+/).some((word) => word.length > MAX_WORD)) add(`A word may be at most ${MAX_WORD} characters, or it would run off the page`)
   return out
 }
 

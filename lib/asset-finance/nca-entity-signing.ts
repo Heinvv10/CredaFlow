@@ -10,7 +10,7 @@ import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
 import type { NcaAssetDocumentData } from "./documents/nca/types"
 import {
-  issuedWording, lockSelectedTemplate, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, supersedeIssuances, templateKeyFor,
+  issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, TemplateNotIssuableError, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, supersedeIssuances, templateKeyFor,
   type PreparedIssuance, type SelectedTemplate,
 } from "./documents/templates/issuance"
 import { dbDate } from "./dates"
@@ -114,6 +114,8 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       if (stored.has(documentKey)) continue
       if (signer.document === "AGREEMENT") {
         const chosen = await template(ncaTemplateKey(deal.contractType))
+        const quoteProblem = ncaQuoteMarkProblem(chosen, authorityData.legalWordingApproved)
+        if (quoteProblem) throw new TemplateNotIssuableError(quoteProblem)
         const bytes = await renderNcaAssetAgreement(ncaData, issuedWording(chosen))
         stored.set(documentKey, await storeIssuanceFiles(chosen, { kind: "nca", document: "AGREEMENT", clientId: signer.clientId, data: ncaData }, bytes))
       } else {

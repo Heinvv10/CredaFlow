@@ -375,7 +375,7 @@ BEGIN
       IF NEW."issuanceId" IS NULL THEN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document prepared before lender templates is prepared again before it is signed';
       END IF;
-      IF EXISTS (SELECT 1 FROM "AssetDocumentIssuance" i WHERE i."id" = NEW."issuanceId" AND i."tenantId" = NEW."tenantId" AND i."supersededAt" IS NOT NULL) THEN
+      IF EXISTS (SELECT 1 FROM "AssetDocumentIssuance" iss WHERE iss."id" = NEW."issuanceId" AND iss."tenantId" = NEW."tenantId" AND iss."supersededAt" IS NOT NULL) THEN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A superseded document is not signed';
       END IF;
     END IF;

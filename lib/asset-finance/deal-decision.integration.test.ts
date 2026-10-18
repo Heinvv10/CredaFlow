@@ -75,6 +75,9 @@ const REASONS = ["DSCR 1.8 on audited AFS", "Directors' bureau records clean"]
 suite.sequential("asset-finance deal decision (real Postgres, real routes)", () => {
   beforeAll(async () => {
     fx = await createDealFixture(database(), t)
+    // The fixture lender's agreements carry a (test-fixture) legal approval; an
+    // NCA agreement under one may follow only an approved quotation wording.
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: true } })
   })
 
   afterAll(async () => {

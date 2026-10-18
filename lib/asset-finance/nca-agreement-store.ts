@@ -11,7 +11,7 @@ import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
 import type { NcaAssetDocumentData } from "./documents/nca/types"
 import {
-  issuedWording, lockSelectedTemplate, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, TemplateNotIssuableError,
+  issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, TemplateNotIssuableError,
   type SelectedTemplate,
 } from "./documents/templates/issuance"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
@@ -64,6 +64,8 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     if (error instanceof TemplateNotIssuableError) return { kind: "not_ready", reason: error.message }
     throw error
   }
+  const quoteProblem = ncaQuoteMarkProblem(template, approved)
+  if (quoteProblem) return { kind: "not_ready", reason: quoteProblem }
   const wording = issuedWording(template)
   const generatedAt = new Date(evidence.calculator.startDate)
   const ncaData: NcaAssetDocumentData = {
@@ -147,8 +149,10 @@ export async function signAssetNcaAgreement(args: { tenantId: string; clientId: 
   // Signing OTP (lib/signing-otp): bound to the AGREEMENT signer row (its
   // digest is the agreement's, set when issued) and these bytes; checked
   // here, spent first in the transaction.
-  const signer = await prisma.dealSigner.findFirst({ where: { tenantId: args.tenantId, dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, select: { id: true } })
+  const signer = await prisma.dealSigner.findFirst({ where: { tenantId: args.tenantId, dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, select: { id: true, issuanceId: true } })
   if (!signer) return { kind: "not_found" }
+  // Issued before lender templates: not signable (the database refuses it too); the lender re-issues it.
+  if (!signer.issuanceId) return { kind: "not_ready", reason: "This agreement was issued before the lender's templates and cannot be signed; the deal must be originated again" }
   const otpBinding = { tenantId: args.tenantId, clientId: args.clientId, purpose: "DEAL_DOCUMENT" as const, subjectId: signer.id, documentSha256: args.documentSha256 }
   const otpRequired = await isSigningOtpRequired(args.tenantId, "portal")
   if (otpRequired) {

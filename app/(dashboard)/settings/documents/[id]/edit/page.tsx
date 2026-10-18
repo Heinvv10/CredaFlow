@@ -33,7 +33,7 @@ export default async function EditDocumentTemplatePage({
     redirect("/settings/documents")
   }
   if (template.kind === "ASSET_FINANCE") {
-    const props = await assetTemplateEditorProps(tenantId, template.id, template.key, user.id)
+    const props = await assetTemplateEditorProps(tenantId, template.id, template.key, user.id, user.role)
     return (
       <div className="p-6 lg:p-8">
         <div className="mb-6">

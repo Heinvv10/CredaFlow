@@ -35,9 +35,11 @@ export interface AssetTemplateEditorProps {
   variantLabel: string
   editable: EditableClauseView[]
   protectedSummary: string
+  takesLenderText: boolean
   tokens: { token: string; label: string }[]
   firstAdditionalNumber: string
   currentUserId: string
+  currentUserRole: string
   isDemoLender: boolean
   starterRevision: string
   versions: AssetVersionView[]

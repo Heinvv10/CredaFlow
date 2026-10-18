@@ -76,6 +76,14 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: draft, approvalBasis: basis }) }), expect.anything())
   })
 
+  it("refuses an agreement under a legal approval while the quotation wording is still DRAFT (nothing rendered)", async () => {
+    m.approved.mockResolvedValue(false)
+    m.select.mockResolvedValue(selected("LENDER_LEGAL"))
+    const result = await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")
+    expect(result).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/quotation wording is not yet approved/) })
+    expect(m.render).not.toHaveBeenCalled()
+  })
+
   it("refuses with the reason, renders nothing and writes nothing without an issuable template (the flag does not help)", async () => {
     m.approved.mockResolvedValue(true)
     const { TemplateNotIssuableError } = await import("./documents/templates/issuance")

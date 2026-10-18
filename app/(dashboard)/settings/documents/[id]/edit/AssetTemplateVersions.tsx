@@ -22,13 +22,17 @@ function ApprovalForm({ version, props, previewedSha, done }: {
   version: AssetVersionView; props: AssetTemplateEditorProps; previewedSha: string | null; done: () => void
 }) {
   const [attested, setAttested] = useState(false)
+  const [signedOff, setSignedOff] = useState(false)
   const [reference, setReference] = useState("")
   const [busy, setBusy] = useState(false)
   if (!previewedSha) return <p className="text-xs text-[var(--cf-text-muted)]">Preview this version to approve it.</p>
+  if (!props.isDemoLender && props.currentUserRole !== "SUPER_ADMIN") {
+    return <p className="text-xs text-[var(--cf-text-muted)]">A legal approval is recorded by a SUPER_ADMIN of your lender.</p>
+  }
   const submit = async () => {
     setBusy(true)
     const result = await approve(props.templateId, version.id, {
-      contentSha256: previewedSha, attestation: attested, ...(props.isDemoLender ? {} : { legalSignOffReference: reference }),
+      contentSha256: previewedSha, attestation: attested, ...(props.isDemoLender ? {} : { legalSignOff: signedOff, legalSignOffReference: reference }),
     })
     setBusy(false)
     if (!result.ok) return toast.error(result.error)
@@ -44,10 +48,16 @@ function ApprovalForm({ version, props, previewedSha, done }: {
       {props.isDemoLender ? (
         <p className="text-xs text-[var(--cf-warning)]">Demo lender: this records a synthetic demo approval, not a legal approval. Issued documents keep a demo watermark.</p>
       ) : (
+        <>
+        <label className="flex items-start gap-2 text-xs text-[var(--cf-text-secondary)]">
+          <input type="checkbox" checked={signedOff} onChange={(e) => setSignedOff(e.target.checked)} className="mt-0.5" />
+          Our legal team signed off version {version.version} (sha256 {previewedSha.slice(0, 12)}…) in writing. Issued documents will carry no DRAFT mark.
+        </label>
         <input aria-label="Legal sign-off reference" placeholder="Your legal team's sign-off reference" value={reference} onChange={(e) => setReference(e.target.value)}
           className="w-full border border-[var(--cf-border-strong)] rounded-lg px-2 py-1 text-xs bg-[var(--cf-bg-panel)] text-[var(--cf-text)]" />
+        </>
       )}
-      <Button type="button" size="sm" onClick={submit} disabled={busy || !attested}>{busy ? "Approving…" : `Approve version ${version.version}`}</Button>
+      <Button type="button" size="sm" onClick={submit} disabled={busy || !attested || (!props.isDemoLender && !signedOff)}>{busy ? "Approving…" : `Approve version ${version.version}`}</Button>
     </div>
   )
 }

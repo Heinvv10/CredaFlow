@@ -4,8 +4,8 @@
  * templates.integration.test.ts); routes, store, renderers, storage and
  * database guards are real.
  *
- * DEFECT tests fail on feat/lender-owned-templates db87ae79; GUARD tests pass
- * and pin attacks that did not break the code.
+ * DEFECT tests failed on feat/lender-owned-templates db87ae79 and pass since
+ * the review-round-1 fixes; GUARD tests pin attacks that did not break the code.
  *
  *   RUN_ASSET_TEMPLATES_EDGE_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/asset-finance/documents/templates/edge-templates.integration.test.ts --testTimeout 60000 --no-file-parallelism
@@ -30,6 +30,8 @@ import { starterContent, type AssetTemplateContent } from "./content"
 import { parseTemplateKey } from "./families"
 import { approveVersion, createDraftVersion, publishVersion, type TemplateActor } from "./store"
 import { FIXTURE_SIGN_OFF_REFERENCE } from "./templates.integration-fixture"
+import { takesLenderText } from "./families"
+import { legalActor, legalInput } from "./templates-it.helpers"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string; totpVerified?: boolean } } },
@@ -78,12 +80,13 @@ const startOf = async (dealId: string) => {
   const deal = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { firstDueDate: true } })
   return dealStartDate(isoOfDbDate(deal.firstDueDate))
 }
-/** A new edited draft of `key`, approved by adminB and published by adminA. */
+/** A new draft of `key` (edited where the variant takes lender text), legally approved by the SUPER_ADMIN and published by adminA. */
 async function publishEdit(fx: SigningFixture, key: string, marker: string): Promise<string> {
   const template = await templateOf(fx, key)
-  const d = await createDraftVersion(actor(fx, fx.adminA), template.id, { content: edited(key, marker) })
+  const content = takesLenderText(parseTemplateKey(key)!) ? edited(key, marker) : starterContent(parseTemplateKey(key)!)
+  const d = await createDraftVersion(actor(fx, fx.adminA), template.id, { content })
   if (!d.ok) throw new Error(d.error)
-  const ap = await approveVersion(actor(fx, fx.adminB), template.id, d.value.id, { contentSha256: d.value.contentSha256, attestation: true, legalSignOffReference: FIXTURE_SIGN_OFF_REFERENCE })
+  const ap = await approveVersion(await legalActor(database(), fx.tenantId), template.id, d.value.id, legalInput(d.value.contentSha256))
   if (!ap.ok) throw new Error(ap.error)
   const pub = await publishVersion(actor(fx, fx.adminA), template.id, d.value.id)
   if (!pub.ok) throw new Error(pub.error)
@@ -124,7 +127,7 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
 
   // ---------------------------------------------------------------- DEFECTS
 
-  it("DEFECT: a commercial (non-NCA) finance-lease deal can no longer be prepared: the app picks af.isa.*, the database refuses it, and the route throws", async () => {
+  it("FIXED (edge defect 1): a commercial (non-NCA) finance-lease deal can no longer be prepared: the app picks af.isa.*, the database refuses it, and the route throws", async () => {
     signIn(a, a.officer, "CREDIT_OFFICER")
     const routes = dealRoutes(a.host)
     const created = await routes.create({
@@ -174,7 +177,7 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
     expect(status, `agreement keys that fit this deal: ${JSON.stringify(rootCause)}`).toBe(200)
   }, 120_000)
 
-  it("DEFECT: a CUSTOM letter created with an asset-finance key squats it: adoption reports it 'existing' and the lender can never issue that document", async () => {
+  it("FIXED (edge defect 6): an af.* key cannot be squatted by a custom letter, so adoption creates the asset-finance template", async () => {
     // A lender that has not adopted any asset-finance family yet.
     const tenantId = `t_af_edge_squat_${ta}`
     const host = `af-edge-squat-${ta}.deal-it.test`
@@ -185,7 +188,7 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
     const fx = { tenantId, host } as SigningFixture
     signIn(fx, admin, "LOAN_ADMIN")
     const custom = await createTemplateRoute(req(fx, "/api/documents/templates", { name: "Lease cession letter", key: "af.lease.fml.cpa" }))
-    expect(custom.status).toBe(201)
+    expect(custom.status).toBe(422)
     const adopted = await adoptRoute(req(fx, "/api/documents/templates/asset-finance/adopt", { family: "af.lease.fml" }))
     const body = await adopted.json() as { created?: string[]; existing?: string[] }
     expect(await database().documentTemplate.count({ where: { tenantId, key: "af.lease.fml.cpa", kind: "ASSET_FINANCE" } }), JSON.stringify(body)).toBe(1)
@@ -193,7 +196,7 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
     expect(body.existing ?? []).not.toContain("af.lease.fml.cpa")
   })
 
-  it("DEFECT: the database lets a deal signer sign bytes whose issuance has been superseded", async () => {
+  it("FIXED (edge defect 7): the database refuses a deal signer signing bytes whose issuance has been superseded", async () => {
     signIn(b, b.officer, "CREDIT_OFFICER")
     expect((await signingRoutes(b.host).prepare(b.dealId, { plannedStartDate: await startOf(b.dealId) })).status).toBe(200)
     const signer = await database().dealSigner.findFirstOrThrow({ where: { dealId: b.dealId, document: "RESOLUTION" } })
@@ -210,12 +213,12 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
       ])
     }
     expect(refused, "the signature on a superseded issuance was accepted").not.toBeNull()
-    expect(refused).toMatch(/current issuance|superseded/)
+    expect(refused).toMatch(/superseded document is not signed/)
   })
 
-  it("DEFECT (defence in depth): the database accepts a CREDIT_OFFICER as approver and publisher of legal wording (SPEC: a different admin)", async () => {
+  it("FIXED (edge defect 8): the database refuses a CREDIT_OFFICER as approver of legal wording", async () => {
     const template = await templateOf(b, "af.resolution.standard")
-    const d = await createDraftVersion(actor(b, b.adminA), template.id, { content: edited("af.resolution.standard", "OFFICER") })
+    const d = await createDraftVersion(actor(b, b.adminA), template.id, { content: starterContent(parseTemplateKey("af.resolution.standard")!) })
     if (!d.ok) throw new Error(d.error)
     const refusedApproval = await sqlError(() => database().documentTemplateVersion.update({ where: { id: d.value.id }, data: {
       approvedById: b.officer, approvedAt: new Date(), approvedContentSha256: d.value.contentSha256, approvalBasis: "LENDER_LEGAL",
@@ -237,7 +240,7 @@ suite.sequential("EDGE: lender-owned asset-finance templates (real Postgres)", (
     expect((await previewRoute(req(a, `/api/documents/templates/${aIsa.id}/preview`, { versionId: bVersion.id }), p({ id: aIsa.id }))).status).toBe(404)
     expect((await versionsRoute(req(a, `/api/documents/templates/${bIsa.id}/versions`, { content: edited("af.isa.commercial", "X") }), p({ id: bIsa.id }))).status).toBe(404)
     signIn(a, a.adminB, "LOAN_ADMIN")
-    const body = { contentSha256: bVersion.contentSha256, attestation: true, legalSignOffReference: FIXTURE_SIGN_OFF_REFERENCE }
+    const body = legalInput(bVersion.contentSha256)
     expect((await approveRoute(req(a, "/x", body), p({ id: bIsa.id, versionId: bVersion.id }))).status).toBe(404)
     expect((await approveRoute(req(a, "/x", body), p({ id: aIsa.id, versionId: bVersion.id }))).status).toBe(404)
     expect((await publishRoute(req(a, "/x", {}), p({ id: bIsa.id, versionId: bVersion.id }))).status).toBe(404)

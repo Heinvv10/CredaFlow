@@ -73,7 +73,7 @@ export function AssetTemplateEditor(props: AssetTemplateEditorProps) {
           </div>
         ))}
 
-        <div className={card}>
+        {props.takesLenderText && <div className={card}>
           <div className="flex items-center justify-between">
             <h2 className={label}>Additional terms (printed from clause {props.firstAdditionalNumber})</h2>
             <Button type="button" variant="outline" size="sm" disabled={content.additionalTerms.length >= 10}
@@ -94,7 +94,7 @@ export function AssetTemplateEditor(props: AssetTemplateEditorProps) {
             </div>
           ))}
           {problemFor("additionalTerms").filter((p) => p.field === "additionalTerms").map((p, i) => <p key={i} role="alert" className="text-xs text-[var(--cf-danger)] mt-2">{p.message}</p>)}
-        </div>
+        </div>}
 
         <div className={card}>
           <label htmlFor="draft-notes" className={label}>What changed (saved with the draft)</label>
@@ -116,7 +116,7 @@ export function AssetTemplateEditor(props: AssetTemplateEditorProps) {
               <li key={t.token} className="text-xs text-[var(--cf-text-secondary)]"><code className="font-mono">{`{{${t.token}}}`}</code> — {t.label}</li>
             ))}
           </ul>
-          <p className="text-xs text-[var(--cf-text-muted)] mt-2">Amounts, rates and percentages are refused: every figure comes from the deal.</p>
+          <p className="text-xs text-[var(--cf-text-muted)] mt-2">Amounts, rates, percentages, fees, charges and wording that overrides, varies or waives the protected terms are refused.</p>
         </div>
       </div>
     </div>
