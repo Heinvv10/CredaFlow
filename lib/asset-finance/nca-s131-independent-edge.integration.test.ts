@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, recoveryFixtureTenantId, type RecoveryFixture } from "./recovery.integration-fixture"
+import { cleanupRecoveryFixture, courtMatter, createRecoveryFixture, day, newLoan, newRecovery, newValuation, recoveryFixtureTenantId, type RecoveryFixture } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { determineSurplusRecipient } from "./nca-surplus.integration-fixture"
 import { approveSurplusAccount, recordSurplusAccount } from "./nca-surplus-account"
@@ -26,9 +26,10 @@ const proof = (label: string) => ({ file: new File([`%PDF-1.4 TEST synthetic ${l
   async function attachment() {
     const loan = await newLoan(d(), fx, "NCA")
     const recoveryId = await newRecovery(d(), fx, loan, "NCA_S131_ATTACHMENT", { legalMatterId: await courtMatter(d(), fx, loan) })
+    const valuationId = await newValuation(d(), fx, loan.assetId, 312345)
     await testSetup(d(),
       [`UPDATE "Loan" SET "status"='COMPLETED' WHERE "id"=$1`, loan.loanId],
-      [`UPDATE "Recovery" SET "status"='PROCEEDS_APPLIED',"settlementDueCents"=300000,"grossProceedsCents"=312345,"deductedCostsCents"=0,"chargedCostsCents"=0,"netProceedsCents"=312345,"shortfallCents"=0,"surplusCents"=12345,"unrecoverableCostsCents"=0,"chargesFrozenFrom"=$2::date WHERE "id"=$1`, recoveryId, day(0)])
+      [`UPDATE "Recovery" SET "status"='PROCEEDS_APPLIED',"settlementDueCents"=300000,"grossProceedsCents"=312345,"deductedCostsCents"=0,"chargedCostsCents"=0,"netProceedsCents"=312345,"shortfallCents"=0,"surplusCents"=12345,"unrecoverableCostsCents"=0,"chargesFrozenFrom"=$2::date,"valuationId"=$3 WHERE "id"=$1`, recoveryId, day(0), valuationId])
     await determineSurplusRecipient(fx, loan.loanId)
     return { loanId: loan.loanId, recoveryId, amountCents: 12345 }
   }
