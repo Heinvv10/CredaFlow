@@ -40,6 +40,7 @@ import { scheduleOrigination } from "./simulate/origination-events"
 import { buildPlans } from "./simulate/plan"
 import { report } from "./simulate/report"
 import { scheduleSeedBook } from "./simulate/seed-book"
+import { continueSeedRecovery } from "./simulate/seed-recovery"
 import { planServicing, scheduleArrangementPayments } from "./simulate/servicing"
 import { loadState, newState, saveState } from "./simulate/state"
 import { simWindow } from "./simulate/window"
@@ -121,6 +122,7 @@ async function main(): Promise<void> {
     }
   }
 
+  await continueSeedRecovery(sim)
   await deactivateEmailConfig(actors)
   const passed = await report(state, window)
   const minutes = ((Date.now() - started) / 60_000).toFixed(1)
