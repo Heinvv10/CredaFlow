@@ -112,7 +112,7 @@ describe("loanSettlementFigures", () => {
     loadChargesReplay.mockResolvedValue({
       defaultChargesLive: false, stoppedCertifiedCostIds: ["cost-new"],
       result: result({ postings: [{ type: "COLLECTION_FEE", day: "2026-09-01", amount: 40_000 }, { type: "RECOVERY_COST", sourceId: "cost-new", day: "2026-09-25", amount: 15_000 }], feesAccrued: 55_000, feesPaid: 10_000, feesOutstanding: 15_000, scheduleAllocated: 42_000,
-        scheduleRows: [{ paid: 42_000 }] }),
+        scheduleRows: [{ paid: 42_000, completedBy: null }] }),
       goLive: new Date("2026-01-01"), accrueFrom: null,
       loan: { defaultChargesExempt: false, defaultChargesExemptReason: null, repaymentSchedule: loan.repaymentSchedule },
     })
