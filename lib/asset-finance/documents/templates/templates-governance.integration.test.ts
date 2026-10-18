@@ -22,6 +22,7 @@ import { canonicalContent, starterContent } from "./content"
 import { parseTemplateKey } from "./families"
 import { systemFingerprint } from "./fingerprint"
 import { selectIssuableTemplate } from "./issuance"
+import { ensureSyntheticTemplates } from "@/prisma/seed/asset-finance-templates"
 import { adoptStarter, approveVersion, createDraftVersion, publishVersion, type TemplateActor } from "./store"
 import { draftApprovePublish, edited, latest, legalActor, legalInput, sqlError, templateOf, templateRoutes } from "./templates-it.helpers"
 
@@ -35,8 +36,10 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? new PrismaClient() : null
 const ta = randomUUID().replaceAll("-", "").slice(0, 16)
 const tb = randomUUID().replaceAll("-", "").slice(0, 16)
+const tc = randomUUID().replaceAll("-", "").slice(0, 16)
 let a: DealFixture
 let b: DealFixture
+let c: DealFixture
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_TEMPLATES_IT=1 is required")
@@ -60,6 +63,7 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
     if (!db) return
     await cleanupDealFixture(db, a ?? { tenantId: dealFixtureTenantId(ta) })
     await cleanupDealFixture(db, b ?? { tenantId: dealFixtureTenantId(tb) })
+    await cleanupDealFixture(db, c ?? { tenantId: dealFixtureTenantId(tc) })
     await db.$disconnect()
   })
 
@@ -230,5 +234,21 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
     expect(await database().documentTemplateVersion.count({ where: { id: { in: drafts }, status: "ARCHIVED" } })).toBe(1)
     const saves = await Promise.all([1, 2, 3].map(() => createDraftVersion(actor(a, a.adminA), isa.id, { content: edited("af.isa.commercial", "SAVE") })))
     expect(new Set(saves.map((s) => (s.ok ? s.value.version : -1))).size).toBe(3)
+  })
+
+  it("the demo backfill publishes every variant with a synthetic approval, marked as seeded, idempotently, and refuses a real lender", async () => {
+    await expect(ensureSyntheticTemplates(a.tenantId, { adminOne: { id: a.adminA, email: "a@x.invalid" }, adminTwo: { id: a.adminB, email: "b@x.invalid" } }))
+      .rejects.toThrow(/only for a synthetic demo lender/)
+    c = await createDealFixture(database(), tc, { templates: false })
+    await database().tenantConfig.update({ where: { tenantId: c.tenantId }, data: { isDemoLender: true } })
+    const staff = { adminOne: { id: c.adminA, email: "a@x.invalid" }, adminTwo: { id: c.adminB, email: "b@x.invalid" } }
+    await ensureSyntheticTemplates(c.tenantId, staff)
+    await ensureSyntheticTemplates(c.tenantId, staff)
+    const versions = await database().documentTemplateVersion.findMany({ where: { template: { tenantId: c.tenantId } } })
+    expect(versions).toHaveLength(11)
+    expect(versions.every((v) => v.status === "ACTIVE" && v.approvalBasis === "SYNTHETIC_DEMO" && v.approvedById === c.adminB && v.activatedById === c.adminA)).toBe(true)
+    const audits = await database().auditLog.findMany({ where: { tenantId: c.tenantId, action: { in: ["DOCUMENT_TEMPLATE_VERSION_APPROVED", "DOCUMENT_TEMPLATE_VERSION_PUBLISHED", "ASSET_TEMPLATE_ADOPTED"] } } })
+    expect(audits).toHaveLength(33)
+    expect(audits.every((row) => (row.newValue as { via?: string }).via === "seed")).toBe(true)
   })
 })
