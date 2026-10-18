@@ -114,7 +114,7 @@ export async function answerQuestion(ctx: AskContext, ask: (prompt: string, maxT
   let last: Answered = { status: "REJECTED", text: "", rejectReason: "not asked", citations: [] }
   for (let attempt = 0; attempt < ASK_ATTEMPTS; attempt++) {
     // A second ask is told why the first plan was refused: asked the same way at temperature 0, it writes the same plan.
-    const retry = last.rejectReason?.startsWith("invalid plan") ? `\nYour previous plan was refused (${last.rejectReason}). Write a corrected plan.` : ""
+    const retry = last.rejectReason?.startsWith("invalid plan") ? `\nYour previous plan was refused (${last.rejectReason.replace(/\s+/g, " ").slice(0, 120)}). Write a corrected plan.` : ""
     const planned = runPlan(await ask(planPrompt(ctx) + retry, 400), ctx.rows)
     if (!planned.ok) {
       last = { status: "REJECTED", text: "", rejectReason: planned.reason, citations: [] }

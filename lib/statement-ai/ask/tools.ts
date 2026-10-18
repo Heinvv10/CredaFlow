@@ -44,6 +44,7 @@ export const PlanSchema = z.object({ queries: z.array(QuerySchema).max(MAX_QUERI
 
 export type Filter = z.infer<typeof FilterSchema>
 export type Query = z.infer<typeof QuerySchema>
+export type ListOrder = Extract<Query, { tool: "list" }>["order"]
 
 /** One countable row: its reference (S1-R12: statement 1, row 12), masked payee and category. */
 export interface AskRow {

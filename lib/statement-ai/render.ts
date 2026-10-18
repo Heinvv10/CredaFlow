@@ -9,7 +9,7 @@
  */
 import { z } from "zod"
 import { WITHHELD, type ExplanationFacts, type Sized, type SummaryFacts } from "./facts"
-import type { QueryResult } from "./ask/tools"
+import type { ListOrder, QueryResult } from "./ask/tools"
 
 // ── Feature A: summary claims ───────────────────────────────────────────────
 
@@ -157,6 +157,8 @@ function describeFilter(args: Record<string, unknown>): string {
 
 const rowsWord = (n: unknown) => `${n} row${n === 1 ? "" : "s"}`
 
+const ORDER_LABEL: Record<ListOrder, string> = { date: ", earliest at the top", latest: ", latest at the top", largest: ", largest amount at the top" }
+
 /** One query's result as a sentence, labelled with its id; the filter shown as the filter, never as a result. */
 export function renderResult(q: QueryResult): string {
   const what = describeFilter(q.args)
@@ -182,7 +184,7 @@ export function renderResult(q: QueryResult): string {
     }
     case "list": {
       const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${quoted(e.payee)} ${e.amount} ${e.direction}`)
-      const order = { largest: ", largest amount at the top", latest: ", latest at the top", date: ", earliest at the top" }[q.args.order as string] ?? ""
+      const order = ORDER_LABEL[q.args.order as ListOrder]
       return items.length ? `[${q.id}] Rows for ${what}${order}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
     }
   }
