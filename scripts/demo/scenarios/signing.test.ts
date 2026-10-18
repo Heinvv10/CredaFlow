@@ -38,6 +38,24 @@ describe("demo signing scenario: the borrower verifies a signing code before eac
     expect(posts[2].body).toEqual(expect.objectContaining({ signingOtpChallengeId: "otp-1", agreementDocumentSha256: PDF_SHA }))
   })
 
+  it("explicitly accepts all five current declarations only for the fresh agreement it signs", async () => {
+    const { portal, posts } = fakePortal()
+    await signAgreement(portal, persona, "app-1", "p".repeat(64))
+    expect(posts[2].body).toEqual({
+      method: "portal",
+      signature: "Test Persona",
+      agreementDocumentSha256: PDF_SHA,
+      pasqDocumentSha256: "p".repeat(64),
+      signingOtpChallengeId: "otp-1",
+      declarations: {
+        version: "portal-agreement-declarations-v1",
+        setSha256: "94948b549e9415944b73909f0dce298c5b304e8ed4f832de4e14787e5452cfd7",
+        acceptedIds: ["pasq_read", "schedule_read", "settlement_right", "terms_accepted", "information_true"],
+      },
+    })
+    expect(posts.slice(0, 2).every(({ body }) => !("declarations" in (body as object)))).toBe(true)
+  })
+
   it("binds the mandate code to the prepared draft digest", async () => {
     const { portal, posts } = fakePortal()
     await signDebitMandate(portal, persona, "app-1")
