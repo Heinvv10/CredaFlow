@@ -1,8 +1,10 @@
 /**
  * Round-3 adversarial edge tests (built on the round-2 setup): the NCA
  * quotation-mark gate now reading the acknowledged quotation's audit row, and
- * the protected-output fingerprint binding. DEFECT tests fail on
- * feat/lender-owned-templates 1a68ba62; GUARD tests pass.
+ * the protected-output fingerprint binding. DEFECT tests failed on
+ * feat/lender-owned-templates 1a68ba62 and are FIXED since round 3 (the NCA
+ * agreement is published after this deal's DRAFT quotation: while a legally
+ * approved one is published, such a quotation is now refused up front).
  *
  * Original round-2 header follows.
  * Round-2 adversarial edge test: the NCA quotation-mark gate
@@ -32,7 +34,7 @@ import { starterContent } from "./documents/templates/content"
 import { parseTemplateKey } from "./documents/templates/families"
 import { selectIssuableTemplate } from "./documents/templates/issuance"
 import { createDraftVersion, publishVersion } from "./documents/templates/store"
-import { FIXTURE_SIGN_OFF_REFERENCE, legalApprover } from "./documents/templates/templates.integration-fixture"
+import { publishStarterTemplates, FIXTURE_SIGN_OFF_REFERENCE, legalApprover } from "./documents/templates/templates.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -69,9 +71,10 @@ const sqlError = async (run: () => Promise<unknown>): Promise<string | null> => 
 
 suite.sequential("EDGE round 3: quotation gate and fingerprint (real Postgres, real routes)", () => {
   beforeAll(async () => {
-    // Every template published under the fixture's (test) legal approval; the
-    // legacy quotation-wording flag stays OFF, so quotations print DRAFT.
-    fx = await createDealFixture(database(), t)
+    // Every template but the NCA agreement published under the fixture's (test)
+    // legal approval; the legacy quotation-wording flag stays OFF, so quotations print DRAFT.
+    fx = await createDealFixture(database(), t, { templates: false })
+    await publishStarterTemplates(database(), fx.tenantId, fx.adminA, fx.adminB, ["af.isa", "af.lease.operating", "af.lease.fml", "af.suretyship", "af.resolution"])
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: false } })
     const insurer = await database().insurer.create({ data: { tenantId: fx.tenantId, name: "TEST Life Underwriter", fspNumber: "99999" } })
     await database().insuranceProduct.create({ data: {
@@ -105,6 +108,7 @@ suite.sequential("EDGE round 3: quotation gate and fingerprint (real Postgres, r
     signInClient(fx.director)
     expect((await routes().viewDocument(quote.documentId)).status).toBe(200)
     expect((await routes().acknowledgePasq(row.applicationId, { documentSha256: quote.sha256 })).status).toBe(200)
+    await publishStarterTemplates(database(), fx.tenantId, fx.adminA, fx.adminB, ["af.nca"])
   }, 240_000)
 
   afterAll(async () => {
@@ -122,11 +126,13 @@ suite.sequential("EDGE round 3: quotation gate and fingerprint (real Postgres, r
     expect(await database().assetDocumentIssuance.count({ where: { dealId } })).toBe(0)
   })
 
-  it("DEFECT: the refusal says to issue a new quotation, but a quotation is issued once: the approved deal can never get its agreement", async () => {
+  it("FIXED: the refusal no longer promises a new quotation (a quotation is issued once): it says the deal is originated again", async () => {
     signIn(fx.adminA, "LOAN_ADMIN")
-    const reissue = await routes().ncaQuote(dealId)
-    const body = JSON.stringify(await reissue.json())
-    expect(reissue.status, `re-issuing the quotation: ${body}`).toBe(201)
+    const refused = await routes().ncaAgreement(dealId)
+    const body = JSON.stringify(await refused.json())
+    expect(body).toMatch(/originate it again/)
+    expect(body).not.toMatch(/Issue a new quotation/)
+    expect((await routes().ncaQuote(dealId)).status).not.toBe(201)
   })
 
   it("GUARD: a stale or forged fingerprint never publishes or issues through the app; the database ties the issuance to the approval's value", async () => {
@@ -152,7 +158,7 @@ suite.sequential("EDGE round 3: quotation gate and fingerprint (real Postgres, r
     expect(await sqlError(() => database().documentTemplateVersion.update({ where: { id: draft.value.id }, data: { approvedSystemSha256: "1".repeat(64) } }))).toMatch(/recorded once/)
   })
 
-  it("DEFECT (defence in depth): the quotation's recorded mark lives in a mutable audit row; rewriting it lets the unwatermarked agreement issue", async () => {
+  it("FIXED (defence in depth): the quotation's recorded mark cannot be rewritten, so the unwatermarked agreement cannot issue", async () => {
     const row = await database().auditLog.findFirstOrThrow({ where: { tenantId: fx.tenantId, entityId: dealId, action: "ASSET_NCA_QUOTE_ISSUED" } })
     const tampered = await sqlError(() => database().auditLog.update({ where: { id: row.id }, data: { newValue: { ...(row.newValue as object), draftLegalWording: false } } }))
     if (tampered === null) {

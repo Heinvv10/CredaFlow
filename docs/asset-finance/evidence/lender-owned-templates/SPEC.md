@@ -123,11 +123,17 @@ under `app/api/documents/templates/`; `kind = ASSET_FINANCE` branches into
   record, not verified evidence (proof limit).
 - **Protected wording is part of the approval.** At approval the server records
   `approvedSystemSha256`: the fingerprint of the variant's protected system
-  output (`templates/fingerprint.ts`, the preview PDF for a fixed synthetic
-  lender and deal with placeholder lender text). Publication and issuance
-  require it to equal the current fingerprint (app and DB); when CredaFlow
-  changes protected wording, every lender approves the variant again.
-  `fingerprint.test.ts` pins the values with `SYSTEM_REVISION`.
+  output (`templates/fingerprint.ts`): the preview PDFs of a fixed set of deal
+  shapes per variant (`preview.ts` `previewShapes`: entity types, rate bases,
+  balloon/arrears terms, lease timing, maintenance risk, sole proprietor, NCA
+  size), for a fixed synthetic lender with placeholder lender text. The
+  approver can preview every shape. Publication and issuance require the
+  approved fingerprint to equal the current one (computed by the app; the
+  database requires an approval to carry one and an issuance to copy its
+  version's exactly). When CredaFlow changes protected wording, every lender
+  approves the variant again; `fingerprint.test.ts` pins the values with
+  `SYSTEM_REVISION` and treats a change as a release event. Proof limit: a
+  branch no shape reaches is not covered; a new branch needs a new shape.
 - **Publish**: approved DRAFT only, publisher ≠ approver, TOTP; locks the template
   row, archives the previous ACTIVE, sets `currentVersionId`. DB: one ACTIVE per
   template (partial unique index); AF versions move DRAFT→ACTIVE→ARCHIVED only
@@ -143,9 +149,10 @@ It continues to govern the system-only quotation and notices above. Because an
 NCA quotation precedes its agreement, an NCA agreement under a `LENDER_LEGAL`
 approval is refused when the quotation the consumer acknowledged printed
 DRAFT. That mark is recorded on the quotation's `ASSET_NCA_QUOTE_ISSUED` audit
-row (`draftLegalWording`); a quotation without the record counts as DRAFT.
-Proof limit: the audit table is append-only in the application, not by a
-database rule. The settings page says so.
+row (`draftLegalWording`), which the database never lets change or be deleted;
+a quotation without the record counts as DRAFT. Because a quotation is issued
+only once, a quotation that would print DRAFT is refused up front while the
+lender's NCA agreement is legally approved. The settings page says so.
 
 ### Watermarks
 

@@ -408,3 +408,15 @@ FOR EACH ROW EXECUTE FUNCTION public."guardDealSignerIssuance"();
 ALTER TABLE "AssetDocumentIssuance" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AssetDocumentIssuance" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "AssetDocumentIssuance" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+
+-- The audit row of an NCA asset quotation's issue records whether it printed
+-- DRAFT (draftLegalWording), which decides whether a legally approved
+-- agreement may follow it (lib/asset-finance/documents/templates/issuance.ts
+-- ncaQuoteMarkProblem). That row is never changed or deleted.
+CREATE FUNCTION public."guardNcaQuoteIssuedAudit"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'The record of an issued NCA quotation is never changed or deleted';
+END;
+$$;
+CREATE TRIGGER "AuditLog_nca_quote_issued_immutable" BEFORE UPDATE OR DELETE ON "AuditLog"
+FOR EACH ROW WHEN (OLD."action" = 'ASSET_NCA_QUOTE_ISSUED') EXECUTE FUNCTION public."guardNcaQuoteIssuedAudit"();
