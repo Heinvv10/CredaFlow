@@ -11,7 +11,7 @@ selects its wording.
 
 | Document | Renderer | Variant(s) | Issued / signed by | Today's gate | Template family |
 |---|---|---|---|---|---|
-| Instalment sale agreement (commercial) | `documents/agreement-pdf.ts` | CPA applies / does not (`isaCpaApplies`) | `signing-prepare.ts` → `DealSigner`; e-sign `signing-esign.ts`; contract `signing-contract.ts` | flag watermark | `af.isa.cpa`, `af.isa.commercial` |
+| Instalment sale agreement (commercial; also a non-NCA finance lease) | `documents/agreement-pdf.ts` | CPA applies / does not (`isaCpaApplies`) | `signing-prepare.ts` → `DealSigner`; e-sign `signing-esign.ts`; contract `signing-contract.ts` | flag watermark | `af.isa.cpa`, `af.isa.commercial` |
 | Operating lease agreement | `documents/lease/agreement-pdf.ts` | CPA / commercial | as above | flag watermark | `af.lease.operating.cpa`, `af.lease.operating.commercial` |
 | Full-maintenance lease agreement | same | CPA / commercial | as above | flag watermark | `af.lease.fml.cpa`, `af.lease.fml.commercial` |
 | NCA instalment agreement (asset) | `documents/nca/agreement-pdf.ts` | natural person (`nca-agreement-store.ts`, ClientDocument + DealSigner) and juristic NCA (`nca-entity-signing.ts`) | portal e-sign of stored bytes; provider countersign | flag watermark + subtitle | `af.nca.instalment_sale` |
@@ -49,33 +49,47 @@ system-only; its prose being editable would not make the obligation configurable
 
 ### Editable surface (`lib/asset-finance/documents/templates/families.ts`)
 
-| Family | Editable clauses (number) | Required tokens |
+Every variant has a lender template that the lender versions, approves and
+publishes. Only the three commercial agreement variants take lender text
+(`takesLenderText`); for the others the lender's version approves the protected
+starter for that lender. Narrowed after the independent South African legal
+review (round 1):
+
+| Variant | Lender text | Why |
 |---|---|---|
-| `af.isa.*` | Insurance of the goods (7.6); Cession and assignment (7.11); Domicilium and notices (7.12) | 7.12: `{{lender.registeredOffice}}`, `{{purchaser.domicilium}}` |
-| `af.lease.*` | Cession and assignment (9.13 operating / 9.13 FML) | — |
-| `af.nca.*` | none — additional terms only (clause 11.3's s90 saving clause stays protected and covers them) | — |
-| `af.suretyship.*` | none — additional terms only | — |
-| `af.resolution` | none — additional terms only | — |
+| `af.isa.commercial` | clauses 7.6 insurance, 7.11 cession, 7.12 domicilium (required tokens `{{lender.registeredOffice}}`, `{{purchaser.domicilium}}`); additional terms from 7.14 | commercial contract between juristic parties |
+| `af.lease.operating.commercial`, `af.lease.fml.commercial` | clause 9.13 cession; additional terms after the last clause | same |
+| `af.isa.cpa`, `af.lease.*.cpa` | none | CPA s49 requires risk/liability terms to be conspicuous and initialled; free lender text cannot be given that protection safely |
+| `af.nca.*` | none | NCA s90: a credit provider may not include an unlawful provision at all; a saving clause does not cure inclusion |
+| `af.suretyship.*` | none | an added term binds the surety (GLAA s6 formality is met) and could widen liability |
+| `af.resolution.standard` | none | the entity's own resolution: no lender terms |
 
 CPA appendices that `cpaInstalmentSaleClauses` adds (s49 notice, s48 costs, CPA
-cession saving) are applied **after** an override, so they cannot be removed.
+cession saving) are applied **after** an override in the renderer, so even a
+render that bypassed validation cannot remove them.
 
-### Lender text validation (`templates/validate.ts`, server-side on create, preview, approve and issue)
+A commercial (non-NCA) **finance lease** is documented on the instalment-sale
+agreement, as before this work; it issues from `af.isa.*` (the database fit
+function allows `INSTALMENT_SALE` and `FINANCE_LEASE` outside the NCA).
+
+### Lender text validation (`templates/validate.ts`, server-side on create, preview, approve, publish and issue)
 
 - Plain text; WinAnsi-printable only (a character the PDF fonts would substitute is refused).
-- No money (`R 1`, `R1`, `ZAR`, `rand`), no percentages/rates (`%`, `per cent`,
-  `basis points`): figures come only from protected sections.
-- Tokens only from the whitelist (`lender.legalName`, `lender.tradingName`,
-  `lender.registeredOffice`, `agreement.reference`, `purchaser.domicilium` for
-  ISA 7.12); unknown or malformed `{{…}}` refused; required tokens enforced.
-- `clause N.M` references must name a clause that exists in that document.
-- Editable clause text 20–6000 chars; additional term heading 3–80, text
-  20–4000; ≤10 additional terms. Blank editable clause refused (cannot omit).
-- Semantic limits that cannot be machine-checked (e.g. a sentence claiming
-  behaviour the system does not perform) are an approval responsibility: the
-  approver attests to having read the full preview and that the wording
-  changes no fee, rate, schedule, statutory right or system process. This is a
-  stated proof limit, not a guarantee.
+- No money (`R`, `ZAR`, `USD`, `EUR`, `GBP`, `$ € £ ¥` before digits, `rand`), no
+  rates (`%`, `‰`, `per cent/mille`, `percent`, `basis points`, `bps`).
+- No override, variation, waiver or charge language: `notwithstanding`,
+  `despite`, `in place of`, `instead of`, `amend…`, `vary/variation`,
+  `supersede`, `does not apply`, `waive/waiver`, `fee`, `charge`, `penalty`.
+- Tokens only from the family's whitelist; `{{purchaser.domicilium}}` only in
+  7.12, where it is required with `{{lender.registeredOffice}}`.
+- Every dotted number and every `clause N` must name a protected clause or one
+  of this version's own additional terms.
+- Words ≤ 30 characters, headings ≤ 50, so nothing runs off the page;
+  editable clause 20–6000 characters; additional term 20–4000; ≤ 10 terms;
+  blank editable clause refused; known `starterRevision` only.
+- Proof limit: a sentence that claims behaviour the system does not perform
+  cannot be detected by pattern. The approver attests to having read the full
+  preview, and a legal approval needs the lender's written legal sign-off.
 
 ## 3. Versions, approval and publication
 
@@ -93,15 +107,19 @@ under `app/api/documents/templates/`; `kind = ASSET_FINANCE` branches into
   immutable (DB trigger): approved/issued content cannot change in place.
 - **Content hash**: `content` is canonical JSON text; the DB computes and checks
   `contentSha256 = sha256(content)`.
-- **Approve** (`POST …/approve {contentSha256, attestation, legalSignOffReference?}`):
-  DRAFT only, not yet approved, approver ≠ author, approver a user of the tenant,
-  TOTP-verified session (demo waiver only under `demoStaffWithoutTotp`, audited),
-  the posted hash must equal the stored hash (stale approval refused). The
-  approval binds `approvedContentSha256` + the template's family/variant scope.
+- **Approve** (`POST …/approve {contentSha256, attestation, legalSignOff?, legalSignOffReference?}`):
+  DRAFT only, not yet approved, approver ≠ author, approver an active
+  LOAN_ADMIN-or-above of the tenant, TOTP-verified session (demo waiver only
+  under `demoStaffWithoutTotp`, audited), the posted hash must equal the stored
+  hash (stale approval refused). The approval binds `approvedContentSha256` +
+  the template's family/variant scope.
 - **Basis** (server-derived, never posted): `TenantConfig.isDemoLender` →
-  `SYNTHETIC_DEMO`; otherwise `LENDER_LEGAL`, which requires a legal sign-off
-  reference and is refused when `DEMO_MODE` is on. DB triggers refuse
-  `LENDER_LEGAL` on a demo lender and `SYNTHETIC_DEMO` on a non-demo lender.
+  `SYNTHETIC_DEMO`; otherwise `LENDER_LEGAL`, which must be recorded by a
+  **SUPER_ADMIN** confirming the legal team's written sign-off of that exact
+  version, with its reference, and is refused when `DEMO_MODE` is on. DB
+  triggers refuse `LENDER_LEGAL` on a demo lender or by anyone but a
+  SUPER_ADMIN, and `SYNTHETIC_DEMO` on a non-demo lender. The reference is a
+  record, not verified evidence (proof limit).
 - **Publish**: approved DRAFT only, publisher ≠ approver, TOTP; locks the template
   row, archives the previous ACTIVE, sets `currentVersionId`. DB: one ACTIVE per
   template (partial unique index); AF versions move DRAFT→ACTIVE→ARCHIVED only
@@ -113,7 +131,10 @@ under `app/api/documents/templates/`; `kind = ASSET_FINANCE` branches into
 
 The boolean no longer affects any template-family document: it neither removes
 the watermark nor authorises issuance. No tenant is promoted by the migration.
-It continues to govern only the system-only notices above. The settings page says so.
+It continues to govern the system-only quotation and notices above. Because an
+NCA quotation precedes its agreement, an NCA agreement under a `LENDER_LEGAL`
+approval is refused while the boolean is still false (the quotation would
+carry DRAFT while the agreement carried none). The settings page says so.
 
 ### Watermarks
 
@@ -171,4 +192,4 @@ adopt and approve synthetic templates for their demo lender (`SYNTHETIC_DEMO`).
 
 ## 6. Rule-to-test matrix
 
-Filled in during the build; see `ACCEPTANCE.md`.
+See [`ACCEPTANCE.md`](ACCEPTANCE.md).

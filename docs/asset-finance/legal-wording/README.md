@@ -1,10 +1,21 @@
 # Asset-finance legal wording
 
 The drafted wording of every asset-finance document, for the lender's legal
-team. Every page keeps the DRAFT watermark until
+team. It is the **starter** each lender adopts as its own versioned template
+(`../evidence/lender-owned-templates/SPEC.md`). Agreements, suretyships and
+resolutions are issued only from the lender's published, approved version: a
+demo approval prints a SYNTHETIC DEMO watermark, a legal approval (a lender
+SUPER_ADMIN on written legal sign-off) prints none. The NCA quotation and the
+system notices keep the DRAFT watermark until
 `TenantConfig.assetFinanceLegalWordingApproved` is set for the lender. The
 calculations and rules behind the wording are signed off (DESIGN.md, sign-off
 record 2026-10-17); the wording is not.
+
+Drafters: editing the starter here changes only what a lender adopts from now
+on (bump `STARTER_REVISION` in `lib/asset-finance/documents/templates/families.ts`);
+lenders' adopted versions never change. A change to protected output bumps
+`SYSTEM_REVISION`. Starter text of editable clauses lives in the
+`*_STARTER` constants the wording files export.
 
 - [`nca.md`](nca.md): the NCA agreement, quotation, s127 and s131 notices.
 - [`lease.md`](lease.md): the lease agreement, CPA expiry notice, inspection
