@@ -18,6 +18,7 @@ import { buildPortalNavigation, staffNavigation } from "../../../lib/navigation"
 import { SimClient } from "./api"
 import { readSeedCredentials } from "./credentials"
 import { log } from "./env"
+import { verifyPageResponse } from "./verify-page-response"
 import { closeReadDb, readDb } from "./readonly-db"
 
 /** Pages reached from a nav page rather than from the sidebar itself. */
@@ -27,9 +28,6 @@ const SUB_PAGES = [
   "/reports/arrears-aging", "/reports/default-charges", "/reports/advisor",
   "/settings/branches", "/settings/insurers", "/settings/insurance", "/settings/products/insurance", "/settings/email/logs",
 ]
-
-/** Markers Next.js renders when a server component threw. */
-const ERROR_MARKERS = ["Application error", "Internal Server Error", "This page could not be found"]
 
 type Row = { id: string }
 
@@ -75,17 +73,17 @@ async function portalBorrower(): Promise<{ email: string; pages: string[] } | nu
   return { email: r.email, pages: [`/portal/loans/${r.loan}`, `/portal/applications/${r.app}`, ...(r.policy ? [`/portal/insurance/${r.policy}`] : [])] }
 }
 
-async function check(actor: SimClient, pages: string[]): Promise<number> {
+async function check(actor: SimClient, pages: string[], expectedRedirects: ReadonlyMap<string, string> = new Map()): Promise<number> {
   let bad = 0
   for (const page of pages) {
     const t0 = Date.now()
-    const res = await actor.get(page, { headers: { accept: "text/html" }, expect: [200, 302, 303, 307, 308, 401, 403, 404, 500] })
+    const verdict = await verifyPageResponse(actor, page, expectedRedirects.get(page))
+    const res = verdict.response
     const html = (res.headers.get("content-type") ?? "").includes("text/html")
-    const marker = ERROR_MARKERS.find((m) => res.text.includes(m))
-    const ok = res.status === 200 && html && !marker
+    const ok = verdict.ok
     if (!ok) bad++
     const redirect = res.status >= 300 && res.status < 400 ? ` → ${res.headers.get("location")}` : ""
-    process.stdout.write(`${ok ? "200 ok " : "FAIL   "} ${page} → ${res.status} ${html ? "html" : res.headers.get("content-type")} ${res.bytes.length}B ${Date.now() - t0}ms${marker ? ` [${marker}]` : ""}${redirect}\n`)
+    process.stdout.write(`${ok ? "200 ok " : "FAIL   "} ${page} → ${res.status} ${html ? "html" : res.headers.get("content-type")} ${res.bytes.length}B ${Date.now() - t0}ms${verdict.destination ? ` [mapped307 → ${verdict.destination}]` : ""}${redirect}\n`)
   }
   return bad
 }
@@ -96,7 +94,13 @@ async function main(): Promise<void> {
   await admin.loginStaff(creds.admin.email, creds.admin.password, creds.admin.totpSecret)
   const nav = staffNavigation.flatMap((g) => g.items).filter((i) => !i.external).map((i) => i.href)
   const staffPages = [...new Set([...nav, ...SUB_PAGES, ...(await staffDetailPages())])]
-  let bad = await check(admin, staffPages)
+  if (!admin.user?.tenantId) throw new Error("Page verification requires a tenant-bound staff session")
+  const links = await readDb().assetFinanceDeal.findMany({
+    where: { tenantId: admin.user.tenantId, application: { tenantId: admin.user.tenantId } },
+    select: { id: true, applicationId: true },
+  })
+  const expectedRedirects = new Map(links.map(deal => [`/applications/${deal.applicationId}`, `/asset-finance/deals/${deal.id}`]))
+  let bad = await check(admin, staffPages, expectedRedirects)
   let total = staffPages.length
 
   const borrower = await portalBorrower()
