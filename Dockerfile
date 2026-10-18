@@ -49,7 +49,7 @@ RUN npx prisma generate
 # commit and refused unless their SHA-256s match. Before the build: next.config
 # traces face-models/ into the standalone output the runner copies.
 RUN npm run face-models:fetch
-RUN npm run build
+RUN NODE_OPTIONS=--max-old-space-size=6144 npm run build
 
 # Stage 3: Production runner
 FROM node:22-bookworm-slim AS runner
