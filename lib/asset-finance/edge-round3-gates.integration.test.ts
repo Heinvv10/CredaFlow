@@ -22,14 +22,11 @@
  *     npx vitest run lib/asset-finance/edge-round3-gates.integration.test.ts --testTimeout 60000 --no-file-parallelism
  */
 import { randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { addMonthsClamped } from "./dates"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, dealRoutes, type DealFixture } from "./deal.integration-fixture"
-import { DRAFT_WATERMARK } from "./documents/pdf-layout"
-import { texts } from "./documents/nca/nca-wording.test-helpers"
 import { starterContent } from "./documents/templates/content"
 import { parseTemplateKey } from "./documents/templates/families"
 import { selectIssuableTemplate } from "./documents/templates/issuance"
@@ -47,7 +44,7 @@ const db = RUN ? new PrismaClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: DealFixture
 let dealId = ""
-let quoteDocumentId = ""
+
 
 function database(): PrismaClient {
   if (!db) throw new Error("RUN_ASSET_TEMPLATES_EDGE_IT=1 is required")
@@ -104,7 +101,7 @@ suite.sequential("EDGE round 3: quotation gate and fingerprint (real Postgres, r
     const issued = await routes().ncaQuote(dealId)
     expect(issued.status).toBe(201)
     const quote = await issued.json() as { documentId: string; sha256: string }
-    quoteDocumentId = quote.documentId
+
     signInClient(fx.director)
     expect((await routes().viewDocument(quote.documentId)).status).toBe(200)
     expect((await routes().acknowledgePasq(row.applicationId, { documentSha256: quote.sha256 })).status).toBe(200)

@@ -168,6 +168,8 @@ describe("tenant-scope — ALS primitives", () => {
       // the worker runs after its request has returned.
       "StatementAiOutput",
       "StatementAiUsage",
+      // Lender-template provenance of issued asset-finance documents — non-null tenantId.
+      "AssetDocumentIssuance",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

@@ -47,8 +47,8 @@ model DocumentTemplate {
   // ASSET_FINANCE only: key = "<assetFamily>.<assetVariant>" (lib/asset-finance/documents/templates/families.ts).
   assetFamily      String?
   assetVariant     String?
-  versions         DocumentTemplateVersion[]
   issuances        AssetDocumentIssuance[]
+  versions         DocumentTemplateVersion[]
 
   @@unique([tenantId, key])
   @@unique([tenantId, id])

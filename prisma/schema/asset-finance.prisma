@@ -718,11 +718,11 @@ model AssetFinanceDeal {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   affordabilityAssessment AssetFinanceAffordabilityAssessment?
   checklist               PayoutChecklistItem[]
+  documentIssuances       AssetDocumentIssuance[]
   documents               EntityDocument[]
   financials              EntityFinancials?
   payout                  Payout?
   signers                 DealSigner[]
-  documentIssuances       AssetDocumentIssuance[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, applicationId])
