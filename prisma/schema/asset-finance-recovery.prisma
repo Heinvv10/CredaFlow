@@ -150,8 +150,7 @@ model Recovery {
   updatedAt               DateTime           @updatedAt
   costs                   RecoveryCost[]
   leaseTerminationQuote   LeaseTerminationQuote?
-  ncaSurplusRemittance NcaSurplusRemittance?
-
+  ncaSurplusRemittance     NcaSurplusRemittance?
   refund                  RecoveryRefund?
   sales                   RemarketingSale[]
   vatEvents               RecoveryVatEvent[]
