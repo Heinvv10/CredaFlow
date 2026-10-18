@@ -20,18 +20,18 @@ const way = (r: EvidenceRow) => {
   return `${r.amount.replace(/^-/, "")} ${out ? "out" : "in"}`
 }
 
-/** On a phone the date and row columns are hidden; the date shows under the payee instead. */
+/** On a phone the date and row columns are hidden; both show under the payee instead. */
 const OnPhone = ({ children }: { children: React.ReactNode }) => <span className="block text-xs text-[var(--cf-text-muted)] sm:hidden">{children}</span>
 
 export function RowsTable({ rows }: { rows: EvidenceRow[] }) {
   return (
     <div className="mt-1 overflow-x-auto">
-      <table className="w-full min-w-0 text-xs">
+      <table aria-label="Statement rows" className="w-full min-w-0 text-xs">
         <tbody>
           {rows.map((r) => (
             <tr key={r.ref} className="border-t border-[var(--cf-border-subtle)]">
               <td className={`${cell} hidden whitespace-nowrap sm:table-cell`}>{r.date}</td>
-              <td className={cell}>{r.payee}<OnPhone>{r.date}</OnPhone></td>
+              <td className={cell}>{r.payee}<OnPhone>{r.date} · {r.ref}</OnPhone></td>
               <td className={num}>{way(r)}</td>
               <td className={`${cell} hidden font-mono sm:table-cell text-[var(--cf-text-muted)]`}>{r.ref}</td>
             </tr>
@@ -50,14 +50,14 @@ function ResultTable({ q }: { q: QueryCitation }) {
   const head = (cols: string[]) => (
     <thead>
       <tr className="text-left text-[11px] uppercase tracking-[0.08em] text-[var(--cf-text-muted)]">
-        {cols.map((c, i) => <th key={c} className={`pb-1 pr-3 font-medium ${(i > 0 && q.tool !== "list") || c === "Amount" ? "text-right" : ""} ${c === "Row" || c === "Date" ? "hidden sm:table-cell" : ""}`}>{c}</th>)}
+        {cols.map((c, i) => <th key={c} scope="col" className={`pb-1 pr-3 font-medium ${(i > 0 && q.tool !== "list") || c === "Amount" ? "text-right" : ""} ${c === "Row" || c === "Date" ? "hidden sm:table-cell" : ""}`}>{c}</th>)}
       </tr>
     </thead>
   )
   const row = "border-t border-[var(--cf-border-subtle)]"
   return (
     <div className="mt-1 overflow-x-auto">
-      <table className="w-full min-w-0 text-sm text-[var(--cf-text-secondary)]">
+      <table aria-label={breakdownTitle(q as Breakdown)} className="w-full min-w-0 text-sm text-[var(--cf-text-secondary)]">
         {q.tool === "list" ? (
           <>
             {head(["Date", "Payee", "Amount", "Row"])}
@@ -65,7 +65,7 @@ function ResultTable({ q }: { q: QueryCitation }) {
               {entries.map((e) => (
                 <tr key={String(e.ref)} className={row}>
                   <td className={`${cell} hidden whitespace-nowrap sm:table-cell`}>{e.date}</td>
-                  <td className={cell}>{e.payee}<OnPhone>{e.date}</OnPhone></td>
+                  <td className={cell}>{e.payee}<OnPhone>{e.date} · {e.ref}</OnPhone></td>
                   <td className={num}>{e.amount} {e.direction}</td>
                   <td className={`${cell} hidden font-mono sm:table-cell text-xs text-[var(--cf-text-muted)]`}>{e.ref}</td>
                 </tr>
@@ -96,18 +96,25 @@ function ResultTable({ q }: { q: QueryCitation }) {
 
 const isTable = (q: QueryCitation) => ["groupByMonth", "groupByPayee", "list"].includes(q.tool) && Array.isArray(q.result) && q.result.length > 0
 
-/** Each query's sentence from the stored (checked) text, by its [qN] label. */
-function segments(text: string): Map<string, string> {
-  const parts = text.split(/\[(q\d)\]\s*/)
+/**
+ * Each query's sentence from the stored (checked) text, by its [qN] label, or
+ * null unless the text is exactly "[q1] … [q2] …" for these queries (as
+ * render.ts writes it): then nothing of the checked text is dropped or put
+ * under the wrong label.
+ */
+function segments(text: string, ids: string[]): Map<string, string> | null {
+  const parts = text.trim().split(/\[(q\d)\] /)
+  if (parts[0] !== "") return null
   const out = new Map<string, string>()
   for (let i = 1; i < parts.length; i += 2) out.set(parts[i], parts[i + 1].trim())
-  return out
+  const rebuilt = [...out].map(([id, s]) => `[${id}] ${s}`).join(" ")
+  return rebuilt === text.trim() && out.size === ids.length && ids.every((id) => /[A-Za-z0-9]/.test(out.get(id) ?? "")) ? out : null
 }
 
 /** The answer: a sentence for a single figure, a table for a breakdown or list; the [qN] label only when there are several. */
 export function AnswerBody({ text, queries }: { text: string; queries: QueryCitation[] }) {
-  const said = segments(text)
-  if (queries.length === 0 || queries.some((q) => !said.has(q.id))) return <p className="text-sm text-[var(--cf-text-secondary)]">{text}</p>
+  const said = segments(text, queries.map((q) => q.id))
+  if (!said) return <p className="text-sm text-[var(--cf-text-secondary)]">{text}</p>
   const labelled = queries.length > 1
   return (
     <div className="space-y-2">
@@ -141,8 +148,8 @@ const DID: Record<QueryCitation["tool"], (q: QueryCitation) => string> = {
   count: () => "Counted",
   average: () => "Averaged",
   groupByMonth: (q) => `Grouped by month (${q.args.measure === "count" ? "number of rows" : "totals"})`,
-  groupByPayee: (q) => `Ranked payees by ${q.args.measure === "count" ? "number of rows" : "total"}`,
-  list: () => "Listed",
+  groupByPayee: (q) => `Ranked the top ${q.args.limit} payees by ${q.args.measure === "count" ? "number of rows" : "total"} in`,
+  list: (q) => `Listed up to ${q.args.limit} rows${q.args.order === "largest" ? ", largest first," : q.args.order === "latest" ? ", latest first," : ""} of`,
 }
 
 /** "How this was computed", in words: what each query did, over which rows, and the rows it counted. */
