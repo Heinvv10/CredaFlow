@@ -2,17 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-
-interface EvidenceRow { ref: string; date: string; payee: string; amount: string; direction?: "in" | "out" }
-
-interface QueryCitation {
-  id: string
-  tool: string
-  args: { filter?: Record<string, unknown>; measure?: string; limit?: number }
-  result: unknown
-  matchedRows: number
-  rows: EvidenceRow[]
-}
+import { AnswerBody, HowComputed, RowsTable, type EvidenceRow, type QueryCitation } from "./StatementAiAnswer"
 
 interface OutputView {
   id: string
@@ -43,72 +33,67 @@ const POLL_FOR_MS = 5 * 60_000
 function Meta({ o }: { o: OutputView }) {
   return (
     <p className="mt-1 text-[11px] text-[var(--cf-text-muted)]">
-      Input {o.inputHash.slice(0, 8)} · generated {new Date(o.createdAt).toLocaleString("en-ZA")}
+      Generated {new Date(o.createdAt).toLocaleString("en-ZA")}
       {o.stale && <span className="ml-1 font-medium text-[var(--cf-warning)]">· stale: the statement facts changed since</span>}
     </p>
   )
 }
 
-function Body({ o, waiting, label }: { o: OutputView | null; waiting: boolean; label: string }) {
-  if (!o || (o.status === "PENDING" && o.text === null)) return <p className="text-sm text-[var(--cf-text-muted)]">{waiting ? `Generating ${label}…` : `${label[0].toUpperCase()}${label.slice(1)} unavailable.`}</p>
+/**
+ * The summary, one claim a line (render.ts); a "Heading: a; b; c." claim as a
+ * short list. Payee names cannot hold ":" or ";" (letters only), so the split
+ * is safe. A summary stored before claims went one a line shows as written.
+ */
+function SummaryText({ text }: { text: string }) {
+  if (!text.includes("\n")) return <p className="text-sm text-[var(--cf-text-secondary)]">{text}</p>
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--cf-text-secondary)]">
+      {text.split("\n").map((line, i) => {
+        const m = /^([^:;"]+): (.+;.+?)\.?$/.exec(line)
+        return (
+          <li key={i}>
+            {m ? (
+              <>
+                {m[1]}:
+                <ul className="mt-0.5 list-[circle] space-y-0.5 pl-5">
+                  {m[2].split("; ").map((item, j) => <li key={j}>{item}</li>)}
+                </ul>
+              </>
+            ) : line}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function Body({ o, waiting, label, meta = true, children }: { o: OutputView | null; waiting: boolean; label: string; meta?: boolean; children?: React.ReactNode }) {
+  const unavailable = `${label[0].toUpperCase()}${label.slice(1)} unavailable.`
+  if (!o || (o.status === "PENDING" && o.text === null)) return <p className="text-sm text-[var(--cf-text-muted)]">{waiting ? `Generating ${label}…` : unavailable}</p>
   if (o.status !== "OK" || o.text === null) {
     return (
       <>
-        <p className="text-sm text-[var(--cf-text-muted)]">{`${label[0].toUpperCase()}${label.slice(1)} unavailable.`}</p>
-        <Meta o={o} />
+        <p className="text-sm text-[var(--cf-text-muted)]">{unavailable}</p>
+        {meta && <Meta o={o} />}
       </>
     )
   }
   return (
     <>
-      <p className="whitespace-pre-line text-sm text-[var(--cf-text-secondary)]">{o.text}</p>
-      <Meta o={o} />
+      {children || <p className="whitespace-pre-line text-sm text-[var(--cf-text-secondary)]">{o.text}</p>}
+      {meta && <Meta o={o} />}
     </>
   )
 }
 
-function RowsTable({ rows }: { rows: EvidenceRow[] }) {
-  return (
-    <div className="mt-1 overflow-x-auto">
-      <table className="w-full min-w-0">
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.ref} className="border-t border-[var(--cf-border-subtle)]">
-              <td className="py-1 pr-2 font-mono">{r.ref}</td>
-              <td className="py-1 pr-2 whitespace-nowrap">{r.date}</td>
-              <td className="py-1 pr-2">{r.payee}</td>
-              <td className="py-1 text-right whitespace-nowrap">{r.amount}{r.direction ? ` ${r.direction}` : ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-const describeFilter = (f: Record<string, unknown> = {}) =>
-  Object.entries(f).map(([k, v]) => `${k} ${String(v)}`).join(", ") || "all rows"
-
-/** "How this was computed": each query the answer used, its result and the rows it matched. */
-function HowComputed({ queries }: { queries: QueryCitation[] }) {
-  return (
-    <details className="mt-2 text-xs text-[var(--cf-text-secondary)]">
-      <summary className="cursor-pointer text-[var(--cf-brand)]">How this was computed</summary>
-      <ul className="mt-1 space-y-2">
-        {queries.map((q) => (
-          <li key={q.id} data-testid="statement-ai-query">
-            <p>
-              <span className="font-mono font-semibold">[{q.id}]</span> {q.tool}
-              {q.args.measure ? ` (${q.args.measure})` : ""} of {describeFilter(q.args.filter)}: {q.matchedRows} row{q.matchedRows === 1 ? "" : "s"} matched
-            </p>
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(q.result)}</pre>
-            {q.rows.length > 0 && <RowsTable rows={q.rows} />}
-            {q.matchedRows > q.rows.length && <p className="mt-1">First {q.rows.length} of {q.matchedRows} rows shown.</p>}
-          </li>
-        ))}
-      </ul>
-    </details>
-  )
+/** Newest first; a failed answer is dropped once a newer one to the same question is answered. */
+function shownAnswers(answers: OutputView[]): OutputView[] {
+  const key = (o: OutputView) => (o.question ?? "").trim().toLowerCase()
+  const answered = new Set<string>()
+  return answers.filter((o) => {
+    if (o.status === "OK") answered.add(key(o))
+    return o.status === "OK" || o.status === "PENDING" || !answered.has(key(o))
+  })
 }
 
 function Ask({ applicationId, onAsked }: { applicationId: string; onAsked: () => void }) {
@@ -214,7 +199,7 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
       {data && !data.noStatements && (
         <div className="mt-3 space-y-4">
           <div data-testid="statement-ai-summary">
-            <Body o={data.summary} waiting={waiting} label="summary" />
+            <Body o={data.summary} waiting={waiting} label="summary">{data.summary?.text && <SummaryText text={data.summary.text} />}</Body>
           </div>
           {data.explanations.length > 0 && (
             <div>
@@ -223,7 +208,7 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
                 {data.explanations.map((o) => (
                   <li key={o.id} data-testid="statement-ai-explanation" className="rounded-md border border-[var(--cf-border-subtle)] p-3">
                     <p className="font-mono text-xs font-semibold text-[var(--cf-text)]">{o.flagCode}</p>
-                    <div className="mt-1"><Body o={o} waiting={waiting} label="explanation" /></div>
+                    <div className="mt-1"><Body o={o} waiting={waiting} label="explanation" meta={false} /></div>
                     {o.status === "OK" && (o.citations?.facts?.evidenceRows?.length ?? 0) > 0 && (
                       <details className="mt-2 text-xs text-[var(--cf-text-secondary)]">
                         <summary className="cursor-pointer text-[var(--cf-brand)]">Rows cited</summary>
@@ -240,13 +225,17 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
             <div className="mt-2"><Ask applicationId={applicationId} onAsked={() => { setGaveUp(false); setAskedAt(Date.now()) }} /></div>
             {data.answers.length === 0 && <p className="mt-2 text-sm text-[var(--cf-text-muted)]">No questions asked yet.</p>}
             <ul className="mt-2 space-y-3">
-              {data.answers.map((o) => (
+              {shownAnswers(data.answers).map((o) => (
                 <li key={o.id} data-testid="statement-ai-answer" className="rounded-md border border-[var(--cf-border-subtle)] p-3">
                   <p className="text-sm font-medium text-[var(--cf-text)]">{o.question}</p>
                   <div className="mt-1">
                     {o.status === "PENDING"
                       ? <p className="text-sm text-[var(--cf-text-muted)]">Working it out…</p>
-                      : <Body o={o} waiting={false} label="answer" />}
+                      : (
+                        <Body o={o} waiting={false} label="answer">
+                          {o.text && Array.isArray(o.citations) && <AnswerBody text={o.text} queries={o.citations} />}
+                        </Body>
+                      )}
                   </div>
                   {o.status === "OK" && Array.isArray(o.citations) && <HowComputed queries={o.citations} />}
                 </li>

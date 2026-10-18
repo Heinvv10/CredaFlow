@@ -90,12 +90,13 @@ export async function loadOwnLenderDebts(
   const [loans, approved, lenderNames] = await Promise.all([
     db.loan.findMany({
       where: { ...OWES_MONEY, tenantId, clientId, ...(exclude ? { applicationId: exclude } : {}) },
-      orderBy: { startDate: "asc" },
+      // Ties by reference (unique): withOwnLenderDebts credits a by-name declaration in this order, and approval fingerprints it.
+      orderBy: [{ startDate: "asc" }, { reference: "asc" }],
       select: OWN_LOAN_SELECT,
     }),
     db.loanApplication.findMany({
       where: { tenantId, clientId, status: "APPROVED", loan: null, ...(exclude ? { id: exclude } : {}) },
-      orderBy: { approvedAt: "asc" },
+      orderBy: [{ approvedAt: "asc" }, { reference: "asc" }], // ties by reference, as above
       select: { id: true, reference: true, approvedAmount: true, affordabilityResult: true },
     }),
     lenderNamesOf(db, tenantId),
