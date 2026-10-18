@@ -28,6 +28,16 @@ Rendered samples: `docs/asset-finance/evidence/legal-wording/`, produced by
 `scripts/asset-finance/render-legal-wording-deal-samples.ts` (both
 deterministic: a rerun reproduces the committed PDFs).
 
+## Starter wording issues found (for the drafters; not changed by code)
+
+- Lease clause 9.3 prints "linked to the Lender base rate rate" when a lease is
+  linked to the lender's base rate (`lease-agreement-goods.ts`, the rate label
+  already ends in "rate"). Visible in the template preview's "Linked to the
+  lender's base rate" deal; pinned as an expected failure in
+  `lib/asset-finance/documents/templates/edge-round5-shapes.test.ts`. Fixing it
+  changes protected lease output: bump `SYSTEM_REVISION`, re-pin the
+  fingerprints, and lenders re-approve the lease variants.
+
 ## Code changes required before approval
 
 No remaining implementation gaps are listed. The NCA, lease, commercial and

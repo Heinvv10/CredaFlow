@@ -140,6 +140,9 @@ function leaseShapes(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE",
     { id: "juristic-arrears", label: "Company lessee, rentals in arrears", deal: (d) => l(d) },
     { id: "juristic-advance", label: "Company lessee, rentals in advance", deal: (d) => l(d, { advance: true }) },
     { id: "fixed", label: "Fixed rate", deal: (d) => l(rate(d, "FIXED")) },
+    ...(["REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const).map((basis): DealShape => ({
+      id: `rate-${basis.toLowerCase()}`, label: `Linked to ${basis === "LENDER_BASE" ? "the lender's base rate" : basis}`, deal: (d) => l(rate(d, basis)),
+    })),
     { id: "flat-km-plain", label: "Usage in km, no escalation or early-termination penalty, no default interest or collection fee", deal: (d) => l(plain(d), { usage: true, km: true, flat: true }) },
     fml
       ? { id: "lender-risk", label: "Maintenance risk with the lessor", deal: (d) => l(d, { riskModel: "LENDER_RISK" }) }
@@ -175,6 +178,9 @@ const NCA_SHAPES: NcaShape[] = [
   { id: "small-no-residual", label: "Small agreement, no residual (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 1_000_000, balloonCents: 0 } }) },
   { id: "large", label: "Large agreement (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 30_000_000 } }) },
   { id: "credit-life", label: "Credit life elected (illustrative premium)", nca: (d) => ({ ...d, pricing: { ...d.pricing, creditLifePremiumCents: 12_345 } }) },
+  ...(["REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const).map((basis): NcaShape => ({
+    id: `rate-${basis.toLowerCase()}`, label: `Linked to ${basis === "LENDER_BASE" ? "the lender's base rate" : basis}`, nca: (d) => ({ ...d, pricing: { ...d.pricing, rateBasis: basis } }),
+  })),
 ]
 
 function dealShapes(templateKey: string): DealShape[] {
