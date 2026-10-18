@@ -189,6 +189,11 @@ code: `lib/asset-finance/documents/templates/`).
   must adopt, approve and publish its templates before documents can be
   prepared; for a demo lender, `scripts/asset-finance/ensure-demo-templates.ts`
   does it with synthetic approvals (the demo seed does it on a fresh bake).
+  It needs two different active staff users of LOAN_ADMIN or above. A stack
+  restored nightly from a snapshot must be re-snapshotted after the backfill
+  (or re-baked), or the restore removes the templates again. A deal partly
+  signed before the upgrade cannot be prepared again or finish signing: cancel
+  it and originate it again.
 
 ## The database enforces the rules
 

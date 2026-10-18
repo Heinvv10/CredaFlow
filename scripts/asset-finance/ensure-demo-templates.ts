@@ -5,6 +5,10 @@
 // basis (documents keep the demo watermark). Refuses a lender that is not
 // TenantConfig.isDemoLender: it never records a legal approval. Idempotent.
 //
+// The two users are different active LOAN_ADMIN-or-above staff of the lender
+// (the database refuses anyone else). On a stack restored from a snapshot,
+// re-snapshot afterwards or the next restore removes the templates again.
+//
 //   DATABASE_URL=... npx tsx scripts/asset-finance/ensure-demo-templates.ts <tenant-slug> <author-email> <approver-email>
 //   (needs lib/registry/generated: run `npm run gen:registries` first)
 import { prisma } from "@/lib/prisma"
