@@ -148,7 +148,7 @@ const DID: Record<QueryCitation["tool"], (q: QueryCitation) => string> = {
   count: () => "Counted",
   average: () => "Averaged",
   groupByMonth: (q) => `Grouped by month (${q.args.measure === "count" ? "number of rows" : "totals"})`,
-  groupByPayee: (q) => `Ranked the top ${q.args.limit} payees by ${q.args.measure === "count" ? "number of rows" : "total"} in`,
+  groupByPayee: (q) => `Ranked ${Array.isArray(q.result) && q.result.length === q.args.limit ? `the top ${q.args.limit} payees` : "payees"} by ${q.args.measure === "count" ? "number of rows" : "total"} in`,
   list: (q) => `Listed up to ${q.args.limit} rows${q.args.order === "largest" ? ", largest first," : q.args.order === "latest" ? ", latest first," : ""} of`,
 }
 

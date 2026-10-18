@@ -122,6 +122,11 @@ describe("StatementAiCard", () => {
     const { r } = await render(200, payloadWith([output({ id: "o8", kind: "ANSWER", question: "Rent?", text: "R19 500.00 [q1].", citations: [rentSum] })]))
     expect(parts(r)).toEqual([])
     expect(JSON.stringify(r.toJSON())).toContain("R19 500.00 [q1].")
+    // Labelled, but not for these queries: q2's sentence must not be shown as q1's part.
+    const swapped = renderAnswer([{ ...largest, id: "q1" }, { ...rentSum, id: "q3" }])
+    const { r: other } = await render(200, payloadWith([output({ id: "o11", kind: "ANSWER", question: "Rent?", text: swapped, citations: [rentSum, { ...largest, id: "q2" }] })]))
+    expect(parts(other)).toEqual([])
+    expect(JSON.stringify(other.toJSON())).toContain("[q3]")
   })
 
   it("keeps a failed answer that is newer than the answered one", async () => {
