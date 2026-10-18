@@ -36,6 +36,7 @@ PG = the real-Postgres suite at the time (round 1: `templates.integration.test.t
 | m13 | NCA quotation gate ignores the acknowledged quote's recorded mark | NU | killed, 2 failed |
 | s7 | SQL: issuance fingerprint ≠ approved fingerprint accepted | I | **survived** → DB refusal case added |
 | s7 (rerun) | same | I | killed, 1 failed |
+| m14 | NCA 4.3 credit-life-only sentence changed (a branch the first fingerprint missed) | `fingerprint.test.ts` | killed (pinned value moved) |
 | m10 | Issued mark always NONE (demo approval loses its watermark) | the two rewritten NCA unit suites | killed, 2 failed |
 
 The two NCA unit suites (`legal-wording-flag-nca-*.test.ts`) were rewritten for

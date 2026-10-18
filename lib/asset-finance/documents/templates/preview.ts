@@ -35,22 +35,29 @@ export interface PreviewShape {
 type DealShape = PreviewShape & { deal: (base: DealDocumentData) => AnyDealDocumentData }
 type NcaShape = PreviewShape & { nca: (base: NcaAssetDocumentData) => NcaAssetDocumentData }
 
-function leaseTerms(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE", cpa: boolean, opts: { advance?: boolean; riskModel?: "LESSEE_SETTLED" | "LENDER_RISK"; usage?: boolean } = {}): LeaseDocumentTerms {
+function leaseTerms(
+  contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE",
+  cpa: boolean,
+  opts: { advance?: boolean; riskModel?: "LESSEE_SETTLED" | "LENDER_RISK"; usage?: boolean; km?: boolean; flat?: boolean } = {},
+): LeaseDocumentTerms {
   const fml = contractType === "FULL_MAINTENANCE_LEASE"
   const timing = opts.advance ? "ADVANCE" : "ARREARS"
   const usage = opts.usage ?? fml
+  // flat: no rental or maintenance escalation and no early-termination penalty.
+  const escalation = opts.flat ? "0" : "0.08"
+  const maintenanceEscalation = opts.flat ? "0" : "0.065"
   const priced = priceLease({
-    cashPriceExclVatCents: 150_000_000, residualCents: 30_000_000, periods: 36, rentalTiming: timing, escalationRate: "0.08",
+    cashPriceExclVatCents: 150_000_000, residualCents: 30_000_000, periods: 36, rentalTiming: timing, escalationRate: escalation,
     startDate: opts.advance ? "2027-01-31" : "2026-12-31", firstDueDate: "2027-01-31",
     ratePath: [{ effectiveDate: "2026-12-31", annualRate: 0.1175 }],
-    maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: "0.065" } : null, vatRateTenThousandths: 1500,
+    maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: maintenanceEscalation } : null, vatRateTenThousandths: 1500,
   })
   return {
     contractType,
     terms: {
-      rentalTiming: timing, escalationRate: "0.08", earlyTerminationPenaltyRate: "0.1",
-      maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: "0.065", riskModel: opts.riskModel ?? "LESSEE_SETTLED" } : null,
-      usage: usage ? { allowancePerYear: 1_500, unit: "HOURS", excessRateCents: 35_000 } : null,
+      rentalTiming: timing, escalationRate: escalation, earlyTerminationPenaltyRate: opts.flat ? "0" : "0.1",
+      maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: maintenanceEscalation, riskModel: opts.riskModel ?? "LESSEE_SETTLED" } : null,
+      usage: usage ? (opts.km ? { allowancePerYear: 60_000, unit: "KM", excessRateCents: 450 } : { allowancePerYear: 1_500, unit: "HOURS", excessRateCents: 35_000 }) : null,
     },
     schedule: leaseScheduleView(priced, "0.1500"), endDate: "2029-12-31",
     cpaApplies: cpa, cpaRule: cpa ? "CPA_JURISTIC_UNDER_THRESHOLD" : "CPA_JURISTIC_OVER_THRESHOLD",
@@ -122,6 +129,7 @@ function isaShapes(cpa: boolean): DealShape[] {
     { id: "repo-partnership", label: "Partnership, repo-linked", deal: (d) => v(rate(entity(d, "PARTNERSHIP"), "REPO")) },
     { id: "jibar", label: "JIBAR-linked", deal: (d) => v(rate(d, "JIBAR")) },
     { id: "lender-base", label: "Linked to the lender's base rate", deal: (d) => v(rate(d, "LENDER_BASE")) },
+    { id: "below-reference", label: "Margin below the reference rate, default interest at the contract rate", deal: (d) => v({ ...d, pricing: { ...d.pricing, rateMargin: "-0.005", arrearsMarginRate: "0" } }) },
   ]
 }
 
@@ -132,6 +140,7 @@ function leaseShapes(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE",
     { id: "juristic-arrears", label: "Company lessee, rentals in arrears", deal: (d) => l(d) },
     { id: "juristic-advance", label: "Company lessee, rentals in advance", deal: (d) => l(d, { advance: true }) },
     { id: "fixed", label: "Fixed rate", deal: (d) => l(rate(d, "FIXED")) },
+    { id: "flat-km-plain", label: "Usage in km, no escalation or early-termination penalty, no default interest or collection fee", deal: (d) => l(plain(d), { usage: true, km: true, flat: true }) },
     fml
       ? { id: "lender-risk", label: "Maintenance risk with the lessor", deal: (d) => l(d, { riskModel: "LENDER_RISK" }) }
       : { id: "with-usage", label: "Contracted usage", deal: (d) => l(d, { usage: true }) },
@@ -165,6 +174,7 @@ const NCA_SHAPES: NcaShape[] = [
   { id: "fixed", label: "Fixed rate", nca: (d) => ({ ...d, pricing: { ...d.pricing, rateBasis: "FIXED", rateMargin: null, reference: null } }) },
   { id: "small-no-residual", label: "Small agreement, no residual (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 1_000_000, balloonCents: 0 } }) },
   { id: "large", label: "Large agreement (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 30_000_000 } }) },
+  { id: "credit-life", label: "Credit life elected (illustrative premium)", nca: (d) => ({ ...d, pricing: { ...d.pricing, creditLifePremiumCents: 12_345 } }) },
 ]
 
 function dealShapes(templateKey: string): DealShape[] {
