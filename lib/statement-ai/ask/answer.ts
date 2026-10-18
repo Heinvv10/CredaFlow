@@ -12,7 +12,7 @@ import { renderAnswer } from "../render"
 import { cleanText } from "../prompts"
 import { CATEGORY_NAMES, MAX_QUERIES, PlanSchema, resolvePayee, runQuery, type AskRow, type Query, type QueryResult } from "./tools"
 
-export const ASK_PROMPT_VERSION = "ask-plan-2"
+export const ASK_PROMPT_VERSION = "ask-plan-3"
 export const QUESTION_MAX = 300
 /** Payees the planner is shown: the most frequent, so it can name one exactly. */
 export const PAYEES_SHOWN = 40
