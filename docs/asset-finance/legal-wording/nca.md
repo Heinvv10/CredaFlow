@@ -77,7 +77,8 @@ large (Form 20.2). Low confidence on the regulation numbering.
 - Final notice, "Consumer rights following disposal and account reconciliation":
   the s127(5) notice; shortfall demanded (net of unrecoverable charged costs when
   a recovery is linked) with 10 business days before proceedings, or the surplus
-  remitted with the notice into the account given after the valuation notice,
+  instruction issued with the notice for the account given after valuation;
+  payment remains outstanding until bank execution is evidenced,
   or nothing owed; after a shortfall (with or without a linked recovery, the
   same rule as the s131 notice) no interest or charges from the proceeds date
   to 10 business days after the notice; the agreement ends on
@@ -94,7 +95,7 @@ large (Form 20.2). Low confidence on the regulation numbering.
 - Final notice, "Consumer rights following sale and account reconciliation":
   s127(5) and s131 notice; shortfall (settlement value plus charged costs less net
   proceeds, net of unrecoverable charged costs) demanded with 10 business days, or
-  surplus remitted with the notice, or nothing owed; after a shortfall, charge
+  surplus actually remitted (or an explicit outstanding unverified-account exception), or nothing owed; after a shortfall, charge
   freeze to 10 business days after the notice;
   disputes and s128.
 
@@ -130,26 +131,54 @@ cross-referred, not restated.
 
 ## Points for the lender's legal team
 
-**First: "total cost of credit" (README gap 23).** The NCA quote and
-agreement print "Total cost of credit" from the PASQ evidence
-(`lib/compliance/pasq.ts:190`, shared with the consumer loans). That figure
-includes the principal debt, so it equals "Total repayable" and the two rows
-print the same amount. Quote 1.5 describes the figure as the code computes it
-and takes no position on the law. Confirm the Form 20 / Reg 31 meaning: if the
-cost of credit excludes the principal (s101 separates the principal debt from
-the charges), the shared calculation and 1.5 change; if it includes it, drop
-the duplicate row from the asset quote and agreement.
+**Resolved in the NCA legal-code changes (2026-10-17).** Section 125
+rebates now apply to NCA instalment sales and finance leases, including the
+s127 settlement value. Recorded receipt starts the ten-business-day sale
+window; proceeds and listing are refused before it expires. A timely withdrawal
+records return of the goods. Standalone surrender shortfalls use the same charge
+freeze as recoveries.
 
-Points 1–3 and 5, and the charge-freeze half of point 6, of the first draft
-(numbers kept) are code gaps, now listed in
-[`README.md`](README.md) ("Code changes required before approval", gaps 1–5).
-The wording states the law: s125 settlement, the s127(3) withdrawal and the
-10-business-day wait, the surplus remitted with the post-sale notice, and the
-charge freeze after a shortfall on both notices.
+An evidence-backed determination under s127(6)(a) establishes whether another
+credit provider has a registered credit agreement with the same consumer over
+the same goods. Unknown never defaults to no. A positive determination routes
+the surplus to the National Consumer Tribunal; unrelated consumer debts do not.
+Bank proof, independent verification and release authorisation precede a treasury
+instruction. Staff then record the already executed external remittance with
+its exact amount, date, unique bank reference and retained evidence. Only then
+can the ordinary final notice issue, accurately stating recipient and actual
+execution date. No bank transfer is initiated by this path.
+
+The expressly authorised unverified-consumer-account exception still issues an
+accurate post-sale statement promptly. The surplus remains payable and the
+agreement has not statutorily terminated under s127(6)(b); a staff notification
+flags the outstanding obligation. Later verified-account release and actual
+remittance retain the original statement and exception unchanged, and a
+supplemental remittance confirmation records the later payment. This works for
+standalone s127, linked s127 and s131 recoveries. A legacy refund release cannot
+bypass actual-remittance closure or create a duplicate payment. Evidence and
+confirmation reads are access-logged. Loan COMPLETED records settled loan debt;
+it is not a representation of surplus discharge or statutory termination.
+
+Agreement disclosures now include cash price,
+deposit and monthly credit-life premium, and schedule capital excludes fees.
+
+**Total cost of credit (former gap 23).** Regulation 23A(15)(d), inserted by
+[GN R202, Gazette 38557, 13 March 2015](https://www.gov.za/sites/default/files/gcis_document/201503/38557rg10382gon202.pdf),
+expressly includes principal debt, interest, initiation fees, service fees and
+credit insurance in total cost of credit. The existing shared PASQ calculation
+therefore stays unchanged. The duplicate Total repayable table row was removed
+from the asset quotation and agreement; the quotation still explains the total.
+No consumer-loan PDF pin changed.
 
 4. **s127(2) timing.** `valuationDueOn` is the request date plus 10 business
    days; the Act counts from the later of the notice and the return of the goods.
-6. **Interest on the shortfall after the s127 demand (s127(8)).** Confirm.
+6. **Lender concession after the shortfall demand.** The lender waives interest,
+   fees and charges from application of the proceeds through 10 business days
+   after the final notice. This is the existing voluntary concession, not a
+   statutory interest prohibition: s127(8) governs the enforcement waiting
+   period, while s127(9) otherwise provides for contract-rate interest from
+   demand. The waiver, cash calculations and rendered promise remain unchanged.
+   [Primary Act, s127(8)–(9)](https://www.justice.gov.za/mc/vnbp/act2005-034.pdf).
 7. **NCA deductible cost types.** `recoveryNcaDeductibleCostTypes` defaults
    include towing, storage, repairs, insurance and sheriff's fees. s127(5) allows
    "reasonable costs of the sale"; legal to confirm which are sale costs.
@@ -184,6 +213,5 @@ charge freeze after a shortfall on both notices.
 16. **Audit rows** record `draftLegalWording` as the inverse of the tenant flag
     (`nca-agreement-store.ts`, `nca-entity-signing.ts`, `surrender-store.ts`,
     `recovery-notices.ts`).
-17. **Cash price, deposit and credit-life premium** are printed on the quote but
-    not on the agreement (README gap 21); low confidence on the Regulation item
-    numbers.
+17. **Cash price, deposit and credit-life premium** now appear on both the quote
+    and agreement (former gap 21); the lender must still approve the rendered form.

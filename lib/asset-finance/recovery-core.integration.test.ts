@@ -94,6 +94,8 @@ suite.sequential("recovery core: routes, notices and documents (real Postgres)",
     const document = await r.document(id, "valuation")
     expect(document.status).toBe(200)
     expect((await pdfTexts(new Uint8Array(await document.arrayBuffer()))).join(" ")).toContain("VOLUNTARY SURRENDER VALUATION NOTICE")
+    // The consumer actually received the notice, then the fixture clock advances past ten business days.
+    await testSetup(database(), [`UPDATE "SurrenderRequest" SET "valuationNoticeIssuedOn"=CURRENT_DATE-30,"valuationNoticeReceivedOn"=CURRENT_DATE-30,"valuationReceiptReference"='Synthetic delivery proof after clock advance' WHERE "id"=$1`,surrenderId])
     expect((await r.listForSale(id)).status).toBe(200)
     expect((await recoveryOf(id)).status).toBe("LISTED")
 

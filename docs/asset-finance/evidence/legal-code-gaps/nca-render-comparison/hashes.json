@@ -1,0 +1,32 @@
+{
+  "agreement-instalment-sale.pdf": {
+    "beforeSha256": "78525eb302d243ff3c96424b1950278c45fdb1d51a47f05ba74186c4b7af53d9",
+    "afterSha256": "9fb4c0c0b75d89238bf3e6a5ea58c6cd8cb53c5e35847dea053f0bc5cca5e93c",
+    "textChanged": true
+  },
+  "quote.pdf": {
+    "beforeSha256": "6def4abaf6a1cf5b606cd29a05dc9d93e86834e7147f861c86b23f7e94a070e8",
+    "afterSha256": "8fd55b97cdd1b89443d9a95750cd0266b68fac77510c289bdb12018c2e4131a4",
+    "textChanged": true
+  },
+  "s127-final-notice.pdf": {
+    "beforeSha256": "dafdda483a14fef90fa0851dddbb40705d687fff2d304033837a663a1d0c61e4",
+    "afterSha256": "dafdda483a14fef90fa0851dddbb40705d687fff2d304033837a663a1d0c61e4",
+    "textChanged": false
+  },
+  "s127-valuation-notice.pdf": {
+    "beforeSha256": "9b9c3045da0c1241d1fed6ad94e5bc0059e03ef37ddcb428015a7d4882e7873d",
+    "afterSha256": "9b9c3045da0c1241d1fed6ad94e5bc0059e03ef37ddcb428015a7d4882e7873d",
+    "textChanged": false
+  },
+  "s131-final-notice.pdf": {
+    "beforeSha256": "b11b9e77dc69863bb76c5deae003b30929c8e6edb39d5afbb6998b93d1c9dcc9",
+    "afterSha256": "b11b9e77dc69863bb76c5deae003b30929c8e6edb39d5afbb6998b93d1c9dcc9",
+    "textChanged": false
+  },
+  "s131-valuation-notice.pdf": {
+    "beforeSha256": "59e45e92b422a30f816f65c64115f279dfca36e072340fa22841d1bbb3b414b5",
+    "afterSha256": "59e45e92b422a30f816f65c64115f279dfca36e072340fa22841d1bbb3b414b5",
+    "textChanged": false
+  }
+}

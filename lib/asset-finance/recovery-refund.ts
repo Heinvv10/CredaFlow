@@ -42,9 +42,10 @@ export async function createRefund(actor: RecoveryActor, recoveryId: string, inp
     result = await refusable(() => prisma.$transaction(async (tx): Promise<NotFound | RefundDone> => {
       const recovery = await tx.recovery.findFirst({
         where: { id: recoveryId, tenantId: actor.tenantId },
-        select: { id: true, status: true, surplusCents: true, loan: { select: { clientId: true, entityId: true } } },
+        select: { id: true, status: true, surrenderRequestId: true, surplusCents: true, loan: { select: { clientId: true, entityId: true } } },
       })
       if (!recovery) return { kind: "not_found" }
+      if (await tx.ncaSurplusRemittance.count({ where: { tenantId: actor.tenantId, OR: [{ recoveryId }, ...(recovery.surrenderRequestId ? [{ surrenderId: recovery.surrenderRequestId }] : [])] } }) > 0) throw new RecoveryRefusal("The NCA surplus uses its recorded instruction or held-account exception; verify its account and record actual execution")
       if (recovery.status !== "SURPLUS_HELD" || !recovery.surplusCents) throw new RecoveryRefusal("A refund is created for a recovery that holds a surplus")
       await requireStandingProceeds(tx, actor.tenantId, recoveryId)
       if (await tx.recoveryRefund.count({ where: { tenantId: actor.tenantId, recoveryId } }) > 0) throw new RecoveryRefusal("The surplus already has a refund")

@@ -7,6 +7,7 @@
 //
 //   npx tsx scripts/asset-finance/render-legal-wording-nca-samples.ts
 //   (needs lib/registry/generated, which is gitignored: run `npm run gen:registries` first)
+import { sastCalendarDate } from "@/lib/date/sast"
 import assert from "node:assert/strict"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -50,12 +51,14 @@ async function main(): Promise<void> {
       instalmentCents: evidence.billing.recurringPaymentCents, balloonCents: terms.balloonCents, totalInterestCents: c.totalInterestCents,
       totalCostOfCreditCents: evidence.totalCostOfCreditCents, totalRepayableCents: evidence.billing.totalRepayableCents,
     },
-    // The solver's rows: the PASQ billing records fold the NCA fees into principalDue (schedule-records.ts toScheduleRecord), so they are not used here.
-    schedule: solved.result.rows.map((r) => ({
-      installmentNo: r.index + 1, dueDate: r.dueDate, principalCents: r.principalCents + r.balloonCents, interestCents: r.interestCents,
-      feesCents: r.feesCents, totalCents: r.totalCents, closingBalanceCents: r.closingBalanceCents,
+    // Use the same acknowledged PASQ billing rows as the document stores.
+    schedule: evidence.billing.schedule.map((r) => ({
+      installmentNo: r.installmentNo, dueDate: sastCalendarDate(new Date(r.dueDate)), principalCents: r.principalDueCents,
+      interestCents: r.interestDueCents, feesCents: r.feesDueCents, totalCents: r.totalDueCents,
+      closingBalanceCents: r.closingBalanceCents,
     })),
   }
+  assert.equal(data.schedule[0].dueDate, terms.firstDueDate, "PASQ document due date is the SAST contract date")
   // Internal consistency the samples must show: capital repays the principal; totals add up.
   assert.equal(data.schedule.reduce((s, r) => s + r.principalCents, 0), c.principalCents, "capital rows repay the principal")
   assert.equal(c.principalCents, data.pricing.cashPriceCents - data.pricing.depositCents, "principal = cash price - deposit")
@@ -73,8 +76,8 @@ async function main(): Promise<void> {
     requestDate: "2026-10-13", valuationDueDate: "2026-10-27",
     valuation: { valuedOn: "2026-10-20", valuerName: "TEST Valuer", amountCents: 125_000 },
     outcome: { saleProceedsCents: 100_000, shortfallCents: 25_000, refundCents: 0 } }
-  writeFileSync(`${OUT}/s127-valuation-notice.pdf`, await renderSurrenderValuationNotice(surrender))
-  writeFileSync(`${OUT}/s127-final-notice.pdf`, await renderSurrenderFinalNotice(surrender))
+  writeFileSync(`${OUT}/s127-valuation-notice.pdf`, await renderSurrenderValuationNotice({ ...surrender, documentDate: new Date("2026-10-20T08:00:00Z") }))
+  writeFileSync(`${OUT}/s127-final-notice.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z") }))
   const recovery: RecoveryNoticeData = { ...base, reference: "AF-NCA-S131-TEST",
     asset: { description: "2026 TEST TLB", serialNumber: "TEST-SERIAL-131", condition: "Synthetic working condition" },
     recoveredOn: "2026-10-10", location: "TEST Yard",
@@ -82,8 +85,12 @@ async function main(): Promise<void> {
     outcome: { settlementDueCents: 150_000, grossProceedsCents: 120_000, deductedCostsCents: 5_000, chargedCostsCents: 2_000, netProceedsCents: 115_000, shortfallCents: 37_000, surplusCents: 0 },
     costs: [{ label: "Towing and transport", grossCents: 5_000, treatment: "DEDUCT_FROM_PROCEEDS" }, { label: "Legal costs (taxed)", grossCents: 2_000, treatment: "CHARGE_TO_ACCOUNT" }] }
   writeFileSync(`${OUT}/s131-valuation-notice.pdf`, await renderRecoveryValuationNotice(recovery))
-  writeFileSync(`${OUT}/s131-final-notice.pdf`, await renderRecoveryFinalNotice(recovery))
-  process.stdout.write(`wrote 6 PDFs to ${OUT}\n`)
+  writeFileSync(`${OUT}/s131-final-notice.pdf`, await renderRecoveryFinalNotice({ ...recovery, documentDate: new Date("2026-11-05T08:00:00Z") }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-remitted.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "CONSUMER", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  writeFileSync(`${OUT}/s131-final-notice-surplus-remitted.pdf`, await renderRecoveryFinalNotice({ ...recovery, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "CONSUMER", outcome: { ...recovery.outcome!, grossProceedsCents: 175_000, netProceedsCents: 170_000, shortfallCents: 0, surplusCents: 18_000 } }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-held.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "HELD_NO_VERIFIED_ACCOUNT", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  writeFileSync(`${OUT}/s127-final-notice-surplus-tribunal.pdf`, await renderSurrenderFinalNotice({ ...surrender, documentDate: new Date("2026-11-05T08:00:00Z"), surplusDisposition: "INSTRUCTED", surplusExecutedOn: "2026-11-05", surplusRecipient: "TRIBUNAL", outcome: { saleProceedsCents: 175_000, shortfallCents: 0, refundCents: 25_000 } }))
+  process.stdout.write(`wrote 10 PDFs to ${OUT}\n`)
 }
 
 void main()

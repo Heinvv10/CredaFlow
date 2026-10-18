@@ -204,7 +204,9 @@ describe("the certificate's settlement block", () => {
   it("is s125-priced only for an NCA consumer loan of several instalments, or an NCA bullet", () => {
     expect(isS125Priced(loan, instalments)).toBe(true)
     expect(isS125Priced({ ...loan, interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(true)
-    expect(isS125Priced({ ...loan, contractType: "INSTALMENT_SALE" }, instalments)).toBe(false)
+    expect(isS125Priced({ ...loan, contractType: "INSTALMENT_SALE" }, instalments)).toBe(true)
+    expect(isS125Priced({ ...loan, contractType: "FINANCE_LEASE" }, instalments)).toBe(true)
+    expect(isS125Priced({ ...loan, contractType: "FINANCE_LEASE", interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(false)
     expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA" }, instalments)).toBe(false)
     expect(isS125Priced({ ...loan, ncaRegime: "NON_NCA", interestModel: "DAILY_ACCRUAL" }, [row("r1")])).toBe(false)
     expect(isS125Priced(loan, [row("r1")])).toBe(false)

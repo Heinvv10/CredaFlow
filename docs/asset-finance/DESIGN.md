@@ -572,6 +572,26 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   [`legal-wording/README.md`](legal-wording/README.md) is empty: the drafted
   wording states the law where the code does not yet do what it says.
 
+- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
+  settlement rebates unearned interest; recorded valuation-notice receipt
+  starts the statutory sale wait; timely withdrawal records goods returned;
+  standalone surrender shortfalls freeze charges.
+- **Changed 2026-10-18 to comply with NCA s127(6)(a) and (b):** an
+  evidence-backed same-consumer/same-goods registered-credit-agreement
+  determination selects consumer or Tribunal remittance; unknown refuses
+  disposal. Independently authorised treasury instructions precede actual
+  external bank execution, and ordinary final notices require exact retained
+  execution proof. The authorised held-account exception preserves an unpaid
+  surplus, no statutory termination and a staff escalation. Later execution
+  retains the original statement and appends a supplemental confirmation.
+  NCA recovery closure requires actual remittance, including when a legacy
+  refund row says released. Financial Loan COMPLETED is separate from surplus
+  discharge; staff and consumer views identify outstanding surplus.
+- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
+  agreement disclosures include cash price, deposit and credit-life premium;
+  schedule capital excludes fees; total cost of credit retains principal debt
+  and the duplicate asset-document total row is removed. Consumer PASQ output
+  and consumer PDF pins are unchanged.
 - **Changed 2026-10-17 to comply with the Conventional Penalties Act:** a
   NON_NCA instalment sale settlement excludes future interest; settling
   receipts reprice the schedule and preserve contractual rows as audit evidence.

@@ -92,3 +92,13 @@ it("an accepted CPA lessor cost creates genuine debt before proceeds, even with 
   const after = await loadChargesReplay(load([{ id: "real-proceeds", amount: 10_000, receivedAt: d("2026-09-05") }]), { tenantId: "t1", loanId: "loan-1" }, d("2026-09-11"))
   expect(after?.result).toMatchObject({ feesAccrued: 25_000, feesPaid: 10_000, feesOutstanding: 15_000, interestAccrued: 0 })
 })
+describe("standalone surrender freezes use the same replay boundary", () => {
+  it("freezes charges without any Recovery record", async () => {
+    const frozen = [{ chargesFrozenFrom: new Date("2026-09-04T00:00:00Z"), chargesFrozenUntil: new Date("2026-09-06T00:00:00Z") }]
+    const tx = {
+      loan: { findUnique: vi.fn().mockResolvedValue({ ...loan([]), surrenderRequests: frozen }) },
+      payment: { findMany: vi.fn().mockResolvedValue([]) }, complianceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never
+    expect((await loadChargesReplay(tx, { tenantId: "t1", loanId: "loan-1" }, d("2026-09-11")))!.result.interestAccrued).toBe(2_000)
+  })
+})

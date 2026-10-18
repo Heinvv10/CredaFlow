@@ -13,6 +13,7 @@ import { loadRecoveryNoticeData } from "./recovery-notice-data"
 import { recoveryChargeFreeze } from "./recovery-deadline"
 import type { SigningTx } from "./signing-prepare"
 import { advance, RecoveryRefusal, refusable, type RecoveryResult } from "./recovery-result"
+import { issueNcaSurplusRemittance } from "./nca-surplus"
 import { issueSurrenderNotice, readSurrenderNotice } from "./surrender-store"
 
 export type RecoveryDocumentKind = "valuation" | "final" | "statement"
@@ -78,7 +79,7 @@ export async function issueRecoveryFinalNotice(actor: RecoveryActor, id: string)
   }
   const bytes = await renderRecoveryFinalNotice(data)
   return storeAndAdvance(actor, id, bytes, "PROCEEDS_APPLIED", (stored, sha256) => ({ ...step, finalNoticePath: stored, finalNoticeSha256: sha256 }),
-    AuditAction.ASSET_RECOVERY_FINAL_NOTICE_ISSUED, audit)
+    AuditAction.ASSET_RECOVERY_FINAL_NOTICE_ISSUED, { ...audit, surplusDisposition: data.surplusDisposition })
 }
 
 /**
@@ -122,8 +123,14 @@ async function storeAndAdvance(
   const stored = await saveFile(bytes, "application/pdf")
   try {
     const outcome = await refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
+      if (from === "PROCEEDS_APPLIED") {
+        const row = await tx.recovery.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
+        const remittance = await issueNcaSurplusRemittance(tx, actor, { loanId: row.loanId, recoveryId: id, amountCents: row.surplusCents ?? 0 }, true)
+        if (remittance && remittance.status !== extra.surplusDisposition) throw new RecoveryRefusal("Bank verification changed while rendering the notice; retry")
+      }
       await advance(tx, actor, id, from, data(stored.storagePath, sha256))
       await auditNotice(tx, actor, id, action, { ...extra, sha256, storagePath: stored.storagePath })
+      if (from === "PROCEEDS_APPLIED" && extra.surplusDisposition) await tx.$executeRaw`SET CONSTRAINTS ALL IMMEDIATE`
       return { kind: "done", id }
     }))
     if (outcome.kind !== "done") await deleteFile(stored.storagePath)

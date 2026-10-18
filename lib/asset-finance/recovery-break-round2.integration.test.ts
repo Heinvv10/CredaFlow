@@ -23,12 +23,11 @@ const adminB = () => asUser(fx, fx.adminB, "LOAN_ADMIN")
 const R = () => bundle(fx)
 
 async function surplusHeld() {
-  const rec = await plainListed(db, fx, "NCA", 100_000_000)
+  const rec = await plainListed(db, fx, "NON_NCA", 100_000_000)
   officer()
   const sale = (await readJson(await R().s.propose(rec.id, saleBody(rec.valuationId, 200_000_000)))).body.id as string
   await R().s.completeSale(rec.id, sale)
   await R().s.proceeds(rec.id)
-  await R().r.finalNotice(rec.id)
   expect((await readJson(await R().s.outcome(rec.id))).body).toMatchObject({ status: "SURPLUS_HELD" })
   return rec
 }

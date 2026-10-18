@@ -1,0 +1,82 @@
+TEST Asset Credit (Pty) Ltd
+NCR NCRCP99999
+1 Synthetic Road
+Johannesburg
+
+
+VOLUNTARY SURRENDER FINAL ACCOUNT NOTICE
+
+
+
+
+                                                                                                            N
+Loan SYNTHETIC-NCA-TRIBUNAL · prepared 18 October 2026
+DRAFT legal wording — statutory wording requires lender legal approval
+
+
+
+
+                                                                                                          IO
+ CONSUMER AND ASSET
+
+
+
+
+                                                                                               UT
+Consumer                                  TEST Debtor632b2f11cd6f
+Identity / registration                   7706042683081
+Consumer address                          —
+Asset                                     2025 TEST EX-R · RCVBFD1FE3861
+
+
+
+
+                                                                                     EC
+Recorded condition                        TEST synthetic surrender; actual surplus remittance acceptance
+Surrender requested                       2026-09-18
+Valuation due                             2026-09-30
+
+
+
+
+                                                                          EX
+ SALE PROCEEDS AND ACCOUNT RESULT
+
+Valuation                                 R 4,000.00
+Sale proceeds credited                    R 4,000.00
+Shortfall                                 R 0.00
+                                                                   R
+Refund due                                R 940.00
+
+1 Consumer rights following disposal and account reconciliation
+                                                        FO
+
+   1.1 In this notice "the Act" means the National Credit Act 34 of 2005, "you" means TEST Debtor632b2f11cd6f and "we" means
+   TEST Asset Credit (Pty) Ltd, registered credit provider NCRCP99999. This is our notice under section 127(5) of the Act after
+   the sale of the asset you surrendered under agreement SYNTHETIC-NCA-TRIBUNAL. The figures above show the result of
+   the sale and how it was applied to your account.
+   1.2 The net proceeds exceeded the settlement value by R 940.00. Under section 127(6) of the Act we remitted that amount to
+                                                 T
+
+
+   the National Consumer Tribunal because another credit provider has a registered credit agreement with you concerning the
+   same goods. The remittance was executed on 18 October 2026. Actual bank execution is recorded with retained bank
+                                      NO
+
+
+
+
+   evidence; this is not merely a payment instruction.
+   1.3 The surplus has been remitted to the National Consumer Tribunal under section 127(6)(a), for distribution as it directs. This
+   notice does not assert termination under section 127(6)(b), which concerns remittance to the consumer. Section 128 of the
+   Act also allows you to apply to the Tribunal to review the sale.
+                            —
+                     T
+            AF
+DR
+
+
+
+
+Ref SYNTHETIC-NCA-TRIBUNAL                                                                                              Page 1 of 1
+

@@ -1,9 +1,13 @@
+import { determineSurplusRecipient } from "./nca-surplus.integration-fixture"
+import { recordSurplusAccount, approveSurplusAccount } from "./nca-surplus-account"
+import { recordSurplusExecution } from "./nca-surplus-execution"
+import { testSetup } from "./lease-servicing.integration-fixture"
 /**
  * Slice 4a recovery, end to end: each of the four routes (s127 surrender, s131
  * attachment, NON_NCA voluntary, NON_NCA court order) is driven from the loan
  * to a closed recovery ONLY through the real route handlers, as the staff who
  * do each step. Fixture setup writes the booked loan, the section 129
- * notice record and the users; nothing else is written directly. After every
+ * notice record and the users; only valuation notice receipt dates are time-shifted to simulate the statutory waiting period. After every
  * write the suite asserts the recovery's status, the asset's lessorStatus, the
  * loan's status (never written off by the recovery), the Payment count and the
  * audit row. A shortfall closes only after two admins write the loan off
@@ -146,6 +150,7 @@ async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below
 
   let status: RecoveryStatus = "PROCEEDS_APPLIED"
   if (o.nca) {
+    if (o.surplus) await determineSurplusRecipient(fx, run.loan.loanId)
     await write(["ASSET_RECOVERY_FINAL_NOTICE_ISSUED"], () => r().finalNotice(run.id))
     status = "FINAL_NOTICE_ISSUED"
     await expectState(run, { ...settled, recovery: status })
@@ -155,7 +160,15 @@ async function sellAndClose(run: Run, o: { nca: boolean; surplus: boolean; below
   const open: Expect = { ...settled, recovery: o.surplus ? "SURPLUS_HELD" : "SHORTFALL_OPEN" }
   await expectState(run, open)
 
-  if (o.surplus) {
+  if (o.surplus && o.nca) {
+    const actor = { tenantId: fx.tenantId, userId: fx.officer }
+    expect(await recordSurplusAccount(actor, run.loan.loanId, { bank: { accountHolder: "TEST Consumer", bankName: "TEST Bank", branchCode: "000000", accountNumber: "0000000001", accountType: null }, upload: { file: new File(["%PDF-1.4 synthetic bank confirmation"], "bank.pdf", { type: "application/pdf" }), docType: "BANK_STATEMENT", dealId: null } })).toMatchObject({ kind: "done" })
+    expect(await approveSurplusAccount({ ...actor, userId: fx.adminA }, run.loan.loanId, "approve")).toMatchObject({ kind: "done" })
+    expect(await approveSurplusAccount({ ...actor, userId: fx.adminB }, run.loan.loanId, "authorise")).toMatchObject({ kind: "done" })
+    const instruction = await database().ncaSurplusRemittance.findFirstOrThrow({ where: { tenantId: fx.tenantId, recoveryId: run.id } })
+    expect(await recordSurplusExecution(actor, run.loan.loanId, instruction.id, { executedOn: today(), bankReference: `TEST-E2E-${instruction.id}`, amountCents: instruction.amountCents, destinationAccountId: instruction.accountId!, destinationConfirmed: true, upload: { file: new File(["%PDF-1.4 synthetic actual bank execution"], "execution.pdf", { type: "application/pdf" }), docType: "OTHER", dealId: null } })).toMatchObject({ kind: "done" })
+    expect((await database().recovery.findUniqueOrThrow({ where: { id: run.id } })).status).toBe("CLOSED")
+  } else if (o.surplus) {
     // the debtor is owed the surplus: two people and a third release it, which closes the recovery
     officer()
     await write(["ASSET_RECOVERY_REFUND_CREATED"], () => sale(s().refund(run.id, refundForm())), 201)
@@ -206,6 +219,11 @@ async function valueAndList(run: Run, o: { nca: boolean; s131?: boolean; surrend
     expect((await r().document(run.id, "valuation")).status).toBe(200)
   } else {
     expect((await r().valuationNotice(run.id)).status).toBe(409) // a NON_NCA recovery issues no NCA notice
+  }
+  if (o.nca) {
+    // Advance the fixture clock after delivery; the real listing route must enforce the window.
+    await testSetup(database(), [`UPDATE "Recovery" SET "valuationNoticeIssuedOn"=CURRENT_DATE-30,"valuationNoticeReceivedOn"=CURRENT_DATE-30,"valuationReceiptReference"='Synthetic delivered notice; clock advanced' WHERE "id"=$1`,run.id])
+    if(o.surrenderId) await testSetup(database(), [`UPDATE "SurrenderRequest" SET "valuationNoticeIssuedOn"=CURRENT_DATE-30,"valuationNoticeReceivedOn"=CURRENT_DATE-30,"valuationReceiptReference"='Synthetic delivered notice; clock advanced' WHERE "id"=$1`,o.surrenderId])
   }
   await write(["ASSET_RECOVERY_LISTED"], () => r().listForSale(run.id))
   await expectState(run, { recovery: "LISTED", lessor: "RECOVERED", payments: 0 })

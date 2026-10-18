@@ -39,7 +39,7 @@ suite.sequential("break 5: tenant isolation", () => {
     aCost = (await RA().r.cost(aRec.id, { type: "TOWING", treatment: "DEDUCT_FROM_PROCEEDS", netCents: 100_000, vatCents: 0, supplierInvoiceRef: "INV-A-1", incurredOn: today() })).body.id as string
     aMatter = (await db.recovery.findUniqueOrThrow({ where: { id: aRec.id } })).legalMatterId as string
     aStep = (await db.legalMatterStep.findFirstOrThrow({ where: { matterId: aMatter, kind: "JUDGMENT" } })).id
-    aSurplus = await ladderRecovery(db, A, true, "SURPLUS_HELD", { settlementCents: 20_000_000 })
+    aSurplus = await ladderRecovery(db, A, false, "SURPLUS_HELD", { settlementCents: 20_000_000 })
     asA("officer")
     expect((await readJson(await RA().s.refund(aSurplus.id, refundForm()))).status).toBe(201)
     aValuationOfOtherAsset = await newValuation(db, A, await newAsset(db, A), 5_000_000)
