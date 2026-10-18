@@ -68,9 +68,13 @@ describe("renderResult", () => {
     expect(renderResult(runQuery(ask, { id: "q5", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 2 }))).toMatch(
       /^\[q5\] By payee for money out, the largest 2 payees: "SYNTH RENTALS" R19 500.00/,
     )
-    expect(renderResult(runQuery(ask, { id: "q3", tool: "list", filter: { payee: "SYNTH RENTALS" }, limit: 1 }))).toBe(
-      "[q3] Rows for all rows with \"SYNTH RENTALS\": S1-R5 2026-07-27 \"SYNTH RENTALS\" R6 500.00 out; 3 rows match in all.",
+    expect(renderResult(runQuery(ask, { id: "q3", tool: "list", filter: { payee: "SYNTH RENTALS" }, limit: 1, order: "date" }))).toBe(
+      "[q3] Rows for all rows with \"SYNTH RENTALS\", in date order: S1-R5 2026-07-27 \"SYNTH RENTALS\" R6 500.00 out; 3 rows match in all.",
     )
+    const largest = runQuery(ask, { id: "q6", tool: "list", filter: { direction: "out" }, limit: 3, order: "largest" })
+    expect(renderResult(largest)).toMatch(/^\[q6\] Rows for money out, largest amount at the top: /)
+    // Its own wording passes the figure check: an ordered list is shown, not rejected.
+    expect(checkAnswer(renderResult(largest), [largest])).toEqual({ ok: true })
   })
 })
 
@@ -125,7 +129,7 @@ describe("review round 5", () => {
   it("figure-checks a payee named with a direction word as a name, but not one named with a figure word", () => {
     const out = read.transactions.find((t) => t.amountCents < 0)!
     const salaryCo = askRows([{ ref: "S1", transactions: [{ index: 0, t: { ...out, description: "SALARY ADVANCE CO" } }, { index: 1, t: { ...out, description: "SPAR WESTVILLE" } }] }], "T TESTER")
-    for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5 }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 5 })]) {
+    for (const q of [runQuery(salaryCo, { id: "q1", tool: "list", filter: {}, limit: 5, order: "date" }), runQuery(salaryCo, { id: "q2", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 5 })]) {
       expect(checkAnswer(renderResult(q), [q])).toEqual({ ok: true })
     }
     expect(checkFigures('Rows for all rows with "SALARY ADVANCE CO".', { amountsCents: [] })).toEqual({ ok: true })

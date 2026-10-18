@@ -33,11 +33,13 @@ export const QuerySchema = z.discriminatedUnion("tool", [
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("average"), filter: FilterSchema }).strict(),
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("groupByMonth"), filter: FilterSchema, measure: z.enum(["sum", "count"]) }).strict(),
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("groupByPayee"), filter: FilterSchema, measure: z.enum(["sum", "count"]), limit: z.number().int().min(1).max(10) }).strict(),
-  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("list"), filter: FilterSchema, limit: z.number().int().min(1).max(20) }).strict(),
+  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("list"), filter: FilterSchema, limit: z.number().int().min(1).max(20), order: z.enum(["date", "largest"]) }).strict(),
 ])
 
 export const MAX_QUERIES = 4
 export const PlanSchema = z.object({ queries: z.array(QuerySchema).max(MAX_QUERIES) }).strict()
+/** PlanSchema for the model server's guided decoding: the planner's answer is held to this shape as it is written. */
+export const PLAN_JSON_SCHEMA = z.toJSONSchema(PlanSchema)
 
 export type Filter = z.infer<typeof FilterSchema>
 export type Query = z.infer<typeof QuerySchema>
@@ -152,7 +154,9 @@ export function runQuery(rows: AskRow[], q: Query): QueryResult {
       const name = q.tool === "groupByMonth" ? "month" : "payee"
       return { ...base, result: entries.map((e) => (q.measure === "sum" ? { [name]: e.k, total: rand(e.sum), rowCount: e.count, ...way } : { [name]: e.k, count: e.count })) }
     }
-    case "list":
-      return { ...base, result: hit.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
+    case "list": {
+      const ordered = q.order === "largest" ? [...hit].sort((a, b) => Math.abs(b.amountCents) - Math.abs(a.amountCents) || a.date.localeCompare(b.date)) : hit
+      return { ...base, rows: cite(ordered), result: ordered.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
+    }
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { answerQuestion, askInputHash, checkAnswer, runPlan } from "./answer"
-import { askRows, PlanSchema, resolvePayee, runQuery, type AskRow } from "./tools"
+import { askRows, PLAN_JSON_SCHEMA, PlanSchema, resolvePayee, runQuery, type AskRow } from "./tools"
 
 const t = (date: string, description: string, amountCents: number) => ({ date, description, amountCents, balanceCents: null, page: 1 })
 const rows: AskRow[] = askRows([{
@@ -31,16 +31,35 @@ describe("tools", () => {
       { month: "2026-07", total: "R6 623.45", rowCount: 2, direction: "out" }, { month: "2026-08", total: "R250.00", rowCount: 2, direction: "out" },
     ])
     expect(runQuery(rows, { id: "q5", tool: "groupByPayee", filter: { direction: "out" }, measure: "count", limit: 1 }).result).toEqual([{ payee: "KOPANO FRESH FOODS", count: 2 }])
-    expect(runQuery(rows, { id: "q6", tool: "list", filter: { minAmount: 1000 }, limit: 2 }).result).toEqual([
+    expect(runQuery(rows, { id: "q6", tool: "list", filter: { minAmount: 1000 }, limit: 2, order: "date" }).result).toEqual([
       { ref: "S1-R0", date: "2026-07-01", payee: "VUKA HOUSING", amount: "R6 500.00", direction: "out" },
       { ref: "S1-R2", date: "2026-07-25", payee: "SALARY SYNTHCO", amount: "R18 450.00", direction: "in" },
     ])
+  })
+  it("lists the largest rows first when asked, and cites them in that order", () => {
+    const largest = runQuery(rows, { id: "q7", tool: "list", filter: { direction: "out" }, limit: 2, order: "largest" })
+    expect(largest.result).toEqual([
+      { ref: "S1-R0", date: "2026-07-01", payee: "VUKA HOUSING", amount: "R6 500.00", direction: "out" },
+      { ref: "S1-R3", date: "2026-08-03", payee: "KOPANO FRESH FOODS", amount: "R200.00", direction: "out" },
+    ])
+    expect(largest.rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R3", "S1-R1", "S1-R5"])
+    expect(runQuery(rows, { id: "q8", tool: "list", filter: { direction: "out" }, limit: 2, order: "date" }).rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R1", "S1-R3", "S1-R5"])
+  })
+  it("gives the model server the plan's shape: a grouping without its measure, or a list without its order, cannot be written", () => {
+    const tools = (PLAN_JSON_SCHEMA as unknown as { properties: { queries: { items: { anyOf?: Array<{ properties: { tool: { const: string } }; required: string[] }>; oneOf?: Array<{ properties: { tool: { const: string } }; required: string[] }> } } } }).properties.queries.items
+    const variants = tools.anyOf ?? tools.oneOf ?? []
+    const required = Object.fromEntries(variants.map((v) => [v.properties.tool.const, v.required]))
+    expect(required.groupByMonth).toEqual(expect.arrayContaining(["measure"]))
+    expect(required.groupByPayee).toEqual(expect.arrayContaining(["measure", "limit"]))
+    expect(required.list).toEqual(expect.arrayContaining(["limit", "order"]))
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "groupByMonth", filter: { direction: "in" } }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 3 }] }).success).toBe(false)
   })
   it("refuses anything but the typed arguments: no SQL, no unknown field, at most four queries", () => {
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sql", filter: {} }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sum", filter: { where: "1=1; DROP TABLE x" } }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sum", filter: { from: "2026-13-01" } }] }).success).toBe(false)
-    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 500 }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 500, order: "date" }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [1, 2, 3, 4, 5].map((i) => ({ id: `q${i}`, tool: "count", filter: {} })) }).success).toBe(false)
   })
   it("resolves a payee the rows have, and refuses one they do not or several match", () => {
@@ -68,6 +87,8 @@ describe("answerQuestion: the model plans, code writes", () => {
     const out = await answerQuestion({ question: "How much went to Kopano?", rows, raisedFlagCodes: [] }, ask)
     expect(out).toMatchObject({ status: "OK", text: '[q1] Total for money out to "KOPANO FRESH FOODS": R323.45, from 2 rows.', citations: [{ id: "q1", tool: "sum", matchedRows: 2 }] })
     expect(ask).toHaveBeenCalledTimes(1)
+    // The plan is asked for with its schema, so the server holds the answer to it.
+    expect(ask.mock.calls[0][2]).toBe(PLAN_JSON_SCHEMA)
     // The planner sees masked payees, never the client's name or a raw description.
     expect(ask.mock.calls[0][0]).toContain("KOPANO FRESH FOODS")
     expect(ask.mock.calls[0][0]).not.toContain("TESTER")

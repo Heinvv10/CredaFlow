@@ -51,7 +51,7 @@ interface App {
   rows: StatementTransaction[]
   months: string[]
   employerKey: string
-  questions: Array<{ template: string; question: string; expected: string }>
+  questions: Array<{ template: string; question: string; expected: string | string[] }>
 }
 
 const pad = (n: number) => String(n).padStart(2, "0")
@@ -85,11 +85,11 @@ function generateApp(seed: number): App {
   rows.sort((a, b) => a.date.localeCompare(b.date) || a.description.localeCompare(b.description))
   const full = rows.map((t) => ({ ...t, balanceCents: null, page: 1 }))
   const id = `eval-${seed}`
-  return { id, seed, clientName: "T TESTER", declaredExpensesCents: cents(3_000, 12_000), rows: full, months, employerKey: `SALARY ${employer}`, questions: questionsFor(full, months, employer, landlord, shops, r) }
+  return { id, seed, clientName: "T TESTER", declaredExpensesCents: cents(3_000, 12_000), rows: full, months, employerKey: `SALARY ${employer}`, questions: questionsFor(seed, full, months, employer, landlord, shops, r) }
 }
 
 // Known answers, computed from the generated rows (not by the tools).
-function questionsFor(rows: StatementTransaction[], months: string[], employer: string, landlord: string, shops: string[], r: () => number) {
+function questionsFor(seed: number, rows: StatementTransaction[], months: string[], employer: string, landlord: string, shops: string[], r: () => number) {
   const payeeOf = (t: StatementTransaction) => t.description.slice(t.description.lastIndexOf(":") + 1).trim()
   const out = (t: StatementTransaction) => t.amountCents < 0
   const sumAbs = (ts: StatementTransaction[]) => ts.reduce((s, t) => s + Math.abs(t.amountCents), 0)
@@ -108,9 +108,18 @@ function questionsFor(rows: StatementTransaction[], months: string[], employer: 
     { template: "debit-count", question: "How many debits are on the statement in total?", expected: String(rows.filter(out).length) },
     { template: "income-total", question: `How much did ${employer} pay in over the whole period?`, expected: rand(sumAbs(rows.filter((t) => t.description.includes(`SALARY ${employer}`)))) },
   ]
-  // Two per application, rotating so every template is asked.
+  // Breakdowns and lists: every figure listed must be shown.
+  const outByPayee = new Map<string, number>()
+  for (const t of rows.filter(out)) outByPayee.set(payeeOf(t), (outByPayee.get(payeeOf(t)) ?? 0) + Math.abs(t.amountCents))
+  const breakdowns = [
+    { template: "month-in-each", question: "How much money came in each month?", expected: months.map((m) => rand(sumAbs(rows.filter((t) => !out(t) && inMonth(m)(t))))) },
+    { template: "month-count-out", question: "How many debits were there in each month?", expected: months.map((m) => String(rows.filter((t) => out(t) && inMonth(m)(t)).length)) },
+    { template: "top-payees", question: "Which 3 payees received the most money?", expected: [...outByPayee.values()].sort((a, b) => b - a).slice(0, 3).map(rand) },
+    { template: "largest-debits", question: "List the 3 largest debits.", expected: rows.filter(out).map((t) => Math.abs(t.amountCents)).sort((a, b) => b - a).slice(0, 3).map(rand) },
+  ]
+  // Three per application: two rotating so every template is asked, and one breakdown.
   const start = Math.floor(r() * all.length)
-  return [all[start], all[(start + 5) % all.length]]
+  return [all[start], all[(start + 5) % all.length], breakdowns[seed % breakdowns.length]]
 }
 
 // ── The model, timed ────────────────────────────────────────────────────────
@@ -119,11 +128,11 @@ interface CallStat { kind: string; ms: number; tokensIn: number | null; tokensOu
 const calls: CallStat[] = []
 
 function asker(kind: string) {
-  return async (prompt: string, maxTokens: number): Promise<string> => {
+  return async (prompt: string, maxTokens: number, schema?: object): Promise<string> => {
     // The shared model can drop a request; one failed call must not end the run.
     for (let attempt = 1; ; attempt++) {
       try {
-        return await once(prompt, maxTokens)
+        return await once(prompt, maxTokens, schema)
       } catch (err) {
         if (attempt >= 3) throw err
         process.stderr.write(`(model call failed: ${err instanceof Error ? err.message : "unknown"}; retrying)`)
@@ -131,13 +140,13 @@ function asker(kind: string) {
       }
     }
   }
-  async function once(prompt: string, maxTokens: number): Promise<string> {
+  async function once(prompt: string, maxTokens: number, schema?: object): Promise<string> {
     const started = Date.now()
     const res = await fetch(`${process.env.VLM_API_URL!.replace(/\/$/, "")}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
+      body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0, ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "answer", strict: true, schema } } } : {}) }),
     })
     if (!res.ok) throw new Error(`model responded ${res.status}`)
     const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
@@ -154,7 +163,8 @@ const FIGURES = /R\s?\d{1,3}(?:[ ,]\d{3})*(?:\.\d{2})?|\b\d+\b/g
 const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
 
 /** The expected figure shown, as digits or (a count up to twenty) as a word: the post-check allows a word only for a figure it was given. */
-function scoreAnswer(text: string, expected: string): "exact" | "wrong" {
+function scoreAnswer(text: string, expected: string | string[]): "exact" | "wrong" {
+  if (Array.isArray(expected)) return expected.every((x) => scoreAnswer(text, x) === "exact") ? "exact" : "wrong"
   const shown = (text.match(FIGURES) ?? []).map((f) => f.replace(/,/g, " "))
   const asWord = /^\d+$/.test(expected) && Number(expected) <= 20 && new RegExp(`\\b${WORDS[Number(expected)]}\\b`, "i").test(text)
   return shown.includes(expected) || asWord ? "exact" : "wrong"
@@ -174,7 +184,7 @@ async function main() {
   const out = arg("out", "statement-ai-eval.json")
   const apps = Array.from({ length: appCount }, (_, i) => generateApp(1000 + i))
 
-  const report: Record<string, unknown> = { model: process.env.VLM_MODEL, apps: appCount, questions: apps.length * 2, runs: [] as unknown[] }
+  const report: Record<string, unknown> = { model: process.env.VLM_MODEL, apps: appCount, questions: apps.reduce((s, a) => s + a.questions.length, 0), runs: [] as unknown[] }
   const examples: unknown[] = []
   for (let run = 0; run < runs; run++) {
     const ab = { summaries: 0, summariesOk: 0, explanations: 0, explanationsOk: 0, reasons: {} as Record<string, number> }

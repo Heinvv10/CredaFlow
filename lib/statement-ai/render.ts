@@ -182,7 +182,8 @@ export function renderResult(q: QueryResult): string {
     }
     case "list": {
       const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${quoted(e.payee)} ${e.amount} ${e.direction}`)
-      return items.length ? `[${q.id}] Rows for ${what}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
+      const order = q.args.order === "largest" ? ", largest amount at the top" : ", in date order"
+      return items.length ? `[${q.id}] Rows for ${what}${order}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
     }
   }
 }
