@@ -8,8 +8,9 @@
  * over the rendered text, as a second line.
  */
 import { z } from "zod"
-import { WITHHELD, type ExplanationFacts, type Sized, type SummaryFacts } from "./facts"
-import type { ListOrder, QueryResult } from "./ask/tools"
+import type { ExplanationFacts, Sized, SummaryFacts } from "./facts"
+import type { QueryResult } from "./ask/tools"
+import { breakdownTitle, describeFilter, quoted } from "./words"
 
 // ── Feature A: summary claims ───────────────────────────────────────────────
 
@@ -35,8 +36,6 @@ export const CLAIM_DESCRIPTIONS: Record<SummaryClaim, string> = {
 export const ClaimsSchema = z.object({ claims: z.array(z.enum(SUMMARY_CLAIMS)).min(1).max(SUMMARY_CLAIMS.length) }).strict()
 
 const list = (items: string[]) => items.join("; ")
-/** A payee's name is statement text a client can write: always quoted, so it reads as a name, never as the sentence. */
-const quoted = (payee: unknown) => (payee === WITHHELD ? WITHHELD : `"${String(payee)}"`)
 const sized = (s: Sized) => `${s.amount} ${s.direction === "in" ? "in" : "out"}`
 
 function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
@@ -83,24 +82,24 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
       const withheld = f.withheldPayees ? `Payees whose names are withheld, together: ${f.withheldPayees.moneyOut} (${payments(f.withheldPayees.payments)}).` : ""
       if (!f.topPayees.length) return withheld || null
       const named = `Largest ${withheld ? "named " : ""}payees by money out: ${list(f.topPayees.map((p) => `${quoted(p.payee)} ${p.moneyOut} (${payments(p.payments)})`))}.`
-      return withheld ? `${named} ${withheld}` : named
+      return withheld ? `${named}\n${withheld}` : named
     }
     case "flags":
       return f.raisedFlags.length
-        ? `Flags raised by the credit checks: ${list(f.raisedFlags.map((r) => `${r.code} (${r.check}, ${r.evidenceRows} evidence row${r.evidenceRows === 1 ? "" : "s"})`))}. An officer reviews each before a decision.`
+        ? `Flags raised by the credit checks: ${list(f.raisedFlags.map((r) => `${r.code} (${r.check}, ${r.evidenceRows} evidence row${r.evidenceRows === 1 ? "" : "s"})`))}.\nAn officer reviews each before a decision.`
         : "The credit checks raised no flags."
   }
 }
 
 /**
  * The summary from the model's chosen claims, in its order, duplicates
- * dropped. The flags claim is always included when a flag is raised: a summary
+ * dropped, one claim a line (the card lists them). The flags claim is always included when a flag is raised: a summary
  * must never leave out what the rules found.
  */
 export function renderSummary(claims: SummaryClaim[], facts: SummaryFacts): string {
   const chosen = [...new Set(claims)]
   if (facts.raisedFlags.length > 0 && !chosen.includes("flags")) chosen.push("flags")
-  return chosen.map((c) => claimSentence(c, facts)).filter((s): s is string => !!s).join(" ")
+  return chosen.map((c) => claimSentence(c, facts)).filter((s): s is string => !!s).join("\n")
 }
 
 // ── Feature B: flag explanations (no model) ─────────────────────────────────
@@ -142,22 +141,7 @@ export function renderExplanation(f: ExplanationFacts): string {
 
 // ── Feature C: query results ────────────────────────────────────────────────
 
-function describeFilter(args: Record<string, unknown>): string {
-  const f = (args.filter ?? {}) as Record<string, unknown>
-  const parts = [f.direction === "in" ? "money in" : f.direction === "out" ? "money out" : "all rows"]
-  if (typeof f.payee === "string") parts.push(`${f.direction === "in" ? "from" : f.direction === "out" ? "to" : "with"} ${quoted(f.payee)}`)
-  if (typeof f.category === "string") parts.push(`in category ${f.category}`)
-  if (typeof f.from === "string" && typeof f.to === "string") parts.push(`from ${f.from} to ${f.to}`)
-  else if (typeof f.from === "string") parts.push(`from ${f.from}`)
-  else if (typeof f.to === "string") parts.push(`up to ${f.to}`)
-  if (typeof f.minAmount === "string") parts.push(`of ${f.minAmount} or more`)
-  if (typeof f.maxAmount === "string") parts.push(`of ${f.maxAmount} or less`)
-  return parts.join(" ")
-}
-
 const rowsWord = (n: unknown) => `${n} row${n === 1 ? "" : "s"}`
-
-const ORDER_LABEL: Record<ListOrder, string> = { date: ", earliest at the top", latest: ", latest at the top", largest: ", largest amount at the top" }
 
 /** One query's result as a sentence, labelled with its id; the filter shown as the filter, never as a result. */
 export function renderResult(q: QueryResult): string {
@@ -177,15 +161,11 @@ export function renderResult(q: QueryResult): string {
       const key = q.tool === "groupByMonth" ? "month" : "payee"
       const entries = q.result as Array<Record<string, unknown>>
       const items = entries.map((e) => `${key === "payee" ? quoted(e[key]) : e[key]} ${e.total !== undefined ? `${e.total} (${rowsWord(e.rowCount)})` : rowsWord(e.count)}`)
-      if (!items.length) return `[${q.id}] No rows for ${what}.`
-      const net = entries.some((e) => e.total !== undefined) && !(q.args.filter as Record<string, unknown> | undefined)?.direction ? " (net totals: a minus means more went out than came in)" : ""
-      const top = key === "payee" && entries.length === q.args.limit ? (q.args.limit === 1 ? ", the largest payee" : `, the largest ${q.args.limit} payees`) : ""
-      return `[${q.id}] By ${key} for ${what}${top}${net}: ${list(items)}.`
+      return items.length ? `[${q.id}] ${breakdownTitle(q)}: ${list(items)}.` : `[${q.id}] No rows for ${what}.`
     }
     case "list": {
       const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${quoted(e.payee)} ${e.amount} ${e.direction}`)
-      const order = ORDER_LABEL[q.args.order as ListOrder]
-      return items.length ? `[${q.id}] Rows for ${what}${order}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
+      return items.length ? `[${q.id}] ${breakdownTitle(q)}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
     }
   }
 }

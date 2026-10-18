@@ -20,6 +20,7 @@ import { NEGATED_AFTER, NEGATED_FINDING, REASSURANCE, VERDICT } from "./post-che
 import { figureWord } from "./post-check-figures"
 import { flagSpec, type FlagSpecFacts } from "./flag-specs"
 import { pct, rand } from "./format"
+import { WITHHELD } from "./words"
 
 /** An amount as a size and the way it moved: the sign is a word the prose must use, not a minus it may drop. */
 export type Sized = { amount: string; direction: "in" | "out" }
@@ -50,7 +51,7 @@ export function safeKey(key: string, clientName: string | null = null): boolean 
     n === w || (w.length >= 3 && n.startsWith(w)) || (n.length >= 3 && w.startsWith(n)) || (n.length >= 4 && w.endsWith(n))))
 }
 
-export const WITHHELD = "(payee withheld)"
+export { WITHHELD }
 
 /** The masked payee of a row as the model may see it, or WITHHELD. */
 export function payeeOf(description: string, clientName: string | null): string {

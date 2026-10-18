@@ -30,6 +30,12 @@ describe("renderSummary", () => {
     const text = renderSummary(["money"], summary.built.facts)
     expect(text).toMatch(/Flags raised by the credit checks: .*GAMBLING \(RISK_BEHAVIOUR/)
   })
+  it("writes one claim a line, so the card can list them", () => {
+    const lines = renderSummary(["money", "months"], summary.built.facts).split("\n")
+    expect(lines[0]).toBe("Over the period, money in was R55 350.00 and money out was R32 086.50.")
+    expect(lines[1]).toMatch(/^By month: \d{4}-\d{2} money in /)
+    expect(lines.slice(2)).toEqual([expect.stringMatching(/^Flags raised by the credit checks: /), "An officer reviews each before a decision."])
+  })
 })
 
 describe("produce (summary)", () => {

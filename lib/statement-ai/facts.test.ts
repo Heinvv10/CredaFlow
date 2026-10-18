@@ -88,7 +88,7 @@ describe("prompt versions", () => {
   // A prompt edit must bump its version (outputs are keyed by it). Re-pin the hash with the bump.
   const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16)
   it("pins the summary prompt to its version", () => {
-    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-3", "ebad7751d015e5f3"])
+    expect([SUMMARY_PROMPT_VERSION, hash(summaryPrompt(summaryFacts(insights, rows, flags, "T TESTER").facts))]).toEqual(["summary-claims-4", "ebad7751d015e5f3"])
   })
 })
 
@@ -108,7 +108,7 @@ describe("review round 5: payees", () => {
     const f = summaryFacts(insights, [...rows, ...big], [], "T TESTER").facts
     expect(f.withheldPayees).toEqual({ moneyOut: "R100 000.00", payments: 2 })
     expect(f.topPayees.map((p) => p.payee)).not.toContain(WITHHELD)
-    expect(renderSummary(["payees"], { ...f, raisedFlags: [] })).toMatch(/^Largest named payees by money out: "SYNTH RENTALS" .*\. Payees whose names are withheld, together: R100 000\.00 \(2 payments\)\.$/)
+    expect(renderSummary(["payees"], { ...f, raisedFlags: [] })).toMatch(/^Largest named payees by money out: "SYNTH RENTALS" .*\.\nPayees whose names are withheld, together: R100 000\.00 \(2 payments\)\.$/)
     expect(summaryFacts(insights, rows, [], "T TESTER").facts.withheldPayees).toBeNull()
   })
   it("withholds a payee word that extends or ends with a client name word", () => {
