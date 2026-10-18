@@ -7,7 +7,8 @@
  * defaultInterest) and the schedule row "Contract rate (no added margin)"
  * (lease/agreement-pdf.ts). Lease shapes only have a positive margin or none.
  *
- * DEFECT tests fail on feat/lender-owned-templates ca54ed92.
+ * DEFECT tests failed on feat/lender-owned-templates ca54ed92 and pass since the lease
+ * "fixed" shape carries a zero default-interest margin.
  */
 import { describe, expect, it } from "vitest"
 import { leaseScheduleView } from "../../lease-view"
@@ -43,7 +44,7 @@ function operatingLease(cpa: boolean): LeaseDocumentTerms {
   }
 }
 
-describe("DEFECT: a lease with a zero default-interest margin prints protected wording no shape reaches", () => {
+describe("FIXED: a lease with a zero default-interest margin prints protected wording no shape reaches", () => {
   it.each([
     ["af.lease.operating.commercial", false, "at the contract rate, calculated daily"],
     ["af.lease.operating.cpa", true, "at the contract rate, calculated daily"],

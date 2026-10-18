@@ -139,7 +139,7 @@ function leaseShapes(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE",
   const shapes: DealShape[] = [
     { id: "juristic-arrears", label: "Company lessee, rentals in arrears", deal: (d) => l(d) },
     { id: "juristic-advance", label: "Company lessee, rentals in advance", deal: (d) => l(d, { advance: true }) },
-    { id: "fixed", label: "Fixed rate", deal: (d) => l(rate(d, "FIXED")) },
+    { id: "fixed", label: "Fixed rate, default interest at the contract rate (no added margin)", deal: (d) => { const f = rate(d, "FIXED"); return l({ ...f, pricing: { ...f.pricing, arrearsMarginRate: "0" } }) } },
     ...(["REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const).map((basis): DealShape => ({
       id: `rate-${basis.toLowerCase()}`, label: `Linked to ${basis === "LENDER_BASE" ? "the lender's base rate" : basis}`, deal: (d) => l(rate(d, basis)),
     })),
