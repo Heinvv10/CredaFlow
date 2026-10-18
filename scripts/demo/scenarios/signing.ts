@@ -24,6 +24,7 @@
  * served, so a signature is bound to what was actually opened.
  */
 import { createHash } from "node:crypto"
+import { AGREEMENT_DECLARATION_PAYLOAD } from "../../../lib/signing/agreement-declaration-set"
 
 import type { Persona } from "../personas"
 import { ApiError, type SimClient } from "../sim/api"
@@ -114,6 +115,7 @@ export async function signAgreement(
     agreementDocumentSha256: agreement.sha,
     pasqDocumentSha256: pasqSha,
     signingOtpChallengeId,
+    declarations: AGREEMENT_DECLARATION_PAYLOAD,
   })
   log(`${p.id}: agreement signed in the portal`)
 }
