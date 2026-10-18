@@ -1,0 +1,576 @@
+Synthetic Alpha Asset Finance (Pty) Ltd
+NCR NCRCP90001
+1 Alpha Synthetic Avenue
+Alphaville
+9001
+
+
+
+
+                                                                                                    ED
+NCA FINANCE LEASE AGREEMENT
+Reference AF-MVDMRWBO-C85J · prepared 18 October 2026
+Synthetic demo approval — not legally approved, not for execution
+
+
+
+
+                                                                                                  OV
+ PARTIES AND ASSET
+
+
+
+
+                                                                                               PR
+ Credit provider                          Synthetic Alpha Asset Finance (Pty) Ltd
+ Consumer                                 TEST Unproven Haulage (Pty) Ltd
+
+
+
+
+                                                                                             AP
+ Identity / registration                  2099/alpha1/01
+ Address                                  5 Synthetic Yard
+                                          Johannesburg
+
+
+
+
+                                                                                        Y
+                                          Gauteng
+                                          2000
+
+
+
+
+                                                                                  LL
+ Asset                                    2025 TEST EX-4
+ Serial / VIN                             TESTALPHA1CE2ED0B494
+
+
+
+
+                                                                          GA
+ FINANCIAL TERMS                                                    LE
+ Cash price                               R 1,725,000.00
+ Deposit                                  R 172,500.00
+ Credit-life premium                      R 0.00
+                                                               T
+
+ Principal debt                           R 1,552,500.00
+                                                        NO
+
+
+ Annual interest                          Prime plus 1.00%, linked to Prime (Prime of 10.75% effective 1 January 2020):
+                                          11.75% a year (nominal)
+ Instalment                               R 31,041.93
+ Residual / balloon                       R 300,000.00
+                                                 —
+
+
+
+
+ Initiation fee                           R 0.00
+ Monthly service fee                      R 60.00
+ Total cost of credit                     R 2,162,515.68
+                                       MO
+
+
+
+
+ TERMS AND CONDITIONS
+                                DE
+
+
+
+
+1 Interpretation
+    1.1 In this agreement "the Act" means the National Credit Act 34 of 2005 and "the Regulations" means the National Credit
+    Regulations made under it; "the Credit Provider" means Synthetic Alpha Asset Finance (Pty) Ltd, registered credit provider
+                           IC
+
+
+
+
+    NCRCP90001; "the Consumer" means TEST Unproven Haulage (Pty) Ltd; "the Goods" means the 2025 TEST EX-4, serial or
+    VIN number TESTALPHA1CE2ED0B494, with its parts and accessories and anything fitted to it in replacement; "the
+    Quotation" means the pre-agreement statement and quotation the Credit Provider gave the Consumer for this agreement
+                     T
+
+
+
+
+    under section 92 of the Act; "the Repayment Schedule" means the schedule of instalments that accompanies the Quotation
+                  HE
+
+
+
+
+    and this agreement; and "business day" is counted as section 2(5) of the Act provides.
+   1.2 This agreement is a lease as defined in section 1 of the Act and a large agreement under section 9 of the Act. If any
+   provision of this agreement conflicts with the Act or the Regulations, the Act and the Regulations prevail.
+         NT
+
+
+
+
+2 Delivery, possession, risk and ownership
+   2.1 The Credit Provider lets the Goods to the Consumer on the terms of this agreement. The Consumer takes possession of
+   the Goods when they are delivered and signs a delivery note when it receives them.
+  SY
+
+
+
+
+   2.2 The Goods remain the property of the Credit Provider during the lease. Ownership passes to the Consumer when the
+   Consumer has paid every amount due under this agreement, including the residual amount, without any further payment or
+
+
+
+
+Ref AF-MVDMRWBO-C85J                                                                                                    Page 1 of 5
+   document being required of the Consumer.
+   2.3 Risk of loss of, damage to or destruction of the Goods passes to the Consumer on delivery. Loss or damage does not end
+   the Consumer's obligations under this agreement; insurance proceeds are dealt with as clause 4.4 provides.
+   2.4 Until ownership passes, the Consumer must: (a) keep the Goods in the Consumer's possession and under the
+
+
+
+
+                                                                                                     ED
+   Consumer's control in the Republic of South Africa; (b) use them with reasonable care, for their intended purpose and in
+   accordance with the law and the manufacturer's instructions; (c) keep them in good repair and working order at the
+   Consumer's own cost, fair wear and tear excepted; (d) not sell, let, lend, pledge or otherwise encumber or dispose of the
+
+
+
+
+                                                                                                   OV
+   Goods, or part with possession of them, without the Credit Provider's prior written consent; (e) not remove or alter any serial
+   number, VIN or other identifying mark; (f) tell the Credit Provider in writing within 5 business days of any change in the place
+   where the Goods are normally kept and of any loss of, damage to, theft or attachment of, or third-party claim to, the Goods;
+   and (g) make the Goods available for inspection at a reasonable time and place arranged with the Consumer in advance.
+
+
+
+
+                                                                                                PR
+   2.5 If the Goods must be registered under the National Road Traffic Act 93 of 1996, the Credit Provider is recorded as
+   titleholder and the Consumer as owner, and the Consumer must keep them licensed and roadworthy at the Consumer's own
+   cost.
+
+
+
+
+                                                                                              AP
+   2.6 Nothing in this agreement entitles the Credit Provider, or anyone acting for it, to enter the Consumer's premises or to take
+   possession of the Goods without the Consumer's consent given at the time or an order of court.
+3 Payments, interest and statutory charges
+
+
+
+
+                                                                                         Y
+   3.1 The Consumer must pay 60 monthly instalments in the amounts and on the dates in the Repayment Schedule, the first on
+
+
+
+
+                                                                                   LL
+   18 December 2026 and the last on 18 November 2031. The base instalment is R 31,041.93. The last instalment includes the
+   residual (balloon) amount of R 300,000.00. Each instalment includes interest, the monthly service fee.
+   3.2 Payments are made in full on their due dates, by debit order or electronic transfer into the account the Credit Provider
+
+
+
+
+                                                                           GA
+   designates in writing, quoting reference AF-MVDMRWBO-C85J.
+   3.3 Interest is charged on the outstanding principal debt at Prime plus 1.00%, linked to Prime (Prime of 10.75% effective 1
+   January 2020): 11.75% a year (nominal). It accrues daily on the reducing balance, on the actual number of days over a
+                                                                     LE
+   365-day year, and is payable with each instalment. The rate is variable: it is linked to Prime, and when Prime changes the rate
+   changes by the same amount from the date the change takes effect. The Credit Provider then recalculates the instalment so
+   that the agreement still ends on 18 November 2031 and the residual amount does not change, and gives the Consumer
+   written notice of the new rate and instalment as section 104 of the Act requires. The rate will never exceed the maximum
+                                                                 T
+
+   prescribed under section 105 of the Act for this type of agreement: a change that would take it above that maximum is not
+                                                        NO
+
+
+
+   applied.
+   3.4 The Consumer must pay an initiation fee of R 0.00, included in the amounts in the Repayment Schedule, and a monthly
+   service fee of R 60.00. Neither exceeds the maximum prescribed under section 105 of the Act. The Credit Provider will not
+   charge any fee, charge or other amount that section 101 of the Act does not permit or that section 100 of the Act prohibits.
+                                                  —
+
+
+
+
+   3.5 If an amount is not paid when due, interest continues to run on the overdue principal at the rate in clause 3.3, and not at a
+   higher rate, from the day after the due date until it is paid. The Credit Provider may also charge the default administration
+   charges and collection costs that section 101(1)(f) and (g) of the Act and the Regulations permit. Under section 103(5) of the
+                                        MO
+
+
+
+
+   Act, the interest, fees and charges that accrue while the Consumer is in default will together not exceed the unpaid balance of
+   the principal debt when the default occurred.
+   3.6 Each payment is applied in the order section 126(3) of the Act requires: first to interest due, then to fees and charges due,
+                                DE
+
+
+
+
+   and then to the principal debt.
+   3.7 The cash price of the Goods includes value-added tax. The Credit Provider will issue the tax invoice the Value-Added Tax
+   Act 89 of 1991 requires for the supply of the Goods.
+4 Insurance and credit-life election
+                          IC
+
+
+
+
+    4.1 From delivery until ownership passes, the Consumer must keep the Goods comprehensively insured against loss, theft
+    and damage for not more than their replacement value, with the Credit Provider's interest noted on the policy. The Consumer
+                  T
+
+
+
+
+    may choose the insurer and the policy: as section 106 of the Act provides, the Credit Provider may not require the Consumer
+               HE
+
+
+
+
+    to insure with a particular insurer. The Consumer must give the Credit Provider proof of cover when asked.
+   4.2 If the Consumer does not maintain that insurance, the Credit Provider may, after giving the Consumer written notice and
+   10 business days to provide proof of cover, arrange cover for not more than the replacement value of the Goods, as section
+         NT
+
+
+
+
+   106 of the Act permits, and the Consumer must pay the premium. The Credit Provider will tell the Consumer the insurer, the
+   cover and the premium in writing.
+   4.3 No credit-life premium is payable under this agreement.
+  SY
+
+
+
+
+   4.4 Insurance proceeds paid for loss of or damage to the Goods are paid to the Credit Provider to the extent of the amount
+   owing under this agreement, and are applied to repair or replace the Goods or to reduce the amount owing, as the Consumer
+   and the Credit Provider agree. Any balance is paid to the Consumer.
+
+
+
+
+Ref AF-MVDMRWBO-C85J                                                                                                      Page 2 of 5
+5 Consumer statements and early settlement
+   5.1 The Credit Provider will deliver a statement of account to the Consumer at least once every three months, as section 108
+   of the Act requires, by the method of delivery the Consumer chose under section 65 of the Act. The Consumer may also ask
+   for a statement at any time, and current statements are available in the client portal.
+
+
+
+
+                                                                                                     ED
+   5.2 The Consumer may settle this agreement at any time, with or without advance notice, by paying the settlement amount
+   under section 125 of the Act: the unpaid balance of the principal debt, including any residual amount, and the unpaid interest,
+   fees and charges payable up to the settlement date. Because this is a large agreement, the Credit Provider may also charge
+   an early-termination charge, which will not exceed what section 125(3) of the Act permits (no more than three months'
+
+
+
+
+                                                                                                   OV
+   interest).
+   5.3 On request, the Credit Provider will give the Consumer a written settlement quotation. When the settlement amount is
+   paid, this agreement ends and ownership of the Goods passes to the Consumer as clause 2.2 provides.
+
+
+
+
+                                                                                                PR
+6 Default, enforcement and statutory notices
+   6.1 The Consumer is in default if any amount payable under this agreement is not paid in full on its due date.
+
+
+
+
+                                                                                              AP
+   6.2 If the Consumer is in default, the Credit Provider will not begin legal proceedings to enforce this agreement before (a) it
+   has delivered to the Consumer the notice that section 129(1)(a) of the Act requires, in the manner section 129 requires; and
+   (b) the periods and other requirements of section 130 of the Act have been met, including that the Consumer has been in
+   default for at least 20 business days and at least 10 business days have passed since that notice was delivered. The content
+
+
+
+
+                                                                                          Y
+   of that notice is prescribed by the Act and is not repeated here.
+
+
+
+
+                                                                                   LL
+   6.3 The Credit Provider may terminate this agreement before the end of its term only as section 123 of the Act allows: when
+   the Consumer is in default and the Credit Provider has followed the procedure in sections 129 and 130 of the Act.
+   6.4 If a court orders the attachment of the Goods, the Credit Provider will deal with them as section 131 of the Act provides: it
+
+
+
+
+                                                                           GA
+   will value them, give the Consumer notice of their estimated value, sell them for the best price reasonably obtainable and
+   account to the Consumer for the proceeds, as sections 127(2) to (9) and 128 of the Act require.
+   6.5 At any time before the Credit Provider has cancelled this agreement, the Consumer may remedy a default by paying all
+                                                                     LE
+   overdue amounts, together with the default charges the Act permits and the reasonable costs of enforcing the agreement up
+   to the time the default is remedied, as section 129(3) of the Act provides. Section 129(4) of the Act sets out when this right is
+   no longer available, including after the Goods have been sold under an attachment order or after a surrender under clause 7.
+   When the default is remedied the Consumer may resume possession of Goods the Credit Provider has taken back.
+                                                                T
+
+   6.6 The Credit Provider may recover the costs of collection and enforcement only to the extent section 101(1)(g) of the Act,
+                                                        NO
+
+
+
+   the Regulations and any order of court permit.
+   6.7 If the Consumer applies for debt review under section 86 of the Act, the Credit Provider may enforce this agreement only
+   as sections 86 and 88 of the Act allow.
+                                                  —
+
+
+
+
+7 Voluntary surrender
+   7.1 The Consumer may terminate this agreement at any time by giving the Credit Provider written notice under section 127(1)
+   of the Act, in writing or through the client portal. If the Goods are already in the Credit Provider's possession, the Consumer
+   may in that notice require the Credit Provider to sell them, as section 127(1)(b)(i) of the Act provides. If the Goods are in the
+                                        MO
+
+
+
+
+   Consumer's possession, the Consumer must return them to the Credit Provider's place of business during ordinary business
+   hours within 5 business days after the notice, or at another time and place the Credit Provider agrees to in writing; if they are
+   not, the Consumer must tell the Credit Provider where they are.
+                                 DE
+
+
+
+
+   7.2 Within 10 business days after the later of receiving the notice and receiving the Goods, the Credit Provider will give the
+   Consumer written notice of the estimated value of the Goods, as section 127(2) of the Act requires.
+   7.3 Within 10 business days after receiving that notice, the Consumer may unconditionally withdraw the termination notice and
+   resume possession of the Goods, unless the Consumer is in default under this agreement, as section 127(3) of the Act
+                          IC
+
+
+
+
+   provides.
+   7.4 If the Consumer does not withdraw the notice, the Credit Provider must sell the Goods as soon as practicable for the best
+                   T
+
+
+
+
+   price reasonably obtainable, credit or debit the Consumer's account with the proceeds less the reasonable costs of the sale,
+                HE
+
+
+
+
+   and give the Consumer written notice of the settlement value immediately before the sale, the gross and net proceeds and the
+   amount credited or debited, as section 127(4) and (5) of the Act require.
+   7.5 If the proceeds credited exceed the settlement value, the Credit Provider will pay the difference to the Consumer. If they
+         NT
+
+
+
+
+   are less, the Credit Provider may demand payment of the balance in that notice; if the Consumer does not pay it within 10
+   business days after receiving the demand, the Credit Provider may begin legal proceedings for it. Sections 127(6) to (9) and
+   128 of the Act apply, including the Consumer's right to apply to the National Consumer Tribunal to review the sale.
+  SY
+
+
+
+
+8 Cooling-off right
+   8.1 If this agreement was signed at a place other than the Credit Provider's registered business premises, the Consumer may
+   rescind it without giving a reason, by delivering written notice to the Credit Provider within 5 business days after the date on
+
+
+
+
+Ref AF-MVDMRWBO-C85J                                                                                                      Page 3 of 5
+   which the Consumer signed it, as section 121 of the Act provides.
+   8.2 On rescission each party must return what it received under this agreement within the time and in the manner section
+   121(3) of the Act requires. The Credit Provider will not charge any penalty or fee for the rescission beyond what section 121 of
+   the Act permits.
+
+
+
+
+                                                                                                     ED
+9 Credit information, debt review and complaints
+   9.1 The Credit Provider will report information about this agreement and the Consumer's payment record to registered credit
+   bureaux as the Act and the Regulations require. Before it reports adverse information, it will give the Consumer at least 20
+
+
+
+
+                                                                                                   OV
+   business days' written notice, as the Regulations require.
+   9.2 If the Consumer is or expects to become over-indebted, the Consumer may apply to a registered debt counsellor for debt
+   review under section 86 of the Act.
+
+
+
+
+                                                                                                PR
+   9.3 The Consumer may lodge a complaint about this agreement with the Credit Provider at the address in clause 10. If the
+   complaint is not resolved, the Consumer may refer it to an alternative dispute resolution agent, a consumer court or an ombud
+   with jurisdiction, to the National Credit Regulator, or to the National Consumer Tribunal, as Chapter 7 of the Act provides.
+
+
+
+
+                                                                                              AP
+   9.4 The Credit Provider processes the Consumer's personal information under the Protection of Personal Information Act 4 of
+   2013 to assess, conclude, administer and enforce this agreement and as the law requires. The Consumer may ask to see and
+   correct that information as that Act provides.
+
+
+
+
+                                                                                         Y
+10 Addresses and notices
+   10.1 For section 96 of the Act, the Consumer's address for notices and documents under this agreement is 5 Synthetic Yard,
+
+
+
+
+                                                                                   LL
+   Johannesburg, Gauteng, 2000, and the Credit Provider's address is its registered office, 1 Alpha Synthetic Avenue, Alphaville,
+   9001. Either party may change its address by written notice to the other.
+   10.2 The Credit Provider will deliver documents to the Consumer by the method the Consumer chose under section 65 of the
+
+
+
+                                                                           GA
+   Act, except where the Act requires a particular method, as section 129 of the Act does for the notice in clause 6.2.
+   10.3 A notice under this agreement must be in writing. A notice the Consumer gives through the client portal or by email to the
+   address the Credit Provider publishes for notices is in writing.
+                                                                    LE
+11 General
+   11.1 This agreement, the Quotation and the Repayment Schedule are the whole agreement between the parties about the
+   Goods and the credit. The Credit Provider has delivered, or will deliver, a copy of this agreement to the Consumer free of
+                                                               T
+
+   charge, as section 93(2) of the Act requires.
+                                                        NO
+
+
+
+   11.2 This agreement may be changed only in writing signed by both parties, or as the Act permits, such as a change in a
+   variable interest rate under clause 3.3.
+   11.3 Nothing in this agreement waives or limits any right the Act gives the Consumer or does anything section 90 of the Act
+   prohibits. A provision that would do so is void to that extent, and the rest of this agreement remains in force.
+                                                 —
+
+
+
+
+   11.4 This agreement is governed by the law of the Republic of South Africa. Proceedings under it will be brought in a court
+   that has jurisdiction under the Act and the law; nothing in this agreement is a consent by the Consumer to the jurisdiction of
+   any other court.
+                                       MO
+
+
+
+
+   11.5 A relaxation or indulgence the Credit Provider allows the Consumer does not waive or limit the Credit Provider's rights
+   under this agreement.
+   11.6 The Consumer may ask for this agreement in another official language the Consumer reads or understands, as section
+                                  DE
+
+
+
+
+   63 of the Act provides.
+   11.7 The Credit Provider may cede its rights under this agreement and will tell the Consumer of the cession in writing; a
+   cession does not affect any right or defence the Consumer has under this agreement or the Act. The Consumer may not cede
+   the Consumer's rights or delegate the Consumer's obligations without the Credit Provider's prior written consent.
+                          IC
+
+
+
+
+ SIGNATURES
+                   T
+                HE
+
+
+
+
+Consumer
+         NT
+
+
+
+
+TEST Unproven Haulage (Pty) Ltd                                             Date
+  SY
+
+
+
+
+Ref AF-MVDMRWBO-C85J                                                                                                     Page 4 of 5
+Credit provider
+
+
+
+
+Synthetic Alpha Asset Finance (Pty) Ltd              Date
+
+
+
+
+                                                                    ED
+Authorised countersignatory
+
+
+
+
+                                                                  OV
+                                                               PR
+                                                             AP
+                                                             Y
+                                                            LL
+                                                     GA
+                                                    LE
+                                                T
+                                               NO
+                                           —
+                                          MO
+                                   DE
+                    T       IC
+                 HE
+          NT
+  SY
+
+
+
+
+Ref AF-MVDMRWBO-C85J                                                Page 5 of 5
+

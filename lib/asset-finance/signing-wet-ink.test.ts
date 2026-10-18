@@ -20,7 +20,7 @@ import { confirmWetInkScan } from "./signing-wet-ink"
 const signer = {
   id: "signer-1", dealId: "deal-1", clientId: "client-1", document: "AGREEMENT",
   method: "WET_INK", signedAt: null, signatureSha256: null,
-  scanDocumentId: "scan-new", scanUploadedById: "uploader", confirmedById: null, confirmedAt: null,
+  scanDocumentId: "scan-new", scanUploadedById: "uploader", confirmedById: null, confirmedAt: null, issuanceId: "issuance-1",
   deal: { status: "APPROVED", entityId: "entity-1" },
 }
 

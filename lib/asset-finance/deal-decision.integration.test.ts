@@ -38,6 +38,7 @@ import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "@/lib/collecti
 import { buildSection129Attachments } from "@/lib/email/section129-attachments"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { verifiedSigningOtp } from "@/lib/signing-otp/signing-otp.integration-fixture"
+import { expectReproducibleIssuances } from "./documents/templates/templates.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -74,6 +75,9 @@ const REASONS = ["DSCR 1.8 on audited AFS", "Directors' bureau records clean"]
 suite.sequential("asset-finance deal decision (real Postgres, real routes)", () => {
   beforeAll(async () => {
     fx = await createDealFixture(database(), t)
+    // The fixture lender's agreements carry a (test-fixture) legal approval; an
+    // NCA agreement under one may follow only an approved quotation wording.
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: true } })
   })
 
   afterAll(async () => {
@@ -152,6 +156,8 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     expect(prepared.status, await prepared.clone().text()).toBe(200)
     const signers = await database().dealSigner.findMany({ where: { dealId: deals.refused }, orderBy: { document: "asc" } })
     expect(signers.map((s) => s.document).sort()).toEqual(["AGREEMENT", "RESOLUTION"])
+    // Each issued from the lender's published template, reproducible from its retained input.
+    expect(await expectReproducibleIssuances(database(), fx.tenantId, deals.refused)).toEqual(["af.nca.finance_lease", "af.resolution.standard"])
     signInClient(fx.director)
     for (const signer of signers) {
       const signingOtpChallengeId = await verifiedSigningOtp(database(), {
@@ -267,6 +273,7 @@ suite.sequential("asset-finance deal decision (real Postgres, real routes)", () 
     signIn(fx.adminA, "LOAN_ADMIN")
     const agreementResponse = await routes().ncaAgreement(deals.natural)
     expect(agreementResponse.status).toBe(201)
+    expect(await expectReproducibleIssuances(database(), fx.tenantId, deals.natural)).toEqual(["af.nca.instalment_sale"])
     const agreement = await agreementResponse.json() as { documentId: string; sha256: string }
     signInClient(fx.director)
     expect((await routes().viewDocument(agreement.documentId)).status).toBe(200)

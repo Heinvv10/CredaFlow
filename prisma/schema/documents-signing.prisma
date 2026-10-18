@@ -1,6 +1,18 @@
 enum DocumentTemplateKind {
   SYSTEM
   CUSTOM
+  // A lender's own asset-finance legal wording (lib/asset-finance/documents/templates).
+  ASSET_FINANCE
+}
+
+// What an ASSET_FINANCE version's approval is. Derived from
+// TenantConfig.isDemoLender, never posted: a demo lender's approval is
+// SYNTHETIC_DEMO and its documents keep a demo watermark; a real lender's is
+// LENDER_LEGAL with its legal sign-off reference. The database refuses either
+// on the other kind of tenant.
+enum DocumentTemplateApprovalBasis {
+  SYNTHETIC_DEMO
+  LENDER_LEGAL
 }
 
 enum DocumentTemplateVersionStatus {
@@ -32,9 +44,14 @@ model DocumentTemplate {
   createdAt        DateTime                  @default(now())
   updatedAt        DateTime                  @updatedAt
   deletedAt        DateTime?
+  // ASSET_FINANCE only: key = "<assetFamily>.<assetVariant>" (lib/asset-finance/documents/templates/families.ts).
+  assetFamily      String?
+  assetVariant     String?
+  issuances        AssetDocumentIssuance[]
   versions         DocumentTemplateVersion[]
 
   @@unique([tenantId, key])
+  @@unique([tenantId, id])
   @@index([tenantId])
 }
 
@@ -53,6 +70,19 @@ model DocumentTemplateVersion {
   activatedAt   DateTime?
   approvedById  String? // dual-approval (second LOAN_ADMIN)
   approvedAt    DateTime?
+  // ASSET_FINANCE only. `content` is the canonical JSON of the lender wording;
+  // the database checks contentSha256 against it and keeps both immutable. An
+  // approval binds approvedContentSha256 (= contentSha256) and its basis.
+  content               String?
+  contentSha256         String?
+  approvalBasis         DocumentTemplateApprovalBasis?
+  approvedContentSha256 String?
+  // The fingerprint of the protected system output of this variant when it was
+  // approved (lib/asset-finance/documents/templates/fingerprint.ts): an
+  // approval covers the protected wording too, and lapses when it changes.
+  approvedSystemSha256  String?
+  legalSignOffReference String?
+  issuances             AssetDocumentIssuance[]
 
   @@unique([templateId, version])
   @@index([templateId])

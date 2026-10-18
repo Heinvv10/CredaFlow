@@ -1,15 +1,17 @@
 // The instalment sale agreement (goal §4.9). Parties, goods, supplier,
 // pricing and the full schedule are the deal's real data; the clauses are
 // drafted wording (./wording/instalment-sale.ts) awaiting the lender's legal
-// team (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
-// every page carries the DRAFT — NOT FOR EXECUTION watermark.
+// team (Confirmation Gate 6.2). Issued, it is the lender's approved template
+// version (./templates): clauses 7.6, 7.11 and 7.12 may be the lender's own and
+// its additional terms follow 7.13; the watermark is the version's mark.
 import { Prisma } from "@prisma/client"
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { PRESET_LABELS } from "../deal-labels"
 import { STRUCTURE_PRESETS } from "../deal-input"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "./pdf-layout"
-import { instalmentSaleClauses } from "./wording/instalment-sale"
+import { instalmentSaleClauses, isaTokens } from "./wording/instalment-sale"
+import { additionalTerms, wordingWatermark, type AppliedWording } from "./templates/apply"
 import { assetRows, entityRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "./document-parts"
 
 const SCHEDULE_COLUMNS: TableColumn[] = [
@@ -33,7 +35,7 @@ function presetLabel(name: string): string {
   return preset ? PRESET_LABELS[preset] : name
 }
 
-export async function renderInstalmentSaleAgreement(data: DealDocumentData): Promise<Buffer> {
+export async function renderInstalmentSaleAgreement(data: DealDocumentData, wording?: AppliedWording): Promise<Buffer> {
   const w = await DealDocumentWriter.create({ title: `Instalment Sale Agreement ${data.reference}`, documentDate: data.documentDate })
   const p = data.pricing
   lenderLetterhead(w, data)
@@ -90,7 +92,9 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData): Pro
     w.paragraph("The Consumer Protection Act applies to the supply of these goods. Clause 7.2 draws your attention to the transfer of risk and indemnity. Read and understand these terms before signing. They do not exclude your statutory rights or liability for the seller's gross negligence.")
   }
   w.section("7. TERMS AND CONDITIONS")
-  instalmentSaleClauses(data).forEach((c, i) => w.clause(`7.${i + 1}`, c.heading, c.text))
+  const clauses = instalmentSaleClauses(data, wording)
+  clauses.forEach((c, i) => w.clause(`7.${i + 1}`, c.heading, c.text))
+  additionalTerms(wording, isaTokens(data)).forEach((c, i) => w.clause(`7.${clauses.length + i + 1}`, c.heading, c.text))
 
   w.section("8. SIGNATURES")
   w.signatures([
@@ -101,5 +105,5 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData): Pro
     })),
     { caption: `For the seller, ${data.lender.legalName}`, name: "Name:", detail: "Authorised signatory" },
   ])
-  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved, mark: wordingWatermark(wording, data.legalWordingApproved) })
 }

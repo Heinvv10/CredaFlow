@@ -1,0 +1,759 @@
+Synthetic Alpha Asset Finance (Pty) Ltd
+Trading as Alpha Demo Finance · Registration No 2099/900001/07 · NCR NCRCP90001
+1 Alpha Synthetic Avenue, Alphaville, 9001
+
+
+INSTALMENT SALE AGREEMENT
+
+
+
+
+                                                                                                  ED
+Agreement reference AF-MVDMRW55-9QW1 · prepared 18 October 2026
+
+
+ 1. THE SELLER (CREDIT PROVIDER)
+
+
+
+
+                                                                                                OV
+ Name                                     Synthetic Alpha Asset Finance (Pty) Ltd
+
+
+
+
+                                                                                             PR
+ Registration number                      2099/900001/07
+ NCR registration                         NCRCP90001
+ Registered office                        1 Alpha Synthetic Avenue, Alphaville, 9001
+
+
+
+
+                                                                                           AP
+ 2. THE PURCHASER
+
+
+
+
+                                                                                       Y
+ Name                                     Synthetic Small Works (Pty) Ltd
+ Type                                     Company (Pty) Ltd
+
+
+
+
+                                                                                  LL
+ Registration number                      2099/1ce2ed/03
+ Address                                  11 Synthetic Yard, Johannesburg, Gauteng, 2000
+
+
+ 3. THE GOODS
+                                                                          GA
+                                                                   LE
+ Class                                    Excavator
+ Make and model                           TEST EX-3
+ Year                                     2025
+                                                               T
+
+ Serial / PIN                             TESTALPHA1CE2ED0B493
+                                                        NO
+
+
+
+ 4. THE SUPPLIER
+                                                 —
+
+
+
+
+ Supplier                                 TEST Plant Sales (Pty) Ltd
+
+
+ 5. PRICE AND FINANCE
+                                       MO
+
+
+
+
+ Cash price excl. VAT                     R 1,500,000.00
+ VAT                                      R 225,000.00
+                                DE
+
+
+
+
+ Cash price incl. VAT                     R 1,725,000.00
+ Deposit                                  R 172,500.00
+ Trade-in                                 R 0.00
+                           IC
+
+
+
+
+ Fees financed                            R 0.00
+ Amount financed                          R 1,552,500.00
+                     T
+
+
+
+
+ Balloon (final payment)                  R 200,000.00
+                  HE
+
+
+
+
+ Contract rate                            Prime plus 1.00%, linked to Prime (Prime of 10.75% effective 1 January 2020):
+                                          11.75% a year (nominal)
+ Interest                                 Accrues daily (actual/365) on the reducing balance
+            NT
+
+
+
+
+ Repayment structure                      Equal monthly, 36 payments
+ Base instalment                          R 46,727.94
+ Total interest                           R 329,705.83
+  SY
+
+
+
+
+ Total payable                            R 1,882,205.83
+ Schedule start date                      18 October 2026
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                Page 1 of 6
+ Default interest on arrears                None
+ Collection fee per missed instalment       None
+
+
+ 6. REPAYMENT SCHEDULE
+
+
+
+
+                                                                                                     ED
+ No.     Due date                      Payment             Interest            Capital             Balloon                 Balance
+
+
+
+
+                                                                                                   OV
+ 1       18 November 2026           R 46,727.94        R 15,493.10         R 31,234.84                               R 1,521,265.16
+ 2       18 December 2026           R 46,727.94        R 14,691.67         R 32,036.27                               R 1,489,228.89
+ 3       18 January 2027            R 46,727.94        R 14,861.69         R 31,866.25                               R 1,457,362.64
+ 4       18 February 2027           R 46,727.94        R 14,543.68         R 32,184.26                               R 1,425,178.38
+
+
+
+
+                                                                                                PR
+ 5       18 March 2027              R 46,727.94        R 12,846.13         R 33,881.81                               R 1,391,296.57
+ 6       18 April 2027              R 46,727.94        R 13,884.38         R 32,843.56                               R 1,358,453.01
+ 7       18 May 2027                R 46,727.94        R 13,119.31         R 33,608.63                               R 1,324,844.38
+
+
+
+
+                                                                                              AP
+ 8       18 June 2027               R 46,727.94        R 13,221.22         R 33,506.72                               R 1,291,337.66
+ 9       18 July 2027               R 46,727.94        R 12,471.14         R 34,256.80                               R 1,257,080.86
+ 10      18 August 2027             R 46,727.94        R 12,544.98         R 34,182.96                               R 1,222,897.90
+ 11      18 September 2027          R 46,727.94        R 12,203.85         R 34,524.09                               R 1,188,373.81
+
+
+
+
+                                                                                         Y
+ 12      18 October 2027            R 46,727.94        R 11,476.76         R 35,251.18                               R 1,153,122.63
+ 13      18 November 2027           R 46,727.94        R 11,507.53         R 35,220.41                               R 1,117,902.22
+
+
+
+
+                                                                                   LL
+ 14      18 December 2027           R 46,727.94        R 10,796.18         R 35,931.76                               R 1,081,970.46
+ 15      18 January 2028            R 46,727.94        R 10,797.47         R 35,930.47                               R 1,046,039.99
+
+
+
+
+                                                                           GA
+ 16      18 February 2028           R 46,727.94        R 10,438.91         R 36,289.03                               R 1,009,750.96
+ 17      18 March 2028              R 46,727.94         R 9,426.65         R 37,301.29                                R 972,449.67
+ 18      18 April 2028              R 46,727.94         R 9,704.51         R 37,023.43                                R 935,426.24
+ 19      18 May 2028                R 46,727.94         R 9,033.91         R 37,694.03                                R 897,732.21
+                                                                      LE
+ 20      18 June 2028               R 46,727.94         R 8,958.88         R 37,769.06                                R 859,963.15
+ 21      18 July 2028               R 46,727.94         R 8,305.12         R 38,422.82                                R 821,540.33
+ 22      18 August 2028             R 46,727.94         R 8,198.52         R 38,529.42                                R 783,010.91
+ 23      18 September 2028          R 46,727.94         R 7,814.02         R 38,913.92                                R 744,096.99
+                                                                T
+
+ 24      18 October 2028            R 46,727.94         R 7,186.14         R 39,541.80                                R 704,555.19
+                                                        NO
+
+
+
+ 25      18 November 2028           R 46,727.94         R 7,031.07         R 39,696.87                                R 664,858.32
+ 26      18 December 2028           R 46,727.94         R 6,420.89         R 40,307.05                                R 624,551.27
+ 27      18 January 2029            R 46,727.94         R 6,232.68         R 40,495.26                                R 584,056.01
+ 28      18 February 2029           R 46,727.94         R 5,828.56         R 40,899.38                                R 543,156.63
+                                                   —
+
+
+
+
+ 29      18 March 2029              R 46,727.94         R 4,895.85         R 41,832.09                                R 501,324.54
+ 30      18 April 2029              R 46,727.94         R 5,002.94         R 41,725.00                                R 459,599.54
+ 31      18 May 2029                R 46,727.94         R 4,438.60         R 42,289.34                                R 417,310.20
+                                        MO
+
+
+
+
+ 32      18 June 2029               R 46,727.94         R 4,164.53         R 42,563.41                                R 374,746.79
+ 33      18 July 2029               R 46,727.94         R 3,619.13         R 43,108.81                                R 331,637.98
+ 34      18 August 2029             R 46,727.94         R 3,309.57         R 43,418.37                                R 288,219.61
+ 35      18 September 2029          R 46,727.94         R 2,876.27         R 43,851.67                                R 244,367.94
+                                  DE
+
+
+
+
+ 36      18 October 2029           R 246,727.93         R 2,359.99         R 44,367.94        R 200,000.00                   R 0.00
+
+
+
+ CPA NOTICE — READ BEFORE SIGNING
+                             IC
+
+
+
+
+The Consumer Protection Act applies to the supply of these goods. Clause 7.2 draws your attention to the transfer of risk and
+                     T
+
+
+
+
+indemnity. Read and understand these terms before signing. They do not exclude your statutory rights or liability for the seller's
+gross negligence.
+                  HE
+
+
+
+
+ 7. TERMS AND CONDITIONS
+           NT
+
+
+
+
+7.1 Sale of the goods and ownership
+    The seller in section 1 ("the Seller") sells to the purchaser in section 2 ("the Purchaser"), and the Purchaser buys, the goods
+  SY
+
+
+
+
+    described in section 3 ("the Goods") on the terms of this agreement ("this Agreement"). This Agreement is an instalment sale:
+    the price is paid in the payments set out in the repayment schedule in section 6 ("the Schedule").
+      Ownership of the Goods stays with the Seller until the Purchaser has paid every amount owing under this Agreement,
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                      Page 2 of 6
+   including the final payment of the Schedule and any amount owing under clauses 7.8 and 7.9. Ownership then passes to the
+   Purchaser without any further act. Until then the Purchaser may not sell, let, lend, pledge or encumber the Goods or part with
+   possession of them, and must not allow any lien, attachment or hypothec to arise over them.
+   The Purchaser chose the Goods and the supplier in section 4 ("the Supplier") itself. The Seller buys the Goods from the
+
+
+
+
+                                                                                                         ED
+   Supplier only to sell them to the Purchaser, is not the Supplier's agent, and gives no warranty about the condition, quality or
+   fitness for purpose of the Goods. For as long as the Purchaser is not in breach of this Agreement, the Seller cedes to the
+   Purchaser every warranty and claim it has against the Supplier or the manufacturer in respect of the Goods. A defect in the
+   Goods, or a dispute with the Supplier, does not suspend or reduce any obligation of the Purchaser under this Agreement.
+
+
+
+
+                                                                                                       OV
+   If the Goods are to be kept on premises the Purchaser does not own, the Purchaser must, before the Goods are brought
+   there, notify the owner of the premises in writing that the Seller owns the Goods, and give the Seller a copy of that notice. The
+   Goods must not be attached to land or to any other thing in a way that could transfer ownership of them by accession.
+
+
+
+
+                                                                                                    PR
+   To the extent that the Consumer Protection Act 68 of 2008 applies to this Agreement or to the Goods, nothing in this
+   Agreement limits any right the Purchaser has under that Act, including sections 55 and 56.
+
+
+
+
+                                                                                                  AP
+   The Consumer Protection Act 68 of 2008 applies to the supply of the Goods. The Seller does not exclude the Purchaser's
+   rights under sections 55 and 56. The warranty exclusions and the obligation to continue payment above operate only to the
+   extent permitted by that Act. The Purchaser may exercise its statutory remedies for defective Goods, including repair,
+   replacement or refund where section 56 provides for them.
+
+
+
+
+                                                                                             Y
+7.2 Delivery, acceptance and risk
+
+
+
+
+                                                                                      LL
+    The Supplier delivers the Goods to the Purchaser at the Purchaser's cost. On delivery the Purchaser must inspect the Goods
+    and sign a delivery and acceptance certificate confirming that the Goods, with the identifying numbers shown in section 3,
+    were delivered complete and in good order. The Seller pays the Supplier only after it has received that certificate and the other
+
+
+
+
+                                                                              GA
+    documents it requires for payment, and is not liable for any delay in delivery or for any failure of the Supplier to deliver.
+   All risk of loss, theft, damage or destruction of the Goods, from any cause, passes to the Purchaser on delivery and stays with
+   it until ownership passes under clause 7.1. No loss, theft, damage or destruction releases the Purchaser from any obligation
+                                                                       LE
+   under this Agreement.
+   The Purchaser indemnifies the Seller against every claim by any person arising from the possession, use or operation of the
+   Goods.
+   NOTICE UNDER SECTION 49: Risk of loss or damage passes to the Purchaser on delivery. The indemnity above may
+                                                                  T
+
+   impose liability on the Purchaser for third-party claims arising from its use of the Goods. It does not exclude or limit liability for
+                                                          NO
+
+
+
+   the Seller's gross negligence or for any loss for which liability may not lawfully be excluded. The Seller draws these terms to
+   the Purchaser's attention before signature; the Purchaser must have an adequate opportunity to understand them.
+7.3 Payment
+    The Purchaser must pay the deposit shown in section 5, to the Supplier or to the Seller as the Seller directs, before the Seller
+                                                   —
+
+
+
+
+    pays the Supplier, and each payment in the Schedule in full on its due date. The payment due on 18 October 2029 includes
+    the balloon of R 200,000.00. Payments are made by debit order or by electronic transfer into the bank account the Seller
+    designates in writing, without any deduction or set-off, and count as paid only when the Seller receives them in cleared funds.
+                                         MO
+
+
+
+
+   The Seller applies every amount it receives under this Agreement in this order: first to default interest under clause 7.9; then
+   to interest due under clause 7.4; then to collection fees under clause 7.9; then to any other fees and charges due; then to
+   capital due; and last to payments not yet due, in the order of their due dates.
+                                  DE
+
+
+
+
+   The Seller issues a tax invoice for the cash price of the Goods including value-added tax, as shown in section 5. Interest
+   under this Agreement is consideration for an exempt financial service under sections 2 and 12(a) of the Value-Added Tax Act
+   89 of 1991. Any fee under this Agreement bears value-added tax where that Act requires it.
+7.4 Interest and changes to the contract rate
+                           IC
+
+
+
+
+    Interest accrues daily on the outstanding capital at the contract rate ("the Contract Rate"), calculated on the actual number of
+    days elapsed in a year of 365 days, and is payable as part of each payment in the Schedule.
+                   T
+
+
+
+
+   The Contract Rate is linked to a reference rate: it is Prime plus 1.00% a year. On the schedule start date the reference rate is
+                HE
+
+
+
+
+   10.75% (effective 1 January 2020), so the Contract Rate is 11.75% a year (nominal). "Prime" means the predominant prime
+   overdraft rate of South African banks as published by the South African Reserve Bank.
+   Whenever the reference rate changes, the Contract Rate changes by the same number of percentage points with effect from
+         NT
+
+
+
+
+   the date on which the changed reference rate takes effect, and clause 7.5 applies. The margin above the reference rate does
+   not change during the term of this Agreement.
+7.5 Commencement and recalculation of the schedule
+  SY
+
+
+
+
+    This Agreement binds the parties once both have signed it. The Schedule runs from the schedule start date shown in section
+    5, 18 October 2026, by which date the Seller intends to pay the Supplier, and interest accrues from that date.
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                           Page 3 of 6
+   If the Seller has not paid the Supplier by the schedule start date, for any reason, or if the Contract Rate in force on that date
+   differs from the rate shown in section 5, the Seller may cancel this Agreement by written notice to the Purchaser. Neither party
+   then has any claim against the other under this Agreement, except that the Seller must repay any amount the Purchaser paid
+   to the Seller under it. The parties may then conclude a new agreement with a new schedule.
+
+
+
+
+                                                                                                        ED
+   When the Contract Rate changes under clause 7.4, the Seller recalculates the payments falling due after the change so that
+   the number of payments, their due dates, their relative sizes under the repayment structure in section 5, and the balloon all
+   stay the same, and the outstanding capital is repaid at the new Contract Rate by the last due date. Interest at the new
+   Contract Rate accrues from the date of the change. The Seller notifies the Purchaser in writing of the new payment amounts.
+
+
+
+
+                                                                                                      OV
+   The Seller may keep a payment that falls due before that notice reaches the Purchaser at its previous amount; the resulting
+   difference in interest is carried in the balance and spread over the recalculated payments. The recalculated payments replace
+   those in section 6 from the date of the change.
+
+
+
+
+                                                                                                   PR
+7.6 Insurance of the goods
+    From delivery until ownership passes, the Purchaser must at its own cost keep the Goods comprehensively insured, for their
+    full replacement value, with an insurer registered under the Insurance Act 18 of 2017 and acceptable to the Seller, against
+
+
+
+
+                                                                                                 AP
+    loss, theft, damage, fire and the other risks usually insured for goods of their kind, and against third-party liability where the
+    Goods are used on public roads. The Seller's interest as owner must be noted on the policy, with the Seller as first loss payee.
+   The Purchaser must give the Seller proof of the insurance before the Seller pays the Supplier and proof of renewal on
+
+
+
+
+                                                                                            Y
+   request, pay every premium on time, and do nothing that could entitle the insurer to avoid or reduce a claim. The Purchaser
+   cedes to the Seller all its rights under the policy to the extent of the Seller's interest.
+
+
+
+
+                                                                                     LL
+   If the Purchaser does not insure the Goods as this clause requires, the Seller may (but need not) insure them, and the
+   Purchaser must repay the premium on demand.
+
+
+
+
+                                                                             GA
+   The Purchaser must report any loss, theft or damage to the Seller and to the insurer within 48 hours of becoming aware of it.
+   The Seller applies insurance proceeds it receives to the repair or replacement of the Goods or, after a total loss and at its
+   choice, towards the amounts owing under this Agreement, and pays any surplus to the Purchaser.
+                                                                       LE
+7.7 Use, maintenance and location of the goods
+    The Purchaser must use the Goods carefully, lawfully and only for its business, operated by competent and, where the law
+    requires it, licensed operators, and within the limits the manufacturer specifies.
+   The Purchaser must at its own cost keep the Goods in good order and repair, have them serviced as the manufacturer's
+                                                                  T
+
+   service schedule requires, keep the service records and show them to the Seller on request, and keep every licence,
+                                                          NO
+
+
+
+   registration and roadworthy certificate the Goods need. Where the Goods are registrable, the Seller is recorded as titleholder
+   and the Purchaser as owner. The Purchaser may not alter the Goods, or remove or change any identifying number on them,
+   without the Seller's written consent.
+   The Purchaser must keep the Goods at the Purchaser's address in section 2 (11 Synthetic Yard, Johannesburg, Gauteng,
+                                                   —
+
+
+
+
+   2000), or at another place in the Republic of South Africa that it has notified to the Seller in writing beforehand, and may not
+   take them out of the Republic without the Seller's written consent. The Seller may inspect the Goods at any reasonable time
+   on reasonable notice. If the Seller requires it, the Purchaser must at its cost have a tracking device fitted to the Goods and
+                                         MO
+
+
+
+
+   keep its subscription active until ownership passes.
+   The Purchaser must immediately notify the Seller in writing if any person attaches or claims the Goods, and must tell that
+   person that the Seller owns them.
+                                  DE
+
+
+
+
+7.8 Breach and remedies
+    Each of the following is an event of default: (a) the Purchaser fails to pay any amount on its due date and does not pay it within
+    7 days after the Seller's written demand; (b) the Purchaser breaches any other term of this Agreement and does not remedy
+    the breach within 14 days after the Seller's written demand; (c) the Purchaser is placed in liquidation, is sequestrated or
+                           IC
+
+
+
+
+    deregistered, or (for a trust or partnership) is dissolved or its trustees or partners lose their authority to act, or it compromises
+    or tries to compromise with its creditors generally; (d) a judgment against the Purchaser remains unsatisfied for 7 days; (e)
+    any information the Purchaser or a surety gave the Seller in connection with this Agreement was materially incorrect; (f) a
+                   T
+
+
+
+
+    surety for the Purchaser's obligations dies, is sequestrated, or disputes the suretyship; (g) the Goods are lost, attached, or
+                HE
+
+
+
+
+    removed from the Republic of South Africa without the Seller's written consent. Business rescue proceedings are not of
+    themselves an event of default; while they last, section 133 of the Companies Act 71 of 2008 limits the Seller's remedies.
+   On an event of default the Seller may, without limiting any other right it has by law: (a) claim immediate payment of the
+         NT
+
+
+
+
+   Settlement Amount under clause 7.10 and every other amount owing; or (b) cancel this Agreement, take possession of the
+   Goods, and claim as damages the Settlement Amount on the date of cancellation, together with the costs under clause 7.9,
+   less the net proceeds of the Goods credited under this clause. The Seller takes possession of the Goods only with the
+  SY
+
+
+
+
+   Purchaser's written consent given at that time or under an order of court.
+   The Purchaser may, with the Seller's written consent, return the Goods to the Seller voluntarily. Returning the Goods does not
+   by itself end the Purchaser's liability under this Agreement.
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                         Page 4 of 6
+   When the Seller has possession of the Goods after an event of default or a voluntary return, it may sell them by public auction
+   or private treaty for the best price reasonably obtainable after a valuation. The net proceeds (the price less the costs of
+   recovery, storage, transport, valuation, repair and sale that the Seller deducts from them) are credited to the Purchaser's
+   account on the date they are applied, against the amount then owing. The Purchaser must pay any shortfall on demand, and
+   the Seller pays any surplus to the Purchaser. While it recovers and sells the Goods the Seller may, without waiving any right,
+
+
+
+
+                                                                                                      ED
+   suspend the default interest and collection fees under clause 7.9.
+   Cancellation does not affect the Seller's right to amounts that fell due before it. The Seller keeps the payments it has received;
+   they have already reduced the capital counted in the Settlement Amount.
+
+
+
+
+                                                                                                    OV
+7.9 Default interest and collection costs
+    No default interest is charged on overdue amounts under this Agreement.
+
+
+
+
+                                                                                                 PR
+   No collection fee is charged for a missed payment.
+   The Purchaser must pay, on demand, all legal costs the Seller incurs in enforcing this Agreement, on the scale as between
+   attorney and own client, and all tracing, collection, recovery, storage, transport, valuation, repair and sale costs the Seller
+
+
+
+
+                                                                                               AP
+   reasonably incurs because of an event of default. The Seller may deduct those costs from sale proceeds under clause 7.8 or
+   debit them to the Purchaser's account.
+   Any costs claimed must be reasonable and recoverable by law. Nothing in this clause permits an unfair, unreasonable or
+   unjust charge contrary to section 48 of the Consumer Protection Act.
+
+
+
+
+                                                                                          Y
+7.10 Early settlement
+
+
+
+
+                                                                                   LL
+   The Purchaser may settle this Agreement at any time by paying the Settlement Amount. On request the Seller gives the
+   Purchaser a written settlement quotation stating the Settlement Amount on a date.
+   The "Settlement Amount" on a date is the total of: (a) every amount due and unpaid on that date, including default interest,
+
+
+
+                                                                            GA
+   collection fees and costs; (b) the capital outstanding on that date, including the capital of the balloon; and (c) the interest
+   accrued on that capital from the last due date to that date at the Contract Rate. Interest that has not yet accrued is not
+   payable, and no early-settlement fee is charged.
+                                                                     LE
+   Ownership of the Goods passes to the Purchaser under clause 7.1 when the Seller receives the Settlement Amount in
+   cleared funds.
+7.11 Cession and assignment
+                                                                T
+
+   The Seller may cede, assign, sell or pledge any or all of its rights under this Agreement, delegate any of its obligations, and
+   transfer its ownership of the Goods, to any person, without the Purchaser's consent and without splitting its claims being an
+                                                        NO
+
+
+
+   objection. The Seller may disclose information about this Agreement and the Purchaser to any prospective cessionary or
+   funder that undertakes to keep it confidential.
+   The Purchaser may not cede, assign, delegate or otherwise transfer any right or obligation under this Agreement, or let the
+                                                  —
+
+
+
+
+   Goods or part with possession of them, without the Seller's prior written consent.
+   No cession or delegation reduces a right or remedy the Purchaser has under the Consumer Protection Act.
+7.12 Domicilium and notices
+                                        MO
+
+
+
+
+   The parties choose the following addresses as their domicilium citandi et executandi, where notices and legal process may be
+   delivered: the Seller, its registered office at 1 Alpha Synthetic Avenue, Alphaville, 9001; the Purchaser, 11 Synthetic Yard,
+   Johannesburg, Gauteng, 2000. A party may change its domicilium to another physical address in the Republic of South Africa
+   by written notice to the other, effective 7 days after the notice is received.
+                                 DE
+
+
+
+
+   A notice under this Agreement must be in writing. A notice delivered by hand to a party's domicilium is received on delivery;
+   one sent by prepaid registered post to it is received on the 7th business day after posting; and one sent by email to an
+   address the receiving party has designated in writing for notices is received on the business day after it is sent. A notice
+                          IC
+
+
+
+
+   actually received is effective even if it was not delivered in one of these ways. "Business day" means any day other than a
+   Saturday, Sunday or public holiday in South Africa.
+                   T
+
+
+
+
+7.13 General
+   This Agreement, with its sections 1 to 6, is the whole agreement between the parties about its subject matter. No variation,
+                HE
+
+
+
+
+   addition or cancellation of it, and no waiver of any right under it, has any effect unless it is in writing and signed by both
+   parties, except a recalculation under clause 7.5 or a notice under clause 7.12. No indulgence or delay by the Seller is a waiver
+   of any right or prevents it from enforcing any right later.
+         NT
+
+
+
+
+   A certificate signed by any manager of the Seller, whose appointment need not be proved, stating the amount the Purchaser
+   owes under this Agreement and that it is due, is prima facie proof of its contents for all purposes, including summary judgment
+   and provisional sentence.
+  SY
+
+
+
+
+   The Purchaser consents, under section 45 of the Magistrates' Courts Act 32 of 1944, to the jurisdiction of any magistrate's
+   court having jurisdiction over it in any proceedings arising from this Agreement, even if the amount claimed exceeds that
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                       Page 5 of 6
+   court's jurisdiction. The Seller may instead bring proceedings in any other competent court. This Agreement is governed by
+   the law of the Republic of South Africa.
+   Each person who signs this Agreement for the Purchaser warrants that they are authorised to do so by a resolution of the
+   Purchaser. If any provision of this Agreement is unenforceable, the remaining provisions stay in force.
+
+
+
+
+                                                                                                   ED
+   The Purchaser consents to the Seller processing information about it, its directors, members, trustees, partners and sureties
+   to conclude, administer, enforce and fund this Agreement, including sharing it with credit bureaux, insurers, funders and the
+   Seller's agents, in accordance with the Protection of Personal Information Act 4 of 2013.
+
+
+
+
+                                                                                                 OV
+   This Agreement may be signed in counterparts and by electronic signature.
+
+
+ 8. SIGNATURES
+
+
+
+
+                                                                                              PR
+For the purchaser, Synthetic Small Works (Pty) Ltd
+
+
+
+
+                                                                                            AP
+TEST Director                                                              Date
+Authorised signatory
+
+
+
+
+                                                                                       Y
+For the seller, Synthetic Alpha Asset Finance (Pty) Ltd
+
+
+
+
+                                                                                  LL
+                                                                          GA
+Name:                                                                      Date
+Authorised signatory                                               LE
+                                                               T
+                                                       NO
+                                                —
+                                       MO
+                                DE
+                    T    IC
+                 HE
+          NT
+  SY
+
+
+
+
+Ref AF-MVDMRW55-9QW1                                                                                                   Page 6 of 6
+

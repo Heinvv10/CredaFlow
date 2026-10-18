@@ -2,8 +2,8 @@
 // as the consumer flow signs a credit agreement
 // (app/api/applications/[id]/agreement/sign): the signer echoes the digest of
 // the bytes they were shown, the stored bytes must still hash to the bound
-// digest, and a fresh render must hash the same (the deal has not changed
-// since it was prepared). The drawn PNG data URL or typed name is stored with
+// digest, and a fresh render with the issued template version and lender
+// identity must hash the same (the deal has not changed since it was prepared). The drawn PNG data URL or typed name is stored with
 // its sha256, the IP and the instant, and the signature is audited.
 //
 // The signer row is found by its id AND the session client: anyone else's
@@ -17,6 +17,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
+import { pinnedIssuance } from "./documents/templates/issuance"
 import { portalSignerWhere } from "./portal-access"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError, type SigningOtpEvidence } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
@@ -80,7 +81,7 @@ export async function recordESignature(params: {
   const signer = await prisma.dealSigner.findFirst({
     where: { id: signerId, tenantId, clientId, AND: [portalSignerWhere(tenantId, clientId)] },
     select: {
-      id: true, dealId: true, clientId: true, document: true, method: true,
+      id: true, dealId: true, clientId: true, document: true, method: true, issuanceId: true,
       documentSha256: true, documentStoragePath: true, deal: { select: {
         status: true, entityId: true, application: { select: { ncaRegime: true } },
       } },
@@ -92,6 +93,8 @@ export async function recordESignature(params: {
   if (signer.method !== null) return { kind: "not_signable", reason: "This document has already been signed" }
   if (signer.deal.status !== "APPROVED") return { kind: "not_signable", reason: "This deal is not open for signing" }
   if (input.documentSha256 !== signer.documentSha256) return { kind: "stale_view" }
+  // Prepared before lender templates: no issuance, so not signable (the database refuses it too).
+  if (!signer.issuanceId) return { kind: "not_signable", reason: "This document was prepared before the lender's templates; the lender will prepare the documents again" }
 
   const stored = await readFile(signer.documentStoragePath).catch(() => null)
   if (!stored || !documentBytesMatchSha256(stored, signer.documentSha256)) return { kind: "document_changed" }
@@ -101,7 +104,11 @@ export async function recordESignature(params: {
     if (!data) return { kind: "not_found" }
     const stillRequired = data.requiredSigners.some((s) => s.clientId === clientId && s.document === signer.document)
     if (!stillRequired) return { kind: "not_signable", reason: "You are no longer required to sign this document; the lender will prepare the documents again" }
-    const fresh = await renderDealDocument(data, signer.document, clientId)
+    // The template version and lender identity the document was issued with,
+    // never the ones current now: a later publication does not change it.
+    const pinned = await pinnedIssuance(prisma, tenantId, signer.issuanceId)
+    if (!pinned) return { kind: "document_changed" }
+    const fresh = await renderDealDocument({ ...data, lender: pinned.lender }, signer.document, clientId, pinned.wording)
     if (fresh.sha256 !== signer.documentSha256) return { kind: "document_changed" }
   }
 

@@ -40,6 +40,10 @@ export async function POST(req: NextRequest) {
     if (!body.name?.trim()) {
       return NextResponse.json({ error: "name is required" }, { status: 422 })
     }
+    // "af." keys belong to the asset-finance legal templates (adopted, never created here).
+    if ((body.key?.trim() || slugify(body.name)).startsWith("af.")) {
+      return NextResponse.json({ error: "Keys starting with af. are reserved for asset-finance templates" }, { status: 422 })
+    }
 
     const created = await prisma.documentTemplate.create({
       data: {

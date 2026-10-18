@@ -132,12 +132,15 @@ function defaultInterest(i: LeaseWordingInput): string {
   )
 }
 
+/** Clause 9.13 as the starter supplies it: a lender template may replace it (./../templates/families.ts). */
+export const LEASE_CESSION_STARTER = para(
+  "The lessor may cede its rights, delegate its obligations and transfer ownership of the goods to anyone, including a financier, without the lessee's consent, provided the "
+  + "lessee's rights under this agreement are not reduced. On request the lessee acknowledges the cession in writing and pays the cessionary.",
+  "The lessee may not cede, assign or delegate any right or obligation under this agreement, or sublet the goods, without the lessor's prior written consent.",
+)
+
 function cession(): string {
-  return para(
-    "The lessor may cede its rights, delegate its obligations and transfer ownership of the goods to anyone, including a financier, without the lessee's consent, provided the "
-    + "lessee's rights under this agreement are not reduced. On request the lessee acknowledges the cession in writing and pays the cessionary.",
-    "The lessee may not cede, assign or delegate any right or obligation under this agreement, or sublet the goods, without the lessor's prior written consent.",
-  )
+  return LEASE_CESSION_STARTER
 }
 
 function notices(i: LeaseWordingInput): string {

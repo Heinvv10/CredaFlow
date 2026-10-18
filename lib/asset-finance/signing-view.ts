@@ -1,6 +1,6 @@
 // Read models for deal signing: the staff deal page's "Documents & signing"
 // panel and the portal's "Documents to sign" lists. JSON-safe.
-import type { AssetDealStatus, DealDocumentKind, DealSignerRole, SignatureMethod } from "@prisma/client"
+import type { AssetDealStatus, DealDocumentKind, DealSignerRole, DocumentTemplateApprovalBasis, SignatureMethod } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { signerState, type SignerState } from "./signing"
 import { portalSignerWhere } from "./portal-access"
@@ -20,12 +20,17 @@ export interface StaffSignerView {
   scanUploadedBy: { id: string; label: string } | null
   confirmedBy: string | null
   confirmedAt: string | null
+  /** The lender template version these bytes were issued from; null if prepared before lender templates. */
+  template: { key: string; version: number; approvalBasis: DocumentTemplateApprovalBasis } | null
 }
 
 export interface StaffSigningPanel {
   dealStatus: AssetDealStatus
   entityId: string | null
-  legalWordingApproved: boolean
+  /** Some current document was issued from a synthetic demo approval (it carries the demo watermark). */
+  syntheticDemo: boolean
+  /** Some unsigned row was prepared before lender templates and must be prepared again before signing. */
+  preparedBeforeTemplates: boolean
   signers: StaffSignerView[]
   /**
    * Required now but without a signer row (someone added since preparation),
@@ -45,14 +50,14 @@ const userLabel = (u: { name: string | null; email: string }) => u.name?.trim() 
 export async function loadStaffSigningPanel(tenantId: string, dealId: string): Promise<StaffSigningPanel | null> {
   const deal = await prisma.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: { status: true, entityId: true, clientId: true } })
   if (!deal) return null
-  const [rows, config] = await Promise.all([
-    prisma.dealSigner.findMany({
-      where: { tenantId, dealId },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      include: { client: { select: { firstName: true, lastName: true } } },
-    }),
-    prisma.tenantConfig.findUnique({ where: { tenantId }, select: { assetFinanceLegalWordingApproved: true } }),
-  ])
+  const rows = await prisma.dealSigner.findMany({
+    where: { tenantId, dealId },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    include: {
+      client: { select: { firstName: true, lastName: true } },
+      issuance: { select: { templateKey: true, templateVersionNumber: true, approvalBasis: true } },
+    },
+  })
   const canPrepare = deal.status === "APPROVED" && rows.every((r) => r.method === null)
   const required = canPrepare ? await requiredBorrowerSigners(prisma, tenantId, deal) : []
   const present = new Set(rows.map((r) => `${r.document}:${r.clientId}`))
@@ -68,7 +73,8 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
   return {
     dealStatus: deal.status,
     entityId: deal.entityId,
-    legalWordingApproved: config?.assetFinanceLegalWordingApproved === true,
+    syntheticDemo: rows.some((r) => r.issuance?.approvalBasis === "SYNTHETIC_DEMO"),
+    preparedBeforeTemplates: rows.some((r) => r.issuanceId === null && r.method === null),
     canPrepare,
     missing: missingRequired.map((s) => ({ clientId: s.clientId, name: missingNames.get(s.clientId) ?? s.clientId, document: s.document })),
     signers: [...rows].sort((a, b) => DOCUMENT_ORDER[a.document] - DOCUMENT_ORDER[b.document]).map((r) => ({
@@ -85,6 +91,7 @@ export async function loadStaffSigningPanel(tenantId: string, dealId: string): P
       scanUploadedBy: r.scanUploadedById ? { id: r.scanUploadedById, label: labels.get(r.scanUploadedById) ?? r.scanUploadedById } : null,
       confirmedBy: r.confirmedById ? (labels.get(r.confirmedById) ?? r.confirmedById) : null,
       confirmedAt: r.confirmedAt?.toISOString() ?? null,
+      template: r.issuance ? { key: r.issuance.templateKey, version: r.issuance.templateVersionNumber, approvalBasis: r.issuance.approvalBasis } : null,
     })),
   }
 }

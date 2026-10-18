@@ -14,6 +14,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { createPayoutChecklist } from "./payout-checklist-store"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
+import { pinnedIssuance } from "./documents/templates/issuance"
 import { outstandingSigners, type Outstanding } from "./signing"
 import { lockDeal, preparedRequiredSigners, type SigningActor } from "./signing-prepare"
 import { providerCountersignatureEnvelopeSha256, providerCountersignatureSha256 } from "@/lib/compliance/provider-countersign"
@@ -43,7 +44,7 @@ export async function contractDeal(actor: SigningActor, dealId: string, provider
       where: { tenantId, dealId },
       select: {
         clientId: true, document: true, method: true, signedAt: true, signatureSha256: true,
-        signatureData: true, scanDocumentId: true, confirmedById: true, confirmedAt: true, documentSha256: true,
+        signatureData: true, scanDocumentId: true, confirmedById: true, confirmedAt: true, documentSha256: true, issuanceId: true,
       },
     })
     const outstanding = outstandingSigners(required, rows)
@@ -94,7 +95,10 @@ export async function contractDeal(actor: SigningActor, dealId: string, provider
       // Throws DealDocumentError / LenderIdentityError: the route refuses with the reason.
       const data = await loadDealDocumentData(tx, tenantId, dealId)
       if (!data) return { kind: "not_found" }
-      const fresh = await renderDealDocument(data, "AGREEMENT", agreement.clientId)
+      // Re-rendered with the version and identity it was issued with (a row
+      // prepared before lender templates has none: its own signature stands).
+      const pinned = await pinnedIssuance(tx, tenantId, agreement.issuanceId)
+      const fresh = await renderDealDocument(pinned ? { ...data, lender: pinned.lender } : data, "AGREEMENT", agreement.clientId, pinned?.wording)
       if (rows.some((r) => r.document === "AGREEMENT" && r.documentSha256 !== fresh.sha256)) return { kind: "agreement_changed" }
       agreementSha256 = fresh.sha256
     }

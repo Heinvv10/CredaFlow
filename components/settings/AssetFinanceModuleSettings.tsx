@@ -98,10 +98,12 @@ export function AssetFinanceModuleSettings(props: Props) {
 
         <div className="max-w-md space-y-1">
           <p className="text-sm font-medium text-[var(--cf-text)]">
-            Agreement wording approved: {props.assetFinanceLegalWordingApproved ? "Yes" : "No — documents carry a DRAFT watermark"}
+            Servicing notice wording approved: {props.assetFinanceLegalWordingApproved ? "Yes" : "No — notices carry a DRAFT watermark"}
           </p>
           <p className="text-xs text-[var(--cf-text-muted)]">
-            Set by CredaFlow once the lender&apos;s legal team approves the agreement wording
+            Set by CredaFlow once the lender&apos;s legal team approves the notice wording. Agreements, suretyships and
+            resolutions are issued only from your own approved, published templates (Settings → Document templates); this
+            flag does not approve them.
           </p>
         </div>
 

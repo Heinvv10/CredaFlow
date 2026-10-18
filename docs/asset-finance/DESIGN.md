@@ -499,6 +499,19 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   `evidence/slice4b-isaflow/MUTATIONS.md`. The live push to Hein's IsaFlow dev company is still to
   do; it waits for his credentials (goal §9).
 
+## Lender-owned legal templates (built 2026-10-18; lender legal sign-off per lender)
+
+Each lender adopts, edits (commercial variants only), approves and publishes
+its own versioned template of every asset-finance agreement, suretyship and
+resolution; documents are issued only from the published approved version and
+keep immutable provenance. Spec, inventory and rule-to-test matrix:
+`evidence/lender-owned-templates/`. The editable surface was narrowed on legal
+review: CPA, NCA, suretyship and resolution variants take no lender text. A
+legal approval is a lender SUPER_ADMIN's act on written legal sign-off and is
+recorded per version; it does not reopen the 2026-10-17/18 sign-off records
+below. System notices and the NCA quotation remain governed by
+`TenantConfig.assetFinanceLegalWordingApproved`.
+
 ## Acceptance (every slice)
 
 - 10–20 past client deals, anonymised to synthetic data, reproduce the
@@ -515,7 +528,7 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 
 ## Open with the client (not blockers to building)
 
-- Legal approval of the agreement wording (the classifier rules, D5, and supply timing, D7, were signed off, see the sign-off record 2026-10-17 below).
+- Legal approval of the agreement wording, now per lender and per template version (the classifier rules, D5, and supply timing, D7, were signed off, see the sign-off record 2026-10-17 below).
 - The anonymised deal pack for acceptance.
 - Commercial bureau contract (slice 1 uses a manual credit memo instead).
 - Whether a funder or securitisation vehicle needs its own reporting.

@@ -45,14 +45,25 @@ describe("issueAssetNcaQuote passes the tenant's legal-wording flag through", ()
     m.render.mockResolvedValue(Buffer.from("pdf"))
   })
 
+  const txWith = (agreementBasis: "SYNTHETIC_DEMO" | "LENDER_LEGAL" | null) => ({
+    assetFinanceDeal: { findFirst: vi.fn(async () => deal) }, clientDocument: { create: vi.fn() }, entityDocument: { create: vi.fn() },
+    loanApplication: { update: vi.fn() },
+    documentTemplate: { findFirst: vi.fn(async () => (agreementBasis ? { versions: [{ approvalBasis: agreementBasis }] } : null)) },
+  } as unknown as RegimeTx)
+
   it.each([true, false])("approved=%s reaches the renderer", async (approved) => {
     m.approved.mockResolvedValue(approved)
-    const tx = {
-      assetFinanceDeal: { findFirst: vi.fn(async () => deal) }, clientDocument: { create: vi.fn() }, entityDocument: { create: vi.fn() },
-      loanApplication: { update: vi.fn() },
-    } as unknown as RegimeTx
+    const tx = txWith(null)
     expect((await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("issued")
     expect(m.approved).toHaveBeenCalledWith(tx, "t1")
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved, schedule: [expect.objectContaining({ dueDate: "2026-11-30", principalCents: 100, feesCents: 5 })] }))
+  })
+
+  it("refuses a DRAFT quotation the lender's legally approved agreement could never follow; a demo agreement is no bar", async () => {
+    m.approved.mockResolvedValue(false)
+    const refused = await issueAssetNcaQuote(txWith("LENDER_LEGAL"), { tenantId: "t1", userId: "u1" }, "d1")
+    expect(refused).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/quotation wording is not yet/) })
+    expect(m.render).not.toHaveBeenCalled()
+    expect((await issueAssetNcaQuote(txWith("SYNTHETIC_DEMO"), { tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("issued")
   })
 })

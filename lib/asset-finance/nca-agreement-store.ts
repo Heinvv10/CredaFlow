@@ -3,12 +3,17 @@ import { pasqEvidenceIsIntact } from "@/lib/compliance/pasq"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { providerCountersignatureEnvelopeSha256, providerCountersignatureSha256 } from "@/lib/compliance/provider-countersign"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
-import { deleteFile, readFile, saveFile } from "@/lib/storage"
+import { deleteFile, readFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
+import type { NcaAssetDocumentData } from "./documents/nca/types"
+import {
+  issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, TemplateNotIssuableError,
+  type SelectedTemplate,
+} from "./documents/templates/issuance"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { dbDate } from "./dates"
 import { createPayoutChecklist } from "./payout-checklist-store"
@@ -50,8 +55,20 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
   }, startDate)
   if ("error" in rate) return { kind: "not_ready", reason: rate.error }
   const [lender, approved] = await Promise.all([getLenderIdentity(actor.tenantId), legalWordingApproved(prisma, actor.tenantId)])
+  // The lender's published, approved template (documents/templates/issuance.ts):
+  // a missing one refuses with the reason; nothing falls back to the starter.
+  let template: SelectedTemplate
+  try {
+    template = await selectIssuableTemplate(prisma, actor.tenantId, ncaTemplateKey(deal.contractType))
+  } catch (error) {
+    if (error instanceof TemplateNotIssuableError) return { kind: "not_ready", reason: error.message }
+    throw error
+  }
+  const quoteProblem = await ncaQuoteMarkProblem(prisma, actor.tenantId, dealId, app.pasqDocumentSha256, template)
+  if (quoteProblem) return { kind: "not_ready", reason: quoteProblem }
+  const wording = issuedWording(template)
   const generatedAt = new Date(evidence.calculator.startDate)
-  const bytes = await renderNcaAssetAgreement({
+  const ncaData: NcaAssetDocumentData = {
     legalWordingApproved: approved, reference: app.reference, documentDate: generatedAt, contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
@@ -70,12 +87,17 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
       installmentNo: row.installmentNo, dueDate: sastCalendarDate(new Date(row.dueDate)), principalCents: row.principalDueCents,
       interestCents: row.interestDueCents, feesCents: row.feesDueCents, totalCents: row.totalDueCents, closingBalanceCents: row.closingBalanceCents,
     })),
-  })
+  }
+  const bytes = await renderNcaAssetAgreement(ncaData, wording)
   const sha256 = createHash("sha256").update(bytes).digest("hex")
   const documentId = randomUUID()
-  const stored = await saveFile(bytes, "application/pdf")
+  const issuance = await storeIssuanceFiles(template, { kind: "nca", document: "AGREEMENT", clientId, data: ncaData }, bytes)
+  const stored = { storagePath: issuance.pdfStoragePath, fileSize: bytes.length }
+  const draftLegalWording = wording.mark !== "NONE"
   try {
     await prisma.$transaction(async (tx) => {
+      await lockSelectedTemplate(tx, actor.tenantId, template)
+      const issuanceId = await recordIssuance(tx, actor.tenantId, dealId, actor.userId, issuance)
       await tx.clientDocument.create({ data: {
         id: documentId, tenantId: actor.tenantId, clientId, docType: "CREDIT_AGREEMENT",
         fileUrl: `/api/documents/${documentId}/view`, fileName: `credit-agreement-${app.id}.pdf`, storagePath: stored.storagePath,
@@ -88,14 +110,15 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
           documentId, documentSha256: sha256, storagePath: stored.storagePath,
           fileName: `credit-agreement-${app.id}.pdf`, fileSize: stored.fileSize,
           creditLifeAutoBundleEligible: evidence.creditLife.election === "ACCEPTED",
-          assetFinanceDealId: dealId, draftLegalWording: !approved,
+          assetFinanceDealId: dealId, draftLegalWording, issuanceId, templateKey: template.templateKey,
+          templateVersion: template.versionNumber, approvalBasis: template.approvalBasis,
         },
       } })
       const changed = await tx.loanApplication.updateMany({ where: { id: app.id, tenantId: actor.tenantId, status: "APPROVED", agreementGeneratedAt: null }, data: { agreementGeneratedAt: generatedAt, agreementDocumentId: documentId, agreementDocumentSha256: sha256 } })
       if (changed.count !== 1) throw new Error("asset_nca_agreement_changed")
       await tx.dealSigner.create({ data: {
         tenantId: actor.tenantId, dealId, clientId, role: "AUTHORISED_SIGNATORY", document: "AGREEMENT",
-        documentSha256: sha256, documentStoragePath: stored.storagePath,
+        documentSha256: sha256, documentStoragePath: stored.storagePath, issuanceId,
       } })
       await tx.assetFinanceDeal.update({ where: { id: dealId, tenantId: actor.tenantId }, data: {
         plannedStartDate: dbDate(startDate), signedBaseInstalmentCents: evidence.calculator.recurringInstalmentCents,
@@ -103,10 +126,12 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
         signedArrearsMarginRate: null, signedCollectionFeeCents: 0,
         preparedSigners: [{ clientId, document: "AGREEMENT" }],
       } })
-      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording: !approved } }, tx)
+      await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.AGREEMENT_GENERATED, entity: "LoanApplication", entityId: app.id, newValue: { documentId, documentSha256: sha256, assetFinanceDealId: dealId, draftLegalWording, issuanceId, templateKey: template.templateKey, templateVersion: template.versionNumber, approvalBasis: template.approvalBasis } }, tx)
     })
   } catch (error) {
-    await deleteFile(stored.storagePath)
+    await Promise.all([deleteFile(issuance.pdfStoragePath), deleteFile(issuance.inputStoragePath)])
+    // A publication between selection and the transaction: issue again.
+    if (error instanceof TemplateNotIssuableError) return { kind: "not_ready", reason: error.message }
     throw error
   }
   return { kind: "done", documentId, sha256 }
@@ -124,8 +149,10 @@ export async function signAssetNcaAgreement(args: { tenantId: string; clientId: 
   // Signing OTP (lib/signing-otp): bound to the AGREEMENT signer row (its
   // digest is the agreement's, set when issued) and these bytes; checked
   // here, spent first in the transaction.
-  const signer = await prisma.dealSigner.findFirst({ where: { tenantId: args.tenantId, dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, select: { id: true } })
+  const signer = await prisma.dealSigner.findFirst({ where: { tenantId: args.tenantId, dealId: args.dealId, clientId: args.clientId, document: "AGREEMENT" }, select: { id: true, issuanceId: true } })
   if (!signer) return { kind: "not_found" }
+  // Issued before lender templates: not signable (the database refuses it too); the lender re-issues it.
+  if (!signer.issuanceId) return { kind: "not_ready", reason: "This agreement was issued before the lender's templates and cannot be signed; the deal must be originated again" }
   const otpBinding = { tenantId: args.tenantId, clientId: args.clientId, purpose: "DEAL_DOCUMENT" as const, subjectId: signer.id, documentSha256: args.documentSha256 }
   const otpRequired = await isSigningOtpRequired(args.tenantId, "portal")
   if (otpRequired) {

@@ -1,0 +1,1006 @@
+{
+  "sourceCommit": "cd6f83c5ed755b1bc63c6808ccfda6759e06d99e",
+  "frozenTree": true,
+  "synthetic": true,
+  "checks": [
+    {
+      "id": "logins.password+totp",
+      "pass": true,
+      "detail": "six staff sessions via /login with password then TOTP"
+    },
+    {
+      "id": "1.bravo-refused-before-adoption",
+      "pass": true,
+      "detail": {
+        "status": 422,
+        "body": "{\"error\":\"Your Instalment sale agreement (Consumer Protection Act does not apply) template has not been adopted. Adopt it under Settings → Document templates, then approve and publish it.\"}"
+      }
+    },
+    {
+      "id": "2.alpha-adopt",
+      "pass": true
+    },
+    {
+      "id": "2.alpha-bad-wording-refused",
+      "pass": true,
+      "detail": {
+        "status": 422,
+        "body": "{\"error\":\"The wording cannot be saved\",\"problems\":[{\"field\":\"additionalTerms.1.text\",\"message\":\"Amounts of money come only from the deal's figures; remove the amount\"},{\"field\":\"additionalTerms.1.text\",\"message\":\"\\\"fee\\\": lender text may not override, vary or waive the protected terms or create a fee, charge or penalty\"}]}",
+        "alerts": [
+          "Amounts of money come only from the deal's figures; remove the amount",
+          "\"fee\": lender text may not override, vary or waive the protected terms or create a fee, charge or penalty",
+          ""
+        ]
+      }
+    },
+    {
+      "id": "2.alpha-v2-saved",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "body": "{\"id\":\"cmvdmt18i001rmtp3173277in\",\"version\":2,\"contentSha256\":\"fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed\"}"
+      }
+    },
+    {
+      "id": "2.author-sees-no-approve-control",
+      "pass": true
+    },
+    {
+      "id": "2.author-api-approve-409",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "json": {
+          "error": "Cannot approve your own draft"
+        },
+        "text": "{\"error\":\"Cannot approve your own draft\"}"
+      }
+    },
+    {
+      "id": "2.starter-isa-commercial-v1-previewable",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "body": "<pdf>"
+      }
+    },
+    {
+      "id": "3.approver-previewed-two-or-more-deal-shapes",
+      "pass": true,
+      "detail": {
+        "options": [
+          {
+            "value": "prime-company",
+            "label": "Company, prime-linked, balloon and arrears terms"
+          },
+          {
+            "value": "fixed-trust",
+            "label": "Trust, fixed rate, no balloon or arrears terms"
+          },
+          {
+            "value": "zaronia-cc",
+            "label": "Close corporation, ZARONIA-linked"
+          },
+          {
+            "value": "repo-partnership",
+            "label": "Partnership, repo-linked"
+          },
+          {
+            "value": "jibar",
+            "label": "JIBAR-linked"
+          },
+          {
+            "value": "lender-base",
+            "label": "Linked to the lender's base rate"
+          },
+          {
+            "value": "below-reference",
+            "label": "Margin below the reference rate, default interest at the contract rate, purchaser address not recorded"
+          }
+        ],
+        "previewed": [
+          {
+            "shape": "prime-company",
+            "label": "Company, prime-linked, balloon and arrears terms",
+            "sentShape": "prime-company",
+            "status": 200,
+            "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+          },
+          {
+            "shape": "fixed-trust",
+            "label": "Trust, fixed rate, no balloon or arrears terms",
+            "sentShape": "fixed-trust",
+            "status": 200,
+            "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+          },
+          {
+            "shape": "zaronia-cc",
+            "label": "Close corporation, ZARONIA-linked",
+            "sentShape": "zaronia-cc",
+            "status": 200,
+            "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "3.alpha-approve-v2-synthetic-demo",
+      "pass": true,
+      "detail": {
+        "approvalBasis": "SYNTHETIC_DEMO"
+      }
+    },
+    {
+      "id": "3.approver-sees-no-publish-control",
+      "pass": true
+    },
+    {
+      "id": "3.approver-api-publish-409",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "json": {
+          "error": "The approver cannot also publish; a different admin must publish"
+        },
+        "text": "{\"error\":\"The approver cannot also publish; a different admin must publish\"}"
+      }
+    },
+    {
+      "id": "3.alpha-author-published-v2",
+      "pass": true
+    },
+    {
+      "id": "3.alpha-other-variants-published",
+      "pass": true
+    },
+    {
+      "id": "4.bravo-v2-saved",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "body": "{\"id\":\"cmvdmti910044mtp317smcvuz\",\"version\":2,\"contentSha256\":\"ecb204afe666252944adeec3e94450d590cbf1055a74c8e43a69c3628c7c73c0\"}"
+      }
+    },
+    {
+      "id": "4.bravo-published",
+      "pass": true
+    },
+    {
+      "id": "4.cross-lender-get-404",
+      "pass": true,
+      "detail": {
+        "status": 404,
+        "json": {
+          "error": "Not found"
+        },
+        "text": "{\"error\":\"Not found\"}"
+      }
+    },
+    {
+      "id": "4.cross-lender-approve-404",
+      "pass": true,
+      "detail": {
+        "status": 404,
+        "json": {
+          "error": "Not found"
+        },
+        "text": "{\"error\":\"Not found\"}"
+      }
+    },
+    {
+      "id": "4.cross-lender-editor-shows-no-bravo-wording",
+      "pass": true,
+      "detail": {
+        "url": "http://alpha.localhost:58089/settings/documents/cmvdmtgm5002rmtp3ai30fqyj/edit"
+      }
+    },
+    {
+      "id": "5.alpha-commercial1-agreement.prepare",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "5.alpha-commercial1-agreement.panel-synthetic-demo",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 2 (synthetic demo)"
+    },
+    {
+      "id": "5.alpha-commercial1-agreement.watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "5.alpha-cpa-isa-agreement.prepare",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "5.alpha-cpa-isa-agreement.panel-synthetic-demo",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 1 (synthetic demo)"
+    },
+    {
+      "id": "5.alpha-cpa-isa-agreement.watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "5.alpha-nca-finance-lease-agreement.prepare",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "5.alpha-nca-finance-lease-agreement.panel-synthetic-demo",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 1 (synthetic demo)"
+    },
+    {
+      "id": "5.alpha-nca-finance-lease-agreement.watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "5.bravo-commercial1-agreement.prepare",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "5.bravo-commercial1-agreement.panel-synthetic-demo",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 2 (synthetic demo)"
+    },
+    {
+      "id": "5.bravo-commercial1-agreement.watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "5.bravo-cpa-operating-lease-agreement.prepare",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "5.bravo-cpa-operating-lease-agreement.panel-synthetic-demo",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 1 (synthetic demo)"
+    },
+    {
+      "id": "5.bravo-cpa-operating-lease-agreement.watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "5.alpha-commercial.identity",
+      "pass": true
+    },
+    {
+      "id": "5.alpha-commercial.own-wording",
+      "pass": true
+    },
+    {
+      "id": "5.alpha-commercial.protected-7.3",
+      "pass": true,
+      "detail": "expects \"7.3 Payment\" heading"
+    },
+    {
+      "id": "5.bravo-commercial.identity",
+      "pass": true
+    },
+    {
+      "id": "5.bravo-commercial.own-wording",
+      "pass": true
+    },
+    {
+      "id": "5.bravo-commercial.protected-7.3",
+      "pass": true
+    },
+    {
+      "id": "5.alpha-cpa-isa.s49-notice",
+      "pass": true
+    },
+    {
+      "id": "5.alpha-cpa-isa.no-commercial-lender-text",
+      "pass": true
+    },
+    {
+      "id": "5.bravo-cpa-lease.identity",
+      "pass": true
+    },
+    {
+      "id": "5.bravo-cpa-lease.s49-initials",
+      "pass": true
+    },
+    {
+      "id": "5.alpha-nca.identity-and-headings",
+      "pass": true
+    },
+    {
+      "id": "6.alpha-v3-saved",
+      "pass": true,
+      "detail": {
+        "status": 201,
+        "body": "{\"id\":\"cmvdmui4t0075mtp3wvm662rj\",\"version\":3,\"contentSha256\":\"82927826aaaed83f51e4cd97cb6962ab19259634b6920f6d1c976bb5dbb01284\"}"
+      }
+    },
+    {
+      "id": "6.v2-archived-in-history",
+      "pass": true
+    },
+    {
+      "id": "6.archived-v2-preview-readable",
+      "pass": true,
+      "detail": {
+        "ui": 200,
+        "direct": 200
+      }
+    },
+    {
+      "id": "6.second-deal-prepared",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "id": "6.second-deal-shows-v3",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 3 (synthetic demo)"
+    },
+    {
+      "id": "6.second-deal-watermark-every-page",
+      "pass": true,
+      "detail": {
+        "watermarkPerPage": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": "6.first-deal-bytes-identical",
+      "pass": true,
+      "detail": {
+        "before": "f1071703cc597b3ea9ec1451af014902abeb357ec69871de377fe868014977ad",
+        "after": "f1071703cc597b3ea9ec1451af014902abeb357ec69871de377fe868014977ad"
+      }
+    },
+    {
+      "id": "6.first-deal-no-v3-text",
+      "pass": true,
+      "detail": "Asset finance agreement Template version 2 (synthetic demo)"
+    }
+  ],
+  "requests": [
+    {
+      "who": "bravo-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrxhl006go78g8jw7swfk/signing",
+      "status": 422,
+      "body": "{\"error\":\"Your Instalment sale agreement (Consumer Protection Act does not apply) template has not been adopted. Adopt it under Settings → Document templates, then approve and publish it.\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.isa.commercial\",\"af.isa.cpa\"],\"existing\":[]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.resolution.standard\"],\"existing\":[]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.suretyship.commercial\",\"af.suretyship.nca\"],\"existing\":[]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.nca.instalment_sale\",\"af.nca.finance_lease\"],\"existing\":[]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions",
+      "status": 422,
+      "body": "{\"error\":\"The wording cannot be saved\",\"problems\":[{\"field\":\"additionalTerms.1.text\",\"message\":\"Amounts of money come only from the deal's figures; remove the amount\"},{\"field\":\"additionalTerms.1.text\",\"message\":\"\\\"fee\\\": lender text may not override, vary or waive the protected terms or create a fee, charge or penalty\"}]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions",
+      "status": 201,
+      "body": "{\"id\":\"cmvdmt18i001rmtp3173277in\",\"version\":2,\"contentSha256\":\"fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed\"}"
+    },
+    {
+      "who": "direct-api",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmt18i001rmtp3173277in/approve",
+      "status": 409,
+      "body": "{\"error\":\"Cannot approve your own draft\"}"
+    },
+    {
+      "who": "direct-api",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "%PDF-1.7\n%����\n\n8 0 obj\n<<\n/Filter /FlateDecode\n/Length 2110\n>>\nstream\nx��ZM�,9\r����5һ��v\u001cK\b��\u001f�`��;�\u0002�\u0017�7B\u0003\b�>����;ɛ'�U�[��]_]�ɉ}���Cz�IZ+$�8g��\u0013�e�\"l)[Mژ��|y���|H�\u000e�Ӕ�o\u000e\u0019�4�^��4���au.u\u000e���R�O\u00071y)��{�׿\u001c�;������+��\r/���~�������������\u001a7�iS����C��w��q�Z\u000e�^8�RH���k���U*�s=j�ߕ��\u001a�W\\?׌�)�4I�j�p툧�W���\u000e��8�_?g���j+R�Ժ����>ւ7r�YK��獅\\�����}��RpU��\u0015�K��K=��?C�\u0012\u0019Y�`��-�(���\u0017�� ��\u0013��~g�����RKb����ڭ��\u001f[��\u001f�h�Y\u0005�<��WG��-��vv���X��p�\u0002�A\u0002�r�7P��@6>\u000b\ts�#�Xp���8\u0016o\f+`\u0016l�՞��\f�Ԣ,�{rS��ܣ�0�\b\u0011o9ݩ\b�U�NN7�\u001fv�1:#>g�Ir�����\u000b�;��N\u001aϨ\u0013ٟ�oP&��K\u0005EAM�Zfb\u0016�oZ�^��\u0018o�w\\�u�܁8��\r\u001f8'4�^��\u0017{�R�#��H��_�\u001a��-e'K�@^'pm5\u001a0RA���"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmt18i001rmtp3173277in/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "direct-api",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmt18i001rmtp3173277in/publish",
+      "status": 409,
+      "body": "{\"error\":\"The approver cannot also publish; a different admin must publish\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmt18i001rmtp3173277in/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsv2c000lmtp3211inswe/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsv2c000lmtp3211inswe/versions/cmvdmsv2d000nmtp35qpk719v/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsv2c000lmtp3211inswe/versions/cmvdmsv2d000nmtp35qpk719v/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvc8000smtp39i0kfe3p/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvc8000smtp39i0kfe3p/versions/cmvdmsvce000umtp3gohreoa9/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvc8000smtp39i0kfe3p/versions/cmvdmsvce000umtp3gohreoa9/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvk1000zmtp3z4cix1ov/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvk1000zmtp3z4cix1ov/versions/cmvdmsvk40011mtp3pbzhnm64/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvk1000zmtp3z4cix1ov/versions/cmvdmsvk40011mtp3pbzhnm64/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvts001kmtp3onp22o0l/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvts001kmtp3onp22o0l/versions/cmvdmsvtv001mmtp30casxgfw/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsvts001kmtp3onp22o0l/versions/cmvdmsvtv001mmtp30casxgfw/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.isa.commercial\",\"af.isa.cpa\"],\"existing\":[]}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.resolution.standard\"],\"existing\":[]}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.suretyship.commercial\",\"af.suretyship.nca\"],\"existing\":[]}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/asset-finance/adopt",
+      "status": 200,
+      "body": "{\"created\":[\"af.lease.operating.commercial\",\"af.lease.operating.cpa\"],\"existing\":[]}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj/versions",
+      "status": 201,
+      "body": "{\"id\":\"cmvdmti910044mtp317smcvuz\",\"version\":2,\"contentSha256\":\"ecb204afe666252944adeec3e94450d590cbf1055a74c8e43a69c3628c7c73c0\"}"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj/versions/cmvdmti910044mtp317smcvuz/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj/versions/cmvdmti910044mtp317smcvuz/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtguu0035mtp341zh5k4a/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtguu0035mtp341zh5k4a/versions/cmvdmtguw0037mtp32t62zfs3/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtguu0035mtp341zh5k4a/versions/cmvdmtguw0037mtp32t62zfs3/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmth2u003cmtp3mq4r3vwx/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmth2u003cmtp3mq4r3vwx/versions/cmvdmth2x003emtp3vfpy5b6i/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmth2u003cmtp3mq4r3vwx/versions/cmvdmth2x003emtp3vfpy5b6i/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmthed003xmtp3wi804m9e/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "bravo-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmthed003xmtp3wi804m9e/versions/cmvdmtheg003zmtp3gilnzpgl/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "bravo-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmthed003xmtp3wi804m9e/versions/cmvdmtheg003zmtp3gilnzpgl/publish",
+      "status": 200,
+      "body": "{\"archived\":[]}"
+    },
+    {
+      "who": "direct-api",
+      "method": "GET",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj",
+      "status": 404,
+      "body": "{\"error\":\"Not found\"}"
+    },
+    {
+      "who": "direct-api",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmtgm5002rmtp3ai30fqyj/versions/cmvdmti910044mtp317smcvuz/approve",
+      "status": 404,
+      "body": "{\"error\":\"Not found\"}"
+    },
+    {
+      "who": "alpha-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrv93001io78gtwbff0kp/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":\"cmvdmrv56000ro78gaoi5e6ek\",\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmtub20057mtp359t7foik\",\"clientId\":\"cmvdmrv5d000uo78g25o1h1jf\",\"name\":\"TEST Director\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"f1071703cc597b3ea9ec1451af014902abeb357ec69871de377fe868014977ad\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.isa.commercial\",\"version\":2,\"approvalBasis\":\"SYNTHETIC_D"
+    },
+    {
+      "who": "alpha-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrw5a0036o78gj1eqline/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":\"cmvdmrw4d002zo78gbw2dwf7p\",\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmtyj0005pmtp3d419rwv5\",\"clientId\":\"cmvdmrv5d000uo78g25o1h1jf\",\"name\":\"TEST Director\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"7716f5c8749280ee7a0ac06f7393865d128bf4d00b2666ac806aeac0f60be5c6\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.isa.cpa\",\"version\":1,\"approvalBasis\":\"SYNTHETIC_DEMO\"}},"
+    },
+    {
+      "who": "alpha-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrwbt003xo78gkw9gqriq/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":\"cmvdmrv4u000po78g4jyjpu76\",\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmu1nw0061mtp31wf0fa40\",\"clientId\":\"cmvdmrv5d000uo78g25o1h1jf\",\"name\":\"TEST Director\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"f81fe6eb133512a33ecca787ab29fa38632c757065d8ed4c54146009f8af4aa8\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.nca.finance_lease\",\"version\":1,\"approvalBasis\":\"SYNTHETI"
+    },
+    {
+      "who": "bravo-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrxhl006go78g8jw7swfk/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":\"cmvdmrxfg005po78gio0f6akw\",\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmu7er006jmtp3jobw5xtg\",\"clientId\":\"cmvdmrxfv005so78g3oe5y56a\",\"name\":\"TEST Director\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"69b1c18aca0440c0a379742e4a61bd6c7876580f556f1fbfc2489aa50caab520\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.isa.commercial\",\"version\":2,\"approvalBasis\":\"SYNTHETIC_D"
+    },
+    {
+      "who": "bravo-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrxrx0084o78gah9wuock/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":null,\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmuaqw006zmtp35jqvdbot\",\"clientId\":\"cmvdmrxre007yo78gsa3830ds\",\"name\":\"Synthetic Soleprop\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"2d5a30c6274eac4ae4f7da760ce1a2c24366af7a58f3329d0e629ff2afb4b518\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.lease.operating.cpa\",\"version\":1,\"approvalBasis\":\"SYNTHETIC_DEMO\"}}]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions",
+      "status": 201,
+      "body": "{\"id\":\"cmvdmui4t0075mtp3wvm662rj\",\"version\":3,\"contentSha256\":\"82927826aaaed83f51e4cd97cb6962ab19259634b6920f6d1c976bb5dbb01284\"}"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "alpha-approver",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmui4t0075mtp3wvm662rj/approve",
+      "status": 200,
+      "body": "{\"approvalBasis\":\"SYNTHETIC_DEMO\"}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/versions/cmvdmui4t0075mtp3wvm662rj/publish",
+      "status": 200,
+      "body": "{\"archived\":[\"cmvdmt18i001rmtp3173277in\"]}"
+    },
+    {
+      "who": "alpha-author",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview",
+      "status": 200,
+      "body": "<application/pdf>"
+    },
+    {
+      "who": "direct-api",
+      "method": "POST",
+      "path": "/api/documents/templates/cmvdmsuwo000emtp3ua9jfejq/preview (archived v2)",
+      "status": 200,
+      "body": "application/pdf"
+    },
+    {
+      "who": "alpha-officer",
+      "method": "POST",
+      "path": "/api/asset-finance/deals/cmvdmrvsq002bo78g4f4czz3o/signing",
+      "status": 200,
+      "body": "{\"dealStatus\":\"APPROVED\",\"entityId\":\"cmvdmrv56000ro78gaoi5e6ek\",\"syntheticDemo\":true,\"preparedBeforeTemplates\":false,\"canPrepare\":true,\"missing\":[],\"signers\":[{\"id\":\"cmvdmukrg007smtp3yo5d9858\",\"clientId\":\"cmvdmrv5d000uo78g25o1h1jf\",\"name\":\"TEST Director\",\"role\":\"AUTHORISED_SIGNATORY\",\"document\":\"AGREEMENT\",\"state\":\"PENDING\",\"method\":null,\"documentSha256\":\"9dcbf803719d921f17d3f9f9c1dc92bc21af174085d3238cde8e62a928e60ccf\",\"signedAt\":null,\"scanDocumentId\":null,\"scanUploadedBy\":null,\"confirmedBy\":null,\"confirmedAt\":null,\"template\":{\"key\":\"af.isa.commercial\",\"version\":3,\"approvalBasis\":\"SYNTHETIC_D"
+    }
+  ],
+  "pageErrors": [],
+  "shas": {
+    "alpha-commercial1-agreement": {
+      "sha256": "f1071703cc597b3ea9ec1451af014902abeb357ec69871de377fe868014977ad",
+      "bytes": 24065,
+      "panel": "Asset finance agreement Template version 2 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "alpha-cpa-isa-agreement": {
+      "sha256": "7716f5c8749280ee7a0ac06f7393865d128bf4d00b2666ac806aeac0f60be5c6",
+      "bytes": 26329,
+      "panel": "Asset finance agreement Template version 1 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "alpha-nca-finance-lease-agreement": {
+      "sha256": "f81fe6eb133512a33ecca787ab29fa38632c757065d8ed4c54146009f8af4aa8",
+      "bytes": 16582,
+      "panel": "Asset finance agreement Template version 1 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "bravo-commercial1-agreement": {
+      "sha256": "69b1c18aca0440c0a379742e4a61bd6c7876580f556f1fbfc2489aa50caab520",
+      "bytes": 25332,
+      "panel": "Asset finance agreement Template version 2 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "bravo-cpa-operating-lease-agreement": {
+      "sha256": "2d5a30c6274eac4ae4f7da760ce1a2c24366af7a58f3329d0e629ff2afb4b518",
+      "bytes": 23732,
+      "panel": "Asset finance agreement Template version 1 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "alpha-commercial2-agreement-v3": {
+      "sha256": "9dcbf803719d921f17d3f9f9c1dc92bc21af174085d3238cde8e62a928e60ccf",
+      "bytes": 24605,
+      "panel": "Asset finance agreement Template version 3 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "alpha-commercial1-agreement-redownload": {
+      "sha256": "f1071703cc597b3ea9ec1451af014902abeb357ec69871de377fe868014977ad",
+      "bytes": 24065,
+      "panel": "Asset finance agreement Template version 2 (synthetic demo)",
+      "watermarkPerPage": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "dealVersions": {
+    "alpha-commercial1-agreement": "Asset finance agreement Template version 2 (synthetic demo)",
+    "alpha-cpa-isa-agreement": "Asset finance agreement Template version 1 (synthetic demo)",
+    "alpha-nca-finance-lease-agreement": "Asset finance agreement Template version 1 (synthetic demo)",
+    "bravo-commercial1-agreement": "Asset finance agreement Template version 2 (synthetic demo)",
+    "bravo-cpa-operating-lease-agreement": "Asset finance agreement Template version 1 (synthetic demo)"
+  },
+  "refusalAlerts": [
+    "Amounts of money come only from the deal's figures; remove the amount",
+    "\"fee\": lender text may not override, vary or waive the protected terms or create a fee, charge or penalty",
+    ""
+  ],
+  "previewShapes": {
+    "alpha:af.isa.commercial": {
+      "options": [
+        {
+          "value": "prime-company",
+          "label": "Company, prime-linked, balloon and arrears terms"
+        },
+        {
+          "value": "fixed-trust",
+          "label": "Trust, fixed rate, no balloon or arrears terms"
+        },
+        {
+          "value": "zaronia-cc",
+          "label": "Close corporation, ZARONIA-linked"
+        },
+        {
+          "value": "repo-partnership",
+          "label": "Partnership, repo-linked"
+        },
+        {
+          "value": "jibar",
+          "label": "JIBAR-linked"
+        },
+        {
+          "value": "lender-base",
+          "label": "Linked to the lender's base rate"
+        },
+        {
+          "value": "below-reference",
+          "label": "Margin below the reference rate, default interest at the contract rate, purchaser address not recorded"
+        }
+      ],
+      "previewed": [
+        {
+          "shape": "prime-company",
+          "label": "Company, prime-linked, balloon and arrears terms",
+          "sentShape": "prime-company",
+          "status": 200,
+          "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+        },
+        {
+          "shape": "fixed-trust",
+          "label": "Trust, fixed rate, no balloon or arrears terms",
+          "sentShape": "fixed-trust",
+          "status": 200,
+          "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+        },
+        {
+          "shape": "zaronia-cc",
+          "label": "Close corporation, ZARONIA-linked",
+          "sentShape": "zaronia-cc",
+          "status": 200,
+          "sha": "fcb7b6a707ec545eafeba99a3db91f78e16cc9f257432ee437ba6adca5fcb6ed"
+        }
+      ]
+    }
+  },
+  "pageErrorsCount": 0
+}

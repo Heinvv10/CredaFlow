@@ -2,13 +2,15 @@
 // resolution for a company, a trustees' resolution for a trust (members for
 // a CC, partners for a partnership). It names the deal and the people
 // authorised to sign; the resolution text (./wording/resolution.ts) is
-// drafted wording awaiting the lender's legal team, with the DRAFT watermark.
+// drafted wording awaiting the lender's legal team. Issued, the lender's
+// approved template version adds its terms after 4.3 and sets the watermark.
 import type { BusinessEntityType } from "@prisma/client"
 import { formatDatePdf } from "@/lib/pdf/helpers"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter } from "./pdf-layout"
 import { resolutionClauses } from "./wording/resolution"
 import { debtSummary, entityRows, lenderLetterhead } from "./document-parts"
+import { additionalTerms, identityTokens, wordingWatermark, type AppliedWording } from "./templates/apply"
 
 const BODY: Record<BusinessEntityType, { title: string; signedAs: string }> = {
   COMPANY: { title: "RESOLUTION OF THE BOARD OF DIRECTORS", signedAs: "Director / authorised signatory" },
@@ -17,7 +19,7 @@ const BODY: Record<BusinessEntityType, { title: string; signedAs: string }> = {
   PARTNERSHIP: { title: "RESOLUTION OF THE PARTNERS", signedAs: "Partner / authorised signatory" },
 }
 
-export async function renderResolution(data: DealDocumentData): Promise<Buffer> {
+export async function renderResolution(data: DealDocumentData, wording?: AppliedWording): Promise<Buffer> {
   const body = BODY[data.entity.type]
   const w = await DealDocumentWriter.create({ title: `Resolution ${data.reference}`, documentDate: data.documentDate })
   lenderLetterhead(w, data)
@@ -33,9 +35,11 @@ export async function renderResolution(data: DealDocumentData): Promise<Buffer> 
   w.labelValues(data.signatories.map((s, i) => [`${i + 1}.`, s.name]))
 
   w.section("4. RESOLUTIONS")
-  resolutionClauses(data).forEach((c, i) => w.clause(`4.${i + 1}`, c.heading, c.text))
+  const clauses = resolutionClauses(data)
+  clauses.forEach((c, i) => w.clause(`4.${i + 1}`, c.heading, c.text))
+  additionalTerms(wording, identityTokens(data.lender, data.reference)).forEach((c, i) => w.clause(`4.${clauses.length + i + 1}`, c.heading, c.text))
 
   w.section("5. SIGNATURES")
   w.signatures(data.signatories.map((s) => ({ caption: data.entity.legalName, name: s.name, detail: body.signedAs })))
-  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved, mark: wordingWatermark(wording, data.legalWordingApproved) })
 }
