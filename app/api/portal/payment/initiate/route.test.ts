@@ -153,14 +153,14 @@ describe("POST /api/portal/payment/initiate", () => {
     // The replay: R80 of default interest first, then the R300 schedule; beyond
     // R380 nothing is owed.
     loadChargesReplay.mockResolvedValue({
-      replayAt: (_at: Date, extra: Array<{ id: string; amount: number }>) => {
-        const amount = extra[0].amount
+      replayAt: (_at: Date, extra: Array<{ id: string; amount: number }> = []) => {
+        const amount = extra[0]?.amount ?? 0
         const toDefaultInterest = Math.min(amount, 8_000)
         const toSchedule = Math.min(amount - toDefaultInterest, 30_000)
         return {
           interestAccrued: 8_000, feesAccrued: 0,
           unallocated: amount - toDefaultInterest - toSchedule,
-          receiptSplits: [{ receiptId: extra[0].id, toDefaultInterest, toFees: 0, toSchedule }],
+          receiptSplits: extra.map((receipt) => ({ receiptId: receipt.id, toDefaultInterest, toFees: 0, toSchedule })),
         }
       },
     })

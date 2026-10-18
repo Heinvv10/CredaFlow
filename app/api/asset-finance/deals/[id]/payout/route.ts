@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       case "exists":
         return refuse("exists", 409, "This deal already has a payout")
       case "checklist_open":
-        return refuse("checklist_open", 409, "Every required checklist item must be confirmed first", { open: result.open })
+        return refuse("checklist_open", 409, result.open.some((item) => item.startsWith("Surety ")) ? result.open.join("; ") : "Every required checklist item must be confirmed first", { open: result.open })
       case "no_approved_account":
         return refuse("no_approved_account", 409, "The supplier has no APPROVED bank account")
       case "credit_gate":

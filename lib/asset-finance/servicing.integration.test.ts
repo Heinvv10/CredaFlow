@@ -150,14 +150,16 @@ suite.sequential("asset-finance servicing: book → miss → charges → receipt
     })
   })
 
-  it("the settlement quote is every remaining instalment, the balloon on the last one included", async () => {
+  it("the commercial settlement owes outstanding capital plus earned current-period interest, including balloon capital", async () => {
     const l = await database().loan.findUniqueOrThrow({ where: { id: loanId }, include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } } } })
     const figures = await loanSettlementFigures(database() as unknown as ChargesTx, l, new Date())
     const remaining = l.repaymentSchedule.slice(1)
     expect(remaining.at(-1)?.principalDue).toBeGreaterThan(l.balloonAmount ?? 0)
     expect(l.balloonAmount).toBe(20_000_000)
     expect(figures.chargesOutstanding).toBe(0)
-    expect(figures.totalToSettle).toBe(remaining.reduce((s, r) => s + r.totalDue, 0))
+    const periodDays = Math.round((remaining[0].dueDate.getTime() - l.repaymentSchedule[0].dueDate.getTime()) / DAY)
+    const earnedInterest = Math.round(remaining[0].interestDue * 10 / periodDays)
+    expect(figures.totalToSettle).toBe(l.outstandingPrincipal + earnedInterest)
     // The portal labels the balance from the live flag, not from charge lines: live charges with none owed is still a settlement figure.
     const view = await loadPortalContract(fx.tenantId, fx.evidenced, loanId, fx.director, new Date())
     expect(view).toMatchObject({ chargesLive: true, chargeLines: [], outstandingCents: figures.totalToSettle })

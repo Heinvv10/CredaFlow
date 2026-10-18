@@ -89,6 +89,7 @@ model Tenant {
   collectionBatches          CollectionBatch[]
   collectionInstructions     CollectionInstruction[]
   collectionResults          CollectionResult[]
+  commercialCancellations    CommercialCancellation[]
   commsSettings              CommsSettings?
   complaints                 Complaint[]
   complianceRecords          ComplianceRecord[]
@@ -174,6 +175,7 @@ model Tenant {
   statementAnalyses          StatementAnalysis[]
   suppliers                  Supplier[]
   supportGrants              TenantSupportGrant[]
+  suretyConsents              SuretyConsent[]
   surrenderRequests          SurrenderRequest[]
   suspiciousReportAccesses   SuspiciousReportAccess[]
   suspiciousReportCases      SuspiciousReportCase[]

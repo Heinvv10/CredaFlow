@@ -15,7 +15,7 @@ import { addSouthAfricanBusinessDays } from "@/lib/compliance/sa-business-days"
 import { dbDate } from "./dates"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import type { DealFixture } from "./deal.integration-fixture"
-import { courtMatter, newLoan, newRecovery, newSurrender, newValuation, saleInvoice, today, type RecoveryLoan } from "./recovery.integration-fixture"
+import { recordFixtureCommercialCancellation, courtMatter, newLoan, newRecovery, newSurrender, newValuation, saleInvoice, today, type RecoveryLoan } from "./recovery.integration-fixture"
 
 const NCA_ORDER: RecoveryStatus[] = ["RECOVERED", "VALUED", "VALUATION_NOTICE_ISSUED", "LISTED", "SOLD", "PROCEEDS_APPLIED", "FINAL_NOTICE_ISSUED"]
 const NON_NCA_ORDER: RecoveryStatus[] = ["RECOVERED", "VALUED", "LISTED", "SOLD", "PROCEEDS_APPLIED"]
@@ -110,6 +110,7 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
     } else if (next === "LISTED") {
       await set({ status: next })
     } else if (next === "SOLD") {
+      await recordFixtureCommercialCancellation(db, fx, loan.loanId)
       for (const c of o.costs ?? []) await recordDecidedCost(db, fx, recoveryId, c)
       const sale = await db.remarketingSale.create({ data: await saleData(db, fx, loan, recoveryId, o.priceCents ? { priceInclVatCents: o.priceCents, belowValuation: false } : {}) })
       await db.remarketingSale.update({ where: { id: sale.id }, data: { status: "COMPLETED", completedAt: new Date(), taxInvoiceId: await saleInvoice(db, fx, sale.priceInclVatCents) } })

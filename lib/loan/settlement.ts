@@ -4,6 +4,8 @@ import { s125InstalmentSettlement, type S125Settlement } from "@/lib/loan/s125-s
 const MS_PER_DAY = 86_400_000
 
 export interface SettlementLoanLike {
+  status?: string | null
+  commercialCancelledAt?: Date | null
   principal: number
   totalInterest: number
   totalRepayable: number
@@ -30,6 +32,7 @@ export interface SettlementScheduleRow extends ScheduleRowLike {
   creditLifePremiumDue?: number
   status?: string
   paidAt?: Date | null
+  commonLawContractualInterestDue?: number | null
 }
 
 /** A row's contractual money as it stood before an early instalment settlement re-priced it. */
@@ -41,9 +44,11 @@ export interface ContractualRow {
   feesDue: number
   creditLifePremiumDue: number
   totalDue: number
+  commonLawContractualInterestDue?: number | null
 }
 
 export interface ReceiptProjection {
+  commonLawAdjusted?: boolean
   settlementDue: number
   /** cents actually allocated to the loan — never more than settlementDue */
   appliedAmount: number
@@ -81,6 +86,7 @@ export interface ReceiptProjection {
 
 export function settlementAuditEvidence(projection: ReceiptProjection) {
   return {
+    ...(projection.commonLawAdjusted ? { commonLawAdjusted: true, commonLawRows: projection.rows.map((row) => ({ id: row.id, interestDue: row.interestDue, contractualInterestDue: row.commonLawContractualInterestDue ?? row.interestDue })) } : {}),
     settlementDue: projection.settlementDue,
     // Absent, not 0, while charges are off, so the audit shape is unchanged.
     ...(projection.chargesAllocated > 0
@@ -116,7 +122,7 @@ export function settlementAuditEvidence(projection: ReceiptProjection) {
 export function receiptContractualTotalsUpdate(
   projection: ReceiptProjection,
 ) {
-  if (!projection.isEarlyDailySettlement && !projection.isEarlyInstalmentSettlement) return {}
+  if (!projection.isEarlyDailySettlement && !projection.isEarlyInstalmentSettlement && !projection.commonLawAdjusted) return {}
   return {
     contractualTotalInterest: projection.contractualTotalInterest,
     contractualTotalRepayable: projection.contractualTotalRepayable,
@@ -213,9 +219,37 @@ function settlementTerms(args: {
   const contractualTotalRepayable =
     loan.contractualTotalRepayable ?? loan.totalRepayable
 
-  if (isS125InstalmentLoan(loan, schedule)) {
-    const instalment = s125InstalmentSettlement(loan, byDueDate(schedule), asOf)
-    if (instalment.rebate > 0) {
+  if (loan.commercialCancelledAt && sastCalendarDay(asOf) >= sastCalendarDay(loan.commercialCancelledAt)) {
+    const settlementTotal = schedule.reduce((sum, row) => sum + row.totalDue, 0)
+    return { settlementDue: Math.max(0, settlementTotal - loan.totalPaid), settlementTotal,
+      isEarlyDailySettlement: false, instalment: null, accruedInterest: schedule.reduce((sum, row) => sum + row.interestDue, 0),
+      contractualTotalInterest, contractualTotalRepayable }
+  }
+
+  // A commercial instalment sale owes accrued interest only (Conventional
+  // Penalties Act), with the same earned-period repricing and audit evidence.
+  const commercialSale = loan.ncaRegime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && schedule.length > 0
+  if (isS125InstalmentLoan(loan, schedule) || commercialSale) {
+    let instalment = s125InstalmentSettlement(loan, byDueDate(schedule), asOf)
+    if (commercialSale && schedule.some((row) => sastCalendarDay(row.dueDate) < sastCalendarDay(asOf) && row.totalPaid < row.totalDue)) {
+      const ordered = byDueDate(schedule)
+      const allocated = ordered.reduce((sum, row) => sum + row.totalPaid, 0) === loan.totalPaid
+        ? ordered.map((row) => row.totalPaid) : allocateReceipts(ordered, loan.totalPaid)
+      const capital = ordered.reduce((sum, row, i) => sum + Math.min(row.principalDue, Math.max(0, row.totalDue - allocated[i])), 0)
+      const paidInterest = ordered.reduce((sum, row, i) => sum + Math.min(row.interestDue, allocated[i]), 0)
+      let excess = Math.max(0, instalment.totalInterest - paidInterest - capital)
+      const priced = instalment.rows.map((row) => ({ ...row }))
+      for (let i = priced.length - 1; i >= 0 && excess > 0; i--) {
+        const reduction = Math.min(excess, Math.max(0, priced[i].interestDue - Math.min(allocated[i], priced[i].interestDue)))
+        priced[i].interestDue -= reduction; priced[i].totalDue -= reduction; excess -= reduction
+      }
+      const totalRepayable = priced.reduce((sum, row) => sum + row.totalDue, 0)
+      const settlementDue = Math.max(0, totalRepayable - loan.totalPaid)
+      instalment = { ...instalment, rows: priced, totalRepayable, settlementDue,
+        totalInterest: priced.reduce((sum, row) => sum + row.interestDue, 0),
+        rebate: Math.max(0, ordered.reduce((sum, row) => sum + row.totalDue, 0) - loan.totalPaid) - settlementDue }
+    }
+    if (instalment.rebate > 0 || commercialSale) {
       return {
         settlementDue: instalment.settlementDue,
         settlementTotal: instalment.totalRepayable,
@@ -396,7 +430,7 @@ export function projectReceipt(args: {
         }
       : { ...row })
     : priceById
-      ? schedule.map((row) => ({ ...row, ...priceById.get(row.id)! }))
+      ? schedule.map((row) => ({ ...row, ...priceById.get(row.id)!, ...(loan.ncaRegime === "NON_NCA" ? { commonLawContractualInterestDue: null } : {}) }))
       : schedule.map((row) => ({ ...row }))
   const allocated = allocateReceipts(baseRows, newTotalPaid)
   const rows = baseRows.map((row, index) => ({
@@ -422,6 +456,7 @@ export function projectReceipt(args: {
           feesDue: row.feesDue,
           creditLifePremiumDue: row.creditLifePremiumDue ?? 0,
           totalDue: row.totalDue,
+          ...(row.commonLawContractualInterestDue == null ? {} : { commonLawContractualInterestDue: row.commonLawContractualInterestDue }),
         }))
       : null,
     loanId: loan.id ?? null,
@@ -447,7 +482,8 @@ export function restoreContractualBulletSchedule(args: {
   const contractualInterest =
     args.loan.contractualTotalInterest ?? args.loan.totalInterest
   if (
-    args.loan.interestModel !== "DAILY_ACCRUAL"
+    args.loan.commercialCancelledAt != null
+    || args.loan.interestModel !== "DAILY_ACCRUAL"
     || args.schedule.length !== 1
     || args.loan.contractualTotalRepayable == null
     || args.loan.contractualTotalInterest == null

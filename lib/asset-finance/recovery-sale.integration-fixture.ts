@@ -19,7 +19,7 @@ import { POST as approveRefundRoute } from "@/app/api/asset-finance/recoveries/[
 import { POST as releaseRefundRoute } from "@/app/api/asset-finance/recoveries/[id]/refund/release/route"
 import type { AcceptanceRecoveryDeal } from "./__fixtures__/acceptance-recovery-deals"
 import { advance, ladderRecovery, recordDecidedCost } from "./recovery-path.integration-fixture"
-import { courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
+import { recordFixtureCommercialCancellation, alignRecoveryFixtureSchedule, courtMatter, newLoan, newRecovery, newSurrender, type RecoveryLoan } from "./recovery.integration-fixture"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import type { DealFixture } from "./deal.integration-fixture"
 
@@ -89,7 +89,15 @@ export async function listedDealRecovery(db: PrismaClient, fx: DealFixture, deal
     [`UPDATE "FinancedAsset" SET "cashPriceExclVatCents" = $1, "vatCents" = $2 WHERE "id" = $3`, exclCash, (deal.cashPriceInclVatCents || 115_000_000) - exclCash, loan.assetId],
   )
   if (loan.entityId) await testSetup(db, [`UPDATE "BusinessEntity" SET "vatNumber" = $1 WHERE "id" = $2`, deal.debtorVatVendor ? "4000000099" : null, loan.entityId])
+  // The acceptance's settlement includes already earned interest; its unpaid
+  // goods capital is the separate VAT basis, not an inconsistent balance field.
+  if (loan.regime === "NON_NCA" && loan.contractType === "INSTALMENT_SALE" && deal.unpaidCashPriceCents > 0 && deal.settlementDueCents >= deal.unpaidCashPriceCents) {
+    await testSetup(db, [`UPDATE "Loan" SET "principal" = $2, "totalInterest" = $3, "outstandingPrincipal" = $2,
+      "startDate" = CURRENT_TIMESTAMP - INTERVAL '365 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE "id" = $1`, loan.loanId, deal.unpaidCashPriceCents, deal.settlementDueCents - deal.unpaidCashPriceCents])
+  }
   await disburseApplication(db, fx, loan)
+  await alignRecoveryFixtureSchedule(db, loan.loanId)
+  await recordFixtureCommercialCancellation(db, fx, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true, legalMatterId: true } })
   const judgment = rec.legalMatterId
     ? await db.legalMatterStep.findFirst({ where: { matterId: rec.legalMatterId, kind: "JUDGMENT" }, select: { id: true } })
@@ -116,6 +124,8 @@ export async function disburseApplication(db: PrismaClient, fx: DealFixture, loa
 export async function plainListed(db: PrismaClient, fx: DealFixture, regime: "NCA" | "NON_NCA", valuationCents = 100_000_000) {
   const { loan, id } = await ladderRecovery(db, fx, regime === "NCA", "LISTED", { valuationCents })
   await disburseApplication(db, fx, loan)
+  await alignRecoveryFixtureSchedule(db, loan.loanId)
+  await recordFixtureCommercialCancellation(db, fx, loan.loanId)
   const rec = await db.recovery.findUniqueOrThrow({ where: { id }, select: { valuationId: true } })
   return { loan, id, valuationId: rec.valuationId as string }
 }

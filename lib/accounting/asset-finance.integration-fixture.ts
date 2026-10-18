@@ -129,6 +129,8 @@ export async function insertSourceLoan(db: PrismaClient, t: ChargesTenant, loan:
   const totalRepayable = loan.schedule.reduce((sum, r) => sum + r.totalDue, 0)
   const ops: Op[] = [
     db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+    db.businessEntity.create({ data: { id: `ent-${loan.id}`, tenantId: t.tenantId, type: "COMPANY", legalName: "TEST Accounting Borrower", registrationNumber: `TEST-${loan.id}` } }),
+    db.loanApplication.create({ data: { id: `app-${loan.id}`, tenantId: t.tenantId, reference: `APP-${loan.reference}`, entityId: `ent-${loan.id}`, productId: t.productId, appliedAmount: loan.principal, appliedTermDays: 365, status: "DISBURSED", disbursedAt: loan.startDate, repaymentMethod: "EFT", approvedAt: loan.startDate, approvedById: t.userId, ncaRegime: "NON_NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD", ncaClassifiedAt: loan.startDate, ncaClassifiedById: t.userId } }),
     db.financedAsset.create({ data: { id: assetId, tenantId: t.tenantId, assetClass: "EXCAVATOR", make: "TEST", model: "EX-R", year: 2025, serialNumber: `SN-${loan.id}`, cashPriceExclVatCents: cost.exclVatCents, vatCents: cost.vatCents } }),
     db.loan.create({ data: {
       id: loan.id, tenantId: t.tenantId, reference: loan.reference, applicationId: `app-${loan.id}`, productId: t.productId, principal: loan.principal, totalInterest: 0,
@@ -197,6 +199,8 @@ export async function removeSourceLoans(db: PrismaClient, loanIds: string[]): Pr
     db.taxInvoiceLine.deleteMany({ where: { invoiceId: { in: invoices } } }),
     db.taxInvoice.deleteMany({ where: { id: { in: invoices } } }),
     db.loan.deleteMany({ where: { id: { in: loanIds } } }),
+    db.loanApplication.deleteMany({ where: { id: { in: loanIds.map((id) => `app-${id}`) } } }),
+    db.businessEntity.deleteMany({ where: { id: { in: loanIds.map((id) => `ent-${id}`) } } }),
     db.financedAsset.deleteMany({ where: { id: { in: loanIds.map((id) => `asset-${id}`) } } }),
   ])
 }

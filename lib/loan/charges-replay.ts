@@ -142,6 +142,9 @@ export async function loadChargesReplay(
     where: { id: ref.loanId, tenantId: ref.tenantId },
     select: {
       principal: true,
+      startDate: true,
+      commercialCancelledAt: true,
+      totalInterest: true, totalRepayable: true, contractualTotalInterest: true, contractualTotalRepayable: true,
       interestRatePm: true,
       ncaRegime: true,
       maturityDate: true,
@@ -199,7 +202,9 @@ export async function loadChargesReplay(
   const recoveryCosts = recoveryCostCharges(loan?.recoveries)
   const config = loan?.tenant.config
   // Once charges were stopped nothing is ever derived again, not even a preview.
-  if (!loan || !config || config.defaultChargesStoppedAt || !(chargesEnabled({ tenant: { config } }) || preview)) return null
+  if (!loan || !config) return null
+  const defaultChargesLive = !config.defaultChargesStoppedAt && (chargesEnabled({ tenant: { config } }) || !!preview)
+  if (!defaultChargesLive && loan.ncaRegime !== "NON_NCA") return null
 
   const receipts = await tx.payment.findMany({
     where: {
@@ -217,6 +222,11 @@ export async function loadChargesReplay(
       chargeFeesAllocated: true,
     },
   })
+  // Permanent stop freezes paid charge splits and posting history. Only the
+  // remaining schedule cash participates in contractual-interest replay.
+  const stoppedHistory = config.defaultChargesStoppedAt && loan.ncaRegime === "NON_NCA"
+    ? await tx.loanCharge.findMany({ where: { tenantId: ref.tenantId, loanId: ref.loanId }, orderBy: [{ day: "asc" }, { createdAt: "asc" }], select: { type: true, day: true, amount: true, sourceId: true } })
+    : null
   // Only notices the provider confirmed, dated when they were issued — the
   // same predicate the attorney-referral gate and the S129 register use.
   const letters = await tx.complianceRecord.findMany({
@@ -277,21 +287,39 @@ export async function loadChargesReplay(
     if (loan.ncaRegime === "NON_NCA") {
       const terms = nonNcaArrearsTerms(loan)
       const margin = terms.nonNcaDefaultInterestMargin
-      return computeNonNcaCharges({
+      const result = computeNonNcaCharges({
         ...common,
-        defaultInterestMargin: margin === null ? null : margin.toNumber(),
-        collectionFeeCents: terms.nonNcaCollectionFeeCents,
+        startDate: loan.startDate,
+        contractualInterestUntil: loan.commercialCancelledAt ?? undefined,
+        defaultInterestMargin: (!defaultChargesLive && !stoppedHistory) || margin === null ? null : margin.toNumber(),
+        collectionFeeCents: defaultChargesLive || stoppedHistory ? terms.nonNcaCollectionFeeCents : null,
+        stoppedCharges: stoppedHistory ? { at: config.defaultChargesStoppedAt!, receipts } : undefined,
         contractRateHistory: loan.contractRates.map((rate) => ({
           effectiveDate: rate.effectiveDate,
           annualRate: rate.resultingRate.toNumber(),
         })),
       })
+      if (!stoppedHistory) return result
+      const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]))
+      return { ...result,
+        postings: stoppedHistory.map((posting) => ({ ...posting, day: posting.day.toISOString().slice(0, 10), sourceId: posting.sourceId ?? undefined })),
+        interestAccrued: stoppedHistory.filter((posting) => posting.type === "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
+        feesAccrued: stoppedHistory.filter((posting) => posting.type !== "DEFAULT_INTEREST").reduce((sum, posting) => sum + posting.amount, 0),
+        interestOutstanding: 0, feesOutstanding: 0,
+        interestPaid: receipts.reduce((sum, receipt) => sum + receipt.defaultInterestAllocated, 0),
+        feesPaid: receipts.reduce((sum, receipt) => sum + receipt.chargeFeesAllocated, 0),
+        receiptSplits: result.receiptSplits.map((split) => ({ ...split,
+          toDefaultInterest: byId.get(split.receiptId)?.defaultInterestAllocated ?? 0,
+          toFees: byId.get(split.receiptId)?.chargeFeesAllocated ?? 0,
+        })),
+      }
     }
     return computeDefaultCharges({ ...common, adminCharges, monthlyServiceFee })
   }
   return {
     loan,
     receipts,
+    defaultChargesLive,
     result: replayAt(asOf),
     replayAt,
     monthlyServiceFee,

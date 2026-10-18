@@ -240,6 +240,7 @@ enum RemarketingBuyerType {
 // The sale of a recovered asset. The trigger recomputes belowValuation, forces
 // relatedPartyMatch on an ID match, and demands a second approver (guardRemarketingSale).
 model RemarketingSale {
+  cancelledLoan Loan? @relation("CommercialCancellation")
   id                    String                @id @default(cuid())
   tenantId              String
   tenant                Tenant                @relation(fields: [tenantId], references: [id])
@@ -345,4 +346,23 @@ model RecoveryRefund {
 
   @@unique([tenantId, id])
   @@unique([tenantId, recoveryId])
+}
+
+
+// A verified effective cancellation, independent of later possession or sale.
+model CommercialCancellation {
+  id String @id @default(cuid())
+  tenantId String
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  loanId String @unique
+  loan Loan @relation("CommercialCancellationEvent", fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelledOn DateTime @db.Date
+  evidenceDocumentId String
+  evidenceDocument EntityDocument @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  basis String
+  cancellationConfirmed Boolean
+  recordedById String
+  recordedBy User @relation(fields: [recordedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recordedAt DateTime @default(now())
+  @@unique([tenantId, loanId])
 }

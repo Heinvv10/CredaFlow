@@ -70,7 +70,9 @@ suite.sequential("sale review fixes (real Postgres, real routes)", () => {
       await tx.$queryRaw`SELECT 1 FROM "Loan" WHERE id = ${rec.loan.loanId} FOR UPDATE`
       locked()
       await gate
+      await tx.payment.create({ data: { tenantId: fx.tenantId, loanId: rec.loan.loanId, amount: 5_000_000, paymentMethod: "EFT", receivedAt: new Date(), allocationStatus: "ALLOCATED" } })
       await tx.$executeRaw`UPDATE "Loan" SET "totalPaid" = "totalPaid" + 5000000 WHERE id = ${rec.loan.loanId}`
+      await tx.repaymentSchedule.updateMany({ where: { loanId: rec.loan.loanId }, data: { totalPaid: 5_000_000, status: "PARTIAL" } })
     }, { timeout: 30_000 })
     await holding
     const proceeds = routes().proceeds(rec.id)
@@ -78,8 +80,8 @@ suite.sequential("sale review fixes (real Postgres, real routes)", () => {
     release()
     await writer
     expect((await readJson(await proceeds)).status).toBe(200)
-    // R1,500,000.01 owed less the R50,000 that landed first.
-    expect((await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).settlementDueCents).toBe(150_000_001 - 5_000_000)
+    // The earned-period settlement excludes the unearned cent, then nets the R50,000 cash.
+    expect((await database().recovery.findUniqueOrThrow({ where: { id: rec.id } })).settlementDueCents).toBe(150_000_000 - 5_000_000)
   }, 120_000)
 
   it("refuses to complete a sale whose price the approved deducted costs already swallow, and to approve such a cost once sold", async () => {

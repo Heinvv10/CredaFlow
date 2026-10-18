@@ -27,6 +27,7 @@ export async function renderSuretyship(data: DealDocumentData, suretyClientId: s
   w.labelValues([
     ["Name", surety.name],
     ["Identity number", surety.idNumber],
+    ["Physical address (domicilium)", surety.addressLines?.join(", ") || "Not recorded — obtain before execution"],
   ])
   w.section("2. THE CREDITOR")
   w.labelValues(lenderRows(data))

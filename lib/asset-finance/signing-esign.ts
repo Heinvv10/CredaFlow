@@ -21,6 +21,11 @@ import { portalSignerWhere } from "./portal-access"
 import { checkSigningOtp, consumeSigningOtp, SigningOtpRefusedError, type SigningOtpEvidence } from "@/lib/signing-otp/challenge"
 import { isSigningOtpRequired } from "@/lib/signing-otp/policy"
 
+/** No AES provider is configured: GLAA s6 / ECTA s13(1) require wet ink. */
+export function portalSignatureProblem(document: string): string | null {
+  return document === "SURETYSHIP" ? "Suretyships require wet ink; upload and verify the signed deed" : null
+}
+
 const MAX_SIGNATURE_LENGTH = 500_000
 const PNG_PREFIX = "data:image/png;base64,"
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -82,6 +87,8 @@ export async function recordESignature(params: {
     },
   })
   if (!signer || !signer.documentSha256 || !signer.documentStoragePath) return { kind: "not_found" }
+  const signatureProblem = portalSignatureProblem(signer.document)
+  if (signatureProblem) return { kind: "not_signable", reason: signatureProblem }
   if (signer.method !== null) return { kind: "not_signable", reason: "This document has already been signed" }
   if (signer.deal.status !== "APPROVED") return { kind: "not_signable", reason: "This deal is not open for signing" }
   if (input.documentSha256 !== signer.documentSha256) return { kind: "stale_view" }

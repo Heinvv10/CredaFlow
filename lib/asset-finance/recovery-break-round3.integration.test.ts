@@ -18,7 +18,7 @@ import { GET as refundDocRoute } from "@/app/api/asset-finance/recoveries/[id]/r
 import { dbDate } from "./dates"
 import { testSetup } from "./lease-servicing.integration-fixture"
 import { cleanupE2e } from "./recovery-e2e.integration-fixture"
-import { cleanupRecoveryFixture, newAsset, newLoan, newRecovery, newValuation, today, day, type RecoveryFixture } from "./recovery.integration-fixture"
+import { alignRecoveryFixtureSchedule, cleanupRecoveryFixture, newAsset, newLoan, newRecovery, newValuation, today, day, type RecoveryFixture } from "./recovery.integration-fixture"
 import { advance } from "./recovery-path.integration-fixture"
 import { disburseApplication, plainListed, readJson, refundForm, saleBody } from "./recovery-sale.integration-fixture"
 import { stepWithEvidence } from "./legal-matter.integration-fixture"
@@ -42,6 +42,7 @@ const stepForm = (matterId: string, fields: Record<string, string>) => stepRoute
 
 async function overdueInstalment(loanId: string): Promise<void> {
   await testSetup(db,
+    [`DELETE FROM "RepaymentSchedule" WHERE "loanId" = $1`, loanId],
     [`UPDATE "Loan" SET "startDate" = CURRENT_TIMESTAMP - INTERVAL '120 days', "maturityDate" = CURRENT_TIMESTAMP - INTERVAL '60 days', "interestRatePm" = 0.02,
         "totalInterest" = 3000000, "totalRepayable" = 153000000, "nonNcaDefaultInterestMargin" = CASE WHEN "ncaRegime" = 'NON_NCA' THEN 0.05 ELSE "nonNcaDefaultInterestMargin" END WHERE "id" = $1`, loanId],
     [`INSERT INTO "RepaymentSchedule" ("id", "tenantId", "loanId", "installmentNo", "dueDate", "principalDue", "interestDue", "feesDue", "totalDue")
@@ -55,6 +56,7 @@ async function surplusHeldNonNca() {
 async function surplusHeldNonNcaInner() {
   const rec = await plainListed(db, fx, "NON_NCA", 100_000_000)
   await testSetup(db, [`UPDATE "Loan" SET "principal" = 80000000, "totalInterest" = 0, "totalRepayable" = 80000000, "outstandingPrincipal" = 100000000 WHERE "id" = $1`, rec.loan.loanId])
+  await alignRecoveryFixtureSchedule(db, rec.loan.loanId)
   officer()
   const sale = (await readJson(await R().s.propose(rec.id, saleBody(rec.valuationId, 200_000_000)))).body.id as string
   const c = await readJson(await R().s.completeSale(rec.id, sale))
