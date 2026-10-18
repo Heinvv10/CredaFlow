@@ -172,7 +172,10 @@ export const EXPENSE_MIN_COVERAGE_DAYS = 28
  * (statement-analysis/model-labels.ts, prompt labels-p2, tuned on the dev
  * split only): held-out 90.3%, 67.1%, 67.1% over three runs; rules alone
  * 90.2%. 2026-10-16, a three-run vote (labels-p3x3) and categoriser-v3 as of
- * 5a661d3b: 91.5%, 91.5%, 91.4%; rules alone still 90.2%. Living spend the rules do not
+ * 5a661d3b, before abstention and the v3 word removals: 91.5%, 91.5%, 91.4%;
+ * rules alone still 90.2%. 2026-10-17, larger local models (Mistral-24B,
+ * Qwen2.5-32B) scored worse than the 30B model alone on the dev split, so
+ * model labels are not the route to the gate. Living spend the rules do not
  * see stays the blocker, so model labelling ships off (MODEL_LABELS) and this stays off.
  */
 export const EXPENSE_UNDERSTATED_ENABLED = false

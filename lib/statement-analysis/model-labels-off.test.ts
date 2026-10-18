@@ -17,7 +17,7 @@ describe("model labelling as shipped", () => {
     const row = {
       id: "sa-1", status: "READ", method: "TEXT", bank: "CAPITEC", contentSha256: "sha-1", accountHolderName: "T TESTER", accountNumberLast4: "0001",
       periodStart: null, periodEnd: null, openingBalanceCents: null, closingBalanceCents: null, transactions: [], balanceCheck: "PASS",
-      authenticity: { signals: [] }, modelCategories: { "SYNTH ZOLA TRADING": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p3x3",
+      authenticity: { signals: [] }, modelCategories: { "SYNTH ZOLA TRADING": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p3x3a",
     }
     expect(statementFacts("doc-1", row as never).modelLabels).toBeNull()
   })

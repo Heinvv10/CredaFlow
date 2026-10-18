@@ -47,11 +47,16 @@ describe("parseLabels", () => {
       .toEqual({ "SYNTH GROCER": "FOOD", "T TESTER": "UNCATEGORISED", "SYNTH BETS": "GAMBLING" })
   })
 
-  it("turns off-enum, missing and garbage answers into UNCATEGORISED", () => {
-    expect(parseLabels('{"labels": {"SYNTH GROCER": "GROCERIES", "SYNTH BETS": "SALARY_INCOME", "1": "FOOD"}}', keys))
+  it("turns an echoed off-enum or non-string answer into UNCATEGORISED, a real answer", () => {
+    expect(parseLabels('{"labels": {"SYNTH GROCER": "GROCERIES", "SYNTH BETS": "SALARY_INCOME", "T TESTER": 7, "1": "FOOD"}}', keys))
       .toEqual({ "SYNTH GROCER": "UNCATEGORISED", "T TESTER": "UNCATEGORISED", "SYNTH BETS": "UNCATEGORISED" })
-    expect(parseLabels("I think the first one is FOOD", keys)).toEqual(Object.fromEntries(keys.map((k) => [k, "UNCATEGORISED"])))
-    expect(parseLabels('{"labels": ["FOOD", "FOOD", "FOOD"]}', keys)).toEqual(Object.fromEntries(keys.map((k) => [k, "UNCATEGORISED"])))
+  })
+
+  it("leaves out a key the model did not echo, so it abstains", () => {
+    expect(parseLabels('{"labels": {"SYNTH GROCER": "FOOD"}}', keys)).toEqual({ "SYNTH GROCER": "FOOD" })
+    expect(parseLabels('{"labels": {"constructor": "FOOD"}}', ["SYNTH GROCER"])).toEqual({})
+    expect(parseLabels("I think the first one is FOOD", keys)).toEqual({})
+    expect(parseLabels('{"labels": ["FOOD", "FOOD", "FOOD"]}', keys)).toEqual({})
   })
 
   it("accepts fenced JSON and lower case", () => {
@@ -86,7 +91,7 @@ describe("labelKeys", () => {
   it("asks at temperature 0 with the keys only, and returns labels with the model and prompt version", async () => {
     always(fetchMock, '{"labels": {"SYNTH FUEL": "TRANSPORT", "SYNTH GROCER": "FOOD"}}')
     const r = await labelKeys(["SYNTH GROCER", "SYNTH FUEL", "SYNTH GROCER", ""])
-    expect(r).toEqual({ labels: { "SYNTH GROCER": "FOOD", "SYNTH FUEL": "TRANSPORT" }, version: "synthetic-model|labels-p3x3" })
+    expect(r).toEqual({ labels: { "SYNTH GROCER": "FOOD", "SYNTH FUEL": "TRANSPORT" }, version: "synthetic-model|labels-p3x3a" })
     expect(fetchMock).toHaveBeenCalledTimes(VOTE_RUNS)
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.temperature).toBe(0)
@@ -217,6 +222,15 @@ describe("labelKeys votes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(VOTE_RUNS)
   })
 
+  it("a run that leaves a key out of its labels abstains for it, not a vote against", async () => {
+    fetchMock
+      .mockResolvedValueOnce(answer('{"labels": {"SYNTH GROCER": "FOOD", "SYNTH PAY": "FOOD"}}'))
+      .mockResolvedValueOnce(answer('{"labels": {"SYNTH PAY": "FOOD"}}'))
+      .mockResolvedValueOnce(answer('{"labels": {"SYNTH GROCER": "FOOD", "SYNTH PAY": "GROCERIES"}}'))
+    // SYNTH GROCER: FOOD, omitted, FOOD → FOOD. SYNTH PAY: FOOD, FOOD, and an echoed invalid value → a vote for UNCATEGORISED.
+    expect((await labelKeys(["SYNTH GROCER", "SYNTH PAY"])).labels).toEqual({ "SYNTH GROCER": "FOOD", "SYNTH PAY": "UNCATEGORISED" })
+  })
+
   it("never stores a credit instalment or gambling, however sure the model is", async () => {
     always(fetchMock, '{"labels": {"SYNTH PAY": "CREDIT_INSTALMENT", "SYNTH BET": "GAMBLING"}}')
     expect((await labelKeys(["SYNTH PAY", "SYNTH BET"])).labels).toEqual({ "SYNTH PAY": "UNCATEGORISED", "SYNTH BET": "UNCATEGORISED" })
@@ -262,6 +276,6 @@ describe("MODEL_LABEL_PROMPT_VERSION names the prompt", () => {
   // A changed prompt or category set changes stored labels' meaning: bump the version (reads are relabelled), then re-pin.
   it("is bumped whenever the prompt changes", () => {
     const hash = createHash("sha256").update(JSON.stringify([labelPrompt(["SYNTH"]), MODEL_CATEGORIES, LABEL_BATCH, VOTE_RUNS, NEVER_APPLIED])).digest("hex").slice(0, 16)
-    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p3x3", hash: "d748ec68260c1212" })
+    expect({ version: MODEL_LABEL_PROMPT_VERSION, hash }).toEqual({ version: "labels-p3x3a", hash: "d748ec68260c1212" })
   })
 })

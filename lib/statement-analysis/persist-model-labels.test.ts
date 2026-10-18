@@ -78,7 +78,7 @@ describe("readStatementInBackground: model labels", () => {
     expect(sent).toBe(labelPrompt(["SYNTH ZOLA TRADING", "J SOAP"]))
     expect(update).toHaveBeenCalledWith({
       where: { id: "row-1", tenantId: TENANT },
-      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p3x3", modelCategoriesAt: expect.any(Date) },
+      data: { modelCategories: { "SYNTH ZOLA TRADING": "FOOD", "J SOAP": "UNCATEGORISED" }, modelCategoriesVersion: "synthetic-model|labels-p3x3a", modelCategoriesAt: expect.any(Date) },
     })
     expect(order).toEqual(["stored", "onRead", "onLabelled"])
   })
@@ -110,7 +110,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("does not ask again for a read labelled by this model and prompt", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p3x3" }) as never)
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "synthetic-model|labels-p3x3a" }) as never)
     const onRead = vi.fn().mockResolvedValue(undefined)
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onRead, onLabelled })
@@ -120,7 +120,7 @@ describe("readStatementInBackground: model labels", () => {
   })
 
   it("asks again when the labels came from another model", async () => {
-    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p3x3" }) as never)
+    vi.mocked(prisma.statementAnalysis.findFirst).mockResolvedValue(stored({ modelCategories: {}, modelCategoriesVersion: "older-model|labels-p3x3a" }) as never)
     fetchMock.mockImplementation(async () => answer('{"labels": {}}'))
     const onLabelled = vi.fn().mockResolvedValue(undefined)
     readStatementInBackground(TENANT, "doc-1", { onLabelled })
