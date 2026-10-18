@@ -27,13 +27,16 @@ export const FilterSchema = z.object({
   maxAmount: rands.optional(),
 }).strict()
 
+/** Grouping by payee filtered to one payee is one group, never a ranking: the plan cannot ask for it. */
+const RankFilterSchema = FilterSchema.omit({ payee: true })
+
 export const QuerySchema = z.discriminatedUnion("tool", [
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("sum"), filter: FilterSchema }).strict(),
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("count"), filter: FilterSchema }).strict(),
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("average"), filter: FilterSchema }).strict(),
   z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("groupByMonth"), filter: FilterSchema, measure: z.enum(["sum", "count"]) }).strict(),
-  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("groupByPayee"), filter: FilterSchema, measure: z.enum(["sum", "count"]), limit: z.number().int().min(1).max(10) }).strict(),
-  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("list"), filter: FilterSchema, limit: z.number().int().min(1).max(20) }).strict(),
+  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("groupByPayee"), filter: RankFilterSchema, measure: z.enum(["sum", "count"]), limit: z.number().int().min(1).max(10) }).strict(),
+  z.object({ id: z.string().regex(/^q[1-9]$/), tool: z.literal("list"), filter: FilterSchema, limit: z.number().int().min(1).max(20), order: z.enum(["date", "latest", "largest"]) }).strict(),
 ])
 
 export const MAX_QUERIES = 4
@@ -41,6 +44,7 @@ export const PlanSchema = z.object({ queries: z.array(QuerySchema).max(MAX_QUERI
 
 export type Filter = z.infer<typeof FilterSchema>
 export type Query = z.infer<typeof QuerySchema>
+export type ListOrder = Extract<Query, { tool: "list" }>["order"]
 
 /** One countable row: its reference (S1-R12: statement 1, row 12), masked payee and category. */
 export interface AskRow {
@@ -152,7 +156,9 @@ export function runQuery(rows: AskRow[], q: Query): QueryResult {
       const name = q.tool === "groupByMonth" ? "month" : "payee"
       return { ...base, result: entries.map((e) => (q.measure === "sum" ? { [name]: e.k, total: rand(e.sum), rowCount: e.count, ...way } : { [name]: e.k, count: e.count })) }
     }
-    case "list":
-      return { ...base, result: hit.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
+    case "list": {
+      const ordered = [...hit].sort((a, b) => (q.order === "largest" ? Math.abs(b.amountCents) - Math.abs(a.amountCents) : 0) || (q.order === "latest" ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)))
+      return { ...base, rows: cite(ordered), result: ordered.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
+    }
   }
 }
