@@ -24,7 +24,5 @@ says, the gap is listed here. While any line remains, the flag must not be set
 for any lender (DESIGN.md, sign-off record). One line per gap: rule; clause;
 code; what must change.
 
-11. CPA lessor cancellation: approved candidate has passed booked PostgreSQL assessment and permanent-stop checks; final union, browser and review acceptance remain. Actual vendor expenses, cash and the single goods receipt must remain preserved.
-14. Total-loss closure: approved TOTAL_LOSS outcome, unavailable asset and maintenance-refund proof passed PostgreSQL closure and both proof race orders; final union, browser and review acceptance remain. No fictitious inspection or return to stock is permitted.
 24. NCA s104 notice of a rate change, and the contractual notices in ISA 7.5 and lease 9.3; NCA agreement 3.3, ISA 7.5, lease 9.3; `lib/asset-finance/reprice-notice.ts:4` (PARTIAL: only a staff bell, nothing sent or queued for the borrower); send the new rate and instalment or rental to the consumer or lessee in writing.
 26. Effective date of a reference-rate change; ISA 7.4 and 7.5, NCA agreement 3.3, lease 9.3; `lib/asset-finance/rate-feed-sync.ts:15` (a fetched rate is recorded at the date the feed shows it, which can trail the real change; ZARONIA moves under 0.25 points are not recorded); apply a change from the date the reference rate takes effect, or reword the clauses to "the date the lender records it" (commercial.md point 7).
