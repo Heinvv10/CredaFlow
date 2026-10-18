@@ -3,7 +3,8 @@
  * (OVERRIDING / MONEY / RATE / DOTTED_NUMBER / MAX_HEADING in validate.ts).
  * Pure unit tests: no database.
  *
- * DEFECT tests fail on feat/lender-owned-templates e6c3706b; GUARD tests pass.
+ * DEFECT tests failed on feat/lender-owned-templates e6c3706b and pass since the
+ * round-2 fixes; GUARD tests pin attacks that did not break the code.
  */
 import { PDFDocument, StandardFonts } from "pdf-lib"
 import { describe, expect, it } from "vitest"
@@ -51,8 +52,10 @@ describe("DEFECT: money and rates written without a symbol", () => {
 })
 
 describe("DEFECT: a heading made of tokens is bounded before the tokens are filled", () => {
-  it("a 48-character heading of identity tokens passes, then prints the full registered office off the page", async () => {
-    const heading = "{{lender.registeredOffice}} {{lender.legalName}}"
+  it("FIXED: a heading of identity tokens is refused (a filled token could run off the page); the same text as plain words prints", async () => {
+    const tokenHeading = "{{lender.registeredOffice}} {{lender.legalName}}"
+    expect(contentProblems(KEY, withTerm("A perfectly ordinary additional term of the lender.", tokenHeading)).map((p) => p.message).join()).toMatch(/heading cannot contain tokens/)
+    const heading = "Registered office and legal name of the lender"
     const content = withTerm("A perfectly ordinary additional term of the lender.", heading)
     expect(contentProblems(KEY, content)).toEqual([])
     // A valid identity (identity-schema.ts: up to 6 office lines of 80 characters).

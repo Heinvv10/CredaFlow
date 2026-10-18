@@ -3,8 +3,8 @@
 // loader's legacy legal-wording flag changes nothing.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const m = vi.hoisted(() => ({ findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), load: vi.fn(), render: vi.fn(), select: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, $transaction: m.transaction } }))
+const m = vi.hoisted(() => ({ quoteAudit: vi.fn(), findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), load: vi.fn(), render: vi.fn(), select: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, auditLog: { findFirst: m.quoteAudit }, $transaction: m.transaction } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: new Proxy({}, { get: (_t, key) => String(key) }), logAuditStrict: m.audit }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: vi.fn(async () => ({ legalName: "TEST Lender", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] })) }))
 vi.mock("@/lib/storage", () => ({ saveFile: vi.fn(async () => ({ storagePath: "store/agreement.pdf", fileSize: 10 })), deleteFile: vi.fn() }))
@@ -45,6 +45,8 @@ describe("prepareEntityNcaDocuments issues the agreement from the lender's templ
   beforeEach(() => {
     vi.clearAllMocks()
     m.findFirst.mockResolvedValue(deal)
+    // The acknowledged quotation's issuance record: issued without the DRAFT mark.
+    m.quoteAudit.mockResolvedValue({ newValue: { documentSha256: "q", draftLegalWording: false } })
     m.render.mockResolvedValue(Buffer.from("pdf"))
     m.transaction.mockImplementation(async (run: (tx: unknown) => unknown) => run({
       dealSigner: { findMany: vi.fn(async () => []), deleteMany: vi.fn(), create: vi.fn(async () => ({ id: "signer-1" })) },

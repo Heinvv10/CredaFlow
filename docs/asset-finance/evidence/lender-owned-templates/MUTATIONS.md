@@ -8,7 +8,8 @@ replaced the live trigger function on the disposable PG16 database
 Scripts: `/tmp/claude-1003/lot-mut/{run,sql}.sh` (session scratch, not committed).
 
 Unit = `lib/asset-finance/documents/templates/templates.test.ts`.
-PG = `lib/asset-finance/documents/templates/templates.integration.test.ts` (RUN_ASSET_TEMPLATES_IT=1).
+PG = the real-Postgres suite at the time (round 1: `templates.integration.test.ts`, since split into
+`templates-governance` / `templates-issuance` `.integration.test.ts` = I). NU = `legal-wording-flag-nca-*.test.ts`.
 
 | # | Mutation | Suite | Result |
 |---|---|---|---|
@@ -30,6 +31,11 @@ PG = `lib/asset-finance/documents/templates/templates.integration.test.ts` (RUN_
 | s5 | SQL: version content mutable | PG | killed, 1 failed |
 | s6 | SQL: wrong variant for the deal accepted | PG | **survived** (test tripped an earlier check) → test now matches every other field |
 | s6 (rerun) | same | PG | killed, 1 failed |
+| m11 | Selection ignores the approval's protected-output fingerprint | I | killed, 4 failed |
+| m12 | A protected ISA sentence changed (7.4 "payable as part of" → "payable with") | `fingerprint.test.ts` | killed, 2 failed |
+| m13 | NCA quotation gate ignores the acknowledged quote's recorded mark | NU | killed, 2 failed |
+| s7 | SQL: issuance fingerprint ≠ approved fingerprint accepted | I | **survived** → DB refusal case added |
+| s7 (rerun) | same | I | killed, 1 failed |
 | m10 | Issued mark always NONE (demo approval loses its watermark) | the two rewritten NCA unit suites | killed, 2 failed |
 
 The two NCA unit suites (`legal-wording-flag-nca-*.test.ts`) were rewritten for

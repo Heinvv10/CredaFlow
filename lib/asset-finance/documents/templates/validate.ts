@@ -23,7 +23,7 @@ const MAX_HEADING = 50
 // Lender text may not override, vary or waive protected content, nor create a
 // charge: those are system terms (SPEC.md §2). Matched as whole words.
 // The list catches obvious drafting, not meaning: the rest is the lender's legal approval (SPEC.md §2).
-const OVERRIDING = /\b(not[\s-]*with[\s-]*standing|despite|regardless|in place of|instead of|in lieu of|replac(?:e|es|ed|ing)|overrid(?:e|es|ing|den)|exclud(?:e|es|ed|ing)|amend(?:s|ed|ing|ment|ments)?|var(?:y|ies|ied|ying|iation|iations)|supersed(?:e|es|ed|ing)|(?:does|do|shall|will) not (?:apply|be applicable)|not be applicable|waiv(?:e|es|ed|er|ers|ing)|conclusive|fees?|charg(?:e|es|ed|ing)|surcharg(?:e|es|ed|ing)|lev(?:y|ies|ied|ying)|commissions?|penalt(?:y|ies)|liquidated damages)\b/i
+const OVERRIDING = /\b(not[\s-]*with[\s-]*standing|despite|regardless|in place of|instead of|in lieu of|replac(?:e|es|ed|ing)|overrid(?:e|es|ing|den)|exclud(?:e|es|ed|ing)|amend(?:s|ed|ing|ment|ments)?|var(?:y|ies|ied|ying|iation|iations)|supersed(?:e|es|ed|ing)|(?:does|do|shall|will) not (?:apply|be applicable)|not be applicable|waiv(?:e|es|ed|er|ers|ing)|conclusive|fees?|charg(?:e|es|ed|ing)|surcharg(?:e|es|ed|ing)|lev(?:y|ies|ied|ying)|commissions?|penalt(?:y|ies)|liquidated damages|interest\s+(?:on|at|of|rate|charged|accrues|payable))\b/i
 // The notices clause may not reach the terms of the agreement (clause 7.13 exempts its notices from the variation rule).
 const NOTICE_REACHES_TERMS = /\b(?:any|a|the|other)\s+(?:term|terms|provision|provisions)\b|\bterms?\s+of\s+this\s+agreement\b/i
 const CLAUSE_REFERENCE = /\bclauses?\s+(\d+(?:\.\d+)?)((?:\s*(?:,|and|or|to)\s*\d+(?:\.\d+)?)*)/gi

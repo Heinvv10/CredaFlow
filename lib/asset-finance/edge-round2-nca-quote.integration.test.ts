@@ -100,7 +100,7 @@ suite.sequential("EDGE round 2: NCA quotation-mark gate (real Postgres, real rou
     signIn(fx.adminA, "LOAN_ADMIN")
     const refused = await routes().ncaAgreement(dealId)
     expect(refused.status).not.toBe(201)
-    expect(JSON.stringify(await refused.json())).toMatch(/quotation wording is not yet approved/)
+    expect(JSON.stringify(await refused.json())).toMatch(/quotation this consumer acknowledged printed DRAFT/)
     expect(await database().assetDocumentIssuance.count({ where: { dealId } })).toBe(0)
   })
 

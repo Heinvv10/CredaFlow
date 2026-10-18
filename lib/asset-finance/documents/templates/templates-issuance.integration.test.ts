@@ -125,7 +125,7 @@ suite.sequential("issuing asset-finance documents from lender templates (real Po
     await forcePublish(51, canonicalContent(starter), "0".repeat(64))
     response = await prepare(a, a.dealId)
     expect(response.status).toBe(422)
-    expect((await response.json()).error).toMatch(/protected wording for your Entity resolution changed after your approval/)
+    expect((await response.json()).error).toMatch(/protected wording for your Entity resolution \(All entity types\) changed after your approval/)
     expect(await database().assetDocumentIssuance.count({ where: { dealId: a.dealId } })).toBe(0)
     await draftApprovePublish(database(), a.tenantId, res.id, starter, a.adminA)
   })
@@ -156,11 +156,13 @@ suite.sequential("issuing asset-finance documents from lender templates (real Po
     const insert = (data: object) => database().assetDocumentIssuance.create({ data: { ...copy, lenderIdentity: copy.lenderIdentity as object, ...data } })
     const archived = await database().documentTemplateVersion.findFirstOrThrow({ where: { templateId: isa.id, status: "ARCHIVED" } })
     expect(await sqlError(() => insert({ templateVersionId: archived.id }))).toMatch(/issued only from its lender's published version/)
+    expect(await sqlError(() => insert({ systemSha256: "3".repeat(64) }))).toMatch(/exact approved content and approval of its version/)
     const cpa = await tpl(a, "af.isa.cpa")
     const v = await database().documentTemplateVersion.findUniqueOrThrow({ where: { id: cpa.currentVersionId! } })
     expect(await sqlError(() => insert({
       templateId: cpa.id, templateKey: "af.isa.cpa", templateVersionId: v.id, templateVersionNumber: v.version, templateContentSha256: v.contentSha256,
       approvalBasis: v.approvalBasis, approvedById: v.approvedById, approvedAt: v.approvedAt, legalSignOffReference: v.legalSignOffReference,
+      systemSha256: v.approvedSystemSha256,
     }))).toMatch(/does not fit the deal's contract type, regime or CPA status/)
     const other = await database().documentTemplate.findFirst({ where: { tenantId: b.tenantId } })
     if (other) expect(await sqlError(() => insert({ templateId: other.id }))).toMatch(/Foreign key constraint|issued only from its lender's published version/)

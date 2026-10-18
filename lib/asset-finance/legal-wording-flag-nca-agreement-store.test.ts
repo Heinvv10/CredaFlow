@@ -3,10 +3,10 @@
 // draftLegalWording; with no issuable template nothing is rendered or written.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const m = vi.hoisted(() => ({
+const m = vi.hoisted(() => ({ quoteAudit: vi.fn(),
   findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), approved: vi.fn(), render: vi.fn(), compliance: vi.fn(), select: vi.fn(),
 }))
-vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, $transaction: m.transaction } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, auditLog: { findFirst: m.quoteAudit }, $transaction: m.transaction } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: new Proxy({}, { get: (_t, key) => String(key) }), logAuditStrict: m.audit }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: vi.fn(async () => ({ legalName: "TEST Lender", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] })) }))
 vi.mock("@/lib/storage", () => ({ saveFile: vi.fn(async () => ({ storagePath: "store/agreement.pdf", fileSize: 10 })), deleteFile: vi.fn(), readFile: vi.fn() }))
@@ -53,6 +53,8 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
   beforeEach(() => {
     vi.clearAllMocks()
     m.findFirst.mockResolvedValue(deal)
+    // The acknowledged quotation's issuance record: issued without the DRAFT mark.
+    m.quoteAudit.mockResolvedValue({ newValue: { documentSha256: "q", draftLegalWording: false } })
     m.render.mockResolvedValue(Buffer.from("pdf"))
     m.transaction.mockImplementation(async (run: (tx: unknown) => unknown) => run({
       clientDocument: { create: vi.fn() }, complianceRecord: { create: m.compliance }, loanApplication: { updateMany: vi.fn(async () => ({ count: 1 })) },
@@ -76,11 +78,16 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
     expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: draft, approvalBasis: basis }) }), expect.anything())
   })
 
-  it("refuses an agreement under a legal approval while the quotation wording is still DRAFT (nothing rendered)", async () => {
-    m.approved.mockResolvedValue(false)
+  it.each([
+    ["printed DRAFT", { newValue: { documentSha256: "q", draftLegalWording: true } }],
+    ["has no issuance record (counts as DRAFT)", null],
+  ])("refuses an agreement under a legal approval when the acknowledged quotation %s (nothing rendered)", async (_, record) => {
+    m.approved.mockResolvedValue(true)
+    m.quoteAudit.mockResolvedValue(record)
     m.select.mockResolvedValue(selected("LENDER_LEGAL"))
     const result = await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")
-    expect(result).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/quotation wording is not yet approved/) })
+    expect(result).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/quotation this consumer acknowledged printed DRAFT/) })
+    expect(m.quoteAudit).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantId: "t1", entityId: "d1", newValue: { path: ["documentSha256"], equals: "q" } }) }))
     expect(m.render).not.toHaveBeenCalled()
   })
 
