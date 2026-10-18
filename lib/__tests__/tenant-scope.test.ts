@@ -168,6 +168,7 @@ describe("tenant-scope — ALS primitives", () => {
       "StatementAiOutput",
       "StatementAiUsage",
       "NcaSurplusAccount",
+      "NcaSurplusDetermination",
       "NcaSurplusRemittance",
     ])
   })

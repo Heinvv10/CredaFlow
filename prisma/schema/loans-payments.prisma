@@ -203,8 +203,8 @@ model Loan {
   legalMatters               LegalMatter[]
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
-  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   notes                      LoanNote[]
   paymentArrangement         PaymentArrangement?
   paymentNotifications       PaymentNotification[]

@@ -379,8 +379,8 @@ model EntityDocument {
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
   meterReadings     AssetMeterReading[]
-  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusExecutionEvidence NcaSurplusRemittance[] @relation("NcaSurplusExecutionEvidence")
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")
