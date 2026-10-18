@@ -16,7 +16,7 @@ import { POST as publishRoute } from "@/app/api/documents/templates/[id]/version
 import { starterContent, type AssetTemplateContent } from "./content"
 import { parseTemplateKey } from "./families"
 import { approveVersion, createDraftVersion, publishVersion, type TemplateActor } from "./store"
-import { FIXTURE_SIGN_OFF_REFERENCE, legalApprover } from "./templates.integration-fixture"
+import { endLegalApprovals, FIXTURE_SIGN_OFF_REFERENCE, legalApprover } from "./templates.integration-fixture"
 
 export async function sqlError(run: () => Promise<unknown>): Promise<string> {
   try {
@@ -65,6 +65,7 @@ export async function draftApprovePublish(
   if (!approved.ok) throw new Error(approved.error)
   const published = await publishVersion(author, templateId, draft.value.id)
   if (!published.ok) throw new Error(published.error)
+  if (!demoApproverId) await endLegalApprovals(db, tenantId)
   return draft.value.id
 }
 

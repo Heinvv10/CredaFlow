@@ -119,10 +119,14 @@ export async function signLease(fx: LeaseFixture, db: PrismaClient, setSession: 
   setSession({ id: fx.officer, email: "officer@lease-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })
   const prepared = await routes.prepare(dealId, plannedStartDate ? { plannedStartDate } : undefined)
   expect(prepared.status, await prepared.clone().text()).toBe(200)
-  // The lease agreement is issued from the lender's template variant for this lease, reproducibly.
+  // Every document is issued from the lender's template, reproducibly; a lease's
+  // agreement from the lease variant (this helper also signs instalment sales).
   const deal = await db.assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { contractType: true, cpaApplies: true } })
-  const family = deal.contractType === "FULL_MAINTENANCE_LEASE" ? "af.lease.fml" : "af.lease.operating"
-  expect(await expectReproducibleIssuances(db, fx.tenantId, dealId)).toContain(`${family}.${deal.cpaApplies ? "cpa" : "commercial"}`)
+  const issued = await expectReproducibleIssuances(db, fx.tenantId, dealId)
+  if (deal.contractType === "OPERATING_LEASE" || deal.contractType === "FULL_MAINTENANCE_LEASE") {
+    const family = deal.contractType === "FULL_MAINTENANCE_LEASE" ? "af.lease.fml" : "af.lease.operating"
+    expect(issued).toContain(`${family}.${deal.cpaApplies ? "cpa" : "commercial"}`)
+  }
   for (const row of await db.dealSigner.findMany({ where: { dealId } })) {
     if (row.document === "SURETYSHIP") {
       setSession({ id: fx.officer, email: "officer@lease-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })

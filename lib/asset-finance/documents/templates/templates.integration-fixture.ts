@@ -17,11 +17,25 @@ import { adoptStarter, approveVersion, publishVersion, type TemplateActor } from
 
 export const FIXTURE_SIGN_OFF_REFERENCE = "TEST FIXTURE ONLY - not a legal approval"
 
-/** The tenant's synthetic SUPER_ADMIN legal approver, created once. */
+/**
+ * The tenant's synthetic SUPER_ADMIN legal approver, created once and made
+ * active for the approval. Callers deactivate it afterwards (endLegalApprovals)
+ * so suites that count a lender's active admins (e.g. reminder bells) see only
+ * their own staff.
+ */
 export async function legalApprover(db: PrismaClient, tenantId: string): Promise<string> {
   const email = `legal-approver-${tenantId}@staff.invalid`.toLowerCase()
   const found = await db.user.findFirst({ where: { tenantId, email }, select: { id: true } })
-  return found?.id ?? (await db.user.create({ data: { tenantId, email, password: "x", role: "SUPER_ADMIN" } })).id
+  if (found) {
+    await db.user.update({ where: { id: found.id }, data: { active: true } })
+    return found.id
+  }
+  return (await db.user.create({ data: { tenantId, email, password: "x", role: "SUPER_ADMIN" } })).id
+}
+
+/** Deactivate the synthetic legal approver again (approvals already recorded stay valid). */
+export async function endLegalApprovals(db: PrismaClient, tenantId: string): Promise<void> {
+  await db.user.updateMany({ where: { tenantId, email: `legal-approver-${tenantId}@staff.invalid`.toLowerCase() }, data: { active: false } })
 }
 
 /** Adopt, approve and publish every family (or `families`) for `tenantId`. Returns template id by key. */
@@ -60,6 +74,7 @@ export async function publishStarterTemplates(
     const published = await publishVersion(author, template.id, version.id)
     if (!published.ok) throw new Error(`publish ${template.key}: ${published.error}`)
   }
+  await endLegalApprovals(db, tenantId)
   return ids
 }
 
