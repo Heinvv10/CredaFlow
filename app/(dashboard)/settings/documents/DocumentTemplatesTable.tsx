@@ -16,7 +16,10 @@ export type TemplateRow = {
 const KIND_BADGE: Record<DocumentTemplateKind, string> = {
   SYSTEM: "bg-blue-100 text-blue-800",
   CUSTOM: "bg-purple-100 text-purple-800",
+  ASSET_FINANCE: "bg-amber-100 text-amber-800",
 }
+
+const KIND_LABEL: Record<DocumentTemplateKind, string> = { SYSTEM: "System", CUSTOM: "Custom", ASSET_FINANCE: "Asset finance" }
 
 function availabilityLabel(row: TemplateRow) {
   if (row.kind === "SYSTEM") return "Workflow managed"
@@ -64,7 +67,7 @@ export function DocumentTemplatesTable({ templates }: { templates: TemplateRow[]
                 <span
                   className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${KIND_BADGE[row.kind]}`}
                 >
-                  {row.kind === "SYSTEM" ? "System" : "Custom"}
+                  {KIND_LABEL[row.kind]}
                 </span>
               </td>
               <td className="px-5 py-3 text-xs text-gray-600">{availabilityLabel(row)}</td>
@@ -76,6 +79,12 @@ export function DocumentTemplatesTable({ templates }: { templates: TemplateRow[]
                     // SYSTEM requests by design). No working UI path exists yet, so no
                     // generate links are rendered here.
                     <span className="text-xs text-gray-400">System document</span>
+                  ) : row.kind === "ASSET_FINANCE" ? (
+                    // Lender legal wording: versions, preview, approval and publication
+                    // all live on the editor page; it is never deleted.
+                    <a href={`/settings/documents/${row.id}/edit`} className="text-[#4F46E5] hover:underline text-xs font-medium">
+                      Edit wording
+                    </a>
                   ) : (
                     <>
                       {/* Edit/Preview/Versions all resolve to the Task 10 editor page

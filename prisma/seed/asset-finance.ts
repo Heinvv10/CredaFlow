@@ -56,6 +56,7 @@ import { ensurePeople, ensureEntity, linkPerson } from "./asset-finance-parties"
 import { ensureAsset, ensurePrime, ensureProduct, ensureRepo, ensureSupplier, ensureVatConfig } from "./asset-finance-book"
 import { originateCompanyDeal, seedTrustDeal, type SeedStaff } from "./asset-finance-deal"
 import { executeCompanyDeal } from "./asset-finance-execution"
+import { ensureSyntheticTemplates } from "./asset-finance-templates"
 import { COMPANY, EXCAVATOR, TLB, TRACTOR, TRUST } from "./asset-finance-data"
 import { seedNaturalNcaDeal } from "./asset-finance-nca-natural"
 import { seedLeases } from "./asset-finance-leases"
@@ -70,6 +71,7 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
     await ensureVatConfig(tenantId, lender.legalName, lender.registeredOfficeLines.join(", "))
     await ensurePrime(tenantId, adminOne, adminTwo)
     await ensureRepo(tenantId, adminOne, adminTwo)
+    await ensureSyntheticTemplates(tenantId, staff)
     const productId = await ensureProduct(tenantId)
     const supplierId = await ensureSupplier(tenantId, officer, adminOne)
     const people = await ensurePeople(tenantId)

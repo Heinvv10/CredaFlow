@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { ASSET_TEMPLATE_FIXED } from "@/lib/asset-finance/documents/templates/route-helpers"
 import type { DocumentSigningMethod } from "@prisma/client"
 
 interface RouteParams {
@@ -45,6 +46,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (existing.kind === "SYSTEM") {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
     }
+    if (existing.kind === "ASSET_FINANCE") return ASSET_TEMPLATE_FIXED
 
     const body = (await req.json()) as {
       name?: string
@@ -104,6 +106,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     if (existing.kind === "SYSTEM") {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
     }
+    if (existing.kind === "ASSET_FINANCE") return ASSET_TEMPLATE_FIXED
 
     await prisma.documentTemplate.update({
       where: { id },

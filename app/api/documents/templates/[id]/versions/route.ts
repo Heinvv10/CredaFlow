@@ -4,6 +4,8 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
 import { extractTokens } from "@/lib/documents/tokens"
+import { createDraftVersion } from "@/lib/asset-finance/documents/templates/store"
+import { storeResponse, templateActor } from "@/lib/asset-finance/documents/templates/route-helpers"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -32,6 +34,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // SYSTEM templates are code-generated NCA/compliance docs, no versioning.
     if (template.kind === "SYSTEM") {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
+    }
+    if (template.kind === "ASSET_FINANCE") {
+      const body = (await req.json()) as { content?: unknown; notes?: string }
+      return storeResponse(await createDraftVersion(templateActor(guard.user, tenant.id), id, body), 201)
     }
 
     const body = (await req.json()) as { bodyHtml?: string; notes?: string }

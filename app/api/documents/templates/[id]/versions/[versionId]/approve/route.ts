@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logAudit, AuditAction } from "@/lib/audit"
+import { approveVersion } from "@/lib/asset-finance/documents/templates/store"
+import { storeResponse, templateActor } from "@/lib/asset-finance/documents/templates/route-helpers"
 
 interface RouteParams {
   params: Promise<{ id: string; versionId: string }>
@@ -30,6 +32,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
     if (template.kind === "SYSTEM") {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
+    }
+    // Lender legal wording: exact-content approval, TOTP and basis (lib/asset-finance/documents/templates/store.ts).
+    if (template.kind === "ASSET_FINANCE") {
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+      return storeResponse(await approveVersion(templateActor(guard.user, tenant.id), id, versionId, body))
     }
 
     const version = await prisma.documentTemplateVersion.findFirst({

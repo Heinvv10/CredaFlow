@@ -15,7 +15,7 @@ import type { SigningActor } from "./signing-prepare"
 
 const SIGNER_SELECT = {
   id: true, dealId: true, clientId: true, document: true, method: true, signedAt: true, signatureSha256: true,
-  scanDocumentId: true, scanUploadedById: true, confirmedById: true, confirmedAt: true,
+  scanDocumentId: true, scanUploadedById: true, confirmedById: true, confirmedAt: true, issuanceId: true,
   deal: { select: { status: true, entityId: true } },
 } as const
 
@@ -42,6 +42,8 @@ export async function uploadWetInkScan(actor: SigningActor, dealId: string, sign
   if (signer.deal.status !== "APPROVED") return { kind: "not_open", reason: "Scans are recorded only while the deal is APPROVED" }
   const state = signerState(signer)
   if (state !== "PENDING" && state !== "AWAITING_CONFIRMATION") return { kind: "not_open", reason: "This signer has already signed" }
+  // Prepared before lender templates: prepare again first (the database refuses the signature too).
+  if (!signer.issuanceId) return { kind: "not_open", reason: "This document was prepared before the lender's templates; prepare the documents again" }
   const expected = SIGNED_DOC_TYPE[signer.document]
   if (upload.docType !== expected) return { kind: "wrong_type", expected }
 

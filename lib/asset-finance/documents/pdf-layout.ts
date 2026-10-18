@@ -17,6 +17,8 @@ import { winAnsiSafe } from "@/lib/pdf/executed-agreement"
 export const PLACEHOLDER_CLAUSE = "[Placeholder clause — wording to be supplied by the lender's legal team]"
 /** Printed diagonally across every page until TenantConfig.assetFinanceLegalWordingApproved. */
 export const DRAFT_WATERMARK = "DRAFT — NOT FOR EXECUTION"
+/** Printed diagonally across every page issued from a synthetic demo approval (never a legal approval). */
+export const SYNTHETIC_DEMO_WATERMARK = "SYNTHETIC DEMO — NOT LEGALLY APPROVED"
 
 const BODY = 9
 const LINE = 12
@@ -217,26 +219,32 @@ export class DealDocumentWriter {
     }
   }
 
-  /** Page numbers, the reference on every page, the DRAFT watermark unless approved; the bytes. */
-  async finish(opts: { reference: string; watermark: boolean }): Promise<Buffer> {
+  /**
+   * Page numbers, the reference on every page, and the watermark: DRAFT when
+   * `watermark` is true, or `mark` (templates/apply.ts) when given; the bytes.
+   */
+  async finish(opts: { reference: string; watermark: boolean; mark?: "DRAFT" | "SYNTHETIC_DEMO" | "NONE" }): Promise<Buffer> {
     const pages = this.doc.getPages()
+    const mark = opts.mark ?? (opts.watermark ? "DRAFT" : "NONE")
+    const text = mark === "DRAFT" ? DRAFT_WATERMARK : mark === "SYNTHETIC_DEMO" ? SYNTHETIC_DEMO_WATERMARK : null
     pages.forEach((page, i) => {
       drawPageNumber(page, i + 1, pages.length, this.regular, winAnsiSafe(opts.reference))
-      if (opts.watermark) drawWatermark(page, this.bold)
+      if (text) drawWatermark(page, this.bold, text)
     })
     return Buffer.from(await this.doc.save())
   }
 }
 
 /** Large, diagonal, semi-transparent, centred on the page. */
-function drawWatermark(page: PDFPage, font: PDFFont): void {
-  const size = 52
-  const width = font.widthOfTextAtSize(DRAFT_WATERMARK, size)
+function drawWatermark(page: PDFPage, font: PDFFont, text: string): void {
+  // 52pt fits the DRAFT mark; a longer mark shrinks to the same width.
+  const size = text === DRAFT_WATERMARK ? 52 : Math.min(52, (52 * font.widthOfTextAtSize(DRAFT_WATERMARK, 52)) / font.widthOfTextAtSize(text, 52))
+  const width = font.widthOfTextAtSize(text, size)
   const height = font.heightAtSize(size, { descender: false })
   const angle = Math.atan2(A4_HEIGHT, A4_WIDTH)
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
-  page.drawText(DRAFT_WATERMARK, {
+  page.drawText(text, {
     x: A4_WIDTH / 2 - (width / 2) * cos + (height / 2) * sin,
     y: A4_HEIGHT / 2 - (width / 2) * sin - (height / 2) * cos,
     size,

@@ -1,7 +1,9 @@
 // Prepare an APPROVED deal's documents for signing (goal §4.9): render the
-// agreement, the resolution and a suretyship per surety, store each PDF once
-// in the same storage as entity documents (lib/storage), and create one
-// DealSigner row per required signature binding those bytes by sha256.
+// agreement, the resolution and a suretyship per surety from the lender's
+// published, approved template versions, store each PDF and its render input
+// once in the same storage as entity documents (lib/storage), record an
+// AssetDocumentIssuance per document, and create one DealSigner row per
+// required signature binding those bytes by sha256 and that issuance.
 //
 // Unsigned documents are NOT EntityDocument rows: a SIGNED_* EntityDocument is
 // only ever a wet-ink scan (./signing-wet-ink.ts), so a draft is never listed
@@ -23,10 +25,14 @@
 import { Prisma, type AssetDealStatus, type DealDocumentKind } from "@prisma/client"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
-import { deleteFile, saveFile } from "@/lib/storage"
+import { deleteFile } from "@/lib/storage"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
+import {
+  issuedWording, lockSelectedTemplate, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, supersedeIssuances, templateKeyFor,
+  type PreparedIssuance, type SelectedTemplate,
+} from "./documents/templates/issuance"
 import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "./dates"
 import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared, type RequiredSigner } from "./signing"
 
@@ -47,10 +53,6 @@ export type PrepareResult =
   | { kind: "invalid_start"; error: string }
   | { kind: "prepared"; signers: number }
 
-interface StoredDocument {
-  sha256: string
-  storagePath: string
-}
 
 const signerKey = (s: { clientId: string; document: DealDocumentKind }) => `${s.document}:${s.clientId}`
 const documentKey = (s: { clientId: string; document: DealDocumentKind }) =>
@@ -158,14 +160,20 @@ export async function prepareDealDocuments(
   if (!data) return { kind: "not_found" }
   if (!data.requiredSigners.some((s) => s.document === "AGREEMENT")) return { kind: "no_authority" }
 
-  const stored = new Map<string, StoredDocument>()
+  // Each document is the lender's published, approved template version
+  // (templates/issuance.ts); a missing one throws TemplateNotIssuableError.
+  const stored = new Map<string, PreparedIssuance>()
+  const files = (d: PreparedIssuance) => [d.pdfStoragePath, d.inputStoragePath]
   try {
+    const selected = new Map<string, SelectedTemplate>()
     for (const signer of data.requiredSigners) {
       const key = documentKey(signer)
       if (stored.has(key)) continue
-      const rendered = await renderDealDocument(data, signer.document, signer.clientId)
-      const { storagePath } = await saveFile(rendered.bytes, "application/pdf")
-      stored.set(key, { sha256: rendered.sha256, storagePath })
+      const templateKey = templateKeyFor(data, signer.document)
+      const template = selected.get(templateKey) ?? await selectIssuableTemplate(prisma, tenantId, templateKey)
+      selected.set(templateKey, template)
+      const rendered = await renderDealDocument(data, signer.document, signer.clientId, issuedWording(template))
+      stored.set(key, await storeIssuanceFiles(template, { kind: "deal", document: signer.document, clientId: signer.clientId, data }, rendered.bytes))
     }
     const result = await prisma.$transaction(async (tx) => {
       const deal = await lockDeal(tx, tenantId, dealId)
@@ -184,17 +192,24 @@ export async function prepareDealDocuments(
       const wanted = new Set(now.map(signerKey))
       const stale = existing.filter((row) => !wanted.has(signerKey(row)))
       if (stale.length > 0) await tx.dealSigner.deleteMany({ where: { tenantId, id: { in: stale.map((r) => r.id) } } })
+      for (const doc of stored.values()) await lockSelectedTemplate(tx, tenantId, doc.selected)
+      const supersededFiles = await supersedeIssuances(tx, tenantId, dealId, new Date())
+      const issuances = new Map<string, string>()
+      for (const [key, doc] of stored) issuances.set(key, await recordIssuance(tx, tenantId, dealId, actor.userId, doc))
       const bound = []
       for (const signer of now) {
         const doc = stored.get(documentKey(signer))
         if (!doc) throw new Error(`No rendered document for ${signerKey(signer)}`)
-        const binding = { documentSha256: doc.sha256, documentStoragePath: doc.storagePath }
+        const binding = { documentSha256: doc.pdfSha256, documentStoragePath: doc.pdfStoragePath, issuanceId: issuances.get(documentKey(signer))! }
         await tx.dealSigner.upsert({
           where: { dealId_clientId_document: { dealId, clientId: signer.clientId, document: signer.document }, tenantId },
           create: { tenantId, dealId, clientId: signer.clientId, role: signer.role, document: signer.document, ...binding },
           update: binding,
         })
-        bound.push({ clientId: signer.clientId, document: signer.document, documentSha256: doc.sha256 })
+        bound.push({
+          clientId: signer.clientId, document: signer.document, documentSha256: doc.pdfSha256, issuanceId: binding.issuanceId,
+          templateKey: doc.selected.templateKey, templateVersion: doc.selected.versionNumber, approvalBasis: doc.selected.approvalBasis,
+        })
       }
       const p = data.pricing
       const terms = {
@@ -216,7 +231,7 @@ export async function prepareDealDocuments(
           entity: "AssetFinanceDeal",
           entityId: dealId,
           newValue: {
-            signers: bound, removedSigners: stale.map(signerKey), legalWordingApproved: data.legalWordingApproved,
+            signers: bound, removedSigners: stale.map(signerKey),
             plannedStartDate: start, baseInstalmentCents: p.baseInstalmentCents, resultingRate: p.annualRate,
             totalInterestCents: p.totalInterestCents, arrearsMarginRate: p.arrearsMarginRate, collectionFeeCents: p.collectionFeeCents,
           },
@@ -225,17 +240,17 @@ export async function prepareDealDocuments(
       )
       return {
         result: { kind: "prepared", signers: bound.length } as const,
-        released: existing.map((row) => row.documentStoragePath).filter((p): p is string => p !== null),
+        released: [...existing.map((row) => row.documentStoragePath).filter((p): p is string => p !== null), ...supersededFiles],
       }
     })
-    // Bytes no row points at any more (an earlier preparation), or that this
-    // attempt wrote and did not bind, hold personal data: remove them.
-    const kept = result.result.kind === "prepared" ? new Set([...stored.values()].map((d) => d.storagePath)) : new Set<string>()
-    const unused = [...result.released, ...[...stored.values()].map((d) => d.storagePath)].filter((p) => !kept.has(p))
+    // Bytes and inputs no row points at any more (an earlier preparation), or
+    // that this attempt wrote and did not bind, hold personal data: remove them.
+    const kept = result.result.kind === "prepared" ? new Set([...stored.values()].flatMap(files)) : new Set<string>()
+    const unused = [...result.released, ...[...stored.values()].flatMap(files)].filter((p) => !kept.has(p))
     await Promise.all([...new Set(unused)].map((p) => deleteFile(p)))
     return result.result
   } catch (error) {
-    await Promise.all([...stored.values()].map((d) => deleteFile(d.storagePath)))
+    await Promise.all([...stored.values()].flatMap(files).map((p) => deleteFile(p)))
     throw error
   }
 }

@@ -12,7 +12,8 @@ import { percentPdf } from "../document-parts"
 import { formatIsoDatePdf } from "../pdf-layout"
 import { contractRateFormula, referenceDefinition, type WordingClause } from "./commercial-common"
 import { cpaInstalmentSaleClauses } from "./instalment-sale-cpa"
-import { instalmentSaleEnforcementClauses } from "./instalment-sale-enforcement"
+import { instalmentSaleEnforcementClauses, isaNoticeTokens } from "./instalment-sale-enforcement"
+import { editableClauseText, identityTokens, type AppliedWording } from "../templates/apply"
 
 function saleAndOwnership(): WordingClause {
   return {
@@ -93,17 +94,17 @@ ${recalculation}`,
   }
 }
 
-function insurance(): WordingClause {
-  return {
-    heading: "Insurance of the goods",
-    text: `From delivery until ownership passes, the Purchaser must at its own cost keep the Goods comprehensively insured, for their full replacement value, with an insurer registered under the Insurance Act 18 of 2017 and acceptable to the Seller, against loss, theft, damage, fire and the other risks usually insured for goods of their kind, and against third-party liability where the Goods are used on public roads. The Seller's interest as owner must be noted on the policy, with the Seller as first loss payee.
+/** Clause 7.6 as the starter supplies it: a lender template may replace it (./../templates/families.ts). */
+export const ISA_INSURANCE_STARTER = `From delivery until ownership passes, the Purchaser must at its own cost keep the Goods comprehensively insured, for their full replacement value, with an insurer registered under the Insurance Act 18 of 2017 and acceptable to the Seller, against loss, theft, damage, fire and the other risks usually insured for goods of their kind, and against third-party liability where the Goods are used on public roads. The Seller's interest as owner must be noted on the policy, with the Seller as first loss payee.
 
 The Purchaser must give the Seller proof of the insurance before the Seller pays the Supplier and proof of renewal on request, pay every premium on time, and do nothing that could entitle the insurer to avoid or reduce a claim. The Purchaser cedes to the Seller all its rights under the policy to the extent of the Seller's interest.
 
 If the Purchaser does not insure the Goods as this clause requires, the Seller may (but need not) insure them, and the Purchaser must repay the premium on demand.
 
-The Purchaser must report any loss, theft or damage to the Seller and to the insurer within 48 hours of becoming aware of it. The Seller applies insurance proceeds it receives to the repair or replacement of the Goods or, after a total loss and at its choice, towards the amounts owing under this Agreement, and pays any surplus to the Purchaser.`,
-  }
+The Purchaser must report any loss, theft or damage to the Seller and to the insurer within 48 hours of becoming aware of it. The Seller applies insurance proceeds it receives to the repair or replacement of the Goods or, after a total loss and at its choice, towards the amounts owing under this Agreement, and pays any surplus to the Purchaser.`
+
+function insurance(): WordingClause {
+  return { heading: "Insurance of the goods", text: ISA_INSURANCE_STARTER }
 }
 
 function goodsUseAndLocation(data: DealDocumentData): WordingClause {
@@ -120,17 +121,31 @@ The Purchaser must immediately notify the Seller in writing if any person attach
   }
 }
 
-/** Clauses 7.1 to 7.13 in printed order. */
-export function instalmentSaleClauses(data: DealDocumentData): WordingClause[] {
+/** The {{tokens}} a lender's instalment sale wording may use (../templates/families.ts). */
+export function isaTokens(data: DealDocumentData): Record<string, string> {
+  return { ...identityTokens(data.lender, data.reference), ...isaNoticeTokens(data) }
+}
+
+/**
+ * Clauses 7.1 to 7.13 in printed order. A lender's wording replaces only
+ * 7.6, 7.11 and 7.12, before the CPA appendices are added to them.
+ */
+export function instalmentSaleClauses(data: DealDocumentData, wording?: AppliedWording): WordingClause[] {
+  const tokens = isaTokens(data)
+  const lender = (clause: WordingClause, id: string): WordingClause => ({ ...clause, text: editableClauseText(wording, id, tokens, clause.text) })
+  const [breach, charges, settlement, cession, notices, general] = instalmentSaleEnforcementClauses(data)
   const clauses = [
     saleAndOwnership(),
     deliveryAndRisk(),
     payment(data),
     interest(data),
     commencement(data),
-    insurance(),
+    lender(insurance(), "insurance"),
     goodsUseAndLocation(data),
-    ...instalmentSaleEnforcementClauses(data),
+    breach, charges, settlement,
+    lender(cession, "cession"),
+    lender(notices, "notices"),
+    general,
   ]
   return data.isaCpaApplies !== false ? cpaInstalmentSaleClauses(clauses) : clauses
 }

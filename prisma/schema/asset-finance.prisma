@@ -722,6 +722,7 @@ model AssetFinanceDeal {
   financials              EntityFinancials?
   payout                  Payout?
   signers                 DealSigner[]
+  documentIssuances       AssetDocumentIssuance[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, applicationId])
@@ -823,6 +824,11 @@ model DealSigner {
   scanUploadedAt      DateTime?
   confirmedById       String?
   confirmedAt         DateTime?
+  // The issuance (template version, approval, input and PDF hashes) these
+  // bytes came from. Required on every row created since lender templates;
+  // null only on rows prepared before them.
+  issuanceId          String?
+  issuance            AssetDocumentIssuance? @relation(fields: [tenantId, issuanceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt           DateTime         @default(now())
 
   @@unique([dealId, clientId, document])
@@ -981,4 +987,48 @@ model SuretyConsent {
   verifiedById String
   verifiedBy User @relation(fields: [verifiedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   verifiedAt DateTime @default(now())
+}
+
+// One asset-finance document as issued for signature (lib/asset-finance/
+// documents/templates/issuance.ts): the lender template version and approval
+// it was rendered from, the lender identity used, and the hashes of the exact
+// render input and PDF. The input and PDF hold personal data, so they live in
+// lib/storage (paths here), never in this row or the audit log. Immutable: the
+// only change is supersededAt when an unsigned preparation is replaced, which
+// may clear the two paths as their files are deleted (guardAssetDocumentIssuance).
+model AssetDocumentIssuance {
+  id                    String                        @id @default(cuid())
+  tenantId              String
+  dealId                String
+  deal                  AssetFinanceDeal              @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  document              DealDocumentKind
+  // The surety a suretyship is for; null for the agreement and the resolution.
+  clientId              String?
+  templateKey           String
+  templateId            String
+  template              DocumentTemplate              @relation(fields: [tenantId, templateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionId     String
+  templateVersion       DocumentTemplateVersion       @relation(fields: [templateVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionNumber Int
+  templateContentSha256 String
+  approvalBasis         DocumentTemplateApprovalBasis
+  approvedById          String
+  approvedAt            DateTime
+  legalSignOffReference String?
+  // The protected renderer revision (templates/families.ts SYSTEM_REVISION).
+  systemRevision        String
+  // The lender identity printed: company particulars, no personal data.
+  lenderIdentity        Json
+  inputSha256           String
+  inputStoragePath      String?
+  pdfSha256             String
+  pdfStoragePath        String?
+  issuedAt              DateTime                      @default(now())
+  issuedById            String?
+  supersededAt          DateTime?
+  signers               DealSigner[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dealId])
+  @@index([templateVersionId])
 }

@@ -2,8 +2,10 @@
 // Parties, goods, supplier, rental terms, the rental schedule and (FML) the
 // maintenance-and-usage annexure are the deal's real data; the terms and
 // conditions are the drafted wording in ../wording/lease-agreement.ts, for the
-// lender's legal team to approve (Confirmation Gate 6.2). Until TenantConfig.assetFinanceLegalWordingApproved
-// every page carries the DRAFT — NOT FOR EXECUTION watermark. Deterministic:
+// lender's legal team to approve (Confirmation Gate 6.2). Issued, it is the
+// lender's approved template version (../templates): clause 9.13 may be the
+// lender's own and its additional terms follow the last clause; the watermark
+// is the version's mark. Deterministic:
 // the same data renders the same bytes, so the sha256 binds what was signed.
 // No NCA content: a lease is not a credit agreement (lib/asset-finance/lease-deal.ts).
 import { Prisma } from "@prisma/client"
@@ -14,6 +16,7 @@ import { assetRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, s
 import { ENTITY_TYPE_LABELS } from "../../labels"
 import { leaseAgreementClauses } from "../wording/lease-agreement"
 import type { LeaseDocumentTerms } from "./lease-document-data"
+import { additionalTerms, identityTokens, wordingWatermark, type AppliedWording } from "../templates/apply"
 
 const SCHEDULE_COLUMNS: TableColumn[] = [
   { header: "No.", x: MARGIN + 4, width: 22 },
@@ -110,7 +113,7 @@ function cpaText(lease: LeaseDocumentTerms, naturalPerson: boolean): string {
     : `The Consumer Protection Act, 2008 applies to this lease. Section 14 does not apply between juristic persons, but this agreement gives the lessee the same rights: ${rights}`
 }
 
-export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<Buffer> {
+export async function renderLeaseAgreement(data: AnyDealDocumentData, wording?: AppliedWording): Promise<Buffer> {
   const lease = data.lease
   if (!lease) throw new RangeError("renderLeaseAgreement: the deal is not a lease")
   const title = LEASE_TITLES[lease.contractType]
@@ -150,18 +153,21 @@ export async function renderLeaseAgreement(data: AnyDealDocumentData): Promise<B
   w.section("8. CONSUMER PROTECTION ACT")
   w.paragraph(cpaText(lease, !data.entity))
   w.section("9. TERMS AND CONDITIONS")
-  leaseAgreementClauses({
+  const tokens = identityTokens(data.lender, data.reference)
+  const clauses = leaseAgreementClauses({
     lessorName: data.lender.legalName, lesseeName: lesseeName(data), fml, cpa: lease.cpaApplies, naturalPerson: !data.entity, terms: lease.terms,
     pricing: data.pricing, startDate: data.pricing.startDate, endDate: lease.endDate,
-  }).forEach((c, i) => {
+  }, wording, tokens)
+  clauses.forEach((c, i) => {
     w.clause(`9.${i + 1}`, c.heading, c.text)
     if (c.initial) w.initialLine("Lessee's initials:")
   })
+  additionalTerms(wording, tokens).forEach((c, i) => w.clause(`9.${clauses.length + i + 1}`, c.heading, c.text))
 
   w.section("10. SIGNATURES")
   w.signatures([
     ...data.signatories.map((s) => ({ caption: `For the lessee, ${lesseeName(data)}`, name: s.name, detail: data.entity ? "Authorised signatory" : "Lessee" })),
     { caption: `For the lessor, ${data.lender.legalName}`, name: "Name:", detail: "Authorised signatory" },
   ])
-  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved })
+  return w.finish({ reference: data.reference, watermark: !data.legalWordingApproved, mark: wordingWatermark(wording, data.legalWordingApproved) })
 }

@@ -164,21 +164,30 @@ suite.sequential("the booked loan is the signed agreement (real Postgres, real r
     expect((await cancel(fx.dealId, "A booked deal is never cancelled")).status).toBe(409)
   })
 
-  it("contract re-renders the agreement: a deal whose agreement no longer hashes to the signed digest is refused (409, audited)", async () => {
+  it("contract re-renders the agreement with its issued version and identity: a mismatch is refused (409, audited); a later identity change is not one", async () => {
     dealC = await approveDeal(fx, fx.assets[2], (id, role) => setSession({ id, email: `${id}@terms-it.test`, role, tenantId: fx.tenantId }), database(), 2)
     const created = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC }, select: { firstDueDate: true } })
     dealCStart = dealStartDate(isoOfDbDate(created.firstDueDate))
     await prepareAndSign(fx, dealC, setSession, database(), [], dealCStart)
-    const config = await database().tenantConfig.findUniqueOrThrow({ where: { tenantId: fx.tenantId } })
-    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: "TEST Changed Signing Lender (Pty) Ltd" } })
+    // The recorded issuance no longer describes the signed bytes: the re-render cannot reproduce them.
+    const issuance = await database().assetDocumentIssuance.findFirstOrThrow({ where: { dealId: dealC, document: "AGREEMENT", supersededAt: null } })
+    const tamper = (lenderIdentity: object) => database().$transaction([
+      database().$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      database().assetDocumentIssuance.update({ where: { id: issuance.id }, data: { lenderIdentity } }),
+    ])
+    await tamper({ ...(issuance.lenderIdentity as object), legalName: "TEST Changed Signing Lender (Pty) Ltd" })
     staff(fx.officer, "CREDIT_OFFICER")
     const refused = await signingRoutes(fx.host).contract(dealC)
     expect(refused.status).toBe(409)
     expect((await refused.json()).error).toMatch(/not the one that was signed/)
     expect(await database().auditLog.count({ where: { entityId: dealC, action: "ASSET_DEAL_SIGNING_REFUSED" } })).toBe(1)
     expect((await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealC } })).status).toBe("APPROVED")
-    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: config.legalName } })
+    await tamper(issuance.lenderIdentity as object)
+    // The lender renaming itself after signing does not change what was signed.
+    const config = await database().tenantConfig.findUniqueOrThrow({ where: { tenantId: fx.tenantId } })
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: "TEST Changed Signing Lender (Pty) Ltd" } })
     expect((await signingRoutes(fx.host).contract(dealC)).status).toBe(200)
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { legalName: config.legalName } })
   })
 
   it("a start date after the booking day: the loan starts on it, the invoice is dated the booking day", async () => {

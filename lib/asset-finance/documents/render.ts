@@ -6,6 +6,7 @@ import { renderInstalmentSaleAgreement } from "./agreement-pdf"
 import { renderResolution } from "./resolution-pdf"
 import { renderSuretyship } from "./suretyship-pdf"
 import { renderLeaseAgreement } from "./lease/agreement-pdf"
+import type { AppliedWording } from "./templates/apply"
 
 export interface RenderedDealDocument {
   bytes: Buffer
@@ -21,16 +22,18 @@ function entityData(data: AnyDealDocumentData): DealDocumentData {
 /**
  * The agreement and the resolution are one document each; a suretyship is the
  * surety's own. A lease's agreement is the lease agreement (./lease/agreement-pdf.ts).
+ * `wording` is the lender's template version (./templates/issuance.ts passes it).
  */
 export async function renderDealDocument(
   data: AnyDealDocumentData,
   document: DealDocumentKind,
   clientId: string,
+  wording?: AppliedWording,
 ): Promise<RenderedDealDocument> {
   const bytes =
-    document === "AGREEMENT" ? await (data.lease ? renderLeaseAgreement(data) : renderInstalmentSaleAgreement(entityData(data)))
-    : document === "RESOLUTION" ? await renderResolution(entityData(data))
-    : await renderSuretyship(entityData(data), clientId)
+    document === "AGREEMENT" ? await (data.lease ? renderLeaseAgreement(data, wording) : renderInstalmentSaleAgreement(entityData(data), wording))
+    : document === "RESOLUTION" ? await renderResolution(entityData(data), wording)
+    : await renderSuretyship(entityData(data), clientId, wording)
   return { bytes, sha256: sha256DocumentBytes(bytes) }
 }
 

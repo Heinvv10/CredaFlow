@@ -1,9 +1,10 @@
-// The NCA agreement carries the tenant's legal-wording flag into the renderer and
-// records its inverse as draftLegalWording on the compliance record and the audit row.
+// The NCA agreement is issued from the lender's selected template version: its
+// approval basis (not the legacy legal-wording flag) sets the watermark and
+// draftLegalWording; with no issuable template nothing is rendered or written.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const m = vi.hoisted(() => ({
-  findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), approved: vi.fn(), render: vi.fn(), compliance: vi.fn(),
+  findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), approved: vi.fn(), render: vi.fn(), compliance: vi.fn(), select: vi.fn(),
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, $transaction: m.transaction } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: new Proxy({}, { get: (_t, key) => String(key) }), logAuditStrict: m.audit }))
@@ -17,6 +18,13 @@ vi.mock("./payout-checklist-store", () => ({ createPayoutChecklist: vi.fn() }))
 vi.mock("./deal-structure", () => ({ resolveRate: vi.fn(async () => ({ annualRate: "0.1175", reference: null })) }))
 vi.mock("./documents/nca/agreement-pdf", () => ({ renderNcaAssetAgreement: m.render }))
 vi.mock("./documents/nca/legal-wording-approved", () => ({ legalWordingApproved: m.approved }))
+vi.mock("./documents/templates/issuance", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./documents/templates/issuance")>()
+  return {
+    ...real, selectIssuableTemplate: m.select, lockSelectedTemplate: vi.fn(), recordIssuance: vi.fn(async () => "issuance-1"),
+    storeIssuanceFiles: vi.fn(async (selected: unknown, input: unknown) => ({ selected, input, pdfStoragePath: "store/agreement.pdf", inputStoragePath: "store/input.bin", pdfSha256: "p", inputSha256: "i", lenderIdentity: {} })),
+  }
+})
 
 import { issueAssetNcaAgreement } from "./nca-agreement-store"
 
@@ -35,7 +43,13 @@ const deal = {
   asset: { make: "TEST", model: "TLB", year: 2026, serialNumber: "SN-TEST", vin: null, cashPriceExclVatCents: 100, vatCents: 15 },
 }
 
-describe("issueAssetNcaAgreement passes the tenant's legal-wording flag through", () => {
+const selected = (approvalBasis: "SYNTHETIC_DEMO" | "LENDER_LEGAL") => ({
+  templateId: "tpl", templateKey: "af.nca.instalment_sale", versionId: "v3", versionNumber: 3, contentSha256: "c".repeat(64), approvalBasis,
+  approvedById: "u2", approvedAt: new Date(), legalSignOffReference: null,
+  content: { schema: 1, templateKey: "af.nca.instalment_sale", starterRevision: "x", clauses: {}, additionalTerms: [] },
+})
+
+describe("issueAssetNcaAgreement issues from the lender's template version", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     m.findFirst.mockResolvedValue(deal)
@@ -46,12 +60,28 @@ describe("issueAssetNcaAgreement passes the tenant's legal-wording flag through"
     }))
   })
 
-  it.each([true, false])("approved=%s reaches the renderer, the compliance record and the audit row", async (approved) => {
-    m.approved.mockResolvedValue(approved)
+  it.each([
+    ["SYNTHETIC_DEMO", "SYNTHETIC_DEMO", true],
+    ["LENDER_LEGAL", "NONE", false],
+  ] as const)("a %s approval prints mark %s and draftLegalWording=%s, whatever the legacy flag says", async (basis, mark, draft) => {
+    m.approved.mockResolvedValue(!draft)
+    m.select.mockResolvedValue(selected(basis))
     expect((await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("done")
-    expect(m.approved).toHaveBeenCalledWith(expect.anything(), "t1")
-    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved, schedule: [expect.objectContaining({ dueDate: "2026-11-30", principalCents: 100, feesCents: 5 })] }))
-    expect(m.compliance).toHaveBeenCalledWith({ data: expect.objectContaining({ data: expect.objectContaining({ draftLegalWording: !approved }) }) })
-    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: !approved }) }), expect.anything())
+    expect(m.select).toHaveBeenCalledWith(expect.anything(), "t1", "af.nca.instalment_sale")
+    expect(m.render).toHaveBeenCalledWith(
+      expect.objectContaining({ schedule: [expect.objectContaining({ dueDate: "2026-11-30", principalCents: 100, feesCents: 5 })] }),
+      expect.objectContaining({ templateKey: "af.nca.instalment_sale", mark }),
+    )
+    expect(m.compliance).toHaveBeenCalledWith({ data: expect.objectContaining({ data: expect.objectContaining({ draftLegalWording: draft, issuanceId: "issuance-1", templateVersion: 3 }) }) })
+    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: draft, approvalBasis: basis }) }), expect.anything())
+  })
+
+  it("refuses with the reason, renders nothing and writes nothing without an issuable template (the flag does not help)", async () => {
+    m.approved.mockResolvedValue(true)
+    const { TemplateNotIssuableError } = await import("./documents/templates/issuance")
+    m.select.mockRejectedValue(new TemplateNotIssuableError("Your NCA asset credit agreement template has not been adopted."))
+    expect(await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).toEqual({ kind: "not_ready", reason: "Your NCA asset credit agreement template has not been adopted." })
+    expect(m.render).not.toHaveBeenCalled()
+    expect(m.transaction).not.toHaveBeenCalled()
   })
 })
