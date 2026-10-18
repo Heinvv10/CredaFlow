@@ -30,7 +30,7 @@ export function TotalLossRefundForm({ url, dealId, amountCents, today }: { url: 
       setError(failure instanceof Error ? failure.message : "The refund evidence could not be recorded")
     } finally { setBusy(false) }
   }
-  const field = "block w-full rounded border border-[var(--cf-border)] bg-[var(--cf-surface)] p-2 text-sm"
+  const field = "block w-full rounded border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-2 text-sm"
   return <form onSubmit={submit} className="space-y-3">
     <p className="text-sm">The maintenance fund owes the lessee {formatMoney(amountCents)}. Record proof after the refund has actually been paid outside CredaFlow, then settle this total loss.</p>
     <label className="block text-sm">Actual refund date<input className={field} type="date" name="paidOn" max={today} required /></label>
