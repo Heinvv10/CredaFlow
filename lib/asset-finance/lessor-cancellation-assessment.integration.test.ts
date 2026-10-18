@@ -56,7 +56,7 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
       const today = realToday
       let historicalRows: Awaited<ReturnType<PrismaClient["loanCharge"]["findMany"]>> = []
       let historicalPayment: Awaited<ReturnType<PrismaClient["payment"]["findUnique"]>> = null
-      let arrearsBefore = 0
+      let retainedRentalsBefore = 0
       if (jointStop) {
         await backdateLease(database(), loanId, 2)
         try {
@@ -71,7 +71,7 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
           historicalRows = await database().loanCharge.findMany({ where: { loanId }, orderBy: { id: "asc" } })
         } finally { vi.useRealTimers() }
         const prior = await database().loan.findUniqueOrThrow({ where: { id: loanId }, include: { repaymentSchedule: true } })
-        arrearsBefore = (await loanSettlementFigures(database() as never, prior, new Date())).arrearsIncludingCharges
+        retainedRentalsBefore = prior.repaymentSchedule.filter((row) => row.dueDate <= dbDate(today)).reduce((sum, row) => sum + row.totalDue - row.totalPaid, 0)
       }
       const recovery = await database().$transaction((tx) => createRecoveryTx(tx as never, actor, { loanId, route: "NON_NCA_VOLUNTARY", recoveredOn: today, location: "Synthetic yard", condition: "Synthetic returned plant" }))
       if (recovery.kind !== "done") throw new Error(JSON.stringify(recovery))
@@ -117,7 +117,7 @@ const staff = (id: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => setSession(
       expect(Math.max(0, recorded.damagesInclVatCents + recorded.chargedCostsCents - price)).toBe(approvedNet)
       expect(await database().recoveryCost.findUniqueOrThrow({ where: { id: actualCost.id } })).toEqual(actualCost)
       const loan = await database().loan.findUniqueOrThrow({ where: { id: loanId }, include: { repaymentSchedule: true } })
-      expect((await loanSettlementFigures(database() as never, loan, new Date())).totalToSettle).toBe(approvedNet + arrearsBefore)
+      expect((await loanSettlementFigures(database() as never, loan, new Date())).totalToSettle).toBe(approvedNet + retainedRentalsBefore)
       const receipts = await database().payment.findMany({ where: { loanId, idempotencyKey: `asset-recovery:${recovery.id}:proceeds` } })
       expect(receipts).toHaveLength(1)
       expect(receipts[0].amount).toBe(Math.min(price, recorded.damagesInclVatCents + recorded.chargedCostsCents))

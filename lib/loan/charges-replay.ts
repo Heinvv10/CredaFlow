@@ -315,6 +315,7 @@ export async function loadChargesReplay(
     loan,
     receipts,
     defaultChargesLive,
+    certifiedCostIds: [...certifiedCostIds],
     stoppedCertifiedCostIds: stoppedHistory ? [...certifiedCostIds] : null,
     result: replayAt(asOf),
     replayAt,

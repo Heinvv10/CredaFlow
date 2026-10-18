@@ -104,9 +104,20 @@ export interface LoanChargesView extends ChargesSummary {
 /** The live charges view of one loan, or null while charges are off for its tenant. */
 export async function loadLoanCharges(db: ChargesTx, ref: LoanRef, asOf: Date): Promise<LoanChargesView | null> {
   const replay = await loadChargesReplay(db, ref, asOf)
-  if (!replay || replay.defaultChargesLive === false) return null
+  if (!replay) return null
+  let result = replay.result
+  if (replay.defaultChargesLive === false) {
+    // Optional charges remain stopped. Only a newly accepted, independently
+    // certified cancellation-cost allowance can still be collectible.
+    const certified = new Set(replay.certifiedCostIds ?? replay.stoppedCertifiedCostIds ?? [])
+    const postings = result.postings.filter((posting) => posting.type === "RECOVERY_COST" && posting.sourceId && certified.has(posting.sourceId))
+    if (!postings.length || result.feesOutstanding <= 0) return null
+    const accrued = postings.reduce((sum, posting) => sum + posting.amount, 0)
+    result = { ...result, postings, interestAccrued: 0, interestPaid: 0, interestOutstanding: 0,
+      feesAccrued: accrued, feesPaid: accrued - result.feesOutstanding }
+  }
   return {
-    ...summariseCharges(replay.result),
+    ...summariseCharges(result),
     goLive: replay.goLive,
     accrueFrom: replay.accrueFrom,
     exempt: replay.loan.defaultChargesExempt,
