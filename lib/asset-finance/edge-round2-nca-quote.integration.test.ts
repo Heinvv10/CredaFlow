@@ -22,6 +22,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, dealRoutes, type DealFixture } from "./deal.integration-fixture"
 import { DRAFT_WATERMARK } from "./documents/pdf-layout"
 import { texts } from "./documents/nca/nca-wording.test-helpers"
+import { publishStarterTemplates } from "./documents/templates/templates.integration-fixture"
 
 const { session } = vi.hoisted(() => ({
   session: { current: null as null | { user: { id: string; email: string; role: string; tenantId: string } } },
@@ -50,9 +51,13 @@ const routes = () => dealRoutes(fx.host)
 
 suite.sequential("EDGE round 2: NCA quotation-mark gate (real Postgres, real routes)", () => {
   beforeAll(async () => {
-    // Every template published under the fixture's (test) legal approval; the
-    // legacy quotation-wording flag stays OFF, so quotations print DRAFT.
-    fx = await createDealFixture(database(), t)
+    // Every template but the NCA agreement published under the fixture's (test)
+    // legal approval; the legacy quotation-wording flag stays OFF, so quotations
+    // print DRAFT. (While a legally approved NCA agreement is published, such a
+    // quotation is refused up front: the NCA agreement is published only after
+    // this deal's quotation, the case the agreement gate still guards.)
+    fx = await createDealFixture(database(), t, { templates: false })
+    await publishStarterTemplates(database(), fx.tenantId, fx.adminA, fx.adminB, ["af.isa", "af.lease.operating", "af.lease.fml", "af.suretyship", "af.resolution"])
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: false } })
     const insurer = await database().insurer.create({ data: { tenantId: fx.tenantId, name: "TEST Life Underwriter", fspNumber: "99999" } })
     await database().insuranceProduct.create({ data: {
@@ -86,6 +91,7 @@ suite.sequential("EDGE round 2: NCA quotation-mark gate (real Postgres, real rou
     signInClient(fx.director)
     expect((await routes().viewDocument(quote.documentId)).status).toBe(200)
     expect((await routes().acknowledgePasq(row.applicationId, { documentSha256: quote.sha256 })).status).toBe(200)
+    await publishStarterTemplates(database(), fx.tenantId, fx.adminA, fx.adminB, ["af.nca"])
   }, 240_000)
 
   afterAll(async () => {
@@ -104,7 +110,7 @@ suite.sequential("EDGE round 2: NCA quotation-mark gate (real Postgres, real rou
     expect(await database().assetDocumentIssuance.count({ where: { dealId } })).toBe(0)
   })
 
-  it("DEFECT: turning the flag on after that quotation lets an unwatermarked agreement follow the DRAFT-stamped quotation the consumer acknowledged", async () => {
+  it("FIXED (round 2): turning the flag on after that quotation lets an unwatermarked agreement follow the DRAFT-stamped quotation the consumer acknowledged", async () => {
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: true } })
     signIn(fx.adminA, "LOAN_ADMIN")
     const response = await routes().ncaAgreement(dealId)

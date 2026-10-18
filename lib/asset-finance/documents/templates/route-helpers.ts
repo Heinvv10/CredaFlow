@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma"
 import { getLenderIdentity, LenderIdentityError } from "@/lib/config/identity"
 import type { StaffUser } from "@/lib/auth-guards"
 import { parseContent } from "./content"
-import { renderTemplatePreview } from "./preview"
+import { previewShapes, renderTemplatePreview } from "./preview"
 import type { StoreResult, TemplateActor } from "./store"
 import { validContent } from "./validate"
 
@@ -31,7 +31,11 @@ export const assetTemplateFixed = () => NextResponse.json(
  * version's content hash is returned in X-Template-Content-Sha256: the
  * approver posts it back, so an approval binds exactly what was previewed.
  */
-export async function assetTemplatePreview(tenantId: string, template: { id: string; key: string }, body: { versionId?: unknown; content?: unknown }): Promise<NextResponse> {
+export async function assetTemplatePreview(tenantId: string, template: { id: string; key: string }, body: { versionId?: unknown; content?: unknown; shape?: unknown }): Promise<NextResponse> {
+  const shape = typeof body.shape === "string" ? body.shape : undefined
+  if (shape !== undefined && !previewShapes(template.key).some((s) => s.id === shape)) {
+    return NextResponse.json({ error: "Unknown preview deal shape" }, { status: 422 })
+  }
   let text: string
   let sha: string | null = null
   if (typeof body.versionId === "string") {
@@ -55,7 +59,7 @@ export async function assetTemplatePreview(tenantId: string, template: { id: str
     }
     throw error
   }
-  const pdf = await renderTemplatePreview(template.key, checked.content, lender)
+  const pdf = await renderTemplatePreview(template.key, checked.content, lender, shape)
   return new NextResponse(new Uint8Array(pdf), {
     status: 200,
     headers: {

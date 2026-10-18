@@ -1,8 +1,11 @@
-// The fingerprint of a variant's protected system output: the SHA-256 of its
-// preview PDF rendered for a fixed synthetic lender and deal, with fixed
-// placeholder text in every editable clause and no additional terms. Anything
-// the system prints for that variant — protected clauses, sections, CPA and
-// NCA notices, layout — changes it; the lender's own text does not.
+// The fingerprint of a variant's protected system output: the SHA-256 over
+// its preview PDFs in every deal shape (./preview.ts previewShapes: entity
+// types, rate bases, lease timing and maintenance risk, lessee kind, NCA
+// size), each rendered for a fixed synthetic lender with fixed placeholder
+// text in every editable clause and no additional terms. A change to what the
+// system prints on any of those branches changes it; the lender's own text
+// does not. A branch no shape reaches is not covered (SPEC.md proof limits):
+// add a shape when adding a branch.
 //
 // An approval records the fingerprint it was given against
 // (DocumentTemplateVersion.approvedSystemSha256), and a version issues only
@@ -11,7 +14,7 @@
 // variant's value with SYSTEM_REVISION, so such a change cannot land unnoticed.
 import { createHash } from "node:crypto"
 import { editableClauses, parseTemplateKey, STARTER_REVISION } from "./families"
-import { renderTemplatePreview } from "./preview"
+import { previewShapes, renderTemplatePreview } from "./preview"
 
 const FINGERPRINT_LENDER = {
   legalName: "Fingerprint Lender (Pty) Ltd", tradingName: "Fingerprint Lender", companyRegNumber: "2000/000000/07",
@@ -30,8 +33,16 @@ export function systemFingerprint(templateKey: string): Promise<string> {
     schema: 1 as const, templateKey, starterRevision: STARTER_REVISION, additionalTerms: [],
     clauses: Object.fromEntries(editableClauses(key).map((c) => [c.id, `Fingerprint placeholder for clause ${c.number}. ${c.requiredTokens.map((t) => `{{${t}}}`).join(" ")}`.trim()])),
   }
-  const fingerprint = renderTemplatePreview(templateKey, content, FINGERPRINT_LENDER)
-    .then((pdf) => createHash("sha256").update(pdf).digest("hex"))
+  const fingerprint = (async () => {
+    const parts: string[] = []
+    for (const shape of previewShapes(templateKey)) {
+      const pdf = await renderTemplatePreview(templateKey, content, FINGERPRINT_LENDER, shape.id)
+      parts.push(`${shape.id}:${createHash("sha256").update(pdf).digest("hex")}`)
+    }
+    return createHash("sha256").update(parts.join("\n"), "utf8").digest("hex")
+  })()
   memo.set(templateKey, fingerprint)
+  // A failed render is not remembered: the next call tries again.
+  fingerprint.catch(() => memo.delete(templateKey))
   return fingerprint
 }

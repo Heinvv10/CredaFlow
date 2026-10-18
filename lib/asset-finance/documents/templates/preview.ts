@@ -2,6 +2,13 @@
 // server-built deal of the template's variant, rendered by the same trusted
 // renderers issuance uses, always with the DRAFT mark. A preview is never
 // issued, stored or signable.
+//
+// Each variant has a fixed set of deal SHAPES that between them reach every
+// branch of its protected wording (entity types, rate bases, balloon and
+// arrears terms, lease timing, maintenance risk and lessee kind, NCA size).
+// The approver can preview each, and the protected-output fingerprint
+// (./fingerprint.ts) covers all of them. Figures in a shape other than the
+// first are illustrative.
 import type { LenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
@@ -20,26 +27,37 @@ import { parseTemplateKey } from "./families"
 
 type PreviewLender = Pick<LenderIdentity, "legalName" | "tradingName" | "companyRegNumber" | "ncrNumber" | "registeredOfficeLines">
 
-function leaseTerms(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE", cpa: boolean): LeaseDocumentTerms {
+export interface PreviewShape {
+  id: string
+  label: string
+}
+
+type DealShape = PreviewShape & { deal: (base: DealDocumentData) => AnyDealDocumentData }
+type NcaShape = PreviewShape & { nca: (base: NcaAssetDocumentData) => NcaAssetDocumentData }
+
+function leaseTerms(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE", cpa: boolean, opts: { advance?: boolean; riskModel?: "LESSEE_SETTLED" | "LENDER_RISK"; usage?: boolean } = {}): LeaseDocumentTerms {
   const fml = contractType === "FULL_MAINTENANCE_LEASE"
+  const timing = opts.advance ? "ADVANCE" : "ARREARS"
+  const usage = opts.usage ?? fml
   const priced = priceLease({
-    cashPriceExclVatCents: 150_000_000, residualCents: 30_000_000, periods: 36, rentalTiming: "ARREARS", escalationRate: "0.08",
-    startDate: "2026-12-31", firstDueDate: "2027-01-31", ratePath: [{ effectiveDate: "2026-12-31", annualRate: 0.1175 }],
+    cashPriceExclVatCents: 150_000_000, residualCents: 30_000_000, periods: 36, rentalTiming: timing, escalationRate: "0.08",
+    startDate: opts.advance ? "2027-01-31" : "2026-12-31", firstDueDate: "2027-01-31",
+    ratePath: [{ effectiveDate: "2026-12-31", annualRate: 0.1175 }],
     maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: "0.065" } : null, vatRateTenThousandths: 1500,
   })
   return {
     contractType,
     terms: {
-      rentalTiming: "ARREARS", escalationRate: "0.08", earlyTerminationPenaltyRate: "0.1",
-      maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: "0.065", riskModel: "LESSEE_SETTLED" } : null,
-      usage: fml ? { allowancePerYear: 1_500, unit: "HOURS", excessRateCents: 35_000 } : null,
+      rentalTiming: timing, escalationRate: "0.08", earlyTerminationPenaltyRate: "0.1",
+      maintenance: fml ? { monthlyExclVatCents: 450_000, escalationRate: "0.065", riskModel: opts.riskModel ?? "LESSEE_SETTLED" } : null,
+      usage: usage ? { allowancePerYear: 1_500, unit: "HOURS", excessRateCents: 35_000 } : null,
     },
     schedule: leaseScheduleView(priced, "0.1500"), endDate: "2029-12-31",
     cpaApplies: cpa, cpaRule: cpa ? "CPA_JURISTIC_UNDER_THRESHOLD" : "CPA_JURISTIC_OVER_THRESHOLD",
   }
 }
 
-function ncaData(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINANCE_LEASE"): NcaAssetDocumentData {
+function ncaBase(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINANCE_LEASE"): NcaAssetDocumentData {
   const asset = { cashPriceExclVatCents: 100_000_000, vatCents: 15_000_000 }
   const terms = {
     depositCents: 15_000_000, tradeInCents: 0, financedFeesCents: 120_750, balloonCents: 20_000_000, preset: "MONTHLY" as const,
@@ -75,29 +93,117 @@ function ncaData(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINAN
   }
 }
 
-function dealData(lender: PreviewLender, key: string): AnyDealDocumentData {
-  const base = syntheticDealDocumentData({ reference: "PREVIEW-0001", lender })
-  switch (key) {
-    case "af.isa.commercial": return { ...base, isaCpaApplies: false }
-    case "af.isa.cpa": return { ...base, isaCpaApplies: true }
-    case "af.lease.operating.commercial": return { ...base, lease: leaseTerms("OPERATING_LEASE", false) }
-    case "af.lease.operating.cpa": return { ...base, lease: leaseTerms("OPERATING_LEASE", true) }
-    case "af.lease.fml.commercial": return { ...base, lease: leaseTerms("FULL_MAINTENANCE_LEASE", false) }
-    case "af.lease.fml.cpa": return { ...base, lease: leaseTerms("FULL_MAINTENANCE_LEASE", true) }
-    case "af.suretyship.nca": return { ...base, ncaApplies: true }
-    default: return base satisfies DealDocumentData
+type Entity = DealDocumentData["entity"]
+const ENTITIES: Record<"COMPANY" | "TRUST" | "CC" | "PARTNERSHIP", Partial<Entity>> = {
+  COMPANY: {},
+  TRUST: { type: "TRUST", legalName: "SAMPLE Family Trust", registrationNumber: "IT0000/2099", mastersReference: "IT0000/2099", tradingName: null },
+  CC: { type: "CC", legalName: "SAMPLE Haulage CC", registrationNumber: "2099/000003/23" },
+  PARTNERSHIP: { type: "PARTNERSHIP", legalName: "SAMPLE Partners", registrationNumber: "PARTNERSHIP-0001", vatNumber: null },
+}
+const entity = (d: DealDocumentData, type: keyof typeof ENTITIES): DealDocumentData => ({ ...d, entity: { ...d.entity, ...ENTITIES[type] } })
+const rate = (d: DealDocumentData, basis: DealDocumentData["pricing"]["rateBasis"]): DealDocumentData => ({
+  ...d, pricing: basis === "FIXED"
+    ? { ...d.pricing, rateBasis: "FIXED", rateMargin: null, fixedRate: d.pricing.annualRate, reference: null }
+    : { ...d.pricing, rateBasis: basis },
+})
+const plain = (d: DealDocumentData): DealDocumentData => ({ ...d, pricing: { ...d.pricing, balloonCents: 0, arrearsMarginRate: null, collectionFeeCents: 0 } })
+const sole = (d: DealDocumentData, lease: LeaseDocumentTerms): AnyDealDocumentData => ({
+  ...d, entity: null, lease,
+  soleProprietor: { clientId: "client-lessee", name: "SAMPLE Sole Proprietor", idNumber: "0000000000000", addressLines: ["3 Sample Lane", "Sampletown"] },
+  signatories: [{ clientId: "client-lessee", name: "SAMPLE Sole Proprietor", idNumber: "0000000000000" }], sureties: [],
+})
+
+function isaShapes(cpa: boolean): DealShape[] {
+  const v = (d: DealDocumentData) => ({ ...d, isaCpaApplies: cpa })
+  return [
+    { id: "prime-company", label: "Company, prime-linked, balloon and arrears terms", deal: v },
+    { id: "fixed-trust", label: "Trust, fixed rate, no balloon or arrears terms", deal: (d) => v(plain(rate(entity(d, "TRUST"), "FIXED"))) },
+    { id: "zaronia-cc", label: "Close corporation, ZARONIA-linked", deal: (d) => v(rate(entity(d, "CC"), "ZARONIA")) },
+    { id: "repo-partnership", label: "Partnership, repo-linked", deal: (d) => v(rate(entity(d, "PARTNERSHIP"), "REPO")) },
+    { id: "jibar", label: "JIBAR-linked", deal: (d) => v(rate(d, "JIBAR")) },
+    { id: "lender-base", label: "Linked to the lender's base rate", deal: (d) => v(rate(d, "LENDER_BASE")) },
+  ]
+}
+
+function leaseShapes(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE", cpa: boolean): DealShape[] {
+  const fml = contractType === "FULL_MAINTENANCE_LEASE"
+  const l = (d: DealDocumentData, opts?: Parameters<typeof leaseTerms>[2]) => ({ ...d, lease: leaseTerms(contractType, cpa, opts) })
+  const shapes: DealShape[] = [
+    { id: "juristic-arrears", label: "Company lessee, rentals in arrears", deal: (d) => l(d) },
+    { id: "juristic-advance", label: "Company lessee, rentals in advance", deal: (d) => l(d, { advance: true }) },
+    { id: "fixed", label: "Fixed rate", deal: (d) => l(rate(d, "FIXED")) },
+    fml
+      ? { id: "lender-risk", label: "Maintenance risk with the lessor", deal: (d) => l(d, { riskModel: "LENDER_RISK" }) }
+      : { id: "with-usage", label: "Contracted usage", deal: (d) => l(d, { usage: true }) },
+  ]
+  // Only a natural-person lessee brings CPA s14 by statute: the CPA variants also cover a sole proprietor.
+  if (cpa) shapes.push({ id: "sole-proprietor", label: "Sole proprietor lessee", deal: (d) => sole(d, leaseTerms(contractType, true)) })
+  return shapes
+}
+
+function suretyshipShapes(nca: boolean): DealShape[] {
+  const v = (d: DealDocumentData) => ({ ...d, ncaApplies: nca })
+  return [
+    { id: "surety-with-address", label: "Surety with a recorded address", deal: v },
+    { id: "surety-without-address", label: "Surety without an address", deal: (d) => v({ ...d, sureties: [{ clientId: "client-surety", name: "SAMPLE Surety", idNumber: "0000000000002" }] }) },
+  ]
+}
+
+function resolutionShapes(): DealShape[] {
+  const two = (d: DealDocumentData): DealDocumentData => ({ ...d, signatories: [...d.signatories, { clientId: "client-second", name: "SAMPLE Second Signatory", idNumber: "0000000000003" }] })
+  return [
+    { id: "company", label: "Company, one signatory", deal: (d) => d },
+    { id: "company-two", label: "Company, two signatories", deal: two },
+    { id: "trust", label: "Trust", deal: (d) => entity(d, "TRUST") },
+    { id: "cc", label: "Close corporation", deal: (d) => entity(d, "CC") },
+    { id: "partnership", label: "Partnership", deal: (d) => entity(d, "PARTNERSHIP") },
+  ]
+}
+
+const NCA_SHAPES: NcaShape[] = [
+  { id: "prime-intermediate", label: "Prime-linked, intermediate agreement, residual", nca: (d) => d },
+  { id: "fixed", label: "Fixed rate", nca: (d) => ({ ...d, pricing: { ...d.pricing, rateBasis: "FIXED", rateMargin: null, reference: null } }) },
+  { id: "small-no-residual", label: "Small agreement, no residual (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 1_000_000, balloonCents: 0 } }) },
+  { id: "large", label: "Large agreement (illustrative figures)", nca: (d) => ({ ...d, pricing: { ...d.pricing, principalCents: 30_000_000 } }) },
+]
+
+function dealShapes(templateKey: string): DealShape[] {
+  switch (templateKey) {
+    case "af.isa.commercial": return isaShapes(false)
+    case "af.isa.cpa": return isaShapes(true)
+    case "af.lease.operating.commercial": return leaseShapes("OPERATING_LEASE", false)
+    case "af.lease.operating.cpa": return leaseShapes("OPERATING_LEASE", true)
+    case "af.lease.fml.commercial": return leaseShapes("FULL_MAINTENANCE_LEASE", false)
+    case "af.lease.fml.cpa": return leaseShapes("FULL_MAINTENANCE_LEASE", true)
+    case "af.suretyship.nca": return suretyshipShapes(true)
+    case "af.suretyship.commercial": return suretyshipShapes(false)
+    case "af.resolution.standard": return resolutionShapes()
+    default: return []
   }
 }
 
-/** The preview PDF of `content` for template `templateKey` under `lender`'s identity. */
-export async function renderTemplatePreview(templateKey: string, content: AssetTemplateContent, lender: PreviewLender): Promise<Buffer> {
+/** The deal shapes a variant previews and fingerprints, in order (the first is the default preview). */
+export function previewShapes(templateKey: string): PreviewShape[] {
+  const key = parseTemplateKey(templateKey)
+  if (!key) throw new RangeError(`Not an asset-finance template: ${templateKey}`)
+  const shapes: PreviewShape[] = key.family.family === "af.nca" ? NCA_SHAPES : dealShapes(templateKey)
+  return shapes.map(({ id, label }) => ({ id, label }))
+}
+
+/** The preview PDF of `content` for template `templateKey` under `lender`'s identity, in deal shape `shapeId` (default the first). */
+export async function renderTemplatePreview(templateKey: string, content: AssetTemplateContent, lender: PreviewLender, shapeId?: string): Promise<Buffer> {
   const key = parseTemplateKey(templateKey)
   if (!key) throw new RangeError(`Not an asset-finance template: ${templateKey}`)
   const wording = { templateKey, content, mark: "DRAFT" as const }
   if (key.family.family === "af.nca") {
-    return renderNcaAssetAgreement(ncaData(lender, key.variant === "finance_lease" ? "FINANCE_LEASE" : "INSTALMENT_SALE"), wording)
+    const shape = shapeId === undefined ? NCA_SHAPES[0] : NCA_SHAPES.find((s) => s.id === shapeId)
+    if (!shape) throw new RangeError(`Unknown preview shape ${shapeId} for ${templateKey}`)
+    return renderNcaAssetAgreement(shape.nca(ncaBase(lender, key.variant === "finance_lease" ? "FINANCE_LEASE" : "INSTALMENT_SALE")), wording)
   }
-  const data = dealData(lender, templateKey)
-  const surety = data.entity ? data.sureties[0]?.clientId ?? "" : ""
+  const shapes = dealShapes(templateKey)
+  const shape = shapeId === undefined ? shapes[0] : shapes.find((s) => s.id === shapeId)
+  if (!shape) throw new RangeError(`Unknown preview shape ${shapeId} for ${templateKey}`)
+  const data = shape.deal(syntheticDealDocumentData({ reference: "PREVIEW-0001", lender }))
+  const surety = data.entity ? data.sureties.at(-1)?.clientId ?? "" : ""
   return (await renderDealDocument(data, key.family.document, surety, wording)).bytes
 }

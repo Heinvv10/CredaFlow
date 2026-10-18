@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { parseContent } from "@/lib/asset-finance/documents/templates/content"
 import { additionalTermNumber, editableClauses, parseTemplateKey, STARTER_REVISION, takesLenderText } from "@/lib/asset-finance/documents/templates/families"
 import { ASSET_TEMPLATE_TOKENS } from "@/lib/asset-finance/documents/templates/tokens"
+import { previewShapes } from "@/lib/asset-finance/documents/templates/preview"
 import type { AssetTemplateEditorProps } from "./asset-template-types"
 
 export async function assetTemplateEditorProps(tenantId: string, templateId: string, templateKey: string, currentUserId: string, currentUserRole: string): Promise<AssetTemplateEditorProps> {
@@ -26,6 +27,7 @@ export async function assetTemplateEditorProps(tenantId: string, templateId: str
       ? `Every section, particular, figure and schedule, the statutory and Consumer Protection Act notices, and every numbered clause except ${editableNumbers.join(", ")} are printed by the system from the deal.`
       : "This document takes no lender text: its wording is the protected starter (Consumer Protection Act, National Credit Act, suretyship and resolution formalities). Your version approves that wording for your lender.",
     takesLenderText: takesLenderText(key),
+    shapes: previewShapes(templateKey),
     tokens: key.family.tokens.map((token) => ({ token, label: ASSET_TEMPLATE_TOKENS[token] })),
     firstAdditionalNumber: additionalTermNumber(key.family, key.variant, 0),
     currentUserId,

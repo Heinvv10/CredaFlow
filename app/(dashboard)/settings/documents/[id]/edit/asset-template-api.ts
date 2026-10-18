@@ -26,7 +26,7 @@ export const approve = (templateId: string, versionId: string, body: { contentSh
 export const publish = (templateId: string, versionId: string) => call<{ archived: string[] }>(`${base(templateId)}/versions/${versionId}/publish`, {})
 
 /** Open the preview PDF in a new tab; returns the previewed content hash (saved versions only). */
-export async function openPreview(templateId: string, body: { versionId: string } | { content: AssetTemplateContent }): Promise<ApiResult<{ sha: string | null }>> {
+export async function openPreview(templateId: string, body: ({ versionId: string } | { content: AssetTemplateContent }) & { shape?: string }): Promise<ApiResult<{ sha: string | null }>> {
   const tab = window.open("", "_blank")
   const res = await fetch(`${base(templateId)}/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
   if (!res.ok) {

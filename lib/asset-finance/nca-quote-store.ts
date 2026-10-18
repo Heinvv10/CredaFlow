@@ -11,6 +11,7 @@ import { solveNcaDealStructure } from "./nca-structure"
 import { createAssetPasqEvidence, pasqJson } from "./nca-evidence"
 import { renderNcaAssetQuote } from "./documents/nca/quote-pdf"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
+import { ncaTemplateKey } from "./documents/templates/issuance"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
 import { prisma } from "@/lib/prisma"
 
@@ -68,6 +69,18 @@ export async function issueAssetNcaQuote(
     initiationFeeCents: terms.financedFeesCents, creditLife: creditLife.evidence,
   })
   const [lender, approved] = await Promise.all([getLenderIdentity(actor.tenantId), legalWordingApproved(tx, actor.tenantId)])
+  // A quotation is issued once. One that would print DRAFT could never be
+  // followed by this lender's legally approved, unwatermarked agreement
+  // (ncaQuoteMarkProblem), leaving the deal with no way forward: refuse it.
+  if (!approved) {
+    const agreement = await tx.documentTemplate.findFirst({
+      where: { tenantId: actor.tenantId, key: ncaTemplateKey(deal.contractType), kind: "ASSET_FINANCE", deletedAt: null },
+      select: { versions: { where: { status: "ACTIVE" }, select: { approvalBasis: true } } },
+    })
+    if (agreement?.versions[0]?.approvalBasis === "LENDER_LEGAL") {
+      return { kind: "not_ready", reason: "Your NCA agreement is legally approved, but the quotation wording is not yet: a DRAFT quotation could not be followed by the agreement. CredaFlow records the quotation approval once your legal team signs it off." }
+    }
+  }
   const bytes = await renderNcaAssetQuote({
     legalWordingApproved: approved, reference: deal.application.reference, documentDate: generatedAt, contractType: deal.contractType,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },

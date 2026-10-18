@@ -65,8 +65,9 @@ function ApprovalForm({ version, props, previewedSha, done }: {
 export function AssetTemplateVersions(props: AssetTemplateEditorProps & { onLoad: (content: AssetTemplateContent) => void }) {
   const router = useRouter()
   const [previewed, setPreviewed] = useState<Record<string, string>>({})
+  const [shape, setShape] = useState(props.shapes[0]?.id ?? "")
   const preview = async (v: AssetVersionView) => {
-    const result = await openPreview(props.templateId, { versionId: v.id })
+    const result = await openPreview(props.templateId, { versionId: v.id, shape })
     if (!result.ok) return toast.error(result.error)
     if (result.value.sha) setPreviewed((p) => ({ ...p, [v.id]: result.value.sha! }))
   }
@@ -79,6 +80,14 @@ export function AssetTemplateVersions(props: AssetTemplateEditorProps & { onLoad
   return (
     <div className="bg-[var(--cf-bg-raised)] border border-[var(--cf-border-subtle)] rounded-2xl overflow-hidden">
       <h2 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--cf-text-muted)] px-5 pt-5 pb-2">Versions</h2>
+      <label className="block px-5 pb-2 text-xs text-[var(--cf-text-secondary)]">
+        Preview deal
+        <select aria-label="Preview deal" value={shape} onChange={(e) => setShape(e.target.value)}
+          className="mt-1 w-full border border-[var(--cf-border-strong)] rounded-lg px-2 py-1 text-xs bg-[var(--cf-bg-panel)] text-[var(--cf-text)]">
+          {props.shapes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <span className="block mt-1 text-[var(--cf-text-muted)]">Approving covers the protected wording of every deal shown here: preview each before approving.</span>
+      </label>
       <ul className="divide-y divide-[var(--cf-border-subtle)]">
         {props.versions.map((v) => {
           const mine = v.createdById === props.currentUserId

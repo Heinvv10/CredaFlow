@@ -36,6 +36,8 @@ export interface AssetTemplateEditorProps {
   editable: EditableClauseView[]
   protectedSummary: string
   takesLenderText: boolean
+  /** The deal shapes a preview can show (every branch of the protected wording). */
+  shapes: { id: string; label: string }[]
   tokens: { token: string; label: string }[]
   firstAdditionalNumber: string
   currentUserId: string

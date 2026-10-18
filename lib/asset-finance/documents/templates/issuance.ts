@@ -129,7 +129,7 @@ export async function ncaQuoteMarkProblem(
   })
   const draft = (issued?.newValue as { draftLegalWording?: unknown } | null)?.draftLegalWording !== false
   return draft
-    ? "The quotation this consumer acknowledged printed DRAFT legal wording, so an unwatermarked agreement cannot follow it. Issue a new quotation once CredaFlow has recorded your legal team's approval of the quotation and notices."
+    ? "The quotation this consumer acknowledged printed DRAFT legal wording, so an unwatermarked agreement cannot follow it, and a quotation is issued only once: cancel the deal and originate it again once CredaFlow has recorded your legal team's approval of the quotation and notices."
     : null
 }
 
