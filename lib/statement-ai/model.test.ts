@@ -29,17 +29,6 @@ describe("askModel", () => {
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", kind: "SUMMARY", tokensIn: 12, tokensOut: 3 }))
   })
 
-  it("holds the answer to a schema when one is given, and sends none otherwise", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] })))
-    vi.stubGlobal("fetch", fetch)
-    const schema = { type: "object", properties: { queries: { type: "array" } }, required: ["queries"] }
-    await askModel({ ...call, schema })
-    await askModel(call)
-    const bodies = fetch.mock.calls.map((c) => JSON.parse((c as unknown as [string, { body: string }])[1].body))
-    expect(bodies[0].response_format).toEqual({ type: "json_schema", json_schema: { name: "answer", strict: true, schema } })
-    expect(bodies[1]).not.toHaveProperty("response_format")
-  })
-
   it("meters a failed call too, then backs off without asking", async () => {
     const fetch = vi.fn(async () => new Response("down", { status: 503 }))
     vi.stubGlobal("fetch", fetch)

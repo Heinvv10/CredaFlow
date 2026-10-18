@@ -34,8 +34,6 @@ export interface ModelCall {
   kind: StatementAiKind
   prompt: string
   maxTokens: number
-  /** A JSON Schema the model server holds the answer to as it is written (guided decoding). */
-  schema?: object
 }
 
 export interface ModelAnswer {
@@ -67,7 +65,6 @@ export async function askModel(call: ModelCall): Promise<ModelAnswer> {
           messages: [{ role: "user", content: call.prompt }],
           max_tokens: call.maxTokens,
           temperature: 0,
-          ...(call.schema ? { response_format: { type: "json_schema", json_schema: { name: "answer", strict: true, schema: call.schema } } } : {}),
         }),
       })
     } catch (err) {

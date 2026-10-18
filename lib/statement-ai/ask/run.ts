@@ -42,7 +42,7 @@ export async function runQuestion(tenantId: string, applicationId: string, outpu
   try {
     const answered = await answerQuestion(
       { question: row.question, rows: planned.rows, raisedFlagCodes: planned.raisedFlagCodes },
-      async (prompt, maxTokens, schema) => (await askModel({ tenantId, applicationId, kind: "ANSWER", prompt, maxTokens, schema })).content,
+      async (prompt, maxTokens) => (await askModel({ tenantId, applicationId, kind: "ANSWER", prompt, maxTokens })).content,
     )
     await finish(tenantId, row.id, applicationId, answered)
   } catch (err) {

@@ -128,11 +128,11 @@ interface CallStat { kind: string; ms: number; tokensIn: number | null; tokensOu
 const calls: CallStat[] = []
 
 function asker(kind: string) {
-  return async (prompt: string, maxTokens: number, schema?: object): Promise<string> => {
+  return async (prompt: string, maxTokens: number): Promise<string> => {
     // The shared model can drop a request; one failed call must not end the run.
     for (let attempt = 1; ; attempt++) {
       try {
-        return await once(prompt, maxTokens, schema)
+        return await once(prompt, maxTokens)
       } catch (err) {
         if (attempt >= 3) throw err
         process.stderr.write(`(model call failed: ${err instanceof Error ? err.message : "unknown"}; retrying)`)
@@ -140,13 +140,13 @@ function asker(kind: string) {
       }
     }
   }
-  async function once(prompt: string, maxTokens: number, schema?: object): Promise<string> {
+  async function once(prompt: string, maxTokens: number): Promise<string> {
     const started = Date.now()
     const res = await fetch(`${process.env.VLM_API_URL!.replace(/\/$/, "")}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0, ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "answer", strict: true, schema } } } : {}) }),
+      body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
     })
     if (!res.ok) throw new Error(`model responded ${res.status}`)
     const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }

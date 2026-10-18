@@ -75,8 +75,11 @@ describe("renderResult", () => {
     expect(renderResult(largest)).toMatch(/^\[q6\] Rows for money out, largest amount at the top: /)
     // Its own wording passes the figure check: an ordered list is shown, not rejected.
     expect(checkAnswer(renderResult(largest), [largest])).toEqual({ ok: true })
-    const byDate = runQuery(ask, { id: "q7", tool: "list", filter: { direction: "out" }, limit: 3, order: "date" })
-    expect(checkAnswer(renderResult(byDate), [byDate])).toEqual({ ok: true })
+    for (const order of ["date", "latest"] as const) {
+      const q = runQuery(ask, { id: "q7", tool: "list", filter: { direction: "out" }, limit: 3, order })
+      expect(renderResult(q)).toContain(order === "date" ? ", earliest at the top: " : ", latest at the top: ")
+      expect(checkAnswer(renderResult(q), [q])).toEqual({ ok: true })
+    }
   })
 })
 

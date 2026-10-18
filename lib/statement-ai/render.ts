@@ -182,7 +182,7 @@ export function renderResult(q: QueryResult): string {
     }
     case "list": {
       const items = (q.result as Array<Record<string, unknown>>).map((e) => `${e.ref} ${e.date} ${quoted(e.payee)} ${e.amount} ${e.direction}`)
-      const order = q.args.order === "largest" ? ", largest amount at the top" : ", earliest at the top"
+      const order = { largest: ", largest amount at the top", latest: ", latest at the top", date: ", earliest at the top" }[q.args.order as string] ?? ""
       return items.length ? `[${q.id}] Rows for ${what}${order}: ${list(items)}${q.matchedRows > items.length ? `; ${q.matchedRows} rows match in all` : ""}.` : `[${q.id}] No rows for ${what}.`
     }
   }
