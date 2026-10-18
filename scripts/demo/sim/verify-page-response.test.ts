@@ -13,6 +13,9 @@ describe("server page verifier expected asset application redirect", () => {
   it.each([[302, "/asset-finance/deals/deal-1"], [303, "/asset-finance/deals/deal-1"], [308, "/asset-finance/deals/deal-1"], [307, "/login"], [307, "/asset-finance/deals/other"], [307, "https://external.invalid/asset-finance/deals/deal-1"], [307, "//external.invalid/asset-finance/deals/deal-1"], [307, "/asset-finance/deals/deal-1?x=1"], [307, "/asset-finance/deals/deal-1#fragment"]] as const)("refuses unexpected %s %s without follow", async (status, location) => {
     const a = actor(body(status, location));expect((await verifyPageResponse(a, "/applications/app-1", "/asset-finance/deals/deal-1")).ok).toBe(false);expect(a.get).toHaveBeenCalledTimes(1)
   })
+  it.each(["/asset-finance/deals/deal-1", "/login", "https://external.invalid/deal-1"])("refuses mapped200 or invalid expected path %s", async expected => {
+    const a = actor(body());expect((await verifyPageResponse(a, "/applications/app-1", expected)).ok).toBe(false);expect(a.get).toHaveBeenCalledTimes(1)
+  })
   it("does not allow a portal or unmapped consumer redirect", async () => {
     const a = actor(body(307, "/asset-finance/deals/deal-1"));expect((await verifyPageResponse(a, "/portal/applications/app-1")).ok).toBe(false);expect(a.get).toHaveBeenCalledTimes(1)
   })
