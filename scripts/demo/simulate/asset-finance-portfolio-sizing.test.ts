@@ -3,8 +3,8 @@ import { planBooking } from "@/lib/asset-finance/booking-plan"
 import { computeCreditMemo } from "@/lib/asset-finance/credit-memo"
 import { solveStructure } from "@/lib/asset-finance/structure"
 import { annualSeasonal } from "@/lib/asset-finance/structure-presets"
-import { PAR30_LIMIT } from "../../scripts/demo/simulate/book-health"
-import { COMPANY_DEAL, CREDIT_MEMO, EXCAVATOR } from "./asset-finance-data"
+import { PAR30_LIMIT } from "./book-health"
+import { COMPANY_DEAL, CREDIT_MEMO, EXCAVATOR } from "../../../prisma/seed/asset-finance-data"
 
 describe("performing company fixture alongside the legally completed recovery book", () => {
   it("retains PAR headroom using booked remaining principal, not original amounts", () => {
