@@ -10,6 +10,7 @@ Test files (all under `lib/asset-finance/documents/templates/` unless noted):
 | Short name | File | Kind |
 |---|---|---|
 | U | `templates.test.ts` | unit: families, content hash, validation, rendering, preview |
+| F | `fingerprint.test.ts` | unit: protected-output fingerprints pinned; every shape distinct; branch markers |
 | EV | `edge-validator.test.ts` | unit: independent edge tester's validator/render repros |
 | G | `templates-governance.integration.test.ts` | real PG (RUN_ASSET_TEMPLATES_IT) |
 | I | `templates-issuance.integration.test.ts` | real PG (RUN_ASSET_TEMPLATES_IT) |
@@ -29,7 +30,7 @@ Test files (all under `lib/asset-finance/documents/templates/` unless noted):
 | 4 | Exact-version approval, fresh approval after edits, SoD, TOTP, audit; concurrency; raw-DB invariants | G approval / publication / race tests; DB-CATALOG; MUTATIONS s3–s5 |
 | 5 | Wrong/missing/stale approval cannot authorise execution; legacy flag cannot approve; demo cannot confer legal authority | I refusals (none, flag on, invalid version, wrong variant, other lender); G demo-basis test; I demo mark survives flag; NU; MUTATIONS m6, s1, s4, s6 |
 | 6 | Issued documents retain template/input/identity/approval/PDF provenance; signing/downloads bound to original bytes; history readable | I "issues every document … reproducibly", "after a new publication and an identity change … signed and downloaded exactly as shown", "re-preparing … supersedes (hashes kept)"; NCA; LEASE; BT; MUTATIONS m7, m9 |
-| 7 | Browser: both lenders, NCA/CPA/commercial variants, negative gates, v2/history | [browser/README.md](browser/README.md) |
+| 7 | Browser: both lenders, NCA/CPA/commercial variants, negative gates, v2/history | [browser/README.md](browser/README.md): 53/53 at cd6f83c5, password+TOTP, two synthetic demo lenders; commercial ISA ×2 lenders, CPA ISA, entity NCA finance lease, CPA operating lease; v1 issued bytes unchanged after v3 |
 | 8 | PDF/text/render checks; consumer PASQ/pins unchanged | U starter parity; legal sample renderers reproduce committed PDFs; no change under `lib/pdf/`, `nca/quote-pdf.ts`, `lib/compliance/pasq`; browser text extracts |
 | 9 | Unit + real-PG + ci:full on the PR; independent reviewers and edge tester SHIP with committed regressions | ci:full and hosted CI: see the PR and final handoff; [REVIEW.md](REVIEW.md); E/EV are the edge tester's committed repros |
 | 10 | Merged through mq, ancestry/tree identity | final handoff |
