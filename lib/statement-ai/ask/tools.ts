@@ -155,7 +155,7 @@ export function runQuery(rows: AskRow[], q: Query): QueryResult {
       return { ...base, result: entries.map((e) => (q.measure === "sum" ? { [name]: e.k, total: rand(e.sum), rowCount: e.count, ...way } : { [name]: e.k, count: e.count })) }
     }
     case "list": {
-      const ordered = q.order === "largest" ? [...hit].sort((a, b) => Math.abs(b.amountCents) - Math.abs(a.amountCents) || a.date.localeCompare(b.date)) : hit
+      const ordered = [...hit].sort((a, b) => (q.order === "largest" ? Math.abs(b.amountCents) - Math.abs(a.amountCents) : 0) || a.date.localeCompare(b.date))
       return { ...base, rows: cite(ordered), result: ordered.slice(0, q.limit).map((r): ListedRow => ({ ref: r.ref, date: r.date, payee: r.payee, ...sized(r.amountCents) })) }
     }
   }

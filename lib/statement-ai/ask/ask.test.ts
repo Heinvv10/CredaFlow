@@ -44,6 +44,11 @@ describe("tools", () => {
     ])
     expect(largest.rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R3", "S1-R1", "S1-R5"])
     expect(runQuery(rows, { id: "q8", tool: "list", filter: { direction: "out" }, limit: 2, order: "date" }).rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R1", "S1-R3", "S1-R5"])
+    // A statement printed newest first is still listed earliest first.
+    const newestFirst = askRows([{ ref: "S1", transactions: [t("2026-08-03", "Card Purchase: KOPANO FRESH FOODS", -20_000), t("2026-07-03", "Card Purchase: KOPANO FRESH FOODS", -12_345)].map((tx, index) => ({ index, t: tx })) }], "T TESTER")
+    expect(runQuery(newestFirst, { id: "q9", tool: "list", filter: {}, limit: 1, order: "date" }).result).toEqual([
+      { ref: "S1-R1", date: "2026-07-03", payee: "KOPANO FRESH FOODS", amount: "R123.45", direction: "out" },
+    ])
   })
   it("gives the model server the plan's shape: a grouping without its measure, or a list without its order, cannot be written", () => {
     const tools = (PLAN_JSON_SCHEMA as unknown as { properties: { queries: { items: { anyOf?: Array<{ properties: { tool: { const: string } }; required: string[] }>; oneOf?: Array<{ properties: { tool: { const: string } }; required: string[] }> } } } }).properties.queries.items

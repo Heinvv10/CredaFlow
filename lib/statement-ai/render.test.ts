@@ -69,12 +69,14 @@ describe("renderResult", () => {
       /^\[q5\] By payee for money out, the largest 2 payees: "SYNTH RENTALS" R19 500.00/,
     )
     expect(renderResult(runQuery(ask, { id: "q3", tool: "list", filter: { payee: "SYNTH RENTALS" }, limit: 1, order: "date" }))).toBe(
-      "[q3] Rows for all rows with \"SYNTH RENTALS\", in date order: S1-R5 2026-07-27 \"SYNTH RENTALS\" R6 500.00 out; 3 rows match in all.",
+      "[q3] Rows for all rows with \"SYNTH RENTALS\", earliest at the top: S1-R5 2026-07-27 \"SYNTH RENTALS\" R6 500.00 out; 3 rows match in all.",
     )
     const largest = runQuery(ask, { id: "q6", tool: "list", filter: { direction: "out" }, limit: 3, order: "largest" })
     expect(renderResult(largest)).toMatch(/^\[q6\] Rows for money out, largest amount at the top: /)
     // Its own wording passes the figure check: an ordered list is shown, not rejected.
     expect(checkAnswer(renderResult(largest), [largest])).toEqual({ ok: true })
+    const byDate = runQuery(ask, { id: "q7", tool: "list", filter: { direction: "out" }, limit: 3, order: "date" })
+    expect(checkAnswer(renderResult(byDate), [byDate])).toEqual({ ok: true })
   })
 })
 
