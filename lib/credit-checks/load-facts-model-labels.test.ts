@@ -58,7 +58,7 @@ describe("loadApplicationFacts: model labels", () => {
   })
 
   it("passes stored labels through to the facts and queues nothing when they are current", async () => {
-    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p3x3" }) })
+    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "synthetic-model|labels-p3x3a" }) })
     const { facts } = (await loadApplicationFacts("t1", "app-1"))!
     expect(facts.statements[0].modelLabels).toEqual({ "SYNTH ZOLA": "FOOD" })
     expect(queueRead).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe("loadApplicationFacts: model labels", () => {
   })
 
   it("ignores stored labels from another model, even with the current prompt", async () => {
-    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "older-model|labels-p3x3" }) })
+    ensure.mockResolvedValue({ state: "read", analysis: analysis({ modelCategories: { "SYNTH ZOLA": "FOOD" }, modelCategoriesVersion: "older-model|labels-p3x3a" }) })
     const { facts } = (await loadApplicationFacts("t1", "app-1", { persistedOnly: true }))!
     expect(facts.statements[0].modelLabels).toBeNull()
   })

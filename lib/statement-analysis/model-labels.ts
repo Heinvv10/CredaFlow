@@ -11,8 +11,8 @@
  * accuracy gate scores (scripts/statement-categoriser-accuracy.ts), so the
  * gate measures what production asks.
  *
- * The answer is constrained to MODEL_CATEGORIES; anything else is
- * UNCATEGORISED. A label can only add to what the rules found: it applies to a
+ * The answer is constrained to MODEL_CATEGORIES: an answer outside them is
+ * UNCATEGORISED, and a key left unanswered abstains (vote()). A label can only add to what the rules found: it applies to a
  * rule-UNCATEGORISED debit and nothing else, so it can raise living spend (an
  * officer referral) but never hide spend the rules counted.
  */
@@ -37,7 +37,7 @@ import { VlmUnavailableError } from "./vlm-reader"
 export const MODEL_LABELS = { enabled: false }
 
 /** Bump when the prompt, the parsing or the vote changes what a key is labelled. */
-export const MODEL_LABEL_PROMPT_VERSION = "labels-p3x3"
+export const MODEL_LABEL_PROMPT_VERSION = "labels-p3x3a"
 
 /**
  * What the model may answer. Not the income or own-transfer categories: it
@@ -61,8 +61,8 @@ export const NEVER_APPLIED: readonly Category[] = ["CREDIT_INSTALMENT", "GAMBLIN
  * can depend on its neighbours. A living category (what EXPENSE_UNDERSTATED
  * counts) stands only when every run that answered agrees; any other only on
  * a majority of them. A batch refused, or answered with no labels object,
- * abstains (a key missing from a labels object is a vote for UNCATEGORISED), and a
- * key with fewer than a majority of VOTE_RUNS answers is UNCATEGORISED.
+ * abstains, and so does a key the model left out of its labels object; a key
+ * with fewer than a majority of VOTE_RUNS answers is UNCATEGORISED.
  * Cost: a read holds the one-at-a-time read queue for VOTE_RUNS times the
  * requests of one run (a hung model still trips the backoff on the first).
  */
@@ -172,17 +172,19 @@ ${JSON.stringify(keys)}`
 }
 
 /**
- * The model's answer → a label per key, matched by the key the model echoed
- * (not by position, which a model can lose count of). Garbage, a missing
- * entry or a value outside MODEL_CATEGORIES is UNCATEGORISED: the model
- * answered, and a deterministic (temperature 0) answer asked again would be the same.
+ * The model's answer → a label per key it echoed, matched by the key (not by
+ * position, which a model can lose count of). An echoed value outside
+ * MODEL_CATEGORIES is UNCATEGORISED: the model answered. A key it left out is
+ * not in the result, so in vote() that run abstains for it, as a refused or
+ * garbage batch does.
  */
 export function parseLabels(content: string, keys: string[]): ModelLabels {
   const raw = parseVlmResponse(content).labels
   const answers = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const out: ModelLabels = {}
   keys.forEach((key) => {
-    const v = Object.prototype.hasOwnProperty.call(answers, key) ? answers[key] : undefined
+    if (!Object.prototype.hasOwnProperty.call(answers, key)) return
+    const v = answers[key]
     const c = typeof v === "string" ? v.trim().toUpperCase() : ""
     out[key] = MODEL_CATEGORIES.includes(c as Category) ? (c as Category) : "UNCATEGORISED"
   })
@@ -273,7 +275,8 @@ async function labelOnce(config: { url: string; model: string }, distinct: strin
     } catch {
       // A body that is not JSON is a garbage answer: the batch abstains.
     }
-    // No labels object is a garbage answer: the batch abstains in this run.
+    // No labels object is a garbage answer: the batch abstains in this run (and
+    // parseLabels leaves out any key the labels object does not echo).
     const answered = parseVlmResponse(content).labels
     if (!answered || typeof answered !== "object" || Array.isArray(answered)) continue
     Object.assign(labels, parseLabels(content, batch))
