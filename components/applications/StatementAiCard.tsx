@@ -33,8 +33,6 @@ interface Payload {
   answers: OutputView[]
   pending: number
   noStatements: boolean
-  /** The role may not see the summary and explanations (READONLY): they are not shown at all. */
-  summaryWithheld?: boolean
   modelAvailable: boolean
 }
 
@@ -155,7 +153,7 @@ function Ask({ applicationId, onAsked }: { applicationId: string; onAsked: () =>
   )
 }
 
-export function StatementAiCard({ applicationId, canAsk = false }: { applicationId: string; canAsk?: boolean }) {
+export function StatementAiCard({ applicationId }: { applicationId: string }) {
   const [data, setData] = useState<Payload | null>(null)
   const [off, setOff] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -215,11 +213,9 @@ export function StatementAiCard({ applicationId, canAsk = false }: { application
       {data?.noStatements && <p className="mt-3 text-sm text-[var(--cf-text-muted)]">No statement has been read yet.</p>}
       {data && !data.noStatements && (
         <div className="mt-3 space-y-4">
-          {!data.summaryWithheld && (
-            <div data-testid="statement-ai-summary">
-              <Body o={data.summary} waiting={waiting} label="summary" />
-            </div>
-          )}
+          <div data-testid="statement-ai-summary">
+            <Body o={data.summary} waiting={waiting} label="summary" />
+          </div>
           {data.explanations.length > 0 && (
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Flags explained</h3>
@@ -241,7 +237,7 @@ export function StatementAiCard({ applicationId, canAsk = false }: { application
           )}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Ask the statement</h3>
-            {canAsk && <div className="mt-2"><Ask applicationId={applicationId} onAsked={() => { setGaveUp(false); setAskedAt(Date.now()) }} /></div>}
+            <div className="mt-2"><Ask applicationId={applicationId} onAsked={() => { setGaveUp(false); setAskedAt(Date.now()) }} /></div>
             {data.answers.length === 0 && <p className="mt-2 text-sm text-[var(--cf-text-muted)]">No questions asked yet.</p>}
             <ul className="mt-2 space-y-3">
               {data.answers.map((o) => (

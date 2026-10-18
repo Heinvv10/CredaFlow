@@ -928,8 +928,8 @@ export default async function ApplicationDetailPage({ params }: PageProps) {
 
         {canReadChecks && <StatementInsightsPanel applicationId={application.id} />}
 
-        {/* Statement AI: renders nothing while the lender has it off (its API 404s). READONLY reads it too. */}
-        <StatementAiCard applicationId={application.id} canAsk={canReadChecks} />
+        {/* Statement AI: renders nothing while the lender has it off (its API 404s). CREDIT_OFFICER and up, like the insights. */}
+        {canReadChecks && <StatementAiCard applicationId={application.id} />}
 
         {/* Credit Bureau Check */}
         {(application.status === "UNDER_REVIEW" || application.status === "APPROVED" || application.status === "DECLINED" || application.status === "DISBURSED") && (
