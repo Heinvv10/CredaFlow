@@ -17,6 +17,8 @@ export interface TemplateActor {
   userId: string
   userEmail?: string | null
   totpVerified?: boolean
+  /** The approver's role: a legal approval is a SUPER_ADMIN's. */
+  role?: string
 }
 
 export type StoreResult<T> =
@@ -43,6 +45,8 @@ const versionData = (content: AssetTemplateContent) => {
   return { content: text, contentSha256: contentSha256(text), bodyHtml: "", tokensUsed: tokens }
 }
 
+class KeyTakenError extends Error {}
+
 const isUniqueViolation = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
 
 /**
@@ -60,8 +64,9 @@ export async function adoptStarter(actor: TemplateActor, family: string): Promis
     const key = parseTemplateKey(`${def.family}.${variant}`)!
     try {
       const made = await prisma.$transaction(async (tx) => {
-        const found = await tx.documentTemplate.findFirst({ where: { tenantId: actor.tenantId, key: key.key }, select: { id: true } })
-        if (found) return null
+        const found = await tx.documentTemplate.findFirst({ where: { tenantId: actor.tenantId, key: key.key }, select: { id: true, kind: true } })
+        if (found?.kind === "ASSET_FINANCE") return null
+        if (found) throw new KeyTakenError(key.key)
         const template = await tx.documentTemplate.create({
           data: {
             tenantId: actor.tenantId, key: key.key, name: `${def.name} — ${label}`, category: "Asset finance", kind: "ASSET_FINANCE",
@@ -82,6 +87,7 @@ export async function adoptStarter(actor: TemplateActor, family: string): Promis
       if (made) created.push(key.key)
       else existing.push(key.key)
     } catch (error) {
+      if (error instanceof KeyTakenError) return refuse(409, `Another document template already uses the key ${key.key}; rename it before adopting`)
       // Another adoption of the same variant committed first: it exists.
       if (!isUniqueViolation(error)) throw error
       existing.push(key.key)
@@ -137,7 +143,7 @@ export async function approveVersion(
   actor: TemplateActor,
   templateId: string,
   versionId: string,
-  input: { contentSha256?: unknown; attestation?: unknown; legalSignOffReference?: unknown },
+  input: { contentSha256?: unknown; attestation?: unknown; legalSignOff?: unknown; legalSignOffReference?: unknown },
 ): Promise<StoreResult<{ approvalBasis: DocumentTemplateApprovalBasis }>> {
   const totp = totpRefusal(actor)
   if (totp) return refuse(totp.status, totp.error)
@@ -156,6 +162,10 @@ export async function approveVersion(
   let reference: string | null = null
   if (basis === "LENDER_LEGAL") {
     if (isDemoMode()) return refuse(403, "A demo deployment cannot record a lender's legal approval")
+    // Removing the DRAFT mark is the lender's most senior act: a SUPER_ADMIN
+    // records it, on its legal team's written sign-off of this exact version.
+    if (actor.role !== "SUPER_ADMIN") return refuse(403, "A legal approval is recorded by a SUPER_ADMIN of your lender")
+    if (input.legalSignOff !== true) return refuse(422, "Confirm that your legal team signed off this exact version in writing")
     reference = typeof input.legalSignOffReference === "string" ? input.legalSignOffReference.trim() : ""
     if (reference.length < 5 || reference.length > 200) return refuse(422, "Give the reference of your legal team's written sign-off (5 to 200 characters)")
   }
@@ -172,7 +182,7 @@ export async function approveVersion(
       entity: "DocumentTemplateVersion", entityId: versionId, oldValue: { approvedById: null },
       newValue: {
         templateId, key: template.key, version: version.version, approvedContentSha256: version.contentSha256, approvalBasis: basis,
-        legalSignOffReference: reference, attestation: true, ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }),
+        legalSignOffReference: reference, attestation: true, ...(basis === "LENDER_LEGAL" ? { legalSignOff: true, approverRole: actor.role } : {}), ...(actor.totpVerified === true ? {} : { totpWaived: "demoStaffWithoutTotp" }),
       },
     }, tx)
     return true

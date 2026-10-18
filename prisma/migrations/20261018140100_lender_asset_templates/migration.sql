@@ -78,7 +78,17 @@ ALTER TABLE "AssetDocumentIssuance" ADD CONSTRAINT "AssetDocumentIssuance_templa
 -- index, which the publish route already maintains for every template.
 -- ---------------------------------------------------------------------------
 
--- At most one ACTIVE version per template.
+-- At most one ACTIVE version per template. The publish route has kept this
+-- since its row lock; an older database that broke it stops here with the
+-- template named, for an operator to resolve, rather than failing obscurely.
+DO $$
+DECLARE dup TEXT;
+BEGIN
+  SELECT "templateId" INTO dup FROM "DocumentTemplateVersion" WHERE "status" = 'ACTIVE' GROUP BY "templateId" HAVING count(*) > 1 LIMIT 1;
+  IF dup IS NOT NULL THEN
+    RAISE EXCEPTION 'DocumentTemplate % has more than one ACTIVE version; archive all but its currentVersionId before migrating', dup;
+  END IF;
+END $$;
 CREATE UNIQUE INDEX "DocumentTemplateVersion_one_active" ON "DocumentTemplateVersion"("templateId") WHERE "status" = 'ACTIVE';
 
 ALTER TABLE "DocumentTemplate" ADD CONSTRAINT "DocumentTemplate_asset_finance_shape" CHECK (
@@ -106,8 +116,7 @@ ALTER TABLE "DocumentTemplateVersion" ADD CONSTRAINT "DocumentTemplateVersion_ap
   AND ("contentSha256" IS NULL OR "contentSha256" ~ '^[0-9a-f]{64}$')
 );
 
--- The template a version belongs to, locked: approval, publication and
--- issuance of one template serialise on its row.
+-- The template a version belongs to (the store and issuance lock its row).
 CREATE FUNCTION public."assetTemplateOfVersion"(version_template TEXT) RETURNS "DocumentTemplate"
 LANGUAGE plpgsql AS $$
 DECLARE t "DocumentTemplate";
@@ -125,9 +134,13 @@ LANGUAGE sql STABLE AS $$
     THEN 'SYNTHETIC_DEMO'::"DocumentTemplateApprovalBasis" ELSE 'LENDER_LEGAL'::"DocumentTemplateApprovalBasis" END
 $$;
 
+-- An active LOAN_ADMIN or above of the lender (the routes' guard, here too).
 CREATE FUNCTION public."assetTemplateStaff"(tenant TEXT, user_id TEXT) RETURNS BOOLEAN
 LANGUAGE sql STABLE AS $$
-  SELECT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = user_id AND u."tenantId" = tenant AND u."active" = true)
+  SELECT EXISTS (
+    SELECT 1 FROM "User" u WHERE u."id" = user_id AND u."tenantId" = tenant AND u."active" = true
+      AND u."role" IN ('LOAN_ADMIN', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN')
+  )
 $$;
 
 CREATE FUNCTION public."guardAssetTemplateVersion"() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -135,6 +148,10 @@ DECLARE
   t "DocumentTemplate";
 BEGIN
   t := public."assetTemplateOfVersion"(CASE WHEN TG_OP = 'DELETE' THEN OLD."templateId" ELSE NEW."templateId" END);
+  -- Not visible (another tenant's, under row-level security) or missing: fail closed.
+  IF t."id" IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A template version changes only with its template visible';
+  END IF;
   IF t."kind" IS DISTINCT FROM 'ASSET_FINANCE' THEN
     IF TG_OP <> 'DELETE' AND (NEW."content" IS NOT NULL OR NEW."contentSha256" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL
       OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL) THEN
@@ -193,6 +210,11 @@ BEGIN
     END IF;
     IF NEW."approvalBasis" IS DISTINCT FROM public."assetTemplateBasisFor"(t."tenantId") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A demo lender''s approval is SYNTHETIC_DEMO and every other lender''s is LENDER_LEGAL';
+    END IF;
+    IF NEW."approvalBasis" = 'LENDER_LEGAL' AND NOT EXISTS (
+      SELECT 1 FROM "User" u WHERE u."id" = NEW."approvedById" AND u."tenantId" = t."tenantId" AND u."role" = 'SUPER_ADMIN'
+    ) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A legal approval is recorded by a SUPER_ADMIN of the lender';
     END IF;
   ELSIF NEW."approvedAt" IS NOT NULL OR NEW."approvalBasis" IS NOT NULL OR NEW."approvedContentSha256" IS NOT NULL OR NEW."legalSignOffReference" IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An approval names its approver';
@@ -272,8 +294,9 @@ ALTER TABLE "AssetDocumentIssuance" ADD CONSTRAINT "AssetDocumentIssuance_shape"
 CREATE FUNCTION public."assetTemplateKeyFits"(template_key TEXT, contract "ContractType", regime "NcaRegime", isa_cpa BOOLEAN, lease_cpa BOOLEAN)
 RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE template_key
-    WHEN 'af.isa.commercial' THEN contract = 'INSTALMENT_SALE' AND regime IS DISTINCT FROM 'NCA' AND isa_cpa = false
-    WHEN 'af.isa.cpa' THEN contract = 'INSTALMENT_SALE' AND regime IS DISTINCT FROM 'NCA' AND isa_cpa IS DISTINCT FROM false
+    -- A finance lease outside the NCA is documented on the instalment sale agreement, as before lender templates.
+    WHEN 'af.isa.commercial' THEN contract IN ('INSTALMENT_SALE', 'FINANCE_LEASE') AND regime IS DISTINCT FROM 'NCA' AND isa_cpa = false
+    WHEN 'af.isa.cpa' THEN contract IN ('INSTALMENT_SALE', 'FINANCE_LEASE') AND regime IS DISTINCT FROM 'NCA' AND isa_cpa IS DISTINCT FROM false
     WHEN 'af.lease.operating.commercial' THEN contract = 'OPERATING_LEASE' AND lease_cpa = false
     WHEN 'af.lease.operating.cpa' THEN contract = 'OPERATING_LEASE' AND lease_cpa = true
     WHEN 'af.lease.fml.commercial' THEN contract = 'FULL_MAINTENANCE_LEASE' AND lease_cpa = false
@@ -348,8 +371,13 @@ BEGIN
   IF TG_OP = 'UPDATE' AND NEW."issuanceId" IS NOT DISTINCT FROM OLD."issuanceId"
     AND NEW."documentSha256" IS NOT DISTINCT FROM OLD."documentSha256"
     AND NEW."documentStoragePath" IS NOT DISTINCT FROM OLD."documentStoragePath" THEN
-    IF NEW."issuanceId" IS NULL AND OLD."method" IS NULL AND NEW."method" IS NOT NULL THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document prepared before lender templates is prepared again before it is signed';
+    IF (OLD."method" IS NULL AND NEW."method" IS NOT NULL) OR (OLD."confirmedAt" IS NULL AND NEW."confirmedAt" IS NOT NULL) THEN
+      IF NEW."issuanceId" IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A document prepared before lender templates is prepared again before it is signed';
+      END IF;
+      IF EXISTS (SELECT 1 FROM "AssetDocumentIssuance" i WHERE i."id" = NEW."issuanceId" AND i."tenantId" = NEW."tenantId" AND i."supersededAt" IS NOT NULL) THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A superseded document is not signed';
+      END IF;
     END IF;
     RETURN NEW;
   END IF;

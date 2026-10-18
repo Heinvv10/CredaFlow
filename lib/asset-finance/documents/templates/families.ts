@@ -3,11 +3,16 @@
 //
 // One DocumentTemplate per lender per family variant; its key is
 // "<family>.<variant>" (the database CHECK DocumentTemplate_asset_finance_shape
-// lists the same keys). A version holds replacement text for the family's
-// editable clauses and up to MAX_ADDITIONAL_TERMS additional terms. Everything
-// else — the sections, particulars, pricing, schedules, rate and enforcement
-// clauses, statutory and CPA notices — is protected and rendered by the
-// trusted renderers from validated deal data.
+// lists the same keys). Every variant is versioned and approved by the lender;
+// only the commercial (non-CPA, non-NCA) agreement variants take lender text:
+// replacement text for the family's editable clauses and up to
+// MAX_ADDITIONAL_TERMS additional terms. CPA variants (s49 conspicuousness
+// cannot be given to free text), NCA agreements (s90: an unlawful term may not
+// be included at all), suretyships (they would widen the surety's liability)
+// and resolutions take none: their lender version approves the starter for
+// that lender. Everything else — the sections, particulars, pricing,
+// schedules, rate and enforcement clauses, statutory and CPA notices — is
+// protected and rendered by the trusted renderers from validated deal data.
 import type { DealDocumentKind } from "@prisma/client"
 import { ISA_INSURANCE_STARTER } from "../wording/instalment-sale"
 import { ISA_CESSION_STARTER, ISA_NOTICES_STARTER } from "../wording/instalment-sale-enforcement"
@@ -158,6 +163,22 @@ export function parseTemplateKey(key: string): AssetTemplateKey | null {
   }
   return null
 }
+
+/** The variants that take lender text (SPEC.md §2). */
+const LENDER_TEXT_KEYS: ReadonlySet<string> = new Set(["af.isa.commercial", "af.lease.operating.commercial", "af.lease.fml.commercial"])
+
+/** Whether this variant takes lender text at all. */
+export function takesLenderText(key: AssetTemplateKey): boolean {
+  return LENDER_TEXT_KEYS.has(key.key)
+}
+
+/** The clauses a lender may replace in this variant: none unless it takes lender text. */
+export function editableClauses(key: AssetTemplateKey): readonly EditableClause[] {
+  return takesLenderText(key) ? key.family.editable : []
+}
+
+/** Starter revisions a version may record: the current one and every earlier one. */
+export const STARTER_REVISIONS: readonly string[] = [STARTER_REVISION]
 
 export const ALL_TEMPLATE_KEYS: readonly string[] = ASSET_TEMPLATE_FAMILIES.flatMap((f) => f.variants.map((v) => `${f.family}.${v.variant}`))
 

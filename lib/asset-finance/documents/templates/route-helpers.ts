@@ -10,8 +10,8 @@ import { renderTemplatePreview } from "./preview"
 import type { StoreResult, TemplateActor } from "./store"
 import { validContent } from "./validate"
 
-export function templateActor(user: Pick<StaffUser, "id" | "email" | "totpVerified">, tenantId: string): TemplateActor {
-  return { tenantId, userId: user.id, userEmail: user.email, totpVerified: user.totpVerified }
+export function templateActor(user: Pick<StaffUser, "id" | "email" | "totpVerified" | "role">, tenantId: string): TemplateActor {
+  return { tenantId, userId: user.id, userEmail: user.email, totpVerified: user.totpVerified, role: user.role }
 }
 
 export function storeResponse<T>(result: StoreResult<T>, status = 200): NextResponse {
@@ -19,7 +19,8 @@ export function storeResponse<T>(result: StoreResult<T>, status = 200): NextResp
   return NextResponse.json({ error: result.error, ...(result.problems ? { problems: result.problems } : {}) }, { status: result.status })
 }
 
-export const ASSET_TEMPLATE_FIXED = NextResponse.json(
+/** A fresh response per request: a Response body is read once. */
+export const assetTemplateFixed = () => NextResponse.json(
   { error: "An asset-finance template's document is fixed; change its wording by saving a new draft version" },
   { status: 403 },
 )

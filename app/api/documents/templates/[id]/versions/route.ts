@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
     }
     if (template.kind === "ASSET_FINANCE") {
-      const body = (await req.json()) as { content?: unknown; notes?: string }
+      const body = (await req.json().catch(() => ({}))) as { content?: unknown; notes?: string }
       return storeResponse(await createDraftVersion(templateActor(guard.user, tenant.id), id, body), 201)
     }
 

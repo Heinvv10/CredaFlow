@@ -128,6 +128,8 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     })
   } catch (error) {
     await Promise.all([deleteFile(issuance.pdfStoragePath), deleteFile(issuance.inputStoragePath)])
+    // A publication between selection and the transaction: issue again.
+    if (error instanceof TemplateNotIssuableError) return { kind: "not_ready", reason: error.message }
     throw error
   }
   return { kind: "done", documentId, sha256 }

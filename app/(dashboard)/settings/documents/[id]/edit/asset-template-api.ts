@@ -36,5 +36,6 @@ export async function openPreview(templateId: string, body: { versionId: string 
   }
   const url = URL.createObjectURL(await res.blob())
   if (tab) tab.location.href = url
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
   return { ok: true, value: { sha: res.headers.get("X-Template-Content-Sha256") } }
 }

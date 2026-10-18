@@ -4,7 +4,7 @@ import { prose, texts } from "../nca/nca-wording.test-helpers"
 import { DRAFT_WATERMARK, SYNTHETIC_DEMO_WATERMARK } from "../pdf-layout"
 import { syntheticDealDocumentData } from "../synthetic-deal.fixture"
 import { canonicalContent, contentSha256, parseContent, starterContent, type AssetTemplateContent } from "./content"
-import { ALL_TEMPLATE_KEYS, additionalTermNumber, parseTemplateKey } from "./families"
+import { ALL_TEMPLATE_KEYS, additionalTermNumber, parseTemplateKey, takesLenderText } from "./families"
 import { renderTemplatePreview } from "./preview"
 import { contentProblems, validContent } from "./validate"
 import type { AppliedWording } from "./apply"
@@ -82,6 +82,37 @@ describe("lender wording validation", () => {
   })
 })
 
+describe("which variants take lender text", () => {
+  const term = { heading: "Extra", text: "A lawful additional term of this agreement." }
+  it.each(["af.isa.cpa", "af.lease.operating.cpa", "af.lease.fml.cpa", "af.nca.instalment_sale", "af.nca.finance_lease", "af.suretyship.nca", "af.suretyship.commercial", "af.resolution.standard"])(
+    "%s takes no clause edits and no additional terms: its version approves the protected starter",
+    (key) => {
+      expect(starter(key).clauses).toEqual({})
+      expect(messages(key, withEdits(key, { additionalTerms: [term] })).join()).toMatch(/takes no additional terms/)
+      expect(messages(key, withEdits(key, { clauses: { insurance: "The Purchaser insures the goods with any insurer it chooses." } })).join()).toMatch(/editable clauses are exactly: none/)
+    },
+  )
+  it.each(["af.isa.commercial", "af.lease.operating.commercial", "af.lease.fml.commercial"])("%s takes its editable clauses and additional terms", (key) => {
+    expect(messages(key, withEdits(key, { additionalTerms: [term] }))).toEqual([])
+  })
+  it.each([
+    "Notwithstanding clause 7.4, the Seller may decide the payments.",
+    "Despite anything else in this Agreement the Seller decides disputes.",
+    "The Seller may amend any term of this Agreement by written notice.",
+    "The Seller may vary the Schedule whenever it chooses to do so.",
+    "Clause 7.8 does not apply to this Agreement in any circumstances.",
+    "The Purchaser waives every right it has under this Agreement.",
+    "An administration fee is payable on signature of this Agreement.",
+    "The Seller may levy charges for every notice it sends to the Purchaser.",
+    "A penalty is payable on every late payment under this Agreement.",
+  ])("refuses override, variation, waiver and charge language: %s", (text) => {
+    expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { additionalTerms: [{ heading: "Extra", text }] })).join()).toMatch(/may not override, vary or waive/)
+  })
+  it("refuses an unknown starter revision", () => {
+    expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { starterRevision: "2099-01-01.9" })).join()).toMatch(/Unknown starter revision/)
+  })
+})
+
 describe("rendering lender wording", () => {
   const data = syntheticDealDocumentData({ lender: LENDER, isaCpaApplies: true })
   const own: AssetTemplateContent = withEdits("af.isa.cpa", {
@@ -126,18 +157,20 @@ describe("rendering lender wording", () => {
     expect(await texts(pdf)).toContain(DRAFT_WATERMARK)
   })
 
-  it("previews every variant with the lender identity and the DRAFT mark", async () => {
+  it("previews every variant with the lender identity and the DRAFT mark (lender text where the variant takes it)", async () => {
     for (const key of ALL_TEMPLATE_KEYS) {
-      const content = withEdits(key, { additionalTerms: [{ heading: "Preview marker term", text: "This preview term names {{lender.legalName}} only." }] })
+      const k = parseTemplateKey(key)!
+      const content = takesLenderText(k) ? withEdits(key, { additionalTerms: [{ heading: "Preview marker term", text: "This preview term names {{lender.legalName}} only." }] }) : starter(key)
+      expect(messages(key, content), key).toEqual([])
       const lines = await texts(await renderTemplatePreview(key, content, LENDER))
       const text = prose(lines).replace(/\s+/g, " ")
       expect(lines, key).toContain(DRAFT_WATERMARK)
       expect(text, key).toContain("Synthetic Alpha Asset Finance (Pty) Ltd")
-      expect(text, key).toContain(`${additionalTermNumber(parseTemplateKey(key)!.family, parseTemplateKey(key)!.variant, 0)} Preview marker term`)
+      if (takesLenderText(k)) expect(text, key).toContain(`${additionalTermNumber(k.family, k.variant, 0)} Preview marker term`)
     }
   })
 
-  it("a lease replaces 9.13 only and keeps its CPA initial lines", async () => {
+  it("a lease replaces 9.13 only (renderer mechanism, also under the CPA variant's initial lines)", async () => {
     const leaseKey = "af.lease.operating.cpa"
     const content = withEdits(leaseKey, { clauses: { cession: "ALPHA CESSION: the lessor may cede this lease to a funder; the lessee may not cede it without consent." } })
     const text = await words(await renderTemplatePreview(leaseKey, content, LENDER))

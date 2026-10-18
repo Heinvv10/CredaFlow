@@ -2,7 +2,7 @@
 // database hashes (DocumentTemplateVersion.content / contentSha256), and the
 // starter content a lender adopts.
 import { createHash } from "node:crypto"
-import { STARTER_REVISION, type AssetTemplateKey } from "./families"
+import { editableClauses, STARTER_REVISION, type AssetTemplateKey } from "./families"
 
 export interface AdditionalTerm {
   heading: string
@@ -43,7 +43,7 @@ export function starterContent(key: AssetTemplateKey): AssetTemplateContent {
     schema: 1,
     templateKey: key.key,
     starterRevision: STARTER_REVISION,
-    clauses: Object.fromEntries(key.family.editable.map((c) => [c.id, c.starter])),
+    clauses: Object.fromEntries(editableClauses(key).map((c) => [c.id, c.starter])),
     additionalTerms: [],
   }
 }

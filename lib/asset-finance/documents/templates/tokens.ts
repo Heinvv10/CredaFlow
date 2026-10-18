@@ -7,7 +7,7 @@ export const ASSET_TEMPLATE_TOKENS = {
   "lender.tradingName": "The lender's trading name",
   "lender.registeredOffice": "The lender's registered office, on one line",
   "agreement.reference": "The agreement reference",
-  "purchaser.domicilium": "The purchaser's chosen address for notices (instalment sale clause 7.12 only)",
+  "purchaser.domicilium": "The purchaser's chosen address for notices (instalment sale clause 7.12 only, where it is required)",
 } as const
 
 export type AssetTemplateToken = keyof typeof ASSET_TEMPLATE_TOKENS
