@@ -23,3 +23,18 @@ Wording tests: 25 passed (`/tmp/lease-law-wording.log`). Sample renderer complet
 Historical total-loss event correction: the staff form/API now accepts an evidenced `lossOn` from commencement through today, independently of the actual `insuranceReceivedOn`. The event sets cancellation, PV discount date/rate, arrears valuation and damages supply/due date; the receipt keeps its actual date. The real-PG 1 October loss / 17 October recording regression also installs a later 10 October contract rate, verifies use of the earlier rate, credits post-loss prepaid invoices, verifies a separate 16 October insurer receipt, and proves cash conservation. Restoring the former implementation makes this regression fail (`/tmp/lease-event-regression-old-code.log`); the fixed implementation passes all four regression tests (`/tmp/lease-event-pg-final4.log`). New database enforcement independently bounds the loss date. Typecheck and scoped lint passed (`/tmp/lease-event-tsc.log`, `/tmp/lease-event-lint.log`).
 
 Independent tester follow-up: the extension immutability mutation now targets the current guard while preserving its lawful lessor-cancellation exception; all 13 real-PG mutation/control tests pass (`/tmp/lease-eot-mutation-fixed.log`). The fresh demo-seed suite passes all 13 tests, including rerun count equality; CPA notice now correctly opens an early RETURN and cancels only post-effective-date rentals (`/tmp/lease-seed-legal-fixed.log`). Independent concurrency/continuation proof and screenshot 05 are recorded in TESTER-B.md. Historical CPA assessment now discounts using the rate effective on its fixed termination date; three real-PG suites pass eight tests (`/tmp/lease-tester-final-fixed.log`). The historical-state fixture uses test-only setup and does not establish ordinary application reachability of a post-event rate record.
+
+## Fresh approved total-loss closure verification — 2026-10-18
+
+Fresh PostgreSQL execution exposed a second enforcement boundary: the existing
+`LeaseEndOfTerm_shape` CHECK still required physical inspection for TOTAL_LOSS.
+All four real closure cases failed with that exact CHECK after instrumenting
+the race test to propagate transaction failure instead of waiting forever on
+an unreached checkpoint (`/tmp/cf-loss-root-diagnostic.log`). The new migration
+`20261018113000_lease_total_loss_shape` exempts only TOTAL_LOSS alongside the
+existing PURCHASE exception from that inspection predicate; every other shape
+predicate is preserved. This completes the approved total-loss closure scope.
+The same four tests then passed, including both proof-deletion lock orders,
+actual retained refund evidence, no invented Payment, terminal asset and later
+receipt closure (`/tmp/cf-loss-root-shape-green.log`). Whole-PR acceptance is
+recorded separately; these are targeted results on a disposable database.

@@ -89,7 +89,7 @@ function latch<T>() {
           deletionReady.release(row.pid)
           await allowDeletionCommit.ready
         }, { timeout: 30_000 })
-        const deletingPid = await deletionReady.ready
+        const deletingPid = await Promise.race([deletionReady.ready, deletion.then(() => { throw new Error("Deletion ended before its proof-lock checkpoint") })])
         const blockedRefundPid = latch<number>()
         const rejectedSettlement = database().$transaction(async (tx) => {
           const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
@@ -111,7 +111,7 @@ function latch<T>() {
           await allowSettlementCommit.ready
           return result
         }, { timeout: 30_000 })
-        const settlingPid = await settlementReady.ready
+        const settlingPid = await Promise.race([settlementReady.ready, settlement.then(() => { throw new Error("Settlement ended before its proof-lock checkpoint") })])
         const blockedDeletePid = latch<number>()
         const lateDeletion = database().$transaction(async (tx) => {
           const [row] = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`
