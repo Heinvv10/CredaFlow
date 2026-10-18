@@ -87,8 +87,9 @@ function allows `INSTALMENT_SALE` and `FINANCE_LEASE` outside the NCA).
 - Words ≤ 30 characters, headings ≤ 50, so nothing runs off the page;
   editable clause 20–6000 characters; additional term 20–4000; ≤ 10 terms;
   blank editable clause refused; known `starterRevision` only.
-- Proof limit: a sentence that claims behaviour the system does not perform
-  cannot be detected by pattern. The approver attests to having read the full
+- The word lists catch obvious drafting, not meaning: a determined writer can
+  phrase around them. A sentence that claims behaviour the system does not
+  perform cannot be detected by pattern (proof limit). The approver attests to having read the full
   preview, and a legal approval needs the lender's written legal sign-off.
 
 ## 3. Versions, approval and publication
@@ -120,6 +121,13 @@ under `app/api/documents/templates/`; `kind = ASSET_FINANCE` branches into
   triggers refuse `LENDER_LEGAL` on a demo lender or by anyone but a
   SUPER_ADMIN, and `SYNTHETIC_DEMO` on a non-demo lender. The reference is a
   record, not verified evidence (proof limit).
+- **Protected wording is part of the approval.** At approval the server records
+  `approvedSystemSha256`: the fingerprint of the variant's protected system
+  output (`templates/fingerprint.ts`, the preview PDF for a fixed synthetic
+  lender and deal with placeholder lender text). Publication and issuance
+  require it to equal the current fingerprint (app and DB); when CredaFlow
+  changes protected wording, every lender approves the variant again.
+  `fingerprint.test.ts` pins the values with `SYSTEM_REVISION`.
 - **Publish**: approved DRAFT only, publisher ≠ approver, TOTP; locks the template
   row, archives the previous ACTIVE, sets `currentVersionId`. DB: one ACTIVE per
   template (partial unique index); AF versions move DRAFT→ACTIVE→ARCHIVED only
@@ -133,8 +141,11 @@ The boolean no longer affects any template-family document: it neither removes
 the watermark nor authorises issuance. No tenant is promoted by the migration.
 It continues to govern the system-only quotation and notices above. Because an
 NCA quotation precedes its agreement, an NCA agreement under a `LENDER_LEGAL`
-approval is refused while the boolean is still false (the quotation would
-carry DRAFT while the agreement carried none). The settings page says so.
+approval is refused when the quotation the consumer acknowledged printed
+DRAFT. That mark is recorded on the quotation's `ASSET_NCA_QUOTE_ISSUED` audit
+row (`draftLegalWording`); a quotation without the record counts as DRAFT.
+Proof limit: the audit table is append-only in the application, not by a
+database rule. The settings page says so.
 
 ### Watermarks
 
@@ -162,7 +173,7 @@ snapshot (company data, no personal data), input snapshot hash + storage path
 storage path, issued at/by. `DealSigner.issuanceId` links each signer row.
 
 DB enforcement: insert only from an ACTIVE, approved version of the same tenant
-whose hashes match, with a matching basis; the row is immutable except a single
+whose content and protected-output hashes match its approval, with a matching basis; the row is immutable except a single
 `supersededAt` stamp when an unsigned preparation is replaced (its personal-data
 files are then deleted as today; the hashes, version and approval remain).
 A new `DealSigner` row that binds a document must carry an `issuanceId` whose
