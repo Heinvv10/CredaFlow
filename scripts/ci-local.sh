@@ -29,6 +29,8 @@ fi
 
 export TZ=UTC
 export PUPPETEER_SKIP_DOWNLOAD=1
+# Only the root type graph needs 6 GiB. Preserve explicit caller options.
+ROOT_TYPECHECK_NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 
 run_quick() {
@@ -37,7 +39,7 @@ run_quick() {
   echo ">> Generate registries"
   npm run --silent gen:registries
   echo ">> Typecheck"
-  npx tsc --noEmit
+  NODE_OPTIONS="$ROOT_TYPECHECK_NODE_OPTIONS" npx tsc --noEmit
   echo ">> Typecheck demo simulator"
   npm run demo:typecheck
   echo ">> Lint"
