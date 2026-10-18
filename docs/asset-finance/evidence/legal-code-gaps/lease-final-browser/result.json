@@ -1,0 +1,38 @@
+{
+  "head": "88dea40e",
+  "events": [
+    {
+      "path": "/api/asset-finance/deals/cmvdcjup6001c12zaedfnxkhg/documents",
+      "status": 201,
+      "body": "{\"id\":\"cmvdcoill000612djfmz6hvnq\",\"entityId\":null,\"clientId\":\"cmvdcjunq001612za0mx8kyem\",\"dealId\":\"cmvdcjup6001c12zaedfnxkhg\",\"docType\":\"OTHER\",\"fileName\":\"cf-final-refund-proof.pdf\",\"mimeType\":\"application/pdf\",\"fileSize\":908,\"uploadedByType\":\"staff\",\"verifiedAt\":null,\"verifiedById\":null,\"createdAt\":\"2026-10-18T04:53:42.057Z\"}"
+    },
+    {
+      "path": "/api/asset-finance/leases/cmvdcjv5w003n12zahfrbpwv0/end-of-term/invoice",
+      "status": 200,
+      "body": "{\"kind\":\"ok\",\"endOfTermId\":\"cmvdcjvq500ke12za48gjmuvi\",\"status\":\"INVOICED\"}"
+    },
+    {
+      "path": "/api/asset-finance/recoveries/cmvdcjwdo00tl12za9s5guwmk/proceeds",
+      "status": 200,
+      "body": "{\"kind\":\"done\",\"id\":\"cmvdcjwdo00tl12za9s5guwmk\",\"paymentId\":\"cmvdcolds000x12djdh778gc7\",\"paymentCents\":20000,\"shortfallCents\":0,\"surplusCents\":0,\"unrecoverableCostsCents\":0,\"replay\":false}"
+    },
+    {
+      "path": "/api/asset-finance/leases/cmvdcjw1g00mz12zao5irfi3g/termination-quotes",
+      "status": 200,
+      "body": "{\"kind\":\"quoted\",\"quoteId\":\"cmvdcomza001612djb7isd5v4\",\"totalCents\":0,\"terminationDate\":\"2026-11-13\",\"validUntil\":\"2026-10-28\"}"
+    },
+    {
+      "path": "/api/asset-finance/leases/cmvdcjw1g00mz12zao5irfi3g/termination-quotes/cmvdcomza001612djb7isd5v4/accept",
+      "status": 200,
+      "body": "{\"kind\":\"accepted\",\"quoteId\":\"cmvdcomza001612djb7isd5v4\",\"taxInvoiceId\":null}"
+    }
+  ],
+  "errors": [],
+  "loans": {
+    "loss": "cmvdcjv5w003n12zahfrbpwv0",
+    "consumer": "cmvdcjw1g00mz12zao5irfi3g",
+    "lessor": "cmvdcjwcp00re12zaelzpsx1f",
+    "recovery": "cmvdcjwdo00tl12za9s5guwmk"
+  },
+  "synthetic": true
+}

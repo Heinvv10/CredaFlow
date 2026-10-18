@@ -19,16 +19,12 @@ deterministic: a rerun reproduces the committed PDFs).
 
 ## Code changes required before approval
 
-The wording states the law. Where the system does not yet do what the wording
-says, the gap is listed here. While any line remains, the flag must not be set
-for any lender (DESIGN.md, sign-off record). One line per gap: rule; clause;
-code; what must change.
+No remaining implementation gaps are listed. The NCA, lease, commercial and
+rate-change changes cover the original items 1–26. The sign-off record in
+[`../DESIGN.md`](../DESIGN.md) records the legal rule for each change; tests,
+render comparisons and local browser evidence are under
+[`../evidence/legal-code-gaps/`](../evidence/legal-code-gaps/).
 
-11. CPA lessor cancellation: approved candidate has passed booked PostgreSQL assessment and permanent-stop checks; final union, browser and review acceptance remain. Actual vendor expenses, cash and the single goods receipt must remain preserved.
-14. Total-loss closure: approved TOTAL_LOSS outcome, unavailable asset and maintenance-refund proof passed PostgreSQL closure and both proof race orders; final union, browser and review acceptance remain. No fictitious inspection or return to stock is permitted.
-24. Written rate notices are implemented with durable dispatch/deadline controls; final combined PostgreSQL, full CI and independent review acceptance remain.
-26. Effective-date repricing and the approved nonnegative-rental migration pass targeted tests; final combined PostgreSQL/full CI, browser and independent review acceptance remain.
-
-Consumer PASQ output and consumer document pins remain unchanged. Completion of
-these code checks does not authorize setting the lender legal-wording approval
-flag. See the sign-off record and committed legal-code-gaps evidence.
+Consumer PASQ output and consumer NCA document pins remain unchanged. Code
+acceptance does not authorize setting `assetFinanceLegalWordingApproved`: the
+lender's legal team must still approve its rendered documents before use.
