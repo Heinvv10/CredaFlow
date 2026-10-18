@@ -218,9 +218,12 @@ function dropList(head: string, item: string): Reader {
  * Walk the newest-first migrations for the first one with an event for the
  * object; its last event decides (drop, or the creates).
  */
-function latest(name: string, read: Reader[], what: string, many = false): string[] {
+function latest(name: string, read: Reader[], what: string, many = false, beforeMigration?: string): string[] {
   const mention = new RegExp(`(?<![\\w$])${ident(name)}`)
-  for (const { dir, stmts } of migrationsNewestFirst()) {
+  const migrations = migrationsNewestFirst()
+  if (beforeMigration && !migrations.some((migration) => migration.dir === beforeMigration)) throw new Error(`Unknown migration boundary: ${beforeMigration}`)
+  for (const { dir, stmts } of migrations) {
+    if (beforeMigration && dir >= beforeMigration) continue
     // DDL inside a DO body (or EXECUTE'd from one) is not parsed: refuse rather than guess
     if (stmts.some((s) => /^DO(?![\w$])/i.test(s.code) && mention.test(s.code))) {
       throw new Error(`${name} appears inside a DO block in ${dir}; the helper cannot read it - assert on that migration directly`)
@@ -239,9 +242,11 @@ function latest(name: string, read: Reader[], what: string, many = false): strin
 
 /**
  * Every definition (one per overload) of public function `name` in the newest
- * migration that defines or drops it, joined.
+ * migration that defines or drops it, joined. An explicit beforeMigration
+ * boundary reads only the predecessor; it does not claim to parse a later DO
+ * patch. The caller must assert that patch separately and prove it in Postgres.
  */
-export function baselineFunctionSql(name: string): string {
+export function baselineFunctionSql(name: string, options: { beforeMigration?: string } = {}): string {
   const fn = `${SCHEMA}${ident(name)}\\s*\\(`
   const create = simple(`${words("CREATE")}\\s+(?:${words("OR REPLACE")}\\s+)?${words("FUNCTION")}\\s+${fn}`, "(?!)")
   return latest(name, [
@@ -252,7 +257,7 @@ export function baselineFunctionSql(name: string): string {
       return events
     },
     dropList(`${words("DROP FUNCTION")}\\s+${IF_EXISTS}`, `${SCHEMA}${ident(name)}(?![\\w$"])`),
-  ], `function ${name}`, true).join("\n\n")
+  ], `function ${name}`, true, options.beforeMigration).join("\n\n")
 }
 
 /** The `ALTER TABLE … ADD CONSTRAINT "name" …;` statement. */

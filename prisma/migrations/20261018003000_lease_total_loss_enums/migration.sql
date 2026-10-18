@@ -1,0 +1,2 @@
+ALTER TYPE "LeaseEndOutcome" ADD VALUE 'TOTAL_LOSS';
+ALTER TYPE "AssetLessorStatus" ADD VALUE 'TOTAL_LOSS';

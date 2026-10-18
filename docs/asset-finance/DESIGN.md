@@ -45,10 +45,10 @@ accounting system; CredaFlow exports journals — decision D3).
   (`lib/asset-finance/rate-feed-sync.ts`) and recorded PENDING with source
   `SARB_FEED` and no requester; the feed stands in for the recording person,
   so a fetched value needs one approver (a manual value still needs two
-  people). Effective dates come from the SARB dated change series for PRIME
-  and REPO and benchmark periods for ZARONIA, with full history for outage
-  catch-up. Every changed ZARONIA value is recorded, without a minimum-move
-  threshold. JIBAR and the lender's base rate stay manual.
+  people). Its effective date is the day the feed showed it, which can trail
+  the real change; the approver checks it against the Reserve Bank's
+  announcement. ZARONIA is recorded only when it moves 25 bp or
+  more from the latest live value. JIBAR and the lender's base rate stay manual.
 - **D5 NCA classifier.** A pure function
   `classifyNcaRegime(input) → { regime: NCA | NON_NCA, rule, evidence }`.
   Decided once, at application, on documents (AFS or management accounts;
@@ -253,8 +253,10 @@ trigger or CHECK, each proven by an IT that removes it
   acceptance. A CPA lessee's notice itself cancels rentals after 20 South African
   business days and opens the return; no acceptance is needed. Staff later record
   the goods value and each actual documented recovery, refurbishment and re-letting
-  cost. The CPA charge is PV less goods value plus those costs, floored at zero
-  and capped below undiscounted remaining rentals, with no percentage penalty.
+  cost. The CPA financial ceiling is PV less goods value plus those costs, floored
+  at zero and capped below undiscounted remaining rentals, with no percentage
+  penalty. Staff record all applicable Regulation 5 factors and a reasoned charge
+  at or below the ceiling that preserves the consumer’s right to cancel.
 - **Continuation:** a CPA lease without an election automatically continues month
   to month at expiry, including a defaulted or paid-up lease. The lessee ends it
   on 20 South African business days' notice, independently of rental dates.
@@ -266,6 +268,11 @@ trigger or CHECK, each proven by an IT that removes it
 - **Total loss:** staff records the write-off evidence and insurer proceeds. Future
   rentals stop; a PV charge, without a penalty, replaces them. The insurer's actual
   cash is credited through the ordinary payment ledger; arrears remain collectible.
+  A separate TOTAL_LOSS end outcome settles the maintenance fund without a fabricated
+  physical inspection, meter reading or stock return. The unavailable asset remains
+  TOTAL_LOSS and cannot be financed again. A positive LESSEE_SETTLED maintenance
+  balance is refunded only on recorded evidence of the exact actual external payment:
+  date, unique bank reference and retained proof from the original lease deal.
 - **Charges** (end of term, purchase, termination) are schedule rows of their
   own: the row's total is its tax invoice's total, never a rental's row or
   invoice, and a closed loan is reopened for it. Receipts settle them like
@@ -524,6 +531,31 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
 - **Changed 2026-10-17 to comply with the reference-rate effective-date rule:**
   SARB dated change series replace homepage observation dates, full history
   preserves outage catch-up, and every changed ZARONIA value is recorded.
+
+- **Changed 2026-10-18 to give effect to clause 9.10 and CPA s48 after lessor
+  cancellation:** all ten factor findings inform a recorded fair, reasonable final
+  net charge at or below the financial ceiling, including lower/zero amounts.
+  Arrears stay separate. Gross taxable damages and collectible costs are reduced
+  through explicit noncash concessions; actual vendor expense evidence, cash and
+  the single net-goods receipt remain intact. Surplus goods proceeds remain due
+  to the lessee. Certified costs become collectible before the proceeds receipt
+  even if capital is already settled; this does not enable optional default
+  interest/fees. Consumer-initiated cancellation retains its separate Reg5(3)
+  right-to-cancel finding.
+
+- **Changed 2026-10-18 to comply with CPA Regulations 5(2) and 5(3):** the
+  PV less goods plus actual costs calculation is a financial ceiling. Staff must
+  record case-specific findings on all ten statutory factors, a reasoned charge
+  at or below that ceiling (including reduction or waiver), and why cancellation
+  remains available. Billing and raw database acceptance require the retained
+  assessment. Prior accepted charges are not silently backfilled or repriced.
+- **Changed 2026-10-18 to give effect to total-loss clause 9.5:** closure has an
+  evidenced TOTAL_LOSS outcome, with no physical-return/inspection prerequisite or
+  stock return. Full-maintenance fund settlement preserves genuine cash: a refund
+  needs retained proof of the exact actual external payment before its BANK movement
+  is recorded. This implements the signed-off total-loss rule; the loan calculation
+  and insurer receipt rules are unchanged.
+
 - **Changed 2026-10-17 to comply with CPA s14 and Reg 5(2):** unilateral
   cancellation, valuation credit and documented actual costs, automatic continuation
   despite default, and 20-business-day lessee notice during continuation. Added-cost
@@ -550,6 +582,26 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   [`legal-wording/README.md`](legal-wording/README.md) is empty: the drafted
   wording states the law where the code does not yet do what it says.
 
+- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
+  settlement rebates unearned interest; recorded valuation-notice receipt
+  starts the statutory sale wait; timely withdrawal records goods returned;
+  standalone surrender shortfalls freeze charges.
+- **Changed 2026-10-18 to comply with NCA s127(6)(a) and (b):** an
+  evidence-backed same-consumer/same-goods registered-credit-agreement
+  determination selects consumer or Tribunal remittance; unknown refuses
+  disposal. Independently authorised treasury instructions precede actual
+  external bank execution, and ordinary final notices require exact retained
+  execution proof. The authorised held-account exception preserves an unpaid
+  surplus, no statutory termination and a staff escalation. Later execution
+  retains the original statement and appends a supplemental confirmation.
+  NCA recovery closure requires actual remittance, including when a legacy
+  refund row says released. Financial Loan COMPLETED is separate from surplus
+  discharge; staff and consumer views identify outstanding surplus.
+- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
+  agreement disclosures include cash price, deposit and credit-life premium;
+  schedule capital excludes fees; total cost of credit retains principal debt
+  and the duplicate asset-document total row is removed. Consumer PASQ output
+  and consumer PDF pins are unchanged.
 - **Changed 2026-10-17 to comply with the Conventional Penalties Act:** a
   NON_NCA instalment sale settlement excludes future interest; settling
   receipts reprice the schedule and preserve contractual rows as audit evidence.
@@ -566,20 +618,6 @@ posted in IsaFlow: the lender's accountant posts the draft. Code: `lib/accountin
   scope; the CPA agreement preserves statutory goods remedies and prominently
   draws attention to risk and indemnity. The surety's existing client physical
   address is included in the deed and its domicilium clause.
-- **Changed 2026-10-17 to comply with NCA ss125 and 127:** NCA asset
-  settlement rebates unearned interest; recorded valuation-notice receipt
-  starts the statutory sale wait; timely withdrawal records goods returned;
-  standalone surrender shortfalls freeze charges. Final notices atomically
-  issue an independently authorised surplus instruction or an audited missing-
-  account exception. An instruction leaves the surplus outstanding (SURPLUS_HELD),
-  even though the loan debt is settled. Only retained bank execution evidence,
-  recording the exact amount, date, reference and staff actor once, permits
-  recovery closure. No transfer is initiated by the evidence form.
-- **Changed 2026-10-17 to comply with NCA s93 and Regulation 23A(15)(d):**
-  agreement disclosures include cash price, deposit and credit-life premium;
-  schedule capital excludes fees; total cost of credit retains principal debt
-  and the duplicate asset-document total row is removed. Consumer PASQ output
-  and consumer PDF pins are unchanged.
 
 Written variable-rate notice controls retain the NCA s104(3) deadline from the
 actual effective date plus 30 SA business days. Durable provider acceptance and

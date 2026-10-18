@@ -118,16 +118,18 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
   let interestPaid = 0
   let feesAccrued = 0
   let feesPaid = 0
+  let newCostOutstanding = 0
   let pool = 0
   let unallocated = 0
   const paid = rows.map(() => 0)
   const completedBy: Array<string | null> = rows.map(() => null)
 
   /** Outside the freeze, no cap (NON_NCA), and never on a loan the day's receipts settled: a closed loan is not re-opened. */
-  function postRecoveryCost(day: number, amount: number, sourceId: string) {
-    if (day < accrueFromDay || day >= untilDay || day >= stopDay || amount <= 0) return
-    if (pool >= scheduleTotal() && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
+  function postRecoveryCost(day: number, amount: number, sourceId: string, assessedLeaseCancellation = false) {
+    if ((!assessedLeaseCancellation && (day < accrueFromDay || day >= untilDay || day >= stopDay)) || amount <= 0) return
+    if (!assessedLeaseCancellation && pool >= scheduleTotal() && Math.round(interestExact) - interestPaid + feesAccrued - feesPaid <= 0) return
     feesAccrued += amount
+    if (assessedLeaseCancellation && day >= stopDay) newCostOutstanding += amount
     postings.push({ type: "RECOVERY_COST", day: isoDay(day), amount, sourceId })
   }
 
@@ -191,6 +193,11 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
       row.interestDue -= blocked
       row.totalDue -= blocked
     }
+    // An immutable assessed cancellation exists before its proceeds receipt.
+    // Ordinary recovery costs keep their historical after-receipt ordering.
+    const dayCosts = [] as typeof costs
+    for (; nextCost < costs.length && costs[nextCost].day === day; nextCost++) dayCosts.push(costs[nextCost])
+    for (const cost of dayCosts) if (cost.assessedLeaseCancellation) postRecoveryCost(day, cost.amount, cost.id, true)
     // 1. The day's receipts, in time order.
     for (; next < receipts.length && receipts[next].day === day; next++) {
       const receipt = receipts[next]
@@ -206,14 +213,18 @@ export function computeNonNcaCharges(input: NonNcaChargeInput): DefaultChargeRes
       feesPaid += split.toFees
       // A fixed share can be a live-era payment valued on the stop day.
       // Forgiveness must never turn that paid share into negative debt.
-      if (day >= stopDay) { interestExact = interestPaid; feesAccrued = feesPaid }
+      if (day >= stopDay) {
+        if (!fixed) newCostOutstanding = Math.max(0, newCostOutstanding - split.toFees)
+        interestExact = interestPaid
+        feesAccrued = feesPaid + newCostOutstanding
+      }
       pool += split.toSchedule
       unallocated += split.unallocated
       splits.push({
         receiptId: receipt.id, toDefaultInterest: split.toDefaultInterest, toFees: split.toFees, toSchedule: split.toSchedule,
       })
     }
-    for (; nextCost < costs.length && costs[nextCost].day === day; nextCost++) postRecoveryCost(day, costs[nextCost].amount, costs[nextCost].id)
+    for (const cost of dayCosts) if (!cost.assessedLeaseCancellation) postRecoveryCost(day, cost.amount, cost.id)
     if (day >= endDay) break
 
     // 2. End of a completed day: a collection fee per instalment missed the

@@ -146,6 +146,7 @@ model Tenant {
   messages                   Message[]
   messageTemplates           MessageTemplate[]
   ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusRemittances NcaSurplusRemittance[]
   notificationLogs           NotificationLog[]
   notifications              Notification[]

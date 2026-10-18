@@ -24,26 +24,31 @@ to exercise expiry of the wait; the loan clock stayed unchanged.
 - `nca-sale-refused-inside-window.png`: server refusal before the deadline.
 - `nca-withdrawn-goods-returned.png`: withdrawal with goods-return evidence.
 - `nca-sale-after-window.png`: proceeds recorded after the wait.
-- `nca-final-notice-surplus-instructed.png`: final notice and R940 surplus instruction.
-- `nca-surplus-bank-execution-evidenced.png`: recorded synthetic execution proof, with audited document access and no additional receipt.
+- `nca-final-refused-before-bank-execution.png`: ordinary notice refused until actual execution.
+- `nca-final-notice-surplus-remitted.png`: ordinary notice after R940 remittance proof.
 - `nca-early-settlement-s125-rebate.png`: R3,060 settlement against R3,150 contractual total.
 
-The final action stored `FINAL_NOTICE_ISSUED` and an `INSTRUCTED` remittance for
-94,000 cents together. `nca-surplus-payment-instruction.pdf` contains the
-synthetic beneficiary, account and amount; it explicitly does not confirm bank
-settlement. `nca-surplus-final-notice.pdf` is the matching DRAFT notice. The
-application has no bank-transfer provider for this instruction. Real-bank
-execution remains an operator action outside this local acceptance.
+The final destination-confirmation browser run records **43 events across three
+cases**, using real staff passwords and TOTP: consumer remittance, the explicitly
+authorised unverified-account exception followed by later remittance, and
+Tribunal remittance where a retained registered agreement concerns the same
+consumer and goods. See `nca-remittance-final-browser.json`, the
+`nca-remit-consumer-*`, `nca-remit-held-*`, and `nca-remit-tribunal-*` screenshots
+and PDFs. Both ordinary notices return 409 before execution; the checkbox
+requires confirmation that the exact amount reached the instructed account.
 
-The fresh browser run uses implementation `f169bc2d`; `259a19d8` adds independent
-concurrency tests only. It then records a synthetic bank transaction reference,
-exact amount, execution date and retained PDF through the actual UI. The UI
-shows bank execution evidenced, the evidence download succeeds, and the payment
-count remains two. This proves the application evidence workflow, not a real
-bank transfer. The final notice now correctly states payment is outstanding
-until execution is evidenced. Earlier browser artifacts are retained under
-`nca-browser-before-execution-fix/`; code-review evidence is under
-`nca-execution-review/`.
+The held case retains the original statement's path and hash after later
+execution and downloads a supplemental confirmation. The statement identifies
+the unpaid surplus and statutory nontermination. Tribunal documents separately
+identify distribution under s127(6)(a), without asserting consumer-remittance
+termination under s127(6)(b). Downloads use document access logs. Execution
+creates no extra receipt and does not initiate a transfer: the bank proofs and
+all counterparties are synthetic local acceptance fixtures.
+
+`nca-before-remittance-timing/` preserves the superseded instruction-only final
+notice evidence. It does not prove the corrected ordering. See
+`nca-remittance-review/` for rendered text, valuation-pin proof and the checkpoint
+verification record. Full CI and fresh delta reviews remain required.
 
 ## NCA render comparison
 

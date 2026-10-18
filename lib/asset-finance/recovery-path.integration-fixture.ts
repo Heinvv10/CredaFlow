@@ -1,3 +1,4 @@
+import { determineSurplusRecipient } from "./nca-surplus.integration-fixture"
 /**
  * Walks a recovery through its statuses with the real guards on, so a suite
  * can attack the rule it cares about from a recovery committed at any status:
@@ -136,7 +137,8 @@ export async function advance(db: PrismaClient, fx: DealFixture, loan: RecoveryL
     } else if (next === "FINAL_NOTICE_ISSUED") {
       if (!s127) {
         const row = await db.recovery.findUniqueOrThrow({ where: { id: recoveryId } })
-        if ((row.surplusCents ?? 0) > 0) await db.ncaSurplusRemittance.create({ data: { tenantId: fx.tenantId, recoveryId, amountCents: row.surplusCents!, status: "HELD_NO_VERIFIED_ACCOUNT", exceptionReason: "Synthetic fixture: no verified bank account", issuedById: fx.officer } })
+        if ((row.surplusCents ?? 0) > 0 && !await db.ncaSurplusDetermination.count({ where: { tenantId: fx.tenantId, loanId: loan.loanId } })) await determineSurplusRecipient(fx, loan.loanId)
+      if ((row.surplusCents ?? 0) > 0) await db.ncaSurplusRemittance.create({ data: { tenantId: fx.tenantId, recoveryId, amountCents: row.surplusCents!, status: "HELD_NO_VERIFIED_ACCOUNT", exceptionReason: "Synthetic fixture: no verified bank account", issuedById: fx.officer } })
       }
       if (s127) await surrender("FINAL_NOTICE_ISSUED", `, "finalNoticePath" = '/nonexistent/fn.pdf', "finalNoticeSha256" = '${SHA}'`)
       await set({

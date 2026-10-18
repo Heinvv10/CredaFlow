@@ -14,7 +14,8 @@ export async function getPortalLoan(loanId: string, email: string) {
       product: { select: { name: true } },
       repaymentSchedule: { orderBy: { installmentNo: "asc" } },
       payments: { orderBy: [{ receivedAt: "desc" }, { createdAt: "desc" }] },
-      surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true } },
+      surrenderRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, ncaSurplusRemittance: { select: { amountCents: true, executedOn: true } } } },
+      recoveries: { where: { route: "NCA_S131_ATTACHMENT" }, select: { ncaSurplusRemittance: { select: { amountCents: true, executedOn: true } } } },
     },
   })
 

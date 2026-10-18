@@ -102,7 +102,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
         {canManage && live && hasNextStep(view.status) && (
           <section>
             <h3 className={subheading}>Next step</h3>
-            <RecoveryNextStep view={view} surrender={surrender} today={today} canRecordPayment={canRecordPayment} />
+            <RecoveryNextStep view={view} surrender={surrender} today={today} canRecordPayment={canRecordPayment} cpaLease={data.cpaLease} canDecide={canDecide} />
           </section>
         )}
 
@@ -113,6 +113,10 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
           </section>
         )}
 
+        {view.cancellationBasis && <section>
+          <h3 className={subheading}>Reasoned cancellation assessment</h3>
+          <p className="text-sm text-[var(--cf-text)]">{view.cancellationBasis}</p>
+        </section>}
         {view.figures && (
           <section>
             <h3 className={subheading}>Account after the sale</h3>

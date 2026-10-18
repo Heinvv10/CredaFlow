@@ -9,6 +9,8 @@ export interface RecoveryCostLine {
 }
 
 export interface RecoveryNoticeData {
+  surplusRecipient?: "CONSUMER" | "TRIBUNAL"
+  surplusExecutedOn?: string
   surplusDisposition?: "INSTRUCTED" | "HELD_NO_VERIFIED_ACCOUNT"
   /** TenantConfig.assetFinanceLegalWordingApproved; false prints the DRAFT watermark, subtitle and cost note on the NCA notices. */
   legalWordingApproved: boolean

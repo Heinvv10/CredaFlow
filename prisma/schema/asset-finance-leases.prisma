@@ -73,6 +73,7 @@ enum MeterReadingSource {
 }
 
 enum LeaseEndOutcome {
+  TOTAL_LOSS
   RETURN
   EXTEND
   PURCHASE
@@ -92,6 +93,7 @@ enum LeaseEndOrigin {
 }
 
 enum AssetLessorStatus {
+  TOTAL_LOSS
   RETURNED_TO_STOCK
   SOLD_TO_LESSEE
   // Slice 4 (recovery): set and cleared by the database with the asset's
@@ -150,6 +152,12 @@ model MaintenanceFundMovement {
   createdById   String?
   createdAt     DateTime                @default(now())
 
+  refundDocumentId String?
+  refundDocument EntityDocument? @relation("MaintenanceRefundEvidence", fields: [tenantId, refundDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  refundReference String?
+
+  @@unique([tenantId, refundDocumentId])
+  @@unique([tenantId, refundReference])
   @@unique([tenantId, creditedLeaseRentalId])
   @@unique([tenantId, leaseRentalId])
   @@unique([tenantId, claimId])
@@ -299,10 +307,13 @@ model LeaseTerminationQuote {
   tenant              Tenant                 @relation(fields: [tenantId], references: [id])
   loanId              String
   loan                Loan                   @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  recoveryId String? @unique
+  recovery Recovery? @relation(fields: [tenantId, recoveryId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   quotedOn            DateTime               @db.Date
   terminationDate     DateTime               @db.Date
   validUntil          DateTime               @db.Date
   goodsValueCents     Int?
+  reasonableAssessment Json?
   documentedCosts    Json                   @default("[]")
   lessorCancellation Boolean                @default(false)
   totalLoss          Boolean                @default(false)
@@ -329,6 +340,7 @@ model LeaseTerminationQuote {
   schedule            RepaymentSchedule?     @relation("LeaseTerminationCharge", fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt           DateTime               @default(now())
 
+  @@unique([tenantId, recoveryId])
   @@unique([tenantId, id])
   @@unique([tenantId, taxInvoiceId])
   @@unique([tenantId, scheduleId])

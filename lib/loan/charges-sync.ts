@@ -107,8 +107,19 @@ export async function syncLoanCharges(
   })
   const chargesChanged = chargeKeys(existing) !== chargeKeys(postings)
   if (chargesChanged) {
-    await tx.loanCharge.deleteMany({ where: { tenantId: ref.tenantId, loanId: ref.loanId } })
-    if (postings.length > 0) await tx.loanCharge.createMany({ data: postings })
+    if (replay.stoppedCertifiedCostIds) {
+      // Permanent-stop history keeps its row identities and paid shares. Only
+      // newly certified cancellation cost postings are derived after that stop.
+      const sourceIds = replay.stoppedCertifiedCostIds
+      if (sourceIds.length > 0) {
+        await tx.loanCharge.deleteMany({ where: { tenantId: ref.tenantId, loanId: ref.loanId, type: "RECOVERY_COST", sourceId: { in: sourceIds } } })
+        const fresh = postings.filter((posting) => posting.type === "RECOVERY_COST" && posting.sourceId && sourceIds.includes(posting.sourceId))
+        if (fresh.length > 0) await tx.loanCharge.createMany({ data: fresh })
+      }
+    } else {
+      await tx.loanCharge.deleteMany({ where: { tenantId: ref.tenantId, loanId: ref.loanId } })
+      if (postings.length > 0) await tx.loanCharge.createMany({ data: postings })
+    }
   }
 
   const receiptDate = new Map(receipts.map((receipt) => [receipt.id, receipt.receivedAt]))

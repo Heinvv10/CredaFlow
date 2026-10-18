@@ -204,6 +204,7 @@ model Loan {
   maintenanceFund            MaintenanceFund?
   meterReadings              AssetMeterReading[]
   ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   notes                      LoanNote[]
   paymentArrangement         PaymentArrangement?
   paymentNotifications       PaymentNotification[]

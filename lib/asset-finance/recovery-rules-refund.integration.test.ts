@@ -46,7 +46,7 @@ const close = (tx: Tx) => tx.recovery.update({ where: { id: R.surplus.id }, data
 suite("slice 4a surplus refund database rules", () => {
   beforeAll(async () => {
     fx = await createRecoveryFixture(database(), t)
-    R.surplus = await ladderRecovery(database(), fx, true, "SURPLUS_HELD", { settlementCents: 80_000_000 })
+    R.surplus = await ladderRecovery(database(), fx, false, "SURPLUS_HELD", { settlementCents: 80_000_000 })
     R.surplus.proceedsPaymentId = (await database().recovery.findUniqueOrThrow({ where: { id: R.surplus.id } })).proceedsPaymentId
     R.listed = await ladderRecovery(database(), fx, false, "LISTED")
     bankDocument = await legalDocument(database(), fx, "OTHER")

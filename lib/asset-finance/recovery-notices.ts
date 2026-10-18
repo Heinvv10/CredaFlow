@@ -125,7 +125,7 @@ async function storeAndAdvance(
     const outcome = await refusable(() => prisma.$transaction(async (tx): Promise<RecoveryResult> => {
       if (from === "PROCEEDS_APPLIED") {
         const row = await tx.recovery.findFirstOrThrow({ where: { id, tenantId: actor.tenantId } })
-        const remittance = await issueNcaSurplusRemittance(tx, actor, { loanId: row.loanId, recoveryId: id, amountCents: row.surplusCents ?? 0 })
+        const remittance = await issueNcaSurplusRemittance(tx, actor, { loanId: row.loanId, recoveryId: id, amountCents: row.surplusCents ?? 0 }, true)
         if (remittance && remittance.status !== extra.surplusDisposition) throw new RecoveryRefusal("Bank verification changed while rendering the notice; retry")
       }
       await advance(tx, actor, id, from, data(stored.storagePath, sha256))

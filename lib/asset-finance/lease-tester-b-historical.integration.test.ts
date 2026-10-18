@@ -1,3 +1,4 @@
+import { CPA_CANCELLATION_FACTORS } from "./cpa-cancellation-assessment"
 /** Legal gaps 13, 14 and 25, through the real migrated ledger and tax-invoice service. Synthetic only. */
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
@@ -61,7 +62,7 @@ suite.sequential("experimental historical CPA rate state: application reachabili
     const before = await database().loan.findUniqueOrThrow({ where: { id: loanId }, include: { contractRates: true, leaseRentals: true } })
     const originalRate = before.contractRates[0]
     await testSetup(database(), ['INSERT INTO "ContractRate" ("id", "tenantId", "loanId", "effectiveDate", "basis", "fixedRate", "margin", "resultingRate", "createdAt") SELECT $1,"tenantId","loanId",$2,"basis","fixedRate","margin",0.25,now() FROM "ContractRate" WHERE "id"=$3', `synthetic-after-cpa-${t}`, new Date("2026-10-01"), originalRate.id])
-    const assessed = await database().$transaction((tx) => acceptEarlyTermination(tx as never, actor, { quoteId: notice.quoteId, today: today(), assessment: { goodsValueCents: 0, costs: [] } }))
+    const assessed = await database().$transaction((tx) => acceptEarlyTermination(tx as never, actor, { quoteId: notice.quoteId, today: today(), assessment: { reasonableAssessment: { assessedChargeCents: 0, factors: Object.fromEntries(CPA_CANCELLATION_FACTORS.map(([key]) => [key, "Synthetic case finding: financial history, actual notice and returned goods considered"])), rationale: "Synthetic reasoned charge based on evidenced loss and replacement opportunities", cancellationRightReason: "Consumer circumstances considered; this assessed amount preserves cancellation" }, goodsValueCents: 0, costs: [] } }))
     expect(assessed.kind).toBe("accepted")
     const quote = await database().leaseTerminationQuote.findUniqueOrThrow({ where: { id: notice.quoteId } })
     const expected = presentValueOfRentals(before.leaseRentals.map((r) => ({ dueDate: isoOfDbDate(r.dueDate), rentalExclVatCents: r.rentalExclVatCents })), notice.terminationDate, Number(originalRate.resultingRate))

@@ -57,7 +57,7 @@ function EndOfTermChoice({ loanId, offer, chosen, valuation }: Props) {
     return (
       <div className="space-y-2 text-sm">
         <p className="text-[var(--cf-text)]">
-          {chosen.early ? "This lease is ending early: the asset is to be returned." : `You chose to ${OUTCOME_LABEL[chosen.outcome].toLowerCase()}.`}{" "}
+          {chosen.outcome === "TOTAL_LOSS" ? "This lease ended following an evidenced total loss. No physical return or inspection is required." : chosen.early ? "This lease is ending early: the asset is to be returned." : `You chose to ${OUTCOME_LABEL[chosen.outcome].toLowerCase()}.`}{" "}
           <span className="text-[var(--cf-text-muted)]">Status: {statusLabel(chosen.status).toLowerCase()}.</span>
         </p>
         {chosen.inspected && (

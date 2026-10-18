@@ -391,8 +391,10 @@ model EntityDocument {
   commercialCancellations CommercialCancellation[]
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
+  maintenanceRefunds MaintenanceFundMovement[] @relation("MaintenanceRefundEvidence")
   meterReadings     AssetMeterReading[]
   ncaSurplusAccounts NcaSurplusAccount[]
+  ncaSurplusDeterminations NcaSurplusDetermination[]
   ncaSurplusExecutionEvidence NcaSurplusRemittance[] @relation("NcaSurplusExecutionEvidence")
   recoveryRefunds   RecoveryRefund[]
   signerScans       DealSigner[]          @relation("DealSignerScan")

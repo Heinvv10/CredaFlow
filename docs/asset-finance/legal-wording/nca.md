@@ -95,7 +95,7 @@ large (Form 20.2). Low confidence on the regulation numbering.
 - Final notice, "Consumer rights following sale and account reconciliation":
   s127(5) and s131 notice; shortfall (settlement value plus charged costs less net
   proceeds, net of unrecoverable charged costs) demanded with 10 business days, or
-  surplus instruction issued with payment pending, or nothing owed; after a shortfall, charge
+  surplus actually remitted (or an explicit outstanding unverified-account exception), or nothing owed; after a shortfall, charge
   freeze to 10 business days after the notice;
   disputes and s128.
 
@@ -138,16 +138,28 @@ window; proceeds and listing are refused before it expires. A timely withdrawal
 records return of the goods. Standalone surrender shortfalls use the same charge
 freeze as recoveries.
 
-Bank proof, independent verification and release authorisation precede the
-final notice. That action creates the exact surplus payment instruction with
-the notice; an unverified account instead creates an audited held-account
-exception and matching notice text. The instruction is downloadable; external
-bank settlement is not asserted. The final notice states payment remains
-outstanding; the recovery remains SURPLUS_HELD until staff record an already
-executed bank payment with exact amount, bank date/reference and retained
-borrower-owned proof. The instruction, original missing-account exception and
-release authority remain immutable; evidence reads are access-logged. No bank
-transfer is initiated by this path. Agreement disclosures now include cash price,
+An evidence-backed determination under s127(6)(a) establishes whether another
+credit provider has a registered credit agreement with the same consumer over
+the same goods. Unknown never defaults to no. A positive determination routes
+the surplus to the National Consumer Tribunal; unrelated consumer debts do not.
+Bank proof, independent verification and release authorisation precede a treasury
+instruction. Staff then record the already executed external remittance with
+its exact amount, date, unique bank reference and retained evidence. Only then
+can the ordinary final notice issue, accurately stating recipient and actual
+execution date. No bank transfer is initiated by this path.
+
+The expressly authorised unverified-consumer-account exception still issues an
+accurate post-sale statement promptly. The surplus remains payable and the
+agreement has not statutorily terminated under s127(6)(b); a staff notification
+flags the outstanding obligation. Later verified-account release and actual
+remittance retain the original statement and exception unchanged, and a
+supplemental remittance confirmation records the later payment. This works for
+standalone s127, linked s127 and s131 recoveries. A legacy refund release cannot
+bypass actual-remittance closure or create a duplicate payment. Evidence and
+confirmation reads are access-logged. Loan COMPLETED records settled loan debt;
+it is not a representation of surplus discharge or statutory termination.
+
+Agreement disclosures now include cash price,
 deposit and monthly credit-life premium, and schedule capital excludes fees.
 
 **Total cost of credit (former gap 23).** Regulation 23A(15)(d), inserted by
@@ -160,7 +172,13 @@ No consumer-loan PDF pin changed.
 
 4. **s127(2) timing.** `valuationDueOn` is the request date plus 10 business
    days; the Act counts from the later of the notice and the return of the goods.
-6. **Interest on the shortfall after the s127 demand (s127(8)).** Confirm.
+6. **Lender concession after the shortfall demand.** The lender waives interest,
+   fees and charges from application of the proceeds through 10 business days
+   after the final notice. This is the existing voluntary concession, not a
+   statutory interest prohibition: s127(8) governs the enforcement waiting
+   period, while s127(9) otherwise provides for contract-rate interest from
+   demand. The waiver, cash calculations and rendered promise remain unchanged.
+   [Primary Act, s127(8)–(9)](https://www.justice.gov.za/mc/vnbp/act2005-034.pdf).
 7. **NCA deductible cost types.** `recoveryNcaDeductibleCostTypes` defaults
    include towing, storage, repairs, insurance and sheriff's fees. s127(5) allows
    "reasonable costs of the sale"; legal to confirm which are sale costs.

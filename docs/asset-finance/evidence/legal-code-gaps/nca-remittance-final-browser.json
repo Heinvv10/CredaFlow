@@ -1,0 +1,254 @@
+{
+  "synthetic": true,
+  "events": [
+    {
+      "step": "password_and_totp_signin",
+      "role": "CREDIT_OFFICER"
+    },
+    {
+      "step": "password_and_totp_signin",
+      "role": "LOAN_ADMIN"
+    },
+    {
+      "step": "password_and_totp_signin",
+      "role": "LOAN_ADMIN"
+    },
+    {
+      "step": "Record surrender request",
+      "status": 201,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surrender"
+    },
+    {
+      "step": "Record surrender valuation",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/valuation"
+    },
+    {
+      "step": "Issue surrender valuation notice",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/valuation-notice"
+    },
+    {
+      "step": "Record valuation notice receipt",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/valuation-receipt"
+    },
+    {
+      "step": "Record evidenced determination",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-determination"
+    },
+    {
+      "step": "Record bank account and proof",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-account/record"
+    },
+    {
+      "step": "Verify surplus recipient bank account",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-account/approve"
+    },
+    {
+      "step": "Authorise surplus release",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-account/authorise"
+    },
+    {
+      "step": "Credit surrender sale proceeds",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/proceeds"
+    },
+    {
+      "step": "Prepare surplus instruction after actual sale proceeds",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-instructions"
+    },
+    {
+      "step": "Issue final notice after remittance (or account exception)",
+      "status": 409,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/final-notice"
+    },
+    {
+      "step": "Record bank execution evidence",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_d6e7e38a38c8/surplus-instructions/cmvcz95mz004bidisgob31f5o/execution"
+    },
+    {
+      "step": "Issue final notice after remittance (or account exception)",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvcz8xcx002widispb2y16in/final-notice"
+    },
+    {
+      "step": "password_and_totp_signin",
+      "role": "CREDIT_OFFICER"
+    },
+    {
+      "step": "password_and_totp_signin",
+      "role": "LOAN_ADMIN"
+    },
+    {
+      "step": "password_and_totp_signin",
+      "role": "LOAN_ADMIN"
+    },
+    {
+      "step": "Record surrender request",
+      "status": 201,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surrender"
+    },
+    {
+      "step": "Record surrender valuation",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczaal90050idisd6bgbred/valuation"
+    },
+    {
+      "step": "Issue surrender valuation notice",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczaal90050idisd6bgbred/valuation-notice"
+    },
+    {
+      "step": "Record valuation notice receipt",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczaal90050idisd6bgbred/valuation-receipt"
+    },
+    {
+      "step": "Record evidenced determination",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surplus-determination"
+    },
+    {
+      "step": "Credit surrender sale proceeds",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczaal90050idisd6bgbred/proceeds"
+    },
+    {
+      "step": "Issue final notice after remittance (or account exception)",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczaal90050idisd6bgbred/final-notice"
+    },
+    {
+      "step": "Record bank account and proof",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surplus-account/record"
+    },
+    {
+      "step": "Verify surplus recipient bank account",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surplus-account/approve"
+    },
+    {
+      "step": "Authorise surplus release",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surplus-account/authorise"
+    },
+    {
+      "step": "Record bank execution evidence",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_a1c0813148aa/surplus-instructions/cmvczafo00060idisskppqt02/execution"
+    },
+    {
+      "step": "Record surrender request",
+      "status": 201,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surrender"
+    },
+    {
+      "step": "Record surrender valuation",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/valuation"
+    },
+    {
+      "step": "Issue surrender valuation notice",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/valuation-notice"
+    },
+    {
+      "step": "Record valuation notice receipt",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/valuation-receipt"
+    },
+    {
+      "step": "Record evidenced determination",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-determination"
+    },
+    {
+      "step": "Record bank account and proof",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-account/record"
+    },
+    {
+      "step": "Verify surplus recipient bank account",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-account/approve"
+    },
+    {
+      "step": "Authorise surplus release",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-account/authorise"
+    },
+    {
+      "step": "Credit surrender sale proceeds",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/proceeds"
+    },
+    {
+      "step": "Prepare surplus instruction after actual sale proceeds",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-instructions"
+    },
+    {
+      "step": "Issue final notice after remittance (or account exception)",
+      "status": 409,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/final-notice"
+    },
+    {
+      "step": "Record bank execution evidence",
+      "status": 200,
+      "path": "/api/asset-finance/loans/loan_rcv_632b2f11cd6f/surplus-instructions/cmvczawh9008fidisam7h2urb/execution"
+    },
+    {
+      "step": "Issue final notice after remittance (or account exception)",
+      "status": 200,
+      "path": "/api/asset-finance/surrenders/cmvczanw50070idis921s2e70/final-notice"
+    }
+  ],
+  "cases": [
+    {
+      "label": "SETTLEMENT",
+      "loanId": "loan_rcv_d6e7e38a38c8",
+      "surrenderId": "cmvcz8xcx002widispb2y16in",
+      "instructionId": "cmvcz95mz004bidisgob31f5o",
+      "recipient": "CONSUMER",
+      "amountCents": 94000,
+      "executedOn": "2026-10-18T00:00:00.000Z",
+      "resumedArtifactDownloadAfterHarnessCorrection": true,
+      "synthetic": true,
+      "actualTransferInitiated": false
+    },
+    {
+      "label": "HELD",
+      "loanId": "loan_rcv_a1c0813148aa",
+      "surrenderId": "cmvczaal90050idisd6bgbred",
+      "instructionId": "cmvczafo00060idisskppqt02",
+      "recipient": "CONSUMER",
+      "amountCents": 94000,
+      "executedOn": "2026-10-18T00:00:00.000Z",
+      "retainedOriginalHeldStatement": true,
+      "synthetic": true,
+      "actualTransferInitiated": false
+    },
+    {
+      "label": "TRIBUNAL",
+      "loanId": "loan_rcv_632b2f11cd6f",
+      "surrenderId": "cmvczanw50070idis921s2e70",
+      "instructionId": "cmvczawh9008fidisam7h2urb",
+      "recipient": "TRIBUNAL",
+      "amountCents": 94000,
+      "executedOn": "2026-10-18T00:00:00.000Z",
+      "retainedOriginalHeldStatement": false,
+      "synthetic": true,
+      "actualTransferInitiated": false
+    }
+  ],
+  "fixtureClock": "Only statutory waiting dates advanced30days in the owned disposable DB; no real stack changed.",
+  "source": "Final destination-confirmation payload required; real password+TOTP sessions."
+}

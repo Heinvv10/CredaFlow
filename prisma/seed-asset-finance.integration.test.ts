@@ -365,7 +365,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       section129Records: await fresh().complianceRecord.count({ where: { type: "SECTION_129_NOTICE" } }),
     })
     const before = await snapshot()
-    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 2, damageItems: 0, funds: 2, legalMatters: 1, legalSteps: 6, recoveries: 2, recoveryCosts: 2, sales: 1, vatEvents: 1, valuations: 2, section129Records: 1 })
+    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 2, damageItems: 0, funds: 2, legalMatters: 1, legalSteps: 6, recoveries: 2, recoveryCosts: 1, sales: 0, vatEvents: 0, valuations: 2, section129Records: 1 })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env: seedEnv, stdio: ["ignore", "pipe", "pipe"] })
     expect(await snapshot()).toEqual(before)
   }, 240_000)

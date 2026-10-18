@@ -13,7 +13,7 @@ import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { dbDate, isoOfDbDate } from "./dates"
 import { readVerified } from "./notice-bytes"
 import { COST_TYPE_LABELS } from "./recovery-labels"
-import { issueNcaSurplusRemittance, ncaRemittanceDisposition } from "./nca-surplus"
+import { issueNcaSurplusRemittance, ncaSurplusNoticeDetails } from "./nca-surplus"
 import { surrenderOutcome } from "./surrender-calculation"
 import { RecoveryRefusal, refusable } from "./recovery-result"
 import { requireNcaSaleWindow } from "./surrender-lifecycle"
@@ -104,7 +104,7 @@ async function issueSurrenderNoticeChecked(actor: Actor, id: string, kind: "valu
   try {
     await prisma.$transaction(async (tx) => {
       if (kind === "final") {
-        const remittance = await issueNcaSurplusRemittance(tx, actor, { loanId: request.loanId, surrenderId: id, amountCents: request.refundCents ?? 0 })
+        const remittance = await issueNcaSurplusRemittance(tx, actor, { loanId: request.loanId, surrenderId: id, amountCents: request.refundCents ?? 0 }, true)
         if (remittance && remittance.status !== data.surplusDisposition) throw new RecoveryRefusal("Bank verification changed while rendering the notice; retry")
       }
       await tx.surrenderRequest.update({ where: { id, tenantId: actor.tenantId }, data: kind === "valuation"
@@ -112,7 +112,7 @@ async function issueSurrenderNoticeChecked(actor: Actor, id: string, kind: "valu
         : { status: "FINAL_NOTICE_ISSUED", finalNoticePath: stored.storagePath, finalNoticeSha256: sha256 } })
       await logAuditStrict({ tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail ?? undefined,
         action: kind === "valuation" ? AuditAction.ASSET_SURRENDER_VALUATION_NOTICE_ISSUED : AuditAction.ASSET_SURRENDER_FINAL_NOTICE_ISSUED,
-        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, draftLegalWording: !data.legalWordingApproved },
+        entity: "SurrenderRequest", entityId: id, newValue: { sha256, storagePath: stored.storagePath, surplusDisposition: data.surplusDisposition, draftLegalWording: !data.legalWordingApproved },
       }, tx)
       if (kind === "final" && (request.refundCents ?? 0) > 0) await tx.$executeRaw`SET CONSTRAINTS ALL IMMEDIATE`
     })
@@ -197,7 +197,7 @@ async function noticeData(tenantId: string, row: NoticeRow, documentDate: Date):
     addressLines: [row.loan.entity.addressLine1, row.loan.entity.addressLine2, row.loan.entity.city, row.loan.entity.province, row.loan.entity.postalCode].filter((v): v is string => !!v),
   } : { name: "Unknown borrower", identityNumber: "Unknown", addressLines: [] }
   return {
-    surplusDisposition: (row.refundCents ?? 0) > 0 ? ncaRemittanceDisposition(await prisma.ncaSurplusAccount.findFirst({ where: { tenantId, loanId: row.loanId } })) : undefined,
+    ...((row.refundCents ?? 0) > 0 ? await ncaSurplusNoticeDetails(tenantId, row.loanId) : {}),
     legalWordingApproved: approved, reference: row.loan.reference, documentDate,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines }, borrower,
     asset: { description: `${row.asset.year} ${row.asset.make} ${row.asset.model}`, serialNumber: row.asset.vin ?? row.asset.serialNumber, condition: row.assetCondition },

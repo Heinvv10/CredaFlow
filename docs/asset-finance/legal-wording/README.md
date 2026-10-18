@@ -19,26 +19,16 @@ deterministic: a rerun reproduces the committed PDFs).
 
 ## Code changes required before approval
 
-The integrated NCA, lease, commercial and rate-change work resolves the other
-numbered code gaps. The legal wording approval flag remains unset. Its remaining
-implementation gate is:
+The wording states the law. Where the system does not yet do what the wording
+says, the gap is listed here. While any line remains, the flag must not be set
+for any lender (DESIGN.md, sign-off record). One line per gap: rule; clause;
+code; what must change.
 
-26. Active operating/full-maintenance leases can require a zero future rental
-    after a large late effective-date rate cut. Existing `LeaseRental_amounts`
-    requires a positive rental. The narrow nonnegative-rental CHECK replacement
-    awaits the goal §8 confirmation and has not been implemented or applied.
+11. CPA lessor cancellation: approved candidate has passed booked PostgreSQL assessment and permanent-stop checks; final union, browser and review acceptance remain. Actual vendor expenses, cash and the single goods receipt must remain preserved.
+14. Total-loss closure: approved TOTAL_LOSS outcome, unavailable asset and maintenance-refund proof passed PostgreSQL closure and both proof race orders; final union, browser and review acceptance remain. No fictitious inspection or return to stock is permitted.
+24. Written rate notices are implemented with durable dispatch/deadline controls; final combined PostgreSQL, full CI and independent review acceptance remain.
+26. Effective-date repricing and the approved nonnegative-rental migration pass targeted tests; final combined PostgreSQL/full CI, browser and independent review acceptance remain.
 
-The integrated changes cover NCA settlement, surrender timing and surplus
-execution evidence; CPA cancellation/continuation, lease damages and total loss;
-commercial earned-interest settlement, in-duplum and independently evidenced
-cancellation; surety wet-ink/spousal consent and purchaser CPA scope; accurate NCA
-asset disclosures and schedule splits; written rate notices, actual benchmark
-effective dates and supply-attributed VAT adjustments. Consumer PASQ output and
-consumer document pins remain unchanged. See the sign-off record in
-[`../DESIGN.md`](../DESIGN.md) and the evidence under
-[`../evidence/legal-code-gaps/`](../evidence/legal-code-gaps/).
-
-This integration checkpoint is not whole-goal acceptance or authorization to set
-`assetFinanceLegalWordingApproved` for a lender. The final full gate, independent
-reviews, remaining zero-rental implementation and legal wording approval remain
-separate requirements.
+Consumer PASQ output and consumer document pins remain unchanged. Completion of
+these code checks does not authorize setting the lender legal-wording approval
+flag. See the sign-off record and committed legal-code-gaps evidence.
