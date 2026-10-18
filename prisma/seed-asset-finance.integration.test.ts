@@ -131,11 +131,11 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       where: { entityId: company.id, contractType: "INSTALMENT_SALE" },
       include: { application: true, payout: true, signers: { include: { client: true } }, asset: true },
     })
-    expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 69_000_000, decision: "APPROVE" })
+    expect(deal).toMatchObject({ status: "BOOKED", structurePreset: "ANNUAL_SEASONAL", rateBasis: "PRIME", balloonCents: 73_600_000, decision: "APPROVE" })
     const consents = await fresh().suretyConsent.findMany({ where: { tenantId: deal.tenantId, signer: { dealId: deal.id } } })
     expect(consents.length).toBe(deal.signers.filter((s) => s.document === "SURETYSHIP").length)
     expect(consents.every((c) => c.maritalRegime === "UNMARRIED")).toBe(true)
-    expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 300_000_000, vatCents: 45_000_000, vin: "MBX00000000000001" })
+    expect(deal.asset).toMatchObject({ assetClass: "EXCAVATOR", cashPriceExclVatCents: 320_000_000, vatCents: 48_000_000, vin: "MBX00000000000001" })
     expect(deal.application).toMatchObject({ status: "DISBURSED", ncaRegime: "NON_NCA", ncaClassificationRule: "JURISTIC_OVER_THRESHOLD" })
     const override = await fresh().ncaRegimeOverride.findFirstOrThrow({ where: { applicationId: deal.applicationId } })
     expect(override).toMatchObject({ status: "APPROVED", requestedById: await userId("credit.officer"), decidedById: await userId("loan.admin.two") })
@@ -150,7 +150,7 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
     expect(wetInk?.scanUploadedById).toBe(await userId("credit.officer"))
     expect(wetInk?.confirmedById).toBe(await userId("loan.admin.one"))
     expect(deal.payout).toMatchObject({
-      status: "RELEASED", amountCents: 310_500_000, dualApprovalRequired: true,
+      status: "RELEASED", amountCents: 331_200_000, dualApprovalRequired: true,
       createdById: await userId("loan.admin.one"), approvedById: await userId("loan.admin.two"),
     })
     expect(await fresh().payoutChecklistItem.count({ where: { dealId: deal.id, required: true, confirmedAt: null } })).toBe(0)
@@ -177,11 +177,11 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       where: { entityId: company.id, contractType: "INSTALMENT_SALE" },
       include: { repaymentSchedule: { orderBy: { installmentNo: "asc" } }, payments: true, taxInvoices: { include: { lines: true } }, contractRates: true },
     })
-    expect(loan).toMatchObject({ ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE", balloonAmount: 69_000_000, status: "ACTIVE", clientId: null })
+    expect(loan).toMatchObject({ ncaRegime: "NON_NCA", contractType: "INSTALMENT_SALE", balloonAmount: 73_600_000, status: "ACTIVE", clientId: null })
     expect(loan.repaymentSchedule).toHaveLength(60)
     expect(loan.contractRates.map((r) => [r.basis, r.margin?.toString(), r.resultingRate.toString()])).toEqual([["PRIME", "0.01", "0.1175"]])
     const [invoice] = loan.taxInvoices
-    expect(invoice).toMatchObject({ totalExclVatCents: 300_000_000, vatCents: 45_000_000, totalInclVatCents: 345_000_000 })
+    expect(invoice).toMatchObject({ totalExclVatCents: 320_000_000, vatCents: 48_000_000, totalInclVatCents: 368_000_000 })
     expect(invoice.lines).toHaveLength(1)
     // Booked through the normal rules: the loan starts today (SAST), the supply date with it.
     const today = sastCalendarDate(new Date())
