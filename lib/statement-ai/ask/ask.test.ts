@@ -31,16 +31,37 @@ describe("tools", () => {
       { month: "2026-07", total: "R6 623.45", rowCount: 2, direction: "out" }, { month: "2026-08", total: "R250.00", rowCount: 2, direction: "out" },
     ])
     expect(runQuery(rows, { id: "q5", tool: "groupByPayee", filter: { direction: "out" }, measure: "count", limit: 1 }).result).toEqual([{ payee: "KOPANO FRESH FOODS", count: 2 }])
-    expect(runQuery(rows, { id: "q6", tool: "list", filter: { minAmount: 1000 }, limit: 2 }).result).toEqual([
+    expect(runQuery(rows, { id: "q6", tool: "list", filter: { minAmount: 1000 }, limit: 2, order: "date" }).result).toEqual([
       { ref: "S1-R0", date: "2026-07-01", payee: "VUKA HOUSING", amount: "R6 500.00", direction: "out" },
       { ref: "S1-R2", date: "2026-07-25", payee: "SALARY SYNTHCO", amount: "R18 450.00", direction: "in" },
     ])
+  })
+  it("lists the largest rows first when asked, and cites them in that order", () => {
+    const largest = runQuery(rows, { id: "q7", tool: "list", filter: { direction: "out" }, limit: 2, order: "largest" })
+    expect(largest.result).toEqual([
+      { ref: "S1-R0", date: "2026-07-01", payee: "VUKA HOUSING", amount: "R6 500.00", direction: "out" },
+      { ref: "S1-R3", date: "2026-08-03", payee: "KOPANO FRESH FOODS", amount: "R200.00", direction: "out" },
+    ])
+    expect(largest.rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R3", "S1-R1", "S1-R5"])
+    expect(runQuery(rows, { id: "q8", tool: "list", filter: { direction: "out" }, limit: 2, order: "date" }).rows.map((r) => r.ref)).toEqual(["S1-R0", "S1-R1", "S1-R3", "S1-R5"])
+    expect(runQuery(rows, { id: "q10", tool: "list", filter: { direction: "out" }, limit: 2, order: "latest" }).rows.map((r) => r.ref)).toEqual(["S1-R5", "S1-R3", "S1-R1", "S1-R0"])
+    // A statement printed newest first is still listed earliest first.
+    const newestFirst = askRows([{ ref: "S1", transactions: [t("2026-08-03", "Card Purchase: KOPANO FRESH FOODS", -20_000), t("2026-07-03", "Card Purchase: KOPANO FRESH FOODS", -12_345)].map((tx, index) => ({ index, t: tx })) }], "T TESTER")
+    expect(runQuery(newestFirst, { id: "q9", tool: "list", filter: {}, limit: 1, order: "date" }).result).toEqual([
+      { ref: "S1-R1", date: "2026-07-03", payee: "KOPANO FRESH FOODS", amount: "R123.45", direction: "out" },
+    ])
+  })
+  it("refuses a grouping without its measure, a list without its order, and a payee ranking filtered to one payee", () => {
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "groupByMonth", filter: { direction: "in" } }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 3 }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "groupByPayee", filter: { payee: "KOPANO FRESH FOODS" }, measure: "sum", limit: 3 }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "groupByPayee", filter: { direction: "out" }, measure: "sum", limit: 3 }] }).success).toBe(true)
   })
   it("refuses anything but the typed arguments: no SQL, no unknown field, at most four queries", () => {
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sql", filter: {} }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sum", filter: { where: "1=1; DROP TABLE x" } }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "sum", filter: { from: "2026-13-01" } }] }).success).toBe(false)
-    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 500 }] }).success).toBe(false)
+    expect(PlanSchema.safeParse({ queries: [{ id: "q1", tool: "list", filter: {}, limit: 500, order: "date" }] }).success).toBe(false)
     expect(PlanSchema.safeParse({ queries: [1, 2, 3, 4, 5].map((i) => ({ id: `q${i}`, tool: "count", filter: {} })) }).success).toBe(false)
   })
   it("resolves a payee the rows have, and refuses one they do not or several match", () => {
@@ -78,6 +99,15 @@ describe("answerQuestion: the model plans, code writes", () => {
     const out = await answerQuestion({ question: "How much went to Kopano?", rows, raisedFlagCodes: [] }, ask)
     expect(out).toMatchObject({ status: "REJECTED", rejectReason: expect.stringMatching(/invalid plan/) })
     expect(ask).toHaveBeenCalledTimes(2)
+    expect(ask.mock.calls[0][0]).not.toContain("previous plan was refused")
+  })
+  it("tells the second ask why the first plan was refused, and answers from the corrected plan", async () => {
+    const ask = vi.fn()
+      .mockResolvedValueOnce('{"queries":[{"id":"q1","tool":"groupByMonth","filter":{"direction":"out"}}]}')
+      .mockResolvedValueOnce('{"queries":[{"id":"q1","tool":"groupByMonth","filter":{"direction":"out"},"measure":"sum"}]}')
+    const out = await answerQuestion({ question: "Spend each month?", rows, raisedFlagCodes: [] }, ask)
+    expect(ask.mock.calls[1][0]).toMatch(/Your previous plan was refused \(invalid plan: queries\.0\.measure .*\)\. Write a corrected plan\.$/)
+    expect(out).toMatchObject({ status: "OK", text: expect.stringMatching(/^\[q1\] By month for money out: 2026-07/) })
   })
   it("shows a filter as the filter and a net total with its sign: the model writes neither", async () => {
     const money = askRows([{ ref: "S1", transactions: [t("2026-09-02", "Card Purchase: KOPANO FRESH FOODS", -100_000), t("2026-09-25", "Payment Received: SALARY SYNTHCO", 1_000_000)].map((tx, index) => ({ index, t: tx })) }], "T TESTER")
