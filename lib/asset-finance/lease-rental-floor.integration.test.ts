@@ -1,5 +1,4 @@
-/** Prepared actual-booked PG acceptance. Explicitly unrun while the zero-rental
- * CHECK and baseline replacement approval gate remains pending. */
+/** Actual-booked acceptance against the approved zero-rental constraint. */
 import { randomUUID } from "node:crypto"
 import { Prisma, PrismaClient } from "@prisma/client"
 import { afterAll, describe, expect, it, vi } from "vitest"

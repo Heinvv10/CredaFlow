@@ -406,3 +406,56 @@ exclude rows with neither rental nor maintenance consideration. The new
 maintenance-only supplies still require invoices. The prepared OL PostgreSQL
 floor cases now assert this same billing boundary, but remain unrun under §8.
 Logs: `/tmp/cf-rate-floor-billing-{red,green,types,lint}.log`.
+
+### Approved zero-rental constraint and actual funding acceptance (2026-10-18)
+
+After the consolidated §8 approval, migration
+`20261018120000_lease_zero_rental_floor` replaces the rental amount CHECK with
+nonnegative rental consideration, preserving its other amount/VAT invariants.
+The foundation regression accepts zero and still rejects negative consideration
+and malformed totals. Catalog snapshots are recorded in
+`/tmp/cf-rate-approved-triggers.txt` and `/tmp/cf-rate-approved-checks.txt`.
+
+The first approved-database run exposed a real date boundary error: extracting
+the UTC date from SAST-midnight schedule timestamps shifted rental accrual one
+day. The independent rental DATE oracle ended at 30,004,779 cents while the
+stored plan reported 30,000,000 (`/tmp/cf-rate-approved-floor-green.log`). The
+floor planner, writer and supply-eligibility checks now use SAST calendar dates
+for those timestamps. The oracle remains unchanged.
+
+The next run exposed a maintenance-only invoice failure: the invoice included a
+zero-priced rental line, which the tax writer correctly refuses. Rental lines
+are now omitted when their consideration is zero; maintenance retains its own
+positive line, supply-date VAT and fund contribution. The intermediate red is
+`/tmp/cf-rate-approved-floor-datefix.log`; all four actual-booked OL/FML cases
+then pass in `/tmp/cf-rate-approved-floor-maintenancefix.log`. This supersedes
+the preceding unrun label for these four cases. Cash, issued invoices, residual
+and ownership remain unchanged, and historical credits remain pending execution.
+
+TypeScript and touched-source lint pass (`/tmp/cf-rate-approved-final-types.log`,
+`/tmp/cf-rate-approved-final-lint.log`). The migrated database matches Prisma
+with no difference (`/tmp/cf-rate-approved-final-schema-diff.log`). This is a
+focused acceptance checkpoint; root owns subsequent union and full CI.
+
+The broader migrated rate/lease run executed 138 tests across 14 suites
+(`/tmp/cf-rate-approved-broad-pg.log`): 136 passed, with two fixture failures.
+The deadline recipient fixture reused a globally fixed ID across reruns; it
+now uses a tenant-unique missing-recipient ID. The ContractRate TRUNCATE probe
+was intercepted by the new notice FK; transactional TRUNCATE CASCADE now reaches
+the exact insert-only trigger, and a before/after row-count sentinel proves
+rollback safety. Both affected suites then passed all 22 tests in
+`/tmp/cf-rate-approved-fixture-repair.log`. The other 12 suites were not repeated
+after these test-only repairs. This also proves the final legacy completedAt
+without provider timestamp regression, so its preceding unrun label is
+superseded. All 31 focused units pass in
+`/tmp/cf-rate-approved-final-unit.log`. Final changed-test TypeScript/lint logs:
+`/tmp/cf-rate-approved-checkpoint-types.log`,
+`/tmp/cf-rate-approved-checkpoint-lint.log`.
+
+The final live zero-rental CHECK definition is recorded in
+`/tmp/cf-rate-approved-final-zero-check.txt`. After ownership verification,
+`bash scripts/it-db.sh down cf-it-rate-approved-20261018` removed the owned
+disposable container and its volume. The old environment file is no longer a
+live database. Root will create a fresh database for the integrated union.
+No real messages, payments, deployment, flags, push or full CI were performed by
+this checkpoint.

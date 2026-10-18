@@ -249,7 +249,9 @@ suite("asset finance rate tables and tenant keys (real DB)", () => {
       const where = `WHERE "loanId" = '${loans.nonNca}'`
       expectRejected(`UPDATE "ContractRate" SET "resultingRate" = 0.2 ${where}`, "ContractRate is insert-only: UPDATE refused")
       expectRejected(`DELETE FROM "ContractRate" ${where}`, "ContractRate is insert-only: DELETE refused")
-      expectRejected(`BEGIN; TRUNCATE "ContractRate"; ROLLBACK;`, "ContractRate is insert-only: TRUNCATE refused")
+      const before = sql(`SELECT count(*) FROM "ContractRate"`)
+      expectRejected(`BEGIN; TRUNCATE "ContractRate" CASCADE; ROLLBACK;`, "ContractRate is insert-only: TRUNCATE refused")
+      expect(sql(`SELECT count(*) FROM "ContractRate"`)).toBe(before)
     })
   })
 

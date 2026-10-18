@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { recomputeLoanBalances, nextPaymentDueDate } from "@/lib/loan/balances"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
-import { dbDate, isoOfDbDate } from "./dates"
+import { dbDate } from "./dates"
+import { sastCalendarDate } from "@/lib/date/sast"
 import { dueDateInstant } from "./schedule-records"
 import { issueRentalRateTaxDocument, consumeDeferredLeaseRateTax, objectEvidence } from "./lease-rate-tax-adjustment"
 import { rateTaxDocuments, type RateTaxDocument } from "./rate-tax-documents"
@@ -46,7 +47,7 @@ export async function writeLeaseRentalFloor(
   let priorFaceReconciliationCents = 0
   for (const doc of historicDocs) {
     const index = doc.periodNo - 1
-    if (isoOfDbDate(stored[index].dueDate) < effectiveDate) priorFaceReconciliationCents += doc.exclVatCents
+    if (sastCalendarDate(stored[index].dueDate) < effectiveDate) priorFaceReconciliationCents += doc.exclVatCents
     else creditByPeriod.set(index, (creditByPeriod.get(index) ?? 0) + doc.exclVatCents)
   }
   // Earlier valid notes remain issued. Reconcile their pending face against
@@ -67,7 +68,7 @@ export async function writeLeaseRentalFloor(
   const documents: RateTaxDocument[] = []
   let carriedCredit = 0
   for (let index = paid; index >= 0; index--) {
-    if (isoOfDbDate(stored[index].dueDate) < effectiveDate) continue
+    if (sastCalendarDate(stored[index].dueDate) < effectiveDate) continue
     let creditLeft = (creditByPeriod.get(index) ?? 0) + carriedCredit
     carriedCredit = 0
     if (!creditLeft) continue
@@ -132,7 +133,7 @@ export async function writeLeaseRentalFloor(
     const interest = row.interestCents + (last ? plan.lessorFundingDifferenceCents : 0)
     return {
       index,
-      dueDate: isoOfDbDate(stored[index].dueDate),
+      dueDate: sastCalendarDate(stored[index].dueDate),
       weight: index > kept ? 1 : 0,
       openingBalanceCents: row.openingCents,
       interestCents: interest,
@@ -230,7 +231,7 @@ export async function writeLeaseRentalFloor(
     entityId: input.loan.entityId,
     resultingRate: input.resultingRate.toString(),
     effectiveDate,
-    firstChangedPaymentDate: isoOfDbDate(firstChanged.dueDate),
+    firstChangedPaymentDate: sastCalendarDate(firstChanged.dueDate),
     oldInstalmentCents: stored[kept + 1].totalDue,
     newInstalmentCents: firstChanged.totalDue,
     totalInterestCents: 0,

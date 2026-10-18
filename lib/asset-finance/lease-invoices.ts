@@ -91,7 +91,9 @@ export async function issueLeaseRentalInvoice(
   const supplyTotalCents = rental.rentalExclVatCents + rental.maintenanceExclVatCents + supplyVatCents
   const period = `rental ${rental.periodNo} of ${loan._count.leaseRentals}, due ${dueDate}`
   const lines = [
-    { description: `Lease ${loan.reference}, ${period}: ${describeAsset(loan.asset)}`, quantity: 1, unitExclVatCents: rental.rentalExclVatCents },
+    ...(rental.rentalExclVatCents > 0
+      ? [{ description: `Lease ${loan.reference}, ${period}: ${describeAsset(loan.asset)}`, quantity: 1, unitExclVatCents: rental.rentalExclVatCents }]
+      : []),
     ...(rental.maintenanceExclVatCents > 0
       ? [{ description: `Maintenance, lease ${loan.reference}, ${period}`, quantity: 1, unitExclVatCents: rental.maintenanceExclVatCents }]
       : []),

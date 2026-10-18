@@ -286,7 +286,11 @@ export async function repriceLoanForReference(tx: RepriceTx, request: RepriceReq
     const plan = leaseRentalFloorPlan({
       openingCents, residualCents: lease.residualCents, startDate, effectiveDate,
       paidThroughIndex: paid, keptThroughIndex: kept, ratePath: newPath,
-      rentals: stored.map(row => ({ dueDate: isoOfDbDate(row.dueDate), rentalExclVatCents: lease.rentals.get(row.installmentNo)!.rentalExclVatCents })),
+      // Schedule timestamps are SAST midnight; UTC date extraction shifts accrual a day.
+      rentals: stored.map(row => ({
+        dueDate: sastCalendarDate(row.dueDate),
+        rentalExclVatCents: lease.rentals.get(row.installmentNo)!.rentalExclVatCents,
+      })),
     })
     if (plan) return writeLeaseRentalFloor(tx, { request, loan, view: lease, stored, plan, paid, kept, path: newPath, resultingRate, margin: prior.margin })
   }

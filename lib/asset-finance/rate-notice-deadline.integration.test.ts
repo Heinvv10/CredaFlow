@@ -105,6 +105,7 @@ suite.sequential("NCA written-rate deadline and historical breach on PostgreSQL"
   it("alerts once per deadline stage, keeps partial delivery pending, and preserves breach after late completion", () =>
     withoutTenantScope(async () => {
       const { tenant, loanId, notice } = await setup()
+      const missingRepresentativeId = `synthetic-missing-${tenant.tenantId}`
       const notifications = () => db.notification.count({ where: { tenantId: tenant.tenantId, entityId: loanId } })
       const start = await notifications()
       for (const [today, level] of [
@@ -137,7 +138,7 @@ suite.sequential("NCA written-rate deadline and historical breach on PostgreSQL"
       })
       await db.assetFinanceRateNotice.update({
         where: { id: notice.id },
-        data: { recipientClientIds: [tenant.directorId, "synthetic-missing-representative"] },
+        data: { recipientClientIds: [tenant.directorId, missingRepresentativeId] },
       })
       vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-05-22T08:00:00Z") })
       const send = vi.fn(async () => ({ id: "synthetic-provider-accepted", status: "SENT", sentAt: new Date() }))
@@ -149,7 +150,7 @@ suite.sequential("NCA written-rate deadline and historical breach on PostgreSQL"
       // recipients must now receive the notice, rather than dropping a leg.
       const second = await db.client.create({
         data: {
-          id: "synthetic-missing-representative",
+          id: missingRepresentativeId,
           tenantId: tenant.tenantId,
           idNumber: `synthetic-${tenant.tenantId}`,
           firstName: "SYNTHETIC",
