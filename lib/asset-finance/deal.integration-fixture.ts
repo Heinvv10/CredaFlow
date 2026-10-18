@@ -26,6 +26,7 @@ import { POST as ncaAgreementSignRoute } from "@/app/api/portal/asset-finance/de
 import { POST as ncaAgreementCountersignRoute } from "@/app/api/asset-finance/deals/[id]/nca-agreement/countersign/route"
 import { POST as bookRoute } from "@/app/api/asset-finance/deals/[id]/book/route"
 import { syntheticSaIdNumber } from "./synthetic-sa-id.integration-fixture"
+import { publishStarterTemplates } from "./documents/templates/templates.integration-fixture"
 
 /** Asset 1's registration number. */
 export const ASSET_ONE_REGISTRATION = "TEST001GP"
@@ -48,7 +49,13 @@ export interface DealFixture {
 /** The fixture's tenant id for run token `t`, known before setup so a partial setup is cleaned up too. */
 export const dealFixtureTenantId = (t: string) => `t_af_deal_${t}`
 
-export async function createDealFixture(db: PrismaClient, t: string): Promise<DealFixture> {
+/**
+ * `templates` (default true): the lender adopts, approves (adminB) and
+ * publishes (adminA) the starter wording of every asset-finance template,
+ * as issuing a deal document requires. A suite proving the refusal without
+ * them passes false.
+ */
+export async function createDealFixture(db: PrismaClient, t: string, opts: { templates?: boolean } = {}): Promise<DealFixture> {
   const tenantId = dealFixtureTenantId(t)
   const host = `af-deal-${t}.deal-it.test`
   await db.tenant.create({ data: { id: tenantId, slug: `af-deal-${t}`, name: "Deal IT", domain: host } })
@@ -113,6 +120,7 @@ export async function createDealFixture(db: PrismaClient, t: string): Promise<De
   })
   await db.entityRelationship.create({ data: { tenantId, entityId: evidenced.id, clientId: director.id, role: "DIRECTOR" } })
   await db.entityRelationship.create({ data: { tenantId, entityId: unevidenced.id, clientId: director.id, role: "DIRECTOR" } })
+  if (opts.templates !== false) await publishStarterTemplates(db, tenantId, adminA, adminB)
   return {
     tenantId, host,
     officer, adminA, adminB,
@@ -132,6 +140,8 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
   const documents = await db.clientDocument.findMany({ where: { tenantId }, select: { id: true, storagePath: true } })
   const invoices = await db.taxInvoice.findMany({ where: { tenantId }, select: { id: true } })
   const surrenders = await db.surrenderRequest.findMany({ where: { tenantId }, select: { id: true, valuationNoticePath: true, finalNoticePath: true } })
+  const issuances = await db.assetDocumentIssuance.findMany({ where: { tenantId }, select: { inputStoragePath: true, pdfStoragePath: true } })
+  await Promise.all(issuances.flatMap((row) => [row.inputStoragePath, row.pdfStoragePath]).filter((path): path is string => !!path).map((path) => unlink(path).catch(() => undefined)))
   const documentIds = documents.map((document) => document.id)
   await Promise.all(documents.flatMap((document) => document.storagePath ? [unlink(document.storagePath).catch(() => undefined)] : []))
   await Promise.all(surrenders.flatMap((row) => [row.valuationNoticePath, row.finalNoticePath].filter((path): path is string => !!path).map((path) => unlink(path).catch(() => undefined))))
@@ -159,6 +169,10 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
     db.clientDocument.deleteMany({ where: { tenantId } }),
     db.assetFinanceAffordabilityAssessment.deleteMany({ where: { tenantId } }),
     db.entityFinancials.deleteMany({ where: { tenantId } }),
+    db.dealSigner.updateMany({ where: { tenantId }, data: { issuanceId: null } }),
+    db.assetDocumentIssuance.deleteMany({ where: { tenantId } }),
+    db.documentTemplateVersion.deleteMany({ where: { template: { tenantId } } }),
+    db.documentTemplate.deleteMany({ where: { tenantId } }),
     db.assetFinanceDeal.deleteMany({ where: { tenantId } }),
     db.ncaRegimeOverride.deleteMany({ where: { tenantId } }),
     db.loanApplication.deleteMany({ where: { tenantId } }),

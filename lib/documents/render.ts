@@ -82,6 +82,11 @@ export async function generateDocument(opts: {
   if (template.kind === "SYSTEM" && !allowSystem) {
     throw new SystemGenerationNotAllowedError(templateKey)
   }
+  // Asset-finance legal wording is issued only with its deal documents
+  // (lib/asset-finance/documents/templates/issuance.ts), never as a letter.
+  if (template.kind === "ASSET_FINANCE") {
+    throw new TemplateUnavailableError(template.key)
+  }
 
   if (template.kind === "CUSTOM" && (!template.isActive || !template.currentVersionId)) {
     throw new TemplateUnavailableError(template.key)

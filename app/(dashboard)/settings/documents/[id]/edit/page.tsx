@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { TOKEN_REGISTRY } from "@/lib/documents/tokens"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor"
+import { AssetTemplateEditor } from "./AssetTemplateEditor"
+import { assetTemplateEditorProps } from "./asset-template-props"
 
 export const metadata = {
   title: "Edit Document Template — Settings",
@@ -15,7 +17,7 @@ export default async function EditDocumentTemplatePage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requireMinRole("LOAN_ADMIN")
+  const user = await requireMinRole("LOAN_ADMIN")
   const { id } = await params
   const tenantId = await getStaffTenantId()
 
@@ -29,6 +31,26 @@ export default async function EditDocumentTemplatePage({
   // this route, so redirect rather than 404.
   if (template.kind === "SYSTEM") {
     redirect("/settings/documents")
+  }
+  if (template.kind === "ASSET_FINANCE") {
+    const props = await assetTemplateEditorProps(tenantId, template.id, template.key, user.id, user.role)
+    return (
+      <div className="p-6 lg:p-8">
+        <div className="mb-6">
+          <Breadcrumbs
+            className="mb-1"
+            items={[
+              { label: "Settings", href: "/settings" },
+              { label: "Document Templates", href: "/settings/documents" },
+              { label: template.name },
+            ]}
+          />
+          <h1 className="text-2xl font-bold text-[var(--cf-text)]">{template.name}</h1>
+          <p className="text-sm text-[var(--cf-text-muted)] mt-1">Your asset-finance legal wording — {props.variantLabel}</p>
+        </div>
+        <AssetTemplateEditor {...props} />
+      </div>
+    )
   }
 
   // DocumentTemplateVersion has no tenantId column of its own — tenant

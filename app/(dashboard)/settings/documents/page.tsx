@@ -3,6 +3,9 @@ import { getStaffTenantId } from "@/lib/session-tenant"
 import { listTemplates } from "@/lib/documents/catalogue"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { DocumentTemplatesTable } from "./DocumentTemplatesTable"
+import { prisma } from "@/lib/prisma"
+import { ASSET_TEMPLATE_FAMILIES } from "@/lib/asset-finance/documents/templates/families"
+import { AssetTemplateFamilies, type AssetFamilyRow } from "@/components/settings/AssetTemplateFamilies"
 
 export const metadata = {
   title: "Document Templates — Settings",
@@ -12,6 +15,18 @@ export default async function DocumentTemplatesPage() {
   await requireMinRole("LOAN_ADMIN")
   const tenantId = await getStaffTenantId()
   const templates = await listTemplates(tenantId)
+  const assetTemplates = await prisma.documentTemplate.findMany({
+    where: { tenantId, kind: "ASSET_FINANCE" },
+    select: { id: true, key: true, currentVersionId: true, versions: { where: { status: "ACTIVE" }, select: { version: true } } },
+  })
+  const families: AssetFamilyRow[] = ASSET_TEMPLATE_FAMILIES.map((f) => ({
+    family: f.family,
+    name: f.name,
+    variants: f.variants.map((v) => {
+      const row = assetTemplates.find((t) => t.key === `${f.family}.${v.variant}`)
+      return { key: `${f.family}.${v.variant}`, label: v.label, templateId: row?.id ?? null, published: row?.versions[0]?.version ?? null }
+    }),
+  }))
 
   return (
     <div className="p-6 lg:p-8">
@@ -30,6 +45,8 @@ export default async function DocumentTemplatesPage() {
           documents and custom letters
         </p>
       </div>
+
+      <AssetTemplateFamilies families={families} />
 
       <DocumentTemplatesTable
         templates={templates.map((t) => ({

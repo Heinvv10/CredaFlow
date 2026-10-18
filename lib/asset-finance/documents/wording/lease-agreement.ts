@@ -17,6 +17,7 @@ import type { DealDocumentData } from "../deal-document-data"
 import { goodsClauses } from "./lease-agreement-goods"
 import { endClauses } from "./lease-agreement-end"
 import { maintenanceClauses } from "./lease-maintenance"
+import { editableClauseText, type AppliedWording } from "../templates/apply"
 
 export interface WordingClause {
   heading: string
@@ -39,6 +40,15 @@ export interface LeaseWordingInput {
   endDate: string
 }
 
-export function leaseAgreementClauses(input: LeaseWordingInput): WordingClause[] {
-  return [...goodsClauses(input), ...endClauses(input), ...(input.fml ? maintenanceClauses(input) : [])]
+/** Clauses 9.1 onwards. A lender's wording replaces only 9.13 (cession). */
+export function leaseAgreementClauses(input: LeaseWordingInput, wording?: AppliedWording, tokens: Readonly<Record<string, string>> = {}): WordingClause[] {
+  const end = endClauses(input)
+  const [options, early, breach, interest, cession, ...rest] = end
+  return [
+    ...goodsClauses(input),
+    options, early, breach, interest,
+    { ...cession, text: editableClauseText(wording, "cession", tokens, cession.text) },
+    ...rest,
+    ...(input.fml ? maintenanceClauses(input) : []),
+  ]
 }

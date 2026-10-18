@@ -1,0 +1,749 @@
+Synthetic Bravo Equipment Credit (Pty) Ltd
+Trading as Bravo Demo Credit · Registration No 2099/900002/07 · NCR NCRCP90002
+2 Bravo Synthetic Road, Bravotown, 9002
+
+
+OPERATING LEASE AGREEMENT
+
+
+
+
+                                                                                                     ED
+Agreement reference AF-MVDMRXRT-0T4F · prepared 18 October 2026
+
+
+ 1. THE LESSOR
+
+
+
+
+                                                                                                   OV
+ Name                                      Synthetic Bravo Equipment Credit (Pty) Ltd
+
+
+
+
+                                                                                                PR
+ Registration number                       2099/900002/07
+ NCR registration                          NCRCP90002
+ Registered office                         2 Bravo Synthetic Road, Bravotown, 9002
+
+
+
+
+                                                                                              AP
+ 2. THE LESSEE
+
+
+
+
+                                                                                        Y
+ Name                                      Synthetic Soleprop
+ Type                                      Sole proprietor (natural person)
+
+
+
+
+                                                                                 LL
+ Identity number                           9706018197080
+ Address                                   3 Synthetic Lane, Pretoria, Gauteng, 0001
+
+
+ 3. THE GOODS (OWNED BY THE LESSOR THROUGHOUT)
+                                                                          GA
+                                                                    LE
+ Class                                     Excavator
+ Make and model                            TEST EX-3
+ Year                                      2025
+                                                                T
+
+ Serial / PIN                              TESTBRAVOC964924FCF3
+                                                         NO
+
+
+
+ 4. THE SUPPLIER
+                                                  —
+
+
+
+
+ Supplier                                  TEST Plant Sales (Pty) Ltd
+
+
+ 5. RENTALS
+                                       MO
+
+
+
+
+ Term                                      36 months, 18 October 2026 to 18 October 2029
+ Rentals                                   Monthly in arrears
+                                DE
+
+
+
+
+ Base monthly rental excl. VAT             R 39,659.65
+ Annual escalation of the rental           8.00%
+ Contract rate (prices the rental)         Prime plus 1.00%, linked to Prime (Prime of 10.75% effective 1 January 2020):
+                           IC
+
+
+
+
+                                           11.75% a year (nominal)
+ VAT                                       Charged on every rental at the rate in force (15.00% at commencement)
+                   T
+
+
+
+
+ Total rentals excl. VAT                   R 1,545,012.98
+                HE
+
+
+
+
+ Total VAT                                 R 231,751.91
+ Total payable incl. VAT                   R 1,776,764.89
+ Cancellation penalty                      Reasonable cancellation penalty: see clause 9.10
+           NT
+
+
+
+
+ Default interest on arrears               None
+ Collection fee per missed rental          None
+  SY
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                 Page 1 of 6
+ 6. RENTAL SCHEDULE
+
+ No.      Due date                    Rental excl. VAT                                    VAT                        Total incl. VAT
+ 1        18 November 2026                R 39,659.65                               R 5,948.95                         R 45,608.60
+
+
+
+
+                                                                                                        ED
+ 2        18 December 2026                R 39,659.65                               R 5,948.95                         R 45,608.60
+ 3        18 January 2027                 R 39,659.65                               R 5,948.95                         R 45,608.60
+ 4        18 February 2027                R 39,659.65                               R 5,948.95                         R 45,608.60
+
+
+
+
+                                                                                                      OV
+ 5        18 March 2027                   R 39,659.65                               R 5,948.95                         R 45,608.60
+ 6        18 April 2027                   R 39,659.65                               R 5,948.95                         R 45,608.60
+ 7        18 May 2027                     R 39,659.65                               R 5,948.95                         R 45,608.60
+ 8        18 June 2027                    R 39,659.65                               R 5,948.95                         R 45,608.60
+
+
+
+
+                                                                                                   PR
+ 9        18 July 2027                    R 39,659.65                               R 5,948.95                         R 45,608.60
+ 10       18 August 2027                  R 39,659.65                               R 5,948.95                         R 45,608.60
+ 11       18 September 2027               R 39,659.65                               R 5,948.95                         R 45,608.60
+
+
+
+
+                                                                                                 AP
+ 12       18 October 2027                 R 39,659.65                               R 5,948.95                         R 45,608.60
+ 13       18 November 2027                R 42,832.42                               R 6,424.86                         R 49,257.28
+ 14       18 December 2027                R 42,832.42                               R 6,424.86                         R 49,257.28
+ 15       18 January 2028                 R 42,832.42                               R 6,424.86                         R 49,257.28
+
+
+
+
+                                                                                         Y
+ 16       18 February 2028                R 42,832.42                               R 6,424.86                         R 49,257.28
+
+
+
+
+                                                                                   LL
+ 17       18 March 2028                   R 42,832.42                               R 6,424.86                         R 49,257.28
+ 18       18 April 2028                   R 42,832.42                               R 6,424.86                         R 49,257.28
+ 19       18 May 2028                     R 42,832.42                               R 6,424.86                         R 49,257.28
+
+
+
+
+                                                                            GA
+ 20       18 June 2028                    R 42,832.42                               R 6,424.86                         R 49,257.28
+ 21       18 July 2028                    R 42,832.42                               R 6,424.86                         R 49,257.28
+ 22       18 August 2028                  R 42,832.42                               R 6,424.86                         R 49,257.28
+ 23       18 September 2028               R 42,832.42                               R 6,424.86                         R 49,257.28
+                                                                     LE
+ 24       18 October 2028                 R 42,832.42                               R 6,424.86                         R 49,257.28
+ 25       18 November 2028                R 46,259.02                               R 6,938.85                         R 53,197.87
+ 26       18 December 2028                R 46,259.02                               R 6,938.85                         R 53,197.87
+                                                                 T
+
+ 27       18 January 2029                 R 46,259.02                               R 6,938.85                         R 53,197.87
+ 28       18 February 2029                R 46,259.02                               R 6,938.85                         R 53,197.87
+                                                         NO
+
+
+
+ 29       18 March 2029                   R 46,259.02                               R 6,938.85                         R 53,197.87
+ 30       18 April 2029                   R 46,259.02                               R 6,938.85                         R 53,197.87
+ 31       18 May 2029                     R 46,259.02                               R 6,938.85                         R 53,197.87
+ 32       18 June 2029                    R 46,259.02                               R 6,938.85                         R 53,197.87
+                                                   —
+
+
+
+
+ 33       18 July 2029                    R 46,259.02                               R 6,938.85                         R 53,197.87
+ 34       18 August 2029                  R 46,259.02                               R 6,938.85                         R 53,197.87
+ 35       18 September 2029               R 46,259.02                               R 6,938.85                         R 53,197.87
+                                         MO
+
+
+
+
+ 36       18 October 2029                 R 46,258.92                               R 6,938.84                         R 53,197.76
+
+
+
+ 7. CONTRACTED USAGE
+                                  DE
+
+
+
+
+No usage limit is contracted.
+
+
+ 8. CONSUMER PROTECTION ACT
+                     T        IC
+
+
+
+
+The Consumer Protection Act, 2008 applies to this lease. Its fixed-term rules (section 14) apply: the lessee may cancel on 20
+business days' notice, subject to a reasonable cancellation penalty, and is notified before the term expires.
+                  HE
+
+
+
+
+ 9. TERMS AND CONDITIONS
+           NT
+
+
+
+
+9.1 Lease of the goods; ownership remains with the lessor
+    Synthetic Bravo Equipment Credit (Pty) Ltd ("the lessor") lets to Synthetic Soleprop ("the lessee") the goods described in
+  SY
+
+
+
+
+    section 3 ("the goods") for the term in section 5, which starts on the commencement date, 18 October 2026, and ends on 18
+    October 2029, on the terms of this agreement. Sections 1 to 8 form part of these terms.
+      The goods remain the property of the lessor throughout. Nothing in this agreement transfers ownership to the lessee: the
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                     Page 2 of 6
+   lessee becomes the owner only if it buys the goods at their market value under clause 9.9(c). The lessee may not sell, let,
+   lend, pledge or encumber the goods, or part with possession of them.
+   Before the goods are brought onto premises the lessee does not own, the lessee must tell the owner of those premises in
+   writing that the goods belong to the lessor, and must give the lessor a copy of that notice on request. If anyone attaches or
+
+
+
+
+                                                                                                        ED
+   claims the goods, the lessee must tell that person that the lessor owns them, and tell the lessor at once.
+   A registered vehicle is registered in the lessor's name as owner and titleholder. The lessee pays the licence and registration
+   fees as they fall due and is liable for every traffic fine and toll incurred while the goods are in its possession; the lessor may
+
+
+
+
+                                                                                                      OV
+   nominate the lessee, or its driver, as the person responsible for a fine.
+9.2 Delivery, acceptance and risk
+    IMPORTANT (section 49 of the CPA): this clause places risk or liability on the lessee. Read it carefully, and initial it below to
+
+
+
+
+                                                                                                   PR
+    show you have read and understood it.
+   The lessee chose the goods and the supplier named in section 4. The supplier delivers the goods to the lessee on the lessor's
+   behalf. On delivery the lessee inspects the goods and signs a delivery and acceptance certificate, which confirms that the
+
+
+
+
+                                                                                                 AP
+   goods described in section 3 were delivered; the lessor then pays the supplier. The lessee must not sign the certificate before
+   the goods have been delivered.
+   Nothing in this agreement limits the lessee's rights under sections 55 and 56 of the Consumer Protection Act, 2008 ("the
+   CPA") to safe goods of good quality. The lessor also makes the supplier's and the manufacturer's warranties available to the
+
+
+
+
+                                                                                            Y
+   lessee for the term.
+
+
+
+
+                                                                                     LL
+   From delivery until the goods are returned to the lessor, the lessee bears the risk of the goods being lost, stolen, damaged or
+   destroyed from any cause other than the lessor's own gross negligence. A loss does not end the lessee's obligation to pay the
+   rentals, except as clause 9.5 provides for goods stolen or written off.
+
+
+
+
+                                                                             GA
+   Lessee's initials:
+
+9.3 Rentals, escalation and changes to the contract rate
+    The lessee pays the rentals in section 6 monthly in arrears, on their due dates, by debit order or electronic transfer into the
+                                                                      LE
+    account the lessor names in writing. A payment counts only once the lessor receives it in cleared funds.
+   The rental increases by 8.00% on each anniversary of the commencement date; the rentals in section 6 already include these
+   increases.
+                                                                  T
+
+   The rentals are priced at the contract rate in section 5, which is linked to the Prime rate. When that reference rate changes,
+                                                          NO
+
+
+
+   the lessor recalculates the rentals not yet invoiced that fall due at least 14 days after the recalculation, at the new contract rate
+   (the new reference rate with the same margin). The term and the number of rentals do not change, and neither does the
+   maintenance part of a rental; a rental already invoiced never changes. The lessor tells the lessee the new rentals in writing
+   before the first changed rental falls due.
+                                                   —
+
+
+
+
+9.4 Tax invoices and VAT
+    Each rental is a separate supply. The lessor issues a tax invoice for each rental on the earlier of its due date and the day the
+    lessor receives payment of it, and charges VAT on the rental at the rate in force at that time (section 5 shows the rate at
+                                         MO
+
+
+
+
+    commencement).
+   If the VAT rate changes, the rentals change by the difference in VAT, as section 67 of the Value-Added Tax Act, 1991 allows.
+   Every other amount under this agreement (an end-of-term, purchase or termination amount) is invoiced on its own tax invoice,
+                                 DE
+
+
+
+
+   with VAT where that Act requires it.
+9.5 Insurance of the goods
+    IMPORTANT (section 49 of the CPA): this clause places risk or liability on the lessee. Read it carefully, and initial it below to
+    show you have read and understood it.
+                           IC
+
+
+
+
+   From delivery until the goods are returned, the lessee must keep the goods insured with an insurer of its choice registered
+   under the Insurance Act, 2017, against loss, theft, damage and destruction from any cause for their full replacement value,
+                   T
+
+
+
+
+   and against liability to third parties arising from their use. The policy must record the lessor's interest as owner and first loss
+   payee, and require the insurer to tell the lessor before the cover lapses or is cancelled. The lessee pays every premium and
+                HE
+
+
+
+
+   excess and gives the lessor proof of cover on request. If the lessee does not insure the goods, the lessor may insure them
+   and recover the premium from the lessee on demand.
+   The lessee reports any loss or damage to the lessor and the insurer within 24 hours, and a theft or hijacking also to the South
+         NT
+
+
+
+
+   African Police Service, and does nothing that could void the cover. Insurance proceeds for repairable damage are used to
+   repair the goods.
+  SY
+
+
+
+
+   If the goods are stolen and not recovered, or written off, the lease ends on the date the theft is confirmed as an unrecovered
+   total loss or the goods are written off, recorded with supporting evidence. The lessee then pays the lessor the arrears and the
+   present value on that day of the rentals (excl. VAT and maintenance) that would have fallen due after it, discounted at the
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                         Page 3 of 6
+   contract rate, without any penalty, and the insurance proceeds actually received, including later receipts, are credited through
+   the receipt ledger against that amount; any excess is recorded for reconciliation and refund to the entitled party. Termination
+   and the valuation date do not depend on insurer settlement or a physical return or inspection of stolen or destroyed goods.
+   Lessee's initials:
+
+
+
+
+                                                                                                       ED
+9.6 Use, care and location of the goods
+    IMPORTANT (section 49 of the CPA): this clause places risk or liability on the lessee. Read it carefully, and initial it below to
+    show you have read and understood it.
+
+
+
+
+                                                                                                     OV
+   The lessee must: use the goods carefully, for its business, within their rated capacity and according to the manufacturer's
+   instructions; have them operated only by competent operators who hold every licence and certificate the law requires; keep
+   them in the Republic of South Africa, and not take them across its borders without the lessor's written consent; tell the lessor
+
+
+
+
+                                                                                                  PR
+   in writing where the goods are kept and of any change; comply with every law that applies to their possession and use; and
+   service and maintain them at its own cost as the manufacturer recommends, using genuine or equivalent parts.
+   Apart from fair wear and tear (clause 9.8), the lessee must keep the goods in the order and condition in which they were
+
+
+
+
+                                                                                                AP
+   delivered. It may not alter them or add to them without the lessor's written consent; a part or accessory fitted to the goods
+   becomes the lessor's property without compensation unless it can be removed without damage and is removed before the
+   goods are returned. The lessor or its agent may inspect the goods at any reasonable time on reasonable notice.
+   The lessee indemnifies the lessor against every claim by any person for loss, damage, injury or death arising from the
+
+
+
+
+                                                                                           Y
+   possession, use or operation of the goods during the term, except where caused by the lessor's gross negligence or wilful
+
+
+
+
+                                                                                     LL
+   misconduct.
+   Lessee's initials:
+
+
+
+
+                                                                             GA
+9.7 Contracted usage and excess-usage charges
+    Section 7 records that no usage limit is contracted, so no excess-usage charge applies. The lessee must still use the goods
+    reasonably under clause 9.6, and damage beyond fair wear and tear is charged under clause 9.8.
+                                                                      LE
+9.8 Return of the goods and the end-of-term inspection
+    When the lease ends (on expiry, at the end of an extension, on early termination or on cancellation), unless the lessee buys
+    the goods under clause 9.9(c), the lessee must at its own cost return the goods, with their keys, manuals, accessories, service
+    records and registration documents, clean and in good working order apart from fair wear and tear, to the place in the
+                                                                 T
+
+    Republic the lessor reasonably names. Until the goods are returned the lessee remains bound by this agreement, including
+    clauses 9.2 and 9.5.
+                                                         NO
+
+
+
+   The lessor inspects the goods on or after the day the lease ends. Its inspection report records their condition, each item of
+   damage with its assessed cost of repair excl. VAT, and the final meter reading. The lessee may attend the inspection and
+   receives a copy of the report.
+                                                   —
+
+
+
+
+   "Fair wear and tear" is the deterioration that results from normal use of the goods for their purpose, within the contracted
+   usage, with the care and maintenance this agreement requires. It does not include accident or impact damage, missing or
+   broken parts or glass, damage from misuse, overloading or neglect, unauthorised alterations, or damage the insurance under
+                                         MO
+
+
+
+
+   clause 9.5 covers or should have covered.
+   The lessor issues one end-of-term tax invoice for the excess usage (clause 9.7), the assessed damage and VAT. The lessee
+   pays it within 7 days of the invoice date. The lessee may object to an item in writing, with reasons, within 10 business days of
+   receiving the report; the lessor considers the objection in good faith and, if it upholds it, issues a credit note. An objection does
+                                 DE
+
+
+
+
+   not suspend payment of the items not in dispute.
+9.9 End-of-term options: return, extension or purchase at market value
+    From 6 months before the last rental falls due, the lessee may choose one of the options below for the end of the term,
+                           IC
+
+
+
+
+    through the lessor's portal or by written notice to the lessor. The choice is final once the lessor records it.
+   (a) Return. The lessee returns the goods under clause 9.8 when the term ends.
+                   T
+
+
+
+
+   (b) Extension month to month. The lease continues after 18 October 2029 from month to month, on the same terms, at the
+                HE
+
+
+
+
+   last rental in section 6, payable on the same day of each month. The lessee may end the extension at any time by giving the
+   lessor at least 20 business days' written notice; it then ends on the date in the notice, not earlier than 20 business days after
+   the notice. The lessor may end it by written notice; it then ends on the first rental date at least one month after the notice. The
+   goods are then returned under clause 9.8.
+         NT
+
+
+
+
+   (c) Purchase at market value. The lessor sells the goods to the lessee at a price not less than their market value: the highest
+   current valuation of the goods by an independent assessor or dealer, dated within the period the lessor's valuation policy sets
+   before the sale. The price is not fixed in this agreement, and nothing in this agreement obliges either party to buy or sell the
+  SY
+
+
+
+
+   goods at any other price. Once the term has ended the lessor issues a tax invoice for the price plus VAT, which the lessee
+   pays within 7 days. Ownership passes, and the lessor signs the change of registration of a registered vehicle, only once the
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                         Page 4 of 6
+   price and everything else owing under this agreement have been paid. The lessee has had the goods throughout the term and
+   knows their condition; the sale does not limit the lessee's rights under the CPA.
+   If the lessee has made no choice by the expiry date and has not told the lessor to end the lease on that date, the lease
+   continues month to month under (b), as section 14(2)(d) of the CPA provides, until it is ended as (b) provides.
+
+
+
+
+                                                                                                          ED
+9.10 Early termination
+   The lessee may cancel this lease at any time by giving the lessor 20 business days' written notice, as section 14(2)(b)(i)(bb) of
+   the CPA allows. The cancellation takes effect 20 business days after the notice is given, whether or not the lessee accepts or
+
+
+
+
+                                                                                                        OV
+   pays any quote. The rentals that would fall due after the cancellation date are cancelled, and the goods are returned and
+   inspected under clause 9.8 (the end-of-term invoice for usage and damage follows separately).
+   The lessee remains liable for the amounts owed up to the cancellation date, and the lessor may charge only a reasonable
+
+
+
+
+                                                                                                     PR
+   cancellation penalty, as section 14(3) of the CPA provides. The financial ceiling for the cancellation penalty is the lessor's
+   reasonable loss: (a) the present value, on the cancellation date, of the rentals (excl. VAT and maintenance) that would have
+   fallen due after it, discounted at the contract rate; less (b) the net amount the lessor realises, or can reasonably expect to
+   realise, by selling or letting the returned goods; plus (c) actual documented recovery, refurbishment and re-letting costs,
+
+
+
+
+                                                                                                   AP
+   itemised with their evidence and evidence confirming those costs were not already deducted in the net goods valuation. A cost
+   already deducted must not also be added to the charge. The charge is floored at zero and capped below the undiscounted
+   remaining rentals, no percentage penalty is added, and it is only a ceiling. The lessor must record a case-specific assessment
+
+
+
+
+                                                                                           Y
+   of every applicable factor in regulation 5(2) of the CPA Regulations and a justified reasonable amount at or below that ceiling,
+   including a reduction or waiver where appropriate. Under regulation 5(3), the charge may not negate the consumer’s right to
+
+
+
+
+                                                                                     LL
+   cancel.
+   The lessor gives the lessee a written quote stating the penalty, and invoices it, plus VAT, on the cancellation date. The lessee
+   may dispute the amount with the lessor, and may refer a dispute to the National Consumer Commission or a court; a dispute
+
+
+
+                                                                             GA
+   does not delay the cancellation.
+9.11 Breach and remedies
+   If the lessee fails to pay any amount on its due date or materially breaches this agreement, the lessor may give the lessee
+                                                                      LE
+   written notice of the breach. If the lessee has not remedied it within 20 business days of the notice, the lessor may cancel this
+   agreement, as section 14(2)(b)(ii) of the CPA provides, or exercise its other remedies below.
+   On a default the lessor may, without losing any other right: (a) claim every amount due and enforce this agreement; or (b)
+                                                                  T
+
+   cancel this agreement, recover the goods (through a court order if the lessee does not return them voluntarily) and claim the
+   amounts owed up to the cancellation date and a reasonable cancellation penalty calculated as clause 9.10 provides, together
+                                                         NO
+
+
+
+   with the reasonable costs of recovering, storing, insuring, valuing and selling the goods and the legal costs a court awards or
+   the lessee agrees to after the default.
+   The lessor sells or lets the recovered goods for the best price reasonably obtainable, measured against an independent
+                                                   —
+
+
+
+
+   valuation. The net proceeds (after the costs deducted from them) are credited to the lessee's account when received. Any
+   surplus is refunded to the lessee; the lessee pays any shortfall on demand.
+9.12 Default interest and collection costs
+                                        MO
+
+
+
+
+   No default interest is charged on late payments (section 5).
+   No collection fee is charged (section 5).
+   Each payment is applied first to default interest, then to collection fees and other charges, then to the rentals and other
+                                 DE
+
+
+
+
+   amounts due, oldest first, and then to amounts not yet due.
+9.13 Cession and assignment
+   The lessor may cede its rights, delegate its obligations and transfer ownership of the goods to anyone, including a financier,
+   without the lessee's consent, provided the lessee's rights under this agreement are not reduced. On request the lessee
+                          IC
+
+
+
+
+   acknowledges the cession in writing and pays the cessionary.
+   The lessee may not cede, assign or delegate any right or obligation under this agreement, or sublet the goods, without the
+                   T
+
+
+
+
+   lessor's prior written consent.
+                HE
+
+
+
+
+9.14 Domicilium and notices
+   Each party chooses as its address for legal process and notices (domicilium citandi et executandi): the lessor, its registered
+   office in section 1; the lessee, its address in section 2. A party may change its address by written notice to another physical
+         NT
+
+
+
+
+   address in the Republic.
+   Notices must be in writing and may be delivered by hand to the chosen address or sent by email to an address the receiving
+   party has given for notices. Notices to the lessee are written in plain language (section 22 of the CPA).
+  SY
+
+
+
+
+   A written notice actually received is valid even if it was not given as this clause provides.
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                       Page 5 of 6
+9.15 General
+   This agreement is the whole agreement between the parties about its subject. A variation, cancellation by agreement or
+   waiver binds a party only if in writing and signed by it. A relaxation or indulgence is not a waiver. If a provision is invalid, the
+   rest of the agreement stands. South African law governs this agreement.
+
+
+
+
+                                                                                                         ED
+   Nothing in this agreement limits any right the lessee has under the CPA, including in respect of representations made to it
+   before it signed.
+   The lessor processes the personal information of the lessee and its representatives under the Protection of Personal
+
+
+
+
+                                                                                                       OV
+   Information Act, 2013, to conclude, administer and enforce this agreement, and may share it for those purposes with its
+   service providers, insurers, the supplier, its funders and any cessionary.
+   This agreement may be signed electronically and in counterparts, as the Electronic Communications and Transactions Act,
+
+
+
+
+                                                                                                    PR
+   2002 allows.
+
+
+ 10. SIGNATURES
+
+
+
+
+                                                                                                  AP
+For the lessee, Synthetic Soleprop
+
+
+
+
+                                                                                             Y
+                                                                                       LL
+Synthetic Soleprop                                                              Date
+Lessee
+
+For the lessor, Synthetic Bravo Equipment Credit (Pty) Ltd
+
+
+
+
+Name:                                                                         GADate
+                                                                        LE
+Authorised signatory
+                                                                   T
+                                                           NO
+                                                    —
+                                          MO
+                                  DE
+                    T      IC
+                 HE
+          NT
+  SY
+
+
+
+
+Ref AF-MVDMRXRT-0T4F                                                                                                           Page 6 of 6
+

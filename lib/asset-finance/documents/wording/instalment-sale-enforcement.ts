@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client"
 import { formatZarPdf } from "@/lib/pdf/helpers"
 import type { DealDocumentData } from "../deal-document-data"
 import { percentPdf } from "../document-parts"
+import { fillTokens } from "../templates/tokens"
 import { addressOrFallback, type WordingClause } from "./commercial-common"
 
 function breach(): WordingClause {
@@ -56,24 +57,33 @@ Ownership of the Goods passes to the Purchaser under clause 7.1 when the Seller 
   }
 }
 
-function cession(): WordingClause {
-  return {
-    heading: "Cession and assignment",
-    text: `The Seller may cede, assign, sell or pledge any or all of its rights under this Agreement, delegate any of its obligations, and transfer its ownership of the Goods, to any person, without the Purchaser's consent and without splitting its claims being an objection. The Seller may disclose information about this Agreement and the Purchaser to any prospective cessionary or funder that undertakes to keep it confidential.
+/** Clause 7.11 as the starter supplies it: a lender template may replace it (./../templates/families.ts). */
+export const ISA_CESSION_STARTER = `The Seller may cede, assign, sell or pledge any or all of its rights under this Agreement, delegate any of its obligations, and transfer its ownership of the Goods, to any person, without the Purchaser's consent and without splitting its claims being an objection. The Seller may disclose information about this Agreement and the Purchaser to any prospective cessionary or funder that undertakes to keep it confidential.
 
-The Purchaser may not cede, assign, delegate or otherwise transfer any right or obligation under this Agreement, or let the Goods or part with possession of them, without the Seller's prior written consent.`,
+The Purchaser may not cede, assign, delegate or otherwise transfer any right or obligation under this Agreement, or let the Goods or part with possession of them, without the Seller's prior written consent.`
+
+function cession(): WordingClause {
+  return { heading: "Cession and assignment", text: ISA_CESSION_STARTER }
+}
+
+/**
+ * Clause 7.12 as the starter supplies it, with its two addresses as tokens
+ * (both required): a lender template may replace the wording around them.
+ */
+export const ISA_NOTICES_STARTER = `The parties choose the following addresses as their domicilium citandi et executandi, where notices and legal process may be delivered: the Seller, its registered office at {{lender.registeredOffice}}; the Purchaser, {{purchaser.domicilium}}. A party may change its domicilium to another physical address in the Republic of South Africa by written notice to the other, effective 7 days after the notice is received.
+
+A notice under this Agreement must be in writing. A notice delivered by hand to a party's domicilium is received on delivery; one sent by prepaid registered post to it is received on the 7th business day after posting; and one sent by email to an address the receiving party has designated in writing for notices is received on the business day after it is sent. A notice actually received is effective even if it was not delivered in one of these ways. "Business day" means any day other than a Saturday, Sunday or public holiday in South Africa.`
+
+/** The values of the clause 7.12 tokens. */
+export function isaNoticeTokens(data: DealDocumentData): Record<string, string> {
+  return {
+    "lender.registeredOffice": data.lender.registeredOfficeLines.join(", "),
+    "purchaser.domicilium": addressOrFallback(data.entity.addressLines, "the physical address it notifies to the Seller in writing before signing"),
   }
 }
 
 function notices(data: DealDocumentData): WordingClause {
-  const seller = data.lender.registeredOfficeLines.join(", ")
-  const purchaser = addressOrFallback(data.entity.addressLines, "the physical address it notifies to the Seller in writing before signing")
-  return {
-    heading: "Domicilium and notices",
-    text: `The parties choose the following addresses as their domicilium citandi et executandi, where notices and legal process may be delivered: the Seller, its registered office at ${seller}; the Purchaser, ${purchaser}. A party may change its domicilium to another physical address in the Republic of South Africa by written notice to the other, effective 7 days after the notice is received.
-
-A notice under this Agreement must be in writing. A notice delivered by hand to a party's domicilium is received on delivery; one sent by prepaid registered post to it is received on the 7th business day after posting; and one sent by email to an address the receiving party has designated in writing for notices is received on the business day after it is sent. A notice actually received is effective even if it was not delivered in one of these ways. "Business day" means any day other than a Saturday, Sunday or public holiday in South Africa.`,
-  }
+  return { heading: "Domicilium and notices", text: fillTokens(ISA_NOTICES_STARTER, isaNoticeTokens(data)) }
 }
 
 function general(): WordingClause {

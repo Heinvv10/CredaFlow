@@ -40,3 +40,12 @@
   layer; the shared consumer PASQ output must not change without approval.
 - Asset wording stays DRAFT until the lender approves it. This work never
   authorises setting the legal approval flag or changing consumer PDF pins.
+- Agreements, suretyships and resolutions are issued only through
+  `documents/templates/issuance.ts` (`selectIssuableTemplate`, then
+  `recordIssuance` in the issuing transaction): never render one for a signer
+  without the selected version, and never fall back to the starter. A new
+  DealSigner row needs its AssetDocumentIssuance (DB trigger).
+- Re-renders that compare hashes (e-sign, contract) use `pinnedIssuance`: the
+  issued version and lender identity, not the current ones.
+- The legacy flag `assetFinanceLegalWordingApproved` governs only the NCA
+  quotation and the system notices; it approves no template document.

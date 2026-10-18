@@ -4,6 +4,7 @@ import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { extractTokens, renderTokens, type TokenContext } from "@/lib/documents/tokens"
 import { findLenderIdentity } from "@/lib/config/identity"
+import { assetTemplatePreview } from "@/lib/asset-finance/documents/templates/route-helpers"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -12,7 +13,8 @@ interface RouteParams {
 /**
  * Preview-only: renders `bodyHtml` against a sample client's TokenContext.
  * No persistence — no version write, no ClientDocument, no audit log. Used
- * by the CUSTOM template editor's Preview button before Save/Publish.
+ * by the CUSTOM template editor's Preview button before Save/Publish. An
+ * ASSET_FINANCE template previews a PDF instead (templates/route-helpers.ts).
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const guard = await requireApiRole("LOAN_ADMIN")
@@ -31,6 +33,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // away from them), but guard defensively the same as the sibling routes.
     if (template.kind === "SYSTEM") {
       return NextResponse.json({ error: "System templates are read-only" }, { status: 403 })
+    }
+    if (template.kind === "ASSET_FINANCE") {
+      return assetTemplatePreview(tenant.id, template, (await req.json().catch(() => ({}))) as Record<string, unknown>)
     }
 
     const body = (await req.json()) as { bodyHtml?: string; clientId?: string }

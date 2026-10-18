@@ -155,6 +155,46 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
 - **Feature flags.** `TenantConfig.feature*` switch modules (CRM, insurance,
   bureau submission, portal, …) per tenant (`resolveFeatureFlags`).
 
+## Lender-owned asset-finance templates
+
+Each lender owns the wording of its asset-finance agreements, suretyships and
+resolutions (spec: `docs/asset-finance/evidence/lender-owned-templates/SPEC.md`;
+code: `lib/asset-finance/documents/templates/`).
+
+- **Ownership.** One `DocumentTemplate` of kind `ASSET_FINANCE` per lender per
+  document variant (`af.isa.cpa`, `af.lease.fml.commercial`, …), adopted from
+  the starter wording through Settings → Document templates. Adoption copies
+  the starter into the lender's own version 1; later starter changes never
+  overwrite it.
+- **Protected content.** Identity comes from `TenantConfig`; figures,
+  schedules, statutory and CPA notices and every numbered clause come from the
+  trusted renderers. Only the commercial agreement variants take lender text:
+  a few editable clauses and additional terms, validated on every save,
+  preview, approval, publication and issue.
+- **Versions and approval.** Versions are immutable and hashed by the
+  database. A second admin approves the exact content hash; a third action
+  publishes it; one ACTIVE version per template. A demo lender's approval is
+  `SYNTHETIC_DEMO` and its documents carry a demo watermark; a real lender's is
+  `LENDER_LEGAL`, recorded by a SUPER_ADMIN on written legal sign-off, and
+  prints no mark. The legacy `assetFinanceLegalWordingApproved` flag approves
+  none of these documents.
+- **Issuance.** Preparing or issuing a document selects the lender's published,
+  approved version or refuses; there is no fallback. Each issued document has
+  an `AssetDocumentIssuance` row (version, approval, lender identity, render
+  input and PDF hashes; input and PDF in `lib/storage`). Signing and
+  contracting re-render with that pinned version and identity, so later
+  publications never change a document already issued. Rows prepared before
+  this existed must be prepared again before signing.
+- **Upgrading a stack.** After migrating an existing database, every lender
+  must adopt, approve and publish its templates before documents can be
+  prepared; for a demo lender, `scripts/asset-finance/ensure-demo-templates.ts`
+  does it with synthetic approvals (the demo seed does it on a fresh bake).
+  It needs two different active staff users of LOAN_ADMIN or above. A stack
+  restored nightly from a snapshot must be re-snapshotted after the backfill
+  (or re-baked), or the restore removes the templates again. A deal partly
+  signed before the upgrade cannot be prepared again or finish signing: cancel
+  it and originate it again.
+
 ## The database enforces the rules
 
 The application checks compliance rules, and the database enforces the ones

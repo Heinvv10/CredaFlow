@@ -1,19 +1,28 @@
-// An entity NCA deal's agreement takes the tenant's legal-wording flag from the
-// deal-document loader, and the audit row records its inverse as draftLegalWording.
+// An entity NCA deal's agreement is issued from the lender's af.nca template
+// version: the version's basis sets the mark, recorded on the audit row; the
+// loader's legacy legal-wording flag changes nothing.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const m = vi.hoisted(() => ({ findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), load: vi.fn(), render: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, $transaction: m.transaction } }))
+const m = vi.hoisted(() => ({ quoteAudit: vi.fn(), findFirst: vi.fn(), transaction: vi.fn(), audit: vi.fn(), load: vi.fn(), render: vi.fn(), select: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetFinanceDeal: { findFirst: m.findFirst }, auditLog: { findFirst: m.quoteAudit }, $transaction: m.transaction } }))
 vi.mock("@/lib/audit", () => ({ AuditAction: new Proxy({}, { get: (_t, key) => String(key) }), logAuditStrict: m.audit }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: vi.fn(async () => ({ legalName: "TEST Lender", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Test Road"] })) }))
 vi.mock("@/lib/storage", () => ({ saveFile: vi.fn(async () => ({ storagePath: "store/agreement.pdf", fileSize: 10 })), deleteFile: vi.fn() }))
 vi.mock("@/lib/compliance/pasq", () => ({ pasqEvidenceIsIntact: () => true }))
 vi.mock("./documents/nca/agreement-pdf", () => ({ renderNcaAssetAgreement: m.render }))
-vi.mock("./documents/deal-document-data", () => ({ loadDealDocumentData: m.load }))
+vi.mock("./documents/deal-document-data", () => ({ loadDealDocumentData: m.load, DealDocumentError: class extends Error {} }))
 vi.mock("./documents/render", () => ({ renderDealDocument: vi.fn() }))
 vi.mock("./deal-structure", () => ({ resolveRate: vi.fn(async () => ({ annualRate: "0.1175", reference: null })) }))
 vi.mock("./deal-terms", () => ({ DEAL_STRUCTURE_SELECT: {}, termsFromDeal: () => ({ rate: { basis: "FIXED", margin: null, fixedRate: "0.1175" } }) }))
 vi.mock("./signing", () => ({ preparedSignerSet: () => [] }))
+vi.mock("./documents/templates/issuance", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./documents/templates/issuance")>()
+  return {
+    ...real, selectIssuableTemplate: m.select, lockSelectedTemplate: vi.fn(), recordIssuance: vi.fn(async () => "issuance-1"),
+    supersedeIssuances: vi.fn(async () => []),
+    storeIssuanceFiles: vi.fn(async (selected: unknown, input: unknown) => ({ selected, input, pdfStoragePath: "store/agreement.pdf", inputStoragePath: "store/input.bin", pdfSha256: "p", inputSha256: "i", lenderIdentity: {} })),
+  }
+})
 const REQUIRED = [{ clientId: "rep", role: "AUTHORISED_SIGNATORY", document: "AGREEMENT" }]
 vi.mock("./signing-prepare", () => ({ currentRequiredSigners: vi.fn(async () => REQUIRED), lockDeal: vi.fn(async () => ({ status: "APPROVED" })) }))
 
@@ -32,10 +41,12 @@ const deal = {
   asset: { make: "TEST", model: "TLB", year: 2026, serialNumber: "SN-TEST", vin: null, cashPriceExclVatCents: 100, vatCents: 15 },
 }
 
-describe("prepareEntityNcaDocuments passes the tenant's legal-wording flag through", () => {
+describe("prepareEntityNcaDocuments issues the agreement from the lender's template version", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     m.findFirst.mockResolvedValue(deal)
+    // The acknowledged quotation's issuance record: issued without the DRAFT mark.
+    m.quoteAudit.mockResolvedValue({ newValue: { documentSha256: "q", draftLegalWording: false } })
     m.render.mockResolvedValue(Buffer.from("pdf"))
     m.transaction.mockImplementation(async (run: (tx: unknown) => unknown) => run({
       dealSigner: { findMany: vi.fn(async () => []), deleteMany: vi.fn(), create: vi.fn(async () => ({ id: "signer-1" })) },
@@ -43,10 +54,21 @@ describe("prepareEntityNcaDocuments passes the tenant's legal-wording flag throu
     }))
   })
 
-  it.each([true, false])("approved=%s from the loader reaches the agreement renderer and the audit row", async (approved) => {
-    m.load.mockResolvedValue({ legalWordingApproved: approved, ncaApplies: true, pricing: {}, requiredSigners: REQUIRED })
+  it.each([
+    [true, "SYNTHETIC_DEMO", "SYNTHETIC_DEMO"],
+    [false, "LENDER_LEGAL", "NONE"],
+  ] as const)("legacy flag %s, a %s approval: the agreement prints mark %s", async (flag, basis, mark) => {
+    m.load.mockResolvedValue({ legalWordingApproved: flag, ncaApplies: true, pricing: {}, requiredSigners: REQUIRED })
+    m.select.mockResolvedValue({
+      templateId: "tpl", templateKey: "af.nca.instalment_sale", versionId: "v2", versionNumber: 2, contentSha256: "c".repeat(64), approvalBasis: basis,
+      approvedById: "u2", approvedAt: new Date(), legalSignOffReference: null,
+      content: { schema: 1, templateKey: "af.nca.instalment_sale", starterRevision: "x", clauses: {}, additionalTerms: [] },
+    })
     expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toEqual({ kind: "prepared", signers: 1 })
-    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ legalWordingApproved: approved }))
-    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ draftLegalWording: !approved }) }), expect.anything())
+    expect(m.select).toHaveBeenCalledWith(expect.anything(), "t1", "af.nca.instalment_sale")
+    expect(m.render).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ mark }))
+    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({
+      templates: [expect.objectContaining({ templateKey: "af.nca.instalment_sale", templateVersion: 2, approvalBasis: basis, issuanceId: "issuance-1" })],
+    }) }), expect.anything())
   })
 })

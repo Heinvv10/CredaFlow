@@ -45,8 +45,9 @@ export async function createSigningFixture(
   t: string,
   signIn: (userId: string, role: "LOAN_ADMIN" | "CREDIT_OFFICER") => void,
   structure?: { periods: number; rateMargin: string },
+  opts: { templates?: boolean } = {},
 ): Promise<SigningFixture> {
-  const fx = await createDealFixture(db, t)
+  const fx = await createDealFixture(db, t, opts)
   const client = async (label: string, n: number) =>
     (await db.client.create({
       data: {
