@@ -25,7 +25,7 @@
  *     portal signing and BOOKED today.
  * (c) TEST Earthmoving (Pty) Ltd: verified AFS (R25m turnover), a director
  *     who is also authorised signatory and surety, a separate surety; an
- *     excavator at R3 450 000 incl. VAT on ANNUAL_SEASONAL (Apr–Jun ×3,
+ *     excavator at R3 680 000 incl. VAT on ANNUAL_SEASONAL (Apr–Jun ×3,
  *     others ×0.5, 60 months), 20% balloon, PRIME + 1.00%; NON_NCA by the
  *     classifier's override, approved; signed, contracted, paid out and
  *     BOOKED today, then part-paid by an early receipt of the first
