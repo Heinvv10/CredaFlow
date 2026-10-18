@@ -52,7 +52,7 @@ describe("StatementAiCard", () => {
     expect(html).toContain("HOLLYWOODBETS")
   })
 
-  it("shows an answer with how it was computed, and the ask box only to those who may ask", async () => {
+  it("shows an answer with how it was computed, and the ask box", async () => {
     const answer = output({
       id: "o3", kind: "ANSWER", question: "How much went to SYNTH RENTALS?", text: "R19 500.00 [q1].",
       citations: [{ id: "q1", tool: "sum", args: { filter: { direction: "out", payee: "SYNTH RENTALS" } }, result: { total: "R19 500.00", rowCount: 3 }, matchedRows: 3, rows: [{ ref: "S1-R5", date: "2026-07-27", payee: "SYNTH RENTALS", amount: "-R6 500.00" }] }],
@@ -63,17 +63,10 @@ describe("StatementAiCard", () => {
     expect(html).toContain("How this was computed")
     expect(html).toContain("S1-R5")
     expect(html).toContain("Working it out…")
-    expect(html).not.toContain("statement-ai-question")
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })))
     let r: ReactTestRenderer | undefined
-    await act(async () => { r = create(<StatementAiCard applicationId="app-1" canAsk />) })
+    await act(async () => { r = create(<StatementAiCard applicationId="app-1" />) })
     await act(async () => { await new Promise((res) => setTimeout(res, 0)) })
     expect(JSON.stringify(r!.toJSON())).toContain("statement-ai-question")
-  })
-
-  it("shows nothing of a summary withheld by role, not \"unavailable\"", async () => {
-    const { html } = await render(200, { summary: null, explanations: [], answers: [], pending: 0, noStatements: false, summaryWithheld: true, modelAvailable: true })
-    expect(html).not.toContain("Summary unavailable")
-    expect(html).not.toContain("statement-ai-summary")
   })
 })

@@ -18,7 +18,7 @@ const ASK_LIMIT_PER_TENANT = { limit: 100, windowMs: 60 * 60_000 }
  * POST /api/applications/[id]/statement-ai/ask — body `{ question }`. Queues
  * the question for the background worker and returns at once (202); the
  * answer is polled through GET /api/applications/[id]/statement-ai. Never
- * calls the model. CREDIT_OFFICER and up: READONLY reads answers, never asks.
+ * calls the model. CREDIT_OFFICER and up: READONLY neither reads answers nor asks.
  * The same question on the same rows returns the stored answer, unless it failed or was rejected.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

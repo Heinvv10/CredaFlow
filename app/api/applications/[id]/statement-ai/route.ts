@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { hasMinRole, requireApiRole } from "@/lib/auth-guards"
+import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { logDocumentContentAccess } from "@/lib/document-auth"
 import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
@@ -21,7 +21,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (isCrossOriginRequest(req.headers)) {
     return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 })
   }
-  const guard = await requireApiRole("READONLY")
+  // Everything here restates the statement insights, which need CREDIT_OFFICER (statement-insights route); so do answers (Hein, 2026-10-18).
+  const guard = await requireApiRole("CREDIT_OFFICER")
   if (guard.error) return guard.error
 
   return withTenantContext(req, async (tenant) => {
@@ -29,15 +30,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params
     const planned = await planOutputs(tenant.id, id)
     if (!planned) return NextResponse.json({ error: "Application not found" }, { status: 404 })
-    // READONLY reads asked questions' answers (goal §5); the summary and explanations restate
-    // the statement insights, which need CREDIT_OFFICER (statement-insights route).
-    const summaries = hasMinRole(guard.user.role, "CREDIT_OFFICER")
-    const view = await applicationAiView(tenant.id, id, planned, { summaries })
-    if (summaries && view.pending > 0) enqueueApplication(tenant.id, id)
+    const view = await applicationAiView(tenant.id, id, planned)
+    if (view.pending > 0) enqueueApplication(tenant.id, id)
     // A question queued before a restart is queued again (the worker skips one already running or waiting).
     for (const a of view.answers) if (a.status === "PENDING") enqueueQuestion(tenant.id, id, a.id)
     await logDocumentContentAccess({ documentIds: planned.documentIds, staffUserId: guard.user.id, action: "statement_ai", req })
-    // summaryWithheld: the role may not see the summary and explanations, so the card does not call them "unavailable".
-    return NextResponse.json({ ...view, noStatements: planned.summary === null, summaryWithheld: !summaries, modelAvailable: modelAvailable() })
+    return NextResponse.json({ ...view, noStatements: planned.summary === null, modelAvailable: modelAvailable() })
   })
 }

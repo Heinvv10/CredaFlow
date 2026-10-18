@@ -1,7 +1,7 @@
 /**
  * Feature C against Postgres, with the model's HTTP endpoint stubbed: the
  * route only queues (the model is asked by the worker after it returns), a
- * READONLY user reads answers but cannot ask, the lender's switch off is a
+ * READONLY user can neither ask nor read answers, the lender's switch off is a
  * 404, the tools read only the asking tenant's application's rows, and a
  * model that is down leaves a FAILED answer an officer may ask again.
  *
@@ -106,8 +106,10 @@ suite("POST /api/applications/[id]/statement-ai/ask against Postgres", () => {
     expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_QUESTION_ASKED", entityId: id } })).toBe(1)
     expect(await prisma.auditLog.count({ where: { tenantId: a.tenantId, action: "STATEMENT_AI_OUTPUT_RECORDED", entityId: id } })).toBe(1)
 
-    // READONLY reads the answer and how it was computed.
-    const seen = await view(a, "READONLY")
+    // READONLY may not read it; a CREDIT_OFFICER reads the answer and how it was computed.
+    h.session = sessionFor(a, "READONLY")
+    expect((await GET(new NextRequest(`http://localhost/api/applications/${a.applicationId}/statement-ai`, { headers: { "x-tenant-slug": a.slug } }), { params: Promise.resolve({ id: a.applicationId }) })).status).toBe(403)
+    const seen = await view(a, "CREDIT_OFFICER")
     expect(seen.answers).toEqual([expect.objectContaining({ id, status: "OK", question: "How much rent was paid to SYNTH RENTALS?", stale: false, citations: expect.any(Array) })])
 
     // The same question again returns the stored answer; the model is not asked.
