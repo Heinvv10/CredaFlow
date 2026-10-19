@@ -92,6 +92,10 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const [signMode, setSignMode] = useState<SignMode>("draw")
   const [typedName, setTypedName] = useState("")
   const [hasDrawn, setHasDrawn] = useState(false)
+  // Set once the consumer presses Sign with declarations unticked; the message
+  // clears itself as soon as the last one is ticked.
+  const [declarationsAttempted, setDeclarationsAttempted] = useState(false)
+  const checkRefs = useRef<Array<HTMLInputElement | null>>([])
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isDrawingRef = useRef(false)
@@ -171,7 +175,14 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const toggle = (i: number) => setChecks(prev => prev.map((v, idx) => idx === i ? !v : v))
 
   const handleSign = async () => {
-    if (!allChecked || !hasSignature || !otpSatisfied) return
+    setDeclarationsAttempted(true)
+    if (!allChecked) {
+      const first = checkRefs.current.find((el, i) => el && !checks[i])
+      first?.focus()
+      first?.scrollIntoView?.({ block: "center", behavior: "smooth" })
+      return
+    }
+    if (!hasSignature || !otpSatisfied) return
     setSigning(true)
     try {
       let signatureData: string | undefined
@@ -222,6 +233,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   }
 
   const labels = AGREEMENT_DECLARATIONS.map(d => d.text)
+  const unticked = labels.filter((_, i) => !checks[i])
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
@@ -260,6 +272,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           <label key={i} className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
+              ref={(el) => { checkRefs.current[i] = el }}
               checked={checks[i]}
               onChange={() => toggle(i)}
               className="mt-1 h-4 w-4 rounded border-gray-300"
@@ -267,6 +280,16 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
             <span className="text-sm text-gray-700">{label}</span>
           </label>
         ))}
+        {declarationsAttempted && unticked.length > 0 && (
+          <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-semibold">
+              Please tick {unticked.length === 1 ? "this declaration" : "these declarations"} before signing:
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {unticked.map(text => <li key={text}>{text}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Signature capture */}
@@ -355,9 +378,15 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
         />
       )}
 
+      {declarationsAttempted && allChecked && (!hasSignature || !otpSatisfied) && (
+        <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {!hasSignature ? "Please add your signature above before signing." : "Please verify the one-time code above before signing."}
+        </p>
+      )}
+
       <Button
         onClick={handleSign}
-        disabled={!allChecked || !hasSignature || !otpSatisfied || signing}
+        disabled={signing}
         className="w-full py-6 text-lg"
         style={{ backgroundColor: allChecked && hasSignature && otpSatisfied ? "#4F46E5" : undefined }}
       >
