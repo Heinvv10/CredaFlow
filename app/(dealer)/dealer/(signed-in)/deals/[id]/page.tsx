@@ -103,7 +103,9 @@ export default async function DealerDealPage({ params }: Params) {
               ))}
             </ul>
           )}
-          {takesDocuments ? <DealerUploadForm dealId={deal.id} docTypes={DEALER_UPLOAD_DOC_TYPES} idPrefix="deal-doc" /> : null}
+          {draft ? <DealerUploadForm dealId={deal.id} docTypes={DEALER_UPLOAD_DOC_TYPES} idPrefix="deal-doc" /> : (
+            <p className="text-xs text-[var(--cf-text-muted)]">The deal is with the lender: send a document by answering one of its requests.</p>
+          )}
         </DataPanel>
         {deal.signing.length > 0 ? (
           <DataPanel title="Signing">

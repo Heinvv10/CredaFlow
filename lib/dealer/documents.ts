@@ -9,7 +9,12 @@
  * every read writes a DocumentAccessLog row (accessorType 'dealer') before the
  * bytes are read (serveEntityDocument). An upload naming a document request
  * fulfils it in the same transaction.
+ *
+ * Free uploads end at the hand-over (dealerSubmittedAt): from then on the
+ * dealer uploads only to answer an open document request, so nothing lands
+ * on the lender's deal unasked.
  */
+import type { AssetDealStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { serveEntityDocument, storeDealEvidenceDocument, type ParsedEntityUpload } from "@/lib/asset-finance/entity-document-io"
@@ -21,7 +26,12 @@ import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 export { DEALER_UPLOAD_DOC_TYPES } from "./doc-types"
 
 /** A deal in these states takes no more dealer documents. */
-const CLOSED = ["REFUSED_NCA", "DECLINED", "CANCELLED"]
+const CLOSED: readonly AssetDealStatus[] = ["REFUSED_NCA", "DECLINED", "CANCELLED"]
+
+const ANSWERED = "This request has already been answered"
+
+/** Another upload fulfilled the request between the check and this upload's transaction. */
+class RequestAnsweredConcurrently extends Error {}
 
 /** The documents the dealer's own users uploaded on the deal (the deal is already the dealer's). */
 export function dealerDocumentWhere(actor: Pick<DealerActor, "tenantId" | "dealerId">, dealId: string) {
@@ -39,38 +49,46 @@ export async function uploadDealerDocument(
 ): Promise<{ kind: "stored"; document: EntityDocumentView } | DealerRefusal> {
   const deal = await prisma.assetFinanceDeal.findFirst({
     where: dealerDealWhere(actor, dealId),
-    select: { id: true, status: true, entityId: true, clientId: true },
+    select: { id: true, status: true, dealerSubmittedAt: true, entityId: true, clientId: true },
   })
   if (!deal) return dealerMiss("Deal")
   if (CLOSED.includes(deal.status)) return dealerRefused(409, "This deal is closed and takes no more documents")
+  if (requestId === null && (deal.status !== "DRAFT" || deal.dealerSubmittedAt)) {
+    return dealerRefused(409, "The deal is with the lender: upload only to answer one of its document requests")
+  }
   if (requestId !== null) {
     const request = await prisma.dealerDocumentRequest.findFirst({
       where: { id: requestId, tenantId: actor.tenantId, dealId: deal.id },
       select: { docType: true, fulfilledAt: true },
     })
     if (!request) return dealerMiss("Document request")
-    if (request.fulfilledAt) return dealerRefused(409, "This request has already been answered")
+    if (request.fulfilledAt) return dealerRefused(409, ANSWERED)
     if (request.docType !== upload.docType) return dealerRefused(422, `This request asks for ${request.docType}`)
   }
   const audit = dealerAuditFields(actor)
-  const document = await storeDealEvidenceDocument({
-    tenantId: actor.tenantId, dealId: deal.id, entityId: deal.entityId, clientId: deal.clientId,
-    upload: { ...upload, dealId: deal.id },
-    uploader: { type: "dealer", id: actor.dealerUserId, email: actor.email, dealerId: actor.dealerId },
-    withinTransaction: requestId === null ? undefined : async (tx, stored) => {
-      const fulfilled = await tx.dealerDocumentRequest.updateMany({
-        where: { id: requestId, tenantId: actor.tenantId, dealId: deal.id, fulfilledAt: null },
-        data: { fulfilledDocumentId: stored.id, fulfilledAt: new Date() },
-      })
-      if (fulfilled.count !== 1) throw new Error("The document request was answered concurrently")
-      await logAuditStrict({
-        tenantId: actor.tenantId, userId: audit.userId, userEmail: audit.userEmail,
-        action: AuditAction.DEALER_DOCUMENT_REQUEST_FULFILLED, entity: "DealerDocumentRequest", entityId: requestId,
-        newValue: { dealId: deal.id, documentId: stored.id, docType: upload.docType, actor: audit.actor },
-      }, tx)
-    },
-  })
-  return { kind: "stored", document }
+  try {
+    const document = await storeDealEvidenceDocument({
+      tenantId: actor.tenantId, dealId: deal.id, entityId: deal.entityId, clientId: deal.clientId,
+      upload: { ...upload, dealId: deal.id },
+      uploader: { type: "dealer", id: actor.dealerUserId, email: actor.email, dealerId: actor.dealerId },
+      withinTransaction: requestId === null ? undefined : async (tx, stored) => {
+        const fulfilled = await tx.dealerDocumentRequest.updateMany({
+          where: { id: requestId, tenantId: actor.tenantId, dealId: deal.id, fulfilledAt: null },
+          data: { fulfilledDocumentId: stored.id, fulfilledAt: new Date() },
+        })
+        if (fulfilled.count !== 1) throw new RequestAnsweredConcurrently()
+        await logAuditStrict({
+          tenantId: actor.tenantId, userId: audit.userId, userEmail: audit.userEmail,
+          action: AuditAction.DEALER_DOCUMENT_REQUEST_FULFILLED, entity: "DealerDocumentRequest", entityId: requestId,
+          newValue: { dealId: deal.id, documentId: stored.id, docType: upload.docType, actor: audit.actor },
+        }, tx)
+      },
+    })
+    return { kind: "stored", document }
+  } catch (error) {
+    if (error instanceof RequestAnsweredConcurrently) return dealerRefused(409, ANSWERED)
+    throw error
+  }
 }
 
 /** The dealer's own documents on its own deal, newest first; null when the deal is not the dealer's. */
