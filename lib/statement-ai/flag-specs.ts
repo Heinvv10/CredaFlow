@@ -45,12 +45,12 @@ const SPECS: Record<string, Spec> = {
     raisedWhen: null,
     thresholds: { instalmentMatchTolerancePercent: INSTALMENT_MATCH_PCT },
   },
-  RETURNED_DEBIT: { rule: "A debit the bank sends back means the account could not cover a commitment on the day it fell due; each is listed so the officer sees how often that happened.", raisedWhen: null, thresholds: {} },
+  RETURNED_DEBIT: { rule: "A debit the bank sends back is a commitment that went unpaid when it fell due, whatever the reason; the rows found are listed so the officer sees when and how often.", raisedWhen: null, thresholds: {} },
   PAYDAY_LENDER: { rule: "Short-term loans are often taken to bridge the gap to payday, so money to or from these lenders is listed for the officer to weigh against the new loan.", raisedWhen: null, thresholds: {} },
   STALE_STATEMENT: { rule: "The statement's end date is compared with the application date.", raisedWhen: "It is raised when the statement ends more than the maximum age before the application.", thresholds: { maximumAgeDays: STALE_STATEMENT_DAYS } },
   MODIFIED_AFTER_CREATION: { rule: "The PDF's modification time is compared with its creation time.", raisedWhen: "It is raised when the PDF records a modification more than the tolerance after its creation.", thresholds: { toleranceSeconds: MODIFIED_AFTER_CREATION_TOLERANCE_MS / 1000 } },
-  BALANCE_MISMATCH: { rule: "A statement as the bank issues it adds up to the cent, so a gap between the sum of its rows and its last printed figure means a row was misread, left out or changed after the bank issued it.", raisedWhen: null, thresholds: {} },
-  RUNNING_BALANCE_BREAK: { rule: "Banks print a balance after every row, each carried forward from the one before; a figure that breaks that chain points to a misread or a changed amount at that spot.", raisedWhen: null, thresholds: {} },
+  BALANCE_MISMATCH: { rule: "A statement as the bank issues it adds up to within a cent, so a gap between the sum of its rows and its last printed figure means a row was misread, left out or changed after the bank issued it.", raisedWhen: null, thresholds: {} },
+  RUNNING_BALANCE_BREAK: { rule: "Where a bank prints a balance on each row, each is carried forward from the balance before it; a figure that breaks that chain points to a misread or a changed amount at that spot.", raisedWhen: null, thresholds: {} },
   INCREMENTAL_UPDATE: { rule: "The PDF's structure is checked for saves made after it was first written.", raisedWhen: null, thresholds: {} },
   PRODUCER_UNEXPECTED: { rule: "The program that wrote the PDF is compared with the one the bank uses.", raisedWhen: null, thresholds: {} },
   HOLDER_NAME_MISMATCH: { rule: "A statement shows income and spending only for the person who holds the account; another person's account would show money the client may not have.", raisedWhen: null, thresholds: {} },
@@ -59,18 +59,18 @@ const SPECS: Record<string, Spec> = {
 const manual = (rule: string): Spec => ({ rule, raisedWhen: null, thresholds: {} })
 Object.assign(SPECS, {
   NO_PAYSLIP: manual("The salary rule compares the net pay a payslip states with the credits that arrive around its pay date; that is what ties the stated income to money the client receives, and without a payslip it has nothing to compare."),
-  PAYSLIP_UNVALIDATED: manual("The salary rule uses a payslip only when its gross pay less its deductions gives its net pay; a slip whose sums do not agree may carry a misread net pay, so the rule does not compare it."),
+  PAYSLIP_UNVALIDATED: manual("The salary rule uses a payslip only when its figures passed the reading checks (gross pay less deductions must give net pay) and it shows a net pay and a pay date; without that, a misread net pay could be compared, so the rule does not compare it."),
   PAYSLIP_NOT_CLIENTS: manual("A payslip shows income only for the person it names, so the salary rule uses a payslip only when it is the client's own; someone else's would show income the client does not earn."),
   SALARY_NOT_CHECKED: manual("The salary rule looks for the credit only a fixed number of days either side of the pay date, and only where the same statement spans all those days, so that a missing credit means the money did not arrive, not that it fell outside the statement."),
   NO_STATEMENT: manual("The rules on income, spending, debit orders and the document itself all read the transactions, so with nothing to read they did not run."),
-  UNREADABLE: manual("The rules work on the transactions extracted from the file, so with nothing extracted they did not run here: its income, spending and document checks are missing."),
+  UNREADABLE: manual("The rules on income, spending and the rows themselves work on the transactions extracted from the file, so with nothing extracted they did not run on this statement."),
   UNVERIFIED_READ: manual("The statement was read but its balances could not be confirmed by arithmetic."),
   READ_INCOMPLETE: manual("The holder's name is what ties the account to the client, and the dates place it against the application date and the pay date; without either, those rules cannot run on it."),
   FIRST_ROW_UNVERIFIED: manual("Each row's amount is checked by working from the balance before it to the one after it; here the starting figure is worked out from the first row itself, so a changed first amount moves that figure with it and still adds up."),
   LAST_ROW_UNVERIFIED: manual("The whole statement is summed to its end figure; here that figure is taken from the last row's own balance, so that row's amount and balance could change together and the sum would still agree."),
   ROWS_UNCHECKED: manual("A row that prints its own balance is checked on its own; rows without a balance are covered only by the next printed balance, so changes that cancel out within such a run would still add up."),
   AUTHENTICITY_UNCHECKED: manual("The PDF carries no producer information, so the program that wrote it could not be checked."),
-  PRIOR_OPEN_FLAGS: manual("Findings on an earlier application describe the same client and often the same documents; deciding this application first would let a question raised earlier go unanswered."),
+  PRIOR_OPEN_FLAGS: manual("Open findings on another application of the same client are about the same person, so the rule raises them here for this decision to be made with them in view."),
 } satisfies Record<string, Spec>)
 
 const GENERIC: Spec = { rule: "A rule raised this for an officer to review by hand.", raisedWhen: null, thresholds: {} }

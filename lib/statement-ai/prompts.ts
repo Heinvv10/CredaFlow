@@ -7,7 +7,8 @@
 import type { SummaryFacts } from "./facts"
 import { CLAIM_DESCRIPTIONS, SUMMARY_CLAIMS } from "./render"
 
-export const SUMMARY_PROMPT_VERSION = "summary-claims-4"
+// 5: the answer cap went from 200 to 600 tokens; a summary rejected under the old cap is asked once more.
+export const SUMMARY_PROMPT_VERSION = "summary-claims-5"
 
 export function summaryPrompt(facts: SummaryFacts): string {
   return `You choose what a short summary of a loan applicant's bank statements should say to a credit officer at a South African lender.

@@ -39,7 +39,9 @@ type VlmConfig = { url: string; model: string; headers: Record<string, string>; 
 
 /**
  * The temperature to send, if any: Anthropic's current models answer 400
- * "temperature is deprecated" to any value, so a hosted call sends none.
+ * "temperature is deprecated" to any value, so a hosted call sends none. That
+ * covers every hosted endpoint, not only Anthropic's: hosted use is demo-only,
+ * and Anthropic's is the one in use; a self-hosted model keeps its temperature.
  */
 export function sampling(config: VlmConfig, temperature: number): { temperature?: number } {
   return config.hosted ? {} : { temperature }
