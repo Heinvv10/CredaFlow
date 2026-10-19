@@ -1014,9 +1014,12 @@ describe("notices survive every row-count combination", () => {
     expect((await PDFDocument.load(pdf)).getPageCount()).toBe(4)
   })
 
-  it("adds one when a long address pushes the notices past the margin", async () => {
+  // The notices move whole to page 2 and the schedule follows them on that
+  // page, so page 2 is not left nearly blank (Fair Score audit, 2026-10-16).
+  it("starts the schedule under the notices when a long address moves them to page 2", async () => {
     const pdf = await generateCreditAgreementPdf({
       ...baseInput,
+      variant: "pasq",
       creditLife: {
         elected: false,
         productName: "Acme Credit Life",
@@ -1026,7 +1029,15 @@ describe("notices survive every row-count combination", () => {
       client: { ...baseInput.client, ...longAddress },
     })
     const { PDFDocument } = await import("pdf-lib")
-    expect((await PDFDocument.load(pdf)).getPageCount()).toBe(5)
+    const source = await PDFDocument.load(pdf)
+    expect(source.getPageCount()).toBe(4)
+    const single = await PDFDocument.create()
+    const [page2] = await single.copyPages(source, [1])
+    single.addPage(page2)
+    const page2Content = extractPdfContent(Buffer.from(await single.save()))
+    expect(page2Content).toContain(pdfHex("DEBT REVIEW"))
+    expect(page2Content).toContain(pdfHex("REPAYMENT SCHEDULE"))
+    expect(page2Content).toContain(pdfHex("TOTAL"))
   })
 })
 

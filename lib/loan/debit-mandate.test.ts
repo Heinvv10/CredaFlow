@@ -4,6 +4,7 @@ import {
   DebitMandateEvidenceError,
   debitMandatePaymentTerms,
   requireDebitMandateBankDetails,
+  sharedDayOfMonth,
 } from "./debit-mandate"
 import { createDebitMandateTestEvidence } from "./__fixtures__/debit-mandate"
 import { createPasqEvidence } from "@/lib/compliance/pasq"
@@ -41,6 +42,7 @@ describe("debitMandatePaymentTerms", () => {
       firstDebitAmount: evidence.calculation.schedule[0].totalDue,
       firstDebitDate: evidence.calculation.schedule[0].dueDate,
       firstDebitInitiationFee: evidence.calculation.initiationFee,
+      repaymentDayOfMonth: 1,
     })
   })
 
@@ -303,5 +305,18 @@ describe("requireDebitMandateBankDetails", () => {
   ])("rejects %s (%s)", (invalid, _label) => {
     expect(() => requireDebitMandateBankDetails({ ...valid, ...invalid }))
       .toThrow(/complete on-file banking details/i)
+  })
+})
+
+describe("sharedDayOfMonth", () => {
+  const item = (iso: string) => ({ installmentNo: 1, dueDate: new Date(iso), principalDue: 1, interestDue: 0, feesDue: 0, totalDue: 1 })
+
+  it("reads the day in SAST, not UTC", () => {
+    // 22:30 UTC on 18 Nov is 00:30 SAST on the 19th.
+    expect(sharedDayOfMonth([item("2026-11-18T22:30:00.000Z"), item("2026-12-18T22:30:00.000Z")])).toBe(19)
+  })
+
+  it("is absent when a short month moves a debit to another day", () => {
+    expect(sharedDayOfMonth([item("2027-01-31T08:00:00.000Z"), item("2027-03-03T08:00:00.000Z")])).toBeUndefined()
   })
 })

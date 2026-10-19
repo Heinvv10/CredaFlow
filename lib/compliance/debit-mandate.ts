@@ -62,6 +62,7 @@ export type DebitMandateContractTerms = {
     firstDebitAmount: number
     firstDebitDate: Date
     firstDebitInitiationFee: number
+    repaymentDayOfMonth?: number
   }
   evidence: DebitMandateTermsEvidence
 }

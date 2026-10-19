@@ -1,4 +1,5 @@
 import { recurringInstalmentDue } from "./instalment"
+import { sastParts } from "@/lib/date/sast"
 import {
   debitMandateAccountNumberError,
   debitMandateBankNameError,
@@ -30,6 +31,8 @@ export type DebitMandatePaymentTerms = {
   firstDebitAmount: number
   firstDebitDate: Date
   firstDebitInitiationFee: number
+  /** The SAST day every monthly debit falls on; absent when the days differ. */
+  repaymentDayOfMonth?: number
 }
 
 export class DebitMandateEvidenceError extends Error {
@@ -262,12 +265,16 @@ export function debitMandatePaymentTerms(args: {
     }
   }
 
+  const repaymentDayOfMonth = paymentFrequency === "MONTHLY"
+    ? sharedDayOfMonth(schedule)
+    : undefined
   return {
     paymentFrequency,
     recurringDebitAmount,
     firstDebitAmount,
     firstDebitDate: schedule[0].dueDate,
     firstDebitInitiationFee,
+    ...(repaymentDayOfMonth === undefined ? {} : { repaymentDayOfMonth }),
   }
 }
 
@@ -307,4 +314,12 @@ export function requireDebitMandateBankDetails(client: {
     )
   }
   return { bankName, branchCode, accountNumber, accountType }
+}
+
+// A schedule started on the 29th–31st overflows into the next month in short
+// months, so its debits do not share one day; the mandate then keeps pointing
+// at the schedule rather than printing a day some debits miss.
+export function sharedDayOfMonth(schedule: readonly MandateScheduleItem[]): number | undefined {
+  const day = sastParts(schedule[0].dueDate).day
+  return schedule.every((item) => sastParts(item.dueDate).day === day) ? day : undefined
 }
