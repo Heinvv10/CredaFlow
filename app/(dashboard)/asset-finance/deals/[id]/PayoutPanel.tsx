@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/asset-finance/format"
 import { CHECKLIST_EVIDENCE_TYPES, CHECKLIST_KINDS } from "@/lib/asset-finance/payout-checklist"
 import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-view"
 import { statusLabel } from "@/lib/asset-finance/labels"
+import { dealEvidenceUrl } from "@/lib/asset-finance/deal-evidence-url"
 import { ChecklistConfirm } from "./ChecklistConfirm"
 import { DealActionButton } from "./DealActionButton"
 import { SuretyConsentForm } from "./SuretyConsentForm"
@@ -22,7 +23,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
   const contracted = panel.dealStatus === "CONTRACTED"
   const open = panel.checklist.filter((c) => c.required && !c.confirmedAt)
   const { payout } = panel
-  const docUrl = (id: string) => `/api/asset-finance/entities/${panel.entityId}/documents/${id}`
+  const docUrl = (id: string) => dealEvidenceUrl({ dealId, entityId: panel.entityId }, id)
 
   return (
     <DataPanel

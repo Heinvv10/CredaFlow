@@ -225,7 +225,7 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
   }, 240_000)
 
   it("cross-checks the borrower's own loans and a party's arrears, not only defaults", async () => {
-    const exceptions = (deal: { entityId: string | null; clientId: string | null }) =>
+    const exceptions = (deal: { entityId: string | null; clientId: string | null; loanId?: string | null }) =>
       runWithTenant(fx.tenantId, () => loadDealExceptions(prisma, fx.tenantId, { applicationId: "none", ...deal }))
     const setLoan = (id: string, data: { status: "ACTIVE" | "RESTRUCTURED" | "DEFAULTED"; daysInArrears: number; arrearsAmount: number }) =>
       database().loan.update({ where: { id }, data })
@@ -245,6 +245,8 @@ suite.sequential("internal default cross-check on approval (real Postgres, real 
     const company = await exceptions({ entityId: fx.evidenced, clientId: null })
     expect(company.internalArrears).toEqual([expect.objectContaining({ loanId: entityLoanId, clientId: null, roles: ["Borrower"], daysInArrears: 31 })])
     expect(company.lines[0]).toMatch(/\(Borrower\) has loan .* Active, 31 days in arrears, R\u00a010,000.00 overdue/)
+    // The loan the deal itself booked is its own exposure, not an existing one.
+    expect((await exceptions({ entityId: fx.evidenced, clientId: null, loanId: entityLoanId })).lines).toEqual([])
     await setLoan(entityLoanId, { status: "ACTIVE", daysInArrears: 0, arrearsAmount: 0 })
   })
 })
