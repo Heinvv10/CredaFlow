@@ -38,8 +38,8 @@ function textProblems(field: string, text: string, limits: { min: number; max: n
   if (text.split("\n").some((line) => winAnsiSafe(line) !== line)) add("Contains characters the document fonts cannot print")
   if (MONEY.test(text)) add("Amounts of money come only from the deal's figures; remove the amount")
   if (RATE.test(text)) add("Rates and percentages come only from the deal's figures; remove the rate")
-  const overriding = text.match(OVERRIDING)
-  if (overriding) add(`"${overriding[0]}": lender text may not override, vary or waive the protected terms or create a fee, charge or penalty`)
+  const overriding = [...new Set(Array.from(text.matchAll(new RegExp(OVERRIDING, "gi")), (m) => m[0]))]
+  if (overriding.length > 0) add(`${overriding.map((word) => `"${word}"`).join(", ")}: lender text may not override, vary or waive the protected terms or create a fee, charge or penalty`)
   if (hasStrayBraces(text)) add("A token is written {{name}}; remove the stray brace")
   const allowed = new Set<string>(key.family.tokens)
   for (const token of tokensIn(text)) {

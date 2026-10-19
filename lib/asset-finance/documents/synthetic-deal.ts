@@ -1,5 +1,7 @@
-// A synthetic deal for the document renderer tests and the evidence render
-// (scripts/asset-finance/render-agreement-evidence.ts). Every name, number
+// A synthetic deal for the template preview and protected-output fingerprint
+// (templates/preview.ts), the document renderer tests and the evidence render
+// (scripts/asset-finance/render-agreement-evidence.ts). Changing it changes
+// every fingerprint and lapses every lender's approval. Every name, number
 // and identifier is obviously fake. The schedule is the real solver's output:
 // an excavator on an annual seasonal structure with a 20% balloon at prime
 // plus 1%.

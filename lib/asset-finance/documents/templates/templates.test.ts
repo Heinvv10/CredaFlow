@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { renderInstalmentSaleAgreement } from "../agreement-pdf"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
 import { DRAFT_WATERMARK, SYNTHETIC_DEMO_WATERMARK } from "../pdf-layout"
-import { syntheticDealDocumentData } from "../synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "../synthetic-deal"
 import { canonicalContent, contentSha256, parseContent, starterContent, type AssetTemplateContent } from "./content"
 import { ALL_TEMPLATE_KEYS, additionalTermNumber, parseTemplateKey, takesLenderText } from "./families"
 import { renderTemplatePreview } from "./preview"
@@ -107,6 +107,11 @@ describe("which variants take lender text", () => {
     "A penalty is payable on every late payment under this Agreement.",
   ])("refuses override, variation, waiver and charge language: %s", (text) => {
     expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { additionalTerms: [{ heading: "Extra", text }] })).join()).toMatch(/may not override, vary or waive/)
+  })
+  it("names every refused word, not only the first", () => {
+    const text = "Notwithstanding clause 7.8 the Seller may waive notice and levy a fee on the Purchaser."
+    expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { additionalTerms: [{ heading: "Extra", text }] })).join())
+      .toContain(`"Notwithstanding", "waive", "levy", "fee": lender text may not override`)
   })
   it("refuses an unknown starter revision", () => {
     expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { starterRevision: "2099-01-01.9" })).join()).toMatch(/Unknown starter revision/)
