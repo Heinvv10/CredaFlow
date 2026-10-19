@@ -6,7 +6,8 @@ import { useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckCircle, Loader2, PenLine, Keyboard, RotateCcw } from "lucide-react"
 import { toast } from "@/lib/toast"
-import { SAST_TIME_ZONE } from "@/lib/utils"
+import { useLocale, useT } from "@/lib/i18n/client"
+import { formatLongDay } from "@/lib/i18n/format"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
@@ -40,15 +41,16 @@ export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentI
   agreementExecutedDocumentId: string | null
   mandateRequired: boolean
 }) {
+  const t = useT("portalSigning")
   return (
     <div className="max-w-3xl mx-auto px-6 py-12 text-center">
       <div className="bg-green-50 border border-green-200 rounded-lg p-8">
         <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-        <p className="text-2xl font-bold text-green-800 mb-2">Agreement signed</p>
+        <p className="text-2xl font-bold text-green-800 mb-2">{t("agreementSigned")}</p>
         <p className="text-green-700">
           {mandateRequired
-            ? "One step remains: confirm your repayment account and sign the debit mandate."
-            : "Your repayments are set to EFT. No debit mandate is required."}
+            ? t("agreementMandateRemains")
+            : t("agreementEftNoMandate")}
         </p>
         <div className="mt-6 flex justify-center gap-4 text-sm">
           {agreementExecutedDocumentId ? (
@@ -58,11 +60,11 @@ export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentI
               rel="noopener noreferrer"
               className="text-green-700 underline hover:text-green-900"
             >
-              Download signed agreement
+              {t("agreementDownloadSigned")}
             </a>
           ) : (
             <p className="text-green-700">
-              Your signed copy will be available to download once we countersign your agreement.
+              {t("agreementCopyLater")}
             </p>
           )}
           <a
@@ -73,7 +75,7 @@ export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentI
             }
             className="font-semibold text-green-900 underline"
           >
-            {mandateRequired ? "Set up repayment" : "View application"}
+            {mandateRequired ? t("setUpRepayment") : t("viewApplication")}
           </a>
         </div>
       </div>
@@ -82,6 +84,8 @@ export function AgreementSignedPanel({ applicationId, agreementExecutedDocumentI
 }
 
 export function PortalAgreementClient({ applicationId, reference, clientName, agreementDocumentSha256, agreementExecutedDocumentId, pasqDocumentSha256, repaymentMethod, signingOtp = NO_SIGNING_OTP }: Props) {
+  const t = useT("portalSigning")
+  const locale = useLocale()
   const [checks, setChecks] = useState([false, false, false, false, false])
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
   // Remounts the OTP step after a signing refusal that spent or voided the code.
@@ -213,7 +217,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           setOtpChallengeId(null)
           setOtpAttempt((n) => n + 1)
         }
-        toast.error?.("Signing failed", data.error ?? "Please try again")
+        toast.error?.(t("signFailedTitle"), data.error ?? t("signFailedBody"))
       }
     } catch {
       toast.networkError?.()
@@ -238,8 +242,8 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">PASQ + Credit Agreement</h1>
-        <p className="text-sm text-gray-500 mt-1">{clientName} — Application {reference}</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t("agreementTitle")}</h1>
+        <p className="text-sm text-gray-500 mt-1">{t("agreementFor", { name: clientName, reference })}</p>
       </div>
 
       {/* PDF viewer. Some devices (older mobile browsers, low memory) fail to
@@ -247,27 +251,27 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           the consumer read the agreement in their native PDF viewer before
           signing. Signing does not depend on the iframe rendering. */}
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-gray-700">Signing packet — PASQ first, credit agreement second</p>
+        <p className="text-sm font-medium text-gray-700">{t("packetLabel")}</p>
         <a
           href={`/api/applications/${applicationId}/signing-packet`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm text-[#4F46E5] underline hover:text-[#3730a3]"
         >
-          Open PDF in a new tab
+          {t("openPdfNewTab")}
         </a>
       </div>
       <div className="border rounded-lg overflow-hidden bg-gray-100" style={{ height: "60vh" }}>
         <iframe
           src={`/api/applications/${applicationId}/signing-packet`}
           className="w-full h-full"
-          title="PASQ and Credit Agreement PDF"
+          title={t("packetFrameTitle")}
         />
       </div>
 
       {/* Checkboxes */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-        <p className="font-semibold text-gray-900">Consumer Declaration</p>
+        <p className="font-semibold text-gray-900">{t("declarationHeading")}</p>
         {labels.map((label, i) => (
           <label key={i} className="flex items-start gap-3 cursor-pointer">
             <input
@@ -295,7 +299,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
       {/* Signature capture */}
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <p className="font-semibold text-gray-900">Your Signature</p>
+          <p className="font-semibold text-gray-900">{t("yourSignature")}</p>
           <div className="flex gap-2">
             <button
               onClick={() => setSignMode("draw")}
@@ -305,7 +309,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
                   : "text-gray-600 border-gray-300 hover:border-gray-400"
               }`}
             >
-              <PenLine className="h-3.5 w-3.5" />Draw
+              <PenLine className="h-3.5 w-3.5" />{t("draw")}
             </button>
             <button
               onClick={() => setSignMode("type")}
@@ -315,14 +319,14 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
                   : "text-gray-600 border-gray-300 hover:border-gray-400"
               }`}
             >
-              <Keyboard className="h-3.5 w-3.5" />Type
+              <Keyboard className="h-3.5 w-3.5" />{t("type")}
             </button>
           </div>
         </div>
 
         {signMode === "draw" ? (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500">Draw your signature below using your mouse or finger</p>
+            <p className="text-xs text-gray-500">{t("drawHint")}</p>
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg overflow-hidden" style={{ touchAction: "none" }}>
               <canvas
                 ref={canvasRef}
@@ -339,7 +343,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
               />
               {!hasDrawn && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <p className="text-gray-300 text-sm">Sign here</p>
+                  <p className="text-gray-300 text-sm">{t("signHere")}</p>
                 </div>
               )}
             </div>
@@ -348,21 +352,21 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
                 onClick={clearCanvas}
                 className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
               >
-                <RotateCcw className="h-3.5 w-3.5" />Clear signature
+                <RotateCcw className="h-3.5 w-3.5" />{t("clearSignature")}
               </button>
             )}
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500">Type your full name as it appears on your ID</p>
+            <p className="text-xs text-gray-500">{t("typeHint")}</p>
             <input
               type="text"
               value={typedName}
               onChange={(e) => setTypedName(e.target.value)}
-              placeholder="e.g. John Surname"
+              placeholder={t("typePlaceholder")}
               className="w-full border border-gray-300 rounded-lg px-4 py-3 font-['Georgia'] italic text-xl focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
             />
-            <p className="text-xs text-gray-400">Date: {new Date().toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric", timeZone: SAST_TIME_ZONE })}</p>
+            <p className="text-xs text-gray-400">{t("dateLine", { date: formatLongDay(new Date(), locale) })}</p>
           </div>
         )}
       </div>
@@ -391,7 +395,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
         style={{ backgroundColor: allChecked && hasSignature && otpSatisfied ? "#4F46E5" : undefined }}
       >
         {signing ? (
-          <><Loader2 className="h-5 w-5 mr-2 animate-spin" />Signing...</>
+          <><Loader2 className="h-5 w-5 mr-2 animate-spin" />{t("signing")}</>
         ) : (
           <><CheckCircle className="h-5 w-5 mr-2" />I Accept and Sign Digitally</>
         )}

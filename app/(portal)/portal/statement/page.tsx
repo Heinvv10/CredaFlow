@@ -21,7 +21,7 @@ import { documentLoanFigures, owesNothing } from "@/lib/loan/charges-summary"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
-import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import { paymentMethodLabel, productNameLabel, statusLabel } from "@/lib/i18n/portal-labels"
 import type { Locale } from "@/lib/i18n/locales"
 
 type StatementT = Translator<"portalStatement">
@@ -102,7 +102,7 @@ export default async function StatementPage() {
             <DataPanel
               key={loan.id}
               title={loan.reference}
-              description={`${loan.product.name} / ${statusLabel(l, loan.status)}`}
+              description={`${productNameLabel(l, loan.product.name)} / ${statusLabel(l, loan.status)}`}
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <Button asChild size="sm">

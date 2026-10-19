@@ -1,4 +1,8 @@
-/** The portal overview page (/portal). */
+/**
+ * The portal overview page (/portal). Only the "Current account amount" label is
+ * translated; the amount definitions beneath it are settlement wording and stay
+ * English in every language (lib/i18n/.claude.md).
+ */
 export const portalHome = {
   currentAccountAmount: "Current account amount",
   accountPrincipalDefinition: "Principal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.",

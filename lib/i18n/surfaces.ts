@@ -16,6 +16,7 @@ export const PORTAL_CLIENT_NAMESPACES = [
   "portalNotifications",
   "portalDocuments",
   "portalApply",
+  "portalSigning",
 ] as const satisfies readonly Namespace[]
 
 export const WEBSITE_CLIENT_NAMESPACES = [

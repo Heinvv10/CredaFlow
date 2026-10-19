@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/app-shell/EmptyState"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
+import { productNameLabel } from "@/lib/i18n/portal-labels"
 
 async function getApplications(email: string) {
   const tenantId = await getPortalTenantId()
@@ -111,6 +112,7 @@ export default async function ApplicationsPage() {
   const { client, applications } = await getApplications(session.user.email)
   const locale = await getLocale()
   const t = createTranslator(locale, "portalApplications")
+  const l = createTranslator(locale, "portalLabels")
 
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8">
@@ -164,7 +166,7 @@ export default async function ApplicationsPage() {
                       <p className="font-bold text-gray-900 text-sm">{app.reference}</p>
                       <StatusBadge status={portalApplicationStatus(app.status, app.loan?.status)} t={t} />
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">{app.product.name}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{productNameLabel(l, app.product.name)}</p>
                   </div>
                   <Link
                     href={`/portal/applications/${app.id}`}
