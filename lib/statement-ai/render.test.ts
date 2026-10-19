@@ -155,7 +155,7 @@ describe("review round 4: what the sentences must never say", () => {
   it("does not count rows the row shows", () => {
     const shown = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1], occurrences: 1 } }]
     const [e] = buildPlans(insights, rows, shown as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
-    expect(e.text).toBe("Debits the bank returned unpaid or could not collect are listed. An officer reviews the flag before a decision.")
+    expect(e.text).toBe("A debit the bank sends back means the account could not cover a commitment on the day it fell due; each is listed so the officer sees how often that happened. An officer reviews the flag before a decision.")
   })
 })
 
