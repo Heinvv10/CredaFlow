@@ -53,7 +53,7 @@ export const portalLabels: Catalog["portalLabels"] = {
   doc_SIGNED_AGREEMENT_PACKET: "Ipakethi etyikitywe (ebuyisiweyo)",
   doc_OTHER: "Okunye",
   chargesIncludes: "Kuquka:",
-  productMicro: "30-Day Micro Loan",
-  productPersonal: "Personal Loan",
-  productPo: "Purchase Order Funding",
+  productMicro: "Imali-mboleko encinci yeentsuku ezingama-30",
+  productPersonal: "Imali-mboleko yobuqu",
+  productPo: "Inkxaso-mali ye-PO",
 }

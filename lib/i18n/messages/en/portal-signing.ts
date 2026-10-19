@@ -8,7 +8,10 @@
  * agreement, PASQ, debit mandate or consent text): the agreement and mandate
  * page titles, the packet/preview labels, the signed-confirmation and
  * download lines, "Consumer Declaration", "Review the exact authority",
- * "Account for debit orders", "Prepare mandate" and the mandate error lines.
+ * "Account for debit orders", "Prepare mandate", the mandate page title and
+ * subtitle, and the mandate error lines. Also English: the instructions for the
+ * act of signing ("Type your full name...", "Type your full name exactly: {name}"
+ * which defines a valid typed name, and the signing date line).
  * The declarations, sign buttons and re-sign notice are not in this catalogue at
  * all: they are literals in the components. Errors returned by the API stay as
  * the server wrote them.
