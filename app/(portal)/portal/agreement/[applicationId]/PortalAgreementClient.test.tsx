@@ -114,17 +114,15 @@ describe("portal declaration submission", () => {
       // Not disabled: a dead button gave the consumer no clue why. The click
       // is refused with a message naming the unticked declaration instead.
       expect(sign().props.disabled).toBe(false)
-      expect(JSON.stringify(renderer.toJSON())).not.toContain("Please tick")
+      expect(JSON.stringify(renderer.toJSON())).not.toContain("still need")
       await act(async () => { await sign().props.onClick() })
       expect(fetchMock).not.toHaveBeenCalled()
-      const alerts = renderer.root.findAll(n => n.props.role === "alert")
+      const alerts = renderer.root.findAll(n => n.props.role === "status")
       expect(alerts).toHaveLength(1)
       const alertText = nodeText(alerts[0].props.children)
-      expect(alertText).toContain("Please tick")
-      expect(alertText).toContain(AGREEMENT_DECLARATIONS[4].text)
-      for (const d of AGREEMENT_DECLARATIONS.slice(0, 4)) expect(alertText).not.toContain(d.text)
+      expect(alertText).toBe("1 declaration still needs to be ticked")
       await act(async () => { checks[4].props.onChange() })
-      expect(renderer.root.findAll(n => n.props.role === "alert")).toHaveLength(0)
+      expect(renderer.root.findAll(n => n.props.role === "status")).toHaveLength(0)
       await act(async () => { await sign().props.onClick() })
       expect(fetchMock).toHaveBeenCalledOnce()
       const request = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
@@ -136,7 +134,7 @@ describe("portal declaration submission", () => {
     }
   })
 
-  it("answers a click on Sign with nothing filled in by listing all five declarations", async () => {
+  it("answers a click on Sign with nothing filled in by counting all five declarations", async () => {
     const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
     environment.IS_REACT_ACT_ENVIRONMENT = true
     const fetchMock = vi.fn(async () => ({ ok: true }))
@@ -148,8 +146,8 @@ describe("portal declaration submission", () => {
       expect(sign.props.disabled).toBe(false)
       await act(async () => { await sign.props.onClick() })
       expect(fetchMock).not.toHaveBeenCalled()
-      const alertText = nodeText(renderer.root.findAll(n => n.props.role === "alert")[0].props.children)
-      for (const d of AGREEMENT_DECLARATIONS) expect(alertText).toContain(d.text)
+      const alertText = nodeText(renderer.root.findAll(n => n.props.role === "status")[0].props.children)
+      expect(alertText).toBe("5 declarations still need to be ticked")
     } finally {
       if (renderer) await act(async () => renderer.unmount())
       vi.unstubAllGlobals()
