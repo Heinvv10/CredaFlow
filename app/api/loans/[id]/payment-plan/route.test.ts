@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const db = vi.hoisted(() => ({
   paymentPlan: { findUnique: vi.fn(), upsert: vi.fn() },
   loanNote: { create: vi.fn() },
+  loan: { findFirst: vi.fn() },
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: db }))
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: vi.fn() }))
@@ -27,6 +28,7 @@ describe("POST /api/loans/[id]/payment-plan", () => {
     vi.clearAllMocks()
     vi.mocked(requireApiRole).mockResolvedValue({ error: null, user: { id: "u1", email: "a@x.com" } } as never)
     vi.mocked(withTenantContext).mockImplementation((_req, fn) => fn({ id: "t1" } as never))
+    db.loan.findFirst.mockResolvedValue({ id: "L1" })
     db.paymentPlan.findUnique.mockResolvedValue(null)
     db.paymentPlan.upsert.mockImplementation(async ({ create }) => ({ id: "p1", ...create }))
   })
@@ -64,5 +66,27 @@ describe("POST /api/loans/[id]/payment-plan", () => {
     expect((await post({ totalArrears: 0, installments: 3, startDate: "2026-11-01" })).status).toBe(400)
     expect((await post({ totalArrears: 100, installments: 0, startDate: "2026-11-01" })).status).toBe(400)
     expect(db.paymentPlan.upsert).not.toHaveBeenCalled()
+  })
+
+  it("caps instalments at 60 and at the number of cents, and rejects totals beyond Int32", async () => {
+    const bad = [
+      { totalArrears: 100_000, installments: 61 },
+      { totalArrears: 0.05, installments: 6 },
+      { totalArrears: 30_000_000, installments: 3 },
+    ]
+    for (const b of bad) expect((await post({ ...b, startDate: "2026-11-01" })).status).toBe(400)
+    expect((await post({ totalArrears: 100_000, installments: 60, startDate: "2026-11-01" })).status).toBe(201)
+    expect(db.paymentPlan.upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns 404 for a loan outside the caller's tenant, with no read or write of the plan", async () => {
+    db.loan.findFirst.mockResolvedValue(null)
+    const res = await post({ totalArrears: 2058.34, installments: 3, startDate: "2026-11-01" })
+    expect(res.status).toBe(404)
+    expect(db.loan.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "L1", tenantId: "t1" } }))
+    expect(db.paymentPlan.findUnique).not.toHaveBeenCalled()
+    expect(db.paymentPlan.upsert).not.toHaveBeenCalled()
+    expect(db.loanNote.create).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
   })
 })

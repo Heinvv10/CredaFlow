@@ -459,7 +459,7 @@ model PaymentPlan {
   loanId         String   @unique
   totalArrears   Int
   installments   Int
-  installmentAmt Int
+  installmentAmt Int // cents: the regular instalment; the final one is totalArrears - installmentAmt*(installments-1)
   startDate      DateTime
   notes          String?
   active         Boolean  @default(true)

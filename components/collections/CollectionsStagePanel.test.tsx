@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 import { CollectionsStagePanel } from "./CollectionsStagePanel"
+import type { Section129Block } from "@/lib/collections/section129-hint"
 
 const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 beforeEach(() => { env.IS_REACT_ACT_ENVIRONMENT = true })
@@ -15,7 +16,7 @@ const text = (children: unknown): string =>
       : Array.isArray(children) ? children.map(text).join("")
         : text((children as { props?: { children?: unknown } }).props?.children)
 
-async function render(props: { daysInArrears: number; section129Unavailable?: string }) {
+async function render(props: { daysInArrears: number; section129Unavailable?: Section129Block }) {
   let r!: ReturnType<typeof create>
   await act(async () => {
     r = create(
@@ -42,7 +43,7 @@ describe("CollectionsStagePanel S.129 hint", () => {
   it("does not point at the action when it is unavailable, and says why", async () => {
     const out = await render({
       daysInArrears: 45,
-      section129Unavailable: "the account is below the 90-day arrears threshold",
+      section129Unavailable: { reason: "the account is below the 90-day arrears threshold", temporary: true },
     })
     expect(out).not.toContain("Use the “S.129 Notice” action above")
     expect(out).toContain("Section 129 cannot be issued yet: the account is below the 90-day arrears threshold")

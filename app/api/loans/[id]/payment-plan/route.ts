@@ -5,6 +5,9 @@ import { withTenantContext } from "@/lib/tenant"
 import { logAudit } from "@/lib/audit"
 import { splitPaymentPlan } from "@/lib/collections/payment-plan"
 
+const MAX_INT32 = 2_147_483_647
+const MAX_INSTALLMENTS = 60
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error
@@ -38,8 +41,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // stored) absorbs the remainder, so the plan sums exactly to the arrears.
     const totalCents = Math.round(Number(body.totalArrears) * 100)
     const installments = Number(body.installments)
-    if (!Number.isInteger(totalCents) || totalCents <= 0 || !Number.isInteger(installments) || installments < 1) {
-      return NextResponse.json({ error: "totalArrears must be positive and installments a whole number >= 1" }, { status: 400 })
+    if (
+      !Number.isInteger(totalCents) || totalCents <= 0 || totalCents > MAX_INT32
+      || !Number.isInteger(installments) || installments < 1 || installments > MAX_INSTALLMENTS
+      || installments > totalCents
+    ) {
+      return NextResponse.json(
+        { error: `totalArrears must be positive (at most R${MAX_INT32 / 100}) and installments a whole number from 1 to ${MAX_INSTALLMENTS}, not more than the cents owed` },
+        { status: 400 },
+      )
+    }
+
+    // PaymentPlan has no tenantId, so the tenant extension cannot scope it: prove the loan is ours first.
+    const loan = await prisma.loan.findFirst({ where: { id, tenantId: tenant.id }, select: { id: true } })
+    if (!loan) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
     const { regularCents, finalCents } = splitPaymentPlan(totalCents, installments)
     const rands = (cents: number) => (cents / 100).toFixed(2)
