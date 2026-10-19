@@ -4,6 +4,8 @@ import { redirect } from "next/navigation"
 import { computeQualification, type QualificationBounds } from "@/lib/qualify"
 import { PortalApplyClient } from "./PortalApplyClient"
 import { getPortalTenantId } from "@/lib/session-tenant"
+import { ownLenderArrears } from "@/lib/affordability/own-lender-debt"
+import { loadOwnLenderDebts, ownAwareDebtTotal } from "@/lib/affordability/own-lender-debt-load"
 import { formatProductRange, getPublicLoanProduct, type PublicLoanProductCode } from "@/lib/public-loan-products"
 import { getLivePublicProductsServer } from "@/lib/public-loan-products-server"
 import { getLocale } from "@/lib/i18n/server"
@@ -31,9 +33,10 @@ export default async function PortalApplyPage() {
     include: { debtObligations: true },
   })
 
-  const existingDebt = dbClient?.debtObligations.reduce(
-    (sum, d) => sum + d.monthlyInstalment, 0
-  ) ?? 0
+  // The client's loans with this lender count too, as in the staff assessment
+  // (lib/affordability/own-lender-debt.ts): they do not declare them.
+  const own = dbClient ? await loadOwnLenderDebts(prisma, tenantId, dbClient.id) : null
+  const existingDebt = dbClient && own ? ownAwareDebtTotal(dbClient.debtObligations, own) : 0
 
   const clientData = dbClient
     ? {
@@ -97,6 +100,7 @@ export default async function PortalApplyPage() {
       productRanges={productRanges}
       bounds={bounds}
       recentDecline={recentDecline}
+      ownLenderArrears={own ? ownLenderArrears(own) : null}
     />
   )
 }

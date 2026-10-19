@@ -19,11 +19,14 @@ const bounds = {
 }
 const productRanges = { micro: "R500 – R2,000", personal: "R2,000 – R100,000", po: "R10,000 – R500,000" }
 
-function render(recentDecline: { id: string; reference: string; decidedOn: string } | null = null) {
+function render(
+  recentDecline: { id: string; reference: string; decidedOn: string } | null = null,
+  ownLenderArrears: { days: number; amountCents: number } | null = null,
+) {
   const qualification = computeQualification(client.monthlyIncome, client.monthlyExpenses, client.existingDebt, bounds)
   return renderToStaticMarkup(
     <PortalApplyClient client={client} qualification={qualification} productRanges={productRanges}
-      bounds={bounds} recentDecline={recentDecline} />,
+      bounds={bounds} recentDecline={recentDecline} ownLenderArrears={ownLenderArrears} />,
   ).replace(/<!-- -->/g, "")
 }
 
@@ -69,5 +72,12 @@ describe("PortalApplyClient", () => {
     const scenarios = html.slice(html.indexOf("Explore Scenarios"))
     expect(scenarios).toContain(formatZAR(q.ndi))
     expect(scenarios).toContain(formatZAR(q.maxInstalment))
+  })
+
+  it("tells a client behind on a loan with us so, and says nothing to one who is up to date", () => {
+    const html = render(null, { days: 60, amountCents: 205_834 })
+    expect(html).toContain(`Your loan with us is 60 days overdue (${formatZAR(205_834)})`)
+    expect(html).toContain("included in your existing debt")
+    expect(render()).not.toContain("overdue")
   })
 })
