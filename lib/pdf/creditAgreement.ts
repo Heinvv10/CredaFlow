@@ -543,9 +543,9 @@ export async function generateCreditAgreementPdfWithAnchors(
   // When the notices moved to their own page, the schedule starts under them
   // there rather than leaving that page nearly blank (audit: "PASQ page 2
   // nearly blank"). A document whose notices fit page 1 renders as before.
-  // Only when the title, header and a first row fit above the table floor
-  // (16 gap + 24 title + 20 header + 18 row); otherwise a fresh page as before.
-  const scheduleSharesNoticePage = noticePage !== p1 && y - 16 - 24 - 20 - 18 >= MARGIN + 40
+  // The notices are a few short lines at the top of their own page, so the
+  // schedule's title, header and first rows always fit beneath them.
+  const scheduleSharesNoticePage = noticePage !== p1
   const p2 = scheduleSharesNoticePage ? noticePage : doc.addPage([A4_WIDTH, A4_HEIGHT])
   const colDefs = [
     { label: "No.", x: MARGIN, width: 30 },

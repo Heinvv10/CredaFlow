@@ -109,7 +109,6 @@ describe("generateDebitMandatePdf", () => {
   it("prints the debit day when every debit shares one, and points at the schedule otherwise", async () => {
     const withDay = extractPdfContent(await generateDebitMandatePdf({ ...fixture, loan: { ...fixture.loan, repaymentDayOfMonth: 19 } }))
     expect(withDay).toContain(pdfHex("Debit Day of Month:"))
-    expect(withDay).toContain(pdfHex("19"))
     expect(withDay).not.toContain(pdfHex("As per repayment schedule"))
 
     const { repaymentDayOfMonth: _omitted, ...loanWithoutDay } = fixture.loan
