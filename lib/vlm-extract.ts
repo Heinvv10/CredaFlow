@@ -33,6 +33,7 @@ export interface ExtractedField {
 
 export type ExtractedFields = Record<string, ExtractedField>
 
+// headers can hold VLM_API_KEY: never log or serialise a VlmConfig.
 type VlmConfig = { url: string; model: string; headers: Record<string, string> }
 
 function isPlaceholder(value: string | undefined): boolean {
@@ -40,14 +41,33 @@ function isPlaceholder(value: string | undefined): boolean {
   return value.includes('replace-with-') || value.includes('example.com')
 }
 
+let hostedRefusalLogged = false
+
+function hostedVlmAllowed(apiUrl: string): boolean {
+  const reason =
+    process.env.VLM_ALLOW_HOSTED !== 'true' ? 'VLM_ALLOW_HOSTED is not true'
+    : !apiUrl.startsWith('https://') ? 'VLM_API_URL is not https'
+    : process.env.STATEMENT_CORPUS_DIR || process.env.VLM_ACCURACY_CORPUS ? 'a real corpus is configured'
+    : null
+  if (reason && !hostedRefusalLogged) {
+    hostedRefusalLogged = true
+    console.warn(`[vlm] VLM_API_KEY is set but ${reason}; the model is treated as not configured`)
+  }
+  return reason === null
+}
+
 export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
   if (isPlaceholder(apiUrl) || isPlaceholder(model)) return null
-  // VLM_API_KEY is optional: the self-hosted server takes none, a hosted one takes a bearer key.
+  // VLM_API_KEY means a hosted endpoint: dev and demo stacks with synthetic data only,
+  // so it needs VLM_ALLOW_HOSTED=true, https, and no real corpus configured.
   const apiKey = process.env.VLM_API_KEY
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+  if (apiKey) {
+    if (!hostedVlmAllowed(apiUrl!)) return null
+    headers.Authorization = `Bearer ${apiKey}`
+  }
   return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model!, headers }
 }
 
@@ -904,7 +924,8 @@ export async function extractDocumentData(opts: {
 
     if (!res.ok) {
       const text = await res.text()
-      return { ok: false, error: `VLM responded ${res.status}: ${text.slice(0, 200)}` }
+      // A hosted provider's error body can echo part of the key.
+      return { ok: false, error: process.env.VLM_API_KEY ? `VLM responded ${res.status}` : `VLM responded ${res.status}: ${text.slice(0, 200)}` }
     }
 
     const json = (await res.json()) as {

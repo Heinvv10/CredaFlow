@@ -13,6 +13,7 @@
  * except --only-b: flag explanations are written by code and ask no model.
  */
 import { writeFileSync } from "node:fs"
+import { getVlmConfig } from "@/lib/vlm-extract"
 import { runChecks } from "@/lib/credit-checks/run-checks"
 import { facts as factsOf, statement } from "@/lib/credit-checks/facts.test-helpers"
 import { computeInsights, distinctRows } from "@/lib/statement-analysis/insights"
@@ -146,7 +147,7 @@ function asker(kind: string) {
     const started = Date.now()
     const res = await fetch(`${process.env.VLM_API_URL!.replace(/\/$/, "")}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(process.env.VLM_API_KEY ? { Authorization: `Bearer ${process.env.VLM_API_KEY}` } : {}) },
+      headers: getVlmConfig()?.headers ?? { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
     })
