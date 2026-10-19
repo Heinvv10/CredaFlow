@@ -128,6 +128,18 @@ describe("loanSettlementFigures", () => {
     expect(figures).toMatchObject({ live: false, chargesOutstanding: 0, totalToSettle: 216_900, interestAndFeesOutstanding: 16_900, chargeLines: [] })
   })
 
+  // A bullet loan fully in arrears: the notice used to state the R2,000
+  // principal as the total obligation against R2,169 of arrears.
+  it("gives a Section 129 total obligation of at least the arrears while charges are off", async () => {
+    loadChargesReplay.mockResolvedValue(null)
+    const overdue = { ...loan, totalPaid: 0, outstandingPrincipal: 200_000, arrearsAmount: 216_900 }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const figures = await loanSettlementFigures(db as any, overdue, new Date("2026-09-26"))
+    expect(section129NoticeAmounts(overdue, figures)).toEqual({
+      arrearsAmount: 216_900, outstandingPrincipal: 200_000, totalOutstanding: 216_900,
+    })
+  })
+
   it("states what the receipt paths accept to settle, charges included, not a lower amount owing", async () => {
     loadChargesReplay.mockResolvedValue({
       result: result({ interestAccrued: 3_000, interestOutstanding: 3_000 }),
