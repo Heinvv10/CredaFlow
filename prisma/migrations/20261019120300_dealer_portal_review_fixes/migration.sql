@@ -1,5 +1,5 @@
 -- Slice 5 part A, review round 1 (docs/asset-finance/SLICE5.md, deviations
--- 29-36). The Prisma part first (generated), then the hand-written rules; each
+-- 29-38). The Prisma part first (generated), then the hand-written rules; each
 -- refuses with ERRCODE 23514 like the rest. Additive, except two replacements
 -- the review asked for: the duplicate unique index on
 -- DealerCommissionLine.reversesLineId (the composite (tenantId, reversesLineId)

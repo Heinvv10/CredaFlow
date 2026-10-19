@@ -53,6 +53,8 @@ time, exported as CSV (generic, Sage-style) or pushed to Xero.
 - **Dealer commission** (`sources-dealer-commission.ts`): per DB line, signed; Dr `DEALER_COMMISSION_EXPENSE` +
   `INPUT_VAT`, Cr `DEALER_COMMISSION_PAYABLE`; paid on the run's `releasedAt`. Both roles are asset-finance roles
   (mapping re-confirmed). Control `DEALER_COMMISSION_PAYABLE` in `reconcile-controls.ts`; lines: `lib/dealer/AGENTS.md`.
+  Management-accounts basis: commission is expensed when earned (at BOOKED); deferring it as an IFRS 9
+  EIR origination cost or an IFRS 16 initial direct cost is a year-end adjustment for the lender's accountant.
 
 ## Key Files
 | File | Purpose |

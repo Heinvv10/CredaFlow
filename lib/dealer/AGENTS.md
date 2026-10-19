@@ -33,18 +33,24 @@
 ## Projection and handoff
 - `deal-view.ts` is a whitelist `select`, never the deal row. Never add: decision or
   reasons, approval exceptions, financials, affordability, bureau/screening, NCA
-  regime/rule/override, payout, staff uploads, other dealers' rows. `deal-view.test.ts`
-  plants sentinels; extend it with any new field.
-- Dealer submit only sets `dealerSubmittedAt` (deal stays DRAFT); the staff accept
-  (`acceptDealerSubmission`, `submit.ts`) runs the unchanged `submitDeal` as staff, and
-  the staff `…/submit` route 409s a dealer deal. Dealer consent is evidence: staff verify
-  writes `ClientConsent` (`consent.ts`). Dealer uploads never satisfy staff-evidence gates.
+  regime/rule/override, payout, staff uploads, other dealers' rows, or how the loan
+  performs (a commission reversal's reason). `deal-view.test.ts` plants sentinels;
+  extend it with any new field. The commission statement follows the same rule.
+- Dealer submit only sets `dealerSubmittedAt` (DRAFT is left only after it, CHECK
+  `AssetFinanceDeal_dealer_handover`); the staff accept (`submit.ts`) runs the unchanged
+  `submitDeal` as staff. Consent is evidence, only for people the dealer captured; staff
+  verify writes `ClientConsent` (`consent.ts`). Dealer uploads never satisfy staff gates;
+  after the hand-over they only answer an open request.
+- Dealer-typed contact details are untrusted until staff verify them
+  (`contact-verification.ts`): no portal activation or password (DB), no signing code.
 
 ## Commission (the database owns it)
-- No TS writer. `guardAssetDealDealer` takes the snapshot on the move into APPROVED (any
-  caller write refused); `accrueDealerCommission` writes EARNED at BOOKED;
-  `clawbackDealerCommission` writes REVERSED on the Loan's status (CANCELLED always, else
-  inside `clawbackMonths`). Lines are insert-only and recomputed by trigger.
+- No TS writer. `guardAssetDealDealer` snapshots on the move into APPROVED (callers
+  refused; base = goods advance: cash price incl. VAT less deposit and trade-in);
+  `accrueDealerCommission` writes EARNED at BOOKED; `clawbackDealerCommission` REVERSED
+  on the Loan's status (CANCELLED always, else inside `clawbackMonths`). Insert-only.
+- **Commission must never depend on the rate or the fees**: a dealer paid more for
+  pricing the borrower up has a conflict of interest against the borrower.
 - Never a borrower charge: the cost-of-credit graph must not import `lib/dealer/*` or read
   `dealerCommission*` (`no-borrower-charge.test.ts`).
 - **Netting.** A run links REVERSED lines first; an EARNED line joins only with or after

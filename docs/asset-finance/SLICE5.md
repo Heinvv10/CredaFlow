@@ -29,11 +29,13 @@ taken and recorded under "Deviations".
    per IP, combined; 10/30/10 per 15 min) and records `FailedLoginAttempt`. The
    dealer path sits after the same gate, unchanged. `LoginLog.userId` is a
    `User` FK, so dealer sign-ins are audited (`DEALER_SIGNED_IN`) instead.
-5. **Commission base = the approved financed amount**
-   (`COALESCE(LoanApplication.approvedAmount, appliedAmount)`), not
-   `Loan.principal`, which for a lease is every rental and for an instalment
-   sale includes capitalised interest (`lib/accounting/sources-asset-finance.ts`
-   header says the same).
+5. **Commission base = the goods advance**: the asset's cash price incl. VAT
+   less the deposit and the trade-in (what the supplier payout is), taken from
+   the deal and asset at approval. Not the financed amount, which carries the
+   financed fees, and not `Loan.principal`, which for a lease is every rental
+   and for an instalment sale includes capitalised interest. Commission never
+   depends on the rate or the fees (review round 1, deviation 29; it was
+   `COALESCE(approvedAmount, appliedAmount)`).
 6. **A loan that becomes CANCELLED always reverses commission**, whatever the
    window (the contract was unwound, like a cancelled deal). Early COMPLETED and
    WRITTEN_OFF reverse only inside the window. Default window 0 = off.
@@ -144,6 +146,53 @@ Build-time deviations (tasks 3-5):
 28. **Test files:** cross-dealer and cross-tenant 404s are in
     `lib/dealer/dealer-deal-access.integration.test.ts`; capture, consent,
     submit and accept in `lib/dealer/dealer-submit.integration.test.ts`.
+
+Review round 1 (PR #216 reviews; migration
+`20261019120300_dealer_portal_review_fixes`, additive except the two
+replacements named in it):
+
+29. **Goods-advance base** (deviation 5): `guardAssetDealDealer` is replaced
+    with the new base; nothing else in it changes.
+30. **No loan performance to the dealer.** The deal projection and the
+    commission statement carry no reversal reason: a reversed line reads
+    "Reversed (clawback)". Staff views keep the reason.
+31. **Lender-added people are the lender's.** A dealer attests consent only for
+    a person it captured (`DealerConsentAttestation_subject_captured`); a
+    person the lender added to a dealer's entity is not needed for the dealer's
+    submit and shows as "Consent taken by the lender". The lender records that
+    consent through its own flow.
+32. **Classification re-stamped on accept.** A sole proprietor's NCA
+    classification, written with the dealer user at create, is re-stamped to
+    the accepting staff member (`ncaClassifiedById`, a later `ncaClassifiedAt`)
+    before `submitDeal`; an entity's is re-run as staff by `submitDeal`.
+33. **Hand-over in the database.** `AssetFinanceDeal_dealer_handover`: a dealer
+    deal leaves DRAFT (other than to CANCELLED) only with `dealerSubmittedAt`.
+    After the hand-over a dealer uploads only to answer an open document
+    request (409 otherwise).
+34. **Dealer-typed contact details are untrusted** until a staff member
+    verifies them (`Client.dealerContactVerifiedAt/ById`, a button per person
+    on the staff deal's Dealer panel, audited `DEALER_CONTACT_VERIFIED`, once).
+    Until then the portal register route issues no activation code and
+    activates nothing (same generic answers), the database refuses a portal
+    password (`Client_dealer_contact_guard`), and no signing code is sent.
+35. **Reset links.** A staff reset link clears the old password (sign-in
+    refuses until the link is used) and is refused for a deactivated dealer.
+36. **Refusals audited.** Each "already on the lender's book" capture refusal
+    (`DEALER_CAPTURE_REFUSED_ON_BOOK`: the dealer user and the kind of row,
+    never the values typed); a run's self-approval
+    (`DEALER_PAYABLE_RUN_APPROVAL_REFUSED`) and a bank account's self-decision
+    (`DEALER_BANK_ACCOUNT_DECISION_REFUSED`). Captures are rate limited per
+    dealer user, 30 per 15 minutes (429).
+37. **Dealer tax invoice at release.** A run carrying VAT is released only with
+    the VAT-vendor dealer's own tax invoice number and date
+    (`DealerPayableRun_tax_invoice_shape`, `_on_vat`). A recipient-created tax
+    invoice is not supported.
+38. **Smaller.** `DealerUser_email_lower_case`; the duplicate unique index on
+    `DealerCommissionLine.reversesLineId` dropped (the `(tenantId,
+    reversesLineId)` one stays); the four dealer GET routes nothing called
+    (`me`, `products`, `suppliers`, `commission`) removed; a run's unique
+    conflict is named by its index; a document request answered concurrently
+    is a typed 409.
 
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
@@ -486,14 +535,14 @@ reads. Legal reviewer confirms (§2a.5).
 
 Dealer (`app/(dealer)/dealer/…`, `app/api/dealer/…`, guard `requireDealer`):
 pages `login`, `set-password`, `/dealer` (deals), `deals/new`, `deals/[id]`,
-`users` (admin), `commission`. API: `set-password` POST (public, token);
-`me` GET; `users` GET/POST, `users/[id]/deactivate` POST (admin; not self);
-`products` GET; `suppliers` GET; `borrowers/entities` POST,
-`borrowers/entities/[id]/people` POST, `borrowers/clients` POST; `assets` POST;
-`deals` GET/POST; `deals/preview` POST; `deals/[id]` GET;
-`deals/[id]/documents` GET/POST, `deals/[id]/documents/[docId]` GET;
-`deals/[id]/consents` POST; `deals/[id]/submit` POST; `commission` GET
-(lines + runs, own dealer).
+`users` (admin), `commission` (lines + runs, own dealer; read server-side, as
+the profile, products and suppliers are). API: `set-password` POST (public,
+token); `users` GET/POST, `users/[id]/deactivate` POST (admin; not self);
+`borrowers/entities` POST, `borrowers/entities/[id]/people` POST,
+`borrowers/clients` POST; `assets` POST; `deals` GET/POST; `deals/preview`
+POST; `deals/[id]` GET; `deals/[id]/documents` GET/POST,
+`deals/[id]/documents/[docId]` GET; `deals/[id]/consents` POST;
+`deals/[id]/submit` POST.
 
 Staff (`app/api/asset-finance/…`, house pattern `requireApiRole` →
 `withTenantContext` → `requireAssetFinanceEnabled` → `canDo`): `dealers`
@@ -504,6 +553,7 @@ POST; `dealer-commission/default-rate` POST; `dealers/[id]/bank-accounts` POST;
 `dealer-runs/[runId]` GET, `…/approve|release|cancel` POST;
 `deals/[id]/dealer-submission/accept` POST;
 `deals/[id]/dealer-consents/[attestationId]/verify` POST;
+`deals/[id]/dealer-people/[clientId]/verify-contact` POST;
 `deals/[id]/document-requests` POST. Pages:
 `(dashboard)/asset-finance/dealers` (list), `dealers/[id]` (users, rates,
 bank accounts, lines, runs), `dealer-runs/[runId]` (statement), a Dealer
@@ -519,7 +569,10 @@ DEALER_PORTAL_ENABLED, DEALER_PORTAL_DISABLED, DEALER_CLAWBACK_MONTHS_CHANGED,
 DEALER_DEAL_SUBMITTED, DEALER_SUBMISSION_ACCEPTED, DEALER_CONSENT_ATTESTED,
 DEALER_CONSENT_VERIFIED, DEALER_DOCUMENT_REQUESTED,
 DEALER_BANK_ACCOUNT_REQUESTED, DEALER_BANK_ACCOUNT_DECIDED,
-DEALER_PAYABLE_RUN_CREATED, _APPROVED, _RELEASED, _CANCELLED. No cron.
+DEALER_PAYABLE_RUN_CREATED, _APPROVED, _RELEASED, _CANCELLED; review round 1
+adds DEALER_CONTACT_VERIFIED, DEALER_CAPTURE_REFUSED_ON_BOOK,
+DEALER_BANK_ACCOUNT_DECISION_REFUSED, DEALER_PAYABLE_RUN_APPROVAL_REFUSED. No
+cron.
 
 ### Rule-to-test matrix (IT = `RUN_ASSET_FINANCE_DEALER_IT` unless noted)
 
@@ -546,6 +599,15 @@ DEALER_PAYABLE_RUN_CREATED, _APPROVED, _RELEASED, _CANCELLED. No cron.
 | Commission math (TS = SQL) | `lib/dealer/commission-math.test.ts` + accrual IT | unit + IT | half-up rounding, vendor/non-vendor |
 | Journals, control, IsaFlow | `lib/accounting/sources-dealer-commission.test.ts`, `lib/accounting/dealer-commission.integration.test.ts` (`RUN_ACCOUNTING_IT`) | unit + IT | payable mismatch detected; unmapped role refuses close |
 | RLS on new models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | — |
+| Base = goods advance (29) | `lib/dealer/commission-accrual.integration.test.ts`, edge E15 | IT | fees on every fixture deal |
+| No reversal reason to the dealer (30) | `lib/dealer/deal-view-loan-performance.test.ts`, `commission-statement.test.ts` | unit | written-off line |
+| Lender-added people (31) | `lib/dealer/dealer-consent.integration.test.ts`, `dealer-submit.integration.test.ts`, `deal-view.test.ts` | IT + unit | attest a lender-added or other dealer's person |
+| Classification re-stamp (32) | `lib/dealer/cost-of-credit.integration.test.ts` | IT | — |
+| Hand-over; uploads after it (33) | `lib/dealer/dealer-handover-contact.integration.test.ts`, `documents.test.ts`, edge F04 | IT + unit | SUBMITTED before hand-over; free upload after it |
+| Untrusted dealer contacts (34) | `lib/dealer/dealer-borrower-identity.integration.test.ts`, `dealer-handover-contact.integration.test.ts`, `lib/signing-otp/subject-dealer-contact.test.ts` | IT + unit | register, OTP, password, signing code before verification |
+| Reset link (35) | `lib/dealer/dealer-reset-link.integration.test.ts` | IT | old password after reset; deactivated dealer |
+| Refusal audits, capture limit (36) | `dealer-borrower-identity.integration.test.ts`, `capture-limits.test.ts`, `staff-routes.test.ts` | IT + unit | 31st capture; self-approval |
+| Tax invoice at release (37) | `lib/dealer/payable-runs.integration.test.ts`, `payable-run-actions.integration.test.ts` | IT | VAT run without invoice; half an invoice; invoice off RELEASED |
 
 Mutation evidence (`evidence/slice5/MUTATIONS.md`): drop each CHECK and
 trigger branch above, drop the `dealerId` filter in `deal-view.ts`, drop the
@@ -588,6 +650,40 @@ test red.
     verify: `npm run claude-md:check && npm run agents:check`.
 11. **Gates.** `npm run ci:full` in a fresh clone; mutations; browser
     acceptance (§5 A) with screenshots in `evidence/slice5/browser/A/`.
+
+### Known limitations
+
+Recorded by review round 1; each is a decision to keep, not an open bug.
+
+- **One lender per dealer host.** `DEALER_APP_HOST` resolves to one tenant
+  (`TENANT_HOST_MAP`), which matches one instance and database per lender.
+  A shared multi-lender instance needs a dealer host per lender.
+- **A reopened loan keeps its reversal.** A loan reopened COMPLETED → ACTIVE
+  (`lease-charges.ts`) keeps the REVERSED line; staff cannot edit lines.
+- **A dealer's debit balance has no settlement path.** Clawbacks larger than
+  the commission due wait in later runs (a run never nets to zero or less);
+  recovering a balance the dealer will never earn back is off-system.
+- **Rates have no maker-checker.** One `manage_dealers` user sets a dealer or
+  default rate (audited, date-effective, bounded by a CHECK). Four-eyes on
+  rates is a later change.
+- **Owed commission survives deactivation.** A deactivated dealer's earned
+  lines stay payable: an open run is approved and released, and a new run can
+  be created for it.
+- **The capture 409 is still an existence oracle** (deviation 9, by design: a
+  dealer must learn the borrower is already the lender's). It is audited per
+  refusal and rate limited per dealer user; the limiter is in memory, per
+  instance, like the sign-in buckets.
+- **A dealer lease keeps the dealer user as classifier.** A lease application
+  is written NON_NCA (`LEASE_NOT_CREDIT_AGREEMENT`, fixed by contract type) and
+  the database freezes a NON_NCA snapshot, so the accept cannot re-stamp it.
+- **Only portal activation and signing codes are gated** on a verified
+  dealer-typed contact. Servicing messages to a booked borrower
+  (`lib/asset-finance/entity-dispatch.ts`) use the contacts on file; a dealer
+  deal reaches booking only through signing, which needs the verification for
+  an e-signature but not for wet ink.
+- **No TS commission mirror.** `lib/dealer/commission-math.ts` (named in
+  "Commission, runs and journals") was not built; the IT suites compute the
+  expected figures and the database is the only writer.
 
 ### Review items
 
