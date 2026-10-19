@@ -88,12 +88,14 @@ describe("GET /api/applications/[id]/checks", () => {
   // The explanation is advisory: a failure to write it must not take the flags (and Clear) away with it.
   it("Statement AI failing: the flags as before, logged, and the access still recorded", async () => {
     enabledMock.mockResolvedValue(true)
-    explanationsMock.mockRejectedValue(new Error("statement load failed"))
+    // A Prisma/model error can carry statement text or IDs in its message: only the error's name is logged.
+    explanationsMock.mockRejectedValue(new TypeError("row S1-R4 SYNTHETIC-STATEMENT-TEXT"))
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     const res = await get()
     expect(res.status).toBe(200)
     expect((await res.json()).flags).toEqual([{ id: "f1", status: "OPEN" }, { id: "f2", status: "CLEARED" }])
-    expect(error).toHaveBeenCalledWith("[checks] flag explanations failed:", expect.any(Error))
+    expect(error).toHaveBeenCalledWith("[checks] flag explanations failed:", "TypeError")
+    expect(error.mock.calls.flat().map(String).join(" ")).not.toContain("SYNTHETIC-STATEMENT-TEXT")
     expect(logAccessMock).toHaveBeenCalled()
     error.mockRestore()
   })

@@ -49,28 +49,28 @@ const SPECS: Record<string, Spec> = {
   PAYDAY_LENDER: { rule: "Transactions with short-term lenders are listed.", raisedWhen: null, thresholds: {} },
   STALE_STATEMENT: { rule: "The statement's end date is compared with the application date.", raisedWhen: "It is raised when the statement ends more than the maximum age before the application.", thresholds: { maximumAgeDays: STALE_STATEMENT_DAYS } },
   MODIFIED_AFTER_CREATION: { rule: "The PDF's modification time is compared with its creation time.", raisedWhen: "It is raised when the PDF records a modification more than the tolerance after its creation.", thresholds: { toleranceSeconds: MODIFIED_AFTER_CREATION_TOLERANCE_MS / 1000 } },
-  BALANCE_MISMATCH: { rule: "Opening balance plus every transaction is compared with the printed closing balance.", raisedWhen: null, thresholds: {} },
-  RUNNING_BALANCE_BREAK: { rule: "Each printed running balance is compared with the previous balance plus the row's amount.", raisedWhen: null, thresholds: {} },
+  BALANCE_MISMATCH: { rule: "A statement as the bank issues it adds up to the cent, so a gap between the sum of its rows and its last printed figure means a row was misread, left out or changed after the bank issued it.", raisedWhen: null, thresholds: {} },
+  RUNNING_BALANCE_BREAK: { rule: "Banks print a balance after every row, each carried forward from the one before; a figure that breaks that chain points to a misread or a changed amount at that spot.", raisedWhen: null, thresholds: {} },
   INCREMENTAL_UPDATE: { rule: "The PDF's structure is checked for saves made after it was first written.", raisedWhen: null, thresholds: {} },
   PRODUCER_UNEXPECTED: { rule: "The program that wrote the PDF is compared with the one the bank uses.", raisedWhen: null, thresholds: {} },
-  HOLDER_NAME_MISMATCH: { rule: "The account holder printed on the statement is compared with the client's name.", raisedWhen: null, thresholds: {} },
+  HOLDER_NAME_MISMATCH: { rule: "A statement shows income and spending only for the person who holds the account; another person's account would show money the client may not have.", raisedWhen: null, thresholds: {} },
 }
 
 const manual = (rule: string): Spec => ({ rule, raisedWhen: null, thresholds: {} })
 Object.assign(SPECS, {
-  NO_PAYSLIP: manual("No recent payslip is on file, so the salary on the statement could not be matched to a payslip."),
-  PAYSLIP_UNVALIDATED: manual("The payslip's figures could not be validated, so the salary was not matched to it."),
-  PAYSLIP_NOT_CLIENTS: manual("The payslip's name or ID number does not match the client."),
-  SALARY_NOT_CHECKED: manual("No statement covers a whole pay window around the payslip's pay day, so the salary could not be matched."),
-  NO_STATEMENT: manual("No recent bank statement is on file for the application."),
-  UNREADABLE: manual("The statement could not be read, so no rule could check it."),
+  NO_PAYSLIP: manual("The salary rule compares the net pay a payslip states with the credits that arrive around its pay date; that is what ties the stated income to money the client receives, and without a payslip it has nothing to compare."),
+  PAYSLIP_UNVALIDATED: manual("The salary rule uses a payslip only when its gross pay less its deductions gives its net pay; a slip whose sums do not agree may carry a misread net pay, so the rule does not compare it."),
+  PAYSLIP_NOT_CLIENTS: manual("A payslip shows income only for the person it names, so the salary rule uses a payslip only when it is the client's own; someone else's would show income the client does not earn."),
+  SALARY_NOT_CHECKED: manual("The salary rule looks for the credit only a fixed number of days either side of the pay date, and only where the same statement spans all those days, so that a missing credit means the money did not arrive, not that it fell outside the statement."),
+  NO_STATEMENT: manual("The rules on income, spending, debit orders and the document itself all read the transactions, so with nothing to read they did not run."),
+  UNREADABLE: manual("The rules work on the transactions extracted from the file, so with nothing extracted they did not run here: its income, spending and document checks are missing."),
   UNVERIFIED_READ: manual("The statement was read but its balances could not be confirmed by arithmetic."),
-  READ_INCOMPLETE: manual("The statement was read but its account holder or period could not be."),
-  FIRST_ROW_UNVERIFIED: manual("The bank prints no opening balance, so the first transaction cannot be checked by arithmetic."),
-  LAST_ROW_UNVERIFIED: manual("The bank prints no closing balance, so the last transaction cannot be checked by arithmetic."),
-  ROWS_UNCHECKED: manual("Some rows print no running balance, so they are checked only together with the rows around them."),
+  READ_INCOMPLETE: manual("The holder's name is what ties the account to the client, and the dates place it against the application date and the pay date; without either, those rules cannot run on it."),
+  FIRST_ROW_UNVERIFIED: manual("Each row's amount is checked by working from the balance before it to the one after it; here the starting figure is worked out from the first row itself, so a changed first amount moves that figure with it and still adds up."),
+  LAST_ROW_UNVERIFIED: manual("The whole statement is summed to its end figure; here that figure is taken from the last row's own balance, so that row's amount and balance could change together and the sum would still agree."),
+  ROWS_UNCHECKED: manual("A row that prints its own balance is checked on its own; rows without a balance are covered only by the next printed balance, so changes that cancel out within such a run would still add up."),
   AUTHENTICITY_UNCHECKED: manual("The PDF carries no producer information, so the program that wrote it could not be checked."),
-  PRIOR_OPEN_FLAGS: manual("Another application of the same client still has credit checks open."),
+  PRIOR_OPEN_FLAGS: manual("Findings on an earlier application describe the same client and often the same documents; deciding this application first would let a question raised earlier go unanswered."),
 } satisfies Record<string, Spec>)
 
 const GENERIC: Spec = { rule: "A rule raised this for an officer to review by hand.", raisedWhen: null, thresholds: {} }
