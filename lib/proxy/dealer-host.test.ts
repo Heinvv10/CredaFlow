@@ -120,7 +120,7 @@ describe("dealer host — serves the dealer portal only", () => {
 
 describe("off the dealer host", () => {
   it.each([STAFF_HOST, PORTAL_HOST, CONSOLE])("404s the dealer paths on %s", async (host) => {
-    for (const path of ["/dealer", "/dealer/login", "/dealer/set-password", "/api/dealer/me", "/api/dealer/set-password"]) {
+    for (const path of ["/dealer", "/dealer/login", "/dealer/set-password", "/api/dealer/deals", "/api/dealer/set-password"]) {
       expect((await visit(host, path, null)).status, path).toBe(404)
       expect((await visit(host, path, DEALER)).status, path).toBe(404)
     }

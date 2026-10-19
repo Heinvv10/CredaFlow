@@ -28,8 +28,6 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/dealer/deal-view", () => ({ listDealerDeals: reach("listDealerDeals", []), loadDealerDealView: reach("loadDealerDealView", { id: "deal-1" }) }))
 vi.mock("@/lib/dealer/deals", () => ({
   createDealerDeal: reach("createDealerDeal", { kind: "created", dealId: "deal-1" }),
-  dealerSupplierChoices: reach("dealerSupplierChoices", { suppliers: [], defaultSupplierId: null }),
-  dealerProductChoices: reach("dealerProductChoices", []),
 }))
 vi.mock("@/lib/dealer/capture", () => ({
   captureDealerEntity: reach("captureDealerEntity", { kind: "created", id: "e-1" }),
@@ -53,20 +51,15 @@ vi.mock("@/lib/asset-finance/entity-document-io", () => ({
 vi.mock("@/lib/dealer/users", () => ({
   parseDealerUserInput: () => ({ data: { email: "new@dealer.example", name: "New", role: "DEALER_SALES" } }),
   listDealerUsers: reach("listDealerUsers", []),
-  loadDealerProfile: reach("loadDealerProfile", { id: "du-1", email: "e", name: "n", role: "DEALER_ADMIN", dealer: { name: "D", kind: "DEALER" } }),
   createDealerUser: reach("createDealerUser", { kind: "created", userId: "du-2", token: "t".repeat(64), expiresAt: new Date("2026-10-22T10:00:00Z") }),
   deactivateDealerUser: reach("deactivateDealerUser", { kind: "deactivated" }),
 }))
 vi.mock("@/lib/dealer/password-links", () => ({ dealerPasswordUrl: (t: string) => `https://dealers.lender.example/dealer/set-password?token=${t}` }))
 vi.mock("@/lib/config/deployment-urls", () => ({ requireDealerBaseUrl: () => "https://dealers.lender.example" }))
-vi.mock("@/lib/dealer/commission-statement", () => ({ loadDealerCommissionStatement: reach("loadDealerCommissionStatement", { totals: {}, lines: [], runs: [] }) }))
 vi.mock("@/lib/dealer/preview", () => ({ previewDealerDeal: reach("previewDealerDeal", { status: 200, body: { startDate: "2026-11-01" } }) }))
 
-import * as me from "./me/route"
 import * as users from "./users/route"
 import * as deactivate from "./users/[id]/deactivate/route"
-import * as products from "./products/route"
-import * as suppliers from "./suppliers/route"
 import * as entities from "./borrowers/entities/route"
 import * as people from "./borrowers/entities/[id]/people/route"
 import * as clients from "./borrowers/clients/route"
@@ -78,16 +71,12 @@ import * as documents from "./deals/[id]/documents/route"
 import * as document from "./deals/[id]/documents/[docId]/route"
 import * as consents from "./deals/[id]/consents/route"
 import * as submit from "./deals/[id]/submit/route"
-import * as commission from "./commission/route"
 
 type Handler = (req: NextRequest, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>
 const ROUTES: Array<[string, "GET" | "POST", Handler, { admin?: true }?]> = [
-  ["me", "GET", me.GET as Handler],
   ["users", "GET", users.GET as Handler, { admin: true }],
   ["users", "POST", users.POST as Handler, { admin: true }],
   ["users/[id]/deactivate", "POST", deactivate.POST as Handler, { admin: true }],
-  ["products", "GET", products.GET as Handler],
-  ["suppliers", "GET", suppliers.GET as Handler],
   ["borrowers/entities", "GET", entities.GET as Handler],
   ["borrowers/entities", "POST", entities.POST as Handler],
   ["borrowers/entities/[id]/people", "POST", people.POST as Handler],
@@ -104,7 +93,6 @@ const ROUTES: Array<[string, "GET" | "POST", Handler, { admin?: true }?]> = [
   ["deals/[id]/documents/[docId]", "GET", document.GET as Handler],
   ["deals/[id]/consents", "POST", consents.POST as Handler],
   ["deals/[id]/submit", "POST", submit.POST as Handler],
-  ["commission", "GET", commission.GET as Handler],
 ]
 
 const DEALER = { id: "du-1", email: "admin@dealer.example", role: "DEALER", tenantId: "tenant-1", dealerId: "dealer-1", dealerRole: "DEALER_ADMIN" }
