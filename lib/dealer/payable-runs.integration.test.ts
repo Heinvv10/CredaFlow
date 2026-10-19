@@ -57,8 +57,10 @@ const link = (runId: string, lineId: string) =>
   `INSERT INTO "DealerPayableRunLine" ("id", "tenantId", "runId", "lineId") VALUES ('${newId("drl")}', ${lit(fx.tenantId)}, ${lit(runId)}, ${lit(lineId)})`
 const approveRun = (runId: string, by: string) =>
   `UPDATE "DealerPayableRun" SET "status" = 'APPROVED', "approvedById" = ${lit(by)}, "approvedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(runId)}`
-const releaseRun = (runId: string) => `UPDATE "DealerPayableRun" SET "status" = 'RELEASED', "releasedById" = ${lit(fx.adminB)},
-  "releasedAt" = CURRENT_TIMESTAMP, "releaseReference" = 'TEST-EFT-1' WHERE "id" = ${lit(runId)}`
+/** Release; `invoice` false leaves out the VAT-vendor dealer's tax invoice. */
+const releaseRun = (runId: string, invoice = true) => `UPDATE "DealerPayableRun" SET "status" = 'RELEASED', "releasedById" = ${lit(fx.adminB)},
+  "releasedAt" = CURRENT_TIMESTAMP, "releaseReference" = 'TEST-EFT-1'
+  ${invoice ? `, "dealerTaxInvoiceReference" = 'TEST-INV-1', "dealerTaxInvoiceDate" = ${TODAY_SQL}` : ""} WHERE "id" = ${lit(runId)}`
 const cancelRun = (runId: string) => `UPDATE "DealerPayableRun" SET "status" = 'CANCELLED', "cancelledById" = ${lit(fx.adminB)},
   "cancelledAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(runId)}`
 const status = (runId: string) => sql(`SELECT "status" FROM "DealerPayableRun" WHERE "id" = ${lit(runId)}`)
@@ -139,12 +141,29 @@ suite.sequential("dealer payable runs (real DB)", () => {
     sql(cancelRun(pending))
     const runId = run({ periodEnd: "'2026-08-31'", forLines: [lines[2], lines[3]] })
     sql(approveRun(runId, fx.adminB))
+    // Dealer A is a VAT vendor: the run carries VAT, so its tax invoice is recorded at release.
+    expectRejected(releaseRun(runId, false), "DealerPayableRun_tax_invoice_on_vat")
+    expectRejected(`UPDATE "DealerPayableRun" SET "status" = 'RELEASED', "releasedById" = ${lit(fx.adminB)}, "releasedAt" = CURRENT_TIMESTAMP,
+      "releaseReference" = 'TEST-EFT-1', "dealerTaxInvoiceReference" = '  ', "dealerTaxInvoiceDate" = ${TODAY_SQL} WHERE "id" = ${lit(runId)}`,
+    "DealerPayableRun_tax_invoice_shape")
     sql(releaseRun(runId))
     expect(status(runId)).toBe("RELEASED")
   })
 
+  it("takes a tax invoice only at release, both parts together, and needs none for a run without VAT", () => {
+    const bAccount = sql(`SELECT "id" FROM "DealerBankAccount" WHERE "dealerId" = ${lit(fx.dealerB)} AND "status" = 'APPROVED'`)
+    const runB = run({ periodEnd: "'2026-01-31'", dealer: fx.dealerB, account: bAccount, forLines: [lineB] })
+    expectRejected(`UPDATE "DealerPayableRun" SET "status" = 'APPROVED', "approvedById" = ${lit(fx.adminB)}, "approvedAt" = CURRENT_TIMESTAMP,
+      "dealerTaxInvoiceReference" = 'TEST-INV-2', "dealerTaxInvoiceDate" = ${TODAY_SQL} WHERE "id" = ${lit(runB)}`, "DealerPayableRun_tax_invoice_shape")
+    sql(approveRun(runB, fx.adminB))
+    expectRejected(`UPDATE "DealerPayableRun" SET "status" = 'RELEASED', "releasedById" = ${lit(fx.adminB)}, "releasedAt" = CURRENT_TIMESTAMP,
+      "releaseReference" = 'TEST-EFT-2', "dealerTaxInvoiceReference" = 'TEST-INV-2' WHERE "id" = ${lit(runB)}`, "DealerPayableRun_tax_invoice_shape")
+    sql(releaseRun(runB, false))
+    expect(status(runB)).toBe("RELEASED")
+  })
+
   it("freezes released and cancelled runs and never deletes one", () => {
-    const released = sql(`SELECT "id" FROM "DealerPayableRun" WHERE "tenantId" = ${lit(fx.tenantId)} AND "status" = 'RELEASED'`)
+    const released = sql(`SELECT "id" FROM "DealerPayableRun" WHERE "tenantId" = ${lit(fx.tenantId)} AND "dealerId" = ${lit(fx.dealerA)} AND "status" = 'RELEASED'`)
     const cancelled = sql(`SELECT "id" FROM "DealerPayableRun" WHERE "tenantId" = ${lit(fx.tenantId)} AND "status" = 'CANCELLED' LIMIT 1`)
     expectRejected(cancelRun(released), "A released or cancelled payable run never changes")
     expectRejected(`UPDATE "DealerPayableRun" SET "releaseReference" = 'X' WHERE "id" = ${lit(released)}`, "A released or cancelled payable run never changes")

@@ -8,8 +8,9 @@ import { FormError, TextField, sendJson } from "@/components/asset-finance/regis
 import { randsToCents } from "@/lib/asset-finance/money-input"
 
 /**
- * A commission rate from a date: a percentage of the approved financed amount
- * plus a flat amount, both ex VAT. A dealer's own rate (url …/dealers/[id]/rates)
+ * A commission rate from a date: a percentage of the goods advance (the
+ * asset's cash price incl. VAT less deposit and trade-in; never the financed
+ * fees or interest) plus a flat amount, both ex VAT. A dealer's own rate (url …/dealers/[id]/rates)
  * or the lender's default (…/dealer-commission/default-rate). Never edited:
  * a change is a new row from a new date.
  */
@@ -50,7 +51,7 @@ export function RateForm({ url, label }: { url: string; label: string }) {
       <FormError message={error} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <TextField id={`${url}-from`} label="Effective from" type="date" required value={effectiveFrom} onChange={setEffectiveFrom} error={fields.effectiveFrom} />
-        <TextField id={`${url}-pct`} label="Percentage of financed amount (%)" inputMode="decimal" required value={percent} onChange={setPercent} error={fields.bps} />
+        <TextField id={`${url}-pct`} label="Percentage of the goods advance (%)" inputMode="decimal" required value={percent} onChange={setPercent} error={fields.bps} />
         <TextField id={`${url}-flat`} label="Plus a flat amount (R, ex VAT)" inputMode="decimal" value={flat} onChange={setFlat} error={fields.flatCents} />
       </div>
       <Button size="sm" onClick={submit} disabled={saving}>

@@ -3,7 +3,9 @@
  * (migration 20261019120100_dealer_portal). guardDealerConsentAttestation: the
  * document is the same deal's POPIA_CONSENT upload by that dealer, not
  * deleted; the subject is the deal's client or an active relationship person
- * of its entity; the attesting user is the deal's dealer's; only the staff
+ * of its entity, captured by the deal's dealer (a lender-added person's
+ * consent is the lender's to record); the attesting user is the deal's
+ * dealer's; only the staff
  * verification may be added, once; never deleted. guardDealerDocumentRequest:
  * fulfilled once by a document of the same deal and type; nothing else
  * changes; never deleted; the note is at most 500 characters.
@@ -101,6 +103,15 @@ suite.sequential("dealer consent attestations and document requests (real DB)", 
       const former = person(fx.dealerA)
       relate(former, false)
       expectRejected(attest({ clientId: former }), message)
+    })
+
+    it("refuses a person the dealer did not capture: the lender records that person's consent itself", () => {
+      const message = "A dealer attests consent only for a person that dealer captured"
+      relate(fx.director)
+      expectRejected(attest({ clientId: fx.director }), message)
+      const otherDealers = person(fx.dealerB)
+      relate(otherDealers)
+      expectRejected(attest({ clientId: otherDealers }), message)
     })
 
     it("refuses a dealer user of another dealer", () => {

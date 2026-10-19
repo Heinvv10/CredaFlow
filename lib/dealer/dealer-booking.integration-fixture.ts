@@ -17,8 +17,17 @@
 import { sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { lit, newId, TODAY_SQL, type DealerFixture } from "./dealer.integration-fixture"
 
-/** 150 000 020 × 250 bps = 3 750 000.5 cents: half-up rounding is visible. */
-export const DEALER_DEAL_APPLIED_CENTS = 150_000_020
+/**
+ * The commission base is the goods advance: the asset's cash price incl. VAT
+ * less the deposit and the trade-in (spec deviation 5), never the financed
+ * fees. 150 000 020 × 250 bps = 3 750 000.5 cents: half-up rounding is
+ * visible.
+ */
+export const DEALER_DEAL_BASE_CENTS = 150_000_020
+/** Financed fees on every fixture deal: the applied amount is the base plus these, so a base read from it is caught. */
+export const DEALER_DEAL_FEES_CENTS = 1_000_000
+/** The fixture asset's cash price incl. VAT (captureForDealer). */
+const ASSET_PRICE_CENTS = 172_500_000
 
 export interface Captured {
   entityId: string
@@ -44,14 +53,24 @@ export interface DealerDealInput {
   clientId?: string
   assetId: string
   createdById?: string
-  appliedCents?: number
+  /** The goods advance (default DEALER_DEAL_BASE_CENTS); a larger one than the asset's price raises the price (history). */
+  baseCents?: number
 }
 
 /** The application (triggers off: history) and the deal's INSERT statement (run by the caller). */
 export function dealerDealInsert(fx: DealerFixture, input: DealerDealInput): { dealId: string; applicationId: string; insert: string } {
   const dealId = newId("dl")
   const applicationId = newId("app")
-  const applied = input.appliedCents ?? DEALER_DEAL_APPLIED_CENTS
+  const base = input.baseCents ?? DEALER_DEAL_BASE_CENTS
+  const applied = base + DEALER_DEAL_FEES_CENTS
+  if (base > ASSET_PRICE_CENTS) {
+    sql(`BEGIN; SET LOCAL session_replication_role = replica;
+      UPDATE "FinancedAsset" SET "cashPriceExclVatCents" = ${base}, "vatCents" = 0 WHERE "id" = ${lit(input.assetId)}; COMMIT;`)
+  }
+  const price = Math.max(base, ASSET_PRICE_CENTS)
+  // Split what the borrower brings between a deposit and a trade-in, so the base is checked against both.
+  const tradeIn = Math.floor((price - base) / 2)
+  const deposit = price - base - tradeIn
   const borrower = { client: lit(input.clientId ?? null), entity: lit(input.entityId ?? null) }
   const regime = input.entityId ? `'NON_NCA', 'JURISTIC_OVER_THRESHOLD'` : `'NCA', 'NATURAL_PERSON_NCA'`
   sql(`BEGIN; SET LOCAL session_replication_role = replica;
@@ -61,9 +80,10 @@ export function dealerDealInsert(fx: DealerFixture, input: DealerDealInput): { d
       ${applied}, ${applied}, 1095, ${regime}, CURRENT_TIMESTAMP, ${lit(fx.officer)}, CURRENT_TIMESTAMP);
     COMMIT;`)
   const insert = `INSERT INTO "AssetFinanceDeal" ("id", "tenantId", "applicationId", "clientId", "entityId", "assetId", "supplierId",
+      "depositCents", "tradeInCents", "financedFeesCents",
       "weights", "structurePreset", "firstDueDate", "rateBasis", "rateMargin", "baseInstalmentCents", "createdById", "dealerId", "dealerUserId", "updatedAt")
     VALUES (${lit(dealId)}, ${lit(fx.tenantId)}, ${lit(applicationId)}, ${borrower.client}, ${borrower.entity}, ${lit(input.assetId)},
-      ${lit(fx.supplier)}, '[]', 'MONTHLY_36', ${TODAY_SQL} + 31, 'PRIME', 0.01, 5000000,
+      ${lit(fx.supplier)}, ${deposit}, ${tradeIn}, ${DEALER_DEAL_FEES_CENTS}, '[]', 'MONTHLY_36', ${TODAY_SQL} + 31, 'PRIME', 0.01, 5000000,
       ${lit(input.createdById ?? input.dealerUserId ?? fx.officer)}, ${lit(input.dealerId)}, ${lit(input.dealerUserId)}, CURRENT_TIMESTAMP)`
   return { dealId, applicationId, insert }
 }
@@ -75,7 +95,11 @@ export function dealerDeal(fx: DealerFixture, input: DealerDealInput): { dealId:
   return ids
 }
 
-export const submitSql = (dealId: string) => `UPDATE "AssetFinanceDeal" SET "status" = 'SUBMITTED' WHERE "id" = ${lit(dealId)}`
+/** DRAFT → SUBMITTED; a dealer deal is first handed over (AssetFinanceDeal_dealer_handover). */
+export const submitSql = (dealId: string) =>
+  `UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP
+     WHERE "id" = ${lit(dealId)} AND "dealerId" IS NOT NULL AND "dealerSubmittedAt" IS NULL;
+   UPDATE "AssetFinanceDeal" SET "status" = 'SUBMITTED' WHERE "id" = ${lit(dealId)}`
 
 export const approveSql = (fx: DealerFixture, dealId: string, extra = "") =>
   `UPDATE "AssetFinanceDeal" SET "status" = 'APPROVED', "decision" = 'APPROVE', "decidedById" = ${lit(fx.adminA)},
@@ -129,10 +153,10 @@ export function book(fx: DealerFixture, dealId: string, opts: BookOptions = {}):
 
 /** Capture, insert, approve and book a deal of `dealerId` by `dealerUserId`. */
 export function bookedDealerDeal(
-  fx: DealerFixture, dealerId: string, dealerUserId: string, opts: BookOptions & { appliedCents?: number } = {},
+  fx: DealerFixture, dealerId: string, dealerUserId: string, opts: BookOptions & { baseCents?: number } = {},
 ): { dealId: string; loanId: string } {
   const captured = captureForDealer(fx, dealerId)
-  const { dealId } = dealerDeal(fx, { dealerId, dealerUserId, ...captured, appliedCents: opts.appliedCents })
+  const { dealId } = dealerDeal(fx, { dealerId, dealerUserId, ...captured, baseCents: opts.baseCents })
   approve(fx, dealId)
   return { dealId, loanId: book(fx, dealId, opts) }
 }

@@ -150,7 +150,7 @@ model DealerCommissionLine {
   loanId          String
   loan            Loan                            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   kind            DealerCommissionLineKind
-  reversesLineId  String?                         @unique
+  reversesLineId  String?
   reversesLine    DealerCommissionLine?           @relation("DealerCommissionReversal", fields: [tenantId, reversesLineId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   reason          DealerCommissionReversalReason?
   effectiveOn     DateTime                        @db.Date
@@ -199,6 +199,11 @@ model DealerPayableRun {
   releasedBy       User?                  @relation("DealerRunReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   releasedAt       DateTime?
   releaseReference String?
+  // The VAT-vendor dealer's own tax invoice for the commission, recorded at
+  // release whenever the run carries VAT (DealerPayableRun_tax_invoice_*).
+  // A recipient-created tax invoice is not supported.
+  dealerTaxInvoiceReference String?
+  dealerTaxInvoiceDate      DateTime?              @db.Date
   cancelledById    String?
   cancelledBy      User?                  @relation("DealerRunCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   cancelledAt      DateTime?

@@ -79,6 +79,13 @@ model Client {
   // guardAssetDealDealer).
   createdByDealerId                  String?
   createdByDealer                    Dealer?                @relation(fields: [tenantId, createdByDealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // The contact details a dealer typed are untrusted until a staff member
+  // verifies them (lib/dealer/contact-verification.ts): until then no portal
+  // activation, no portal password (Client_dealer_contact_guard) and no
+  // signing code. Set once; only on a dealer-captured client.
+  dealerContactVerifiedAt            DateTime?
+  dealerContactVerifiedById          String?
+  dealerContactVerifiedBy            User?                  @relation("ClientDealerContactVerifiedBy", fields: [tenantId, dealerContactVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   applications                  LoanApplication[]

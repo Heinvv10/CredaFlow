@@ -43,8 +43,8 @@ const dated = (lineId: string | null, date: string) => sql(`BEGIN; SET LOCAL ses
 // A run's total must be positive: beside a reversal, the fresh line is a bigger deal.
 const BIGGER = 300_000_000
 /** A booked deal of dealer A whose EARNED line took effect on `date`. */
-function booked(date: string, appliedCents?: number): { earned: string; loanId: string; dealId: string } {
-  const { dealId, loanId } = bookedDealerDeal(fx, fx.dealerA, fx.salesUserA, { appliedCents })
+function booked(date: string, baseCents?: number): { earned: string; loanId: string; dealId: string } {
+  const { dealId, loanId } = bookedDealerDeal(fx, fx.dealerA, fx.salesUserA, { baseCents })
   const earned = lineOf(dealId, "EARNED")
   dated(earned, date)
   return { earned, loanId, dealId }
@@ -72,7 +72,8 @@ const approve = (runId: string) =>
 const cancel = (runId: string) => sql(`UPDATE "DealerPayableRun" SET "status" = 'CANCELLED', "cancelledById" = ${lit(fx.adminB)},
   "cancelledAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(runId)}`)
 const release = (runId: string) => sql(`UPDATE "DealerPayableRun" SET "status" = 'RELEASED', "releasedById" = ${lit(fx.adminB)},
-  "releasedAt" = CURRENT_TIMESTAMP, "releaseReference" = 'TEST-EFT-N' WHERE "id" = ${lit(runId)}`)
+  "releasedAt" = CURRENT_TIMESTAMP, "releaseReference" = 'TEST-EFT-N', "dealerTaxInvoiceReference" = 'TEST-INV-N',
+  "dealerTaxInvoiceDate" = CURRENT_DATE WHERE "id" = ${lit(runId)}`)
 const status = (runId: string) => sql(`SELECT "status" FROM "DealerPayableRun" WHERE "id" = ${lit(runId)}`)
 
 // Each test works one month of 2026 and leaves every line up to it paid or

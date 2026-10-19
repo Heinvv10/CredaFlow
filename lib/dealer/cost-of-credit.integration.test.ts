@@ -159,10 +159,11 @@ suite.sequential("NCA cost of credit with and without a dealer (real Postgres, r
     expect(statuses).toEqual([{ status: "BOOKED" }, { status: "BOOKED" }])
   }, 180_000)
 
-  it("earned the dealer its commission (2.50% + R1 500 of the approved amount, plus VAT), and the staff deal none", async () => {
-    const dealer = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: deals.dealer }, include: { application: true } })
+  it("earned the dealer its commission (2.50% + R1 500 of the goods advance, plus VAT), and the staff deal none", async () => {
+    const dealer = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: deals.dealer }, include: { asset: true } })
     expect(dealer).toMatchObject({ dealerCommissionSource: "DEALER", dealerCommissionBps: 250, dealerCommissionFlatCents: 150_000 })
-    const base = dealer.application.approvedAmount ?? dealer.application.appliedAmount
+    // The asset's cash price incl. VAT less the deposit and the trade-in: never the financed fees.
+    const base = dealer.asset.cashPriceExclVatCents + dealer.asset.vatCents - dealer.depositCents - dealer.tradeInCents
     const lines = await database().dealerCommissionLine.findMany({ where: { dealId: { in: [deals.dealer, deals.staff] } } })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ dealId: deals.dealer, kind: "EARNED", baseCents: base, netCents: Math.round(base * 250 / 10_000) + 150_000 })

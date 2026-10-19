@@ -1,8 +1,8 @@
 /**
  * Real-Postgres proof of dealer commission from approval to booking
  * (migration 20261019120100_dealer_portal): the snapshot the database takes
- * on the move into APPROVED (rate in force that day, base = the approved
- * amount) and keeps however the rate table changes later; a caller cannot
+ * on the move into APPROVED (rate in force that day, base = the goods
+ * advance: cash price incl. VAT less deposit and trade-in) and keeps however the rate table changes later; a caller cannot
  * supply or change it; the EARNED line accrueDealerCommission writes when the
  * deal is BOOKED (half-up rounding, VAT only for a VAT vendor, the tenant's
  * clawback months copied); none for a cancelled deal or a zero rate; and the
@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, insertRate, lit, newId, TODAY_SQL, type DealerFixture } from "./dealer.integration-fixture"
 import {
-  approve, approveSql, book, bookedDealerDeal, captureForDealer, commissionLines, dealerDeal, DEALER_DEAL_APPLIED_CENTS, submitSql,
+  approve, approveSql, book, bookedDealerDeal, captureForDealer, commissionLines, dealerDeal, DEALER_DEAL_BASE_CENTS, submitSql,
 } from "./dealer-booking.integration-fixture"
 
 // The deal fixture imports the staff routes (next-auth); no route runs in this suite.
@@ -47,22 +47,22 @@ suite.sequential("dealer commission: snapshot at approval, accrual at booking (r
   afterAll(() => cleanupDealerFixtureIfCreated(db, t))
 
   describe("snapshot at approval", () => {
-    it("takes the dealer's rate in force today and the approved amount", () => {
+    it("takes the dealer's rate in force today and the goods advance (price less deposit and trade-in, not the financed fees)", () => {
       const dealId = newDeal(fx.dealerA, fx.salesUserA)
       sql(submitSql(dealId))
       expect(snapshot(dealId)).toBe("|||||f")
       sql(approveSql(fx, dealId))
-      expect(snapshot(dealId)).toBe(`DEALER|${rateA}|250|150000|${DEALER_DEAL_APPLIED_CENTS}|t`)
+      expect(snapshot(dealId)).toBe(`DEALER|${rateA}|250|150000|${DEALER_DEAL_BASE_CENTS}|t`)
     })
 
     it("keeps the snapshot when the rate table changes after approval (history)", () => {
       const dealId = newDeal(fx.dealerA, fx.salesUserA)
       approve(fx, dealId)
       const backdated = insertRate(fx, { dealerId: fx.dealerA, from: `${TODAY_SQL} - 1`, bps: 500, flatCents: 0 })
-      expect(snapshot(dealId)).toBe(`DEALER|${rateA}|250|150000|${DEALER_DEAL_APPLIED_CENTS}|t`)
+      expect(snapshot(dealId)).toBe(`DEALER|${rateA}|250|150000|${DEALER_DEAL_BASE_CENTS}|t`)
       const later = newDeal(fx.dealerA, fx.salesUserA)
       approve(fx, later)
-      expect(snapshot(later)).toBe(`DEALER|${backdated}|500|0|${DEALER_DEAL_APPLIED_CENTS}|t`)
+      expect(snapshot(later)).toBe(`DEALER|${backdated}|500|0|${DEALER_DEAL_BASE_CENTS}|t`)
     })
 
     it("falls back to the tenant default for a dealer without its own rate", () => {
@@ -128,7 +128,7 @@ suite.sequential("dealer commission: snapshot at approval, accrual at booking (r
     it("writes nothing when the rate in force is zero", () => {
       const zero = insertRate(fx, { dealerId: fx.dealerB, from: TODAY_SQL, bps: 0, flatCents: 0 })
       const { dealId } = bookedDealerDeal(fx, fx.dealerB, fx.userB)
-      expect(snapshot(dealId)).toBe(`DEALER|${zero}|0|0|${DEALER_DEAL_APPLIED_CENTS}|t`)
+      expect(snapshot(dealId)).toBe(`DEALER|${zero}|0|0|${DEALER_DEAL_BASE_CENTS}|t`)
       expect(commissionLines(dealId)).toEqual([])
     })
 
