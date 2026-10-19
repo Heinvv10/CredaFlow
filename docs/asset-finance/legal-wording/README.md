@@ -28,7 +28,7 @@ Rendered samples: `docs/asset-finance/evidence/legal-wording/`, produced by
 `scripts/asset-finance/render-legal-wording-deal-samples.ts` (both
 deterministic: a rerun reproduces the committed PDFs).
 
-## Starter wording issues found (for the drafters; not changed by code)
+## Starter wording issues found
 
 - Fixed 2026-10-19 (Hein approved): lease clause 9.3 printed "linked to the
   Lender base rate rate" on a lease linked to the lender's base rate

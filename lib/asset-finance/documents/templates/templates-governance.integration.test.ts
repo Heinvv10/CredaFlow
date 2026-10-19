@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, type DealFixture } from "../../deal.integration-fixture"
 import { SYNTHETIC_IDENTITY } from "../../deal-signing.integration-fixture"
 import { TemplateUnavailableError, generateDocument } from "@/lib/documents/render"
-import { canonicalContent, starterContent } from "./content"
+import { canonicalContent, contentSha256, starterContent } from "./content"
 import { parseTemplateKey } from "./families"
 import { systemFingerprint } from "./fingerprint"
 import { selectIssuableTemplate } from "./issuance"
@@ -254,11 +254,12 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
 
   it("the demo backfill approves again a version whose approval lapsed with a protected wording change, keeping the lender's wording", async () => {
     const staff = { adminOne: { id: c.adminA, email: "a@x.invalid" }, adminTwo: { id: c.adminB, email: "b@x.invalid" } }
-    const res = await templateOf(database(), c.tenantId, "af.resolution.standard")
-    // As if approved before CredaFlow changed the protected wording (written past the store).
-    const text = canonicalContent(starterContent(parseTemplateKey("af.resolution.standard")!))
+    const key = "af.lease.operating.commercial"
+    const res = await templateOf(database(), c.tenantId, key)
+    // The lender's own wording, as if approved before CredaFlow changed the protected wording (written past the store).
+    const text = canonicalContent(edited(key, "DEMO"))
     const stale = await database().documentTemplateVersion.create({ data: {
-      templateId: res.id, version: 2, bodyHtml: "", tokensUsed: [], content: text, contentSha256: (await latest(database(), res.id)).contentSha256, createdById: c.adminA,
+      templateId: res.id, version: 2, bodyHtml: "", tokensUsed: [], content: text, contentSha256: contentSha256(text), createdById: c.adminA,
     } })
     await database().documentTemplateVersion.update({ where: { id: stale.id }, data: {
       approvedById: c.adminB, approvedAt: new Date(), approvalBasis: "SYNTHETIC_DEMO", approvedContentSha256: stale.contentSha256, approvedSystemSha256: "0".repeat(64),
@@ -268,12 +269,12 @@ suite.sequential("lender-owned asset-finance template governance (real Postgres)
       database().documentTemplateVersion.update({ where: { id: stale.id }, data: { status: "ACTIVE", activatedById: c.adminA, activatedAt: new Date() } }),
       database().documentTemplate.update({ where: { id: res.id }, data: { currentVersionId: stale.id } }),
     ])
-    await expect(selectIssuableTemplate(appDb(), c.tenantId, "af.resolution.standard")).rejects.toThrow(/changed after your approval/)
+    await expect(selectIssuableTemplate(appDb(), c.tenantId, key)).rejects.toThrow(/changed after your approval/)
     await ensureSyntheticTemplates(c.tenantId, staff)
     await ensureSyntheticTemplates(c.tenantId, staff)
     const now = await latest(database(), res.id)
-    expect(now).toMatchObject({ version: 3, status: "ACTIVE", content: text, approvalBasis: "SYNTHETIC_DEMO", approvedSystemSha256: await systemFingerprint("af.resolution.standard") })
-    expect((await selectIssuableTemplate(appDb(), c.tenantId, "af.resolution.standard")).approvalBasis).toBe("SYNTHETIC_DEMO")
+    expect(now).toMatchObject({ version: 3, status: "ACTIVE", content: text, approvalBasis: "SYNTHETIC_DEMO", approvedSystemSha256: await systemFingerprint(key) })
+    expect((await selectIssuableTemplate(appDb(), c.tenantId, key)).approvalBasis).toBe("SYNTHETIC_DEMO")
     // Only the lapsed variant got a new version.
     expect(await database().documentTemplateVersion.count({ where: { template: { tenantId: c.tenantId } } })).toBe(13)
   })

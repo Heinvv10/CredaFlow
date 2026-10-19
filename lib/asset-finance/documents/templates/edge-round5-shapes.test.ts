@@ -86,7 +86,7 @@ describe("FIXED: rate-basis wording on leases and NCA agreements is reached by a
     expect((await shapeTexts(key)).some((t) => t.includes(sentence)), `${sentence} is in no shape`).toBe(true)
   }, 60_000)
 
-  it("the lease's protected rate sentence is grammatical for every allowed basis", async () => {
+  it("the lease's protected rate sentence on the lender's base rate does not read \"rate rate\"", async () => {
     const key = "af.lease.operating.commercial"
     const base = syntheticDealDocumentData({ lender: LENDER })
     const data = { ...base, pricing: { ...base.pricing, rateBasis: "LENDER_BASE" as const }, lease: operatingLease(false) }
