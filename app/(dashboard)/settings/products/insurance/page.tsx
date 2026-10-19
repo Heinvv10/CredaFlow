@@ -72,7 +72,7 @@ export default async function InsuranceProductsPage() {
                 <td className="px-5 py-3 text-right tabular-nums">{headlines.get(p.id)?.from
                     ? <>From {formatRands(headlines.get(p.id)!.amount)} <span className="text-[10px] text-gray-400">main member</span></>
                     : formatZAR(Number(p.premiumAmount) * 100)}</td>
-                <td className="px-5 py-3 text-right tabular-nums">{formatZAR(Number(p.sumAssured) * 100)}</td>
+                <td className="px-5 py-3 text-right tabular-nums">{formatZAR((headlines.get(p.id)?.cover ?? Number(p.sumAssured)) * 100)}</td>
                 <td className="px-5 py-3 text-center">{(Number(p.commissionRate) * 100).toFixed(1)}%</td>
                 <td className="px-5 py-3 text-center">
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${p.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>

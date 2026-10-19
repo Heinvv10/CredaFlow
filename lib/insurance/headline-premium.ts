@@ -12,9 +12,12 @@ export interface HeadlinePremium {
   amount: number
   /** True when `amount` is the cheapest main-member band, not the flat column. */
   from: boolean
+  /** Rands. Cover of that same cheapest band; null when `from` is false (the product's own cover applies). */
+  cover: number | null
 }
 
-type BandLike = { lifeType: string; premiumAmount: { toString(): string } | number | string }
+type Money = { toString(): string } | number | string
+type BandLike = { lifeType: string; premiumAmount: Money; sumAssured: Money }
 
 /** Structural, so both the plain and the tenant-scoped extended client fit. */
 interface RateTableReader {
@@ -29,10 +32,12 @@ interface RateTableReader {
 export function resolveHeadlinePremium(flat: number, bands: BandLike[] | undefined): HeadlinePremium {
   const main = (bands ?? [])
     .filter((b) => b.lifeType === "MAIN_MEMBER")
-    .map((b) => Number(b.premiumAmount.toString()))
-    .filter((n) => Number.isFinite(n))
-  if (main.length === 0) return { amount: flat, from: false }
-  return { amount: Math.min(...main), from: true }
+    .map((b) => ({ amount: Number(b.premiumAmount.toString()), cover: Number(b.sumAssured.toString()) }))
+    .filter((b) => Number.isFinite(b.amount) && Number.isFinite(b.cover))
+  if (main.length === 0) return { amount: flat, from: false, cover: null }
+  // Cheapest premium; on a tie the smaller cover, so the pair is deterministic.
+  const cheapest = main.reduce((a, b) => (b.amount < a.amount || (b.amount === a.amount && b.cover < a.cover) ? b : a))
+  return { amount: cheapest.amount, from: true, cover: cheapest.cover }
 }
 
 /** The query, exposed so it is assertable without a database. */
@@ -48,7 +53,7 @@ export function headlineRateTablesFindManyArgs(tenantId: string, productIds: str
     orderBy: [{ version: "desc" }],
     select: {
       productId: true,
-      bands: { where: { lifeType: "MAIN_MEMBER" }, select: { lifeType: true, premiumAmount: true } },
+      bands: { where: { lifeType: "MAIN_MEMBER" }, select: { lifeType: true, premiumAmount: true, sumAssured: true } },
     },
   } satisfies Prisma.InsuranceRateTableFindManyArgs
 }

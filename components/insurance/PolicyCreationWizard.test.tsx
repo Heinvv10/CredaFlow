@@ -13,7 +13,7 @@ const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONM
 // assured on a R118/month policy.
 const PRODUCT = {
   id: "prod-1", name: "Family Funeral Plan", type: "FUNERAL_COVER", code: "FUN-1",
-  premiumAmount: 118, headlinePremium: 118, headlineIsFrom: false, sumAssured: 20_000, commissionRate: 0.2, active: true,
+  premiumAmount: 118, headlinePremium: 118, headlineIsFrom: false, headlineCover: null as number | null, sumAssured: 20_000, commissionRate: 0.2, active: true,
   insurerName: "Example Underwriters (fictional)",
 }
 
@@ -47,9 +47,12 @@ afterEach(() => { act(() => renderer.unmount()) })
 describe("PolicyCreationWizard: insurer and commission", () => {
   // Row 116: the picker showed the flat R118 for a rated product; quoting ignores it.
   it("shows a rated product as 'From' its cheapest main-member premium", () => {
-    render([{ ...PRODUCT, headlinePremium: 62, headlineIsFrom: true }])
+    render([{ ...PRODUCT, headlinePremium: 62, headlineIsFrom: true, headlineCover: 10_000 }])
     expect(text()).toContain("From R 62.00/mo · main member")
     expect(text()).not.toContain("R 118.00")
+    // The price must be paired with the cover of the same band, not the product's flat R20 000.
+    expect(text()).toContain("Cover: R 10,000.00")
+    expect(text()).not.toContain("Cover: R 20,000.00")
   })
 
   it("shows an unrated product's flat premium without 'From'", () => {

@@ -15,6 +15,8 @@ export interface Product {
   headlinePremium: number
   /** True when headlinePremium is a rate-table minimum and must read "From". */
   headlineIsFrom: boolean
+  /** Cover (rands) of the cheapest band when headlineIsFrom, else null (use sumAssured). */
+  headlineCover: number | null
   sumAssured: number
   commissionRate: number
   active: boolean

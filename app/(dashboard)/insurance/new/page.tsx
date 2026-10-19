@@ -55,6 +55,7 @@ async function getNewPolicyData() {
       premiumAmount: Number(p.premiumAmount),
       headlinePremium: headlines.get(p.id)?.amount ?? Number(p.premiumAmount),
       headlineIsFrom: headlines.get(p.id)?.from ?? false,
+      headlineCover: headlines.get(p.id)?.cover ?? null,
       sumAssured: Number(p.sumAssured),
       commissionRate: Number(p.commissionRate),
     })),
