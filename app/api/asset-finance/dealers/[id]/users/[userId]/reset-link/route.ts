@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { dealerPasswordUrl, issueDealerPasswordLink } from "@/lib/dealer/password-links"
 import { dealerLinkUnavailable, refusalResponse, withDealerStaff } from "@/lib/dealer/staff-route"
 
-/** A fresh one-time set-password link for a dealer user; its sessions end (manage_dealers). */
+/** A fresh one-time set-password link for a dealer user; its password is cleared and its sessions end (manage_dealers). */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; userId: string }> }) {
   return withDealerStaff(req, "manage_dealers", async ({ staff }) => {
     const unavailable = dealerLinkUnavailable()

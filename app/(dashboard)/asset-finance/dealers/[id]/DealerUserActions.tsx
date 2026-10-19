@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { FormError, sendJson } from "@/components/asset-finance/register-form-controls"
 import { OneTimeLink } from "./OneTimeLink"
 
-/** Deactivate a dealer user, or issue a fresh set-password link; both end the user's sessions. */
+/** Deactivate a dealer user, or issue a fresh set-password link (the old password stops working); both end the user's sessions. */
 export function DealerUserActions({ dealerId, userId }: { dealerId: string; userId: string }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -16,6 +16,7 @@ export function DealerUserActions({ dealerId, userId }: { dealerId: string; user
 
   const post = async (action: "deactivate" | "reset-link") => {
     if (action === "deactivate" && !window.confirm("Deactivate this dealer user? Their sessions end and they cannot sign in again.")) return
+    if (action === "reset-link" && !window.confirm("Issue a new password link? Their current password stops working and their sessions end.")) return
     setBusy(true)
     setError(null)
     const result = await sendJson(`${base}/${action}`, "POST", {})

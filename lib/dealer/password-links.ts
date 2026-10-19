@@ -4,7 +4,9 @@
  * 32 random bytes, stored only as their sha256 (DealerUser.setPasswordTokenHash),
  * valid 72 hours, replacing any earlier link. Nothing is emailed in this slice:
  * the creator is shown the link to pass on. A token is never written to an
- * audit row. A reset link also bumps tokenVersion, ending the user's sessions.
+ * audit row. A reset link also bumps tokenVersion, ending the user's sessions,
+ * and clears the password, so whoever holds the old one cannot sign straight
+ * back in before the user opens the link. No link for a deactivated dealer.
  *
  * Setting the password (public, the token is the credential) is bound to the
  * lender the dealer host resolves, single-use (compare-and-swap on the hash),
@@ -36,7 +38,7 @@ export async function writeDealerLink(
   tx: Pick<Tx, "dealerUser">,
   tenantId: string,
   dealerUserId: string,
-  opts: { bumpTokenVersion: boolean },
+  opts: { bumpTokenVersion: boolean; clearPassword?: boolean },
   now: Date = new Date(),
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("hex")
@@ -47,26 +49,31 @@ export async function writeDealerLink(
       setPasswordTokenHash: hashDealerToken(token),
       setPasswordTokenExp: expiresAt,
       ...(opts.bumpTokenVersion ? { tokenVersion: { increment: 1 } } : {}),
+      ...(opts.clearPassword ? { passwordHash: null } : {}),
     },
   })
   return { token, expiresAt }
 }
 
-/** Staff "reset link": a fresh link, and every session of the user ends. */
+/** Staff "reset link": a fresh link; the old password stops working and every session of the user ends. */
 export async function issueDealerPasswordLink(
   staff: StaffActor,
   dealerId: string,
   dealerUserId: string,
 ): Promise<{ kind: "issued"; token: string; expiresAt: Date } | DealerRefusal> {
   return prisma.$transaction(async (tx) => {
-    const user = await tx.dealerUser.findFirst({ where: { id: dealerUserId, tenantId: staff.tenantId, dealerId }, select: { id: true, active: true } })
+    const user = await tx.dealerUser.findFirst({
+      where: { id: dealerUserId, tenantId: staff.tenantId, dealerId },
+      select: { id: true, active: true, dealer: { select: { active: true } } },
+    })
     if (!user) return dealerMiss("Dealer user")
+    if (!user.dealer.active) return dealerRefused(409, "The dealer is deactivated")
     if (!user.active) return dealerRefused(409, "The dealer user is deactivated")
-    const link = await writeDealerLink(tx, staff.tenantId, user.id, { bumpTokenVersion: true })
+    const link = await writeDealerLink(tx, staff.tenantId, user.id, { bumpTokenVersion: true, clearPassword: true })
     await logAuditStrict({
       tenantId: staff.tenantId, userId: staff.userId, userEmail: staff.userEmail,
       action: AuditAction.DEALER_USER_PASSWORD_LINK_ISSUED, entity: "DealerUser", entityId: user.id,
-      newValue: { dealerId, expiresAt: link.expiresAt.toISOString(), sessionsEnded: true },
+      newValue: { dealerId, expiresAt: link.expiresAt.toISOString(), sessionsEnded: true, passwordCleared: true },
     }, tx)
     return { kind: "issued" as const, ...link }
   })
