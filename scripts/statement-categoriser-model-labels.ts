@@ -24,6 +24,7 @@ import { analyseStatement } from "@/lib/statement-analysis/analyse"
 import { categorise } from "@/lib/statement-analysis/categorise"
 import { labelKey, labelKeys } from "@/lib/statement-analysis/model-labels"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
+import { refuseHostedForRealData } from "@/lib/vlm-extract"
 import { isDevKey } from "./statement-merchant-keys"
 
 class ScriptError extends Error {}
@@ -56,6 +57,7 @@ async function corpusKeys(dir: string): Promise<string[]> {
 
 async function main() {
   const [mode, a, b] = process.argv.slice(2)
+  refuseHostedForRealData()
   if (inBusinessHours(new Date())) throw new ScriptError("the shared model: run outside 08:00–17:00 SAST on weekdays")
   const out = mode === "keys" ? b : a
   if (!out || (mode !== "keys" && mode !== "corpus")) throw new ScriptError("usage: statement-categoriser-model-labels.ts keys <keys.tsv> <out.tsv> [--all] | corpus <out.tsv>")

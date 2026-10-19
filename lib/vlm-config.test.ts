@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { getVlmConfig } from "./vlm-extract"
+import { getVlmConfig, refuseHostedForRealData } from "./vlm-extract"
 
 describe("getVlmConfig", () => {
   beforeEach(() => {
@@ -48,5 +48,22 @@ describe("getVlmConfig", () => {
       vi.stubEnv(name, "/srv/corpus")
       expect(getVlmConfig()).toBeNull()
     })
+  })
+})
+
+describe("refuseHostedForRealData", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it.each(["VLM_API_KEY", "VLM_ALLOW_HOSTED"])("refuses corpus tooling while %s is set", (name) => {
+    vi.stubEnv("VLM_API_KEY", "")
+    vi.stubEnv("VLM_ALLOW_HOSTED", "")
+    vi.stubEnv(name, "x")
+    expect(() => refuseHostedForRealData()).toThrow(/self-hosted/)
+  })
+
+  it("allows the self-hosted model", () => {
+    vi.stubEnv("VLM_API_KEY", "")
+    vi.stubEnv("VLM_ALLOW_HOSTED", "")
+    expect(() => refuseHostedForRealData()).not.toThrow()
   })
 })

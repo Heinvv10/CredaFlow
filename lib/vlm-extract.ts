@@ -56,6 +56,13 @@ function hostedVlmAllowed(apiUrl: string): boolean {
   return reason === null
 }
 
+/** Corpus tooling sends real client text: it must never run against a hosted model. */
+export function refuseHostedForRealData(): void {
+  if (process.env.VLM_API_KEY || process.env.VLM_ALLOW_HOSTED) {
+    throw new Error('real corpus data goes only to the self-hosted model: unset VLM_API_KEY and VLM_ALLOW_HOSTED')
+  }
+}
+
 export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
@@ -923,9 +930,13 @@ export async function extractDocumentData(opts: {
     })
 
     if (!res.ok) {
-      const text = await res.text()
       // A hosted provider's error body can echo part of the key.
-      return { ok: false, error: process.env.VLM_API_KEY ? `VLM responded ${res.status}` : `VLM responded ${res.status}: ${text.slice(0, 200)}` }
+      if (process.env.VLM_API_KEY) {
+        await res.body?.cancel()
+        return { ok: false, error: `VLM responded ${res.status}` }
+      }
+      const text = await res.text()
+      return { ok: false, error: `VLM responded ${res.status}: ${text.slice(0, 200)}` }
     }
 
     const json = (await res.json()) as {

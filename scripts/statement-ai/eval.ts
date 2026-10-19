@@ -145,11 +145,13 @@ function asker(kind: string) {
   }
   async function once(prompt: string, maxTokens: number): Promise<string> {
     const started = Date.now()
-    const res = await fetch(`${process.env.VLM_API_URL!.replace(/\/$/, "")}/v1/chat/completions`, {
+    const config = getVlmConfig()
+    if (!config) throw new Error("the model is not configured (see the [vlm] warning)")
+    const res = await fetch(config.url, {
       method: "POST",
-      headers: getVlmConfig()?.headers ?? { "Content-Type": "application/json" },
+      headers: config.headers,
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: process.env.VLM_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
+      body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
     })
     if (!res.ok) throw new Error(`model responded ${res.status}`)
     const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
