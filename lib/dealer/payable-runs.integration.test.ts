@@ -70,9 +70,12 @@ suite.sequential("dealer payable runs (real DB)", () => {
     insertRate(fx, { dealerId: null, from: "'2020-01-01'", bps: 250, flatCents: 150_000 })
     for (let i = 0; i < 4; i++) lines.push(lineOf(bookedDealerDeal(fx, fx.dealerA, fx.salesUserA).dealId))
     lineB = lineOf(bookedDealerDeal(fx, fx.dealerB, fx.userB).dealId)
-    // History: the lines were earned in January, so two month-end runs can both hold them.
+    // History: lines 0-1 were earned in January, so two month-end runs can both
+    // hold them; lines 2-3 in July, after the June run (approval needs every
+    // line due by the period end in a live run: migration 20261019120200).
     sql(`BEGIN; SET LOCAL session_replication_role = replica;
-      UPDATE "DealerCommissionLine" SET "effectiveOn" = '2026-01-15' WHERE "tenantId" = ${lit(fx.tenantId)}; COMMIT;`)
+      UPDATE "DealerCommissionLine" SET "effectiveOn" = '2026-01-15' WHERE "tenantId" = ${lit(fx.tenantId)};
+      UPDATE "DealerCommissionLine" SET "effectiveOn" = '2026-07-15' WHERE "id" IN (${lit(lines[2])}, ${lit(lines[3])}); COMMIT;`)
     account = approvedDealerAccount(fx, fx.dealerA)
   }, 120_000)
 
@@ -125,7 +128,7 @@ suite.sequential("dealer payable runs (real DB)", () => {
   })
 
   it("is released only after approval and only to a still-APPROVED account", () => {
-    const pending = run({ periodEnd: "'2026-07-31'", forLines: [lines[2]] })
+    const pending = run({ periodEnd: "'2026-07-31'", forLines: [lines[2], lines[3]] })
     expectRejected(releaseRun(pending), "A payable run moves PENDING_APPROVAL -> APPROVED -> RELEASED, or is cancelled")
     sql(approveRun(pending, fx.adminB))
     // the dealer's account changes: the old one is superseded before the new one is approved

@@ -92,6 +92,32 @@ each the safer reading of the text below:
     off, and the CONTRACTED → BOOKED UPDATE itself runs every gate. The
     cost-of-credit IT (task 9) books through the real routes.
 
+Hardening (security review of `20261019120100`; migration
+`20261019120200_dealer_portal_hardening`, additive, hand-written):
+
+20. **Provenance is written once.** `createdByDealerId` on `Client`,
+    `BusinessEntity` and `FinancedAsset` is set by the capturing INSERT and
+    never changed (`guardCreatedByDealerFixed`): a staff row cannot be
+    re-badged as a dealer's to pass the deal provenance check. These tables
+    get no `_no_truncate` trigger for it (the rule is about UPDATE; their
+    existing guards are unchanged).
+21. **A dealer deal's borrower and asset are fixed from insert**
+    (`AssetFinanceDeal_dealer_parties_fixed`), rather than re-checked on
+    UPDATE: no code path changes a deal's `entityId`, `clientId` or `assetId`
+    (grep of every `assetFinanceDeal.update*`), and the staff flow already
+    freezes them from APPROVED. Staff deals are unaffected.
+22. **Runs net clawbacks.** An EARNED line joins a run only after its REVERSED
+    line (if any) is linked to the same run (`DealerPayableRunLine_netting`;
+    the run-create code links REVERSED lines first). On approval
+    (`DealerPayableRun_netting`): an EARNED line in the run with a reversal has
+    it in the run; a REVERSED line in the run has its EARNED line in a live
+    run; and every line of the dealer effective by `periodEnd` is in a live
+    run, except an EARNED line whose reversal is also in none (the pair nets to
+    zero and waits for the run that takes the reversal). A line written after
+    the run was created but dated by its period end (only when `periodEnd` is
+    today) blocks approval: cancel and recreate. The run-create code (task 7)
+    must leave out an EARNED line whose reversal falls after `periodEnd`.
+
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
 Two migrations: `20261019120000_dealer_portal_enum_values` (only

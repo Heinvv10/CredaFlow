@@ -53,3 +53,34 @@ all three were restored the eight suites were 65/65 green again.
 The remaining mutations the spec lists (every other CHECK and trigger branch,
 the `deal-view.ts` dealerId filter, the host-gate role check, the inverted
 window comparison) belong to later tasks of PR A.
+
+### Hardening (migration `20261019120200_dealer_portal_hardening`, deviations 20-22)
+
+Suites `lib/dealer/dealer-provenance.integration.test.ts` and
+`lib/dealer/payable-run-netting.integration.test.ts` were written first. Against
+the database migrated to `20261019120100`:
+
+```
+ Test Files  2 failed | 1 passed (3)
+      Tests  8 failed | 9 passed (17)
+```
+
+(every provenance test but the two that assert what stays allowed; every
+netting test). `lib/dealer/payable-runs.integration.test.ts` was adjusted
+first so its runs hold every line due by their period end (lines 2-3 dated
+July; the July run holds both) and stayed green before and after.
+
+After the migration: `lib/dealer/` 10 files, 76 tests passed.
+
+Each mutation was applied to the migrated throwaway database, the suite run,
+then the six triggers dropped and the migration file re-applied with `psql -f`.
+
+| # | Mutation | Suite | Result | First red test |
+|---|---|---|---|---|
+| 4 | `DROP TRIGGER "Client_created_by_dealer_fixed"` | provenance | 2 failed, 3 passed | "refuses badging a staff-captured client, entity or asset as a dealer's"; "refuses moving a dealer's row to another dealer, or clearing it" |
+| 5 | `DROP TRIGGER "BusinessEntity_created_by_dealer_fixed"` | provenance | 2 failed, 3 passed | same two |
+| 6 | `DROP TRIGGER "FinancedAsset_created_by_dealer_fixed"` | provenance | 2 failed, 3 passed | same two |
+| 7 | `DROP TRIGGER "AssetFinanceDeal_dealer_parties_fixed"` | provenance | 1 failed, 4 passed | "fixes a dealer deal's borrower and asset after insert" |
+| 8 | `DROP TRIGGER "DealerPayableRunLine_netting"` | netting | 5 failed, 1 passed | "links an EARNED line only after its REVERSED line, in the same run" (later tests fail on its leftover lines) |
+| 9 | `guardDealerPayableRunNetting` with the pairing RAISE replaced by `NULL` | netting | 5 failed, 1 passed | "refuses approving a run whose EARNED line was clawed back after it was linked" |
+| 10 | `guardDealerPayableRunNetting` with the completeness RAISE replaced by `NULL` | netting | 1 failed, 5 passed | "refuses a run that leaves out a line of the dealer due by its period end" |
