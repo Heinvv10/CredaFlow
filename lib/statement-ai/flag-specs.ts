@@ -93,6 +93,9 @@ const GAMBLING_NO_INCOME: Spec = {
   thresholds: {},
 }
 
+/** Whether the code has an explanation of its own, not the generic one. */
+export const hasFlagSpec = (code: string): boolean => Object.hasOwn(SPECS, code)
+
 export function flagSpec(code: string, evidence: unknown): Spec {
   const e = (evidence ?? {}) as Record<string, unknown>
   if (code === "GAMBLING" && typeof e.monthlyIncomeCents !== "number") return GAMBLING_NO_INCOME

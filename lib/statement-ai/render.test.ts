@@ -53,11 +53,30 @@ describe("produce (summary)", () => {
 describe("renderExplanation", () => {
   it("writes each flag from its rule, threshold and evidence, with no model", () => {
     const gambling = explanations.find((e) => e.flagCode === "GAMBLING")!
-    expect(gambling.text).toContain("GAMBLING (RISK_BEHAVIOUR): Betting and lottery spend per month is compared with the client's monthly income")
+    expect(gambling.text).toMatch(/^Betting and lottery spend per month is compared with the client's monthly income\. /)
     expect(gambling.text).toContain("It is raised when betting a month is at least the policy share of monthly income.")
     expect(gambling.text).toContain("Policy threshold: betting of at least 5% of monthly income.")
-    expect(gambling.text).toMatch(/Evidence rows: S1-R\d+ 2026-07-12 "HOLLYWOODBETS" R1 500.00 out/)
+    expect(gambling.text).toMatch(/Evidence: amount a month R[\d ]+\.\d{2}; monthly income R18 450\.00/)
     expect(explanations.every((e) => e.text !== null)).toBe(true)
+  })
+  // Shown inside the flag's own row in the credit checks panel, which already shows its code, check and rows.
+  it("never repeats the flag's code, check or rows, and every figure still passes the figure check", () => {
+    expect(explanations.length).toBeGreaterThan(1)
+    for (const e of explanations) {
+      const check = flags.find((f) => f.code === e.flagCode)!.check
+      expect(e.text).not.toContain(e.flagCode)
+      expect(e.text).not.toContain(check)
+      expect(e.text).not.toMatch(/S\d+-R\d+|Evidence rows|HOLLYWOODBETS|2026-07-12/)
+      // buildPlans withholds a text that fails its figure check.
+      expect(e.text).not.toBeNull()
+    }
+    const gambling = explanations.find((e) => e.flagCode === "GAMBLING")!
+    if (gambling.facts.evidenceRows.length > 1) expect(gambling.text).toContain(`The rows shown total ${gambling.facts.evidenceRowsTotal!.amount} out.`)
+  })
+  it("carries each flag's id, so the panel puts it in that flag's row", () => {
+    const withIds = flags.map((f, i) => ({ ...f, id: `flag-${i}` }))
+    const planned = buildPlans(insights, rows, withIds as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
+    expect(planned.map((e) => e.flagId)).toEqual(withIds.map((f) => f.id))
   })
 })
 
@@ -123,7 +142,13 @@ describe("review round 4: what the sentences must never say", () => {
   it("says when a rule found more rows than it lists", () => {
     const many = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1, 7], occurrences: 25 } }]
     const [e] = buildPlans(insights, rows, many as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
-    expect(e.text).toContain("The rule found 25 rows; the first 2 are listed.")
+    expect(e.text).toContain("The rule found 25 rows; the first 2 are shown.")
+    expect(e.text).not.toContain("number of rows")
+  })
+  it("does not count rows the row shows", () => {
+    const shown = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1], occurrences: 1 } }]
+    const [e] = buildPlans(insights, rows, shown as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
+    expect(e.text).toBe("Debits the bank returned unpaid or could not collect are listed. An officer reviews the flag before a decision.")
   })
 })
 

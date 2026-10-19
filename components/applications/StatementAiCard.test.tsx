@@ -31,7 +31,7 @@ const largest: QueryResult = {
 }
 const answered = (id: string, question: string, results: QueryResult[], over: Record<string, unknown> = {}) =>
   output({ id, kind: "ANSWER", question, text: renderAnswer(results), citations: results, ...over })
-const payloadWith = (answers: unknown[]) => ({ summary: output({}), explanations: [], answers, pending: 0, noStatements: false, modelAvailable: true })
+const payloadWith = (answers: unknown[]) => ({ summary: output({}), answers, pending: 0, noStatements: false, modelAvailable: true })
 
 describe("StatementAiCard", () => {
   it("renders nothing while the lender has Statement AI off (404)", async () => {
@@ -40,7 +40,7 @@ describe("StatementAiCard", () => {
   })
 
   it("shows an OK summary, marks a stale one, and leaves the input hash out", async () => {
-    const { html } = await render(200, { summary: output({ stale: true }), explanations: [], answers: [], pending: 1, noStatements: false, modelAvailable: true })
+    const { html } = await render(200, { summary: output({ stale: true }), answers: [], pending: 1, noStatements: false, modelAvailable: true })
     expect(html).toContain("GAMBLING was raised.")
     expect(html).not.toContain("abcdef01")
     expect(html).toContain("stale: the statement facts changed since")
@@ -50,22 +50,22 @@ describe("StatementAiCard", () => {
   it("shows 'unavailable' for a rejected output and never its text", async () => {
     const { html } = await render(200, {
       summary: output({ status: "REJECTED", text: null }),
-      explanations: [output({ id: "o2", kind: "FLAG_EXPLANATION", flagCode: "GAMBLING", status: "REJECTED", text: null })],
       answers: [], pending: 0, noStatements: false, modelAvailable: true,
     })
     expect(html).toContain("Summary unavailable.")
-    expect(html).toContain("Explanation unavailable.")
   })
 
-  it("lists the rows an explanation cites", async () => {
+  // Each flag's explanation is in its own row of the credit checks panel: the card says nothing about it again.
+  it("has no flag explanations, even from a payload that still carries them", async () => {
     const rows = [{ ref: "S1-R2", date: "2026-07-12", payee: "HOLLYWOODBETS", amount: "-R1 500.00" }]
     const { html } = await render(200, {
       summary: output({}),
-      explanations: [output({ id: "o2", kind: "FLAG_EXPLANATION", flagCode: "GAMBLING", text: "GAMBLING: see S1-R2.", citations: { facts: { evidenceRows: rows } } })],
+      explanations: [output({ id: "o2", kind: "FLAG_EXPLANATION", flagCode: "GAMBLING", text: "Betting is compared with income.", citations: { facts: { evidenceRows: rows } } })],
       answers: [], pending: 0, noStatements: false, modelAvailable: true,
     })
-    expect(html).toContain("S1-R2")
-    expect(html).toContain("HOLLYWOODBETS")
+    expect(html).not.toContain("Flags explained")
+    expect(html).not.toContain("Betting is compared with income.")
+    expect(html).not.toContain("HOLLYWOODBETS")
   })
 
   it("shows an answer with how it was computed, and the ask box", async () => {
@@ -91,7 +91,7 @@ describe("StatementAiCard", () => {
 
   it("lists a summary one claim a line, a list claim as sub-items", async () => {
     const text = "Over the period, money in was R100.00 and money out was R50.00.\nBy month: 2026-07 money in R60.00, money out R20.00; 2026-08 money in R40.00, money out R30.00."
-    const { r } = await render(200, { summary: output({ text }), explanations: [], answers: [], pending: 0, noStatements: false, modelAvailable: true })
+    const { r } = await render(200, { summary: output({ text }), answers: [], pending: 0, noStatements: false, modelAvailable: true })
     const items = r.root.findAllByType("li").map((li) => li.children.filter((c) => typeof c === "string").join(""))
     expect(items).toEqual(["Over the period, money in was R100.00 and money out was R50.00.", "By month:", "2026-07 money in R60.00, money out R20.00", "2026-08 money in R40.00, money out R30.00"])
   })
@@ -102,7 +102,7 @@ describe("StatementAiCard", () => {
       citations: [{ id: "q1", tool: "groupByMonth", args: { filter: { direction: "in" }, measure: "sum" }, result: [{ month: "2026-07", total: "R18 450.00", rowCount: 1, direction: "in" }, { month: "2026-08", total: "R18 450.00", rowCount: 1, direction: "in" }], matchedRows: 2, rows: [] }],
     })
     const failed = output({ id: "o6", kind: "ANSWER", question: "money in each month? ", status: "REJECTED", text: null, citations: null })
-    const { r } = await render(200, { summary: output({}), explanations: [], answers: [answer, failed], pending: 0, noStatements: false, modelAvailable: true })
+    const { r } = await render(200, { summary: output({}), answers: [answer, failed], pending: 0, noStatements: false, modelAvailable: true })
     const cells = r.root.findAllByType("td").map((td) => td.children.join(""))
     expect(cells).toEqual(["2026-07", "R18 450.00 in", "1", "2026-08", "R18 450.00 in", "1"])
     expect(r.root.findAllByProps({ "data-testid": "statement-ai-answer" })).toHaveLength(1)

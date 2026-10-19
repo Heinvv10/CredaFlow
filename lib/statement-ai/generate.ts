@@ -34,6 +34,8 @@ export interface Planned {
 
 /** A flag's explanation, written by code: shown as it is, never stored. */
 export interface Explanation {
+  /** The flag's row id, when the flags came from the database: the credit checks panel shows it in that row. */
+  flagId: string | null
   flagCode: string
   /** Null only if the rendered text failed its figure check (a bug: never shown). */
   text: string | null
@@ -50,7 +52,7 @@ export interface Explanation {
 export function buildPlans(
   insights: Insights,
   rows: CountedRow[],
-  flags: Array<Pick<ApplicationCheckFlag, "code" | "check" | "evidence">>,
+  flags: Array<Pick<ApplicationCheckFlag, "code" | "check" | "evidence"> & { id?: string }>,
   txOf: Map<string, StatementTransaction[]>,
   clientName: string | null,
 ): { summary: Planned; explanations: Explanation[] } {
@@ -70,7 +72,7 @@ export function buildPlans(
     // Code wrote it from these facts, so every figure is theirs; the check is a guard against a bug here.
     const checked = checkFigures(text, { ...facts.allowed, literals: [...(facts.allowed.literals ?? []), ...built.raisedFlagCodes] })
     if (!checked.ok) console.error("[statement-ai] explanation failed its figure check:", { code: flag.code, reason: checked.reason })
-    explanations.push({ flagCode: flag.code, text: checked.ok ? text : null, inputHash: facts.inputHash, facts: facts.facts })
+    explanations.push({ flagId: flag.id ?? null, flagCode: flag.code, text: checked.ok ? text : null, inputHash: facts.inputHash, facts: facts.facts })
   }
   return { summary, explanations }
 }
@@ -93,7 +95,7 @@ export async function planOutputs(tenantId: string, applicationId: string): Prom
   if (loaded.read.length === 0) return { summary: null, explanations: [], documentIds: [], rows: [], raisedFlagCodes: [] }
   const flags = await prisma.applicationCheckFlag.findMany({
     where: { tenantId, applicationId, status: "OPEN" },
-    select: { code: true, check: true, evidence: true },
+    select: { id: true, code: true, check: true, evidence: true },
     orderBy: [{ code: "asc" }, { raisedAt: "asc" }],
   })
   const statements = loaded.read.map((s) => ({ documentId: s.documentId, bank: s.bank, balanceCheck: s.balanceCheck, read: s.read!, modelLabels: s.modelLabels }))
