@@ -3,7 +3,9 @@
  * row. Never: the credit decision or its reasons, approval exceptions,
  * financials, affordability, bureau or screening results, the NCA regime,
  * rule or override, the payout, or another dealer's rows. A declined deal
- * shows "Declined" and nothing of why. Every query filters
+ * shows "Declined" and nothing of why. After booking, nothing of how the
+ * borrower's loan performs: a reversed commission line carries no reason
+ * (settled early, written off, cancelled); staff keep it. Every query filters
  * { tenantId, dealerId }; a miss is 404 (lib/dealer/deals.ts).
  *
  * People on the deal are named only when this dealer captured them; one the
@@ -55,7 +57,7 @@ export const DEALER_DEAL_SELECT = {
   dealerDocumentRequests: { select: { id: true, docType: true, note: true, requestedAt: true, fulfilledAt: true }, orderBy: { requestedAt: "asc" } },
   documents: { where: { uploadedByType: "dealer", deletedAt: null }, select: { id: true, docType: true, fileName: true, createdAt: true }, orderBy: { createdAt: "asc" } },
   dealerCommissionLines: {
-    select: { kind: true, effectiveOn: true, netCents: true, vatCents: true, grossCents: true, reason: true },
+    select: { kind: true, effectiveOn: true, netCents: true, vatCents: true, grossCents: true },
     orderBy: { createdAt: "asc" },
   },
 } as const satisfies Prisma.AssetFinanceDealSelect
@@ -109,7 +111,7 @@ export function projectDealerDeal(row: Row, dealerId: string) {
     signing: row.signers.map((s) => ({ document: s.document, signerRole: s.role, signed: s.signedAt !== null || s.confirmedAt !== null })),
     booking: row.loan ? { loanReference: row.loan.reference, bookedOn: row.loan.startDate.toISOString().slice(0, 10) } : null,
     commission: row.dealerCommissionLines.map((l) => ({
-      kind: l.kind, effectiveOn: l.effectiveOn.toISOString().slice(0, 10), netCents: l.netCents, vatCents: l.vatCents, grossCents: l.grossCents, reason: l.reason,
+      kind: l.kind, effectiveOn: l.effectiveOn.toISOString().slice(0, 10), netCents: l.netCents, vatCents: l.vatCents, grossCents: l.grossCents,
     })),
   }
 }

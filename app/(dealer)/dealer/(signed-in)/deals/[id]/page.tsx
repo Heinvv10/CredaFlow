@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { DealerPageTitle } from "@/components/dealer/DealerShell"
-import { COMMISSION_REASON_LABELS, DEALER_STATUS_TONE, humanise, missingLabel } from "@/components/dealer/dealer-labels"
+import { COMMISSION_KIND_LABELS, DEALER_STATUS_TONE, humanise, missingLabel } from "@/components/dealer/dealer-labels"
 import { DealerConsentPanel } from "@/components/dealer/deal/DealerConsentPanel"
 import { DealerSubmitButton } from "@/components/dealer/deal/DealerSubmitButton"
 import { DealerUploadForm } from "@/components/dealer/deal/DealerUploadForm"
@@ -122,7 +122,7 @@ export default async function DealerDealPage({ params }: Params) {
             <ul className="space-y-1 text-sm">
               {deal.commission.map((c, i) => (
                 <li key={`${c.kind}-${i}`} className="flex justify-between gap-3">
-                  <span className="text-[var(--cf-text)]">{c.kind === "EARNED" ? "Earned" : `Reversed${c.reason ? `: ${COMMISSION_REASON_LABELS[c.reason] ?? humanise(c.reason)}` : ""}`} · {formatIsoDate(c.effectiveOn)}</span>
+                  <span className="text-[var(--cf-text)]">{COMMISSION_KIND_LABELS[c.kind]} · {formatIsoDate(c.effectiveOn)}</span>
                   <span className="tabular-nums text-[var(--cf-text)]">{formatMoney(c.grossCents)}</span>
                 </li>
               ))}

@@ -2,7 +2,7 @@ import Link from "next/link"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { MetricCard } from "@/components/app-shell/MetricCard"
 import { DealerPageTitle } from "@/components/dealer/DealerShell"
-import { COMMISSION_REASON_LABELS, RUN_STATUS_LABELS, humanise } from "@/components/dealer/dealer-labels"
+import { COMMISSION_KIND_LABELS, RUN_STATUS_LABELS, humanise } from "@/components/dealer/dealer-labels"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { requireDealerPage } from "@/lib/dealer/page-guard"
 import { loadDealerCommissionStatement } from "@/lib/dealer/commission-statement"
@@ -67,7 +67,7 @@ export default async function DealerCommissionPage() {
                   <TableCell>{formatIsoDate(l.effectiveOn)}</TableCell>
                   <TableCell><Link href={`/dealer/deals/${l.dealId}`} className="text-[var(--cf-brand-alt)] hover:underline">{l.dealReference}</Link></TableCell>
                   <TableCell className="font-mono text-xs">{l.loanReference}</TableCell>
-                  <TableCell>{l.kind === "EARNED" ? "Earned" : `Reversed${l.reason ? `: ${COMMISSION_REASON_LABELS[l.reason] ?? humanise(l.reason)}` : ""}`}</TableCell>
+                  <TableCell>{COMMISSION_KIND_LABELS[l.kind]}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(l.netCents)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(l.vatCents)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(l.grossCents)}</TableCell>

@@ -5,8 +5,9 @@
  * approved and released, with the lender's release reference; never the
  * staff who acted, and never the bank account's details (they are captured
  * and approved by staff only, spec deviation 7). A line shows its amounts,
- * not its base: the base is the approved financed amount, which the deal
- * projection (./deal-view.ts) does not show either.
+ * not its base (the goods advance, which the deal projection ./deal-view.ts
+ * does not show either), and a reversal shows no reason: why the borrower's
+ * loan ended (settled early, written off, cancelled) is not the dealer's.
  */
 import { prisma } from "@/lib/prisma"
 import type { DealerActor } from "./actor"
@@ -19,7 +20,7 @@ export async function loadDealerCommissionStatement(actor: Pick<DealerActor, "te
     prisma.dealerCommissionLine.findMany({
       where,
       select: {
-        id: true, kind: true, reason: true, effectiveOn: true,
+        id: true, kind: true, effectiveOn: true,
         netCents: true, vatCents: true, grossCents: true, dealId: true,
         deal: { select: { application: { select: { reference: true } } } },
         loan: { select: { reference: true } },
@@ -48,7 +49,7 @@ export async function loadDealerCommissionStatement(actor: Pick<DealerActor, "te
   return {
     totals,
     lines: lines.map((l) => ({
-      id: l.id, kind: l.kind, reason: l.reason, effectiveOn: isoDay(l.effectiveOn), dealId: l.dealId,
+      id: l.id, kind: l.kind, effectiveOn: isoDay(l.effectiveOn), dealId: l.dealId,
       dealReference: l.deal.application.reference, loanReference: l.loan.reference,
       netCents: l.netCents, vatCents: l.vatCents, grossCents: l.grossCents,
       runId: l.runLinks[0]?.runId ?? null,

@@ -31,11 +31,13 @@ describe("loadDealerCommissionStatement", () => {
     for (const call of [h.lines.mock.calls[0][0], h.runs.mock.calls[0][0]]) {
       expect(call.where).toEqual({ tenantId: "tenant-1", dealerId: "dealer-1" })
       const asked = keysOf(call.select)
-      for (const key of ["bankAccount", "bankAccountId", "createdById", "approvedById", "releasedById", "cancelledById", "baseCents", "bps", "flatCents"]) {
+      for (const key of ["bankAccount", "bankAccountId", "createdById", "approvedById", "releasedById", "cancelledById", "baseCents", "bps", "flatCents", "reason"]) {
         expect(asked, key).not.toContain(key)
       }
     }
     expect(JSON.stringify(statement)).not.toContain(S)
+    // Why a commission was reversed is the borrower's loan performance: never the dealer's.
+    expect(JSON.stringify(statement)).not.toContain("LOAN_CANCELLED")
     expect(statement.totals).toEqual({ earnedNetCents: 1000, reversedNetCents: -1000, netCents: 0, grossCents: 0 })
     expect(statement.lines[0]).toMatchObject({ dealReference: "AF-1", loanReference: "LN-1", runId: "r1", effectiveOn: "2026-10-05" })
     expect(statement.runs[0]).toMatchObject({ periodEnd: "2026-10-31", status: "RELEASED", releaseReference: "EFT-1" })

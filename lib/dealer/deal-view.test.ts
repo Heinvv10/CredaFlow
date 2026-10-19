@@ -46,7 +46,7 @@ type Row = Parameters<typeof projectDealerDeal>[0]
 const FORBIDDEN_KEYS = [
   "decision", "decisionReasons", "decisionReason", "approvalExceptions", "approvedAmount", "financials", "affordabilityAssessment",
   "affordabilityResult", "payout", "ncaRegime", "ncaClassificationRule", "ncaClassificationInputs", "bureauChecks", "screening",
-  "dealerCommissionBps", "dealerCommissionSource", "storagePath", "idNumber", "annualTurnover", "dealer", "dealerUser",
+  "dealerCommissionBps", "dealerCommissionSource", "storagePath", "idNumber", "annualTurnover", "dealer", "dealerUser", "reason",
 ]
 function keysOf(value: unknown, out: string[] = []): string[] {
   if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) { out.push(k); keysOf(v, out) }
@@ -110,7 +110,7 @@ describe("the dealer projection", () => {
       dealerCommissionLines: [{ kind: "EARNED", effectiveOn: new Date("2026-10-05T00:00:00Z"), netCents: 100, vatCents: 15, grossCents: 115, reason: null }],
     }) as unknown as Row, "dealer-1")
     expect(view.booking).toEqual({ loanReference: "LN-1", bookedOn: "2026-10-05" })
-    expect(view.commission).toEqual([{ kind: "EARNED", effectiveOn: "2026-10-05", netCents: 100, vatCents: 15, grossCents: 115, reason: null }])
+    expect(view.commission).toEqual([{ kind: "EARNED", effectiveOn: "2026-10-05", netCents: 100, vatCents: 15, grossCents: 115 }])
   })
 })
 

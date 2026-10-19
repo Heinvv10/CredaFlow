@@ -14,10 +14,10 @@ export const DEALER_STATUS_TONE: Record<DealerDealStatus, "neutral" | "success" 
   Cancelled: "neutral",
 }
 
-export const COMMISSION_REASON_LABELS: Record<string, string> = {
-  LOAN_SETTLED_EARLY: "Settled early",
-  LOAN_WRITTEN_OFF: "Written off",
-  LOAN_CANCELLED: "Cancelled",
+/** A commission line as the dealer reads it: never why a commission was reversed (the borrower's loan performance). */
+export const COMMISSION_KIND_LABELS: Record<"EARNED" | "REVERSED", string> = {
+  EARNED: "Earned",
+  REVERSED: "Reversed (clawback)",
 }
 
 export const RUN_STATUS_LABELS: Record<string, string> = {
