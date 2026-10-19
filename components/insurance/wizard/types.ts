@@ -1,3 +1,4 @@
+import type { Headline } from "@/lib/insurance/headline-premium"
 export type { Client } from "@/components/wizard/types"
 
 export interface Advisor {
@@ -11,6 +12,8 @@ export interface Product {
   name: string
   type: string
   premiumAmount: number
+  /** What quoting can actually produce for this product (lib/insurance/headline-premium.ts). */
+  headline: Headline
   sumAssured: number
   commissionRate: number
   active: boolean

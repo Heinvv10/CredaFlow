@@ -1,4 +1,4 @@
-import { formatRands } from "@/lib/utils"
+import { formatRands, formatZAR } from "@/lib/utils"
 import { TYPE_LABELS } from "./constants"
 import type { Product } from "./types"
 
@@ -95,17 +95,26 @@ export function ProductPicker({
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-[#4F46E5]">
-                    {formatRands(p.premiumAmount)}
-                    <span className="text-xs font-normal text-gray-400">/mo</span>
+                    {p.headline.kind === "from" && <>From {formatZAR(p.headline.premiumCents)}</>}
+                    {p.headline.kind === "flat" && formatRands(p.premiumAmount)}
+                    {p.headline.kind === "quote" && "Price on quote"}
+                    {p.headline.kind !== "quote" && (
+                      <span className="text-xs font-normal text-gray-400">/mo{p.headline.kind === "from" ? " · main member" : ""}</span>
+                    )}
                   </p>
-                  <p className="text-xs text-gray-400">Cover: {formatRands(p.sumAssured)}</p>
+                  {p.headline.kind !== "quote" && (
+                    <p className="text-xs text-gray-400">
+                      Cover: {p.headline.kind === "from" ? formatZAR(p.headline.coverCents) : formatRands(p.sumAssured)}
+                    </p>
+                  )}
                 </div>
               </label>
             ))}
             {selectedProductId && (
               <div className="mt-3 p-3 bg-amber-50 border border-[#4F46E5]/20 rounded-xl text-xs text-[#4F46E5] font-medium">
-                Product selected — premium, sum assured and commission auto-filled below. You
-                can still edit.
+                {products.find((p) => p.id === selectedProductId)?.headline.kind === "quote"
+                  ? "Product selected — this product is priced on quote: enter the cover and rate the premium below. Commission auto-filled."
+                  : "Product selected — premium, sum assured and commission auto-filled below. You can still edit."}
               </div>
             )}
           </div>

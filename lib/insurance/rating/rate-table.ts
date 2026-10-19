@@ -43,15 +43,19 @@ type RateTableReader = Pick<PrismaClient, "insuranceRateTable">
  * exclusive (`gt`) and `effectiveFrom` inclusive (`lte`), so a table retired at
  * the exact instant its successor starts leaves no gap and no overlap.
  */
+export function inForceActiveTableWhere(tenantId: string, productId: string | { in: string[] }, at: Date) {
+  return {
+    tenantId,
+    productId,
+    status: "ACTIVE" as const,
+    effectiveFrom: { lte: at },
+    OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }],
+  }
+}
+
 export function activeRateTableFindManyArgs({ tenantId, productId, at }: ResolveRateTableParams) {
   return {
-    where: {
-      tenantId,
-      productId,
-      status: "ACTIVE",
-      effectiveFrom: { lte: at },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }],
-    },
+    where: inForceActiveTableWhere(tenantId, productId, at),
     orderBy: [{ version: "desc" }, { id: "asc" }],
     select: {
       id: true,

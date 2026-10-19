@@ -2,12 +2,25 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
 import { formatZAR } from "@/lib/utils"
+import { loadHeadlines, type Headline } from "@/lib/insurance/headline-premium"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 
 const TYPE_LABELS: Record<string, string> = {
   FUNERAL_COVER: "Funeral Cover", CREDIT_LIFE: "Credit Life", LIFE_INSURANCE: "Life Insurance",
   SHORT_TERM_MOTOR: "Motor", SHORT_TERM_HOME: "Home", SHORT_TERM_CONTENTS: "Contents", BUSINESS_INSURANCE: "Business"
+}
+
+function QuoteHint({ headline }: { headline: Headline | undefined }) {
+  if (headline?.kind === "from") {
+    return (
+      <p className="text-[10px] font-normal text-gray-400">
+        Quotes from {formatZAR(headline.premiumCents)} (main member, {formatZAR(headline.coverCents)})
+      </p>
+    )
+  }
+  if (headline?.kind === "quote") return <p className="text-[10px] font-normal text-gray-400">Price on quote</p>
+  return null
 }
 
 export default async function InsuranceProductsPage() {
@@ -21,6 +34,7 @@ export default async function InsuranceProductsPage() {
     where: { tenantId },
     orderBy: { name: "asc" },
   })
+  const headlines = await loadHeadlines(prisma, tenantId, products)
 
   return (
     <div className="p-6 lg:p-8">
@@ -63,7 +77,9 @@ export default async function InsuranceProductsPage() {
                 <td className="px-5 py-3 font-mono text-xs text-[#4F46E5]">{p.code}</td>
                 <td className="px-5 py-3 font-semibold text-[#1b1d24]">{p.name}</td>
                 <td className="px-5 py-3 text-gray-600">{TYPE_LABELS[p.type] || p.type}</td>
-                <td className="px-5 py-3 text-right tabular-nums">{formatZAR(Number(p.premiumAmount) * 100)}</td>
+                <td className="px-5 py-3 text-right tabular-nums">{formatZAR(Number(p.premiumAmount) * 100)}
+                  <QuoteHint headline={headlines.get(p.id)} />
+                </td>
                 <td className="px-5 py-3 text-right tabular-nums">{formatZAR(Number(p.sumAssured) * 100)}</td>
                 <td className="px-5 py-3 text-center">{(Number(p.commissionRate) * 100).toFixed(1)}%</td>
                 <td className="px-5 py-3 text-center">

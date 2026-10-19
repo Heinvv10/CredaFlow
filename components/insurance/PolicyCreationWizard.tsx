@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 
 import type { Advisor, Client, PolicyDraftData, Product, Step } from "./wizard/types"
+import { formatCents } from "@/lib/insurance/rand-cents"
 import { Step1PolicyDetails } from "./wizard/Step1PolicyDetails"
 import { Step2Disclosure } from "./wizard/Step2Disclosure"
 import { Step3Confirm } from "./wizard/Step3Confirm"
@@ -76,8 +77,12 @@ export function PolicyCreationWizard({ clients, advisors, products }: Props) {
       ...prev,
       type: product.type,
       insurer: product.insurerName ?? "",
-      sumAssured: product.sumAssured.toString(),
-      premiumAmount: product.premiumAmount.toString(),
+      // Same numbers the picker card shows: the cheapest quotable band for a
+      // rated product, nothing (priced on quote) when none is, else the flat terms.
+      sumAssured: product.headline.kind === "from" ? formatCents(product.headline.coverCents)
+        : product.headline.kind === "quote" ? "" : product.sumAssured.toString(),
+      premiumAmount: product.headline.kind === "from" ? formatCents(product.headline.premiumCents)
+        : product.headline.kind === "quote" ? "" : product.premiumAmount.toString(),
       commissionRate: (product.commissionRate * 100).toFixed(2),
       productId: product.id,
     }))

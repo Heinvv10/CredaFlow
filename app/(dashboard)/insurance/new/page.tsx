@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { loadHeadlines } from "@/lib/insurance/headline-premium"
 import { requireMinRole } from "@/lib/auth-guards"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { Breadcrumbs } from "@/components/nav/Breadcrumbs"
@@ -38,6 +39,8 @@ async function getNewPolicyData() {
     }),
   ])
 
+  const headlines = await loadHeadlines(prisma, tenantId, products)
+
   return {
     clients,
     advisors,
@@ -46,6 +49,7 @@ async function getNewPolicyData() {
       ...p,
       insurerName: insurer?.name ?? null,
       premiumAmount: Number(p.premiumAmount),
+      headline: headlines.get(p.id) ?? { kind: "flat" as const },
       sumAssured: Number(p.sumAssured),
       commissionRate: Number(p.commissionRate),
     })),
