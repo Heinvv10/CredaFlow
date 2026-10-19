@@ -66,6 +66,9 @@ describe("collections eligibility policy", () => {
     expect(t({ status: "SETTLED" })).toBe(false)
     expect(t({ arrearsAmount: 0 })).toBe(false)
     expect(t({ outstandingPrincipal: 0 })).toBe(false)
+    // A permanent block stays permanent even when DPD is also below the threshold.
+    expect(t({ status: "SETTLED", daysInArrears: 10 })).toBe(false)
+    expect(t({ ncaRegime: "NON_NCA", daysInArrears: 10 })).toBe(false)
     expect(evaluateCollectionsEligibility(baseLoan, "SECTION_129").temporary).toBe(false)
   })
 })

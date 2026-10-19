@@ -75,15 +75,15 @@ describe("PolicyCreationWizard: insurer and commission", () => {
     expect(text()).toContain("From R 62.00/mo")
   })
 
-  it("says the pre-filled premium is indicative until rated, for a 'from' product only", () => {
-    const INDICATIVE = "Indicative: this is the cheapest band's premium until the client is rated."
+  it("says the pre-filled premium and cover are indicative until rated, for a 'from' product only", () => {
+    const INDICATIVE = "Premium and cover are indicative (the cheapest band's) until the client is rated."
     render([FROM])
     act(() => { renderer.root.findByProps({ name: "product", value: "prod-1" }).props.onChange() })
     expect(text()).toContain(INDICATIVE)
     act(() => renderer.unmount())
     render()
     act(() => { renderer.root.findByProps({ name: "product", value: "prod-1" }).props.onChange() })
-    expect(text()).not.toContain("Indicative")
+    expect(text()).not.toContain("until the client is rated")
   })
 
   it("selecting a flat product still pre-fills its own premium and cover", () => {

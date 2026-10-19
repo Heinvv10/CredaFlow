@@ -14,9 +14,6 @@ import { formatDate, formatZAR } from "@/lib/utils"
 import { formatStatusLabel, getStatusTone } from "@/lib/status-style"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { createTranslator } from "@/lib/i18n/translate"
-import { getLocale } from "@/lib/i18n/server"
-import { productNameLabel } from "@/lib/i18n/portal-labels"
 
 export default async function PortalPolicyDetailPage({
   params,
@@ -29,7 +26,6 @@ export default async function PortalPolicyDetailPage({
   if (!session?.user?.email) redirect("/portal/login")
 
   const tenantId = await getPortalTenantId()
-  const l = createTranslator(await getLocale(), "portalLabels")
   const { tradingName, fspNumber } = await getLenderIdentity(tenantId)
 
   const client = await prisma.client.findFirst({
@@ -115,7 +111,7 @@ export default async function PortalPolicyDetailPage({
           ) : (
             "Underwriter not yet recorded — contact us for your policy details"
           )}
-          {policy.product?.name ? ` / ${productNameLabel(l, policy.product.name)}` : ""}
+          {policy.product?.name ? ` / ${policy.product.name}` : ""}
         </p>
       </div>
 

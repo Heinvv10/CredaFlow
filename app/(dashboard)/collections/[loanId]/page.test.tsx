@@ -75,8 +75,11 @@ describe("collections loan page", () => {
       renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
       return stagePanelProps.last?.section129Unavailable
     }
-    expect(await render(true)).toEqual({ reason: "reworded: not yet", temporary: true })
-    expect(await render(false)).toEqual({ reason: "reworded: not yet", temporary: false })
-    vi.mocked(evaluateCollectionsEligibility).mockImplementation(real)
+    try {
+      expect(await render(true)).toEqual({ reason: "reworded: not yet", temporary: true })
+      expect(await render(false)).toEqual({ reason: "reworded: not yet", temporary: false })
+    } finally {
+      vi.mocked(evaluateCollectionsEligibility).mockImplementation(real)
+    }
   })
 })
