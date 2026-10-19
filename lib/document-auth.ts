@@ -139,7 +139,8 @@ export async function logDocumentAccess(
   db: Pick<typeof prisma, "documentAccessLog">,
   params: {
     documentId: string
-    accessorType: "staff" | "client"
+    /** "dealer": a DealerUser reading its own dealer's upload (lib/dealer/documents.ts). */
+    accessorType: "staff" | "client" | "dealer"
     accessorId: string
     action: DocumentAccessAction
     req: Request

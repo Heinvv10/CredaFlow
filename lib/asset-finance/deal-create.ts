@@ -13,12 +13,19 @@
  *     days from the indicative start to the last due date, status DRAFT, NCA
  *     regime unclassified (submit classifies it).
  *
+ * A dealer deal (`dealer`, from lib/dealer/): createdById and ncaClassifiedById
+ * are the dealer user (plain text columns), the deal names its dealer and
+ * dealer user, and the audit row has no userId and names the dealer in
+ * newValue.actor. The database checks the dealer, the portal flag and that the
+ * borrower and asset were captured by that dealer (guardAssetDealDealer).
+ *
  * SURETIES are not stored on the deal: a deal's sureties are its entity's
  * ACTIVE EntityRelationship rows with role SURETY at the time they are read
  * (deal detail, and the signers at contracting).
  */
 import { Prisma } from "@prisma/client"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { dealerAuditFields } from "@/lib/dealer/actor"
 import { generateReference } from "@/lib/utils"
 import type { RegimeTx } from "./classification"
 import type { DealCreateInput } from "./deal-input"
@@ -40,9 +47,17 @@ const refused = (status: 404 | 409 | 422, error: string): CreateDealResult => ({
 
 export async function createDeal(
   tx: RegimeTx,
-  params: { tenantId: string; userId: string; userEmail?: string; input: DealCreateInput },
+  params: {
+    tenantId: string
+    userId: string
+    userEmail?: string
+    input: DealCreateInput
+    dealer?: { dealerId: string; dealerUserId: string; email: string }
+  },
 ): Promise<CreateDealResult> {
-  const { tenantId, input } = params
+  const { tenantId, input, dealer } = params
+  const createdBy = dealer ? dealer.dealerUserId : params.userId
+  const dealerAudit = dealer ? dealerAuditFields(dealer) : null
 
   const entity = input.entityId === null ? null : await tx.businessEntity.findFirst({ where: { id: input.entityId, tenantId }, select: { id: true, legalName: true } })
   const client = input.clientId === null ? null : await tx.client.findFirst({ where: { id: input.clientId, tenantId }, select: { id: true, firstName: true, lastName: true } })
@@ -115,12 +130,12 @@ export async function createDeal(
       reference: generateReference("AF"),
       clientId: client?.id ?? null,
       entityId: entity?.id ?? null,
-      ...(lease && leaseType ? leaseApplicationRegime(params.userId, leaseType) : ncaClient ? {
+      ...(lease && leaseType ? leaseApplicationRegime(createdBy, leaseType) : ncaClient ? {
         ncaRegime: "NCA" as const,
         ncaClassificationRule: "NATURAL_PERSON_NCA",
         ncaClassificationInputs: { naturalPerson: true },
         ncaClassifiedAt: new Date(),
-        ncaClassifiedById: params.userId,
+        ncaClassifiedById: createdBy,
       } : {}),
       productId: product.id,
       appliedAmount: amount,
@@ -154,15 +169,16 @@ export async function createDeal(
       baseInstalmentCents: solved.result.baseInstalmentCents,
       ...(lease && cpa ? { ...leaseDealColumns(lease), ...cpaColumns(cpa) } : {}),
       ...(input.contractType === "INSTALMENT_SALE" && cpa ? { isaCpaApplies: cpa.applies, isaCpaRule: cpa.rule } : {}),
-      createdById: params.userId,
+      createdById: createdBy,
+      ...(dealer ? { dealerId: dealer.dealerId, dealerUserId: dealer.dealerUserId } : {}),
     },
     select: { id: true },
   })
   await logAuditStrict(
     {
       tenantId,
-      userId: params.userId,
-      userEmail: params.userEmail,
+      userId: dealerAudit ? dealerAudit.userId : params.userId,
+      userEmail: dealerAudit ? dealerAudit.userEmail : params.userEmail,
       action: AuditAction.ASSET_DEAL_CREATED,
       entity: "AssetFinanceDeal",
       entityId: deal.id,
@@ -186,6 +202,7 @@ export async function createDeal(
         annualRate: solved.rate.annualRate,
         reference: solved.rate.reference,
         ...(lease && cpa ? { contractType: input.contractType, lease: { ...lease }, cpaApplies: cpa.applies, cpaRule: cpa.rule, cpaEvidenceIds: cpa.evidenceIds } : {}),
+        ...(dealerAudit ? { actor: dealerAudit.actor } : {}),
       },
     },
     tx,

@@ -64,11 +64,14 @@ export function entityDocumentDisposition(disposition: "inline" | "attachment", 
 
 type EntityDocumentTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
-export interface EntityDocumentUploader {
-  type: "staff" | "client"
-  id: string
-  email?: string
-}
+/** Who uploads: a staff user, a portal client, or a dealer user (id = the DealerUser, lib/dealer/). */
+export type EntityDocumentUploader =
+  | { type: "staff" | "client"; id: string; email?: string }
+  | { type: "dealer"; id: string; email: string; dealerId: string }
+
+/** A dealer upload's audit names the dealer: AuditLog.userId is a User FK. */
+const uploaderActor = (uploader: EntityDocumentUploader) =>
+  uploader.type === "dealer" ? { actor: { type: "dealer" as const, dealerId: uploader.dealerId, dealerUserId: uploader.id } } : {}
 
 /** The entity already holds `cap` live documents; nothing was stored. */
 export class EntityDocumentCapError extends Error {
@@ -136,6 +139,7 @@ export async function storeEntityDocument(params: {
             contentSha256,
             uploadedByType: uploader.type,
             uploadedById: uploader.id,
+            ...uploaderActor(uploader),
           },
         },
         tx,
@@ -159,6 +163,8 @@ export async function storeDealEvidenceDocument(params: {
   clientId: string | null
   upload: ParsedEntityUpload
   uploader: EntityDocumentUploader
+  /** Runs in the row's transaction (a dealer upload fulfils its document request there); a throw keeps nothing. */
+  withinTransaction?: (tx: EntityDocumentTx, document: { id: string; contentSha256: string }) => Promise<void>
 }): Promise<EntityDocumentView> {
   const { tenantId, dealId, entityId, clientId, upload, uploader } = params
   if ((entityId === null) === (clientId === null)) throw new Error("A deal evidence document needs exactly one borrower")
@@ -183,8 +189,9 @@ export async function storeDealEvidenceDocument(params: {
         action: AuditAction.ENTITY_DOCUMENT_UPLOADED,
         entity: "AssetFinanceDeal",
         entityId: dealId,
-        newValue: { documentId: created.id, entityId, clientId, docType: upload.docType, contentSha256 },
+        newValue: { documentId: created.id, entityId, clientId, docType: upload.docType, contentSha256, ...uploaderActor(uploader) },
       }, tx)
+      if (params.withinTransaction) await params.withinTransaction(tx, { id: created.id, contentSha256 })
       return created
     })
     return toEntityDocumentView(row)
@@ -209,7 +216,7 @@ export interface ServableEntityDocument {
 export async function serveEntityDocument(
   req: Request,
   doc: ServableEntityDocument,
-  accessor: { type: "staff" | "client"; id: string },
+  accessor: { type: "staff" | "client" | "dealer"; id: string },
 ): Promise<NextResponse> {
   const isDownload = new URL(req.url).searchParams.get("download") === "1"
   await logDocumentAccess(prisma, {
