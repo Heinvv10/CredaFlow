@@ -14,7 +14,8 @@ async function explanationsFor(tenantId: string, applicationId: string): Promise
   try {
     return (await statementAiEnabled(tenantId)) ? await flagExplanations(tenantId, applicationId) : new Map()
   } catch (error) {
-    console.error("[checks] flag explanations failed:", error)
+    // Only the name: a Prisma or model error's message can quote statement text.
+    console.error("[checks] flag explanations failed:", error instanceof Error ? error.name : "unknown")
     return new Map()
   }
 }

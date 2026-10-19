@@ -13,7 +13,7 @@
  * except --only-b: flag explanations are written by code and ask no model.
  */
 import { writeFileSync } from "node:fs"
-import { getVlmConfig } from "@/lib/vlm-extract"
+import { getVlmConfig, sampling } from "@/lib/vlm-extract"
 import { runChecks } from "@/lib/credit-checks/run-checks"
 import { facts as factsOf, statement } from "@/lib/credit-checks/facts.test-helpers"
 import { computeInsights, distinctRows } from "@/lib/statement-analysis/insights"
@@ -151,7 +151,7 @@ function asker(kind: string) {
       method: "POST",
       headers: config.headers,
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0 }),
+      body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, ...sampling(config, 0) }),
     })
     if (!res.ok) throw new Error(`model responded ${res.status}`)
     const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }

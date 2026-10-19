@@ -10,7 +10,7 @@
  * The model is the shared one on velo-server (VLM_API_URL). Unit tests mock
  * fetch; corpus runs happen only after hours (see .claude.md).
  */
-import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
+import { getVlmConfig, parseVlmResponse, sampling } from "@/lib/vlm-extract"
 import { MAX_CENTS } from "./money"
 import type { StatementRead, StatementTransaction } from "./types"
 
@@ -102,7 +102,7 @@ async function readPage(image: Buffer, mimeType: string): Promise<Record<string,
           ],
         }],
         max_tokens: 6000,
-        temperature: 0,
+        ...sampling(config, 0),
       }),
     })
   } catch (err) {

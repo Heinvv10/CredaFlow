@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { getVlmConfig, refuseHostedForRealData } from "./vlm-extract"
+import { getVlmConfig, refuseHostedForRealData, sampling } from "./vlm-extract"
 
 describe("getVlmConfig", () => {
   beforeEach(() => {
@@ -20,7 +20,9 @@ describe("getVlmConfig", () => {
       url: "http://vlm.test:8100/v1/chat/completions",
       model: "test-model",
       headers: { "Content-Type": "application/json" },
+      hosted: false,
     })
+    expect(sampling(getVlmConfig()!, 0.1)).toEqual({ temperature: 0.1 })
   })
 
   describe("with VLM_API_KEY (a hosted endpoint)", () => {
@@ -33,6 +35,11 @@ describe("getVlmConfig", () => {
 
     it("sends the key as a bearer token when hosted use is allowed", () => {
       expect(getVlmConfig()?.headers).toEqual({ "Content-Type": "application/json", Authorization: "Bearer test-key-not-real" })
+    })
+
+    // Anthropic's current models refuse any temperature (400), so a hosted call sends none.
+    it("sends no temperature", () => {
+      expect(sampling(getVlmConfig()!, 0)).toEqual({})
     })
 
     it("is not configured without VLM_ALLOW_HOSTED=true", () => {
