@@ -86,7 +86,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
       {canManage && contracted && (
         <div className="mt-4">
           <p className="mb-2 text-xs font-semibold text-[var(--cf-text-secondary)]">Upload payout evidence for this deal</p>
-          {panel.entityId && <EvidenceUpload entityId={panel.entityId} dealId={dealId} docTypes={EVIDENCE_TYPES} />}
+          <EvidenceUpload entityId={panel.entityId} dealId={dealId} docTypes={EVIDENCE_TYPES} />
         </div>
       )}
 
