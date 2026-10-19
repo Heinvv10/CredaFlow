@@ -105,10 +105,12 @@ describe("every other staff role keeps the loan book", () => {
 
 // Every top-level staff page and API is classified: in the loan book, or open
 // to INSURANCE_OFFICER on purpose. A new one fails here until it is decided.
+// "operator" and "dealer" are their own hosts' APIs: no staff session reaches
+// them (lib/proxy/operator-host.ts, lib/proxy/dealer-host.ts).
 const OPEN_PAGES = ["clients", "compliance", "inbox", "insurance", "learn", "no-access", "settings"]
 const OPEN_APIS = [
   "admin", "agent-hub", "audit", "auth", "automation", "branches", "clients", "complaints", "compliance", "cron",
-  "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "messaging",
+  "dealer", "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "messaging",
   "notifications", "operator", "pasq-link", "portal", "products", "screening", "selfie-link", "settings",
   "signing-otp", "staff", "users", "v1", "webhooks", "website",
 ]

@@ -10,7 +10,6 @@
  * bytes are read (serveEntityDocument). An upload naming a document request
  * fulfils it in the same transaction.
  */
-import type { EntityDocumentType } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { serveEntityDocument, storeDealEvidenceDocument, type ParsedEntityUpload } from "@/lib/asset-finance/entity-document-io"
@@ -19,10 +18,7 @@ import { dealerAuditFields, type DealerActor } from "./actor"
 import { dealerDealWhere } from "./deals"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
-export const DEALER_UPLOAD_DOC_TYPES = [
-  "CIPC_REGISTRATION", "TRUST_DEED", "LETTERS_OF_AUTHORITY", "RESOLUTION", "AFS", "MANAGEMENT_ACCOUNTS", "BANK_STATEMENT",
-  "SUPPLIER_INVOICE", "NATIS_DOCUMENT", "INSURANCE_NOTING", "POPIA_CONSENT", "OTHER",
-] as const satisfies readonly EntityDocumentType[]
+export { DEALER_UPLOAD_DOC_TYPES } from "./doc-types"
 
 /** A deal in these states takes no more dealer documents. */
 const CLOSED = ["REFUSED_NCA", "DECLINED", "CANCELLED"]

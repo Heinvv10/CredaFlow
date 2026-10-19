@@ -83,8 +83,8 @@ describe("the dealer projection", () => {
   it("names only the people this dealer captured, once each", () => {
     const view = projectDealerDeal(fullRow() as unknown as Row, "dealer-1")
     expect(view.people).toEqual([
-      { name: "First-p1 Last-p1", consentAttested: true },
-      { name: "A person added by the lender", consentAttested: false },
+      { clientId: "p1", name: "First-p1 Last-p1", consentAttested: true },
+      { clientId: "p2", name: "A person added by the lender", consentAttested: false },
     ])
     expect(JSON.stringify(view)).not.toContain("First-p2")
   })

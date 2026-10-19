@@ -109,6 +109,7 @@ const NOT_GUARDS: Record<string, string> = {
   "lib/audit-refusals.ts": "reads the session only to name the actor on a refusal it records",
   "lib/documents/tenant-refusal.ts": "reads the session only to audit a tenant-binding refusal",
   "lib/dealer/guards.ts": "the dealer guard itself (lib/dealer/guards.test.ts)",
+  "lib/dealer/page-guard.ts": "the dealer portal page guard (lib/dealer/page-guard.test.ts)",
 }
 
 /** Exports of the guard modules that read no session: helpers, constants, types at runtime. */

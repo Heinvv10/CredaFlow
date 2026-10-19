@@ -34,6 +34,34 @@ export function parseDealerUserInput(body: unknown): { data: DealerUserInput } |
   return Object.keys(errors).length > 0 ? { errors } : { data: { email, name, role: b.role as DealerRole } }
 }
 
+/** The signed-in dealer user and its dealer, as the portal header shows them; null when the row is gone. */
+export async function loadDealerProfile(actor: Pick<DealerActor, "tenantId" | "dealerId" | "dealerUserId">) {
+  const user = await prisma.dealerUser.findFirst({
+    where: { id: actor.dealerUserId, tenantId: actor.tenantId, dealerId: actor.dealerId },
+    select: { id: true, email: true, name: true, role: true, dealer: { select: { name: true, kind: true } } },
+  })
+  return user
+}
+
+/**
+ * A dealer's users as its DEALER_ADMIN sees them: never a password hash or a
+ * link token, only whether a password is set and whether a link is pending.
+ */
+export async function listDealerUsers(actor: Pick<DealerActor, "tenantId" | "dealerId">, now: Date = new Date()) {
+  const rows = await prisma.dealerUser.findMany({
+    where: { tenantId: actor.tenantId, dealerId: actor.dealerId },
+    select: { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, passwordHash: true, setPasswordTokenExp: true },
+    orderBy: [{ active: "desc" }, { name: "asc" }],
+  })
+  return rows.map(({ passwordHash, setPasswordTokenExp, lastLoginAt, createdAt, ...user }) => ({
+    ...user,
+    lastLoginAt: lastLoginAt?.toISOString() ?? null,
+    createdAt: createdAt.toISOString(),
+    passwordSet: passwordHash !== null,
+    linkPending: setPasswordTokenExp !== null && setPasswordTokenExp > now,
+  }))
+}
+
 const tenantOf = (by: DealerUserManager) => (by.kind === "staff" ? by.staff.tenantId : by.actor.tenantId)
 
 function auditBy(by: DealerUserManager): { userId?: string; userEmail?: string; actor?: unknown } {

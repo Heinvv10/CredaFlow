@@ -7,7 +7,8 @@
  * { tenantId, dealerId }; a miss is 404 (lib/dealer/deals.ts).
  *
  * People on the deal are named only when this dealer captured them; one the
- * lender added is "a person added by the lender" (spec deviation 9).
+ * lender added is "a person added by the lender" (spec deviation 25), with
+ * only its opaque id, which the consent attestation names.
  */
 import type { AssetDealStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -98,7 +99,8 @@ export function projectDealerDeal(row: Row, dealerId: string) {
     ...summary(row),
     financedAmountCents: row.application.appliedAmount,
     baseInstalmentCents: row.baseInstalmentCents,
-    people: unique.map((p) => ({ name: name(p), consentAttested: row.dealerConsentAttestations.some((a) => a.clientId === p.id) })),
+    // The id lets the dealer attest consent for each subject; a lender-added person stays unnamed.
+    people: unique.map((p) => ({ clientId: p.id, name: name(p), consentAttested: row.dealerConsentAttestations.some((a) => a.clientId === p.id) })),
     missing,
     documentRequests: row.dealerDocumentRequests.map((r) => ({
       id: r.id, docType: r.docType, note: r.note, requestedAt: r.requestedAt.toISOString(), fulfilled: r.fulfilledAt !== null,
