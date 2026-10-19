@@ -142,17 +142,36 @@ suite.sequential("staff dealer administration (real DB)", () => {
     expect(await inTenant(fx, () => deactivateDealer(staff, dealerId))).toMatchObject({ status: 409 })
   })
 
+  it("the settings route switches the portal on and off for a demo lender, audited, and never touches isDemoLender", async () => {
+    sql(`UPDATE "TenantConfig" SET "featureDealerPortal" = false, "isDemoLender" = true WHERE "tenantId" = ${lit(fx.tenantId)}`)
+    session.current = { user: { id: fx.adminA, email: "admin-a@staff.invalid", role: "ADMIN", tenantId: fx.tenantId } }
+    const patch = (body: unknown) => settingsPatch(new NextRequest(`http://${fx.host}/api/settings/asset-finance`, {
+      method: "PATCH", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify(body),
+    }))
+    const on = await patch({ featureDealerPortal: true })
+    expect(on.status, await on.clone().text()).toBe(200)
+    expect(sql(`SELECT "featureDealerPortal", "isDemoLender" FROM "TenantConfig" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("t|t")
+    expect(sql(`SELECT "userId" FROM "AuditLog" WHERE "tenantId" = ${lit(fx.tenantId)} AND "action" = 'DEALER_PORTAL_ENABLED'`)).toBe(fx.adminA)
+    expect((await patch({ featureDealerPortal: false })).status).toBe(200)
+    expect(sql(`SELECT "featureDealerPortal", "isDemoLender" FROM "TenantConfig" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("f|t")
+    expect((await patch({ isDemoLender: false, featureDealerPortal: true })).status).not.toBe(500)
+    expect(sql(`SELECT "isDemoLender" FROM "TenantConfig" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("t")
+    session.current = null
+  })
+
   it("the settings route answers the demo-only CHECK 422 on a lender that is not a demo, and writes nothing", async () => {
     sql(`UPDATE "TenantConfig" SET "featureDealerPortal" = false, "isDemoLender" = false WHERE "tenantId" = ${lit(fx.tenantId)}`)
     session.current = { user: { id: fx.adminA, email: "admin-a@staff.invalid", role: "ADMIN", tenantId: fx.tenantId } }
     const patch = (body: unknown) => settingsPatch(new NextRequest(`http://${fx.host}/api/settings/asset-finance`, {
       method: "PATCH", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify(body),
     }))
+    const enabledAudits = () => sql(`SELECT count(*) FROM "AuditLog" WHERE "tenantId" = ${lit(fx.tenantId)} AND "action" = 'DEALER_PORTAL_ENABLED'`)
+    const before = enabledAudits()
     const refused = await patch({ featureDealerPortal: true })
     expect(refused.status).toBe(422)
     expect((await refused.json()).error).toMatch(/only for a demo lender/)
     expect(sql(`SELECT "featureDealerPortal" FROM "TenantConfig" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("f")
-    expect(sql(`SELECT count(*) FROM "AuditLog" WHERE "tenantId" = ${lit(fx.tenantId)} AND "action" = 'DEALER_PORTAL_ENABLED'`)).toBe("0")
+    expect(enabledAudits()).toBe(before)
     const months = await patch({ dealerCommissionClawbackMonths: 6 })
     expect(months.status).toBe(200)
     expect(sql(`SELECT "dealerCommissionClawbackMonths" FROM "TenantConfig" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("6")

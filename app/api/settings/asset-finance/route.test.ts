@@ -7,7 +7,8 @@ import { NextRequest } from "next/server"
 const m = vi.hoisted(() => ({
   session: { role: "ADMIN" as string },
   findUnique: vi.fn(),
-  upsert: vi.fn(),
+  update: vi.fn(),
+  create: vi.fn(),
   executeRaw: vi.fn(),
   logAuditStrict: vi.fn(),
   revalidateTag: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("@/lib/prisma", () => ({
     tenantConfig: { findUnique: m.findUnique },
     $transaction: (fn: (tx: unknown) => unknown) => fn({
       $executeRaw: m.executeRaw,
-      tenantConfig: { findUnique: m.findUnique, upsert: m.upsert },
+      tenantConfig: { findUnique: m.findUnique, update: m.update, create: m.create },
     }),
   },
 }))
@@ -50,7 +51,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.session.role = "ADMIN"
   m.findUnique.mockResolvedValue(current)
-  m.upsert.mockImplementation(async ({ update }: { update: Record<string, unknown> }) => ({ ...current, ...update }))
+  m.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...current, ...data }))
+  m.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...current, ...data }))
 })
 
 describe("/api/settings/asset-finance", () => {
@@ -58,7 +60,7 @@ describe("/api/settings/asset-finance", () => {
     m.session.role = role
     expect((await patch({ featureAssetFinance: true })).status).toBe(403)
     expect((await GET(new NextRequest("http://localhost/api/settings/asset-finance"))).status).toBe(403)
-    expect(m.upsert).not.toHaveBeenCalled()
+    expect(m.update).not.toHaveBeenCalled()
   })
 
   it("reads the values, the legal gate and demo-lender marker included, with schema defaults for a tenant with no row", async () => {
@@ -69,9 +71,8 @@ describe("/api/settings/asset-finance", () => {
   it("switches the module on: one audit row with old and new, and the cached config invalidated", async () => {
     const res = await patch({ featureAssetFinance: true })
     expect(res.status).toBe(200)
-    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1" }, update: { featureAssetFinance: true }, create: { tenantId: "tenant-1", featureAssetFinance: true },
-    }))
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-1" }, data: { featureAssetFinance: true } }))
+    expect(m.create).not.toHaveBeenCalled()
     expect(m.executeRaw).toHaveBeenCalledTimes(2)
     expect(m.executeRaw.mock.invocationCallOrder[1]).toBeLessThan(m.findUnique.mock.invocationCallOrder[0])
     expect(m.logAuditStrict).toHaveBeenCalledTimes(1)
@@ -95,19 +96,19 @@ describe("/api/settings/asset-finance", () => {
     const res = await patch({ assetFinanceLegalWordingApproved: true })
     expect(res.status).toBe(400)
     expect((await res.json()).fields.assetFinanceLegalWordingApproved).toMatch(/set by CredaFlow/)
-    expect(m.upsert).not.toHaveBeenCalled()
+    expect(m.update).not.toHaveBeenCalled()
     expect(m.logAuditStrict).not.toHaveBeenCalled()
   })
 
   it("refuses an invalid threshold 400", async () => {
     expect((await patch({ assetPayoutDualApprovalCents: -5 })).status).toBe(400)
-    expect(m.upsert).not.toHaveBeenCalled()
+    expect(m.update).not.toHaveBeenCalled()
   })
 
   it("switches the dealer portal on and sets the clawback window, each audited on its own action", async () => {
     const res = await patch({ featureDealerPortal: true, dealerCommissionClawbackMonths: 12 })
     expect(res.status).toBe(200)
-    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { featureDealerPortal: true, dealerCommissionClawbackMonths: 12 } }))
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ data: { featureDealerPortal: true, dealerCommissionClawbackMonths: 12 } }))
     expect(m.logAuditStrict).toHaveBeenCalledTimes(2)
     expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
       action: "DEALER_PORTAL_ENABLED", oldValue: { featureDealerPortal: false }, newValue: { featureDealerPortal: true },
@@ -124,7 +125,7 @@ describe("/api/settings/asset-finance", () => {
   })
 
   it("answers the demo-only CHECK 422 with the reason, and audits nothing", async () => {
-    m.upsert.mockRejectedValue(Object.assign(new Error(
+    m.update.mockRejectedValue(Object.assign(new Error(
       'new row for relation "TenantConfig" violates check constraint "TenantConfig_dealer_portal_demo_only"',
     ), { code: "23514" }))
     const res = await patch({ featureDealerPortal: true })
@@ -137,11 +138,18 @@ describe("/api/settings/asset-finance", () => {
 
   it.each([[-1], [61], [2.5], ["12"]])("refuses clawback months %j 400", async (months) => {
     expect((await patch({ dealerCommissionClawbackMonths: months })).status).toBe(400)
-    expect(m.upsert).not.toHaveBeenCalled()
+    expect(m.update).not.toHaveBeenCalled()
   })
 
   it("never writes the demo-lender marker", async () => {
     await patch({ featureDealerPortal: true, isDemoLender: true })
-    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { featureDealerPortal: true } }))
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ data: { featureDealerPortal: true } }))
+  })
+
+  it("creates the row only when the lender has none (an INSERT is checked against the demo-only CHECK first)", async () => {
+    m.findUnique.mockResolvedValue(null)
+    expect((await patch({ featureAssetFinance: true })).status).toBe(200)
+    expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ data: { tenantId: "tenant-1", featureAssetFinance: true } }))
+    expect(m.update).not.toHaveBeenCalled()
   })
 })
