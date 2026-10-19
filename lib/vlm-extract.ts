@@ -33,7 +33,7 @@ export interface ExtractedField {
 
 export type ExtractedFields = Record<string, ExtractedField>
 
-type VlmConfig = { url: string; model: string }
+type VlmConfig = { url: string; model: string; headers: Record<string, string> }
 
 function isPlaceholder(value: string | undefined): boolean {
   if (!value) return true
@@ -44,7 +44,11 @@ export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
   if (isPlaceholder(apiUrl) || isPlaceholder(model)) return null
-  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model! }
+  // VLM_API_KEY is optional: the self-hosted server takes none, a hosted one takes a bearer key.
+  const apiKey = process.env.VLM_API_KEY
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model!, headers }
 }
 
 /** SA-context-aware VLM prompts per document type */
@@ -880,7 +884,7 @@ export async function extractDocumentData(opts: {
   try {
     const res = await fetch(vlmConfig.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: vlmConfig.headers,
       signal: AbortSignal.timeout(55000),
       body: JSON.stringify({
         model: vlmConfig.model,
