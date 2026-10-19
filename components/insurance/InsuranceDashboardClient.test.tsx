@@ -265,3 +265,30 @@ describe("InsuranceDashboardClient amount search is exact, not substring", () =>
     expect(policyNumbers()).toEqual(["POL-DDD"])
   })
 })
+
+// Fair Score audit row 117: the KPI cards used the en-ZA locale ("R 12 345,50")
+// while the policy table beside them used the house format ("R 20,000.00").
+describe("InsuranceDashboardClient money format", () => {
+  it("prints the KPI cards and the table in the one house money format", () => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    act(() => {
+      renderer = create(
+        <InsuranceDashboardClient
+          policies={[policy()]}
+          claims={[]}
+          monthlyPremiums={12345.5}
+          commissionEarned={2500}
+          openClaims={0}
+          totalCollected={0}
+        />
+      )
+    })
+    const text = renderedText()
+    act(() => renderer.unmount())
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+    expect(text).toContain("R 12,345.50")
+    expect(text).toContain("R 2,500.00")
+    expect(text).toContain("R 20,000.00")
+    expect(text).not.toMatch(/R 12\s345,50/)
+  })
+})

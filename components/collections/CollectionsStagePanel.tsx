@@ -8,6 +8,7 @@ import { AttorneyReferralForm } from "./AttorneyReferralForm"
 import { WriteOffForm } from "./WriteOffForm"
 import { ArrangementSummary } from "./ArrangementSummary"
 import { formatZAR } from "@/lib/utils"
+import { section129HintText, type Section129Block } from "@/lib/collections/section129-hint"
 
 type Stage =
   | "NONE"
@@ -45,6 +46,8 @@ interface Props {
   existingReferral: ReferralData | null
   writeOffPending?: boolean
   readOnlyReason?: string
+  /** Why the S.129 action is disabled (same reason as its button tooltip); unset when it is available. */
+  section129Unavailable?: Section129Block
 }
 
 const STAGE_CONFIG: Record<Stage, { label: string; color: string; bg: string; icon: React.ElementType }> = {
@@ -71,6 +74,7 @@ export function CollectionsStagePanel({
   existingReferral,
   writeOffPending = false,
   readOnlyReason,
+  section129Unavailable,
 }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
@@ -169,7 +173,9 @@ export function CollectionsStagePanel({
           {currentStage === "FORMAL_REMINDER" && !showArrangementForm && (
             <div className="w-full flex items-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium bg-red-50 text-red-700 border border-red-100">
               <Scale className="h-4 w-4 flex-shrink-0" />
-              Use the &ldquo;S.129 Notice&rdquo; action above to issue Section 129 — the stage updates automatically once the notice is sent.
+              {section129Unavailable
+                ? section129HintText(section129Unavailable)
+                : <>Use the &ldquo;S.129 Notice&rdquo; action above to issue Section 129 — the stage updates automatically once the notice is sent.</>}
             </div>
           )}
 

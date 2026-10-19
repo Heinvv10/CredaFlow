@@ -27,7 +27,7 @@ import {
   askedFields,
   CHECK_AFFIRMATIVES,
   summaryValue,
-  formatRands,
+  amountRangeHint,
   isUnanswered,
   VEHICLE_FIELDS,
   LABELS,
@@ -2016,7 +2016,7 @@ export function QuickQuoteWizard({
                     which — accurately — it is. */}
                 {writeFailed.includes(field) && acceptsNumber(field, drafts[field] ?? "")
                   ? "We couldn't record that amount — please try again, or continue and mention it when an adviser calls."
-                  : `Between ${formatRands(numberKind(field).min)} and ${formatRands(numberKind(field).max)}`}
+                  : amountRangeHint(field)}
               </p>
             )}
             {HINTS[field] && <p className="cf-wiz-hint">{HINTS[field]}</p>}

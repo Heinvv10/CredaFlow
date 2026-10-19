@@ -6,6 +6,7 @@ import { formatZAR } from "@/lib/utils"
 import type { QualificationBounds, QualificationResult } from "@/lib/qualify"
 import { useT } from "@/lib/i18n/client"
 import { ExploreCalculator, ndiColor } from "./ExploreCalculator"
+import { OwnArrearsNotice, type OwnArrears } from "./OwnArrearsNotice"
 
 interface ClientData {
   firstName: string
@@ -32,6 +33,8 @@ interface Props {
   /** Live product amount ranges, so no figure here exceeds what a product lends. */
   bounds: QualificationBounds
   recentDecline: RecentDecline | null
+  /** Worst days late and total overdue across the client's loans with this lender, or null when up to date. */
+  ownLenderArrears: OwnArrears | null
 }
 
 function AffordabilityCard({ client, qual }: { client: ClientData; qual: QualificationResult | null }) {
@@ -222,7 +225,7 @@ function ProductCards({ qual, productRanges }: { qual: QualificationResult | nul
   )
 }
 
-export function PortalApplyClient({ client, qualification, productRanges, bounds, recentDecline }: Props) {
+export function PortalApplyClient({ client, qualification, productRanges, bounds, recentDecline, ownLenderArrears }: Props) {
   const t = useT("portalApply")
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
@@ -234,6 +237,7 @@ export function PortalApplyClient({ client, qualification, productRanges, bounds
       </div>
 
       {recentDecline && <RecentDeclineNotice decline={recentDecline} />}
+      {ownLenderArrears && <OwnArrearsNotice arrears={ownLenderArrears} />}
 
       {client ? (
         <AffordabilityCard client={client} qual={qualification} />

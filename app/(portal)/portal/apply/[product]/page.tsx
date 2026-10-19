@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect, notFound } from "next/navigation"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
+import { portalExistingDebt } from "@/lib/affordability/portal-own-lender-debt"
 import { computeQualification } from "@/lib/qualify"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
@@ -57,10 +58,8 @@ export default async function PortalApplyProductPage({
   if (!client) redirect("/portal/login")
   if (!product) notFound()
 
-  const existingDebt = client.debtObligations.reduce(
-    (sum, d) => sum + d.monthlyInstalment,
-    0,
-  )
+  // Counts the client's loans with this lender too, as the staff assessment does.
+  const { existingDebt } = await portalExistingDebt(prisma, tenantId, client.id, client.debtObligations)
 
   const qualification = client.monthlyIncome > 0
     ? computeQualification(client.monthlyIncome, client.monthlyExpenses, existingDebt)

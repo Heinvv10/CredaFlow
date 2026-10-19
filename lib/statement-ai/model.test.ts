@@ -29,6 +29,22 @@ describe("askModel", () => {
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "t1", kind: "SUMMARY", tokensIn: 12, tokensOut: 3 }))
   })
 
+  // Anthropic's current models answer 400 "temperature is deprecated" to any temperature: a hosted call sends none.
+  it("sends no temperature to a hosted model", async () => {
+    vi.stubEnv("VLM_API_URL", "https://hosted.test")
+    vi.stubEnv("VLM_API_KEY", "test-key-not-real")
+    vi.stubEnv("VLM_ALLOW_HOSTED", "true")
+    vi.stubEnv("DEMO_MODE", "true")
+    vi.stubEnv("STATEMENT_CORPUS_DIR", "")
+    vi.stubEnv("VLM_ACCURACY_CORPUS", "")
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "hi" } }] })))
+    vi.stubGlobal("fetch", fetch)
+    expect(await askModel(call)).toEqual({ content: "hi", model: "stub-model" })
+    const body = JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body)
+    expect(body).toMatchObject({ model: "stub-model", max_tokens: 10 })
+    expect(body).not.toHaveProperty("temperature")
+  })
+
   it("meters a failed call too, then backs off without asking", async () => {
     const fetch = vi.fn(async () => new Response("down", { status: 503 }))
     vi.stubGlobal("fetch", fetch)

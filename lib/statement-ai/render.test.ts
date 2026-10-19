@@ -39,6 +39,13 @@ describe("renderSummary", () => {
 })
 
 describe("produce (summary)", () => {
+  // claude-sonnet-5-5 reasons before its JSON on a statement that does not reconcile: 252 tokens
+  // measured on 2026-10-19. Cut off at 200, the JSON never came and every summary was rejected.
+  it("leaves room for an answer that reasons before its claims", async () => {
+    expect(summary.maxTokens).toBeGreaterThanOrEqual(600)
+    const out = await produce(summary, async () => 'The data is sparse, so flags come first.\n\n{"claims": ["flags", "coverage"]}')
+    expect(out.status).toBe("OK")
+  })
   it("takes only a valid claims list from the model, and asks again otherwise", async () => {
     let n = 0
     const out = await produce(summary, async () => (++n === 1 ? "Here is a summary: all looks fine." : '{"claims": ["coverage", "living"]}'))
@@ -148,7 +155,7 @@ describe("review round 4: what the sentences must never say", () => {
   it("does not count rows the row shows", () => {
     const shown = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1], occurrences: 1 } }]
     const [e] = buildPlans(insights, rows, shown as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
-    expect(e.text).toBe("Debits the bank returned unpaid or could not collect are listed. An officer reviews the flag before a decision.")
+    expect(e.text).toBe("A debit the bank sends back is a commitment that went unpaid when it fell due, whatever the reason; the rows found are listed so the officer sees when and how often. An officer reviews the flag before a decision.")
   })
 })
 

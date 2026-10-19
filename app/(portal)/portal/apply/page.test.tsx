@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const h = vi.hoisted(() => ({
   clientProps: vi.fn(),
   appFindFirst: vi.fn(),
+  loanFindMany: vi.fn(),
+  approvedFindMany: vi.fn(),
 }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "lerato@example.test" } })) }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
@@ -16,7 +18,11 @@ vi.mock("@/lib/prisma", () => ({
         debtObligations: [{ monthlyInstalment: 87_000 }],
       })),
     },
-    loanApplication: { findFirst: (a: unknown) => h.appFindFirst(a) },
+    loanApplication: { findFirst: (a: unknown) => h.appFindFirst(a), findMany: (a: unknown) => h.approvedFindMany(a) },
+    // The real own-lender loader runs over these (lib/affordability/own-lender-debt-load.ts).
+    loan: { findMany: (a: unknown) => h.loanFindMany(a) },
+    tenant: { findUnique: vi.fn(async () => ({ name: "Acme Credit" })) },
+    tenantConfig: { findUnique: vi.fn(async () => ({ brandName: "Acme Credit", legalName: "Acme Credit (Pty) Ltd" })) },
   },
 }))
 vi.mock("@/lib/public-loan-products-server", async () => {
@@ -35,14 +41,16 @@ import PortalApplyPage from "./page"
 const renderPage = async () => renderToStaticMarkup(await PortalApplyPage())
 
 type Props = {
-  qualification: { microLoan: { maxAmount: number } }
+  client: { existingDebt: number }
+  ownLenderArrears: { days: number; amountCents: number } | null
+  qualification: { ndi: number; microLoan: { maxAmount: number } }
   bounds: { micro: { maxAmount: number } }
   recentDecline: { id: string; reference: string; decidedOn: string } | null
 }
 const props = () => h.clientProps.mock.calls.at(-1)![0] as Props
 
 describe("portal apply page", () => {
-  beforeEach(() => { h.clientProps.mockReset(); h.appFindFirst.mockReset().mockResolvedValue(null) })
+  beforeEach(() => { h.clientProps.mockReset(); h.appFindFirst.mockReset().mockResolvedValue(null); h.loanFindMany.mockReset().mockResolvedValue([]); h.approvedFindMany.mockReset().mockResolvedValue([]) })
 
   it("bounds the micro-loan offer by the live product maximum", async () => {
     await renderPage()
@@ -70,5 +78,44 @@ describe("portal apply page", () => {
   it("passes no decline when there is none", async () => {
     await renderPage()
     expect(props().recentDecline).toBeNull()
+  })
+
+  it("counts the client's own active loan with this lender, and says they are in arrears", async () => {
+    // Synthetic: R1,029.17 a month, 60 days and R2,058.34 behind.
+    h.loanFindMany.mockResolvedValue([{
+      id: "loan-1", clientId: "c1", reference: "LN-SYN-1", status: "ACTIVE", outstandingPrincipal: 500_000,
+      daysInArrears: 60, arrearsAmount: 205_834,
+      repaymentSchedule: [{ totalDue: 120_000 }, { totalDue: 102_917 }, { totalDue: 102_917 }],
+    }])
+    await renderPage()
+    expect(props().client.existingDebt).toBe(87_000 + 102_917)
+    expect(props().qualification.ndi).toBe(1_800_000 - 800_000 - 87_000 - 102_917)
+    expect(props().ownLenderArrears).toEqual({ days: 60, amountCents: 205_834 })
+    expect(h.loanFindMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", clientId: "c1" })
+  })
+
+  it("changes nothing for a client with no loan with this lender", async () => {
+    await renderPage()
+    expect(props().client.existingDebt).toBe(87_000)
+    expect(props().ownLenderArrears).toBeNull()
+  })
+
+  it("still renders, on declared debt, when an approved application has no recorded instalment", async () => {
+    // The loader refuses it (it cannot be counted); an estimate must not 500.
+    h.approvedFindMany.mockResolvedValue([{ id: "a1", reference: "APP-SYN-1", approvedAmount: 500_000, affordabilityResult: null }])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await renderPage()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("APP-SYN-1"))
+    } finally {
+      warn.mockRestore()
+    }
+    expect(props().client.existingDebt).toBe(87_000)
+    expect(props().ownLenderArrears).toBeNull()
+  })
+
+  it("does not swallow other loader errors", async () => {
+    h.loanFindMany.mockRejectedValue(new Error("db down"))
+    await expect(renderPage()).rejects.toThrow("db down")
   })
 })

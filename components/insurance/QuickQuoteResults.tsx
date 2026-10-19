@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  formatRands,
   parsePremium,
   sortQuotes,
   summariseQuotes,
@@ -10,6 +9,7 @@ import {
   type ParsedQuote,
   type QuoteSort,
 } from "@/lib/insurance/quickquote-bridge"
+import { formatRands } from "@/lib/utils"
 
 /**
  * Our results screen, rendered from the quotes FSP have already drawn.
@@ -273,7 +273,7 @@ export function QuickQuoteResults({
               </div>
               <div className="cf-res-price">
                 <p className="cf-res-premium">
-                  {q.premiumLabel}
+                  {q.premium > 0 ? formatRands(q.premium) : q.premiumLabel}
                   {/* The unit was never stated on FSP's own screen — this is
                       the number the whole journey exists to deliver. Omitted
                       when there is no number, so an unpriced row does not read

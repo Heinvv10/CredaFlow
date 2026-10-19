@@ -1,4 +1,5 @@
-import { TYPE_LABELS, formatR } from "./constants"
+import { formatRands } from "@/lib/utils"
+import { TYPE_LABELS } from "./constants"
 import type { Product } from "./types"
 
 interface Props {
@@ -94,10 +95,10 @@ export function ProductPicker({
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-[#4F46E5]">
-                    {formatR(p.premiumAmount)}
+                    {formatRands(p.premiumAmount)}
                     <span className="text-xs font-normal text-gray-400">/mo</span>
                   </p>
-                  <p className="text-xs text-gray-400">Cover: {formatR(p.sumAssured)}</p>
+                  <p className="text-xs text-gray-400">Cover: {formatRands(p.sumAssured)}</p>
                 </div>
               </label>
             ))}
