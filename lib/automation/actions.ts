@@ -191,6 +191,10 @@ export async function sendAutomationWaMessage(args: {
   }
 }
 
+// The borrower, when there is one, must belong to the same tenant as the loan.
+// An entity borrower (no client) still reaches the entity_borrower refusal.
+const clientInTenant = (tenantId: string) => ({ OR: [{ clientId: null }, { client: { tenantId } }] })
+
 export async function actionSendWa(
   rule: RuleShape,
   entity: { type: "loan" | "schedule"; id: string },
@@ -208,7 +212,7 @@ export async function actionSendWa(
 
   if (entity.type === "loan") {
     const loan = await prisma.loan.findFirst({
-      where: { id: entity.id, tenantId },
+      where: { id: entity.id, tenantId, ...clientInTenant(tenantId) },
       select: {
         reference: true,
         arrearsAmount: true,
@@ -241,7 +245,7 @@ export async function actionSendWa(
     else if (templateKey === "loan_paid_in_full") message = WA_TEMPLATES.loan_paid_in_full(name, loan.reference)
   } else if (entity.type === "schedule") {
     const schedule = await prisma.repaymentSchedule.findFirst({
-      where: { id: entity.id, tenantId, loan: { tenantId } },
+      where: { id: entity.id, tenantId, loan: { tenantId, ...clientInTenant(tenantId) } },
       select: {
         loanId: true,
         dueDate: true,

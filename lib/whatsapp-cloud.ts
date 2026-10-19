@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
-import { normalizePhone, waHttpFailureOutcome, type WaResult } from "./whatsapp"
+import { isWaEnabled, normalizePhone, waHttpFailureOutcome, type WaResult } from "./whatsapp"
 import { getWabaCreds } from "./whatsapp-cloud-config"
 import { resolveWaSendMode, WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "./whatsapp/send-mode"
 import type { WaTemplateRef } from "./whatsapp/template-components"
@@ -53,6 +53,12 @@ async function readWaWindow(tenantId: string, contactId: string | undefined): Pr
 export async function sendWhatsAppCloudMessage(opts: CloudSendOptions): Promise<WaResult> {
   if (process.env.NODE_ENV === "test" || process.env.WA_DRY_RUN === "true") {
     return { ok: true, messageId: `dry-run-${randomUUID()}`, simulated: true }
+  }
+
+  // The env kill switch, as sendWhatsAppMessage has it: without this check
+  // WA_ENABLED=false stopped the unofficial sender but not the Cloud API.
+  if (!isWaEnabled()) {
+    return { ok: false, error: "WhatsApp disabled", providerOutcome: "DEFINITELY_REJECTED" }
   }
 
   let creds

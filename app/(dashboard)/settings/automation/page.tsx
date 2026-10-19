@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDateTime } from "@/lib/utils"
 import { RefreshCw, PauseCircle, PlayCircle } from "lucide-react"
+import { AutomatedWhatsAppToggle } from "@/components/settings/AutomatedWhatsAppToggle"
 import { AutomationPausesTab, type Pause } from "@/components/settings/AutomationPausesTab"
 
 interface Rule {
@@ -127,6 +128,7 @@ export default function AutomationPage() {
         ]}
       />
       <div className="p-4 lg:p-8 space-y-6">
+        <AutomatedWhatsAppToggle />
         <Tabs defaultValue="rules">
           <TabsList>
             <TabsTrigger value="rules">Rules ({rules.length})</TabsTrigger>

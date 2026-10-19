@@ -66,7 +66,7 @@ suite("automation WhatsApp occurrence delivery", () => {
           name: "Automation WA integration",
           // payment_overdue_7d quotes the lender's collections number and
           // refuses to render without a configured identity.
-          config: { create: VALID_LENDER_COLUMNS },
+          config: { create: { ...VALID_LENDER_COLUMNS, automatedWhatsAppReminders: true } },
         },
       })
       await prisma.user.create({

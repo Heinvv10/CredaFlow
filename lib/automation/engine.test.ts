@@ -25,7 +25,12 @@ vi.mock("./actions", () => ({
   }) => `automation-wa:${args.ruleId}:${args.entity.type}:${args.entity.id}:${args.templateKey}:${args.occurrenceKey}`),
 }))
 
+vi.mock("./whatsapp-switch", () => ({ isAutomatedWhatsAppEnabled: vi.fn() }))
+vi.mock("./dunning-holds", () => ({ dunningHoldReason: vi.fn() }))
+
 import { replayAutomationLog, runAutomationEngine } from "./engine"
+import { isAutomatedWhatsAppEnabled } from "./whatsapp-switch"
+import { dunningHoldReason } from "./dunning-holds"
 import { prisma } from "@/lib/prisma"
 import { actionCreateTask, actionSendWa } from "./actions"
 
@@ -38,6 +43,8 @@ beforeEach(() => {
     dispatchPhase: "PROVIDER_ACCEPTED",
   })
   vi.mocked(prisma.message.findFirst).mockResolvedValue(null)
+  vi.mocked(isAutomatedWhatsAppEnabled).mockResolvedValue(true)
+  vi.mocked(dunningHoldReason).mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -253,8 +260,8 @@ describe("SEND_WA automation outcomes", () => {
     const secondOptions = vi.mocked(actionSendWa).mock.calls[1]?.[3]
     const secondLog = vi.mocked(prisma.automationLog.create).mock.calls[1]?.[0]?.data
 
-    expect(firstOptions?.occurrenceKey).toBe("dpd_threshold:window:20656")
-    expect(secondOptions?.occurrenceKey).toBe("dpd_threshold:window:20657")
+    expect(firstOptions?.occurrenceKey).toBe("dpd_threshold:episode:1784066400000")
+    expect(secondOptions?.occurrenceKey).toBe("dpd_threshold:episode:1784152800000")
     expect(secondOptions?.occurrenceKey).not.toBe(firstOptions?.occurrenceKey)
     expect(firstLog?.occurrenceKey).toBe(firstOptions?.occurrenceKey)
     expect(secondLog?.occurrenceKey).toBe(secondOptions?.occurrenceKey)
@@ -491,5 +498,98 @@ describe("PAYMENT_DUE — SAST day window", () => {
     expect(w.lte).toBeUndefined()
     expect(w.lt).toBeInstanceOf(Date)
     expect(w.lt!.getTime() - w.gte.getTime()).toBe(24 * 60 * 60 * 1000)
+  })
+})
+
+describe("automated WhatsApp switch, DPD episodes, holds and paid-in-full window", () => {
+  const dpdRule = (days: number, templateKey: string) => ({
+    id: `rule-${days}`, tenantId: "tenant-a", name: `DPD ${days}`, description: null, trigger: "DPD_THRESHOLD",
+    condition: { dpdThreshold: days }, action: "SEND_WA", actionConfig: { templateKey }, enabled: true, isBuiltIn: true,
+  })
+  const loanAt = (daysInArrears: number) => ({
+    id: "loan-1", reference: "LN-1", status: "DEFAULTED", ncaRegime: "NCA", daysInArrears,
+    arrearsAmount: 100, outstandingPrincipal: 100, clientId: "c1", collectionsStage: "NONE",
+  })
+
+  beforeEach(() => {
+    vi.mocked(prisma.automationLog.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.automationPause.findUnique).mockResolvedValue(null)
+  })
+
+  it("setting off: no WhatsApp rule is evaluated, so nothing is queried or reserved", async () => {
+    vi.mocked(isAutomatedWhatsAppEnabled).mockResolvedValue(false)
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([dpdRule(7, "payment_overdue_7d")] as any)
+    const result = await runAutomationEngine("tenant-a")
+    expect(result).toEqual({ ran: 0, actions: 0, errors: 0 })
+    expect(prisma.loan.findMany).not.toHaveBeenCalled()
+    expect(actionSendWa).not.toHaveBeenCalled()
+  })
+
+  it("setting off still runs non-WhatsApp rules", async () => {
+    vi.mocked(isAutomatedWhatsAppEnabled).mockResolvedValue(false)
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([
+      dpdRule(7, "payment_overdue_7d"),
+      { ...dpdRule(90, "x"), id: "rule-task", action: "CREATE_AGENT_TASK", actionConfig: {} },
+    ] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([loanAt(90)] as any)
+    const result = await runAutomationEngine("tenant-a")
+    expect(result).toEqual({ ran: 1, actions: 1, errors: 0 })
+  })
+
+  it("a WhatsApp DPD rule only matches the loan on its threshold day, so the wording stays true", async () => {
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([dpdRule(7, "payment_overdue_7d")] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([])
+    await runAutomationEngine("tenant-a")
+    expect(prisma.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ daysInArrears: { gte: 7, lte: 7 } }),
+    }))
+  })
+
+  it("DPD reminder is deduplicated over the whole arrears episode and keyed by it", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-22T12:00:00.000Z"))
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([dpdRule(7, "payment_overdue_7d")] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([loanAt(7)] as any)
+    await runAutomationEngine("tenant-a")
+    // Episode began on SAST 2026-07-15 (22 July minus 7 days).
+    const since = (vi.mocked(prisma.automationLog.findFirst).mock.calls[0]?.[0]?.where as any).createdAt.gte as Date
+    expect(since.toISOString()).toBe("2026-07-14T22:00:00.000Z")
+    expect(vi.mocked(actionSendWa).mock.calls[0]?.[3]?.occurrenceKey).toBe(`dpd_threshold:episode:${since.getTime()}`)
+  })
+
+  it("a loan on hold is skipped with the reason and nothing is sent", async () => {
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([dpdRule(7, "payment_overdue_7d")] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([loanAt(7)] as any)
+    vi.mocked(dunningHoldReason).mockResolvedValue("client is under debt review")
+    const result = await runAutomationEngine("tenant-a")
+    expect(actionSendWa).not.toHaveBeenCalled()
+    expect(prisma.automationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ result: "skipped", error: "client is under debt review", entityId: "loan-1" }),
+    })
+    expect(result.actions).toBe(0)
+  })
+
+  it("paid-in-full only considers loans closed within the last 7 days", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-07-22T12:00:00.000Z"))
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([{
+      ...dpdRule(0, "loan_paid_in_full"), id: "rule-pif", trigger: "LOAN_PAID_IN_FULL", condition: {},
+    }] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([])
+    await runAutomationEngine("tenant-a")
+    expect(prisma.loan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: "COMPLETED", closedAt: { gte: new Date("2026-07-15T12:00:00.000Z") } }),
+    }))
+  })
+
+  it("replay of a WhatsApp log is refused while the setting is off", async () => {
+    vi.mocked(isAutomatedWhatsAppEnabled).mockResolvedValue(false)
+    vi.mocked(prisma.automationLog.findFirst).mockResolvedValue({
+      id: "log1", tenantId: "tenant-a", ruleId: "r", entityType: "loan", entityId: "loan-1", result: "failed",
+      rule: { ...dpdRule(7, "payment_overdue_7d"), id: "r" },
+    } as any)
+    await expect(replayAutomationLog("log1", "tenant-a", { userId: "u", userEmail: "u@example.test" }))
+      .rejects.toThrow(/automated WhatsApp reminders are switched off/)
+    expect(actionSendWa).not.toHaveBeenCalled()
   })
 })

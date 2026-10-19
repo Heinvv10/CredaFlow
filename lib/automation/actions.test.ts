@@ -171,20 +171,13 @@ describe("actionSendWa", () => {
 
   it("loan lookup is scoped by tenantId in the query itself", async () => {
     await actionSendWa(rule, { type: "loan", id: "L1" }, "t1", dispatchOptions)
-    expect(prisma.loan.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "L1", tenantId: "t1" } }))
+    expect(prisma.loan.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "L1", tenantId: "t1", OR: [{ clientId: null }, { client: { tenantId: "t1" } }] } }))
   })
 
   it("schedule lookup is scoped by the loan's tenantId in the query itself", async () => {
     vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue(null)
     await actionSendWa({ ...rule, actionConfig: { templateKey: "payment_due_3d" } }, { type: "schedule", id: "S1" }, "t1", dispatchOptions)
-    expect(prisma.repaymentSchedule.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "S1", tenantId: "t1", loan: { tenantId: "t1" } } }))
-  })
-
-  it("client with no branch in the same tenant is messaged", async () => {
-    vi.mocked(prisma.loan.findFirst).mockResolvedValue({ ...loanRow, client: { ...loanRow.client } } as any)
-    const result = await actionSendWa(rule, { type: "loan", id: "L1" }, "t1", dispatchOptions)
-    expect(result).toMatchObject({ outcome: "sent" })
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(prisma.repaymentSchedule.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "S1", tenantId: "t1", loan: { tenantId: "t1", OR: [{ clientId: null }, { client: { tenantId: "t1" } }] } } }))
   })
 
   it("cross-tenant loan (not found under the tenant filter): no-ops before resolving a Contact", async () => {

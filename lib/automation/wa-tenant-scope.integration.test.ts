@@ -135,6 +135,8 @@ suite("actionSendWa tenant scoping (real Postgres)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Fallback so no test can reach a real provider if a Once value is missed.
+    vi.mocked(dispatch).mockResolvedValue({ providerMessageId: `fallback_${randomUUID()}`, acceptedAt: new Date() })
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
   })
   afterEach(() => errorSpy.mockRestore())

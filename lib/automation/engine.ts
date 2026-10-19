@@ -13,6 +13,20 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { automationCooldownMs, automationOccurrenceKey } from "./occurrence"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { requireClientBorrowerId } from "@/lib/borrower"
+import { isAutomatedWhatsAppEnabled } from "./whatsapp-switch"
+import { dunningHoldReason } from "./dunning-holds"
+
+const DAY_MS = 24 * 60 * 60 * 1000
+/** A paid-in-full message goes only to loans closed this recently, so a backlog never blasts. */
+const PAID_IN_FULL_WINDOW_MS = 7 * DAY_MS
+
+/**
+ * Start (SAST midnight) of the day the loan first went past due. A message
+ * logged before it belongs to an earlier arrears episode of the same loan.
+ */
+function arrearsEpisodeStart(daysInArrears: number, now = new Date()): Date {
+  return sastStartOfDay(new Date(now.getTime() - daysInArrears * DAY_MS))
+}
 
 type AutomationLogResult =
   | "success"
@@ -34,9 +48,8 @@ const RESULTS_THAT_OCCUPY_COOLDOWN: readonly AutomationLogResult[] = [
   "skipped",
 ]
 
-async function alreadyFired(ruleId: string, entityId: string, trigger: string): Promise<boolean> {
-  const coolDown = automationCooldownMs(trigger)
-  const since = new Date(Date.now() - coolDown)
+async function alreadyFired(ruleId: string, entityId: string, trigger: string, sinceOverride?: Date): Promise<boolean> {
+  const since = sinceOverride ?? new Date(Date.now() - automationCooldownMs(trigger))
   const existing = await prisma.automationLog.findFirst({
     where: {
       ruleId,
@@ -125,12 +138,16 @@ async function evaluateLeadStale(rule: AutomationRule): Promise<number> {
 async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
   const cond = rule.condition as { dpdThreshold?: number }
   const threshold = cond.dpdThreshold ?? 0
+  // The WhatsApp notices state the day count ("due yesterday", "7 days
+  // overdue"), so they match only on their threshold day: a loan first seen at
+  // DPD 40 must not be told it is 7 days overdue.
+  const isWa = rule.action === "SEND_WA"
 
   const loans = await prisma.loan.findMany({
     where: {
       tenantId: rule.tenantId,
       status: { in: ["ACTIVE", "DEFAULTED"] },
-      daysInArrears: { gte: threshold },
+      daysInArrears: isWa ? { gte: threshold, lte: threshold } : { gte: threshold },
       arrearsAmount: { gt: 0 },
       outstandingPrincipal: { gt: 0 },
     },
@@ -142,15 +159,26 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
       daysInArrears: true,
       arrearsAmount: true,
       outstandingPrincipal: true,
+      clientId: true,
+      collectionsStage: true,
     },
   })
 
   let fired = 0
   for (const loan of loans) {
-    if (await alreadyFired(rule.id, loan.id, rule.trigger)) continue
+    // One reminder per rule per arrears episode, not one per day.
+    const episodeStart = isWa ? arrearsEpisodeStart(loan.daysInArrears) : undefined
+    if (await alreadyFired(rule.id, loan.id, rule.trigger, episodeStart)) continue
     if (await isPaused(rule.id, loan.id)) {
       await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: loan.id, result: "skipped", error: "paused" })
       continue
+    }
+    if (isWa) {
+      const hold = await dunningHoldReason(rule.tenantId, loan)
+      if (hold) {
+        await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: loan.id, result: "skipped", error: hold })
+        continue
+      }
     }
     if (rule.action === "ISSUE_SECTION_129") {
       const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
@@ -169,7 +197,7 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
     try {
       switch (rule.action) {
         case "SEND_WA": {
-          const occurrenceKey = automationOccurrenceKey(rule.trigger)
+          const occurrenceKey = `${rule.trigger.toLowerCase()}:episode:${episodeStart!.getTime()}`
           if (await writeWaLog({
             rule,
             entityType: "loan",
@@ -294,6 +322,7 @@ async function evaluateLoanPaidInFull(rule: AutomationRule): Promise<number> {
     where: {
       tenantId: rule.tenantId,
       status: "COMPLETED",
+      closedAt: { gte: new Date(Date.now() - PAID_IN_FULL_WINDOW_MS) },
     },
     select: { id: true, reference: true },
   })
@@ -334,7 +363,12 @@ export async function runAutomationEngine(tenantId: string): Promise<{ ran: numb
   const rules = await prisma.automationRule.findMany({ where: { tenantId, enabled: true } })
   let ran = 0, actions = 0, errors = 0
 
+  // WhatsApp automations are an opt-in per lender: with the switch off no
+  // SEND_WA rule is evaluated, so nothing is queried or reserved.
+  const whatsAppOn = await isAutomatedWhatsAppEnabled(tenantId)
+
   for (const rule of rules) {
+    if (rule.action === "SEND_WA" && !whatsAppOn) continue
     try {
       let count = 0
       switch (rule.trigger) {
@@ -433,6 +467,9 @@ export async function replayAutomationLog(
   if (log.result !== "failed") throw new Error("Only failed log entries can be replayed")
 
   const { rule, entityType, entityId } = log
+  if (rule.action === "SEND_WA" && !(await isAutomatedWhatsAppEnabled(tenantId))) {
+    throw new Error("Replay blocked: automated WhatsApp reminders are switched off for this lender")
+  }
   if (await isPaused(rule.id, entityId)) {
     throw new Error("Entity is paused — remove the pause before replaying")
   }
