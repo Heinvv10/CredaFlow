@@ -10,8 +10,8 @@ vi.mock("@/lib/config/identity", async (orig) => {
 })
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    loan: { findUnique: vi.fn() },
-    repaymentSchedule: { findUnique: vi.fn() },
+    loan: { findFirst: vi.fn() },
+    repaymentSchedule: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
     message: { findUnique: vi.fn() },
   },
@@ -80,7 +80,6 @@ const loanRow = {
   arrearsAmount: 100_00,
   client: {
     id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null,
-    branch: { tenantId: "t1" },
   },
 }
 
@@ -91,7 +90,7 @@ let errorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   vi.clearAllMocks()
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-  vi.mocked(prisma.loan.findUnique).mockResolvedValue(loanRow as any)
+  vi.mocked(prisma.loan.findFirst).mockResolvedValue(loanRow as any)
   vi.mocked(prisma.contact.findFirst).mockResolvedValue(contact as any)
   vi.mocked(getOrCreateAgentMessageTemplate).mockResolvedValue({ id: "tpl1" } as any)
   vi.mocked(sendMessage).mockResolvedValue({ id: "m1", status: "SENT", dispatchState: "ACCEPTED" } as any)
@@ -107,7 +106,7 @@ describe("actionSendWa — default charges", () => {
     dueDate: new Date("2026-08-01"),
     totalDue: 1000_00,
     totalPaid: 0,
-    loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null, branch: { tenantId: "t1" } } },
+    loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null } },
   }
   const body = () => vi.mocked(sendMessage).mock.calls[0][0].vars.body as string
 
@@ -136,7 +135,7 @@ describe("actionSendWa — default charges", () => {
   })
 
   it("schedule due notice quotes the unpaid instalment + charges", async () => {
-    vi.mocked(prisma.repaymentSchedule.findUnique).mockResolvedValue(scheduleRow as any)
+    vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue(scheduleRow as any)
     vi.mocked(chargesOutstandingAt).mockResolvedValue(123_45)
     await actionSendWa({ ...rule, actionConfig: { templateKey: "payment_due_3d" } }, { type: "schedule", id: "S1" }, "t1", dispatchOptions)
     expect(chargesOutstandingAt).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", loanId: "L9" }, expect.any(Date))
@@ -144,7 +143,7 @@ describe("actionSendWa — default charges", () => {
   })
 
   it("schedule due notice, flag off: amount unchanged", async () => {
-    vi.mocked(prisma.repaymentSchedule.findUnique).mockResolvedValue(scheduleRow as any)
+    vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue(scheduleRow as any)
     await actionSendWa({ ...rule, actionConfig: { templateKey: "payment_due_3d" } }, { type: "schedule", id: "S1" }, "t1", dispatchOptions)
     expect(body()).toContain("A payment of *R\u00a01\u00a0000,00*")
   })
@@ -170,11 +169,26 @@ describe("actionSendWa", () => {
     })
   })
 
-  it("cross-tenant loan: no-ops before ever resolving a Contact", async () => {
-    vi.mocked(prisma.loan.findUnique).mockResolvedValue({
-      ...loanRow,
-      client: { ...loanRow.client, branch: { tenantId: "OTHER" } },
-    } as any)
+  it("loan lookup is scoped by tenantId in the query itself", async () => {
+    await actionSendWa(rule, { type: "loan", id: "L1" }, "t1", dispatchOptions)
+    expect(prisma.loan.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "L1", tenantId: "t1" } }))
+  })
+
+  it("schedule lookup is scoped by the loan's tenantId in the query itself", async () => {
+    vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue(null)
+    await actionSendWa({ ...rule, actionConfig: { templateKey: "payment_due_3d" } }, { type: "schedule", id: "S1" }, "t1", dispatchOptions)
+    expect(prisma.repaymentSchedule.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "S1", tenantId: "t1", loan: { tenantId: "t1" } } }))
+  })
+
+  it("client with no branch in the same tenant is messaged", async () => {
+    vi.mocked(prisma.loan.findFirst).mockResolvedValue({ ...loanRow, client: { ...loanRow.client } } as any)
+    const result = await actionSendWa(rule, { type: "loan", id: "L1" }, "t1", dispatchOptions)
+    expect(result).toMatchObject({ outcome: "sent" })
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("cross-tenant loan (not found under the tenant filter): no-ops before resolving a Contact", async () => {
+    vi.mocked(prisma.loan.findFirst).mockResolvedValue(null)
 
     const result = await actionSendWa(rule, { type: "loan", id: "L1" }, "t1", dispatchOptions)
 
@@ -195,7 +209,7 @@ describe("actionSendWa", () => {
 
   it("Contact has no WhatsApp/phone identity at all: fails closed, logs loudly", async () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({ id: "ct1", primaryWaJid: null, primaryPhone: null } as any)
-    vi.mocked(prisma.loan.findUnique).mockResolvedValue({
+    vi.mocked(prisma.loan.findFirst).mockResolvedValue({
       ...loanRow,
       client: { ...loanRow.client, phone: "", whatsapp: null },
     } as any)
@@ -265,11 +279,11 @@ describe("actionSendWa", () => {
   })
 
   it("schedule entity: resolves the Contact via the schedule's loan.client.id", async () => {
-    vi.mocked(prisma.repaymentSchedule.findUnique).mockResolvedValue({
+    vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue({
       dueDate: new Date("2026-08-01"),
       totalDue: 1000_00,
       totalPaid: 0,
-      loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null, branch: { tenantId: "t1" } } },
+      loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null } },
     } as any)
 
     await actionSendWa(
@@ -284,11 +298,11 @@ describe("actionSendWa", () => {
   })
 
   it("schedule payment_due_3d: the rendered WA body quotes the loan reference", async () => {
-    vi.mocked(prisma.repaymentSchedule.findUnique).mockResolvedValue({
+    vi.mocked(prisma.repaymentSchedule.findFirst).mockResolvedValue({
       dueDate: new Date("2026-08-01"),
       totalDue: 1000_00,
       totalPaid: 0,
-      loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null, branch: { tenantId: "t1" } } },
+      loan: { reference: "LN-SCHED-9", client: { id: "c1", firstName: "A", lastName: "B", phone: "+27821111111", whatsapp: null } },
     } as any)
 
     await actionSendWa(
@@ -313,7 +327,7 @@ describe("actionSendWa", () => {
       dispatchOptions,
     )).resolves.toEqual({ outcome: "failed", dispatchPhase: "PRE_RESERVATION", detail: "invalid_template" })
 
-    expect(prisma.loan.findUnique).not.toHaveBeenCalled()
+    expect(prisma.loan.findFirst).not.toHaveBeenCalled()
     expect(sendMessage).not.toHaveBeenCalled()
   })
 

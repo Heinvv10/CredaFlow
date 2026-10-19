@@ -207,26 +207,24 @@ export async function actionSendWa(
   let message: string | undefined
 
   if (entity.type === "loan") {
-    const loan = await prisma.loan.findUnique({
-      where: { id: entity.id },
+    const loan = await prisma.loan.findFirst({
+      where: { id: entity.id, tenantId },
       select: {
         reference: true,
         arrearsAmount: true,
         client: {
           select: {
             id: true, firstName: true, lastName: true, phone: true, whatsapp: true,
-            branch: { select: { tenantId: true } },
           },
         },
       },
     })
     if (!loan) return preReservationFailure("entity_not_found_or_cross_tenant")
+    // Tenant is enforced by the query above (Client.branchId is optional and no
+    // creation path sets it, so a branch check refused every real borrower).
     // The templates address a natural person; an entity borrower is not messaged here.
     const client = loan.client
     if (!client) return preReservationFailure("entity_borrower")
-    if (!client.branch || client.branch.tenantId !== tenantId) {
-      return preReservationFailure("entity_not_found_or_cross_tenant")
-    }
     clientId = client.id
     waPhone = client.whatsapp ?? client.phone
     const name = `${client.firstName} ${client.lastName}`
@@ -242,8 +240,8 @@ export async function actionSendWa(
     }
     else if (templateKey === "loan_paid_in_full") message = WA_TEMPLATES.loan_paid_in_full(name, loan.reference)
   } else if (entity.type === "schedule") {
-    const schedule = await prisma.repaymentSchedule.findUnique({
-      where: { id: entity.id },
+    const schedule = await prisma.repaymentSchedule.findFirst({
+      where: { id: entity.id, tenantId, loan: { tenantId } },
       select: {
         loanId: true,
         dueDate: true,
@@ -255,7 +253,6 @@ export async function actionSendWa(
             client: {
               select: {
                 id: true, firstName: true, lastName: true, phone: true, whatsapp: true,
-                branch: { select: { tenantId: true } },
               },
             },
           },
@@ -266,9 +263,6 @@ export async function actionSendWa(
     // The templates address a natural person; an entity borrower is not messaged here.
     const client = schedule.loan.client
     if (!client) return preReservationFailure("entity_borrower")
-    if (!client.branch || client.branch.tenantId !== tenantId) {
-      return preReservationFailure("entity_not_found_or_cross_tenant")
-    }
     clientId = client.id
     waPhone = client.whatsapp ?? client.phone
     const name = `${client.firstName} ${client.lastName}`
