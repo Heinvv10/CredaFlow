@@ -57,8 +57,29 @@ describe("POST /deals/[id]/documents", () => {
     expect((await upload("LEGAL_DOCUMENT")).status).toBe(201)
   })
 
-  it.each(["SIGNED_AGREEMENT", "PASSPORT"])("refuses %s with 400 and stores nothing", async (docType) => {
+  it("accepts VALUATION: an individual lessee's valuation has no other upload path", async () => {
+    expect(DEAL_EVIDENCE_DOC_TYPES).toContain("VALUATION")
+    expect((await upload("VALUATION")).status).toBe(201)
+  })
+
+  it.each(["SIGNED_AGREEMENT", "PASSPORT", "CIPC_REGISTRATION"])("refuses %s with 400 and stores nothing", async (docType) => {
     expect((await upload(docType)).status).toBe(400)
+    expect(m.store).not.toHaveBeenCalled()
+  })
+
+  it("files an entity lessee's document against the entity, not a client, and the deal", async () => {
+    m.dealFindFirst.mockResolvedValue({ id: "deal-1", entityId: "ent-1", clientId: null })
+    expect((await upload("SUPPLIER_INVOICE")).status).toBe(201)
+    expect(m.store).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "tenant-1", dealId: "deal-1", entityId: "ent-1", clientId: null,
+      uploader: expect.objectContaining({ type: "staff", id: "user-1" }),
+    }))
+  })
+
+  it("answers 404 for another tenant's deal, scoped by the caller's tenant, and stores nothing", async () => {
+    m.dealFindFirst.mockResolvedValue(null)
+    expect((await upload("SUPPLIER_INVOICE")).status).toBe(404)
+    expect(m.dealFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "deal-1", tenantId: "tenant-1" } }))
     expect(m.store).not.toHaveBeenCalled()
   })
 })
