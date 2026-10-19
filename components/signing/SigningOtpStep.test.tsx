@@ -23,6 +23,24 @@ async function mount(onVerified = vi.fn(), channels: ("EMAIL" | "WHATSAPP")[] = 
 afterEach(() => fetchMock.mockReset())
 
 describe("SigningOtpStep", () => {
+  it("marks the code field invalid and points it at the refusal alert only when told to", async () => {
+    const issue = async (alertId?: string) => {
+      let r!: ReactTestRenderer
+      await act(async () => {
+        r = create(<SigningOtpStep purpose="AGREEMENT" subjectId="app-1" documentSha256={DIGEST} channels={["EMAIL"]} onVerified={vi.fn()} refusedAlertId={alertId} />)
+      })
+      fetchMock.mockResolvedValueOnce(json(200, { challengeId: "otp-1", channel: "EMAIL", maskedDestination: "s***@example.test" }))
+      await act(async () => { button(r, /email/).props.onClick() })
+      return r.root.findByProps({ "aria-label": "One-time code" }).props
+    }
+    const marked = await issue("alert-x")
+    expect(marked["aria-invalid"]).toBe(true)
+    expect(marked["aria-describedby"]).toBe("alert-x")
+    const plain = await issue()
+    expect(plain["aria-invalid"]).toBeUndefined()
+    expect(plain["aria-describedby"]).toBeUndefined()
+  })
+
   it("offers exactly the channels it was given — never SMS", async () => {
     const r = await mount(vi.fn(), ["EMAIL"])
     const labels = r.root.findAll((n) => n.type === "button").map(text)

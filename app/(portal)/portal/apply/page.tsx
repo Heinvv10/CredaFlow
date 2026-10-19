@@ -64,8 +64,9 @@ export default async function PortalApplyPage() {
     po: boundsOf(productFor("purchase-order")),
   }
 
+  // No "you qualify" figures while overdue with this lender (PortalApplyClient shows why).
   const qualification =
-    dbClient && dbClient.monthlyIncome > 0
+    dbClient && dbClient.monthlyIncome > 0 && !ownLenderArrears
       ? computeQualification(dbClient.monthlyIncome, dbClient.monthlyExpenses, existingDebt, bounds)
       : null
 

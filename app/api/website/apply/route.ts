@@ -22,6 +22,7 @@ import { applicationSubmittedEmail, identityConflictNoticeEmail } from "@/lib/em
 import { getLenderIdentity } from "@/lib/config/identity"
 import { htmlToPlainText } from "@/lib/email/html-to-text"
 import { creditBlock } from "@/lib/clients/status"
+import { loadOwnLenderArrears, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { sendMessage } from "@/lib/messaging/send"
 import { getOrCreateAgentMessageTemplate } from "@/lib/messaging/agent-message-template"
 import { Prisma, type Contact } from "@prisma/client"
@@ -765,7 +766,12 @@ export async function POST(req: NextRequest) {
         const websiteBlock = confirmedExistingClient
           ? creditBlock(confirmedExistingClient)
           : { blocked: false as const }
-        if (confirmedExistingClient && websiteBlock.blocked) {
+        // Overdue with this lender: no new application from the form either
+        // (staff applications only warn). Refused the same quiet way.
+        const websiteArrears = confirmedExistingClient && !websiteBlock.blocked
+          ? await loadOwnLenderArrears(prisma, tenant.id, confirmedExistingClient.id)
+          : null
+        if (confirmedExistingClient && (websiteBlock.blocked || websiteArrears)) {
           // POPIA + treating-customers-fairly: don't reveal the blacklist or
           // deceased status in the response. Same pattern as
           // app/api/portal/applications/route.ts.
@@ -774,7 +780,11 @@ export async function POST(req: NextRequest) {
             userEmail: email || "website-system",
             action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
             entity: "LoanApplication",
-            newValue: { reason: websiteBlock.auditReason, clientId: confirmedExistingClient.id, source: "website_apply" },
+            newValue: {
+              reason: websiteBlock.blocked ? websiteBlock.auditReason : OWN_LENDER_ARREARS_REASON,
+              clientId: confirmedExistingClient.id,
+              source: "website_apply",
+            },
             ipAddress: ip,
           })
         } else {

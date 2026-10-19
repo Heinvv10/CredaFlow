@@ -21,7 +21,7 @@ Committed independent repros (edge tester; authored in its clone, cherry-picked)
 `lib/asset-finance/edge-round2-nca-quote.integration.test.ts`,
 `lib/asset-finance/edge-round3-gates.integration.test.ts`. One case stays an
 expected failure (`it.fails`): the starter lease typo "Lender base rate rate",
-recorded for the drafters.
+recorded for the drafters (fixed 2026-10-19; that case now passes).
 
 Needs the lender's legal sign-off (not code), per the legal reviewer's final
 round: meaning of lender text on the commercial variants; clause 7.13's

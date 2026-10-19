@@ -18,10 +18,10 @@ import { prose, texts } from "../nca/nca-wording.test-helpers"
 const PINNED: Record<string, string> = {
   "af.isa.commercial": "99337242e1014e6e62265185e669b1604b0183f453b463c97533a697621f2910",
   "af.isa.cpa": "ebe0d4c172fd638bca5073e05d47994761966fb927c2d58b3f6732636c909cec",
-  "af.lease.operating.commercial": "e9931d492c0fe7721a0c46e3b55f419b3c68f868ab532cb88f90a84983f1a324",
-  "af.lease.operating.cpa": "ceb7c35175c8a9676136a32efd26f9523a56234fb0d89e9de975f9525c48c817",
-  "af.lease.fml.commercial": "f8dad3ee3bc05d21df77e24ad6d0136714fbfee1c98d48ca12917f9fa335aef6",
-  "af.lease.fml.cpa": "4345ec25acc2995b1c427e398334208d794f150f15de99cad6278cdca86efeac",
+  "af.lease.operating.commercial": "a192a558e661f9ae482b0924a0c8569df4b3a97fe176d81588faecdab26f0814",
+  "af.lease.operating.cpa": "ed970f47d9aa03d50d3a4e75ed6ff2847ee067e6a0e4e631247534227c064c55",
+  "af.lease.fml.commercial": "45434a91e63b681cbbfe6f8f434cdabf7be5d589445c81f03b93b9886b17a596",
+  "af.lease.fml.cpa": "59323cd3efe744ef69a4372a6368d450f91f5c11c166e2471d7abad648f5e73e",
   "af.nca.instalment_sale": "edb5b49d88cb547eb8f105972a9b619f14c58e490fdf0c2b1225a820ae2e75bb",
   "af.nca.finance_lease": "c868e66750d2a71489b4f819f6fa69550690f9df71cd7f731735774bfb72cff2",
   "af.suretyship.commercial": "3075411b27f65252533ecefe9ba33bd534370ad2e219057359387df408ff2568",
@@ -30,8 +30,8 @@ const PINNED: Record<string, string> = {
 }
 
 describe("protected-output fingerprints", () => {
-  it("are pinned for SYSTEM_REVISION 2026-10-18.1", async () => {
-    expect(SYSTEM_REVISION).toBe("2026-10-18.1")
+  it("are pinned for SYSTEM_REVISION 2026-10-19.1", async () => {
+    expect(SYSTEM_REVISION).toBe("2026-10-19.1")
     const current = Object.fromEntries(await Promise.all(ALL_TEMPLATE_KEYS.map(async (key) => [key, await systemFingerprint(key)] as const)))
     expect(current).toEqual(PINNED)
   }, 60_000)

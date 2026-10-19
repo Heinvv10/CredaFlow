@@ -22,12 +22,15 @@ export function SigningOtpStep({
   documentSha256,
   channels,
   onVerified,
+  refusedAlertId,
 }: {
   purpose: "AGREEMENT" | "DEBIT_MANDATE" | "DOCUMENT" | "DEAL_DOCUMENT"
   subjectId: string
   documentSha256: string | null
   channels: SigningOtpChannel[]
   onVerified: (challengeId: string | null) => void
+  /** Set while the form's refusal alert is about this step: marks the step and code field invalid. */
+  refusedAlertId?: string
 }) {
   const t = useT("portalSigning")
   const channelName = (c: SigningOtpChannel) => t(c === "EMAIL" ? "channelEmail" : "channelWhatsapp")
@@ -90,7 +93,7 @@ export function SigningOtpStep({
   }
 
   return (
-    <section className="space-y-4 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-6 text-[var(--cf-text)]">
+    <section aria-describedby={refusedAlertId} className="space-y-4 rounded-lg border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-panel)] p-6 text-[var(--cf-text)]">
       <div className="flex items-start gap-3">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--cf-brand)]" />
         <div>
@@ -131,6 +134,8 @@ export function SigningOtpStep({
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   aria-label={t("otpAria")}
+                  aria-invalid={refusedAlertId ? true : undefined}
+                  aria-describedby={refusedAlertId}
                   placeholder="123456"
                   className="w-40 rounded border border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)] px-3 py-2 tracking-[0.3em] text-[var(--cf-text)] focus:border-[var(--cf-brand)] focus:outline-none"
                 />

@@ -10,6 +10,8 @@ import { useLocale, useT } from "@/lib/i18n/client"
 import { formatLongDay } from "@/lib/i18n/format"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
+const DECLARATIONS_ALERT_ID = "agreement-declarations-alert"
+const REFUSAL_ALERT_ID = "agreement-refusal-alert"
 const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
 
 interface Props {
@@ -96,9 +98,9 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const [signMode, setSignMode] = useState<SignMode>("draw")
   const [typedName, setTypedName] = useState("")
   const [hasDrawn, setHasDrawn] = useState(false)
-  // Set once the consumer presses Sign with declarations unticked; the message
-  // clears itself as soon as the last one is ticked.
-  const [declarationsAttempted, setDeclarationsAttempted] = useState(false)
+  // What the LAST click on Sign was refused for. Each alert shows only after a
+  // click that failed on that reason, and clears itself once it is fixed.
+  const [refusal, setRefusal] = useState<"declarations" | "signature" | "otp" | null>(null)
   const checkRefs = useRef<Array<HTMLInputElement | null>>([])
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -107,6 +109,14 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const allChecked = checks.every(Boolean)
   const hasSignature = signMode === "type" ? typedName.trim().length > 2 : hasDrawn
   const mandateRequired = repaymentMethod !== "EFT"
+
+  // A refusal is over once its reason is fixed; un-fixing it later must not
+  // bring the alert back without another click.
+  const refusalResolved =
+    (refusal === "declarations" && allChecked) ||
+    (refusal === "signature" && hasSignature) ||
+    (refusal === "otp" && otpSatisfied)
+  if (refusalResolved) setRefusal(null)
 
   // Canvas drawing
   useEffect(() => {
@@ -179,14 +189,17 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const toggle = (i: number) => setChecks(prev => prev.map((v, idx) => idx === i ? !v : v))
 
   const handleSign = async () => {
-    setDeclarationsAttempted(true)
     if (!allChecked) {
+      setRefusal("declarations")
       const first = checkRefs.current.find((el, i) => el && !checks[i])
       first?.focus()
-      first?.scrollIntoView?.({ block: "center", behavior: "smooth" })
+      const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      first?.scrollIntoView?.({ block: "center", behavior: reduceMotion ? "auto" : "smooth" })
       return
     }
-    if (!hasSignature || !otpSatisfied) return
+    if (!hasSignature) { setRefusal("signature"); return }
+    if (!otpSatisfied) { setRefusal("otp"); return }
+    setRefusal(null)
     setSigning(true)
     try {
       let signatureData: string | undefined
@@ -237,7 +250,10 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   }
 
   const labels = AGREEMENT_DECLARATIONS.map(d => d.text)
-  const unticked = labels.filter((_, i) => !checks[i])
+  const untickedCount = checks.filter(v => !v).length
+  const showSignatureAlert = refusal === "signature" && !hasSignature
+  const showOtpAlert = refusal === "otp" && !otpSatisfied
+  const showDeclarationsAlert = refusal === "declarations" && untickedCount > 0
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
@@ -273,26 +289,23 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
       <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
         <p className="font-semibold text-gray-900">{t("declarationHeading")}</p>
         {labels.map((label, i) => (
-          <label key={i} className="flex items-start gap-3 cursor-pointer">
+          <label key={i} className={`flex items-start gap-3 cursor-pointer ${showDeclarationsAlert && !checks[i] ? "rounded-md border-l-4 border-red-500 bg-red-50 pl-2" : ""}`}>
             <input
               type="checkbox"
               ref={(el) => { checkRefs.current[i] = el }}
               checked={checks[i]}
               onChange={() => toggle(i)}
+              aria-invalid={showDeclarationsAlert && !checks[i] ? true : undefined}
+              aria-describedby={showDeclarationsAlert && !checks[i] ? DECLARATIONS_ALERT_ID : undefined}
               className="mt-1 h-4 w-4 rounded border-gray-300"
             />
             <span className="text-sm text-gray-700">{label}</span>
           </label>
         ))}
-        {declarationsAttempted && unticked.length > 0 && (
-          <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-            <p className="font-semibold">
-              Please tick {unticked.length === 1 ? "this declaration" : "these declarations"} before signing:
-            </p>
-            <ul className="mt-1 list-disc pl-5">
-              {unticked.map(text => <li key={text}>{text}</li>)}
-            </ul>
-          </div>
+        {showDeclarationsAlert && (
+          <p id={DECLARATIONS_ALERT_ID} role="status" aria-live="polite" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-800">
+            {untickedCount === 1 ? "1 declaration still needs to be ticked" : `${untickedCount} declarations still need to be ticked`}
+          </p>
         )}
       </div>
 
@@ -330,6 +343,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg overflow-hidden" style={{ touchAction: "none" }}>
               <canvas
                 ref={canvasRef}
+                aria-describedby={showSignatureAlert ? REFUSAL_ALERT_ID : undefined}
                 width={700}
                 height={160}
                 className="w-full cf-signature-pad cursor-crosshair"
@@ -364,6 +378,8 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
               value={typedName}
               onChange={(e) => setTypedName(e.target.value)}
               placeholder={t("typePlaceholder")}
+              aria-invalid={showSignatureAlert ? true : undefined}
+              aria-describedby={showSignatureAlert ? REFUSAL_ALERT_ID : undefined}
               className="w-full border border-gray-300 rounded-lg px-4 py-3 font-['Georgia'] italic text-xl focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
             />
             <p className="text-xs text-gray-400">{t("dateLine", { date: formatLongDay(new Date(), locale) })}</p>
@@ -379,12 +395,13 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           documentSha256={agreementDocumentSha256}
           channels={signingOtp.channels}
           onVerified={setOtpChallengeId}
+          refusedAlertId={showOtpAlert ? REFUSAL_ALERT_ID : undefined}
         />
       )}
 
-      {declarationsAttempted && allChecked && (!hasSignature || !otpSatisfied) && (
-        <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          {!hasSignature ? "Please add your signature above before signing." : "Please verify the one-time code above before signing."}
+      {(showSignatureAlert || showOtpAlert) && (
+        <p id={REFUSAL_ALERT_ID} role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          {refusal === "signature" ? "Please add your signature above before signing." : "Please verify the one-time code above before signing."}
         </p>
       )}
 

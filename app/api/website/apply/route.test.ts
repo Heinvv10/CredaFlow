@@ -28,6 +28,7 @@ const notifyPriorLeadDuplicatesMock = vi.fn()
 const createNotificationThrottleMock = vi.fn()
 const deleteNotificationThrottleMock = vi.fn()
 const queryRawMock = vi.fn()
+const loadOwnLenderDebtsMock = vi.fn()
 const transactionMock = vi.fn()
 const txClientDocumentFindManyMock = vi.fn()
 const txClientDocumentUpdateManyMock = vi.fn()
@@ -61,7 +62,7 @@ const tx = {
 // lib/affordability/own-lender-debt.integration.test.ts.
 vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
-  loadOwnLenderDebts: async () => ({ lenderNames: [], loans: [] }),
+  loadOwnLenderDebts: (...a: unknown[]) => loadOwnLenderDebtsMock(...a),
   ownAwareSubmissionSnapshot: async (_db: unknown, _tenantId: string, _clientId: string, args: Parameters<typeof import("@/lib/affordability/snapshot").createSubmissionAffordabilitySnapshot>[0]) =>
     (await import("@/lib/affordability/snapshot")).createSubmissionAffordabilitySnapshot(args),
 }))
@@ -217,6 +218,7 @@ const personalProduct = {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  loadOwnLenderDebtsMock.mockResolvedValue({ lenderNames: [], loans: [] })
   transactionMock.mockImplementation((cb: (client: typeof tx) => Promise<unknown>) => cb(tx))
   queryRawMock.mockResolvedValue([{ id: "locked" }])
   vi.unstubAllEnvs()
@@ -817,6 +819,31 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
     const auditActions = createAuditLogMock.mock.calls.map((c) => c[0].data.action)
     expect(auditActions).toContain("APPLICATION_SUBMISSION_BLOCKED")
+  })
+
+  it("a client overdue on a loan with this lender does NOT get a new LoanApplication, and the block is audited", async () => {
+    const client = { id: "client_arr", email: "real.client@example.com", idNumber: "8001015000086", portalPassword: null, blacklisted: false }
+    findUniqueClientMock.mockResolvedValue(client)
+    updateClientMock.mockResolvedValue(client)
+    findFirstLoanProductMock.mockResolvedValue({ id: "prod_1", productType: "PERSONAL", active: true, minAmount: 100000, maxAmount: 10000000, minTermDays: 30, maxTermDays: 90 })
+    loadOwnLenderDebtsMock.mockResolvedValue({
+      lenderNames: [],
+      loans: [{ id: "loan-1", reference: "LN-SYN-1", daysInArrears: 60, arrearsAmount: 205_834 }],
+    })
+
+    const res = await POST(buildReq(withIdentity))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.applicationId).toBeNull()
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+    expect(loadOwnLenderDebtsMock).toHaveBeenCalledWith(expect.anything(), "tenant_acme", "client_arr")
+    expect(createAuditLogMock.mock.calls.map((c) => c[0].data)).toContainEqual(expect.objectContaining({
+      action: "APPLICATION_SUBMISSION_BLOCKED",
+      entity: "LoanApplication",
+      tenantId: "tenant_acme",
+      newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "client_arr", source: "website_apply" }),
+    }))
   })
 
   // PO funding is business credit tied to a confirmed order the website form

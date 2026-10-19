@@ -97,15 +97,23 @@ describe("POST /api/asset-finance/assets/[id]/valuations", () => {
   })
 
   it("once deals reference the asset, requires the document to belong to one of their entities", async () => {
-    m.findDeals.mockResolvedValue([{ entityId: "ent-a" }, { entityId: "ent-b" }, { entityId: "ent-a" }])
+    m.findDeals.mockResolvedValue([{ entityId: "ent-a", clientId: null }, { entityId: "ent-b", clientId: null }, { entityId: "ent-a", clientId: null }])
     expect((await post({ ...valuation, documentId: "doc-1" })).status).toBe(201)
     expect(m.findDocument.mock.calls[0][0].where).toEqual({
-      id: "doc-1", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION", entityId: { in: ["ent-a", "ent-b"] },
+      id: "doc-1", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION", OR: [{ entityId: "ent-a" }, { entityId: "ent-b" }],
+    })
+  })
+
+  it("scopes an individual lessee's deal to that client, never to documents without an entity", async () => {
+    m.findDeals.mockResolvedValue([{ entityId: null, clientId: "client-a" }])
+    expect((await post({ ...valuation, documentId: "doc-1" })).status).toBe(201)
+    expect(m.findDocument.mock.calls[0][0].where).toEqual({
+      id: "doc-1", tenantId: "tenant-1", deletedAt: null, docType: "VALUATION", OR: [{ clientId: "client-a", entityId: null }],
     })
   })
 
   it("refuses another borrower's document (or a non-valuation one) 400, recording nothing", async () => {
-    m.findDeals.mockResolvedValue([{ entityId: "ent-a" }])
+    m.findDeals.mockResolvedValue([{ entityId: "ent-a", clientId: null }])
     m.findDocument.mockResolvedValue(null)
     const res = await post({ ...valuation, documentId: "doc-other" })
     expect(res.status).toBe(400)

@@ -89,9 +89,32 @@ describe("portal apply page", () => {
     }])
     await renderPage()
     expect(props().client.existingDebt).toBe(87_000 + 102_917)
-    expect(props().qualification.ndi).toBe(1_800_000 - 800_000 - 87_000 - 102_917)
+    expect(props().qualification).toBeNull() // no "you qualify" figures while overdue
     expect(props().ownLenderArrears).toEqual({ days: 60, amountCents: 205_834 })
     expect(h.loanFindMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", clientId: "c1" })
+  })
+
+  it("offers a client in arrears no qualification figures", async () => {
+    h.loanFindMany.mockResolvedValue([{
+      id: "loan-1", clientId: "c1", reference: "LN-SYN-1", status: "ACTIVE", outstandingPrincipal: 500_000,
+      daysInArrears: 60, arrearsAmount: 205_834,
+      repaymentSchedule: [{ totalDue: 120_000 }, { totalDue: 102_917 }],
+    }])
+    await renderPage()
+    expect(props().ownLenderArrears).toEqual({ days: 60, amountCents: 205_834 })
+    expect(props().qualification).toBeNull()
+  })
+
+  it("keeps the qualification when the loader falls back (arrears unknown)", async () => {
+    h.approvedFindMany.mockResolvedValue([{ id: "a1", reference: "APP-SYN-1", approvedAmount: 500_000, affordabilityResult: null }])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await renderPage()
+    } finally {
+      warn.mockRestore()
+    }
+    expect(props().ownLenderArrears).toBeNull()
+    expect(props().qualification).not.toBeNull()
   })
 
   it("changes nothing for a client with no loan with this lender", async () => {

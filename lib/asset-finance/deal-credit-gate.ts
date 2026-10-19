@@ -30,7 +30,7 @@ export async function dealCreditGate(tx: RegimeTx, tenantId: string, dealId: str
   const deal = await tx.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId },
     select: {
-      applicationId: true, entityId: true, clientId: true, approvalExceptions: true,
+      applicationId: true, entityId: true, clientId: true, loanId: true, approvalExceptions: true,
       application: { select: { product: { select: { productType: true } } } },
     },
   })

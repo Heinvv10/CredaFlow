@@ -469,3 +469,73 @@ suite("base demo seed as another demo lender (DEMO_LENDER=fairscore)", () => {
     expect(hits).toEqual([])
   })
 })
+
+suite("staging seed itemised budgets", () => {
+  const admin = RUN ? new PrismaClient() : null
+  const created: string[] = []
+  let fresh: ThrowawayDb | undefined
+
+  beforeAll(async () => {
+    if (!admin) throw new Error("RUN_SEED_DB_IT=1 is required")
+    fresh = await createThrowawayDb(admin, created)
+    runSeed(fresh.url)
+  }, 120_000)
+
+  afterAll(async () => {
+    await dropThrowawayDbs(admin, created, [fresh])
+  })
+
+  const total = (row: Record<string, unknown>) =>
+    ["housing", "transport", "food", "education", "insurance", "clothing", "entertainment", "medical", "other"]
+      .reduce((sum, key) => sum + (row[key] as number), 0)
+
+  it("makes each seeded client's budget sum to their stored expenses, repairs a bad row, and never touches an app-created client", async () => {
+    if (!fresh) throw new Error("RUN_SEED_DB_IT=1 is required")
+    const { prisma, url } = fresh
+    const tenant = await prisma.tenant.findUniqueOrThrow({ where: { slug: "acme" } })
+    // App-created references (CLI-<base36>) sort before CLI-SEED-0001. Its
+    // budget deliberately does not sum to its expenses: a re-seed must not "repair" it.
+    const appClient = await prisma.client.create({
+      data: {
+        tenantId: tenant.id, reference: "CLI-AAAAAAAA", idNumber: "9001015000087",
+        firstName: "App", lastName: "Created", email: "app.created@acme-lending.invalid", phone: "+27700000002",
+        monthlyExpenses: 500_000,
+      },
+    })
+    await prisma.clientExpenseBreakdown.create({ data: { clientId: appClient.id, housing: 123_456 } })
+
+    // Expenses are the ones the base seed stored from its CLIENTS list.
+    const seeded = await prisma.client.findMany({
+      where: { tenantId: tenant.id, reference: { startsWith: "CLI-SEED-" }, NOT: { reference: { startsWith: "CLI-SEED-AF-" } } },
+      orderBy: { reference: "asc" },
+      take: 3,
+    })
+    expect(seeded).toHaveLength(3)
+    expect(seeded.every((c) => c.monthlyExpenses > 0)).toBe(true)
+
+    const assertBudgets = async () => {
+      for (const client of seeded) {
+        const row = await prisma.clientExpenseBreakdown.findUniqueOrThrow({ where: { clientId: client.id } })
+        expect(total(row)).toBe(client.monthlyExpenses)
+      }
+      const app = await prisma.clientExpenseBreakdown.findUniqueOrThrow({ where: { clientId: appClient.id } })
+      expect(app.housing).toBe(123_456)
+      expect(total(app)).toBe(123_456)
+      // No other seed row attaches to the app-created client either.
+      const where = { clientId: appClient.id }
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: appClient.id } })).branchId).toBeNull()
+      expect(await prisma.crossSellOpportunity.count({ where })).toBe(0)
+      expect(await prisma.complaint.count({ where })).toBe(0)
+      expect(await prisma.dataSubjectRequest.count({ where })).toBe(0)
+      expect(await prisma.existingDebtObligation.count({ where })).toBe(0)
+    }
+
+    runStagingSeed(url)
+    await assertBudgets()
+
+    // Repair path: a row an older seed left behind, then a second run.
+    await prisma.clientExpenseBreakdown.update({ where: { clientId: seeded[0].id }, data: { housing: 650_000, other: 90_000 } })
+    runStagingSeed(url)
+    await assertBudgets()
+  }, 180_000)
+})
