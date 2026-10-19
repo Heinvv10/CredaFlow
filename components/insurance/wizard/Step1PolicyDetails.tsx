@@ -4,7 +4,7 @@ import { MotorRiskFields, PropertyRiskFields } from "./RiskFields"
 import { ProductPicker } from "./ProductPicker"
 import { INSURANCE_STEP_LABELS, TYPE_LABELS, inp, lbl } from "./constants"
 import type { Advisor, Client, PolicyDraftData, Product } from "./types"
-import { formatZAR } from "@/lib/utils"
+import { formatRands, formatZAR } from "@/lib/utils"
 import { premiumCommission } from "@/lib/insurance/commission"
 
 interface Props {
@@ -178,7 +178,7 @@ export function Step1PolicyDetails(props: Props) {
                 onClick={applyRatedPremium}
                 className="mt-1 text-[11px] font-semibold text-[#4F46E5] underline"
               >
-                Use R{ratedPremium} (rate table premium)
+                Use {formatRands(Number(ratedPremium))} (rate table premium)
               </button>
             )}
           </div>

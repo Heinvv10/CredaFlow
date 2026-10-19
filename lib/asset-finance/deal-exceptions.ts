@@ -95,7 +95,8 @@ function bureauGap(latest: DealBureauResult | undefined): string | null {
 export async function loadDealExceptions(
   db: DealExceptionsDb,
   tenantId: string,
-  deal: { applicationId: string; entityId: string | null; clientId: string | null },
+  /** `loanId` is the loan the deal itself booked: it is this deal's own exposure, not an existing one. */
+  deal: { applicationId: string; entityId: string | null; clientId: string | null; loanId?: string | null },
 ): Promise<DealExceptions> {
   const people = deal.entityId === null ? [] : await db.entityRelationship.findMany({
     where: { tenantId, entityId: deal.entityId, active: true, role: { in: PARTY_ROLES } },
@@ -127,6 +128,7 @@ export async function loadDealExceptions(
     where: {
       tenantId,
       status: { in: OPEN_OR_DEFAULTED },
+      ...(deal.loanId ? { id: { not: deal.loanId } } : {}),
       OR: [
         ...(clientIds.length > 0 ? [{ clientId: { in: clientIds } }] : []),
         ...(deal.entityId ? [{ entityId: deal.entityId }] : []),

@@ -130,9 +130,12 @@ suite.sequential("issuing asset-finance documents from lender templates (real Po
     await draftApprovePublish(database(), a.tenantId, res.id, starter, a.adminA)
   })
 
-  it("issues every document from the lender's published version, reproducibly, with the lender's own term and no mark for a legal approval", async () => {
+  it("issues every document from the lender's published version, reproducibly, with the lender's own term and no mark for a legal approval, after its approver is deactivated", async () => {
     const isa = await tpl(a, "af.isa.commercial")
     const published = await draftApprovePublish(database(), a.tenantId, isa.id, edited("af.isa.commercial", "ALPHA"), a.adminA)
+    // The approval stands once recorded: deactivating the approver does not withdraw it.
+    const { approvedById } = await database().documentTemplateVersion.findUniqueOrThrow({ where: { id: published } })
+    expect((await database().user.findUniqueOrThrow({ where: { id: approvedById! } })).active).toBe(false)
     expect((await prepare(a, a.dealId)).status).toBe(200)
     expect(await expectReproducibleIssuances(database(), a.tenantId, a.dealId)).toEqual([
       "af.isa.commercial", "af.resolution.standard", "af.suretyship.commercial", "af.suretyship.commercial", "af.suretyship.commercial",

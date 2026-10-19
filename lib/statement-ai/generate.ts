@@ -57,7 +57,7 @@ export function buildPlans(
   clientName: string | null,
 ): { summary: Planned; explanations: Explanation[] } {
   const built = summaryFacts(insights, rows, flags, clientName)
-  const summary: Planned = { kind: "SUMMARY", flagCode: "", promptVersion: SUMMARY_PROMPT_VERSION, built, prompt: summaryPrompt(built.facts), maxTokens: 200 }
+  const summary: Planned = { kind: "SUMMARY", flagCode: "", promptVersion: SUMMARY_PROMPT_VERSION, built, prompt: summaryPrompt(built.facts), maxTokens: 600 }
   const refOf = new Map(insights.statements.map((s, i) => [s.documentId, `S${i + 1}`]))
   const explanations: Explanation[] = []
   // One explanation per flag: one code can be raised several times (each counterparty, each month).

@@ -1,7 +1,8 @@
 "use client"
 
 import Image from "next/image"
-import { arrivalPlan, formatRands, type ParsedQuote } from "@/lib/insurance/quickquote-bridge"
+import { arrivalPlan, type ParsedQuote } from "@/lib/insurance/quickquote-bridge"
+import { formatRands } from "@/lib/utils"
 
 /**
  * Quotes landing, one insurer at a time, then re-sorting into price order.
@@ -95,7 +96,7 @@ export function QuickQuoteArrival({ quotes, panelComplete }: Props) {
           <span className="cf-arrival-name">{slot.quote.insurer}</span>
           {slot.isBest && <span className="cf-arrival-badge">Best price</span>}
           <span className="cf-arrival-premium">
-            {slot.quote.premium > 0 ? formatRands(slot.quote.premium, 2) : slot.quote.premiumLabel}
+            {slot.quote.premium > 0 ? formatRands(slot.quote.premium) : slot.quote.premiumLabel}
           </span>
         </li>
       ))}

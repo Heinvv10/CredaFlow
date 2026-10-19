@@ -22,6 +22,7 @@
  */
 
 import type { QuickQuoteView } from "./quickquote-config"
+import { formatRands } from "@/lib/utils"
 
 /** Their form controls, by `name` (or `id` where they use one). */
 export const FIELD_NAMES = {
@@ -501,8 +502,15 @@ export function summaryValue(
   const kind = FIELD_KINDS[field]
   if (kind.control === "checkbox") return (answer ?? "") !== "" ? "Yes" : "No"
   if (!answer) return "—"
-  if (kind.control === "number") return formatRands(Number(answer))
+  if (kind.control === "number") return formatRands(Number(answer), { whole: true })
   return opts?.find((o) => o.value === answer)?.label ?? answer
+}
+
+/** The range sentence shown under an amount field, in the house format (whole rands). */
+export function amountRangeHint(field: QuickQuoteField): string {
+  const kind = FIELD_KINDS[field]
+  if (kind.control !== "number") throw new Error(`${field} is not a number field`)
+  return `Between ${formatRands(kind.min, { whole: true })} and ${formatRands(kind.max, { whole: true })}`
 }
 
 /**
@@ -728,16 +736,6 @@ export function tidyInsurerName(title: string): string {
     if (head === next) return words.slice(k).join(" ")
   }
   return words.join(" ")
-}
-
-/**
- * Rands, matching the format FSP print beside them.
- *
- * Intl's ZAR output uses a non-breaking space ("R 184"), which sits badly next
- * to their own "R730.43" in the same row.
- */
-export function formatRands(amount: number, decimals = 0): string {
-  return `R${amount.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, " ")}`
 }
 
 export type QuoteSort = "cheapest" | "dearest"

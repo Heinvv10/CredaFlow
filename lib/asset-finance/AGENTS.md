@@ -49,3 +49,6 @@
   issued version and lender identity, not the current ones.
 - The legacy flag `assetFinanceLegalWordingApproved` governs only the NCA
   quotation and the system notices; it approves no template document.
+- An issuance's input snapshot is personal data kept as long as its PDF; a
+  purge must keep `ASSET_NCA_QUOTE_ISSUED` audit rows (DB-immutable). See
+  SPEC.md §4 in docs/asset-finance/evidence/lender-owned-templates/.

@@ -35,7 +35,17 @@ export interface ExtractedField {
 export type ExtractedFields = Record<string, ExtractedField>
 
 // headers can hold VLM_API_KEY: never log or serialise a VlmConfig.
-type VlmConfig = { url: string; model: string; headers: Record<string, string> }
+type VlmConfig = { url: string; model: string; headers: Record<string, string>; hosted: boolean }
+
+/**
+ * The temperature to send, if any: Anthropic's current models answer 400
+ * "temperature is deprecated" to any value, so a hosted call sends none. That
+ * covers every hosted endpoint, not only Anthropic's: hosted use is demo-only,
+ * and Anthropic's is the one in use; a self-hosted model keeps its temperature.
+ */
+export function sampling(config: VlmConfig, temperature: number): { temperature?: number } {
+  return config.hosted ? {} : { temperature }
+}
 
 function isPlaceholder(value: string | undefined): boolean {
   if (!value) return true
@@ -77,7 +87,7 @@ export function getVlmConfig(): VlmConfig | null {
     if (!hostedVlmAllowed(apiUrl!)) return null
     headers.Authorization = `Bearer ${apiKey}`
   }
-  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model!, headers }
+  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model!, headers, hosted: !!apiKey }
 }
 
 /** SA-context-aware VLM prompts per document type */
@@ -927,7 +937,7 @@ export async function extractDocumentData(opts: {
           },
         ],
         max_tokens: 1000,
-        temperature: 0.1,
+        ...sampling(vlmConfig, 0.1),
       }),
     })
 

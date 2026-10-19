@@ -129,6 +129,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
       createdAt: true,
       baseInstalmentCents: true,
       entityId: true,
+      loanId: true,
       decision: true,
       decisionReasons: true,
       decidedById: true,
@@ -207,7 +208,7 @@ export async function loadDealDetail(tenantId: string, dealId: string): Promise<
     sureties: people.filter((p) => p.role === "SURETY").map(toPerson),
     directorsAndTrustees: people.filter((p) => p.role !== "SURETY").map(toPerson),
     bureau: await loadDealBureauResults(tenantId, app.id),
-    exceptions: await loadDealExceptions(prisma, tenantId, { applicationId: app.id, entityId: deal.entityId, clientId: deal.client?.id ?? null }),
+    exceptions: await loadDealExceptions(prisma, tenantId, { applicationId: app.id, entityId: deal.entityId, clientId: deal.client?.id ?? null, loanId: deal.loanId }),
     decision: {
       decision: deal.decision,
       reasons: deal.decisionReasons,

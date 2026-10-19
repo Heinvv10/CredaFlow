@@ -32,3 +32,10 @@ describe("QuickQuoteArrival insurer logo", () => {
     expect(html).not.toContain("<img")
   })
 })
+
+describe("QuickQuoteArrival money format", () => {
+  it("prints the premium in the house money format", () => {
+    const html = renderToStaticMarkup(<QuickQuoteArrival quotes={[quote]} panelComplete={false} />)
+    expect(html).toContain("R 512.00")
+  })
+})

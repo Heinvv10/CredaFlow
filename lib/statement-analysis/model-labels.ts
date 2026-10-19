@@ -18,7 +18,7 @@
  */
 import { createHash } from "node:crypto"
 import { counterpartyKey } from "@/lib/credit-checks/undisclosed-debt"
-import { getVlmConfig, parseVlmResponse } from "@/lib/vlm-extract"
+import { getVlmConfig, parseVlmResponse, sampling } from "@/lib/vlm-extract"
 import { isLiving, LIVING_CATEGORIES, type Category } from "./categories"
 import { VlmUnavailableError } from "./vlm-reader"
 
@@ -247,7 +247,7 @@ async function labelOnce(config: NonNullable<ReturnType<typeof getVlmConfig>>, d
           model: config.model,
           messages: [{ role: "user", content: labelPrompt(batch) }],
           max_tokens: 20 * batch.length + 200,
-          temperature: 0,
+          ...sampling(config, 0),
         }),
       })
     } catch (err) {

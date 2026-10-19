@@ -194,6 +194,24 @@ prepared before this migration (no issuance) stay downloadable; an unsigned
 legacy row cannot be e-signed ("prepare the documents again"). Downloads serve
 stored bytes (unchanged). Suretyships stay wet-ink only.
 
+**Retention and erasure.** The input snapshot is personal data (borrower, signatory
+and surety names, ID numbers, addresses): a second copy of what the PDF prints.
+Both files go through `lib/storage` `saveFile`, so they are encrypted at rest
+exactly when other uploads are (`UPLOADS_ENC_KEY`). A superseded preparation's
+files are deleted. A current or signed issuance keeps both for as long as the
+agreement itself, because they prove what was presented and signed (the
+lender's record-keeping obligations, including the NCA's where it applies).
+CredaFlow has no automated DSAR erasure or retention purge for any stored
+upload or PDF; a `DELETION` request is handled by
+the lender. The database lets only an unsigned issuance's paths be cleared,
+when it is superseded (`guardAssetDocumentIssuance`, `AssetDocumentIssuance_shape`),
+so erasing a signed issuance's files after its retention period first needs a
+migration that permits clearing both paths together (hashes, version and
+approval stay). Any future purge must treat the
+`ASSET_NCA_QUOTE_ISSUED` audit rows as records, not logs: the database refuses
+their update or deletion (`AuditLog_nca_quote_issued_immutable`), and the NCA
+agreement's quote gate reads them.
+
 ## 5. Schema / compatibility
 
 Additive only: new enum value `ASSET_FINANCE` (own migration), new enum

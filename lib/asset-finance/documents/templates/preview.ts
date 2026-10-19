@@ -21,7 +21,7 @@ import type { LeaseDocumentTerms } from "../lease/lease-document-data"
 import { renderNcaAssetAgreement } from "../nca/agreement-pdf"
 import type { NcaAssetDocumentData } from "../nca/types"
 import { renderDealDocument } from "../render"
-import { syntheticDealDocumentData } from "../synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "../synthetic-deal"
 import type { AssetTemplateContent } from "./content"
 import { parseTemplateKey } from "./families"
 
