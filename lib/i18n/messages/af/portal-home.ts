@@ -2,7 +2,7 @@
 import type { Catalog } from "../../catalog"
 
 export const portalHome: Catalog["portalHome"] = {
-  currentAccountAmount: "Current account amount",
+  currentAccountAmount: "Huidige rekeningbedrag",
   accountPrincipalDefinition: "Principal still owed across your open loans. Future interest, fees and premiums are excluded; this is not a settlement quote.",
   accountLiveDefinition: "Includes current calculated settlement or contractual amounts and default charges across your open loans. Open each loan for its principal, scheduled amounts and settlement basis.",
   noClientAccount: "Geen kliëntrekening is vir hierdie e-posadres gevind nie.",

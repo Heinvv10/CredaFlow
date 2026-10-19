@@ -51,4 +51,17 @@ describe("portal loans page per locale", () => {
       expect(html).not.toContain("View Schedule")
     }
   })
+
+  // Row 118: the seeded product name stayed English under Afrikaans.
+  it("translates a default product name in af and leaves en alone", async () => {
+    loanFindMany.mockResolvedValue([{
+      id: "l1", reference: "LN-1", status: "ACTIVE", startDate: new Date("2026-10-05T10:00:00Z"),
+      outstandingPrincipal: 166_900, totalRepayable: 216_900, nextPaymentDate: new Date("2026-11-01T10:00:00Z"),
+      product: { name: "Personal Loan" }, payments: [],
+    }])
+    const af = await render("af")
+    expect(af).toContain("Persoonlike lening")
+    expect(af).not.toContain("Personal Loan")
+    expect(await render("en")).toContain("Personal Loan")
+  })
 })

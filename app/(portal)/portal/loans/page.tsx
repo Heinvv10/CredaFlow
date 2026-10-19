@@ -14,7 +14,7 @@ import { cashReceivedCents } from "@/lib/payments/waiver"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
-import { statusLabel } from "@/lib/i18n/portal-labels"
+import { productNameLabel, statusLabel } from "@/lib/i18n/portal-labels"
 
 export default async function PortalLoansPage() {
   const session = await auth()
@@ -75,7 +75,7 @@ export default async function PortalLoansPage() {
             <DataPanel
               key={loan.id}
               title={loan.reference}
-              description={t("loanCardDesc", { product: loan.product.name, date: formatDay(loan.startDate, locale) })}
+              description={t("loanCardDesc", { product: productNameLabel(l, loan.product.name), date: formatDay(loan.startDate, locale) })}
               actions={<Badge variant={getStatusTone(loan.status)}>{statusLabel(l, loan.status)}</Badge>}
             >
               <div className="grid grid-cols-2 gap-3 text-sm">

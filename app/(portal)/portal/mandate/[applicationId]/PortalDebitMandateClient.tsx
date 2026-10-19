@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { canonicalBankName } from "@/lib/banks"
+import { useT } from "@/lib/i18n/client"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 type BankDetails = {
@@ -69,6 +70,7 @@ export function PortalDebitMandateClient({
   signingOtp = NO_SIGNING_OTP,
   returnedToReviewOn = null,
 }: Props) {
+  const t = useT("portalSigning")
   const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null)
   // Remounts the OTP step after a signing refusal that spent or voided the code.
   const [otpAttempt, setOtpAttempt] = useState(0)
@@ -159,14 +161,14 @@ export function PortalDebitMandateClient({
         draftDocumentSha256?: string
       }
       if (!response.ok || !body.draftDocumentSha256) {
-        setError(body.error ?? "Could not prepare the debit mandate.")
+        setError(body.error ?? t("mandateErrPrepare"))
         return
       }
       setDraftSha256(body.draftDocumentSha256)
       setChecks([false, false, false])
       clearSignature()
     } catch {
-      setError("The request failed. Check your connection and try again.")
+      setError(t("mandateErrNetwork"))
     } finally {
       setPreparing(false)
     }
@@ -199,12 +201,12 @@ export function PortalDebitMandateClient({
           setOtpChallengeId(null)
           setOtpAttempt((n) => n + 1)
         }
-        setError(body.error ?? "Could not sign the debit mandate.")
+        setError(body.error ?? t("mandateErrSign"))
         return
       }
       setSigned(true)
     } catch {
-      setError("The request failed. Check your connection and try again.")
+      setError(t("mandateErrNetwork"))
     } finally {
       setSigning(false)
     }
@@ -215,10 +217,8 @@ export function PortalDebitMandateClient({
       <div className="mx-auto max-w-3xl px-4 py-12">
         <div className="rounded-xl border border-green-200 bg-green-50 p-8 text-center">
           <CheckCircle className="mx-auto mb-4 h-12 w-12 text-green-600" />
-          <h1 className="text-2xl font-bold text-green-900">Debit mandate signed</h1>
-          <p className="mt-2 text-sm text-green-800">
-            Your repayment authority is recorded against application {reference}.
-          </p>
+          <h1 className="text-2xl font-bold text-green-900">{t("mandateSigned")}</h1>
+          <p className="mt-2 text-sm text-green-800">{t("mandateRecorded", { reference })}</p>
           <div className="mt-6 flex justify-center gap-3">
             <Button asChild variant="outline">
               <a
@@ -226,12 +226,12 @@ export function PortalDebitMandateClient({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Download signed mandate
+                {t("mandateDownload")}
               </a>
             </Button>
             <Button asChild>
               <Link href={`/portal/applications/${applicationId}`}>
-                Back to application
+                {t("backToApplication")}
               </Link>
             </Button>
           </div>
@@ -249,10 +249,8 @@ export function PortalDebitMandateClient({
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Repayment bank details</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Application {reference} — details must match your verified bank statement.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-900">{t("mandateTitle")}</h1>
+        <p className="mt-1 text-sm text-gray-500">{t("mandateSubtitle", { reference })}</p>
       </div>
 
       {returnedToReviewOn && (
@@ -267,19 +265,19 @@ export function PortalDebitMandateClient({
       )}
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="font-semibold text-gray-900">Account for debit orders</h2>
+        <h2 className="font-semibold text-gray-900">{t("mandateAccountHeading")}</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Field label="Bank">
+          <Field label={t("fieldBank")}>
             <select
               className={fieldClass}
               value={bank.bankName}
               onChange={(event) => setBank({ ...bank, bankName: event.target.value })}
             >
-              <option value="">Select your bank</option>
+              <option value="">{t("selectBank")}</option>
               {BANKS.map((name) => <option key={name}>{name}</option>)}
             </select>
           </Field>
-          <Field label="Account type">
+          <Field label={t("fieldAccountType")}>
             <select
               className={fieldClass}
               value={bank.accountType}
@@ -288,11 +286,11 @@ export function PortalDebitMandateClient({
                 accountType: event.target.value as BankDetails["accountType"],
               })}
             >
-              <option value="CHEQUE">Cheque / Current</option>
-              <option value="SAVINGS">Savings</option>
+              <option value="CHEQUE">{t("accountCheque")}</option>
+              <option value="SAVINGS">{t("accountSavings")}</option>
             </select>
           </Field>
-          <Field label="Account number">
+          <Field label={t("fieldAccountNumber")}>
             <input
               className={fieldClass}
               inputMode="numeric"
@@ -304,7 +302,7 @@ export function PortalDebitMandateClient({
               })}
             />
           </Field>
-          <Field label="Branch code">
+          <Field label={t("fieldBranchCode")}>
             <input
               className={fieldClass}
               inputMode="numeric"
@@ -327,8 +325,8 @@ export function PortalDebitMandateClient({
           }
         >
           {preparing
-            ? <><Loader2 className="h-4 w-4 animate-spin" />Preparing...</>
-            : <><FileText className="h-4 w-4" />Prepare mandate</>}
+            ? <><Loader2 className="h-4 w-4 animate-spin" />{t("preparing")}</>
+            : <><FileText className="h-4 w-4" />{t("prepareMandate")}</>}
         </Button>
       </section>
 
@@ -336,20 +334,20 @@ export function PortalDebitMandateClient({
         <>
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-semibold text-gray-900">Review the exact authority</h2>
+              <h2 className="font-semibold text-gray-900">{t("reviewAuthority")}</h2>
               <a
                 href={`/api/applications/${applicationId}/debit-mandate`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-[#4F46E5] underline"
               >
-                Open PDF
+                {t("openPdf")}
               </a>
             </div>
             <div className="h-[60vh] overflow-hidden rounded-lg border bg-gray-100">
               <iframe
                 key={draftSha256}
-                title="Debit mandate preview"
+                title={t("mandateFrameTitle")}
                 className="h-full w-full"
                 src={`/api/applications/${applicationId}/debit-mandate`}
               />
@@ -379,19 +377,19 @@ export function PortalDebitMandateClient({
 
           <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-6">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">Your signature</h2>
+              <h2 className="font-semibold text-gray-900">{t("signatureHeading")}</h2>
               <div className="flex gap-2">
                 <ModeButton
                   active={signMode === "draw"}
                   onClick={() => setSignMode("draw")}
                 >
-                  <PenLine className="h-3.5 w-3.5" />Draw
+                  <PenLine className="h-3.5 w-3.5" />{t("draw")}
                 </ModeButton>
                 <ModeButton
                   active={signMode === "type"}
                   onClick={() => setSignMode("type")}
                 >
-                  <Keyboard className="h-3.5 w-3.5" />Type
+                  <Keyboard className="h-3.5 w-3.5" />{t("type")}
                 </ModeButton>
               </div>
             </div>
@@ -421,7 +419,7 @@ export function PortalDebitMandateClient({
                     className="mt-2 flex items-center gap-1 text-xs text-gray-500"
                     onClick={clearSignature}
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />Clear
+                    <RotateCcw className="h-3.5 w-3.5" />{t("clear")}
                   </button>
                 )}
               </div>
@@ -433,9 +431,7 @@ export function PortalDebitMandateClient({
                   onChange={(event) => setTypedName(event.target.value)}
                   placeholder={clientName}
                 />
-                <p className="mt-2 text-xs text-gray-500">
-                  Type your full name exactly: {clientName}
-                </p>
+                <p className="mt-2 text-xs text-gray-500">{t("typeExactly", { name: clientName })}</p>
               </div>
             )}
           </section>
@@ -457,7 +453,7 @@ export function PortalDebitMandateClient({
             onClick={sign}
           >
             {signing
-              ? <><Loader2 className="h-5 w-5 animate-spin" />Signing...</>
+              ? <><Loader2 className="h-5 w-5 animate-spin" />{t("signing")}</>
               : <><CheckCircle className="h-5 w-5" />Authorise and sign mandate</>}
           </Button>
         </>

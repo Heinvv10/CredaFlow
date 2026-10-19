@@ -24,6 +24,7 @@ import { creditLifePremiumForAmount, validAmountCents } from "./amount"
 import { CreditLifeElectionBox } from "./CreditLifeElectionBox"
 import { EMPTY_PO_INPUT, PoFundingFields, poInputComplete, uploadPoDocument } from "./PoFundingFields"
 import { useT } from "@/lib/i18n/client"
+import { productNameLabel } from "@/lib/i18n/portal-labels"
 
 interface ProductInfo {
   id: string
@@ -56,6 +57,7 @@ interface Props {
 export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, demoLenderNote, product, client, creditLifeOffer }: Props) {
   const router = useRouter()
   const t = useT("portalApply")
+  const productName = productNameLabel(useT("portalLabels"), product.name)
 
   const fixedTerm = product.minTermDays === product.maxTermDays
   // PO funding is business credit: Business purpose only, plus the order's facts.
@@ -199,10 +201,10 @@ export function PortalApplyProductClient({ productKey, lenderName, ncrNumber, de
 
       <div className="mb-6">
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#4F46E5] mb-1">
-          {product.name}
+          {productName}
         </p>
         <h1 className="text-2xl font-bold text-gray-900">
-          {t("applyForProduct", { product: product.name })}
+          {t("applyForProduct", { product: productName })}
         </h1>
         <p className="text-sm text-gray-500 mt-1">
           {t("profileOnFile")}

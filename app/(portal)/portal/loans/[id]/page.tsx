@@ -17,7 +17,7 @@ import { OPEN_PORTAL_LOAN_STATUSES, portalLoanArrears } from "@/lib/portal/loan-
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
-import { paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import { paymentMethodLabel, productNameLabel, statusLabel } from "@/lib/i18n/portal-labels"
 import { scheduleDisplayStatus, scheduleStatusTone } from "@/lib/loan/schedule-status"
 import type { Locale } from "@/lib/i18n/locales"
 import { PortalLeaseDetail } from "@/components/portal/lease/PortalLeaseDetail"
@@ -97,7 +97,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
         <div className="flex items-center justify-between mb-2">
           <div>
             <p className="text-sm text-gray-400 font-mono">{loan.reference}</p>
-            <p className="text-xs mt-0.5" style={{ color: "#4338CA" }}>{loan.product.name}</p>
+            <p className="text-xs mt-0.5" style={{ color: "#4338CA" }}>{productNameLabel(l, loan.product.name)}</p>
           </div>
           <div className="flex items-center gap-3">
             {daysOverdue > 0 && (

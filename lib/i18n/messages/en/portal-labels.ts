@@ -57,4 +57,7 @@ export const portalLabels = {
   doc_SIGNED_AGREEMENT_PACKET: "Signed Packet (returned)",
   doc_OTHER: "Other",
   chargesIncludes: "Includes:",
+  productMicro: "30-Day Micro Loan",
+  productPersonal: "Personal Loan",
+  productPo: "Purchase Order Funding",
 } as const

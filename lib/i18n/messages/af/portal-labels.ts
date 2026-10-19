@@ -53,4 +53,7 @@ export const portalLabels: Catalog["portalLabels"] = {
   doc_SIGNED_AGREEMENT_PACKET: "Getekende pakket (terugbesorg)",
   doc_OTHER: "Ander",
   chargesIncludes: "Sluit in:",
+  productMicro: "30-dae-mikrolening",
+  productPersonal: "Persoonlike lening",
+  productPo: "Bestellingsfinansiering",
 }
