@@ -1,5 +1,5 @@
 /**
- * Features A and B against Postgres, with the model's HTTP endpoint stubbed
+ * Feature A against Postgres, with the model's HTTP endpoint stubbed
  * (fetch): the lender's switch off means a 404 and nothing generated; on,
  * the GET queues the work, the worker stores post-checked outputs, a figure
  * the facts do not hold is stored REJECTED and never shown, and another
@@ -83,7 +83,7 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     expect(await prisma.statementAiUsage.count({ where: { tenantId: off.tenantId } })).toBe(0)
   })
 
-  it("flag on: the GET queues the summary, the worker stores it, and explanations need no model", async () => {
+  it("flag on: the GET queues the summary and the worker stores it", async () => {
     // Not a claims list first: asked once more.
     let n = 0
     vi.stubGlobal("fetch", vi.fn(async () => {
@@ -95,8 +95,8 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     expect(first.status).toBe(200)
     const body = await first.json()
     expect(body).toMatchObject({ summary: null, pending: 1, modelAvailable: true })
-    // B is written by code at once, from the flag's own facts.
-    expect(body.explanations).toEqual([expect.objectContaining({ flagCode: "GAMBLING", status: "OK", text: expect.stringContaining("GAMBLING (RISK_BEHAVIOUR)") })])
+    // B is shown in the flag's own row of the credit checks panel (checks route), not here.
+    expect(body).not.toHaveProperty("explanations")
     await drained()
     const rows = await prisma.statementAiOutput.findMany({ where: { tenantId: on.tenantId } })
     expect(rows.map((r) => [r.kind, r.status])).toEqual([["SUMMARY", "OK"]])
@@ -128,7 +128,6 @@ suite("GET /api/applications/[id]/statement-ai against Postgres", () => {
     // The stored summary does not name the new flag: not shown, the new one on its way.
     expect(body.summary).toMatchObject({ status: "PENDING", text: null, stale: true })
     expect(body.pending).toBe(1)
-    expect(body.explanations.map((e: { flagCode: string }) => e.flagCode)).toEqual(["GAMBLING", "RETURNED_DEBIT"])
     await drained()
     const after = await (await get(on, "CREDIT_OFFICER")).json()
     expect(after.summary).toMatchObject({ status: "OK", stale: false, text: expect.stringMatching(/GAMBLING .*RETURNED_DEBIT/) })

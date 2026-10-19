@@ -6,7 +6,8 @@
  */
 import type { StatementAiOutput } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import type { ApplicationPlan } from "./generate"
+import { planOutputs, type ApplicationPlan } from "./generate"
+import { hasFlagSpec } from "./flag-specs"
 import { checkNoContradiction } from "./post-check"
 import { askInputHash } from "./ask/answer"
 
@@ -56,7 +57,6 @@ export function toView(o: StatementAiOutput, currentHash: string | null, raisedF
 
 export interface ApplicationAiView {
   summary: OutputView | null
-  explanations: OutputView[]
   /** The newest answers first; a PENDING one is still being worked on. */
   answers: OutputView[]
   /** Outputs the current facts call for that are not stored yet. */
@@ -65,15 +65,16 @@ export interface ApplicationAiView {
 
 /**
  * The summary for the current facts and prompt if stored, else the newest
- * older OK one (stale); the explanations as code writes them now; the newest
- * answers.
+ * older OK one (stale); the newest answers. The flag explanations are not
+ * here: each is shown in its flag's row of the credit checks panel
+ * (flagExplanations).
  */
 export const ANSWERS_SHOWN = 10
 
 export async function applicationAiView(
   tenantId: string,
   applicationId: string,
-  plan: Pick<ApplicationPlan, "summary" | "explanations" | "rows" | "raisedFlagCodes">,
+  plan: Pick<ApplicationPlan, "summary" | "rows" | "raisedFlagCodes">,
 ): Promise<ApplicationAiView> {
   const { rows: askRows, raisedFlagCodes } = plan
   let pending = 0
@@ -89,11 +90,6 @@ export async function applicationAiView(
     const shown = current ?? mine.find((r) => r.status === "OK")
     summary = shown ? toView(shown, want.built.inputHash, raisedFlagCodes) : null
   }
-  const now = new Date().toISOString()
-  const explanations: OutputView[] = plan.explanations.map((e, i) => ({
-    id: `flag:${i}:${e.flagCode}`, kind: "FLAG_EXPLANATION", flagCode: e.flagCode, status: e.text === null ? "REJECTED" : "OK", text: e.text,
-    inputHash: e.inputHash, promptVersion: "template", createdAt: now, stale: false, citations: e.text === null ? null : { facts: e.facts }, question: null,
-  }))
   const asked = await prisma.statementAiOutput.findMany({
     where: { tenantId, applicationId, kind: "ANSWER" },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -101,5 +97,17 @@ export async function applicationAiView(
   })
   const answers = asked.map((a) => toView(a, askInputHash(a.question ?? "", askRows), raisedFlagCodes))
   pending += answers.filter((a) => a.status === "PENDING").length
-  return { summary, explanations, answers, pending }
+  return { summary, answers, pending }
+}
+
+/**
+ * Feature B, for the credit checks panel: each open flag's explanation by flag
+ * id, written now from the flags just recomputed, so never stale. A flag with
+ * none (not open, a code with no spec of its own, or a text that failed its
+ * figure check) is left out: its row shows nothing. The caller checks the
+ * lender has Statement AI on and the role may read it.
+ */
+export async function flagExplanations(tenantId: string, applicationId: string): Promise<Map<string, string>> {
+  const plan = await planOutputs(tenantId, applicationId)
+  return new Map((plan?.explanations ?? []).flatMap((e) => (e.flagId && e.text !== null && hasFlagSpec(e.flagCode) ? [[e.flagId, e.text] as const] : [])))
 }

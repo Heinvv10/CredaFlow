@@ -122,18 +122,25 @@ const EVIDENCE_LABELS: Record<string, string> = {
   month: "month", periodEnd: "statement end date",
 }
 
-/** One flag's explanation, written from its facts. */
+/**
+ * One flag's explanation, written from its facts. It is shown inside the flag's
+ * own row in the credit checks panel, which already shows the code, the check
+ * and the rows: so it names none of them, only what the rule checks, when it
+ * is raised, the threshold and the evidence figures.
+ */
 export function renderExplanation(f: ExplanationFacts): string {
-  const parts = [`${f.flag.code} (${f.flag.check}): ${f.flag.whatTheRuleChecks}`]
+  const parts = [f.flag.whatTheRuleChecks]
   if (f.flag.raisedWhen) parts.push(f.flag.raisedWhen)
   const thresholds = Object.entries(f.policyThresholds).map(([k, v]) => THRESHOLD_LABELS[k]?.(v)).filter((s): s is string => !!s)
   if (thresholds.length) parts.push(`Policy threshold: ${thresholds.join(", ")}.`)
-  const evidence = Object.entries(f.evidence).filter(([k]) => EVIDENCE_LABELS[k]).map(([k, v]) => `${EVIDENCE_LABELS[k]} ${v}`)
+  // The row count is said once: by the sentence on the rows shown, when the rule found more than it lists.
+  const evidence = Object.entries(f.evidence)
+    .filter(([k]) => EVIDENCE_LABELS[k] && !(k === "occurrences" && f.evidenceRowsFound !== null))
+    .map(([k, v]) => `${EVIDENCE_LABELS[k]} ${v}`)
   if (evidence.length) parts.push(`Evidence: ${list(evidence)}.`)
   if (f.evidenceRows.length) {
-    if (f.evidenceRowsFound !== null) parts.push(`The rule found ${f.evidenceRowsFound} rows; the first ${f.evidenceRowsListed} are listed.`)
-    parts.push(`Evidence rows: ${list(f.evidenceRows.map((r) => `${r.ref} ${r.date} ${quoted(r.payee)} ${sized(r)}`))}.`)
-    if (f.evidenceRowsTotal && f.evidenceRows.length > 1) parts.push(`The listed rows total ${sized(f.evidenceRowsTotal)}.`)
+    if (f.evidenceRowsFound !== null) parts.push(`The rule found ${f.evidenceRowsFound} rows; the first ${f.evidenceRowsListed} are shown.`)
+    if (f.evidenceRowsTotal && f.evidenceRows.length > 1) parts.push(`The rows shown total ${sized(f.evidenceRowsTotal)}.`)
   }
   parts.push("An officer reviews the flag before a decision.")
   return parts.join(" ")

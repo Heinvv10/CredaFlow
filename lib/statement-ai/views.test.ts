@@ -1,6 +1,10 @@
 import type { StatementAiOutput } from "@prisma/client"
-import { describe, expect, it } from "vitest"
-import { toView } from "./views"
+import { describe, expect, it, vi } from "vitest"
+
+const plan = vi.hoisted(() => ({ explanations: [] as Array<{ flagId: string | null; flagCode: string; text: string | null }> }))
+vi.mock("./generate", () => ({ planOutputs: async () => plan }))
+
+import { flagExplanations, toView } from "./views"
 
 const row = (over: Partial<StatementAiOutput>): StatementAiOutput => ({
   id: "o1", tenantId: "t1", applicationId: "a1", kind: "SUMMARY", flagCode: "", inputHash: "h1", promptVersion: "summary-p3",
@@ -27,5 +31,18 @@ describe("toView: a summary missing a flag raised since", () => {
     // A payee named like the new flag's code does not count as naming it.
     expect(toView(row({ text: `Largest payees by money out: "GAMBLING" R1.00 (1 payment). ${text}` }), "h2", ["GAMBLING", "UNREADABLE"])).toMatchObject({ text: null })
     expect(toView(row({ text: `Largest payees by money out: "UNREADABLE" R1.00 (1 payment). ${text}` }), "h2", ["GAMBLING", "UNREADABLE"])).toMatchObject({ status: "PENDING", text: null })
+  })
+})
+
+describe("flagExplanations", () => {
+  it("maps each explained flag to its own row, and leaves out one with no spec, no text or no row", async () => {
+    plan.explanations = [
+      { flagId: "f1", flagCode: "GAMBLING", text: "Betting is compared with income." },
+      { flagId: "f2", flagCode: "SOMETHING_NEW", text: "A rule raised this for an officer to review by hand." },
+      { flagId: "f3", flagCode: "BALANCE_MISMATCH", text: null },
+      { flagId: null, flagCode: "RETURNED_DEBIT", text: "Debits returned unpaid are listed." },
+      { flagId: "f5", flagCode: "toString", text: "Not a code." },
+    ]
+    expect([...(await flagExplanations("t1", "a1"))]).toEqual([["f1", "Betting is compared with income."]])
   })
 })

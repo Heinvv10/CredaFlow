@@ -2,24 +2,22 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { AnswerBody, HowComputed, RowsTable, type EvidenceRow, type QueryCitation } from "./StatementAiAnswer"
+import { AnswerBody, HowComputed, type QueryCitation } from "./StatementAiAnswer"
 
 interface OutputView {
   id: string
-  kind: "SUMMARY" | "FLAG_EXPLANATION" | "ANSWER"
-  flagCode: string | null
+  kind: "SUMMARY" | "ANSWER"
   status: "PENDING" | "OK" | "REJECTED" | "FAILED"
   text: string | null
   inputHash: string
   createdAt: string
   stale: boolean
-  citations: ({ facts?: { evidenceRows?: EvidenceRow[] } } & QueryCitation[]) | null
+  citations: QueryCitation[] | null
   question: string | null
 }
 
 interface Payload {
   summary: OutputView | null
-  explanations: OutputView[]
   answers: OutputView[]
   pending: number
   noStatements: boolean
@@ -67,21 +65,21 @@ function SummaryText({ text }: { text: string }) {
   )
 }
 
-function Body({ o, waiting, label, meta = true, children }: { o: OutputView | null; waiting: boolean; label: string; meta?: boolean; children?: React.ReactNode }) {
+function Body({ o, waiting, label, children }: { o: OutputView | null; waiting: boolean; label: string; children?: React.ReactNode }) {
   const unavailable = `${label[0].toUpperCase()}${label.slice(1)} unavailable.`
   if (!o || (o.status === "PENDING" && o.text === null)) return <p className="text-sm text-[var(--cf-text-muted)]">{waiting ? `Generating ${label}…` : unavailable}</p>
   if (o.status !== "OK" || o.text === null) {
     return (
       <>
         <p className="text-sm text-[var(--cf-text-muted)]">{unavailable}</p>
-        {meta && <Meta o={o} />}
+        <Meta o={o} />
       </>
     )
   }
   return (
     <>
       {children || <p className="whitespace-pre-line text-sm text-[var(--cf-text-secondary)]">{o.text}</p>}
-      {meta && <Meta o={o} />}
+      <Meta o={o} />
     </>
   )
 }
@@ -201,25 +199,6 @@ export function StatementAiCard({ applicationId }: { applicationId: string }) {
           <div data-testid="statement-ai-summary">
             <Body o={data.summary} waiting={waiting} label="summary">{data.summary?.text && <SummaryText text={data.summary.text} />}</Body>
           </div>
-          {data.explanations.length > 0 && (
-            <div>
-              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Flags explained</h3>
-              <ul className="mt-2 space-y-3">
-                {data.explanations.map((o) => (
-                  <li key={o.id} data-testid="statement-ai-explanation" className="rounded-md border border-[var(--cf-border-subtle)] p-3">
-                    <p className="font-mono text-xs font-semibold text-[var(--cf-text)]">{o.flagCode}</p>
-                    <div className="mt-1"><Body o={o} waiting={waiting} label="explanation" meta={false} /></div>
-                    {o.status === "OK" && (o.citations?.facts?.evidenceRows?.length ?? 0) > 0 && (
-                      <details className="mt-2 text-xs text-[var(--cf-text-secondary)]">
-                        <summary className="cursor-pointer text-[var(--cf-brand)]">Rows cited</summary>
-                        <RowsTable rows={o.citations!.facts!.evidenceRows!} />
-                      </details>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--cf-text-muted)]">Ask the statement</h3>
             <div className="mt-2"><Ask applicationId={applicationId} onAsked={() => { setGaveUp(false); setAskedAt(Date.now()) }} /></div>

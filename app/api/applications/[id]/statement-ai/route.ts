@@ -10,8 +10,9 @@ import { applicationAiView } from "@/lib/statement-ai/views"
 import { enqueueApplication, enqueueQuestion } from "@/lib/statement-ai/worker"
 
 /**
- * GET /api/applications/[id]/statement-ai — the advisory summary, flag
- * explanations and asked questions' answers (lib/statement-ai). Never calls the model: outputs the
+ * GET /api/applications/[id]/statement-ai — the advisory summary and asked
+ * questions' answers (lib/statement-ai; each flag's explanation is in its row
+ * of the checks GET). Never calls the model: outputs the
  * current facts lack are queued for the background worker, and the panel
  * polls. 404 while the lender has Statement AI off. The text cites the
  * statements' rows, so showing it is document access: each statement is logged.

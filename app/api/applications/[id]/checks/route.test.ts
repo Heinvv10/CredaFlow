@@ -5,6 +5,8 @@ const requireApiRoleMock = vi.fn()
 const recomputeMock = vi.fn()
 const flagViewsMock = vi.fn()
 const logAccessMock = vi.fn()
+const enabledMock = vi.fn()
+const explanationsMock = vi.fn()
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: (role: string) => requireApiRoleMock(role) }))
 vi.mock("@/lib/tenant", () => ({
@@ -13,6 +15,9 @@ vi.mock("@/lib/tenant", () => ({
 vi.mock("@/lib/credit-checks/recompute", () => ({ recomputeApplicationFlags: (...a: unknown[]) => recomputeMock(...a) }))
 vi.mock("@/lib/credit-checks/evidence", () => ({ flagViews: (...a: unknown[]) => flagViewsMock(...a) }))
 vi.mock("@/lib/document-auth", () => ({ logDocumentContentAccess: (a: unknown) => logAccessMock(a) }))
+vi.mock("@/lib/statement-ai/enabled", () => ({ statementAiEnabled: (...a: unknown[]) => enabledMock(...a) }))
+vi.mock("@/lib/statement-ai/views", () => ({ flagExplanations: (...a: unknown[]) => explanationsMock(...a) }))
+vi.mock("@/lib/statement-ai/worker", () => ({ enqueueApplication: vi.fn() }))
 
 import { GET } from "./route"
 
@@ -28,6 +33,8 @@ beforeEach(() => {
     documentIds: ["doc-1"],
   })
   logAccessMock.mockResolvedValue(undefined)
+  enabledMock.mockResolvedValue(false)
+  explanationsMock.mockResolvedValue(new Map([["f1", "Why f1 was raised."]]))
 })
 
 describe("GET /api/applications/[id]/checks", () => {
@@ -63,5 +70,18 @@ describe("GET /api/applications/[id]/checks", () => {
     requireApiRoleMock.mockResolvedValue({ error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) })
     expect((await get()).status).toBe(401)
     expect(recomputeMock).not.toHaveBeenCalled()
+  })
+
+  it("Statement AI off: the flags exactly as before, no explanation read", async () => {
+    expect(await (await get()).json()).toEqual({ recomputed: true, openCount: 1, flags: [{ id: "f1", status: "OPEN" }, { id: "f2", status: "CLEARED" }] })
+    expect(enabledMock).toHaveBeenCalledWith("t1")
+    expect(explanationsMock).not.toHaveBeenCalled()
+  })
+
+  it("Statement AI on: each flag with an explanation carries it in its own row, the others none", async () => {
+    enabledMock.mockResolvedValue(true)
+    const body = await (await get()).json()
+    expect(body.flags).toEqual([{ id: "f1", status: "OPEN", explanation: "Why f1 was raised." }, { id: "f2", status: "CLEARED" }])
+    expect(explanationsMock).toHaveBeenCalledWith("t1", "app-1")
   })
 })
