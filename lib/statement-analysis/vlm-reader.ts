@@ -90,7 +90,7 @@ async function readPage(image: Buffer, mimeType: string): Promise<Record<string,
   try {
     res = await fetch(config.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: config.headers,
       signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
       body: JSON.stringify({
         model: config.model,

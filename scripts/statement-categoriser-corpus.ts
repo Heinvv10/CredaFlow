@@ -25,6 +25,7 @@ import { categorise, LIVING_CATEGORIES, type Category } from "@/lib/statement-an
 import { OTHER_CATEGORIES } from "@/lib/statement-analysis/categories"
 import type { StatementRead } from "@/lib/statement-analysis/types"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
+import { refuseHostedForRealData } from "@/lib/vlm-extract"
 import { gateClass, readModelLabels } from "./statement-categoriser-accuracy"
 import { maskKey } from "./statement-merchant-keys"
 
@@ -118,6 +119,7 @@ async function longtail(reads: Array<{ id: string; read: StatementRead }>, outDi
 }
 
 async function main() {
+  refuseHostedForRealData()
   const dir = process.env.STATEMENT_CORPUS_DIR
   const mode = process.argv[2]
   if (!dir || (mode !== "coverage" && mode !== "longtail")) throw new Error("usage: STATEMENT_CORPUS_DIR=… statement-categoriser-corpus.ts coverage|longtail")

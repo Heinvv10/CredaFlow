@@ -33,18 +33,49 @@ export interface ExtractedField {
 
 export type ExtractedFields = Record<string, ExtractedField>
 
-type VlmConfig = { url: string; model: string }
+// headers can hold VLM_API_KEY: never log or serialise a VlmConfig.
+type VlmConfig = { url: string; model: string; headers: Record<string, string> }
 
 function isPlaceholder(value: string | undefined): boolean {
   if (!value) return true
   return value.includes('replace-with-') || value.includes('example.com')
 }
 
+let hostedRefusalLogged = false
+
+function hostedVlmAllowed(apiUrl: string): boolean {
+  const reason =
+    process.env.VLM_ALLOW_HOSTED !== 'true' ? 'VLM_ALLOW_HOSTED is not true'
+    : !apiUrl.startsWith('https://') ? 'VLM_API_URL is not https'
+    : process.env.STATEMENT_CORPUS_DIR || process.env.VLM_ACCURACY_CORPUS ? 'a real corpus is configured'
+    : null
+  if (reason && !hostedRefusalLogged) {
+    hostedRefusalLogged = true
+    console.warn(`[vlm] VLM_API_KEY is set but ${reason}; the model is treated as not configured`)
+  }
+  return reason === null
+}
+
+/** Corpus tooling sends real client text: it must never run against a hosted model. */
+export function refuseHostedForRealData(): void {
+  if (process.env.VLM_API_KEY || process.env.VLM_ALLOW_HOSTED) {
+    throw new Error('real corpus data goes only to the self-hosted model: unset VLM_API_KEY and VLM_ALLOW_HOSTED')
+  }
+}
+
 export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
   if (isPlaceholder(apiUrl) || isPlaceholder(model)) return null
-  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model! }
+  // VLM_API_KEY means a hosted endpoint: dev and demo stacks with synthetic data only,
+  // so it needs VLM_ALLOW_HOSTED=true, https, and no real corpus configured.
+  const apiKey = process.env.VLM_API_KEY
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (apiKey) {
+    if (!hostedVlmAllowed(apiUrl!)) return null
+    headers.Authorization = `Bearer ${apiKey}`
+  }
+  return { url: `${apiUrl!.replace(/\/$/, '')}/v1/chat/completions`, model: model!, headers }
 }
 
 /** SA-context-aware VLM prompts per document type */
@@ -880,7 +911,7 @@ export async function extractDocumentData(opts: {
   try {
     const res = await fetch(vlmConfig.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: vlmConfig.headers,
       signal: AbortSignal.timeout(55000),
       body: JSON.stringify({
         model: vlmConfig.model,
@@ -899,6 +930,11 @@ export async function extractDocumentData(opts: {
     })
 
     if (!res.ok) {
+      // A hosted provider's error body can echo part of the key.
+      if (process.env.VLM_API_KEY) {
+        await res.body?.cancel()
+        return { ok: false, error: `VLM responded ${res.status}` }
+      }
       const text = await res.text()
       return { ok: false, error: `VLM responded ${res.status}: ${text.slice(0, 200)}` }
     }

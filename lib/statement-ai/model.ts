@@ -1,6 +1,7 @@
 /**
- * The one way this module calls the model: the self-hosted server at
- * VLM_API_URL (lib/vlm-extract.ts getVlmConfig), never a third-party API.
+ * The one way this module calls the model: the server at VLM_API_URL
+ * (lib/vlm-extract.ts getVlmConfig): self-hosted, or a hosted endpoint on a
+ * synthetic-data stack (VLM_API_KEY + VLM_ALLOW_HOSTED).
  * Called only from the background worker (worker.ts), never inside a request.
  * Every call is metered (usage.ts), answered or not.
  */
@@ -58,7 +59,7 @@ export async function askModel(call: ModelCall): Promise<ModelAnswer> {
     try {
       res = await fetch(config.url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: config.headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         body: JSON.stringify({
           model: config.model,
