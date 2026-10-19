@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { renderInstalmentSaleAgreement } from "@/lib/asset-finance/documents/agreement-pdf"
-import { syntheticDealDocumentData } from "@/lib/asset-finance/documents/synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "@/lib/asset-finance/documents/synthetic-deal"
 
 async function main(): Promise<void> {
   const dir = join(process.cwd(), "docs/asset-finance/evidence/slice1")

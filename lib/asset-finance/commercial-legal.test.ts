@@ -52,7 +52,7 @@ it("commercial settlement rebates future interest and reprices its settling rece
 
 import { parseSuretyConsent } from "./surety-consent"
 import { instalmentSaleClauses } from "./documents/wording/instalment-sale"
-import { syntheticDealDocumentData } from "./documents/synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "./documents/synthetic-deal"
 
 it("requires a spouse, distinct witnesses and uploaded consent for in-community sureties", () => {
   expect(parseSuretyConsent({ maritalRegime: "IN_COMMUNITY" })).toMatchObject({ maritalRegime: "IN_COMMUNITY", evidenceDocumentId: null })
