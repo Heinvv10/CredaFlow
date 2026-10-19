@@ -7,7 +7,7 @@ import { PortalAgreementClient, AgreementSignedPanel } from "./PortalAgreementCl
 vi.mock("@/lib/toast", () => ({ toast: {} }))
 
 // Row 118: the signing page chrome stayed English under an Afrikaans portal.
-// Consent text (the declarations and the sign button) is a separate PR.
+// Credit agreement, PASQ and consent text stays English by design (lib/i18n/.claude.md).
 const text = (node: ReactTestInstance): string =>
   node.children.map((c) => (typeof c === "string" ? c : text(c))).join("")
 
@@ -27,12 +27,17 @@ describe("portal agreement page in Afrikaans", () => {
       ))
     })
     const out = text(r.root)
-    for (const af of ["PASQ + Kredietooreenkoms", "Test Client — Aansoek CF-1", "Verbruikersverklaring", "Jou handtekening", "Teken hier", "Maak PDF in ’n nuwe oortjie oop"]) {
+    for (const af of ["Jou handtekening", "Teken hier", "Maak PDF in ’n nuwe oortjie oop", "Teken jou handtekening hieronder"]) {
       expect(out).toContain(af)
     }
-    for (const en of ["Consumer Declaration", "Your Signature", "Sign here", "Open PDF in a new tab", "Application CF-1"]) {
+    for (const en of ["Your Signature", "Sign here", "Open PDF in a new tab"]) {
       expect(out).not.toContain(en)
     }
+    // Credit agreement / PASQ titles and the consent declarations stay English (lib/i18n/.claude.md).
+    expect(out).toContain("PASQ + Credit Agreement")
+    expect(out).toContain("Consumer Declaration")
+    expect(out).toContain("I have read and understood the Repayment Schedule")
+    expect(out).toContain("I Accept and Sign Digitally")
   })
 
   it("renders the signed panel in Afrikaans", async () => {
@@ -41,8 +46,7 @@ describe("portal agreement page in Afrikaans", () => {
       r.update(withAf(<AgreementSignedPanel applicationId="app-1" agreementExecutedDocumentId={null} mandateRequired />))
     })
     const out = text(r.root)
-    expect(out).toContain("Ooreenkoms geteken")
+    expect(out).toContain("Agreement signed")
     expect(out).toContain("Stel terugbetaling op")
-    expect(out).not.toContain("Agreement signed")
   })
 })

@@ -1,9 +1,17 @@
 /**
  * Portal signing screens: the one-time-code step, the credit agreement page,
- * the debit mandate page and the asset-finance deal signing page. Only the
- * screen chrome lives here (headings, buttons, hints, status lines). The
- * declarations, the signing consent and the sign buttons are consent text and
- * stay in portalConsent. Errors returned by the API stay as the server wrote them.
+ * the debit mandate page and the asset-finance deal signing page. Only generic
+ * screen chrome is translated (signature pad, bank form labels, hints, busy and
+ * error states, the one-time-code step).
+ *
+ * Stays English in every language (lib/i18n/.claude.md: never translate credit
+ * agreement, PASQ, debit mandate or consent text): the agreement and mandate
+ * page titles, the packet/preview labels, the signed-confirmation and
+ * download lines, "Consumer Declaration", "Review the exact authority",
+ * "Account for debit orders", "Prepare mandate" and the mandate error lines.
+ * The declarations, sign buttons and re-sign notice are not in this catalogue at
+ * all: they are literals in the components. Errors returned by the API stay as
+ * the server wrote them.
  */
 export const portalSigning = {
   // One-time code step (components/signing/SigningOtpStep.tsx)

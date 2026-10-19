@@ -1,4 +1,9 @@
-/** Portal loans: the list (/portal/loans) and one loan (/portal/loans/[id]). */
+/**
+ * Portal loans: the list (/portal/loans) and one loan (/portal/loans/[id]).
+ * The amount definitions, "Overdue now", "Remaining contractual instalments" and
+ * the settlement lines are collections / settlement wording and stay English in
+ * every language (lib/i18n/.claude.md); only the labels outside them are translated.
+ */
 export const portalLoans = {
   principalOutstanding: "Outstanding principal",
   currentAccountAmount: "Current account amount",
