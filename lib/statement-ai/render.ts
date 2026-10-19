@@ -133,9 +133,9 @@ export function renderExplanation(f: ExplanationFacts): string {
   if (f.flag.raisedWhen) parts.push(f.flag.raisedWhen)
   const thresholds = Object.entries(f.policyThresholds).map(([k, v]) => THRESHOLD_LABELS[k]?.(v)).filter((s): s is string => !!s)
   if (thresholds.length) parts.push(`Policy threshold: ${thresholds.join(", ")}.`)
-  // The row count is said once: by the sentence on the rows shown, when the rule found more than it lists.
+  // Rows the flag's row shows are not counted again; more found than shown is said once, below.
   const evidence = Object.entries(f.evidence)
-    .filter(([k]) => EVIDENCE_LABELS[k] && !(k === "occurrences" && f.evidenceRowsFound !== null))
+    .filter(([k]) => EVIDENCE_LABELS[k] && !(k === "occurrences" && f.evidenceRows.length > 0))
     .map(([k, v]) => `${EVIDENCE_LABELS[k]} ${v}`)
   if (evidence.length) parts.push(`Evidence: ${list(evidence)}.`)
   if (f.evidenceRows.length) {

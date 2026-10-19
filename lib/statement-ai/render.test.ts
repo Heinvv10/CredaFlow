@@ -143,6 +143,12 @@ describe("review round 4: what the sentences must never say", () => {
     const many = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1, 7], occurrences: 25 } }]
     const [e] = buildPlans(insights, rows, many as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
     expect(e.text).toContain("The rule found 25 rows; the first 2 are shown.")
+    expect(e.text).not.toContain("number of rows")
+  })
+  it("does not count rows the row shows", () => {
+    const shown = [{ code: "RETURNED_DEBIT", check: "RISK_BEHAVIOUR", evidence: { documentId: "doc-1", analysisId: "an-1", transactionIndexes: [1], occurrences: 1 } }]
+    const [e] = buildPlans(insights, rows, shown as never, new Map([["an-1", read.transactions]]), "T TESTER").explanations
+    expect(e.text).toBe("Debits the bank returned unpaid or could not collect are listed. An officer reviews the flag before a decision.")
   })
 })
 
