@@ -540,7 +540,13 @@ export async function generateCreditAgreementPdfWithAnchors(
   }
 
   // ── PAGE 2: REPAYMENT SCHEDULE ────────────────────────────────────────────
-  const p2 = doc.addPage([A4_WIDTH, A4_HEIGHT])
+  // When the notices moved to their own page, the schedule starts under them
+  // there rather than leaving that page nearly blank (audit: "PASQ page 2
+  // nearly blank"). A document whose notices fit page 1 renders as before.
+  // The notices are a few short lines at the top of their own page, so the
+  // schedule's title, header and first rows always fit beneath them.
+  const scheduleSharesNoticePage = noticePage !== p1
+  const p2 = scheduleSharesNoticePage ? noticePage : doc.addPage([A4_WIDTH, A4_HEIGHT])
   const colDefs = [
     { label: "No.", x: MARGIN, width: 30 },
     { label: "Due Date", x: MARGIN + 35, width: 80 },
@@ -556,13 +562,13 @@ export async function generateCreditAgreementPdfWithAnchors(
   ]
 
   // Title and header row, repeated on every continuation page.
-  const drawScheduleHead = (page: PDFPage): number => {
-    let headY = A4_HEIGHT - MARGIN
+  const drawScheduleHead = (page: PDFPage, top = A4_HEIGHT - MARGIN): number => {
+    let headY = top
     drawText(page, "REPAYMENT SCHEDULE", MARGIN, headY, bold, 14, ACCENT); headY -= 24
     drawTableRow(page, headY, colDefs.map(c => ({ text: c.label, x: c.x, width: c.width })), bold, 8, WHITE, ACCENT)
     return headY - 20
   }
-  y = drawScheduleHead(p2)
+  y = drawScheduleHead(p2, scheduleSharesNoticePage ? y - 16 : undefined)
 
   // 38 rows a page. Continuation pages are added before p3 exists, so they
   // follow p2 directly.

@@ -233,7 +233,7 @@ export async function labelKeys(keys: string[]): Promise<{ labels: ModelLabels; 
   return { labels: vote(runs, distinct), version: modelLabelsVersion(config.model) }
 }
 
-async function labelOnce(config: { url: string; model: string }, distinct: string[]): Promise<ModelLabels> {
+async function labelOnce(config: NonNullable<ReturnType<typeof getVlmConfig>>, distinct: string[]): Promise<ModelLabels> {
   const labels: ModelLabels = {}
   for (let i = 0; i < distinct.length; i += LABEL_BATCH) {
     const batch = distinct.slice(i, i + LABEL_BATCH)
@@ -241,7 +241,7 @@ async function labelOnce(config: { url: string; model: string }, distinct: strin
     try {
       res = await fetch(config.url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: config.headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         body: JSON.stringify({
           model: config.model,
