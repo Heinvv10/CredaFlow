@@ -106,6 +106,16 @@ describe("generateDebitMandatePdf", () => {
     expect(content).not.toContain(pdfHex("R 2,661.65 per month"))
   })
 
+  it("prints the debit day when every debit shares one, and points at the schedule otherwise", async () => {
+    const withDay = extractPdfContent(await generateDebitMandatePdf({ ...fixture, loan: { ...fixture.loan, repaymentDayOfMonth: 19 } }))
+    expect(withDay).toContain(pdfHex("Debit Day of Month:"))
+    expect(withDay).not.toContain(pdfHex("As per repayment schedule"))
+
+    const { repaymentDayOfMonth: _omitted, ...loanWithoutDay } = fixture.loan
+    const withoutDay = extractPdfContent(await generateDebitMandatePdf({ ...fixture, loan: loanWithoutDay }))
+    expect(withoutDay).toContain(pdfHex("As per repayment schedule"))
+  })
+
   it("populates the consumer banking fields and marks every unsigned output as draft", async () => {
     const pdf = await generateDebitMandatePdf(fixture)
     const content = extractPdfContent(pdf)

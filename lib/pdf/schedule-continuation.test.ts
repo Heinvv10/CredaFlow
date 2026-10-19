@@ -1,8 +1,9 @@
+import { writeFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   FINGERPRINT_CLOCK, sha256,
   boundaryLoanInput, boundaryStartDate, boundaryAgreementInput, boundaryStatementInput,
-  variantStatementInputs,
+  variantStatementInputs, noticesMovedAgreementInput,
 } from "@/scripts/nca-pdf-fingerprint"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { generateCreditAgreementPdf } from "./creditAgreement"
@@ -59,5 +60,29 @@ describe("statements whose history fits on one page", () => {
   it.each(Object.keys(VARIANTS) as Array<keyof typeof VARIANTS>)("renders %s byte-for-byte as pinned", async (key) => {
     vi.useFakeTimers({ toFake: ["Date"], now: FINGERPRINT_CLOCK })
     expect(sha256(await generateStatementPdf(inputs[key]))).toBe(VARIANTS[key])
+  })
+})
+
+// Notices that do not fit page 1 move to page 2 and the schedule now starts
+// under them there (Fair Score audit 2026-10-16: "PASQ page 2 nearly blank";
+// layout approved by Hein 2026-10-19). Before this the same input rendered the
+// notices alone on page 2 and the schedule from page 3. Proof: NCA_PIN_DUMP=<dir> writes the
+// four PDFs for review; 12 rows fit under the notices, 60 continue onto a further page.
+const NOTICES_MOVED = {
+  pasq12: "c440592dba7c246efaa37ea254de9e5dfa4d792e2de80de05d89a1c184cc1add",
+  agreement12: "f6b47e899c00b2534a2ede9f6db08707a21165f5a82906bfa169fadaec9c1e0d",
+  pasq60: "ecdf313cc0cf7ad76ebee9470ccf21b5fe0bed752d5c20ba361f16237ab5696e",
+  agreement60: "8bb3541dff05b7fe72be6c892b3515da7448615177c7b4c6415e51f4b8b5f806",
+}
+
+describe("documents whose notices move to page 2", () => {
+  it.each([
+    ["pasq", 12], ["agreement", 12], ["pasq", 60], ["agreement", 60],
+  ] as const)("renders the %s with %i instalments byte-for-byte as pinned", async (variant, rows) => {
+    vi.useFakeTimers({ toFake: ["Date"], now: FINGERPRINT_CLOCK })
+    const calc = calculateLoan(boundaryLoanInput(rows), boundaryStartDate)
+    const pdf = await generateCreditAgreementPdf(noticesMovedAgreementInput(variant, calc))
+    if (process.env.NCA_PIN_DUMP) writeFileSync(`${process.env.NCA_PIN_DUMP}/${variant}${rows}.pdf`, pdf)
+    expect(sha256(pdf)).toBe(NOTICES_MOVED[`${variant}${rows}`])
   })
 })
