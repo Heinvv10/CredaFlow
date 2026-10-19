@@ -95,8 +95,8 @@ export function ProductPicker({
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-[#4F46E5]">
-                    {formatRands(p.premiumAmount)}
-                    <span className="text-xs font-normal text-gray-400">/mo</span>
+                    {p.headlineIsFrom ? "From " : ""}{formatRands(p.headlinePremium)}
+                    <span className="text-xs font-normal text-gray-400">/mo{p.headlineIsFrom ? " · main member" : ""}</span>
                   </p>
                   <p className="text-xs text-gray-400">Cover: {formatRands(p.sumAssured)}</p>
                 </div>

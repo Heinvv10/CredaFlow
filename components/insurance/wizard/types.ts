@@ -11,6 +11,10 @@ export interface Product {
   name: string
   type: string
   premiumAmount: number
+  /** Headline price for display (rands): cheapest main-member band when the product is rated, else premiumAmount. */
+  headlinePremium: number
+  /** True when headlinePremium is a rate-table minimum and must read "From". */
+  headlineIsFrom: boolean
   sumAssured: number
   commissionRate: number
   active: boolean

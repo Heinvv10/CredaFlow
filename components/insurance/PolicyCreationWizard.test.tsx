@@ -13,7 +13,7 @@ const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONM
 // assured on a R118/month policy.
 const PRODUCT = {
   id: "prod-1", name: "Family Funeral Plan", type: "FUNERAL_COVER", code: "FUN-1",
-  premiumAmount: 118, sumAssured: 20_000, commissionRate: 0.2, active: true,
+  premiumAmount: 118, headlinePremium: 118, headlineIsFrom: false, sumAssured: 20_000, commissionRate: 0.2, active: true,
   insurerName: "Example Underwriters (fictional)",
 }
 
@@ -45,6 +45,19 @@ beforeEach(() => { actEnvironment.IS_REACT_ACT_ENVIRONMENT = true })
 afterEach(() => { act(() => renderer.unmount()) })
 
 describe("PolicyCreationWizard: insurer and commission", () => {
+  // Row 116: the picker showed the flat R118 for a rated product; quoting ignores it.
+  it("shows a rated product as 'From' its cheapest main-member premium", () => {
+    render([{ ...PRODUCT, headlinePremium: 62, headlineIsFrom: true }])
+    expect(text()).toContain("From R 62.00/mo · main member")
+    expect(text()).not.toContain("R 118.00")
+  })
+
+  it("shows an unrated product's flat premium without 'From'", () => {
+    render()
+    expect(text()).toContain("R 118.00/mo")
+    expect(text()).not.toContain("From R")
+  })
+
   it("pre-fills no insurer name of its own", () => {
     render([])
     expect(insurerInput().props.value).toBe("")
