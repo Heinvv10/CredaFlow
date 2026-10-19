@@ -111,15 +111,45 @@ describe("portal declaration submission", () => {
       const checks = renderer.root.findAllByType("input").filter(i => i.props.type === "checkbox")
       for (const check of checks.slice(0, 4)) await act(async () => { check.props.onChange() })
       const sign = () => renderer.root.findAllByType("button").find(b => nodeText(b.props.children).includes("I Accept and Sign Digitally"))!
-      expect(sign().props.disabled).toBe(true)
+      // Not disabled: a dead button gave the consumer no clue why. The click
+      // is refused with a message naming the unticked declaration instead.
+      expect(sign().props.disabled).toBe(false)
+      expect(JSON.stringify(renderer.toJSON())).not.toContain("Please tick")
       await act(async () => { await sign().props.onClick() })
       expect(fetchMock).not.toHaveBeenCalled()
+      const alerts = renderer.root.findAll(n => n.props.role === "alert")
+      expect(alerts).toHaveLength(1)
+      const alertText = nodeText(alerts[0].props.children)
+      expect(alertText).toContain("Please tick")
+      expect(alertText).toContain(AGREEMENT_DECLARATIONS[4].text)
+      for (const d of AGREEMENT_DECLARATIONS.slice(0, 4)) expect(alertText).not.toContain(d.text)
       await act(async () => { checks[4].props.onChange() })
-      expect(sign().props.disabled).toBe(false)
+      expect(renderer.root.findAll(n => n.props.role === "alert")).toHaveLength(0)
       await act(async () => { await sign().props.onClick() })
       expect(fetchMock).toHaveBeenCalledOnce()
       const request = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
       expect(JSON.parse(request[1].body)).toMatchObject({ declarations: AGREEMENT_DECLARATION_PAYLOAD, agreementDocumentSha256: "a".repeat(64), pasqDocumentSha256: "b".repeat(64), signature: "Synthetic Signer" })
+    } finally {
+      if (renderer) await act(async () => renderer.unmount())
+      vi.unstubAllGlobals()
+      delete environment.IS_REACT_ACT_ENVIRONMENT
+    }
+  })
+
+  it("answers a click on Sign with nothing filled in by listing all five declarations", async () => {
+    const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    environment.IS_REACT_ACT_ENVIRONMENT = true
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal("fetch", fetchMock)
+    let renderer!: ReactTestRenderer
+    try {
+      await act(async () => { renderer = create(<PortalAgreementClient applicationId="synthetic" reference="SYNTHETIC" clientName="Synthetic" agreementDocumentSha256={"a".repeat(64)} agreementExecutedDocumentId={null} pasqDocumentSha256={"b".repeat(64)} repaymentMethod="EFT" />) })
+      const sign = renderer.root.findAllByType("button").find(b => nodeText(b.props.children).includes("I Accept and Sign Digitally"))!
+      expect(sign.props.disabled).toBe(false)
+      await act(async () => { await sign.props.onClick() })
+      expect(fetchMock).not.toHaveBeenCalled()
+      const alertText = nodeText(renderer.root.findAll(n => n.props.role === "alert")[0].props.children)
+      for (const d of AGREEMENT_DECLARATIONS) expect(alertText).toContain(d.text)
     } finally {
       if (renderer) await act(async () => renderer.unmount())
       vi.unstubAllGlobals()
