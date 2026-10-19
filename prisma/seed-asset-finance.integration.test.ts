@@ -362,10 +362,14 @@ suite("asset-finance demo seed on a fresh migrated database", () => {
       vatEvents: await fresh().recoveryVatEvent.count(),
       valuations: await fresh().assetValuation.count(),
       suppliers: await fresh().supplier.count(),
+      dealers: await fresh().dealer.count(),
+      dealerUsersWithPassword: await fresh().dealerUser.count({ where: { passwordHash: { not: null } } }),
+      dealerRates: await fresh().dealerCommissionRate.count(),
+      dealerAccountsApproved: await fresh().dealerBankAccount.count({ where: { status: "APPROVED" } }),
       section129Records: await fresh().complianceRecord.count({ where: { type: "SECTION_129_NOTICE" } }),
     })
     const before = await snapshot()
-    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 2, damageItems: 0, funds: 2, legalMatters: 1, legalSteps: 6, recoveries: 2, recoveryCosts: 1, sales: 0, vatEvents: 0, valuations: 2, section129Records: 1 })
+    expect(before).toMatchObject({ leases: 3, leaseDeals: 3, rentals: 77, rentalsInvoiced: 5, claims: 2, readings: 5, quotes: 1, endsOfTerm: 2, damageItems: 0, funds: 2, legalMatters: 1, legalSteps: 6, recoveries: 2, recoveryCosts: 1, sales: 0, vatEvents: 0, valuations: 2, section129Records: 1, dealers: 2, dealerUsersWithPassword: 3, dealerRates: 3, dealerAccountsApproved: 2 })
     execFileSync("npm", ["run", "seed:base", "--silent"], { cwd: process.cwd(), env: seedEnv, stdio: ["ignore", "pipe", "pipe"] })
     expect(await snapshot()).toEqual(before)
   }, 240_000)

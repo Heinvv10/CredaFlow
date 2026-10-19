@@ -114,6 +114,7 @@ describe("asset finance navigation", () => {
     "/asset-finance/deals",
     "/asset-finance/assets",
     "/asset-finance/suppliers",
+    "/asset-finance/dealers",
     "/asset-finance/reference-rates",
   ]
 

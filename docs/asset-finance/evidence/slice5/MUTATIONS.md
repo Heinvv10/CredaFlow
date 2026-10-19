@@ -146,3 +146,72 @@ were green again.
 | 1 | Drop the reversal source: `dealerCommissionSources` filters to `line.kind === "EARNED"` (`lib/accounting/sources-dealer-commission.ts`) | unit | 4 failed, 8 passed | "a REVERSED line (clawback) is its own source…"; "a clawback netted in a later run…"; "every source sums to zero…"; "posts each event once in its own month…" |
 | 1 | same | IT | 2 failed, 3 passed | "closes August to December…": October refused, `AccountingPeriodError: 2 asset-finance control(s) do not tie: AF_INPUT_VAT jrn-is-1-dcx (journal 176250, books 150000); DEALER_COMMISSION_PAYABLE jrn-is-1-dcx (journal 0, books 201250)`; "holds the hand-worked vector…" |
 | 2 | The payable control ignores released runs: the run predicate in `dealerPayableBooks` becomes `AND r."status" = 'RELEASED' AND false` (`lib/accounting/reconcile-controls.ts`) | IT | 3 failed, 2 passed | "ties the payable to the lines and runs in SQL…" (expected no mismatch, got one); "closes August to December…": September refused, `DEALER_COMMISSION_PAYABLE jrn-is-1-dcx (journal 0, books -201250)`; "holds the hand-worked vector…" |
+
+## Part A — staff admin & cost of credit
+
+Tasks 7 (staff admin) and 9 (cost of credit + seed). Database: a throwaway
+PostgreSQL 16 from `scripts/it-db.sh up cf-it-s5a7-<random>`, checked with
+`it-db.sh check` before every migrate, `npx prisma migrate deploy`.
+
+### Before (tests written first)
+
+- `app/api/settings/asset-finance/route.test.ts` with the dealer-portal cases
+  added, against the route without them: `Tests 5 failed | 11 passed (16)`
+  (portal switch and clawback audit, switching off, the demo-only 422, the
+  demo-lender marker never written; the 400 cases held vacuously, the old
+  parser refusing any body without its two fields).
+- `components/accounting/AccountingChecks.test.tsx` "names every
+  asset-finance control" with `DEALER_COMMISSION_PAYABLE` and a new
+  not-the-fallback assertion: `1 failed | 18 passed (19)` (`expected 'dealer
+  commission payable' not to be 'dealer commission payable'`).
+- The other new suites were written beside their code; each is shown to bite
+  by a mutation below instead.
+
+### After
+
+```
+npx vitest run lib/dealer/payable-run-lines.test.ts lib/dealer/staff-input.test.ts lib/dealer/staff-routes.test.ts \
+  lib/dealer/no-borrower-charge.test.ts app/api/settings/asset-finance/route.test.ts \
+  components/accounting/AccountingChecks.test.tsx lib/__tests__/navigation.test.ts
+ Test Files  7 passed (7)
+      Tests  139 passed (139)
+RUN_ASSET_FINANCE_DEALER_IT=1 npx vitest run --no-file-parallelism <every RUN_ASSET_FINANCE_DEALER_IT suite>
+ Test Files  16 passed (16)
+      Tests  117 passed (117)
+   (new: staff-admin 7, payable-run-actions 8, cost-of-credit 5)
+RUN_ACCOUNTING_IT=1 npx vitest run --no-file-parallelism lib/accounting
+ Test Files  39 passed (39)
+      Tests  312 passed (312)
+RUN_SEED_DB_IT=1 npx vitest run --no-file-parallelism prisma/seed.integration.test.ts prisma/seed-asset-finance.integration.test.ts
+ Test Files  2 passed (2)
+      Tests  29 passed (29)
+```
+
+Seed: `npx prisma migrate reset --force` twice on a fresh database of the same
+container (`EXPERIAN_DRY_RUN=true`, as the seed's own bureau step needs
+outside vitest): both runs "Seed complete" and "Staging seed complete". A
+third run on top (`npm run seed:base` with `SEED_DEALER_PASSWORD` set) left 2
+dealers, 3 dealer users with a password, 3 rates (2 dealer + 1 default) and 2
+APPROVED accounts; the reset path issued a fresh link and set the password
+(audited `DEALER_USER_PASSWORD_LINK_ISSUED`, `DEALER_USER_PASSWORD_SET`). The
+seed IT's rerun snapshot now includes the dealer rows.
+
+### Mutations
+
+Each one is applied to the source, the named suite is run, then the file is
+restored byte for byte from a copy; the suites above were green afterwards.
+
+| # | Mutation | Suite | Result | Red test (assertion) |
+|---|---|---|---|---|
+| 1 | Commission into the PASQ: `nca-quote-store.ts` selects `dealerCommissionFlatCents` and passes `initiationFeeCents: terms.financedFeesCents + flat` to `createAssetPasqEvidence` | cost-of-credit IT | 3 failed, 2 passed | "books both through the regulated NCA path": the book route answers 409 ("The database refused this step…"); "earned the dealer its commission…"; "leaves every borrower figure identical…" |
+| 2 | Commission into the disclosed cost: `evidence.totalCostOfCreditCents += dealerCommissionFlatCents` after `createAssetPasqEvidence` | cost-of-credit IT | 3 failed, 2 passed | "books both…": the quote is refused by CHECK `LoanApplication_approved_status_requires_pasq` (23514); then the two tests after it |
+| 3 | Commission spread into the Loan: `booking.ts` `monthlyServiceFee += round(flat / 60)` (flat selected in `booking-load.ts`) | cost-of-credit IT | 3 failed, 2 passed | "books both…": book 409 (the database ties the loan to the signed PASQ) |
+| 4 | Commission loaded into the rate: `booking.ts` `interestRatePm += dealerCommissionBps / 1 200 000` | cost-of-credit IT | 1 failed, 4 passed | "leaves every borrower figure identical: PASQ cost of credit and schedule, signed terms, Loan and its schedule rows" (`expected { pasq, deal, … } to deeply equal …`; the database does not guard this column, the identity assertion does) |
+| 5 | `lib/asset-finance/schedule-records.ts` gains `import "@/lib/dealer/actor"` (reached transitively from the five cost-of-credit modules) | `no-borrower-charge.test.ts` | 1 failed, 2 passed | "imports no dealer or commission module, directly or transitively" |
+| 6 | `lib/asset-finance/booking-plan.ts` gains a function reading `deal.dealerCommissionFlatCents` | `no-borrower-charge.test.ts` | 1 failed, 2 passed | "reads no dealerCommission* column anywhere in that graph" |
+| 7 | Run-create netting dropped: `selectRunLines` takes an EARNED line whenever its reversal is not live (`payable-run-lines.ts`) | unit | 1 failed, 4 passed | "leaves out a commission whose clawback falls after the period end" |
+| 7 | same | payable-run-actions IT | 5 failed, 3 passed | "creates January…" (the clawed-back February commission is linked without its reversal: the database refuses the link) and the four tests after it |
+| 8 | `dealer-runs/[runId]/approve` guarded by `manage_asset_finance` instead of `decide_asset_finance` | `staff-routes.test.ts` | 1 failed, 63 passed | "POST approve > holds a user awaiting TOTP enrolment, 404s with the module off, 403s below the permission" (a CREDIT_OFFICER got through) |
+| 9 | The settings route no longer maps the demo-only CHECK (`if (false && …)`) | settings route unit | 1 failed, 15 passed | "answers the demo-only CHECK 422 with the reason, and audits nothing" |
+| 9 | same | staff-admin IT | 1 failed, 6 passed | "the settings route answers the demo-only CHECK 422 on a lender that is not a demo…" (the real `TenantConfig_dealer_portal_demo_only` error reached the caller as a throw) |
+| 10 | `approvePayableRun` no longer refuses its creator in TS (`return null`); CHECK `DealerPayableRun_four_eyes` still refuses | payable-run-actions IT | 2 failed, 6 passed | "is approved only by another user…" (no `{ kind: "self_approval" }`), "is released with the lender's EFT reference" |

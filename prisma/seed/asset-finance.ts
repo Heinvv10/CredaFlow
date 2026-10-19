@@ -41,6 +41,9 @@
  * (e) Recoveries (slice 4a, ./asset-finance-recovery.ts): the TLB taken through its legal matter and an s131
  *     recovery to a shortfall, and the company lease recovered and listed.
  *
+ * (f) Dealers (slice 5A, ./asset-finance-dealers.ts): two synthetic dealers with their users, commission rates and
+ *     approved bank accounts, and the lender's default rate. No dealer deal is seeded.
+ *
  * DATES. Every rule runs as the app runs it, on today (SAST): each deal's
  * first instalment is a month out, the documents are prepared with the
  * planned start today, the deal is booked today (the tax invoice's supply
@@ -61,6 +64,7 @@ import { COMPANY, EXCAVATOR, TLB, TRACTOR, TRUST } from "./asset-finance-data"
 import { seedNaturalNcaDeal } from "./asset-finance-nca-natural"
 import { seedLeases } from "./asset-finance-leases"
 import { seedRecoveries } from "./asset-finance-recovery"
+import { seedDealers } from "./asset-finance-dealers"
 
 export type { SeedStaff } from "./asset-finance-deal"
 
@@ -116,5 +120,8 @@ export async function seedAssetFinance(tenantId: string, staff: SeedStaff): Prom
 
     // (e) Recoveries (slice 4a): the TLB through its legal matter to a shortfall, the company's lease listed.
     await seedRecoveries({ tenantId, staff, tlb: { clientId: people.director, assetId: tlb }, companyEntityId: company.id })
+
+    // (f) Dealers (slice 5A, ./asset-finance-dealers.ts): two dealers, their users, rates and approved bank accounts.
+    await seedDealers(tenantId, staff, supplierId)
   })
 }
