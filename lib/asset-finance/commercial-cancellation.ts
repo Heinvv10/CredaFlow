@@ -3,6 +3,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { syncLoanCharges } from "@/lib/loan/charges-sync"
+import { cancellationEvidenceWhere } from "./borrower-document-scope"
 import { dbDate, isoOfDbDate } from "./dates"
 import type { RecoveryActor } from "./recovery-create"
 import { RecoveryRefusal, refusable } from "./recovery-result"
@@ -32,8 +33,7 @@ export async function recordCommercialCancellation(actor: RecoveryActor, loanId:
     // Keep the same agreement → evidence lock order as the database guard.
     // Validate after a pending evidence edit has committed, never from its old image.
     await tx.$queryRaw`SELECT "id" FROM "EntityDocument" WHERE "id" = ${input.evidenceDocumentId} AND "tenantId" = ${actor.tenantId} FOR UPDATE`
-    const evidence = await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId, tenantId: actor.tenantId, entityId: loan.entityId,
-      docType: "LEGAL_DOCUMENT", uploadedByType: "staff", deletedAt: null, OR: [{ dealId: null }, { dealId: loan.assetFinanceDeal?.id ?? null }] } })
+    const evidence = await tx.entityDocument.findFirst({ where: { id: input.evidenceDocumentId, ...cancellationEvidenceWhere(actor.tenantId, loan) } })
     if (!evidence) throw new RecoveryRefusal("Choose live staff-uploaded legal evidence belonging to this borrower and agreement")
     const cancellation = await tx.commercialCancellation.create({ data: { tenantId: actor.tenantId, loanId, cancelledOn: dbDate(input.cancelledOn), evidenceDocumentId: evidence.id,
       basis: input.basis, cancellationConfirmed: true, recordedById: actor.userId } })
