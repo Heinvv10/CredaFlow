@@ -183,7 +183,7 @@ export async function storeDealEvidenceDocument(params: {
         action: AuditAction.ENTITY_DOCUMENT_UPLOADED,
         entity: "AssetFinanceDeal",
         entityId: dealId,
-        newValue: { documentId: created.id, entityId, clientId, docType: upload.docType, contentSha256 },
+        newValue: { documentId: created.id, businessEntityId: entityId, entityId, clientId, docType: upload.docType, contentSha256 },
       }, tx)
       return created
     })

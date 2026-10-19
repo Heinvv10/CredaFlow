@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { STAFF_UPLOAD_DOC_TYPES } from "@/lib/asset-finance/entity-documents"
+import { DEAL_EVIDENCE_DOC_TYPES } from "@/lib/asset-finance/payout-checklist"
 import { parseEntityDocumentForm, storeDealEvidenceDocument } from "@/lib/asset-finance/entity-document-io"
 
 type Params = { params: Promise<{ id: string }> }
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       where: { id, tenantId: tenant.id }, select: { id: true, entityId: true, clientId: true },
     })
     if (!deal) return NextResponse.json({ error: "Deal not found" }, { status: 404 })
-    const parsed = await parseEntityDocumentForm(req, STAFF_UPLOAD_DOC_TYPES, { allowDeal: false })
+    const parsed = await parseEntityDocumentForm(req, DEAL_EVIDENCE_DOC_TYPES, { allowDeal: false })
     if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
     const document = await storeDealEvidenceDocument({
       tenantId: tenant.id, dealId: deal.id, entityId: deal.entityId, clientId: deal.clientId,

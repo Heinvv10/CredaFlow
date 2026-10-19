@@ -4,6 +4,7 @@ import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { SAST_TIME_ZONE } from "@/lib/utils"
+import { borrowerDocumentWhere } from "@/lib/asset-finance/borrower-document-scope"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { parseValuation } from "@/lib/asset-finance/asset-input"
@@ -58,18 +59,18 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (input.documentId) {
       const deals = await prisma.assetFinanceDeal.findMany({
         where: { tenantId: tenant.id, assetId: id },
-        select: { entityId: true },
+        select: { entityId: true, clientId: true },
       })
-      const entityIds = [...new Set(deals.map((d) => d.entityId).filter((entityId): entityId is string => entityId !== null))]
+      const borrowers = [...new Map(deals.map((d) => [d.entityId ?? d.clientId, borrowerDocumentWhere(d)])).values()]
       const document = await prisma.entityDocument.findFirst({
         where: {
           id: input.documentId, tenantId: tenant.id, deletedAt: null, docType: "VALUATION",
-          ...(entityIds.length > 0 ? { entityId: { in: entityIds } } : {}),
+          ...(borrowers.length > 0 ? { OR: borrowers } : {}),
         },
         select: { id: true },
       })
       if (!document) {
-        const reason = entityIds.length > 0
+        const reason = borrowers.length > 0
           ? "is not a valuation document of the borrower on this asset's deal"
           : "is not a valuation document on file"
         return NextResponse.json({ error: "Invalid valuation", fields: { documentId: reason } }, { status: 400 })

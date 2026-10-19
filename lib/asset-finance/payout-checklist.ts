@@ -69,6 +69,18 @@ export const CHECKLIST_EVIDENCE_TYPES: Record<PayoutChecklistItemKind, readonly 
   NATIS_TITLEHOLDER: ["NATIS_DOCUMENT"],
 }
 
+/**
+ * Every type a deal's evidence upload offers and its route accepts (one list,
+ * so the dropdown cannot drift from the validation). LEGAL_DOCUMENT is on it
+ * because a surety's consent letter is deal evidence (surety-consent.ts reads
+ * a staff LEGAL_DOCUMENT on the deal) and this upload is the only place staff
+ * can file one; the portal never shows that type (portal-access.ts). VALUATION
+ * is on it because an individual lessee's valuation has no other upload path.
+ */
+export const DEAL_EVIDENCE_DOC_TYPES: readonly EntityDocumentType[] = [
+  ...new Set<EntityDocumentType>(["LEGAL_DOCUMENT", "VALUATION", ...CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVIDENCE_TYPES[k])]),
+]
+
 export interface ChecklistAsset {
   serialNumber: string
   vin: string | null

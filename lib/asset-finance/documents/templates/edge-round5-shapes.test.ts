@@ -6,14 +6,11 @@
  * every deal (deal-input.ts RATE_BASES), so a lease or NCA deal on REPO,
  * JIBAR, ZARONIA or the lender's base rate prints protected wording no shape
  * reaches: it can change with no fingerprint change and no re-approval, and
- * no approver ever previews it (the LENDER_BASE lease sentence even reads
- * "the Lender base rate rate").
+ * no approver ever previews it.
  *
  * DEFECT tests failed on feat/lender-owned-templates 3297f208; the shape
- * coverage is FIXED by per-rate-basis lease and NCA shapes. The grammar case
- * ("Lender base rate rate") is starter lease wording, which this work may not
- * rewrite: it stays an expected failure (it.fails) for the drafters, and turns
- * red here once the wording is corrected so this marker is removed.
+ * coverage is FIXED by per-rate-basis lease and NCA shapes. The lease rate
+ * sentence once read "the Lender base rate rate" (corrected 2026-10-19).
  */
 import { describe, expect, it } from "vitest"
 import { leaseScheduleView } from "../../lease-view"
@@ -71,7 +68,7 @@ const NCA: NcaAssetDocumentData = {
 
 describe("FIXED: rate-basis wording on leases and NCA agreements is reached by a preview shape", () => {
   it.each([
-    ["LENDER_BASE", "linked to the Lender base rate rate"],
+    ["LENDER_BASE", "linked to the Lender base rate."],
     ["JIBAR", "linked to the JIBAR rate"],
     ["REPO", "linked to the Repo rate"],
   ] as const)("af.lease.operating.commercial on %s prints %j", async (basis, sentence) => {
@@ -89,8 +86,7 @@ describe("FIXED: rate-basis wording on leases and NCA agreements is reached by a
     expect((await shapeTexts(key)).some((t) => t.includes(sentence)), `${sentence} is in no shape`).toBe(true)
   }, 60_000)
 
-  // KNOWN STARTER WORDING ISSUE (not fixed here): see docs/asset-finance/legal-wording/README.md.
-  it.fails("the lease's protected rate sentence is grammatical for every allowed basis", async () => {
+  it("the lease's protected rate sentence on the lender's base rate does not read \"rate rate\"", async () => {
     const key = "af.lease.operating.commercial"
     const base = syntheticDealDocumentData({ lender: LENDER })
     const data = { ...base, pricing: { ...base.pricing, rateBasis: "LENDER_BASE" as const }, lease: operatingLease(false) }
