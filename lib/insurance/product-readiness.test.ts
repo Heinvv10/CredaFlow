@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { InsuredLifeType } from "@prisma/client"
 import type { RateBasis } from "@prisma/client"
 import { rateLife } from "./rating/rate-quote"
-import { INSURED_LIFE_TYPES, canSellProduct } from "./product-readiness"
+import { INSURED_LIFE_TYPES, canSellProduct, ruleAndCoverageReasons } from "./product-readiness"
 import { evaluate, type EligibilityRuleInput } from "./eligibility/evaluate"
 
 const AT = new Date("2026-08-15T00:00:00Z")
@@ -300,5 +300,43 @@ describe("canSellProduct — a life type it screens must be one the card can pri
 
     expect(result.sellable).toBe(false)
     expect(result.reasons.join(" ")).not.toMatch(/cannot be priced/)
+  })
+})
+
+describe("ruleAndCoverageReasons", () => {
+  const rules = ALL_MANDATORY_RULES as EligibilityRuleInput[]
+  const bandsFor = (...lifeTypes: InsuredLifeType[]) => lifeTypes.map((lifeType) => ({ lifeType }))
+
+  it("returns no reasons when every rule resolves and every life type has a band", () => {
+    expect(ruleAndCoverageReasons(rules, bandsFor(...INSURED_LIFE_TYPES))).toEqual([])
+  })
+
+  it("skips the coverage check when there is no usable rate card (bands null)", () => {
+    expect(ruleAndCoverageReasons(rules, null)).toEqual([])
+  })
+
+  it("names a mandatory rule that is missing for every life type", () => {
+    const withoutMaxCover = rules.filter((r) => r.ruleType !== "MAX_COVER")
+    expect(ruleAndCoverageReasons(withoutMaxCover, bandsFor(...INSURED_LIFE_TYPES))).toEqual([
+      "Mandatory eligibility rule MAX_COVER is not configured",
+    ])
+  })
+
+  it("names only the unresolved life types when a rule is scoped to one life", () => {
+    const childOnly = rules.map((r) => (r.ruleType === "MAX_COVER" ? { ...r, lifeScope: "CHILD" as const } : r))
+    const reasons = ruleAndCoverageReasons(childOnly, bandsFor("CHILD"))
+    expect(reasons).toEqual(["Mandatory eligibility rule MAX_COVER is not configured for MAIN_MEMBER, SPOUSE, EXTENDED_FAMILY"])
+  })
+
+  it("reports screenable life types the card cannot price", () => {
+    expect(ruleAndCoverageReasons(rules, bandsFor("MAIN_MEMBER"))).toEqual([
+      "The ACTIVE rate table has no band for SPOUSE, CHILD, EXTENDED_FAMILY, so those lives screen as eligible but cannot be priced",
+    ])
+  })
+
+  it("does not repeat as a band reason a life type already blocked by a missing rule", () => {
+    const childOnly = rules.map((r) => (r.ruleType === "MAX_COVER" ? { ...r, lifeScope: "CHILD" as const } : r))
+    const reasons = ruleAndCoverageReasons(childOnly, bandsFor("CHILD"))
+    expect(reasons.join(" ")).not.toMatch(/cannot be priced/)
   })
 })
