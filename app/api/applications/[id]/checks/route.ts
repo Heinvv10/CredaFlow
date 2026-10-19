@@ -9,6 +9,16 @@ import { statementAiEnabled } from "@/lib/statement-ai/enabled"
 import { flagExplanations } from "@/lib/statement-ai/views"
 import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
 
+/** Advisory (Statement AI, if the lender has it): a failure here leaves the flags without explanations, never without the flags. */
+async function explanationsFor(tenantId: string, applicationId: string): Promise<Map<string, string>> {
+  try {
+    return (await statementAiEnabled(tenantId)) ? await flagExplanations(tenantId, applicationId) : new Map()
+  } catch (error) {
+    console.error("[checks] flag explanations failed:", error)
+    return new Map()
+  }
+}
+
 /**
  * GET /api/applications/[id]/checks — recompute the application's credit-check
  * flags (before a decision only) and return them with their evidence rows.
@@ -35,7 +45,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     enqueueApplication(tenant.id, id)
 
     const { flags, documentIds } = await flagViews(tenant.id, result.flags)
-    const explained = (await statementAiEnabled(tenant.id)) ? await flagExplanations(tenant.id, id) : new Map<string, string>()
+    const explained = await explanationsFor(tenant.id, id)
     await logDocumentContentAccess({ documentIds, staffUserId: guard.user.id, action: "credit_check_evidence", req })
     return NextResponse.json({
       recomputed: result.recomputed,

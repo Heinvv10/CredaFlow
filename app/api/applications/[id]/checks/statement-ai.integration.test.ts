@@ -96,6 +96,34 @@ suite("Statement AI flag explanations in GET /api/applications/[id]/checks again
     expect(await prisma.documentAccessLog.count({ where: { documentId: on.documentId, action: "credit_check_evidence" } })).toBeGreaterThan(0)
   })
 
+  it("explains each open flag in its own row: two of one code apart, none for a superseded flag or a code with no spec", async () => {
+    const f = await createAiFixture({ featureStatementAi: true, label: "chkrows" })
+    try {
+      const flag = (code: string, fp: string, monthlyCents: number) => prisma.applicationCheckFlag.create({
+        data: {
+          tenantId: f.tenantId, applicationId: f.applicationId, check: "RISK_BEHAVIOUR", code, fingerprint: `${fp}_${f.applicationId}`, summary: "Synthetic.",
+          evidence: { documentId: f.documentId, analysisId: f.analysisId, transactionIndexes: [2], monthlyCents, monthlyIncomeCents: 1_845_000 },
+        },
+      })
+      const a = await flag("GAMBLING", "a", 150_000)
+      const b = await flag("GAMBLING", "b", 777_700)
+      // Raised OPEN, then superseded, as the recompute does (the database allows no other way in).
+      const gone = await flag("GAMBLING", "c", 333_300)
+      await prisma.applicationCheckFlag.updateMany({ where: { id: gone.id, tenantId: f.tenantId }, data: { status: "SUPERSEDED" } })
+      const nospec = await flag("ZZZ_NO_SPEC", "d", 100)
+      const { flags } = (await (await checks(f, "LOAN_ADMIN")).json()) as { flags: Flag[] }
+      const of = (id: string) => flags.find((x) => x.id === id)!
+      expect(of(a.id).explanation).toContain("amount a month R1 500.00")
+      expect(of(b.id).explanation).toContain("amount a month R7 777.00")
+      expect(of(gone.id).status).toBe("SUPERSEDED")
+      expect(of(gone.id)).not.toHaveProperty("explanation")
+      expect(of(nospec.id)).not.toHaveProperty("explanation")
+    } finally {
+      await drained()
+      await dropAiFixture(f)
+    }
+  })
+
   it("flag off: the same flags, and no explanation on any of them", async () => {
     const res = await checks(off, "LOAN_ADMIN")
     expect(res.status).toBe(200)

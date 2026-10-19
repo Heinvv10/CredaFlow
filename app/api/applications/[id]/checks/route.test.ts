@@ -84,4 +84,17 @@ describe("GET /api/applications/[id]/checks", () => {
     expect(body.flags).toEqual([{ id: "f1", status: "OPEN", explanation: "Why f1 was raised." }, { id: "f2", status: "CLEARED" }])
     expect(explanationsMock).toHaveBeenCalledWith("t1", "app-1")
   })
+
+  // The explanation is advisory: a failure to write it must not take the flags (and Clear) away with it.
+  it("Statement AI failing: the flags as before, logged, and the access still recorded", async () => {
+    enabledMock.mockResolvedValue(true)
+    explanationsMock.mockRejectedValue(new Error("statement load failed"))
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect((await res.json()).flags).toEqual([{ id: "f1", status: "OPEN" }, { id: "f2", status: "CLEARED" }])
+    expect(error).toHaveBeenCalledWith("[checks] flag explanations failed:", expect.any(Error))
+    expect(logAccessMock).toHaveBeenCalled()
+    error.mockRestore()
+  })
 })
