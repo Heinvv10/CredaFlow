@@ -1,0 +1,299 @@
+// Slice 5 part A, dealer/broker portal and commission (docs/asset-finance/SLICE5.md).
+// Rules: hand-written section of migration 20261019120100_dealer_portal.
+
+enum DealerKind {
+  DEALER
+  BROKER
+}
+
+enum DealerRole {
+  DEALER_ADMIN
+  DEALER_SALES
+}
+
+enum DealerCommissionLineKind {
+  EARNED
+  REVERSED
+}
+
+enum DealerCommissionReversalReason {
+  LOAN_SETTLED_EARLY
+  LOAN_WRITTEN_OFF
+  LOAN_CANCELLED
+}
+
+enum DealerCommissionRateSource {
+  DEALER
+  TENANT_DEFAULT
+  NONE
+}
+
+enum DealerPayableRunStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RELEASED
+  CANCELLED
+}
+
+enum DealerBankAccountStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+// A dealer or broker originating deals for the lender. Never deleted (guardDealer).
+model Dealer {
+  id                 String     @id @default(cuid())
+  tenantId           String
+  tenant             Tenant     @relation(fields: [tenantId], references: [id])
+  name               String
+  kind               DealerKind
+  registrationNumber String?
+  vatNumber          String?
+  vatVendor          Boolean    @default(false)
+  supplierId         String?
+  supplier           Supplier?  @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  contactEmail       String
+  contactPhone       String?
+  active             Boolean    @default(true)
+  deactivatedAt      DateTime?
+  deactivatedById    String?
+  deactivatedBy      User?      @relation("DealerDeactivatedBy", fields: [tenantId, deactivatedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdById        String
+  createdBy          User       @relation("DealerCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  bankAccounts    DealerBankAccount[]
+  commissionLines DealerCommissionLine[]
+  commissionRates DealerCommissionRate[]
+  createdAssets   FinancedAsset[]
+  createdClients  Client[]
+  createdEntities BusinessEntity[]
+  deals           AssetFinanceDeal[]
+  payableRuns     DealerPayableRun[]
+  users           DealerUser[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@unique([tenantId, supplierId])
+}
+
+// A dealer portal user (password only until dealer 2FA; demo lenders only).
+// Created by staff or by a DEALER_ADMIN of the same dealer.
+model DealerUser {
+  id                    String      @id @default(cuid())
+  tenantId              String
+  dealerId              String
+  dealer                Dealer      @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  email                 String
+  name                  String
+  role                  DealerRole
+  passwordHash          String?
+  setPasswordTokenHash  String?     @unique
+  setPasswordTokenExp   DateTime?
+  active                Boolean     @default(true)
+  tokenVersion          Int         @default(0)
+  lastLoginAt           DateTime?
+  createdByUserId       String?
+  createdByUser         User?       @relation("DealerUserCreatedBy", fields: [tenantId, createdByUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdByDealerUserId String?
+  createdByDealerUser   DealerUser? @relation("DealerUserCreatedByDealerUser", fields: [tenantId, createdByDealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  consentAttestations DealerConsentAttestation[]
+  dealerUsersCreated  DealerUser[]               @relation("DealerUserCreatedByDealerUser")
+  deals               AssetFinanceDeal[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, email])
+  @@index([tenantId, dealerId])
+}
+
+// A commission rate from effectiveFrom: a dealer's own or the tenant default
+// (dealerId null). History: never edited; withdrawn only before it is in force.
+model DealerCommissionRate {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  dealerId      String?
+  dealer        Dealer?  @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  effectiveFrom DateTime @db.Date
+  bps           Int
+  flatCents     Int
+  createdById   String
+  createdBy     User     @relation("DealerCommissionRateCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdAt     DateTime @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  dealSnapshots AssetFinanceDeal[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, dealerId, effectiveFrom])
+}
+
+// A commission ledger line, written only by the database: EARNED when the deal
+// is BOOKED (accrueDealerCommission), REVERSED (exact negatives of the EARNED
+// line) when the loan settles early, is written off or cancelled
+// (clawbackDealerCommission). Immutable (guardDealerCommissionLine).
+model DealerCommissionLine {
+  id              String                          @id @default(cuid())
+  tenantId        String
+  dealerId        String
+  dealer          Dealer                          @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealId          String
+  deal            AssetFinanceDeal                @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId          String
+  loan            Loan                            @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  kind            DealerCommissionLineKind
+  reversesLineId  String?                         @unique
+  reversesLine    DealerCommissionLine?           @relation("DealerCommissionReversal", fields: [tenantId, reversesLineId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason          DealerCommissionReversalReason?
+  effectiveOn     DateTime                        @db.Date
+  baseCents       Int
+  bps             Int
+  flatCents       Int
+  netCents        Int
+  vatRate         Decimal                         @db.Decimal(6, 4)
+  vatCents        Int
+  grossCents      Int
+  dealerVatVendor Boolean
+  clawbackMonths  Int
+  createdAt       DateTime                        @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  reversal DealerCommissionLine?  @relation("DealerCommissionReversal")
+  runLinks DealerPayableRunLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reversesLineId])
+  @@index([tenantId, dealerId, effectiveOn])
+  @@index([tenantId, loanId])
+}
+
+// A batch of a dealer's commission lines paid to its APPROVED bank account,
+// approved by a second user (DealerPayableRun_four_eyes) and released with the
+// lender's own EFT reference. No bank rail.
+model DealerPayableRun {
+  id               String                 @id @default(cuid())
+  tenantId         String
+  dealerId         String
+  dealer           Dealer                 @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  periodEnd        DateTime               @db.Date
+  bankAccountId    String
+  bankAccount      DealerBankAccount      @relation(fields: [tenantId, bankAccountId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  status           DealerPayableRunStatus @default(PENDING_APPROVAL)
+  totalNetCents    Int
+  totalVatCents    Int
+  totalGrossCents  Int
+  createdById      String
+  createdBy        User                   @relation("DealerRunCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedById     String?
+  approvedBy       User?                  @relation("DealerRunApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  approvedAt       DateTime?
+  releasedById     String?
+  releasedBy       User?                  @relation("DealerRunReleasedBy", fields: [tenantId, releasedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  releasedAt       DateTime?
+  releaseReference String?
+  cancelledById    String?
+  cancelledBy      User?                  @relation("DealerRunCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  cancelledAt      DateTime?
+  createdAt        DateTime               @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  lines DealerPayableRunLine[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dealerId, status])
+}
+
+// A line in a run. One live (not voided) run per line; a cancelled run voids its links.
+model DealerPayableRunLine {
+  id        String               @id @default(cuid())
+  tenantId  String
+  runId     String
+  run       DealerPayableRun     @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  lineId    String
+  line      DealerCommissionLine @relation(fields: [tenantId, lineId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  voided    Boolean              @default(false)
+  createdAt DateTime             @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, runId])
+}
+
+// A dealer's bank account, field for field SupplierBankAccount: PENDING until
+// a second user approves it with its verification; one APPROVED per dealer.
+model DealerBankAccount {
+  id            String                  @id @default(cuid())
+  tenantId      String
+  dealerId      String
+  dealer        Dealer                  @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  bankName      String
+  branchCode    String
+  accountNumber String
+  accountHolder String
+  accountType   String?
+  status        DealerBankAccountStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                    @relation("DealerAccountRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedById   String?
+  decidedBy     User?                   @relation("DealerAccountDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+  avsResult     Json?
+  avsPassed     Boolean?
+  createdAt     DateTime                @default(now())
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  payableRuns DealerPayableRun[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dealerId])
+}
+
+// A dealer user's attestation of a data subject's signed POPIA consent (the
+// upload). Evidence, not consent: staff verify it and record ClientConsent.
+model DealerConsentAttestation {
+  id               String           @id @default(cuid())
+  tenantId         String
+  dealId           String
+  deal             AssetFinanceDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  clientId         String
+  client           Client           @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  documentId       String
+  document         EntityDocument   @relation("DealerConsentDocument", fields: [tenantId, documentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealerUserId     String
+  dealerUser       DealerUser       @relation(fields: [tenantId, dealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  statementVersion String
+  statementText    String
+  attestedAt       DateTime         @default(now())
+  verifiedById     String?
+  verifiedBy       User?            @relation("DealerConsentVerifiedBy", fields: [tenantId, verifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  verifiedAt       DateTime?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dealId])
+}
+
+// Staff asking the dealer for a document (note shown to it: no credit reasons).
+model DealerDocumentRequest {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  dealId              String
+  deal                AssetFinanceDeal   @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  docType             EntityDocumentType
+  note                String
+  requestedById       String
+  requestedBy         User               @relation("DealerDocumentRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  requestedAt         DateTime           @default(now())
+  fulfilledDocumentId String?
+  fulfilledDocument   EntityDocument?    @relation("DealerDocumentRequestFulfilled", fields: [tenantId, fulfilledDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  fulfilledAt         DateTime?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dealId])
+}

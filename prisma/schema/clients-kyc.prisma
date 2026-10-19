@@ -75,6 +75,10 @@ model Client {
   referredFromId                     String? // lead.id that converted to this client (the source lead)
   referralCodeId                     String? // Durable referral-agent attribution, set by staff on the client; credits repeat loans
   referralCode                       ReferralCode?          @relation("ClientReferralCode", fields: [referralCodeId], references: [id], onDelete: SetNull)
+  // A person captured through the dealer portal by this dealer (provenance,
+  // guardAssetDealDealer).
+  createdByDealerId                  String?
+  createdByDealer                    Dealer?                @relation(fields: [tenantId, createdByDealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   applications                  LoanApplication[]
@@ -87,6 +91,7 @@ model Client {
   contact                       Contact?                 @relation("ClientToContact")
   convertedLeads                Lead[]                   @relation("LeadConvertedClient")
   crossSellOpportunities        CrossSellOpportunity[]
+  dealerConsentAttestations     DealerConsentAttestation[]
   dealSigners                   DealSigner[]
   debitMandates                 DebitMandate[]
   debtObligations               ExistingDebtObligation[]
