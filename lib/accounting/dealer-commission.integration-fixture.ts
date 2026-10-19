@@ -77,7 +77,11 @@ export async function insertDealerCommission(db: PrismaClient, t: ChargesTenant)
       id: r.id, tenantId: t.tenantId, dealerId: r.dealerId, periodEnd: dbDay(day(r.periodEnd)), bankAccountId: `dba-it-${r.dealerId}`, status: r.status,
       totalNetCents: sum(r.lines, (l) => l.net), totalVatCents: sum(r.lines, (l) => l.vat), totalGrossCents: sum(r.lines, (l) => l.net + l.vat), createdById: t.userId,
       ...(r.status === "RELEASED"
-        ? { approvedById: "approver-it", approvedAt: new Date(r.at), releasedById: "releaser-it", releasedAt: new Date(r.at), releaseReference: `EFT-${r.id}` }
+        ? {
+            approvedById: "approver-it", approvedAt: new Date(r.at), releasedById: "releaser-it", releasedAt: new Date(r.at), releaseReference: `EFT-${r.id}`,
+            // A run with VAT is released with the dealer's tax invoice (DealerPayableRun_tax_invoice_on_vat).
+            ...(sum(r.lines, (l) => l.vat) !== 0 ? { dealerTaxInvoiceReference: `INV-${r.id}`, dealerTaxInvoiceDate: dbDay(day(r.periodEnd)) } : {}),
+          }
         : { cancelledById: t.userId, cancelledAt: new Date(r.at) }),
     } })),
     ...RUNS.flatMap((r) => r.lines.map((lineId) => db.dealerPayableRunLine.create({ data: { tenantId: t.tenantId, runId: r.id, lineId, voided: r.status === "CANCELLED" } }))),
