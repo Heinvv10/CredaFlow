@@ -103,14 +103,17 @@ describe("www. forms of reserved hosts", () => {
 // serves from env. Every host-bearing variable they read must be reserved,
 // so a new one cannot be added to the proxy and forgotten here.
 describe("reserved hosts cover every host variable the proxy reads", () => {
-  const SOURCES = ["proxy.ts", "lib/proxy/tenant-routing.ts", "lib/proxy/operator-host.ts", "lib/config/deployment-urls.ts", "lib/insurance/quickquote-config.ts"]
+  const SOURCES = [
+    "proxy.ts", "lib/proxy/tenant-routing.ts", "lib/proxy/operator-host.ts", "lib/proxy/dealer-host.ts", "lib/config/deployment-urls.ts",
+    "lib/insurance/quickquote-config.ts",
+  ]
   const read = SOURCES.flatMap((file) => [
     ...readFileSync(path.join(process.cwd(), file), "utf8").matchAll(/(?:env\.|(?:listFrom|value)\(env, ")([A-Z][A-Z0-9_]+)/g),
   ].map((m) => m[1]))
   const hostVars = [...new Set(read)].filter((name) => /HOST|URL|ORIGIN|ANCESTORS/.test(name)).sort()
 
   it("finds the host variables (the scan itself works)", () => {
-    expect(hostVars).toEqual(expect.arrayContaining(["OPERATOR_APP_HOST", "STAFF_APP_HOST", "TENANT_HOST_MAP", "FSP_QUICKQUOTE_HOSTS", "FSP_QUICKQUOTE_EMBED_ORIGIN"]))
+    expect(hostVars).toEqual(expect.arrayContaining(["OPERATOR_APP_HOST", "STAFF_APP_HOST", "DEALER_APP_HOST", "TENANT_HOST_MAP", "FSP_QUICKQUOTE_HOSTS", "FSP_QUICKQUOTE_EMBED_ORIGIN"]))
   })
 
   it("reserves the host each of them names", () => {
