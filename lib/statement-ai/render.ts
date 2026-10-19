@@ -38,7 +38,14 @@ export const ClaimsSchema = z.object({ claims: z.array(z.enum(SUMMARY_CLAIMS)).m
 const list = (items: string[]) => items.join("; ")
 const sized = (s: Sized) => `${s.amount} ${s.direction === "in" ? "in" : "out"}`
 
+/** Claims whose figures come only from reconciled statements: with none, each would read as a real zero. */
+const FROM_RECONCILED: ReadonlySet<SummaryClaim> = new Set(["money", "months", "salary", "living", "categories", "uncategorised", "payees"])
+
 function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
+  if (f.reconciledStatementCount === 0) {
+    if (FROM_RECONCILED.has(claim)) return null
+    if (claim === "coverage") return "No statement reconciles, so no money in, money out, salary or spend is counted from them."
+  }
   switch (claim) {
     case "coverage": {
       const counted = f.statements.filter((s) => s.reconciled)
@@ -94,10 +101,11 @@ function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
 /**
  * The summary from the model's chosen claims, in its order, duplicates
  * dropped, one claim a line (the card lists them). The flags claim is always included when a flag is raised: a summary
- * must never leave out what the rules found.
+ * must never leave out what the rules found. When no statement reconciles, coverage leads and says so.
  */
 export function renderSummary(claims: SummaryClaim[], facts: SummaryFacts): string {
   const chosen = [...new Set(claims)]
+  if (facts.reconciledStatementCount === 0 && !chosen.includes("coverage")) chosen.unshift("coverage")
   if (facts.raisedFlags.length > 0 && !chosen.includes("flags")) chosen.push("flags")
   return chosen.map((c) => claimSentence(c, facts)).filter((s): s is string => !!s).join("\n")
 }

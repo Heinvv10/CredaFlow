@@ -35,6 +35,7 @@ import { POST } from "./route"
 import { defaultQuarter } from "@/lib/compliance/quarters"
 import { fscaSubmissionKey } from "@/lib/fsca-return"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
+import { ncrSubmissionKey } from "@/lib/compliance/ncr-return"
 
 const QUARTER = defaultQuarter()
 
@@ -91,8 +92,7 @@ describe("POST /api/compliance/fsca-return", () => {
     expect(fscaSubmissionKey("t-a", QUARTER)).not.toBe(fscaSubmissionKey("t-b", QUARTER))
   })
 
-  it("does not collide with the NCR return's keys in the same unique column", async () => {
-    const { ncrSubmissionKey } = await import("@/lib/compliance/ncr-return")
+  it("does not collide with the NCR return's keys in the same unique column", () => {
     expect(fscaSubmissionKey("tenant-1", QUARTER)).not.toBe(ncrSubmissionKey("tenant-1", QUARTER))
   })
 
