@@ -18,7 +18,7 @@ import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
 export async function submitDealerDeal(actor: DealerActor, dealId: string): Promise<{ kind: "submitted"; at: Date } | DealerRefusal> {
   return prisma.$transaction(async (tx) => {
-    // The row lock orders this against a concurrent submit or attestation.
+    // The row lock serialises two submits of the deal; the database also sets dealerSubmittedAt only once.
     const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT "id" FROM "AssetFinanceDeal"
       WHERE "id" = ${dealId} AND "tenantId" = ${actor.tenantId} AND "dealerId" = ${actor.dealerId} FOR UPDATE

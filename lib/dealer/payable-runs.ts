@@ -76,6 +76,23 @@ async function candidates(tx: Tx, tenantId: string, dealerId: string, periodEnd:
   }))
 }
 
+/**
+ * The 409 for a unique violation a run write can meet, named by its index
+ * (Prisma reports the model and the indexed columns): a second live run for
+ * the period, or a line already in another live run. Anything else is not a
+ * run conflict and is rethrown.
+ */
+function runUniqueRefusal(error: unknown): DealerRefusal | null {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return null
+  const model = error.meta?.modelName
+  const target = JSON.stringify(error.meta?.target ?? "")
+  if (model === "DealerPayableRun" && target.includes("periodEnd")) return dealerRefused(409, "The dealer already has a live run for this period")
+  if (model === "DealerPayableRunLine" && target.includes("lineId")) {
+    return dealerRefused(409, "A commission line is already in another live run: refresh and try again")
+  }
+  return null
+}
+
 /** Runs `write`, answering a refusal the database raised with its own sentence. */
 async function guarded<T>(write: () => Promise<T>): Promise<T | DealerRefusal> {
   try {
@@ -83,9 +100,8 @@ async function guarded<T>(write: () => Promise<T>): Promise<T | DealerRefusal> {
   } catch (error) {
     const sentence = dealerGuardSentence(error)
     if (sentence) return dealerRefused(409, sentence)
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return dealerRefused(409, "The dealer already has a live run for this period")
-    }
+    const unique = runUniqueRefusal(error)
+    if (unique) return unique
     throw error
   }
 }

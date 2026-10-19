@@ -13,7 +13,6 @@ import { withTenantContext } from "@/lib/tenant"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { DeploymentConfigError, requireDealerBaseUrl } from "@/lib/config/deployment-urls"
 import type { StaffActor } from "./actor"
-import type { DealerRefusal } from "./result"
 
 export interface DealerStaffContext {
   tenantId: string
@@ -39,7 +38,7 @@ export async function withDealerStaff(
   })
 }
 
-export const refusalResponse = (refusal: DealerRefusal) => NextResponse.json({ error: refusal.error }, { status: refusal.status })
+export { refusalResponse } from "./http"
 
 /** The JSON body, or {} when there is none or it is not an object. */
 export async function jsonBody(req: NextRequest): Promise<Record<string, unknown>> {
