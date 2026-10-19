@@ -253,3 +253,50 @@ from a copy; the suite was 4/4 green again.
 | # | Mutation | Suite | Result | Red test (assertion) |
 |---|---|---|---|---|
 | 1 | `submit/route.ts`: `if (deal?.dealerId && false) {` | submit route unit | 1 failed, 3 passed | "answers 409 for a dealer's deal: …" (`expected 200 to be 409`) |
+
+## Part A — review round 1
+
+PR #216 review fixes (SLICE5.md deviations 29-38, migration
+`20261019120300_dealer_portal_review_fixes`). Database: throwaway PostgreSQL
+16 from `scripts/it-db.sh up cf-it-s5fx-<random>`. Every fix got its test
+first; for the database rules the Prisma DDL alone was applied first (so the
+suites could run), then the hand-written rules.
+
+### Before (tests written first, against the code or database without the fix)
+
+| Fix | Suite | Result | Red assertion |
+|---|---|---|---|
+| L1 reversal reason hidden | `deal-view-loan-performance.test.ts`, `commission-statement.test.ts` | 2 failed | "expected '{…}' not to contain 'WRITTEN_OFF'"; "reason: expected [ 'id', 'kind', 'reason', … ] to not include 'reason'" |
+| L2 goods-advance base | commission-accrual IT, edge-commission IT | 6 + 10 failed | "expected 'NONE\|0\|0\|151000020\|t' to be 'NONE\|0\|0\|150000020\|t'" (the fixture's applied amount carries R10 000 financed fees) |
+| L3 lender-added people (DB) | dealer-consent IT | 2 failed | the attestation for a lender-added person was accepted |
+| L3 (TS) | dealer-submit IT | 1 failed | attest/submit with a lender-added person on the entity |
+| L5 classification re-stamp | cost-of-credit IT | 1 failed | `ncaClassifiedById` was the dealer user, not the accepting officer |
+| A5 hand-over CHECK | dealer-handover-contact IT | 1 failed | SUBMITTED before `dealerSubmittedAt` was accepted |
+| S1 contact guard (DB) | dealer-handover-contact IT | 3 failed | a portal password set on an unverified dealer-captured client |
+| S1 register + S3 audit | dealer-borrower-identity IT | 2 failed | "expected '1' to be '0'" (an activation code was issued to the dealer-typed email); "expected '0\|\|\|' to be '2\|dlu_…\|person\|t'" (no refusal audited) |
+| S1 signing code | `lib/signing-otp/subject-dealer-contact.test.ts` | 1 failed | the subject resolved for an unverified dealer-captured client |
+| S2 reset link | dealer-reset-link IT | 1 failed | "expected true to be false" (the old password signed straight back in) |
+| C6 no link for a deactivated dealer | dealer-reset-link IT | 1 failed | "expected { kind: 'issued' } to deeply equal { kind: 'refused', status: 409 }" |
+| S3 capture limit | `capture-limits.test.ts` | 2 failed | no audit; no 429 |
+| S4 refusal audits | `staff-routes.test.ts` | 1 failed | `auditRefusal` not called |
+| T2 tax invoice (DB) | payable-runs IT | 2 failed | a VAT run released without the dealer's tax invoice |
+| T2 (TS) | payable-run-actions IT | 1 failed | release without the invoice was not 422 |
+| E-F04 uploads after hand-over, C3 | `documents.test.ts`, edge F04 | 4 + 1 failed | "expected { kind: 'stored' } to match { kind: 'refused', status: 409 }"; "Error: The document request was answered concurrently" |
+| E-U03 lower-case email | edge U03 | 1 failed | a mixed-case email was accepted |
+| C7 run unique conflicts | `payable-runs-unique.test.ts` | 2 failed | a line conflict answered as a period conflict; an unrelated P2002 swallowed |
+
+### Mutations (database rules, applied to the migrated throwaway database, then restored)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| 1 | `guardAssetDealDealer` base back to `COALESCE(approvedAmount, appliedAmount)` | commission-accrual IT | 6 failed, 8 passed | "takes the dealer's rate in force today and the goods advance …", "keeps the snapshot …", "falls back to the tenant default …" |
+| 2 | `DROP CONSTRAINT "AssetFinanceDeal_dealer_handover"` | dealer-handover-contact IT | 1 failed, 6 passed | "refuses moving a dealer deal on from DRAFT before the dealer handed it over" |
+| 3 | `DROP TRIGGER "DealerConsentAttestation_subject_captured"` | dealer-consent IT | 2 failed, 6 passed | "refuses a person the dealer did not capture …" |
+| 4 | `DROP TRIGGER "Client_dealer_contact_guard"` | dealer-handover-contact IT | 3 failed, 4 passed | "refuses a portal password until staff verify …", "refuses a dealer-captured client inserted with a portal password or already verified", "verifies once, completely, and only a dealer-captured client" |
+| 5 | `DROP CONSTRAINT "DealerPayableRun_tax_invoice_on_vat"` | payable-runs IT | 1 failed, 6 passed | "is released only after approval and only to a still-APPROVED account" |
+| 6 | `DROP CONSTRAINT "DealerUser_email_lower_case"` | edge U03 | 1 failed | "U03 the database forces the email to lower case …" |
+
+After restoring each: the three suites 22/22, commission-accrual 14/14.
+The TypeScript fixes' mutation is the "Before" run above: each is the fix
+reverted (the file restored from the parent commit), its test red, then the
+fix put back and the test green.

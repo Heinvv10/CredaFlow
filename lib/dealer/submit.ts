@@ -2,10 +2,11 @@
  * The handoff from dealer to lender (spec deviation 1). The dealer's submit
  * only records dealerSubmittedAt (the deal stays DRAFT): every person the
  * dealer captured on it has a consent attestation (a person the lender added
- * is the lender's to ask), and the dealer has uploaded at least one document. A staff member's accept then runs the unchanged
- * submitDeal as that staff member — the NCA classification and any override
- * request are the lender's — and from there the staff credit flow is the one
- * every deal follows.
+ * is the lender's to ask), and the dealer has uploaded at least one document.
+ * A staff member's accept then runs the unchanged submitDeal as that staff
+ * member — the NCA classification and any override request are the
+ * lender's — and from there the staff credit flow is the one every deal
+ * follows.
  */
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
