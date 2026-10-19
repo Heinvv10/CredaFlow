@@ -94,11 +94,11 @@ describe("ConfirmedRoles", () => {
 
   it("lists only the roles still missing", () => {
     const html = renderToStaticMarkup(<ConfirmedRoles confirmed={ASSET_FINANCE_ROLES.filter((r) => r !== "RECOVERY_RESULT")} mappingConfirmed />)
-    expect(html).toContain("15 of 16 confirmed")
+    expect(html).toContain("17 of 18 confirmed")
     expect(html).toContain("Not yet confirmed: Recovery result.")
   })
 
   it("counts none as confirmed while the mapping itself is not confirmed", () => {
-    expect(renderToStaticMarkup(<ConfirmedRoles confirmed={[...ASSET_FINANCE_ROLES]} mappingConfirmed={false} />)).toContain("0 of 16 confirmed")
+    expect(renderToStaticMarkup(<ConfirmedRoles confirmed={[...ASSET_FINANCE_ROLES]} mappingConfirmed={false} />)).toContain("0 of 18 confirmed")
   })
 })

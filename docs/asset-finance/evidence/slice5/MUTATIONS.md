@@ -105,3 +105,44 @@ then the file restored byte for byte.
 | 19 | `submit.ts`: never refuse missing consent | `dealer-submit` IT | "refuses a submit without consent, then without a document..." (4 failed: the later steps depend on it) |
 | 20 | `documents.ts`: dealer reads not limited to `uploadedByType 'dealer'` | `dealer-deal-access` IT | "never shows the dealer a staff upload on its own deal" (1 failed, 5 passed) |
 | 21 | `auth.ts`: drop the jwt DEALER branch | `auth-dealer-jwt.test.ts` | every revalidation test (10 failed, 5 passed): the staff branch looks for a User row |
+
+## Part A — accounting
+
+Task 8 (journals, control, IsaFlow). Database: a throwaway PostgreSQL 16 from
+`scripts/it-db.sh up cf-it-s5acct-<random>`, `npx prisma migrate deploy`.
+Suites: `lib/accounting/sources-dealer-commission.test.ts` (unit) and
+`lib/accounting/dealer-commission.integration.test.ts`
+(`RUN_ACCOUNTING_IT=1`).
+
+### Before (tests written first)
+
+The unit suite against the code without the dealer commission source, roles
+or event types: `Tests 10 failed | 2 passed (12)`. The two that passed hold
+vacuously with no source at all: "every source sums to zero, and earned,
+clawed back and both paid leaves nothing on the payable" and "a contract with
+no commission lines … has no commission source"; mutation 1 below turns the
+first of them red.
+
+### After
+
+```
+npx vitest run lib/accounting/sources-dealer-commission.test.ts
+ Tests  12 passed (12)
+RUN_ACCOUNTING_IT=1 npx vitest run lib/accounting/dealer-commission.integration.test.ts
+ Tests  5 passed (5)
+RUN_ACCOUNTING_IT=1 npx vitest run --no-file-parallelism lib/accounting     (also with TENANT_RLS=on)
+ Test Files  39 passed (39)
+      Tests  312 passed (312)
+```
+
+### Mutations
+
+Each one is applied to the source, the named suites are run, then the file is
+restored byte for byte from a copy. After both were restored the suites above
+were green again.
+
+| # | Mutation | Suite | Result | Red test (assertion) |
+|---|---|---|---|---|
+| 1 | Drop the reversal source: `dealerCommissionSources` filters to `line.kind === "EARNED"` (`lib/accounting/sources-dealer-commission.ts`) | unit | 4 failed, 8 passed | "a REVERSED line (clawback) is its own source…"; "a clawback netted in a later run…"; "every source sums to zero…"; "posts each event once in its own month…" |
+| 1 | same | IT | 2 failed, 3 passed | "closes August to December…": October refused, `AccountingPeriodError: 2 asset-finance control(s) do not tie: AF_INPUT_VAT jrn-is-1-dcx (journal 176250, books 150000); DEALER_COMMISSION_PAYABLE jrn-is-1-dcx (journal 0, books 201250)`; "holds the hand-worked vector…" |
+| 2 | The payable control ignores released runs: the run predicate in `dealerPayableBooks` becomes `AND r."status" = 'RELEASED' AND false` (`lib/accounting/reconcile-controls.ts`) | IT | 3 failed, 2 passed | "ties the payable to the lines and runs in SQL…" (expected no mismatch, got one); "closes August to December…": September refused, `DEALER_COMMISSION_PAYABLE jrn-is-1-dcx (journal 0, books -201250)`; "holds the hand-worked vector…" |
