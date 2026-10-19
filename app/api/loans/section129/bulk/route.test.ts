@@ -194,7 +194,7 @@ describe("POST /api/loans/section129/bulk", () => {
 
   // Charges off: an s125-priced loan's notice states what settles it today,
   // not the principal alone (Fair Score audit 2026-10-19).
-  it("states the settlement figure as the total obligation in the notice, email and record", async () => {
+  it("states the settlement figure as the total obligation in the email and the issuance record", async () => {
     settlementFiguresMock.mockImplementation(async (_db: unknown, l: { arrearsAmount: number; outstandingPrincipal: number }) => ({
       live: false, charges: null, chargeLines: [], chargesOutstanding: 0, interestAndFeesOutstanding: 80_000,
       totalToSettle: l.outstandingPrincipal + 80_000, arrearsIncludingCharges: l.arrearsAmount, s125Priced: true,
