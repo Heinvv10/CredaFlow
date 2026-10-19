@@ -15,6 +15,7 @@
  */
 import type { AssetDealStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { sastCalendarDate } from "@/lib/date/sast"
 import type { DealerActor } from "./actor"
 import { dealerDealWhere } from "./deals"
 
@@ -113,7 +114,7 @@ export function projectDealerDeal(row: Row, dealerId: string) {
     })),
     documents: row.documents.map((d) => ({ id: d.id, docType: d.docType, fileName: d.fileName, uploadedAt: d.createdAt.toISOString() })),
     signing: row.signers.map((s) => ({ document: s.document, signerRole: s.role, signed: s.signedAt !== null || s.confirmedAt !== null })),
-    booking: row.loan ? { loanReference: row.loan.reference, bookedOn: row.loan.startDate.toISOString().slice(0, 10) } : null,
+    booking: row.loan ? { loanReference: row.loan.reference, bookedOn: sastCalendarDate(row.loan.startDate) } : null,
     commission: row.dealerCommissionLines.map((l) => ({
       kind: l.kind, effectiveOn: l.effectiveOn.toISOString().slice(0, 10), netCents: l.netCents, vatCents: l.vatCents, grossCents: l.grossCents,
     })),

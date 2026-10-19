@@ -23,3 +23,11 @@ describe("dealer projection after booking", () => {
     expect(JSON.stringify(view)).not.toContain("WRITTEN_OFF")
   })
 })
+
+describe("dealer projection booking date", () => {
+  it("shows the SAST calendar day the loan starts, not the UTC day before", () => {
+    // 30 Oct 2026 00:00 SAST is 29 Oct 22:00 UTC: Loan.startDate is a SAST midnight.
+    const booked = { ...row, loan: { reference: "LN-0001", startDate: new Date("2026-10-29T22:00:00Z") } } as unknown as Row
+    expect(projectDealerDeal(booked, "dealer-1").booking).toEqual({ loanReference: "LN-0001", bookedOn: "2026-10-30" })
+  })
+})
