@@ -81,7 +81,7 @@ export default async function CollectionDetailPage({ params }: { params: Promise
   const section129Enabled = section129Eligibility.eligible && section129Availability.canReserve
   // Time alone lifts the DPD threshold and the re-issue cooldown; NON_NCA, status and an active issuance do not.
   const section129BlockTemporary = section129Eligibility.reason
-    ? section129Eligibility.reason.includes("arrears threshold")
+    ? section129Eligibility.temporary
     : section129Availability.blockedBy !== "ACTIVE_ISSUANCE" && Boolean(section129Availability.cooldownEndsAt)
   // One reason for the disabled button's tooltip and the stage panel's hint.
   const section129BlockReason = section129Enabled ? null : (section129Eligibility.reason

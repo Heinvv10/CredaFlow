@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   evaluateCollectionsEligibility,
+  type CollectionsLoanState,
   isCollectionsEligible,
   isSection129Eligible,
 } from "./section129-eligibility"
 
-const baseLoan = {
+const baseLoan: CollectionsLoanState = {
   status: "DEFAULTED",
-  ncaRegime: "NCA" as const,
+  ncaRegime: "NCA",
   arrearsAmount: 25_000,
   outstandingPrincipal: 100_000,
   daysInArrears: 90,
@@ -53,7 +54,18 @@ describe("collections eligibility policy", () => {
     ).toEqual({
       eligible: false,
       minimumDaysInArrears: 90,
+      temporary: true,
       reason: "the account is below the 90-day arrears threshold",
     })
+  })
+
+  it("marks only time-curable blocks as temporary", () => {
+    const t = (o: Partial<typeof baseLoan>) => evaluateCollectionsEligibility({ ...baseLoan, ...o }, "SECTION_129").temporary
+    expect(t({ daysInArrears: 10 })).toBe(true)
+    expect(t({ ncaRegime: "NON_NCA" })).toBe(false)
+    expect(t({ status: "SETTLED" })).toBe(false)
+    expect(t({ arrearsAmount: 0 })).toBe(false)
+    expect(t({ outstandingPrincipal: 0 })).toBe(false)
+    expect(evaluateCollectionsEligibility(baseLoan, "SECTION_129").temporary).toBe(false)
   })
 })

@@ -21,6 +21,7 @@ describe("collections eligibility by NCA regime", () => {
   it("refuses Section 129 on a NON_NCA agreement at 120 DPD, with the regime as the reason", () => {
     expect(evaluateCollectionsEligibility({ ...deepArrears, ncaRegime: "NON_NCA" }, "SECTION_129")).toEqual({
       eligible: false,
+      temporary: false,
       minimumDaysInArrears: 90,
       reason: SECTION129_NON_NCA_REASON,
     })
@@ -37,6 +38,7 @@ describe("collections eligibility by NCA regime", () => {
   it("keeps dunning available on a NON_NCA agreement", () => {
     expect(evaluateCollectionsEligibility({ ...deepArrears, ncaRegime: "NON_NCA" }, "DUNNING")).toEqual({
       eligible: true,
+      temporary: false,
       minimumDaysInArrears: 1,
       reason: null,
     })

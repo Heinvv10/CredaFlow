@@ -10,9 +10,11 @@ const mocks = vi.hoisted(() => ({
   redirect: vi.fn(),
   notFound: vi.fn(),
   routerRefresh: vi.fn(),
+  locale: "en",
 }))
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }))
+vi.mock("@/lib/i18n/server", () => ({ getLocale: async () => mocks.locale }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: mocks.getPortalTenantId }))
 const fsp = vi.hoisted(() => ({ number: "12345" as string | null }))
 vi.mock("@/lib/config/identity", () => ({ getLenderIdentity: async () => ({ tradingName: "Acme Lending", fspNumber: fsp.number }) }))
@@ -63,6 +65,7 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) })
 describe("portal policy detail page", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.locale = "en"
     mocks.auth.mockResolvedValue({ user: { email: "client@example.test" } })
     mocks.redirect.mockImplementation((to: string) => {
       throw new Error(`NEXT_REDIRECT:${to}`)
@@ -118,6 +121,15 @@ describe("portal policy detail page", () => {
       vi.unstubAllEnvs()
     }
     expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).not.toContain("Demo lender")
+  })
+
+  // A default product name is shown in the client's language; a lender's own name is not translated.
+  it("shows a default product name in the portal locale and a custom name as written", async () => {
+    mocks.locale = "af"
+    mocks.policyFindFirst.mockResolvedValue({ ...POLICY, product: { name: "Personal Loan" } })
+    expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).toContain("/ Persoonlike lening")
+    mocks.policyFindFirst.mockResolvedValue({ ...POLICY, product: { name: "Credit Life Standard" } })
+    expect(renderToStaticMarkup(await PortalPolicyDetailPage(params("policy-1")))).toContain("/ Credit Life Standard")
   })
 
   it("renders cover and premium in rands", async () => {
