@@ -1,5 +1,6 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Headline } from "@/lib/insurance/headline-premium"
 import { ClientPicker } from "@/components/wizard/ClientPicker"
 import { PolicyCreationWizard } from "./PolicyCreationWizard"
 
@@ -13,7 +14,7 @@ const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONM
 // assured on a R118/month policy.
 const PRODUCT = {
   id: "prod-1", name: "Family Funeral Plan", type: "FUNERAL_COVER", code: "FUN-1",
-  premiumAmount: 118, headlinePremium: 118, headlineIsFrom: false, headlineCover: null as number | null, sumAssured: 20_000, commissionRate: 0.2, active: true,
+  premiumAmount: 118, headline: { kind: "flat" } as Headline, sumAssured: 20_000, commissionRate: 0.2, active: true,
   insurerName: "Example Underwriters (fictional)",
 }
 
@@ -47,7 +48,7 @@ afterEach(() => { act(() => renderer.unmount()) })
 describe("PolicyCreationWizard: insurer and commission", () => {
   // Row 116: the picker showed the flat R118 for a rated product; quoting ignores it.
   it("shows a rated product as 'From' its cheapest main-member premium", () => {
-    render([{ ...PRODUCT, headlinePremium: 62, headlineIsFrom: true, headlineCover: 10_000 }])
+    render([{ ...PRODUCT, headline: { kind: "from", premiumCents: 6200, coverCents: 1_000_000 } as Headline }])
     expect(text()).toContain("From R 62.00/mo · main member")
     expect(text()).not.toContain("R 118.00")
     // The price must be paired with the cover of the same band, not the product's flat R20 000.
@@ -59,6 +60,34 @@ describe("PolicyCreationWizard: insurer and commission", () => {
     render()
     expect(text()).toContain("R 118.00/mo")
     expect(text()).not.toContain("From R")
+  })
+
+  const FROM = { ...PRODUCT, headline: { kind: "from", premiumCents: 6200, coverCents: 1_000_000 } as Headline }
+  const amountInputs = () => ({
+    cover: renderer.root.findByProps({ placeholder: "50000" }).props.value,
+    premium: renderer.root.findByProps({ placeholder: "150" }).props.value,
+  })
+
+  it("selecting a 'from' product pre-fills the cheapest band's premium and cover, matching the card", () => {
+    render([FROM])
+    act(() => { renderer.root.findByProps({ name: "product", value: "prod-1" }).props.onChange() })
+    expect(amountInputs()).toEqual({ cover: "10000.00", premium: "62.00" })
+    expect(text()).toContain("From R 62.00/mo")
+  })
+
+  it("selecting a flat product still pre-fills its own premium and cover", () => {
+    render()
+    act(() => { renderer.root.findByProps({ name: "product", value: "prod-1" }).props.onChange() })
+    expect(amountInputs()).toEqual({ cover: "20000", premium: "118" })
+  })
+
+  it("shows 'Price on quote' with no price, no cover and no flat prefill when nothing is quotable", () => {
+    render([{ ...PRODUCT, headline: { kind: "quote" } as Headline }])
+    expect(text()).toContain("Price on quote")
+    expect(text()).not.toContain("R 118.00")
+    expect(text()).not.toContain("R 20,000.00")
+    act(() => { renderer.root.findByProps({ name: "product", value: "prod-1" }).props.onChange() })
+    expect(amountInputs()).toEqual({ cover: "", premium: "" })
   })
 
   it("pre-fills no insurer name of its own", () => {
