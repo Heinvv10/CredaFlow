@@ -8,7 +8,7 @@ import { plannedStartProblem } from "./signing-prepare"
 import { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./documents/deal-document-data"
 import { deriveRequiredSigners, preparedSignerSet, requiredFromPrepared } from "./signing"
 import { renderInstalmentSaleAgreement } from "./documents/agreement-pdf"
-import { syntheticDealDocumentData } from "./documents/synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "./documents/synthetic-deal"
 
 // The contract terms fixed at preparation (review item 1): the planned start
 // date, the prepared signer set as stored, and the arrears terms printed in

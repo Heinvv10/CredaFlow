@@ -20,7 +20,7 @@ import { renderLeaseInspectionReport } from "@/lib/asset-finance/documents/lease
 import { renderLeaseTerminationQuote } from "@/lib/asset-finance/documents/lease/termination-quote-pdf"
 import { renderResolution } from "@/lib/asset-finance/documents/resolution-pdf"
 import { renderSuretyship } from "@/lib/asset-finance/documents/suretyship-pdf"
-import { syntheticDealDocumentData } from "@/lib/asset-finance/documents/synthetic-deal.fixture"
+import { syntheticDealDocumentData } from "@/lib/asset-finance/documents/synthetic-deal"
 
 const LEASE = join(process.cwd(), "docs/asset-finance/evidence/legal-wording/lease")
 const COMMERCIAL = join(process.cwd(), "docs/asset-finance/evidence/legal-wording/commercial")

@@ -27,13 +27,8 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
   const latest = fromDayNumber(toDayNumber(today) + MAX_PLANNED_START_DAYS)
   const complete = panel.signers.length > 0 && panel.missing.length === 0
     && panel.signers.every((s) => s.state === "SIGNED" || s.state === "CONFIRMED")
-  const actions = canManage && open ? (
-    <div className="flex flex-wrap gap-2">
-      {panel.canPrepare && <PrepareDocumentsForm dealId={dealId} today={today} latest={latest} again={panel.signers.length > 0} fixedStart={advanceStart} />}
-      {panel.signers.length > 0 && (
-        <DealActionButton url={`/api/asset-finance/deals/${dealId}/contract`} label="Mark contracted" busyLabel="Checking signatures…" />
-      )}
-    </div>
+  const actions = canManage && open && panel.signers.length > 0 ? (
+    <DealActionButton url={`/api/asset-finance/deals/${dealId}/contract`} label="Mark contracted" busyLabel="Checking signatures…" />
   ) : undefined
 
   return (
@@ -43,6 +38,12 @@ export function SigningPanel(props: { dealId: string; panel: StaffSigningPanel; 
       actions={actions}
       density="loose"
     >
+      {/* In the body, not the header: its refusal text needs the panel's width. */}
+      {canManage && open && panel.canPrepare && (
+        <div className="mb-4">
+          <PrepareDocumentsForm dealId={dealId} today={today} latest={latest} again={panel.signers.length > 0} fixedStart={advanceStart} />
+        </div>
+      )}
       {panel.syntheticDemo && (
         <p className="mb-3 rounded-md border border-[var(--cf-warning)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-warning)]">
           Issued from a synthetic demo approval: every page carries SYNTHETIC DEMO — NOT LEGALLY APPROVED. Not for execution with a real borrower.
