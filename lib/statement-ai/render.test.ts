@@ -200,4 +200,13 @@ describe("no statement reconciles", () => {
     expect(out).toMatchObject({ status: "OK" })
     expect(out.text).toBe("No statement reconciles, so no money in, money out, salary or spend is counted from them.")
   })
+  it("puts the reason first and the raised flags last", () => {
+    const flagged = { ...none.built.facts, raisedFlags: [{ code: "BALANCE_MISMATCH", check: "DOCUMENT_AUTHENTICITY", evidenceRows: 0 }] }
+    expect(renderSummary(["balances"], flagged).split("\n")).toEqual([
+      "No statement reconciles, so no money in, money out, salary or spend is counted from them.",
+      "Balances: S1 (CAPITEC) is not reconciled and is left out of the figures.",
+      "Flags raised by the credit checks: BALANCE_MISMATCH (DOCUMENT_AUTHENTICITY, 0 evidence rows).",
+      "An officer reviews each before a decision.",
+    ])
+  })
 })
