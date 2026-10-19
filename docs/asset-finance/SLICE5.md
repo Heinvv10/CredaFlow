@@ -118,6 +118,33 @@ Hardening (security review of `20261019120100`; migration
     today) blocks approval: cancel and recreate. The run-create code (task 7)
     must leave out an EARNED line whose reversal falls after `periodEnd`.
 
+Build-time deviations (tasks 3-5):
+
+23. **Dealer host writes.** Besides the spec's refusals, a write on the dealer
+    host must say it is same-origin (Origin or Sec-Fetch-Site), as on the
+    console host (`crossSiteWrite`, now exported from `operator-host.ts`). No
+    JSON requirement: uploads are multipart. An operator session there is
+    refused by the operator off-host rule, which runs first (API 403, page 404).
+24. **Guards that let DEALER through, fixed** (found by the guard census,
+    `lib/dealer/staff-guards-refuse.test.ts`): `getDocumentCaller` looked any
+    non-staff session up as a client by email (a dealer user sharing a
+    client's email would have read that client's documents); it now does so
+    for CLIENT only. `getStaffTenantId`, `requireLoanBookPage` and the
+    dashboard layout 404 a DEALER. `hasMinRole`/`canDo` refuse it explicitly.
+25. **Dealer people.** A dealer-captured person is always a new `Client`
+    (no linking of an existing client). A person the lender links to a
+    dealer's entity is shown to the dealer as "A person added by the lender",
+    never by name.
+26. **Missing items before signing** are the people without a consent
+    attestation and the open document requests: there is no fixed list of
+    required document types to compare against.
+27. **Audit:** one more action, `DEALER_DOCUMENT_REQUEST_FULFILLED`. Setting a
+    password through a link bumps `tokenVersion`; deactivating a user or a
+    dealer also clears any pending link.
+28. **Test files:** cross-dealer and cross-tenant 404s are in
+    `lib/dealer/dealer-deal-access.integration.test.ts`; capture, consent,
+    submit and accept in `lib/dealer/dealer-submit.integration.test.ts`.
+
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
 Two migrations: `20261019120000_dealer_portal_enum_values` (only
