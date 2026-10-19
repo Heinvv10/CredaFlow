@@ -6,7 +6,7 @@
  * Every call is metered (usage.ts), answered or not.
  */
 import type { StatementAiKind } from "@prisma/client"
-import { getVlmConfig } from "@/lib/vlm-extract"
+import { getVlmConfig, sampling } from "@/lib/vlm-extract"
 import { VlmUnavailableError } from "@/lib/statement-analysis/vlm-reader"
 import { recordUsage } from "./usage"
 
@@ -43,7 +43,7 @@ export interface ModelAnswer {
 }
 
 /**
- * Asks the model once at temperature 0. Throws VlmUnavailableError when it
+ * Asks the model once, at temperature 0 where the model takes one (sampling). Throws VlmUnavailableError when it
  * could not be asked or answered with an HTTP error; an answer it gave, even
  * garbage, is returned for the caller's post-check to judge.
  */
@@ -65,7 +65,7 @@ export async function askModel(call: ModelCall): Promise<ModelAnswer> {
           model: config.model,
           messages: [{ role: "user", content: call.prompt }],
           max_tokens: call.maxTokens,
-          temperature: 0,
+          ...sampling(config, 0),
         }),
       })
     } catch (err) {

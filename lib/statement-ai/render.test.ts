@@ -39,6 +39,13 @@ describe("renderSummary", () => {
 })
 
 describe("produce (summary)", () => {
+  // claude-sonnet-5-5 reasons before its JSON on a statement that does not reconcile: 252 tokens
+  // measured on 2026-10-19. Cut off at 200, the JSON never came and every summary was rejected.
+  it("leaves room for an answer that reasons before its claims", async () => {
+    expect(summary.maxTokens).toBeGreaterThanOrEqual(600)
+    const out = await produce(summary, async () => 'The data is sparse, so flags come first.\n\n{"claims": ["flags", "coverage"]}')
+    expect(out.status).toBe("OK")
+  })
   it("takes only a valid claims list from the model, and asks again otherwise", async () => {
     let n = 0
     const out = await produce(summary, async () => (++n === 1 ? "Here is a summary: all looks fine." : '{"claims": ["coverage", "living"]}'))
