@@ -2,11 +2,10 @@
 
 import { useState } from "react"
 import { CheckCircle, Loader2, ShieldCheck } from "lucide-react"
+import { useT } from "@/lib/i18n/client"
 import { DemoCodeNotice, demoCodeFrom } from "@/components/demo/DemoCodeNotice"
 
 export type SigningOtpChannel = "EMAIL" | "WHATSAPP"
-
-const CHANNEL_LABEL: Record<SigningOtpChannel, string> = { EMAIL: "email", WHATSAPP: "WhatsApp" }
 
 type Issued = { challengeId: string; channel: SigningOtpChannel; maskedDestination: string }
 
@@ -30,6 +29,8 @@ export function SigningOtpStep({
   channels: SigningOtpChannel[]
   onVerified: (challengeId: string | null) => void
 }) {
+  const t = useT("portalSigning")
+  const channelName = (c: SigningOtpChannel) => t(c === "EMAIL" ? "channelEmail" : "channelWhatsapp")
   const [issued, setIssued] = useState<Issued | null>(null)
   const [verified, setVerified] = useState(false)
   const [code, setCode] = useState("")
@@ -50,14 +51,14 @@ export function SigningOtpStep({
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? "We could not send a code. Try again.")
+        setError(data.error ?? t("otpErrSend"))
         return
       }
       setIssued({ challengeId: data.challengeId, channel: data.channel, maskedDestination: data.maskedDestination })
       setDemoCode(demoCodeFrom(data))
       setCode("")
     } catch {
-      setError("Network error. Try again.")
+      setError(t("otpErrNetwork"))
     } finally {
       setBusy(false)
     }
@@ -76,13 +77,13 @@ export function SigningOtpStep({
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? "That code could not be verified.")
+        setError(data.error ?? t("otpErrVerify"))
         return
       }
       setVerified(true)
       onVerified(issued.challengeId)
     } catch {
-      setError("Network error. Try again.")
+      setError(t("otpErrNetwork"))
     } finally {
       setBusy(false)
     }
@@ -93,20 +94,16 @@ export function SigningOtpStep({
       <div className="flex items-start gap-3">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--cf-brand)]" />
         <div>
-          <p className="font-semibold">Confirm it&rsquo;s you</p>
-          <p className="text-sm text-[var(--cf-text-muted)]">
-            We&rsquo;ll send a one-time code to your contact details on file. Enter it to unlock signing.
-          </p>
+          <p className="font-semibold">{t("otpTitle")}</p>
+          <p className="text-sm text-[var(--cf-text-muted)]">{t("otpIntro")}</p>
         </div>
       </div>
 
       {channels.length === 0 ? (
-        <p className="text-sm text-[var(--cf-danger)]">
-          We have no email address or WhatsApp number on file to send a code to. Please contact us to update your details.
-        </p>
+        <p className="text-sm text-[var(--cf-danger)]">{t("otpNoChannel")}</p>
       ) : verified ? (
         <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cf-success)]">
-          <CheckCircle className="h-4 w-4" /> Code verified. You can sign now.
+          <CheckCircle className="h-4 w-4" /> {t("otpVerified")}
         </p>
       ) : (
         <>
@@ -119,15 +116,13 @@ export function SigningOtpStep({
                 onClick={() => send(channel)}
                 className="rounded border border-[var(--cf-border-strong)] px-3 py-2 text-sm font-medium hover:border-[var(--cf-brand)] disabled:opacity-60"
               >
-                {issued ? "Send a new code" : "Send code"} by {CHANNEL_LABEL[channel]}
+                {t(channel === "EMAIL" ? (issued ? "otpResendEmail" : "otpSendEmail") : (issued ? "otpResendWhatsapp" : "otpSendWhatsapp"))}
               </button>
             ))}
           </div>
           {issued && (
             <form onSubmit={verify} className="space-y-3">
-              <p className="text-sm text-[var(--cf-text-secondary)]">
-                We sent a 6-digit code by {CHANNEL_LABEL[issued.channel]} to {issued.maskedDestination}. It expires in 5 minutes.
-              </p>
+              <p className="text-sm text-[var(--cf-text-secondary)]">{t("otpSent", { channel: channelName(issued.channel), destination: issued.maskedDestination })}</p>
               {demoCode && <DemoCodeNotice code={demoCode} />}
               <div className="flex gap-2">
                 <input
@@ -135,7 +130,7 @@ export function SigningOtpStep({
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  aria-label="One-time code"
+                  aria-label={t("otpAria")}
                   placeholder="123456"
                   className="w-40 rounded border border-[var(--cf-border-strong)] bg-[var(--cf-bg-raised)] px-3 py-2 tracking-[0.3em] text-[var(--cf-text)] focus:border-[var(--cf-brand)] focus:outline-none"
                 />
@@ -144,7 +139,7 @@ export function SigningOtpStep({
                   disabled={busy || code.length !== 6}
                   className="flex items-center gap-2 rounded bg-[var(--cf-brand)] px-4 py-2 text-sm font-semibold text-[var(--cf-on-brand)] hover:bg-[var(--cf-brand-alt)] disabled:opacity-60"
                 >
-                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}Verify code
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t("otpVerify")}
                 </button>
               </div>
             </form>

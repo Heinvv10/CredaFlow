@@ -25,6 +25,7 @@ import {
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type MessageKey, type Translator } from "@/lib/i18n/translate"
 import { formatDay } from "@/lib/i18n/format"
+import { productNameLabel } from "@/lib/i18n/portal-labels"
 
 async function getApplicationDetail(id: string, email: string) {
   const tenantId = await getPortalTenantId()
@@ -125,6 +126,7 @@ export default async function ApplicationDetailPage({
   const nextStep = portalApplicationNextStep(app)
   const locale = await getLocale()
   const t = createTranslator(locale, "portalApplications")
+  const l = createTranslator(locale, "portalLabels")
   const status = portalApplicationStatus(app.status, loan?.status)
   const declineView = app.status === "DECLINED"
     ? await loadDeclineView(app)
@@ -141,7 +143,7 @@ export default async function ApplicationDetailPage({
           <div>
             <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">{t("reference")}</p>
             <p className="text-xl font-bold text-gray-900">{app.reference}</p>
-            <p className="text-sm text-gray-500 mt-0.5">{app.product.name}</p>
+            <p className="text-sm text-gray-500 mt-0.5">{productNameLabel(l, app.product.name)}</p>
           </div>
           <StatusBadge status={status} t={t} />
         </div>

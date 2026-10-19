@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { CheckCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SignaturePad } from "@/components/asset-finance/SignaturePad"
+import { useT } from "@/lib/i18n/client"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
@@ -19,6 +20,7 @@ export function DealSignClient(props: {
   documentLabel: string
   signingOtp?: { required: boolean; channels: SigningOtpChannel[] }
 }) {
+  const t = useT("portalSigning")
   const signingOtp = props.signingOtp ?? NO_SIGNING_OTP
   const router = useRouter()
   const [read, setRead] = useState(false)
@@ -50,12 +52,12 @@ export function DealSignClient(props: {
           setOtpChallengeId(null)
           setOtpAttempt((n) => n + 1)
         }
-        setError(data.error ?? "Signing failed; please try again")
+        setError(data.error ?? t("dealErrSign"))
         return
       }
       router.refresh()
     } catch {
-      setError("We could not reach the server; check your connection and try again")
+      setError(t("dealErrNetwork"))
     } finally {
       setBusy(false)
     }
@@ -81,7 +83,7 @@ export function DealSignClient(props: {
       {error && <p role="alert" className="text-sm text-[var(--cf-danger)]">{error}</p>}
       <Button type="button" className="w-full" disabled={!read || !signature || !otpSatisfied || busy} onClick={submit}>
         {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-        {busy ? "Signing…" : "Sign electronically"}
+        {busy ? t("dealSigning") : "Sign electronically"}
       </Button>
     </div>
   )

@@ -46,3 +46,17 @@ export function docTypeLabel(t: Labels, docType: string): string {
   const key = `doc_${docType}`
   return isLabelKey(key) ? t(key) : docType
 }
+
+// The default products' English names, as seeded. Only an unrenamed default is
+// translated: a lender's own product name is its data and is shown as written.
+const DEFAULT_PRODUCT_NAMES: Record<string, LabelKey> = {
+  "30-Day Micro Loan": "productMicro",
+  "Personal Loan": "productPersonal",
+  "Purchase Order Funding": "productPo",
+}
+
+/** A loan product's name for display; the stored name is untouched. */
+export function productNameLabel(t: Labels, name: string): string {
+  const key = Object.hasOwn(DEFAULT_PRODUCT_NAMES, name) ? DEFAULT_PRODUCT_NAMES[name] : undefined
+  return key ? t(key) : name
+}

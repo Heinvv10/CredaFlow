@@ -35,7 +35,7 @@ import { owesNothing } from "@/lib/loan/charges-summary"
 import { getLocale } from "@/lib/i18n/server"
 import { createTranslator, type Translator } from "@/lib/i18n/translate"
 import { formatDayMonth, formatLongDay } from "@/lib/i18n/format"
-import { docTypeLabel, loanStatusTitle, paymentMethodLabel, statusLabel } from "@/lib/i18n/portal-labels"
+import { docTypeLabel, loanStatusTitle, paymentMethodLabel, productNameLabel, statusLabel } from "@/lib/i18n/portal-labels"
 import type { Locale } from "@/lib/i18n/locales"
 
 type HomeT = Translator<"portalHome">
@@ -237,7 +237,7 @@ export default async function ClientPortalPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard t={t} label={t("currentAccountAmount")} value={formatZAR(portalOutstanding(totalOutstanding, data.charges))} sub={t(data.charges.settlementAmount === null ? "accountPrincipalDefinition" : "accountLiveDefinition")} />
         <ProgressRingCard label={t("statPaid")} value={formatZAR(totalPaid)} percent={progressPct} />
-        <StatCard t={t} label={t("statLoanRef")} value={primaryLoan?.reference || "---"} sub={primaryLoan?.product.name} />
+        <StatCard t={t} label={t("statLoanRef")} value={primaryLoan?.reference || "---"} sub={primaryLoan ? productNameLabel(l, primaryLoan.product.name) : undefined} />
         <StatCard
           t={t}
           label={t("statAccountStatus")}

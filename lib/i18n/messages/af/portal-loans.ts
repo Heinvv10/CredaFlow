@@ -3,7 +3,7 @@ import type { Catalog } from "../../catalog"
 
 export const portalLoans: Catalog["portalLoans"] = {
   principalOutstanding: "Uitstaande hoofsom",
-  currentAccountAmount: "Current account amount",
+  currentAccountAmount: "Huidige rekeningbedrag",
   accountPrincipalDefinition: "Principal still owed. This excludes future interest, fees and premiums and is not a settlement quote.",
   accountSettlementDefinition: "Today’s calculated settlement amount, including any default charges shown below.",
   accountContractDefinition: "Remaining contractual amount, including default charges. This is not an early-settlement quote.",
