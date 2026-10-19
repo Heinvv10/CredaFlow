@@ -14,9 +14,10 @@ const m = vi.hoisted(() => ({
     createDealer: vi.fn(), updateDealer: vi.fn(), deactivateDealer: vi.fn(), createDealerUser: vi.fn(), deactivateDealerUser: vi.fn(),
     issueDealerPasswordLink: vi.fn(), setCommissionRate: vi.fn(), requestDealerBankAccount: vi.fn(), decideDealerBankAccount: vi.fn(),
     createPayableRun: vi.fn(), approvePayableRun: vi.fn(), releasePayableRun: vi.fn(), cancelPayableRun: vi.fn(),
-    acceptDealerSubmission: vi.fn(), verifyDealerConsent: vi.fn(), requestDealerDocument: vi.fn(),
+    acceptDealerSubmission: vi.fn(), verifyDealerConsent: vi.fn(), requestDealerDocument: vi.fn(), verifyDealerContact: vi.fn(),
     loadDealerForStaff: vi.fn(), loadRunStatement: vi.fn(), listDealersForStaff: vi.fn(), defaultRateHistory: vi.fn(),
   },
+  auditRefusal: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
@@ -54,6 +55,8 @@ vi.mock("@/lib/dealer/payable-runs", () => ({
 vi.mock("@/lib/dealer/submit", () => ({ acceptDealerSubmission: m.lib.acceptDealerSubmission }))
 vi.mock("@/lib/dealer/consent", () => ({ verifyDealerConsent: m.lib.verifyDealerConsent }))
 vi.mock("@/lib/dealer/document-requests", () => ({ requestDealerDocument: m.lib.requestDealerDocument }))
+vi.mock("@/lib/dealer/contact-verification", () => ({ verifyDealerContact: m.lib.verifyDealerContact }))
+vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: m.auditRefusal }))
 vi.mock("@/lib/dealer/staff-view", () => ({
   loadDealerForStaff: m.lib.loadDealerForStaff, loadRunStatement: m.lib.loadRunStatement,
   listDealersForStaff: m.lib.listDealersForStaff, defaultRateHistory: m.lib.defaultRateHistory,
@@ -78,6 +81,7 @@ import * as cancel from "@/app/api/asset-finance/dealer-runs/[runId]/cancel/rout
 import * as accept from "@/app/api/asset-finance/deals/[id]/dealer-submission/accept/route"
 import * as verify from "@/app/api/asset-finance/deals/[id]/dealer-consents/[attestationId]/verify/route"
 import * as documentRequests from "@/app/api/asset-finance/deals/[id]/document-requests/route"
+import * as verifyContact from "@/app/api/asset-finance/deals/[id]/dealer-people/[clientId]/verify-contact/route"
 
 const ACCOUNT = { bankName: "TEST Bank", branchCode: "000001", accountNumber: "62000000001", accountHolder: "TEST Motors" }
 const req = (method: string, body?: unknown) => new NextRequest("http://lender.test/api/x", {
@@ -106,6 +110,7 @@ const CASES: Case[] = [
   { name: "POST accept", permission: "manage_asset_finance", call: () => accept.POST(req("POST"), p({ id: "deal-1" })), lib: "acceptDealerSubmission" },
   { name: "POST verify", permission: "manage_asset_finance", call: () => verify.POST(req("POST"), p({ id: "deal-1", attestationId: "att-1" })), lib: "verifyDealerConsent" },
   { name: "POST document request", permission: "manage_asset_finance", call: () => documentRequests.POST(req("POST", { docType: "AFS", note: "Latest AFS" }), p({ id: "deal-1" })), lib: "requestDealerDocument" },
+  { name: "POST verify contact", permission: "manage_asset_finance", call: () => verifyContact.POST(req("POST"), p({ id: "deal-1", clientId: "c-1" })), lib: "verifyDealerContact" },
 ]
 
 const signIn = (role: string, extra: Record<string, unknown> = {}) => {
@@ -171,11 +176,20 @@ describe("route specifics", () => {
     expect(await res.json()).toEqual({ error: "TEST refusal" })
   })
 
-  it("refuses self-approval of a run and self-decision of an account 403", async () => {
+  it("refuses self-approval of a run and self-decision of an account 403, and audits each refusal", async () => {
     m.lib.approvePayableRun.mockResolvedValue({ kind: "self_approval" })
     expect((await approve.POST(req("POST"), p({ runId: "run-1" }))).status).toBe(403)
+    expect(m.auditRefusal).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "DEALER_PAYABLE_RUN_APPROVAL_REFUSED", entity: "DealerPayableRun", entityId: "run-1", tenantId: "tenant-1",
+      userId: "user-LOAN_ADMIN", reason: "four_eyes_self_approval", status: 403,
+    }))
     m.lib.decideDealerBankAccount.mockResolvedValue({ kind: "self_decision" })
     expect((await decide.POST(req("POST", { decision: "APPROVE", note: "TEST letter checked" }), p({ accountId: "dba-1" }))).status).toBe(403)
+    expect(m.auditRefusal).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "DEALER_BANK_ACCOUNT_DECISION_REFUSED", entity: "DealerBankAccount", entityId: "dba-1", tenantId: "tenant-1",
+      userId: "user-LOAN_ADMIN", reason: "four_eyes_self_decision", status: 403,
+    }))
+    expect(m.auditRefusal).toHaveBeenCalledTimes(2)
   })
 
   it("shows a new user's set-password link once, uncached; refuses before writing when the dealer host is not configured", async () => {

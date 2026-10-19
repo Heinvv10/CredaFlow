@@ -1,5 +1,5 @@
 /** A dealer-domain write that did not happen: the route answers `status` with `error`. */
-export type DealerRefusal = { kind: "refused"; status: 400 | 404 | 409 | 422; error: string }
+export type DealerRefusal = { kind: "refused"; status: 400 | 404 | 409 | 422 | 429; error: string }
 
 export const dealerRefused = (status: DealerRefusal["status"], error: string): DealerRefusal => ({ kind: "refused", status, error })
 

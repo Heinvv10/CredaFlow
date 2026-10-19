@@ -26,6 +26,7 @@ import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integra
 import { dealRoutes } from "@/lib/asset-finance/deal.integration-fixture"
 import { POST as verifyRoute } from "@/app/api/asset-finance/deals/[id]/dealer-consents/[attestationId]/verify/route"
 import { POST as acceptRoute } from "@/app/api/asset-finance/deals/[id]/dealer-submission/accept/route"
+import { POST as verifyContactRoute } from "@/app/api/asset-finance/deals/[id]/dealer-people/[clientId]/verify-contact/route"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, insertRate, type DealerFixture } from "./dealer.integration-fixture"
 import { actorOf, assetBody, createdId, dealBody, inTenant, pdfUpload, personBody } from "./dealer-origination.integration-fixture"
 import { bookSubmittedNcaDeal, type SessionUser } from "./cost-of-credit.integration-fixture"
@@ -123,9 +124,16 @@ suite.sequential("NCA cost of credit with and without a dealer (real Postgres, r
     const verified = await staffPost(`/api/asset-finance/deals/${dealId}/dealer-consents/${attestation.id}/verify`,
       (req) => verifyRoute(req, { params: Promise.resolve({ id: dealId, attestationId: attestation.id }) }))
     expect(verified.status, await verified.clone().text()).toBe(200)
+    // The borrower signs on the portal later: staff first confirm the contact details the dealer typed.
+    const contact = await staffPost(`/api/asset-finance/deals/${dealId}/dealer-people/${clientId}/verify-contact`,
+      (req) => verifyContactRoute(req, { params: Promise.resolve({ id: dealId, clientId }) }))
+    expect(contact.status, await contact.clone().text()).toBe(200)
     const accepted = await staffPost(`/api/asset-finance/deals/${dealId}/dealer-submission/accept`,
       (req) => acceptRoute(req, { params: Promise.resolve({ id: dealId }) }))
     expect(accepted.status, await accepted.clone().text()).toBe(200)
+    // The NCA classification is the lender's: re-stamped to the staff member who accepted, never the dealer user.
+    const application = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: dealId }, select: { application: { select: { ncaClassifiedById: true, ncaRegime: true } } } })
+    expect(application.application).toEqual({ ncaClassifiedById: fx.officer, ncaRegime: "NCA" })
     expect(await database().financedAsset.findUniqueOrThrow({ where: { id: assetId }, select: { createdByDealerId: true } })).toEqual({ createdByDealerId: fx.dealerA })
   }, 60_000)
 

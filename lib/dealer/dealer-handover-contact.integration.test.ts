@@ -7,7 +7,8 @@
  *  - Client_dealer_contact_guard and the Client_dealer_contact_* CHECKs: the
  *    contact details a dealer typed are untrusted until staff verify them;
  *    until then no portal password is set. Verification is staff, once, and
- *    only on a dealer-captured client.
+ *    only on a dealer-captured client; verifyDealerContact is that staff
+ *    action, for a person on the deal, audited.
  *
  *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/dealer/dealer-handover-contact.integration.test.ts
@@ -19,6 +20,8 @@ import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixt
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
 import { captureForDealer, dealerDeal } from "./dealer-booking.integration-fixture"
+import { inTenant, staffOf } from "./dealer-origination.integration-fixture"
+import { verifyDealerContact } from "./contact-verification"
 
 // The deal fixture imports the staff routes (next-auth); no route runs in this suite.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -94,6 +97,25 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
       expectRejected(verify(captured, fx.adminA), "verified once")
       expectRejected(`UPDATE "Client" SET "dealerContactVerifiedAt" = NULL, "dealerContactVerifiedById" = NULL WHERE "id" = ${lit(captured)}`, "verified once")
       expectRejected(verify(client(null)), "Client_dealer_contact_verification_dealer_only")
+    })
+
+    it("is recorded by staff for a dealer-captured person on the deal, once, audited", async () => {
+      const captured = captureForDealer(fx, fx.dealerA)
+      const { dealId } = dealerDeal(fx, { dealerId: fx.dealerA, dealerUserId: fx.salesUserA, ...captured })
+      const relate = (clientId: string) => sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
+        VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(captured.entityId)}, ${lit(clientId)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+      const director = client(fx.dealerA)
+      relate(director)
+      const lenderAdded = client(null)
+      relate(lenderAdded)
+      const verify = (clientId: string) => inTenant(fx, () => verifyDealerContact(staffOf(fx), dealId, clientId))
+      expect(await verify(client(fx.dealerA))).toMatchObject({ status: 404 }) // not on the deal
+      expect(await verify(lenderAdded)).toMatchObject({ status: 404 }) // the lender's own capture: nothing to verify
+      expect(await verify(director)).toEqual({ kind: "verified" })
+      expect(sql(`SELECT "dealerContactVerifiedById" FROM "Client" WHERE "id" = ${lit(director)}`)).toBe(fx.officer)
+      expect(sql(`SELECT "userId", "newValue"->>'dealId' FROM "AuditLog" WHERE "entityId" = ${lit(director)} AND "action" = 'DEALER_CONTACT_VERIFIED'`))
+        .toBe(`${fx.officer}|${dealId}`)
+      expect(await verify(director)).toMatchObject({ status: 409 })
     })
 
     it("leaves a staff-captured client's portal password alone", () => {

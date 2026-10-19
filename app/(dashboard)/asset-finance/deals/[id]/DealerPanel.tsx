@@ -30,6 +30,24 @@ export function DealerPanel({ panel, canManage }: { panel: DealDealerPanel; canM
     >
       <div className="space-y-5 text-sm">
         <section className="space-y-2">
+          <h3 className="font-semibold text-[var(--cf-text)]">People the dealer captured</h3>
+          {panel.dealerPeople.length === 0 && <p className="text-[var(--cf-text-muted)]">None.</p>}
+          {panel.dealerPeople.map((p) => (
+            <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--cf-border-subtle)] p-2">
+              <p>{p.firstName} {p.lastName} · {p.email} · {p.phone}</p>
+              {p.dealerContactVerifiedAt ? (
+                <span className="text-xs text-[var(--cf-success)]">Contact verified by {name(p.dealerContactVerifiedBy)} {formatDateTime(p.dealerContactVerifiedAt)}</span>
+              ) : canManage ? (
+                <DealActionButton url={`/api/asset-finance/deals/${dealId}/dealer-people/${p.id}/verify-contact`} label="Contact details verified" busyLabel="Recording…" variant="outline" />
+              ) : <span className="text-xs text-[var(--cf-warning)]">Contact not verified</span>}
+            </div>
+          ))}
+          <p className="text-xs text-[var(--cf-text-muted)]">
+            The dealer typed these details. Confirm them with the person directly, not through the dealer: until then no portal activation code or signing code is sent to them.
+          </p>
+        </section>
+
+        <section className="space-y-2">
           <h3 className="font-semibold text-[var(--cf-text)]">Consent evidence</h3>
           {panel.dealerConsentAttestations.length === 0 && <p className="text-[var(--cf-text-muted)]">The dealer has attested no consent yet.</p>}
           {panel.dealerConsentAttestations.map((a) => (

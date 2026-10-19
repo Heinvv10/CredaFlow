@@ -10,10 +10,17 @@
  * asset on serial or VIN) answers 409 and shows nothing of the existing row:
  * a dealer sees only what the borrower gave through that dealer (spec
  * deviation 9). An entity the dealer did not capture is "not found".
+ *
+ * That 409 still says the row exists, so each one is audited
+ * (DEALER_CAPTURE_REFUSED_ON_BOOK: the dealer user and what kind of row, never
+ * the values typed) and every dealer user's captures are rate limited
+ * (DEALER_CAPTURE_RATE_LIMIT, in memory like the sign-in buckets).
  */
 import { Prisma, type EntityRole } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { createBusinessEntity } from "@/lib/asset-finance/entity-create"
 import { createFinancedAsset } from "@/lib/asset-finance/asset-create"
 import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
@@ -26,6 +33,28 @@ import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 export const ALREADY_ON_BOOK = "Already on the lender's book: ask the lender"
 
 export type CaptureResult = { kind: "created"; id: string } | { kind: "invalid"; fields: Record<string, string> } | DealerRefusal
+
+/** Captures (of every kind) per dealer user per window. */
+export const DEALER_CAPTURE_RATE_LIMIT = { limit: 30, windowMs: 15 * 60 * 1000 } as const
+
+type Captured = "entity" | "person" | "asset"
+const CAPTURED_ENTITY: Record<Captured, string> = { entity: "BusinessEntity", person: "Client", asset: "FinancedAsset" }
+
+function overCaptureLimit(actor: DealerActor): DealerRefusal | null {
+  const gate = checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
+  return gate.allowed ? null : dealerRefused(429, "Too many captures in a short time: try again in a few minutes")
+}
+
+/** The 409 for a row already on the lender's book, audited (outside any transaction the refusal aborted). */
+async function alreadyOnBook(actor: DealerActor, captured: Captured): Promise<DealerRefusal> {
+  const audit = dealerAuditFields(actor)
+  await auditRefusal({
+    action: AuditAction.DEALER_CAPTURE_REFUSED_ON_BOOK, entity: CAPTURED_ENTITY[captured], entityId: actor.dealerUserId,
+    tenantId: actor.tenantId, userEmail: audit.userEmail, reason: "already_on_book", status: 409,
+    detail: { captured, actor: audit.actor },
+  })
+  return dealerRefused(409, ALREADY_ON_BOOK)
+}
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE = /^\+?[0-9 ]{9,15}$/
@@ -49,18 +78,22 @@ export function parseDealerPerson(body: unknown): { data: DealerPersonInput } | 
 }
 
 export async function captureDealerEntity(actor: DealerActor, body: unknown): Promise<CaptureResult> {
+  const limited = overCaptureLimit(actor)
+  if (limited) return limited
   const input = parseBusinessEntityInput(body)
   if ("errors" in input) return { kind: "invalid", fields: input.errors }
   const created = await createBusinessEntity({ kind: "dealer", actor }, input.data)
-  return created.kind === "duplicate" ? dealerRefused(409, ALREADY_ON_BOOK) : created
+  return created.kind === "duplicate" ? alreadyOnBook(actor, "entity") : created
 }
 
 export async function captureDealerAsset(actor: DealerActor, body: unknown): Promise<CaptureResult> {
+  const limited = overCaptureLimit(actor)
+  if (limited) return limited
   const parsed = parseAssetCreate(body)
   if ("errors" in parsed) return { kind: "invalid", fields: parsed.errors }
   const created = await createFinancedAsset({ kind: "dealer", actor }, parsed.data)
   if (created.kind === "invalid") return created
-  if (created.kind === "duplicate") return dealerRefused(409, ALREADY_ON_BOOK)
+  if (created.kind === "duplicate") return alreadyOnBook(actor, "asset")
   return { kind: "created", id: created.asset.id }
 }
 
@@ -94,6 +127,8 @@ async function linkPerson(
  * body.trusteeKind, body.ownershipPct as the staff people route takes them).
  */
 export async function captureDealerPerson(actor: DealerActor, body: unknown, entityId: string | null = null): Promise<CaptureResult> {
+  const limited = overCaptureLimit(actor)
+  if (limited) return limited
   const person = parseDealerPerson(body)
   const entity = entityId === null ? null : await prisma.businessEntity.findFirst({
     where: { id: entityId, tenantId: actor.tenantId, createdByDealerId: actor.dealerId },
@@ -131,7 +166,7 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
     })
     return { kind: "created", id }
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return dealerRefused(409, ALREADY_ON_BOOK)
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return alreadyOnBook(actor, "person")
     throw error
   }
 }

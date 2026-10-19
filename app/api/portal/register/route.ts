@@ -16,6 +16,7 @@ import { resolveMessagingTarget } from "@/lib/messaging/route-delivery"
 import { portalRegistrationRefusal } from "@/lib/portal/portal-policy"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
 import { passwordPolicyError } from "@/lib/security/password-policy"
+import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import {
   clientReachableOnWhatsApp,
   portalOtpChannelFrom,
@@ -154,8 +155,11 @@ async function requestActivationCode(
     const whatsappLeg = channel === "WHATSAPP" && await isWhatsAppCloudConfigured(tenantId)
     const genericMessage = channel === "WHATSAPP" ? GENERIC_REQUEST_MESSAGE_WHATSAPP : GENERIC_REQUEST_MESSAGE
 
+    // A dealer-captured client's contact details are untrusted until staff
+    // verify them (lib/clients/dealer-contact.ts): no code goes to them, with
+    // the same answer as no match.
     const client = await prisma.client.findFirst({
-      where: { email, idNumber, tenantId, portalPassword: null },
+      where: { email, idNumber, tenantId, portalPassword: null, ...TRUSTED_CONTACT_WHERE },
     })
 
     if (client) {
@@ -334,7 +338,7 @@ async function verifyAndActivate(
       return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 })
     }
 
-    const client = await prisma.client.findFirst({ where: { email, idNumber, tenantId } })
+    const client = await prisma.client.findFirst({ where: { email, idNumber, tenantId, ...TRUSTED_CONTACT_WHERE } })
 
     if (!client || client.portalPassword) {
       return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 })
