@@ -15,6 +15,11 @@ const SHARES_PERCENT = {
   medical: 3,
 } as const
 
+// "other" carries the remaining 5%, so the named shares must total 95.
+if (Object.values(SHARES_PERCENT).reduce((sum, pct) => sum + pct, 0) !== 95) {
+  throw new Error("seed expense shares must total 95 percent")
+}
+
 export type SeedExpenseBreakdown = Record<keyof typeof SHARES_PERCENT | "other", number>
 
 export function seedExpenseBreakdown(monthlyExpensesCents: number): SeedExpenseBreakdown {

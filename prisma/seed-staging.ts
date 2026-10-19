@@ -89,13 +89,31 @@ async function main() {
   )
 
   // Client-declared budget detail (input to affordability, not evidence of it).
-  for (const client of clients.slice(0, 3)) {
-    await prisma.clientExpenseBreakdown.upsert({
-      where: { clientId: client.id },
-      // Re-seeding repairs a breakdown left by an older seed that did not match.
-      update: seedExpenseBreakdown(client.monthlyExpenses),
-      create: { clientId: client.id, ...seedExpenseBreakdown(client.monthlyExpenses) },
-    })
+  // Only the seeded consumer clients: a client created through the app can sort
+  // before CLI-SEED-0001 and must never be touched by a re-seed.
+  const budgetClients = await prisma.client.findMany({
+    where: {
+      tenantId: tenant.id,
+      reference: { startsWith: "CLI-SEED-" },
+      NOT: { reference: { startsWith: "CLI-SEED-AF-" } },
+    },
+    orderBy: { reference: "asc" },
+    take: 3,
+  })
+  for (const client of budgetClients) {
+    const budget = seedExpenseBreakdown(client.monthlyExpenses)
+    const existing = await prisma.clientExpenseBreakdown.findUnique({ where: { clientId: client.id } })
+    const existingTotal = existing
+      ? Object.keys(budget).reduce((sum, key) => sum + existing[key as keyof typeof budget], 0)
+      : null
+    // Repair only a row that does not add up (left by an older seed).
+    if (existingTotal !== client.monthlyExpenses) {
+      await prisma.clientExpenseBreakdown.upsert({
+        where: { clientId: client.id },
+        update: budget,
+        create: { clientId: client.id, ...budget },
+      })
+    }
     await ensureOne(
       () => prisma.existingDebtObligation.findFirst({ where: { clientId: client.id, creditProvider: "Demo Retail Credit" } }),
       () => prisma.existingDebtObligation.create({
