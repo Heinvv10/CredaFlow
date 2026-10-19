@@ -4,8 +4,10 @@ import { jsonBody, refusalResponse, withDealerStaff } from "@/lib/dealer/staff-r
 
 /**
  * Records an approved run as paid (decide_asset_finance). Body
- * `{ releaseReference }`: the lender's own EFT reference. No money moves
- * here; refused once the run's bank account is no longer APPROVED.
+ * `{ releaseReference, taxInvoiceReference?, taxInvoiceDate? }`: the lender's
+ * own EFT reference and, required when the run carries VAT, the VAT-vendor
+ * dealer's tax invoice. No money moves here; refused once the run's bank
+ * account is no longer APPROVED.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ runId: string }> }) {
   return withDealerStaff(req, "decide_asset_finance", async ({ staff }) => {

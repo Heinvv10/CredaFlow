@@ -101,6 +101,7 @@ export async function loadRunStatement(tenantId: string, runId: string) {
     select: {
       id: true, periodEnd: true, status: true, totalNetCents: true, totalVatCents: true, totalGrossCents: true,
       createdAt: true, createdById: true, approvedAt: true, releasedAt: true, releaseReference: true, cancelledAt: true,
+      dealerTaxInvoiceReference: true, dealerTaxInvoiceDate: true,
       createdBy: PERSON, approvedBy: PERSON, releasedBy: PERSON, cancelledBy: PERSON,
       dealer: { select: { id: true, name: true, vatNumber: true, vatVendor: true } },
       bankAccount: { select: { id: true, bankName: true, branchCode: true, accountNumber: true, accountHolder: true, status: true } },
@@ -111,6 +112,7 @@ export async function loadRunStatement(tenantId: string, runId: string) {
   return {
     ...run,
     periodEnd: isoOfDbDate(run.periodEnd),
+    dealerTaxInvoiceDate: run.dealerTaxInvoiceDate ? isoOfDbDate(run.dealerTaxInvoiceDate) : null,
     lines: run.lines.map(({ voided, line }) => ({ ...line, voided, effectiveOn: isoOfDbDate(line.effectiveOn) })),
   }
 }

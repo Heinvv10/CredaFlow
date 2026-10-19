@@ -42,6 +42,8 @@ export default async function DealerRunPage({ params }: { params: Promise<{ runI
               ["Created", `${person(run.createdBy)} · ${formatDateTime(run.createdAt)}`],
               ["Approved", run.approvedAt ? `${person(run.approvedBy)} · ${formatDateTime(run.approvedAt)}` : "—"],
               ["Paid", run.releasedAt ? `${person(run.releasedBy)} · ${formatDateTime(run.releasedAt)} · ref ${run.releaseReference}` : "—"],
+              ...(run.dealerTaxInvoiceReference && run.dealerTaxInvoiceDate
+                ? [["Dealer tax invoice", `${run.dealerTaxInvoiceReference} · ${formatIsoDate(run.dealerTaxInvoiceDate)}`] as const] : []),
               ...(run.cancelledAt ? [["Cancelled", `${person(run.cancelledBy)} · ${formatDateTime(run.cancelledAt)}`] as const] : []),
             ] as const).map(([label, value]) => (
               <div key={label}>
@@ -52,7 +54,7 @@ export default async function DealerRunPage({ params }: { params: Promise<{ runI
           </dl>
           {canDecide && (
             <div className="mt-4">
-              <RunActions runId={run.id} status={run.status} canApprove={run.createdById !== user.id} />
+              <RunActions runId={run.id} status={run.status} canApprove={run.createdById !== user.id} needsTaxInvoice={run.totalVatCents !== 0} />
             </div>
           )}
         </DataPanel>

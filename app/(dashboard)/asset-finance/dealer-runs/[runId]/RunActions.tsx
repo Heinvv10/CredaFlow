@@ -7,12 +7,15 @@ import { Button } from "@/components/ui/button"
 import { FormError, TextField, sendJson } from "@/components/asset-finance/register-form-controls"
 
 /**
- * Approve (not the creator), record as paid with the lender's EFT reference,
- * or cancel a run. The API and the database enforce every rule again.
+ * Approve (not the creator), record as paid with the lender's EFT reference
+ * (and, for a run with VAT, the dealer's own tax invoice number and date), or
+ * cancel a run. The API and the database enforce every rule again.
  */
-export function RunActions(props: { runId: string; status: string; canApprove: boolean }) {
+export function RunActions(props: { runId: string; status: string; canApprove: boolean; needsTaxInvoice: boolean }) {
   const router = useRouter()
   const [reference, setReference] = useState("")
+  const [invoice, setInvoice] = useState("")
+  const [invoiceDate, setInvoiceDate] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const base = `/api/asset-finance/dealer-runs/${props.runId}`
@@ -37,9 +40,24 @@ export function RunActions(props: { runId: string; status: string; canApprove: b
         <p className="text-xs text-[var(--cf-warning)]">You created this run; a different user must approve it.</p>
       ))}
       {props.status === "APPROVED" && (
-        <div className="flex max-w-lg items-end gap-2">
+        <div className="flex max-w-3xl flex-wrap items-end gap-2">
           <TextField id="release-reference" label="Your EFT reference for this payment" required value={reference} onChange={setReference} />
-          <Button size="sm" disabled={busy !== null} onClick={() => post("release", { releaseReference: reference })}>{spinner("release")}Record as paid</Button>
+          {props.needsTaxInvoice && (
+            <>
+              <TextField id="release-tax-invoice" label="Dealer's tax invoice number" required value={invoice} onChange={setInvoice} />
+              <TextField id="release-tax-invoice-date" label="Tax invoice date" type="date" required value={invoiceDate} onChange={setInvoiceDate} />
+            </>
+          )}
+          <Button
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => post("release", {
+              releaseReference: reference,
+              ...(props.needsTaxInvoice ? { taxInvoiceReference: invoice, taxInvoiceDate: invoiceDate } : {}),
+            })}
+          >
+            {spinner("release")}Record as paid
+          </Button>
         </div>
       )}
       {(props.status === "PENDING_APPROVAL" || props.status === "APPROVED") && (

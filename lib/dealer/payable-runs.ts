@@ -11,7 +11,10 @@
  *                                    (CHECK DealerPayableRun_four_eyes)
  *   release  (decide_asset_finance)  records the lender's own EFT reference;
  *                                    no bank rail. Only while the account the
- *                                    run names is still APPROVED
+ *                                    run names is still APPROVED. A run with
+ *                                    VAT also records the VAT-vendor dealer's
+ *                                    own tax invoice (number, date); a
+ *                                    recipient-created one is not supported
  *   cancel   (decide_asset_finance)  pending or approved; frees its lines
  *
  * Each locks the run (or, to create, the dealer) row and is audited. The
@@ -145,11 +148,11 @@ export async function createPayableRun(staff: StaffActor, dealerId: string, body
   }))
 }
 
-type LockedRun = { id: string; dealerId: string; status: string; createdById: string; bankAccountId: string }
+type LockedRun = { id: string; dealerId: string; status: string; createdById: string; bankAccountId: string; totalVatCents: number }
 
 async function lockRun(tx: Tx, tenantId: string, runId: string): Promise<LockedRun | null> {
   const rows = await tx.$queryRaw<LockedRun[]>(Prisma.sql`
-    SELECT "id", "dealerId", "status"::text AS "status", "createdById", "bankAccountId"
+    SELECT "id", "dealerId", "status"::text AS "status", "createdById", "bankAccountId", "totalVatCents"
     FROM "DealerPayableRun" WHERE "id" = ${runId} AND "tenantId" = ${tenantId} FOR UPDATE
   `)
   return rows[0] ?? null
@@ -191,11 +194,37 @@ export function approvePayableRun(staff: StaffActor, runId: string): Promise<Run
   }, { status: "APPROVED", approvedById: staff.userId, approvedAt: new Date() })
 }
 
-export function releasePayableRun(staff: StaffActor, runId: string, body: { releaseReference?: unknown }): Promise<RunResult<"released">> {
+type TaxInvoice = { reference: string; date: string } | null
+
+/** The dealer's tax invoice from the release body: both parts or neither; a real date, not after today (SAST). */
+export function parseTaxInvoice(
+  body: { taxInvoiceReference?: unknown; taxInvoiceDate?: unknown },
+  today = sastCalendarDate(new Date()),
+): TaxInvoice | DealerRefusal {
+  const reference = typeof body.taxInvoiceReference === "string" ? body.taxInvoiceReference.trim() : ""
+  const date = typeof body.taxInvoiceDate === "string" ? body.taxInvoiceDate.trim() : ""
+  if (reference === "" && date === "") return null
+  if (reference.length < 1 || reference.length > 100) return dealerRefused(400, "taxInvoiceReference must be the dealer's tax invoice number (1-100 characters)")
+  try {
+    toDayNumber(date, "taxInvoiceDate")
+  } catch {
+    return dealerRefused(400, "taxInvoiceDate must be the tax invoice's date (YYYY-MM-DD)")
+  }
+  if (date > today) return dealerRefused(400, "taxInvoiceDate cannot be in the future")
+  return { reference, date }
+}
+
+export function releasePayableRun(
+  staff: StaffActor,
+  runId: string,
+  body: { releaseReference?: unknown; taxInvoiceReference?: unknown; taxInvoiceDate?: unknown },
+): Promise<RunResult<"released">> {
   const reference = typeof body.releaseReference === "string" ? body.releaseReference.trim() : ""
   if (reference.length < 1 || reference.length > 100) {
     return Promise.resolve(dealerRefused(400, "releaseReference must be the lender's EFT reference (1-100 characters)"))
   }
+  const invoice = parseTaxInvoice(body)
+  if (invoice !== null && "kind" in invoice) return Promise.resolve(invoice)
   return moveRun<"released">(staff, runId, "released", AuditAction.DEALER_PAYABLE_RUN_RELEASED, async (run, tx) => {
     const refused = notIn(run, ["APPROVED"], "released")
     if (refused) return refused
@@ -203,10 +232,14 @@ export function releasePayableRun(staff: StaffActor, runId: string, body: { rele
     if (account?.status !== "APPROVED") {
       return dealerRefused(409, "The run's bank account is no longer the dealer's approved account: cancel the run and create a new one")
     }
+    if (run.totalVatCents !== 0 && invoice === null) {
+      return dealerRefused(422, "The run carries VAT: record the dealer's tax invoice number and date (a recipient-created tax invoice is not supported)")
+    }
     return null
   }, {
     status: "RELEASED", releaseReference: reference, releasedAt: new Date(), releasedById: staff.userId,
-  }, { releaseReference: reference })
+    dealerTaxInvoiceReference: invoice?.reference ?? null, dealerTaxInvoiceDate: invoice ? dbDate(invoice.date) : null,
+  }, { releaseReference: reference, taxInvoice: invoice })
 }
 
 export function cancelPayableRun(staff: StaffActor, runId: string): Promise<RunResult<"cancelled">> {

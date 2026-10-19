@@ -109,11 +109,18 @@ suite.sequential("staff payable-run actions (real DB)", () => {
     expect(await inTenant(fx, () => approvePayableRun(as(fx.adminB), runs.january))).toMatchObject({ status: 409 })
   })
 
-  it("is released with the lender's EFT reference", async () => {
-    expect(await inTenant(fx, () => releasePayableRun(as(fx.adminB), runs.january, { releaseReference: "  " }))).toMatchObject({ status: 400 })
-    expect(await inTenant(fx, () => releasePayableRun(as(fx.adminB), runs.january, { releaseReference: "TEST-EFT-0001" })))
+  it("is released with the lender's EFT reference and, the dealer being a VAT vendor, its tax invoice", async () => {
+    const release = (body: Record<string, unknown>) => inTenant(fx, () => releasePayableRun(as(fx.adminB), runs.january, body))
+    expect(await release({ releaseReference: "  " })).toMatchObject({ status: 400 })
+    expect(await release({ releaseReference: "TEST-EFT-0001" })).toMatchObject({ status: 422, error: expect.stringMatching(/tax invoice/) })
+    expect(await release({ releaseReference: "TEST-EFT-0001", taxInvoiceReference: "TEST-INV-0001" })).toMatchObject({ status: 400 })
+    expect(await release({ releaseReference: "TEST-EFT-0001", taxInvoiceReference: "TEST-INV-0001", taxInvoiceDate: "2026-02-30" })).toMatchObject({ status: 400 })
+    expect(await release({ releaseReference: "TEST-EFT-0001", taxInvoiceReference: "TEST-INV-0001", taxInvoiceDate: "2099-01-01" })).toMatchObject({ status: 400 })
+    expect(runRow(runs.january, `"status"`)).toBe("APPROVED")
+    expect(await release({ releaseReference: "TEST-EFT-0001", taxInvoiceReference: " TEST-INV-0001 ", taxInvoiceDate: "2026-02-03" }))
       .toEqual({ kind: "released", runId: runs.january })
-    expect(runRow(runs.january, `"status", "releaseReference", "releasedById"`)).toBe(`RELEASED|TEST-EFT-0001|${fx.adminB}`)
+    expect(runRow(runs.january, `"status", "releaseReference", "releasedById", "dealerTaxInvoiceReference", "dealerTaxInvoiceDate"`))
+      .toBe(`RELEASED|TEST-EFT-0001|${fx.adminB}|TEST-INV-0001|2026-02-03`)
     expect(audited(runs.january, "DEALER_PAYABLE_RUN_RELEASED")).toBe(fx.adminB)
     expect(await inTenant(fx, () => cancelPayableRun(as(fx.adminB), runs.january))).toMatchObject({ status: 409 })
   })
