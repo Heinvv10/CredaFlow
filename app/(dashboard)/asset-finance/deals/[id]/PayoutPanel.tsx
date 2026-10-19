@@ -1,10 +1,9 @@
 import Link from "next/link"
-import type { EntityDocumentType } from "@prisma/client"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { formatDate } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
-import { CHECKLIST_EVIDENCE_TYPES, CHECKLIST_KINDS } from "@/lib/asset-finance/payout-checklist"
+import { DEAL_EVIDENCE_DOC_TYPES } from "@/lib/asset-finance/payout-checklist"
 import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-view"
 import { statusLabel } from "@/lib/asset-finance/labels"
 import { dealEvidenceUrl } from "@/lib/asset-finance/deal-evidence-url"
@@ -14,7 +13,6 @@ import { SuretyConsentForm } from "./SuretyConsentForm"
 import { EvidenceUpload } from "./EvidenceUpload"
 
 const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
-const EVIDENCE_TYPES = [...new Set(["LEGAL_DOCUMENT" as EntityDocumentType, ...CHECKLIST_KINDS.flatMap((k) => CHECKLIST_EVIDENCE_TYPES[k])])] as EntityDocumentType[]
 const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success", CANCELLED: "neutral" } as const
 
 /** The deal page's "Payout" panel (goal §4.10): checklist, payout, booking. */
@@ -86,7 +84,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
       {canManage && contracted && (
         <div className="mt-4">
           <p className="mb-2 text-xs font-semibold text-[var(--cf-text-secondary)]">Upload payout evidence for this deal</p>
-          <EvidenceUpload entityId={panel.entityId} dealId={dealId} docTypes={EVIDENCE_TYPES} />
+          <EvidenceUpload dealId={dealId} docTypes={DEAL_EVIDENCE_DOC_TYPES} />
         </div>
       )}
 

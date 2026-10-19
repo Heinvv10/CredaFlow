@@ -5,6 +5,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 import { DocumentUploadForm } from "@/components/asset-finance/DocumentUploadForm"
 import { PayoutPanel } from "./PayoutPanel"
+import { DEAL_EVIDENCE_DOC_TYPES } from "@/lib/asset-finance/payout-checklist"
 import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-view"
 
 const panel = (entityId: string | null): PayoutPanelData => ({
@@ -40,14 +41,20 @@ describe("PayoutPanel for an individual lessee", () => {
     expect(form.props.apiBase).toBe("/api/asset-finance/deals/deal-1/documents")
     expect(form.props.dealId).toBeUndefined()
   })
+
+  it("offers exactly the types the deal route validates, so the dropdown cannot drift from it", async () => {
+    const form = (await render(null)).findByType(DocumentUploadForm)
+    expect(form.props.docTypes).toEqual([...DEAL_EVIDENCE_DOC_TYPES])
+  })
 })
 
 describe("PayoutPanel for an entity lessee", () => {
-  it("keeps the entity routes", async () => {
+  it("links evidence through the entity route and uploads through the same deal route and list", async () => {
     const root = await render("ent-1")
     expect(hrefs(root)).toContain("/api/asset-finance/entities/ent-1/documents/doc-9")
     const form = root.findByType(DocumentUploadForm)
-    expect(form.props.apiBase).toBe("/api/asset-finance/entities/ent-1/documents")
-    expect(form.props.dealId).toBe("deal-1")
+    expect(form.props.apiBase).toBe("/api/asset-finance/deals/deal-1/documents")
+    expect(form.props.dealId).toBeUndefined()
+    expect(form.props.docTypes).toEqual([...DEAL_EVIDENCE_DOC_TYPES])
   })
 })
