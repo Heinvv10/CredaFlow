@@ -78,6 +78,6 @@ describe("PortalApplyClient", () => {
     const html = render(null, { days: 60, amountCents: 205_834 })
     expect(html).toContain(`Your loan with us is 60 days overdue (${formatZAR(205_834)})`)
     expect(html).toContain("included in your existing debt")
-    expect(render()).not.toContain("overdue")
+    expect(render()).not.toContain('data-testid="own-lender-arrears"')
   })
 })

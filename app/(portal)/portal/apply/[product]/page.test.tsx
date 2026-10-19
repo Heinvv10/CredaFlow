@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ loanFindMany: vi.fn() }))
+const h = vi.hoisted(() => ({ loanFindMany: vi.fn(), approvedFindMany: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => ({ user: { email: "lerato@example.test", role: "CLIENT" } })) }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }))
 vi.mock("@/lib/session-tenant", () => ({ getPortalTenantId: vi.fn(async () => "t1") }))
@@ -24,7 +24,7 @@ vi.mock("@/lib/prisma", () => ({
     insuranceProduct: { findFirst: vi.fn(async () => null) },
     // The real own-lender loader runs over these (lib/affordability/own-lender-debt-load.ts).
     loan: { findMany: (a: unknown) => h.loanFindMany(a) },
-    loanApplication: { findMany: vi.fn(async () => []) },
+    loanApplication: { findMany: (a: unknown) => h.approvedFindMany(a) },
     tenant: { findUnique: vi.fn(async () => ({ name: "Acme Credit" })) },
     tenantConfig: { findUnique: vi.fn(async () => ({ brandName: "Acme Credit", legalName: "Acme Credit (Pty) Ltd" })) },
   },
@@ -36,7 +36,7 @@ type Props = { client: { existingDebt: number }; qualification: { ndi: number } 
 const render = async () => (await PortalApplyProductPage({ params: Promise.resolve({ product: "personal" }) })).props as Props
 
 describe("portal apply product page", () => {
-  beforeEach(() => { h.loanFindMany.mockReset().mockResolvedValue([]) })
+  beforeEach(() => { h.loanFindMany.mockReset().mockResolvedValue([]); h.approvedFindMany.mockReset().mockResolvedValue([]) })
 
   it("counts the client's own active loan with this lender in existing debt and the qualification", async () => {
     h.loanFindMany.mockResolvedValue([{
@@ -52,5 +52,16 @@ describe("portal apply product page", () => {
 
   it("changes nothing for a client with no loan with this lender", async () => {
     expect((await render()).client.existingDebt).toBe(87_000)
+  })
+
+  it("still renders, on declared debt, when an approved application has no recorded instalment", async () => {
+    h.approvedFindMany.mockResolvedValue([{ id: "a1", reference: "APP-SYN-1", approvedAmount: 500_000, affordabilityResult: null }])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      expect((await render()).client.existingDebt).toBe(87_000)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("APP-SYN-1"))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

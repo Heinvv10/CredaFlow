@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { redirect, notFound } from "next/navigation"
 import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { loadOwnLenderDebts, ownAwareDebtTotal } from "@/lib/affordability/own-lender-debt-load"
+import { portalExistingDebt } from "@/lib/affordability/portal-own-lender-debt"
 import { computeQualification } from "@/lib/qualify"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
@@ -59,7 +59,7 @@ export default async function PortalApplyProductPage({
   if (!product) notFound()
 
   // Counts the client's loans with this lender too, as the staff assessment does.
-  const existingDebt = ownAwareDebtTotal(client.debtObligations, await loadOwnLenderDebts(prisma, tenantId, client.id))
+  const { existingDebt } = await portalExistingDebt(prisma, tenantId, client.id, client.debtObligations)
 
   const qualification = client.monthlyIncome > 0
     ? computeQualification(client.monthlyIncome, client.monthlyExpenses, existingDebt)
