@@ -193,6 +193,11 @@ replacements named in it):
     (`me`, `products`, `suppliers`, `commission`) removed; a run's unique
     conflict is named by its index; a document request answered concurrently
     is a typed 409.
+39. **A dealer's borrower carries its address** (browser acceptance): booking
+    refuses a borrower without one (the tax invoice) and the address is fixed
+    at approval, so the dealer captures it with a business or a sole
+    proprietor (street line and city required; a person of a business needs
+    none), and the staff accept refuses a borrower without one (422).
 
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
@@ -607,6 +612,8 @@ cron.
 | Untrusted dealer contacts (34) | `lib/dealer/dealer-borrower-identity.integration.test.ts`, `dealer-handover-contact.integration.test.ts`, `lib/signing-otp/subject-dealer-contact.test.ts` | IT + unit | register, OTP, password, signing code before verification |
 | Reset link (35) | `lib/dealer/dealer-reset-link.integration.test.ts` | IT | old password after reset; deactivated dealer |
 | Refusal audits, capture limit (36) | `dealer-borrower-identity.integration.test.ts`, `capture-limits.test.ts`, `staff-routes.test.ts` | IT + unit | 31st capture; self-approval |
+| Borrower address (39) | `lib/dealer/capture-address.test.ts`, `dealer-submit.integration.test.ts` | unit + IT | business or sole proprietor without one; accept without one |
+| Portal switch on a demo lender | `lib/dealer/staff-admin.integration.test.ts` | IT | upsert's INSERT row met the demo-only CHECK |
 | Tax invoice at release (37) | `lib/dealer/payable-runs.integration.test.ts`, `payable-run-actions.integration.test.ts` | IT | VAT run without invoice; half an invoice; invoice off RELEASED |
 
 Mutation evidence (`evidence/slice5/MUTATIONS.md`): drop each CHECK and
@@ -681,6 +688,9 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
   (`lib/asset-finance/entity-dispatch.ts`) use the contacts on file; a dealer
   deal reaches booking only through signing, which needs the verification for
   an e-signature but not for wet ink.
+- **A run covers a finished period.** `periodEnd` is a month end not after
+  today, so commission earned this month, and a clawback netting it, is paid
+  in next month's run at the earliest.
 - **No TS commission mirror.** `lib/dealer/commission-math.ts` (named in
   "Commission, runs and journals") was not built; the IT suites compute the
   expected figures and the database is the only writer.
@@ -692,6 +702,56 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
   of credit; dealers seeing decline (never reasons).
 - **Tax:** commission VAT by vendor status; input VAT apportionment;
   reversal on clawback.
+
+Lender legal sign-off (SA legal review, PR #216), before a lender switches
+the portal on:
+
+1. Dealer agreement: POPIA s20/s21 operator terms for data the dealer collects
+   for the lender, plus NCA s68 confidentiality; states the dealer is a
+   separate responsible party for its own sale data. Follow-up: record the
+   operator-agreement version/date on the Dealer before activation.
+2. The signed POPIA consent form the dealer uploads: the system accepts any
+   PDF typed POPIA_CONSENT. The form must carry the s18 notification (lender
+   as responsible party, purposes, bureau enquiry, that the dealer learns the
+   application outcome and commission status of the account).
+3. DEALER_CONSENT_STATEMENT text (lib/dealer/consent.ts, UNTESTED: legal)
+   asserts signature "in my presence" and an ID check; confirm it matches the
+   lender's actual dealer process (remote signing would make it false).
+4. Whether to disclose dealer commission to the consumer. No express NCA/CPA
+   rule known for commission paid from the lender's own funds (s92/Form 20
+   silent; FAIS only if the dealer intermediates insurance). LOW confidence:
+   counsel to confirm against current NCR / Credit Ombud guidance on dealer
+   incentives (UK motor-finance precedent).
+5. Dealer pricing discretion (rate/fees proposed per deal): consistency with
+   the lender's pricing policy and NCA s61/s13 unfair-discrimination exposure.
+   Commission must never depend on rate or fees.
+6. Retention: dealer-captured Clients and documents on abandoned/declined
+   drafts (dealer cannot cancel drafts): set a POPIA s14 retention period;
+   DSAR responses name the dealer as source and recipient (s23(1)(b)).
+7. VAT treatment of commission (see tax items).
+
+Lender tax sign-off (SA tax/accounting review, PR #216):
+
+a) Commission from a VAT-vendor dealer is standard-rated (s2(2) fee/commission
+   carve-out from financial services); a non-vendor charges none.
+b) s17(1) apportionment of input VAT on commission for instalment-sale /
+   finance-lease contracts (taxable goods + exempt finance charges) versus the
+   100% claim the system posts; who adjusts and where (VAT201).
+c) Tax invoice basis for the s16(2) claim: the dealer's own s20 tax invoice
+   per run (reference captured at release) or a SARS-approved recipient-
+   created tax invoice.
+d) Clawback: the dealer's s21 credit note and the period of the input VAT
+   reversal (s21(4)); netted runs need dealer credit notes.
+e) VAT rate and vendor status are fixed at booking, not at time of supply
+   (s9(1)); per-line rounding may differ by cents from a dealer invoice on the
+   run total.
+f) Accounting policy: commission expensed at booking (management-accounts
+   basis) versus IFRS 9 EIR transaction cost / IFRS 16 initial direct cost
+   deferral; auditor and FD confirm the basis and any year-end adjustment.
+g) Income tax: commission deductible under s11(a) when incurred; adviser to
+   confirm whether a clawback is an s8(4)(a) recoupment or a reduction of the
+   deduction in the clawback year.
+
 - **Open risks:** `isDemoLender` has no DB guard of its own (set only by the
   seed and demo scripts; provisioning refuses it), so the demo-only CHECK is as
   strong as that control. Rate limiting is in-memory (single replica). Dozens
