@@ -11,6 +11,7 @@ import { formatLongDay } from "@/lib/i18n/format"
 import { SigningOtpStep, type SigningOtpChannel } from "@/components/signing/SigningOtpStep"
 
 const DECLARATIONS_ALERT_ID = "agreement-declarations-alert"
+const REFUSAL_ALERT_ID = "agreement-refusal-alert"
 const NO_SIGNING_OTP = { required: false, channels: [] as SigningOtpChannel[] }
 
 interface Props {
@@ -108,6 +109,14 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
   const allChecked = checks.every(Boolean)
   const hasSignature = signMode === "type" ? typedName.trim().length > 2 : hasDrawn
   const mandateRequired = repaymentMethod !== "EFT"
+
+  // A refusal is over once its reason is fixed; un-fixing it later must not
+  // bring the alert back without another click.
+  const refusalResolved =
+    (refusal === "declarations" && allChecked) ||
+    (refusal === "signature" && hasSignature) ||
+    (refusal === "otp" && otpSatisfied)
+  if (refusalResolved) setRefusal(null)
 
   // Canvas drawing
   useEffect(() => {
@@ -242,6 +251,8 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
 
   const labels = AGREEMENT_DECLARATIONS.map(d => d.text)
   const untickedCount = checks.filter(v => !v).length
+  const showSignatureAlert = refusal === "signature" && !hasSignature
+  const showOtpAlert = refusal === "otp" && !otpSatisfied
   const showDeclarationsAlert = refusal === "declarations" && untickedCount > 0
 
   return (
@@ -292,7 +303,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           </label>
         ))}
         {showDeclarationsAlert && (
-          <p id={DECLARATIONS_ALERT_ID} role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-800">
+          <p id={DECLARATIONS_ALERT_ID} role="status" aria-live="polite" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-800">
             {untickedCount === 1 ? "1 declaration still needs to be ticked" : `${untickedCount} declarations still need to be ticked`}
           </p>
         )}
@@ -332,6 +343,7 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
             <div className="relative border-2 border-dashed border-gray-300 rounded-lg overflow-hidden" style={{ touchAction: "none" }}>
               <canvas
                 ref={canvasRef}
+                aria-describedby={showSignatureAlert ? REFUSAL_ALERT_ID : undefined}
                 width={700}
                 height={160}
                 className="w-full cf-signature-pad cursor-crosshair"
@@ -366,6 +378,8 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
               value={typedName}
               onChange={(e) => setTypedName(e.target.value)}
               placeholder={t("typePlaceholder")}
+              aria-invalid={showSignatureAlert ? true : undefined}
+              aria-describedby={showSignatureAlert ? REFUSAL_ALERT_ID : undefined}
               className="w-full border border-gray-300 rounded-lg px-4 py-3 font-['Georgia'] italic text-xl focus:outline-none focus:ring-2 focus:ring-[#4F46E5]"
             />
             <p className="text-xs text-gray-400">{t("dateLine", { date: formatLongDay(new Date(), locale) })}</p>
@@ -381,11 +395,12 @@ export function PortalAgreementClient({ applicationId, reference, clientName, ag
           documentSha256={agreementDocumentSha256}
           channels={signingOtp.channels}
           onVerified={setOtpChallengeId}
+          refusedAlertId={showOtpAlert ? REFUSAL_ALERT_ID : undefined}
         />
       )}
 
-      {((refusal === "signature" && !hasSignature) || (refusal === "otp" && !otpSatisfied)) && (
-        <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+      {(showSignatureAlert || showOtpAlert) && (
+        <p id={REFUSAL_ALERT_ID} role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
           {refusal === "signature" ? "Please add your signature above before signing." : "Please verify the one-time code above before signing."}
         </p>
       )}
