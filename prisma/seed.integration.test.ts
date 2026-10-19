@@ -51,7 +51,7 @@ async function dropThrowawayDbs(admin: PrismaClient | null, created: string[], d
   await admin?.$disconnect()
 }
 
-function run(url: string, args: string[], extraEnv: Record<string, string> = {}) {
+function run(url: string, args: string[], extraEnv: Record<string, string | undefined> = {}) {
   return execFileSync(args[0], args.slice(1), {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: url, ...extraEnv },
@@ -59,7 +59,12 @@ function run(url: string, args: string[], extraEnv: Record<string, string> = {})
     stdio: ["ignore", "pipe", "pipe"],
   })
 }
-const runSeed = (url: string, extraEnv: Record<string, string> = {}) => run(url, ["npm", "run", "seed:base", "--silent"], extraEnv)
+// A developer runs the seed with no NODE_ENV and no dry-run switches. Vitest sets NODE_ENV=test,
+// which the Experian client treats as a dry run, so a child that inherits it would hide a seed
+// that only completes under test. Clear both unless the caller names them.
+const PLAIN_DEV_ENV: Record<string, undefined> = { NODE_ENV: undefined, EXPERIAN_DRY_RUN: undefined, SIMULATED_INTEGRATIONS: undefined }
+const runSeed = (url: string, extraEnv: Record<string, string> = {}) =>
+  run(url, ["npm", "run", "seed:base", "--silent"], { ...PLAIN_DEV_ENV, ...extraEnv })
 const runStagingSeed = (url: string) => run(url, ["npx", "tsx", "prisma/seed-staging.ts"])
 
 /** The stderr of a seed run that must fail; throws if it succeeded. */
