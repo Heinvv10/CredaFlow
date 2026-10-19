@@ -22,6 +22,7 @@ const {
   transaction,
   auditLogCreate,
   findFirstDocument,
+  loadOwn,
 } = vi.hoisted(() => ({
   auth: vi.fn(),
   checkRateLimit: vi.fn(),
@@ -40,6 +41,7 @@ const {
   transaction: vi.fn(),
   auditLogCreate: vi.fn(),
   findFirstDocument: vi.fn(),
+  loadOwn: vi.fn(),
 }))
 
 const tx = {
@@ -57,7 +59,7 @@ const tx = {
 // lib/affordability/own-lender-debt.integration.test.ts.
 vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/affordability/own-lender-debt-load")>()),
-  loadOwnLenderDebts: async () => ({ lenderNames: [], loans: [] }),
+  loadOwnLenderDebts: (...a: unknown[]) => loadOwn(...a),
   ownAwareSubmissionSnapshot: async (_db: unknown, _tenantId: string, _clientId: string, args: Parameters<typeof import("@/lib/affordability/snapshot").createSubmissionAffordabilitySnapshot>[0]) =>
     (await import("@/lib/affordability/snapshot")).createSubmissionAffordabilitySnapshot(args),
 }))
@@ -198,6 +200,7 @@ beforeEach(() => {
   findFirstClient.mockResolvedValue(CLIENT)
   findFirstProduct.mockResolvedValue(PRODUCT)
   findFirstInsuranceProduct.mockResolvedValue(CREDIT_LIFE_PRODUCT)
+  loadOwn.mockResolvedValue({ lenderNames: [], loans: [] })
   findFirstLoan.mockResolvedValue(null) // no defaulted loan
   countLoan.mockResolvedValue(0) // first-time borrower by default
   findFirstApplication.mockResolvedValue(null) // no open duplicate
@@ -219,6 +222,47 @@ afterEach(() => {
 })
 
 describe("POST /api/portal/applications", () => {
+  const ARREARS_OWN = {
+    lenderNames: [],
+    loans: [{ id: "loan-1", reference: "LN-SYN-1", daysInArrears: 60, arrearsAmount: 205_834, instalmentCents: 100_000 }],
+  }
+
+  it("refuses a client who is overdue on a loan with this lender, and writes nothing", async () => {
+    loadOwn.mockResolvedValue(ARREARS_OWN)
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(422)
+    expect((await res.json()).code).toBe("OWN_LENDER_ARREARS")
+    expect(createApplication).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "t1",
+      entity: "LoanApplication",
+      action: "APPLICATION_SUBMISSION_BLOCKED",
+      newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "c1", days: 60 }),
+    }))
+  })
+
+  it("refuses, under the lock, a loan that fell overdue after the early check, and writes nothing", async () => {
+    loadOwn.mockResolvedValueOnce({ lenderNames: [], loans: [] }).mockResolvedValue(ARREARS_OWN)
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(422)
+    expect((await res.json()).code).toBe("OWN_LENDER_ARREARS")
+    expect(transaction).toHaveBeenCalled()
+    expect(createApplication).not.toHaveBeenCalled()
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "t1",
+      newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "c1" }),
+    }))
+  })
+
+  it("does not block when the loader cannot read an approved application (arrears unknown)", async () => {
+    const { InvalidAffordabilityDebtError } = await import("@/lib/affordability/snapshot")
+    loadOwn.mockRejectedValue(new InvalidAffordabilityDebtError("approvedAmount"))
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(201)
+    expect(logAudit).not.toHaveBeenCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ reason: "own_lender_arrears" }) }))
+  })
+
   it("401s when there is no session", async () => {
     auth.mockResolvedValue(null)
     const res = await POST(buildReq(validBody))

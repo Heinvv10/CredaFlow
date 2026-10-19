@@ -38,6 +38,7 @@ import {
   createCreditLifeNoOfferDisclosureSha256,
 } from "@/lib/insurance/credit-life-election.server"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
+import { loadOwnLenderArrears, OWN_LENDER_ARREARS_CODE, OWN_LENDER_ARREARS_REASON } from "@/lib/affordability/own-lender-arrears-gate"
 import { creditBlock } from "@/lib/clients/status"
 import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
@@ -222,6 +223,28 @@ export async function POST(req: NextRequest) {
       })
       return NextResponse.json(
         { error: "We cannot accept a new application at this time. Please contact us." },
+        { status: 422 },
+      )
+    }
+
+    // Overdue on a loan with this lender: no new credit until it is paid up.
+    // Staff-side applications only warn; the portal refuses. A loader fallback
+    // (unreadable approved application) gives null and does not block.
+    const ownLenderArrears = await loadOwnLenderArrears(prisma, tenant.id, client.id)
+    if (ownLenderArrears) {
+      await logAudit({
+        tenantId: tenant.id,
+        userEmail: session.user.email ?? undefined,
+        action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
+        entity: "LoanApplication",
+        newValue: { reason: OWN_LENDER_ARREARS_REASON, clientId: client.id, days: ownLenderArrears.days },
+        ipAddress: callerIp(req),
+      })
+      return NextResponse.json(
+        {
+          error: "New applications open once your account is up to date. Please make a payment on your overdue loan.",
+          code: OWN_LENDER_ARREARS_CODE,
+        },
         { status: 422 },
       )
     }
@@ -541,6 +564,18 @@ export async function POST(req: NextRequest) {
             status: 422,
             body: { error: "We cannot accept a new application at this time. Please contact us." },
             auditReason: currentBlock.auditReason,
+          }
+        }
+        // Re-check under the lock: a loan can fall overdue after the early check.
+        if (await loadOwnLenderArrears(tx, tenant.id, currentClient.id)) {
+          return {
+            ok: false as const,
+            status: 422,
+            body: {
+              error: "New applications open once your account is up to date. Please make a payment on your overdue loan.",
+              code: OWN_LENDER_ARREARS_CODE,
+            },
+            auditReason: OWN_LENDER_ARREARS_REASON,
           }
         }
         if (!currentClient.idNumber || currentClient.idNumber.trim() === "") {

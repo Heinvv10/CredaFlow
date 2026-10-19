@@ -30,6 +30,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+import { renderToStaticMarkup } from "react-dom/server"
 import PortalApplyProductPage from "./page"
 
 type Props = { client: { existingDebt: number }; qualification: { ndi: number } }
@@ -41,13 +42,25 @@ describe("portal apply product page", () => {
   it("counts the client's own active loan with this lender in existing debt and the qualification", async () => {
     h.loanFindMany.mockResolvedValue([{
       id: "loan-1", clientId: "c1", reference: "LN-SYN-1", status: "ACTIVE", outstandingPrincipal: 500_000,
-      daysInArrears: 60, arrearsAmount: 205_834,
+      daysInArrears: 0, arrearsAmount: 0,
       repaymentSchedule: [{ totalDue: 120_000 }, { totalDue: 102_917 }],
     }])
     const props = await render()
     expect(props.client.existingDebt).toBe(87_000 + 102_917)
     expect(props.qualification.ndi).toBe(1_800_000 - 800_000 - 87_000 - 102_917)
     expect(h.loanFindMany.mock.calls[0][0].where).toMatchObject({ tenantId: "t1", clientId: "c1" })
+  })
+
+  it("shows no application form to a client in arrears", async () => {
+    h.loanFindMany.mockResolvedValue([{
+      id: "loan-1", clientId: "c1", reference: "LN-SYN-1", status: "ACTIVE", outstandingPrincipal: 500_000,
+      daysInArrears: 60, arrearsAmount: 205_834,
+      repaymentSchedule: [{ totalDue: 120_000 }, { totalDue: 102_917 }],
+    }])
+    const html = renderToStaticMarkup(await PortalApplyProductPage({ params: Promise.resolve({ product: "personal" }) }))
+    expect(html).toContain("60 days overdue")
+    expect(html).toContain("New applications open once your account is up to date")
+    expect(html).not.toContain("<form")
   })
 
   it("changes nothing for a client with no loan with this lender", async () => {

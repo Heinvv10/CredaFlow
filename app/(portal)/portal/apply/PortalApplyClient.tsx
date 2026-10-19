@@ -6,7 +6,7 @@ import { formatZAR } from "@/lib/utils"
 import type { QualificationBounds, QualificationResult } from "@/lib/qualify"
 import { useT } from "@/lib/i18n/client"
 import { ExploreCalculator, ndiColor } from "./ExploreCalculator"
-import { OwnArrearsNotice, type OwnArrears } from "./OwnArrearsNotice"
+import { ArrearsApplyBlock, OwnArrearsNotice, type OwnArrears } from "./OwnArrearsNotice"
 
 interface ClientData {
   firstName: string
@@ -231,7 +231,7 @@ export function PortalApplyClient({ client, qualification, productRanges, bounds
     <div className="max-w-4xl mx-auto px-6 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">
-          {client && !recentDecline ? t("greeting", { name: client.firstName }) : t("qualifyApply")}
+          {client && !recentDecline && !ownLenderArrears ? t("greeting", { name: client.firstName }) : t("qualifyApply")}
         </h1>
         <p className="text-sm text-gray-500 mt-1">{t("personalised")}</p>
       </div>
@@ -240,16 +240,22 @@ export function PortalApplyClient({ client, qualification, productRanges, bounds
       {ownLenderArrears && <OwnArrearsNotice arrears={ownLenderArrears} />}
 
       {client ? (
-        <AffordabilityCard client={client} qual={qualification} />
+        <AffordabilityCard client={client} qual={ownLenderArrears ? null : qualification} />
       ) : (
           <div className="rounded-xl border border-[var(--cf-border-subtle)] p-5 mb-6 text-sm text-[var(--cf-text-muted)]" style={{ borderLeft: "3px solid #4F46E5" }}>
           {t("loginForResults")}
         </div>
       )}
 
-      <ProductCards qual={recentDecline ? null : qualification} productRanges={productRanges} />
+      {ownLenderArrears ? (
+        <ArrearsApplyBlock />
+      ) : (
+        <>
+          <ProductCards qual={recentDecline ? null : qualification} productRanges={productRanges} />
 
-      <ExploreCalculator client={client} bounds={bounds} />
+          <ExploreCalculator client={client} bounds={bounds} />
+        </>
+      )}
     </div>
   )
 }
