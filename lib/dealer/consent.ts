@@ -28,11 +28,23 @@ export const DEALER_CONSENT_STATEMENT =
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
-/** The people whose consent a deal needs: its sole proprietor, or every active person of its entity. */
-export async function dealSubjects(db: Pick<Tx, "entityRelationship">, tenantId: string, deal: { clientId: string | null; entityId: string | null }): Promise<string[]> {
+/**
+ * The people whose consent the dealer attests: its sole proprietor, or every
+ * active person of its entity that this dealer captured. A person the lender
+ * added is the lender's to ask (DealerConsentAttestation_subject_captured).
+ */
+export async function dealSubjects(
+  db: Pick<Tx, "entityRelationship">,
+  tenantId: string,
+  dealerId: string,
+  deal: { clientId: string | null; entityId: string | null },
+): Promise<string[]> {
   if (deal.clientId) return [deal.clientId]
   if (!deal.entityId) return []
-  const rows = await db.entityRelationship.findMany({ where: { tenantId, entityId: deal.entityId, active: true }, select: { clientId: true } })
+  const rows = await db.entityRelationship.findMany({
+    where: { tenantId, entityId: deal.entityId, active: true, client: { createdByDealerId: dealerId } },
+    select: { clientId: true },
+  })
   return [...new Set(rows.map((r) => r.clientId))]
 }
 
@@ -58,8 +70,10 @@ export async function attestDealerConsent(
       select: { id: true },
     })
     if (!document) return dealerMiss("Consent document")
-    const subjects = await dealSubjects(tx, actor.tenantId, deal)
-    if (clientIds.some((id) => !subjects.includes(id))) return dealerRefused(422, "Each person must be the borrower or an active person of the business")
+    const subjects = await dealSubjects(tx, actor.tenantId, actor.dealerId, deal)
+    if (clientIds.some((id) => !subjects.includes(id))) {
+      return dealerRefused(422, "Each person must be the borrower or an active person of the business you captured: the lender records consent for a person it added")
+    }
     const already = await tx.dealerConsentAttestation.findFirst({ where: { tenantId: actor.tenantId, dealId: deal.id, clientId: { in: clientIds } }, select: { id: true } })
     if (already) return dealerRefused(409, "Consent is already attested for one of these people")
     const audit = dealerAuditFields(actor)

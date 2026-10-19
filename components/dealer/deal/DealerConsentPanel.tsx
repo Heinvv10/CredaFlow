@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button"
 import { SELECT_CLASS } from "@/components/asset-finance/form-fields"
 import { formatDate } from "@/lib/utils"
 
-type Person = { clientId: string; name: string; consentAttested: boolean }
+type Person = { clientId: string; name: string; consentAttested: boolean; consentByLender: boolean }
 type ConsentDocument = { id: string; fileName: string; uploadedAt: string }
 
 /**
- * POPIA consent: for the people not yet attested, the dealer user names the
- * signed consent form it uploaded and confirms the fixed statement. Evidence
- * for the lender, who verifies it before any credit check.
+ * POPIA consent: for the people the dealer captured and has not yet attested,
+ * the dealer user names the signed consent form it uploaded and confirms the
+ * fixed statement. Evidence for the lender, who verifies it before any credit
+ * check. A person the lender added gives consent to the lender directly.
  */
 export function DealerConsentPanel({ dealId, people, consentDocuments, statement, open }: {
   dealId: string
@@ -22,7 +23,7 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
   open: boolean
 }) {
   const router = useRouter()
-  const pending = people.filter((p) => !p.consentAttested)
+  const pending = people.filter((p) => !p.consentAttested && !p.consentByLender)
   const [documentId, setDocumentId] = useState(consentDocuments.length === 1 ? consentDocuments[0].id : "")
   const [chosen, setChosen] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState(false)
@@ -58,7 +59,9 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
         {people.length === 0 ? <li className="text-[var(--cf-text-muted)]">No people on this deal yet.</li> : people.map((p) => (
           <li key={p.clientId} className="flex justify-between gap-3">
             <span className="text-[var(--cf-text)]">{p.name}</span>
-            <span className={p.consentAttested ? "text-[var(--cf-success)]" : "text-[var(--cf-warning)]"}>{p.consentAttested ? "Consent attested" : "Consent needed"}</span>
+            {p.consentByLender ? <span className="text-[var(--cf-text-muted)]">Consent taken by the lender</span> : (
+              <span className={p.consentAttested ? "text-[var(--cf-success)]" : "text-[var(--cf-warning)]"}>{p.consentAttested ? "Consent attested" : "Consent needed"}</span>
+            )}
           </li>
         ))}
       </ul>

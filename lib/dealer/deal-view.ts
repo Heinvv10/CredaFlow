@@ -10,7 +10,8 @@
  *
  * People on the deal are named only when this dealer captured them; one the
  * lender added is "a person added by the lender" (spec deviation 25), with
- * only its opaque id, which the consent attestation names.
+ * only its opaque id, and its consent is the lender's to record: never
+ * missing from the dealer, never the dealer's to attest.
  */
 import type { AssetDealStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -86,12 +87,13 @@ export type DealerDealSummary = ReturnType<typeof summary>
 
 /** The projection of one deal row; `dealerId` decides which people may be named. */
 export function projectDealerDeal(row: Row, dealerId: string) {
-  const name = (p: Person) => (p.createdByDealerId === dealerId ? `${p.firstName} ${p.lastName}` : LENDER_ADDED)
+  const own = (p: Person) => p.createdByDealerId === dealerId
+  const name = (p: Person) => (own(p) ? `${p.firstName} ${p.lastName}` : LENDER_ADDED)
   const subjects: Person[] = row.client ? [row.client] : (row.entity?.relationships ?? []).map((r) => r.client)
   const unique = subjects.filter((p, i) => subjects.findIndex((q) => q.id === p.id) === i)
   const missing: string[] = BEFORE_SIGNING.includes(row.status)
     ? [
-        ...unique.filter((p) => !row.dealerConsentAttestations.some((a) => a.clientId === p.id)).map((p) => `Consent: ${name(p)}`),
+        ...unique.filter((p) => own(p) && !row.dealerConsentAttestations.some((a) => a.clientId === p.id)).map((p) => `Consent: ${name(p)}`),
         ...row.dealerDocumentRequests.filter((r) => !r.fulfilledAt).map((r) => `Document: ${r.docType}`),
       ]
     : row.status === "CONTRACTED"
@@ -102,7 +104,9 @@ export function projectDealerDeal(row: Row, dealerId: string) {
     financedAmountCents: row.application.appliedAmount,
     baseInstalmentCents: row.baseInstalmentCents,
     // The id lets the dealer attest consent for each subject; a lender-added person stays unnamed.
-    people: unique.map((p) => ({ clientId: p.id, name: name(p), consentAttested: row.dealerConsentAttestations.some((a) => a.clientId === p.id) })),
+    people: unique.map((p) => ({
+      clientId: p.id, name: name(p), consentAttested: row.dealerConsentAttestations.some((a) => a.clientId === p.id), consentByLender: !own(p),
+    })),
     missing,
     documentRequests: row.dealerDocumentRequests.map((r) => ({
       id: r.id, docType: r.docType, note: r.note, requestedAt: r.requestedAt.toISOString(), fulfilled: r.fulfilledAt !== null,

@@ -83,16 +83,17 @@ describe("the dealer projection", () => {
   it("names only the people this dealer captured, once each", () => {
     const view = projectDealerDeal(fullRow() as unknown as Row, "dealer-1")
     expect(view.people).toEqual([
-      { clientId: "p1", name: "First-p1 Last-p1", consentAttested: true },
-      { clientId: "p2", name: "A person added by the lender", consentAttested: false },
+      { clientId: "p1", name: "First-p1 Last-p1", consentAttested: true, consentByLender: false },
+      { clientId: "p2", name: "A person added by the lender", consentAttested: false, consentByLender: true },
     ])
     expect(JSON.stringify(view)).not.toContain("First-p2")
   })
 
-  it("lists what is missing before signing (consents, requested documents), then the unconfirmed checklist", () => {
-    expect(projectDealerDeal(fullRow() as unknown as Row, "dealer-1").missing).toEqual([
-      "Consent: A person added by the lender", "Document: BANK_STATEMENT",
-    ])
+  it("lists what is missing before signing (consents of the dealer's own people, requested documents), then the unconfirmed checklist", () => {
+    // The lender-added person's consent is the lender's to record, never the dealer's to supply.
+    expect(projectDealerDeal(fullRow() as unknown as Row, "dealer-1").missing).toEqual(["Document: BANK_STATEMENT"])
+    const unattested = fullRow({ dealerConsentAttestations: [] })
+    expect(projectDealerDeal(unattested as unknown as Row, "dealer-1").missing).toEqual(["Consent: First-p1 Last-p1", "Document: BANK_STATEMENT"])
     expect(projectDealerDeal(fullRow({ status: "CONTRACTED" }) as unknown as Row, "dealer-1").missing).toEqual(["Checklist: SUPPLIER_INVOICE_MATCHES_ASSET"])
     expect(projectDealerDeal(fullRow({ status: "BOOKED" }) as unknown as Row, "dealer-1").missing).toEqual([])
   })

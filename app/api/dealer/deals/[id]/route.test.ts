@@ -64,8 +64,8 @@ describe("GET /api/dealer/deals/[id]", () => {
       expect(body, key).not.toHaveProperty(key)
     }
     expect(body.people).toEqual([
-      { clientId: "p1", name: "First-p1 Last-p1", consentAttested: true },
-      { clientId: "p2", name: "A person added by the lender", consentAttested: false },
+      { clientId: "p1", name: "First-p1 Last-p1", consentAttested: true, consentByLender: false },
+      { clientId: "p2", name: "A person added by the lender", consentAttested: false, consentByLender: true },
     ])
   })
 

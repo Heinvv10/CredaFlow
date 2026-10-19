@@ -105,6 +105,18 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
     expect(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [draft.directorId] }))).toMatchObject({ status: 409 })
   })
 
+  it("leaves a person the lender added to the dealer's entity to the lender: no dealer attestation, not needed to submit", async () => {
+    const mixed = await dealerDraft(fx, sales)
+    sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
+      VALUES (${lit(`rel-${mixed.dealId}`)}, ${lit(fx.tenantId)}, ${lit(mixed.entityId)}, ${lit(fx.director)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+    const docId = await consentDoc(sales, mixed.dealId)
+    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [fx.director] })))
+      .toMatchObject({ status: 422, error: expect.stringMatching(/the lender records/) })
+    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [mixed.directorId] })))
+      .toMatchObject({ kind: "attested" })
+    expect(await inTenant(fx, () => submitDealerDeal(sales, mixed.dealId))).toMatchObject({ kind: "submitted" })
+  })
+
   it("refuses a staff-accept before the dealer submits", async () => {
     expect(await inTenant(fx, () => acceptDealerSubmission(staffOf(fx), draft.dealId))).toMatchObject({ status: 409 })
     const staffDeal = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captureForDealer(fx, null) }).dealId
