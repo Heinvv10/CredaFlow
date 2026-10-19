@@ -17,8 +17,13 @@ export function formatZAR(cents: number): string {
   return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
 }
 
-/** formatZAR for a value held in RANDS (form state, typed input). The house money format either way. */
-export function formatRands(rands: number): string {
+/**
+ * formatZAR for a value held in RANDS (form state, typed input). The house money
+ * format either way. `whole: true` drops the cents ("R 1,000,000") for amounts a
+ * person types or reads as a round figure (cover, ranges); premiums keep cents.
+ */
+export function formatRands(rands: number, opts?: { whole?: boolean }): string {
+  if (opts?.whole) return `R ${Math.round(rands).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
   return formatZAR(Math.round(rands * 100))
 }
 

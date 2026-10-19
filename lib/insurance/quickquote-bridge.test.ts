@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { formatRands } from "@/lib/utils"
 import {
   FIELD_NAMES,
   LABELS,
   ADD_VEHICLE_GATE_FIELDS,
+  amountRangeHint,
   arrivalPlan,
   buildSteps,
   canAddVehicle,
@@ -30,7 +32,6 @@ import {
   sortQuotes,
   tidyInsurerName,
   waitingStage,
-  formatRands,
   type QuickQuoteField,
 } from "./quickquote-bridge"
 
@@ -312,8 +313,8 @@ describe("summaryValue", () => {
   })
 
   it("renders an amount as money, matching the field's own hint", () => {
-    expect(summaryValue("contentsValue", "350000", undefined)).toBe("R350 000")
-    expect(summaryValue("buildingValue", "1200000", undefined)).toBe("R1 200 000")
+    expect(summaryValue("contentsValue", "350000", undefined)).toBe("R 350,000")
+    expect(summaryValue("buildingValue", "1200000", undefined)).toBe("R 1,200,000")
   })
 
   // Their option values are codes — "040" is AUDI — so the label is the only
@@ -694,23 +695,18 @@ describe("tidyInsurerName", () => {
   })
 })
 
-describe("formatRands", () => {
+describe("formatRands (house formatter, lib/utils)", () => {
   it.each([
-    [184, "R184"],
-    [915, "R915"],
-    [1240, "R1 240"],
-    [12405, "R12 405"],
-    [0, "R0"],
+    [184, "R 184.00"],
+    [1240, "R 1,240.00"],
+    [0, "R 0.00"],
   ])("formats %i as %o", (input, expected) => {
     expect(formatRands(input)).toBe(expected)
   })
 
-  it("rounds to whole rands by default", () => {
-    expect(formatRands(184.62)).toBe("R185")
-  })
-
-  it("keeps decimals when asked", () => {
-    expect(formatRands(752.96, 2)).toBe("R752.96")
+  it("drops the cents for whole-rand amounts", () => {
+    expect(formatRands(1_200_000, { whole: true })).toBe("R 1,200,000")
+    expect(formatRands(184.62, { whole: true })).toBe("R 185")
   })
 })
 
@@ -1304,5 +1300,12 @@ describe("furthestReachableStep with added vehicles", () => {
 
   it("still clamps to the first gap on a single-car journey", () => {
     expect(furthestReachableStep({ birthYear: "1985" }, WIZARD_STEPS)).toBe(0)
+  })
+})
+
+describe("amountRangeHint", () => {
+  // Fair Score audit row 117: a typed whole-rand amount carries no cents.
+  it("states the bounds in whole rands, house format", () => {
+    expect(amountRangeHint("contentsValue")).toBe("Between R 100,000 and R 7,500,000")
   })
 })

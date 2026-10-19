@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { Shield, AlertCircle, TrendingUp, DollarSign, Plus, FileText } from "lucide-react"
-import { formatZAR, formatDate } from "@/lib/utils"
+import { formatZAR, formatRands, formatDate } from "@/lib/utils"
 import { FilterSelect, FilterSummary, SearchInput } from "@/components/ui/list-filters"
 import { matchesRandAmount } from "@/lib/list-search"
 
@@ -153,14 +153,14 @@ export function InsuranceDashboardClient({ policies, claims, monthlyPremiums, co
     },
     {
       label: "Monthly Premiums",
-      value: `R ${monthlyPremiums.toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`,
+      value: formatRands(monthlyPremiums),
       sub: "Active policies",
       icon: DollarSign,
       color: "#1e6b3f",
     },
     {
       label: "Commission Earned",
-      value: `R ${commissionEarned.toLocaleString("en-ZA", { minimumFractionDigits: 2 })}`,
+      value: formatRands(commissionEarned),
       sub: "Total commission",
       icon: TrendingUp,
       color: "#1565c0",
