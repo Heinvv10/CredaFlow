@@ -38,7 +38,16 @@ async function main() {
   const officer = await prisma.user.findFirst({ where: { tenantId: tenant.id, email: `credit.officer@${STAFF_DOMAIN}` } })
   const admin = await prisma.user.findFirst({ where: { tenantId: tenant.id, email: `admin@${STAFF_DOMAIN}` } })
   if (!officer || !admin) throw new Error("Base demo users are missing; run prisma/seed.ts first")
-  const clients = await prisma.client.findMany({ where: { tenantId: tenant.id }, orderBy: { reference: "asc" } })
+  // Only the seeded consumer clients: a client created through the app can sort
+  // before CLI-SEED-0001 and must never receive seed rows.
+  const clients = await prisma.client.findMany({
+    where: {
+      tenantId: tenant.id,
+      reference: { startsWith: "CLI-SEED-" },
+      NOT: { reference: { startsWith: "CLI-SEED-AF-" } },
+    },
+    orderBy: { reference: "asc" },
+  })
   const loan = await prisma.loan.findFirst({ where: { tenantId: tenant.id, reference: "LN-SEED-0001" } })
   if (clients.length < 3 || !loan) throw new Error("Base demo data is incomplete; run prisma/seed.ts first")
 
@@ -89,17 +98,7 @@ async function main() {
   )
 
   // Client-declared budget detail (input to affordability, not evidence of it).
-  // Only the seeded consumer clients: a client created through the app can sort
-  // before CLI-SEED-0001 and must never be touched by a re-seed.
-  const budgetClients = await prisma.client.findMany({
-    where: {
-      tenantId: tenant.id,
-      reference: { startsWith: "CLI-SEED-" },
-      NOT: { reference: { startsWith: "CLI-SEED-AF-" } },
-    },
-    orderBy: { reference: "asc" },
-    take: 3,
-  })
+  const budgetClients = clients.slice(0, 3)
   for (const client of budgetClients) {
     const budget = seedExpenseBreakdown(client.monthlyExpenses)
     const existing = await prisma.clientExpenseBreakdown.findUnique({ where: { clientId: client.id } })

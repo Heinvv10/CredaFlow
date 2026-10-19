@@ -516,6 +516,13 @@ suite("staging seed itemised budgets", () => {
       const app = await prisma.clientExpenseBreakdown.findUniqueOrThrow({ where: { clientId: appClient.id } })
       expect(app.housing).toBe(123_456)
       expect(total(app)).toBe(123_456)
+      // No other seed row attaches to the app-created client either.
+      const where = { clientId: appClient.id }
+      expect((await prisma.client.findUniqueOrThrow({ where: { id: appClient.id } })).branchId).toBeNull()
+      expect(await prisma.crossSellOpportunity.count({ where })).toBe(0)
+      expect(await prisma.complaint.count({ where })).toBe(0)
+      expect(await prisma.dataSubjectRequest.count({ where })).toBe(0)
+      expect(await prisma.existingDebtObligation.count({ where })).toBe(0)
     }
 
     runStagingSeed(url)
