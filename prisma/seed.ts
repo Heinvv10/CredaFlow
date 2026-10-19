@@ -36,6 +36,13 @@ if (process.env.NODE_ENV === "production") {
   process.exit(1)
 }
 
+// The asset-finance trust deal needs a bureau check on each trustee before its
+// approval (./seed/asset-finance-deal.ts). A seed has no Experian credentials, so
+// it opts into the Experian dry run (lib/integrations/experian.ts) instead of
+// relying on NODE_ENV=test. The client still refuses that on a deployed build
+// (assertSimulationAllowed), and the production check above exits first.
+process.env.EXPERIAN_DRY_RUN = "true"
+
 const prisma = new PrismaClient()
 const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS)
