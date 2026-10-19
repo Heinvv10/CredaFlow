@@ -317,15 +317,23 @@ describe("POST /api/loans/section129", () => {
     }))
   })
 
-  it("states exactly the loan's own figures, and nothing more, while default charges are off", async () => {
+  // The total obligation is what settles the loan, interest and fees included,
+  // not the principal alone (Fair Score audit 2026-10-19: arrears R669.00
+  // against a "total outstanding obligation" of R500.00).
+  it("states an s125-priced loan's settlement figure as the total obligation, and no charges, while default charges are off", async () => {
+    settlementFiguresMock.mockImplementation(async (_db: unknown, l: { arrearsAmount: number; outstandingPrincipal: number }) => ({
+      live: false, charges: null, chargeLines: [], chargesOutstanding: 0, interestAndFeesOutstanding: 45_000,
+      totalToSettle: l.outstandingPrincipal + 45_000, arrearsIncludingCharges: l.arrearsAmount, s125Priced: true,
+    }))
     await POST(request())
     const attachmentLoan = buildAttachmentsMock.mock.calls[0][0].loan
     expect(attachmentLoan).toEqual({
       reference: loan.reference, arrearsAmount: loan.arrearsAmount,
       outstandingPrincipal: loan.outstandingPrincipal, daysInArrears: loan.daysInArrears,
+      totalOutstanding: loan.outstandingPrincipal + 45_000,
     })
     const reserved = reserveIssuanceMock.mock.calls[0][0]
-    expect(reserved).not.toHaveProperty("totalOutstanding")
+    expect(reserved.totalOutstanding).toBe(loan.outstandingPrincipal + 45_000)
     expect(reserved).not.toHaveProperty("chargesOutstanding")
   })
 

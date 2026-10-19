@@ -70,8 +70,9 @@ export async function POST(req: NextRequest) {
 
     const noticeDateValue = new Date()
     const noticeDate = section129NoticeDateLabel(noticeDateValue)
-    // While default charges are live the notice states arrears plus charges,
-    // and the amount owing today as the total outstanding obligation.
+    // The total outstanding obligation is the amount owing today
+    // (section129NoticeAmounts); while default charges are live the arrears
+    // include them.
     const figures = await loanSettlementFigures(prisma, loan, noticeDateValue)
     const noticeAmounts = section129NoticeAmounts(loan, figures)
 
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
                 loanReference: loan.reference,
                 daysInArrears: String(loan.daysInArrears),
                 arrearsAmountFormatted: formatZAR(noticeAmounts.arrearsAmount),
-                outstandingBalanceFormatted: formatZAR(noticeAmounts.totalOutstanding ?? noticeAmounts.outstandingPrincipal),
+                outstandingBalanceFormatted: formatZAR(noticeAmounts.totalOutstanding),
                 noticeDate,
               },
               toValue: emailNormalised,
@@ -288,7 +289,7 @@ export async function POST(req: NextRequest) {
         clientName,
         loanReference: loan.reference,
         arrearsAmount: noticeAmounts.arrearsAmount,
-        outstandingBalance: noticeAmounts.totalOutstanding ?? noticeAmounts.outstandingPrincipal,
+        outstandingBalance: noticeAmounts.totalOutstanding,
         daysInArrears: loan.daysInArrears,
         noticeDate,
         lender: lender.identity,

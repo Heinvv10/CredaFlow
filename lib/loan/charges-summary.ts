@@ -230,14 +230,27 @@ export async function loanSettlementFigures(
 }
 
 /**
- * The amounts a Section 129 notice states. While charges are off, exactly the
- * fields and values the notice stated before default charges existed.
+ * The amounts a Section 129 notice states. With charges off the total
+ * outstanding obligation used to be the principal alone, which left out the
+ * interest and fees in the arrears: the Fair Score audit's notice stated
+ * arrears R669.00 against a total obligation of R500.00 (2026-10-19). It is
+ * now what settles an s125-priced loan today; for any other loan the principal,
+ * because its settlement figure is the contractual remainder with unearned
+ * interest (no document certifies that, see certificateSettlement). Either way
+ * never less than the arrears, which are due in full.
  */
 export function section129NoticeAmounts(
   loan: { arrearsAmount: number; outstandingPrincipal: number },
   figures: SettlementFigures,
-): { arrearsAmount: number; outstandingPrincipal: number; totalOutstanding?: number; chargesOutstanding?: number } {
-  if (!figures.live) return { arrearsAmount: loan.arrearsAmount, outstandingPrincipal: loan.outstandingPrincipal }
+): { arrearsAmount: number; outstandingPrincipal: number; totalOutstanding: number; chargesOutstanding?: number } {
+  if (!figures.live) {
+    const owing = figures.s125Priced ? figures.totalToSettle : loan.outstandingPrincipal
+    return {
+      arrearsAmount: loan.arrearsAmount,
+      outstandingPrincipal: loan.outstandingPrincipal,
+      totalOutstanding: Math.max(owing, loan.arrearsAmount),
+    }
+  }
   return {
     arrearsAmount: figures.arrearsIncludingCharges,
     outstandingPrincipal: loan.outstandingPrincipal,

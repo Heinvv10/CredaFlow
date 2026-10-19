@@ -5,8 +5,11 @@ import { generateCertificateOfBalancePdf } from "./certificateOfBalance"
 import { generateStatementPdf } from "./statement"
 
 // While default charges are off (never live), the Section 129 notice, the
-// certificate of balance and the statement must be byte-for-byte what was
-// pinned. Re-pinned three times, each time proving the render moved by the
+// certificate of balance and the statement generators must render this fixed
+// input byte-for-byte as pinned. The pin covers the generators, not the
+// figures a route feeds them: since 2026-10-19 the S129 routes state the
+// settlement figure as the total obligation (section129NoticeAmounts).
+// Re-pinned three times, each time proving the render moved by the
 // named change only:
 //   - white-label phase 3 (identity from a LenderIdentity, no logo): rendering
 //     the new path with the forked lender's identity and logo reproduced its

@@ -8,7 +8,7 @@ vi.mock("./charges-replay", async (importOriginal) => ({
 }))
 
 import {
-  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, isS125Priced, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
+  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, isS125Priced, loanSettlementFigures, section129NoticeAmounts, summariseCharges, type SettlementFigures,
 } from "./charges-summary"
 import { currentSettlementAmount } from "./settlement"
 
@@ -128,6 +128,18 @@ describe("loanSettlementFigures", () => {
     expect(figures).toMatchObject({ live: false, chargesOutstanding: 0, totalToSettle: 216_900, interestAndFeesOutstanding: 16_900, chargeLines: [] })
   })
 
+  // A bullet loan fully in arrears: the notice used to state the R2,000
+  // principal as the total obligation against R2,169 of arrears.
+  it("gives a Section 129 total obligation of at least the arrears while charges are off", async () => {
+    loadChargesReplay.mockResolvedValue(null)
+    const overdue = { ...loan, totalPaid: 0, outstandingPrincipal: 200_000, arrearsAmount: 216_900 }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const figures = await loanSettlementFigures(db as any, overdue, new Date("2026-09-26"))
+    expect(section129NoticeAmounts(overdue, figures)).toEqual({
+      arrearsAmount: 216_900, outstandingPrincipal: 200_000, totalOutstanding: 216_900,
+    })
+  })
+
   it("states what the receipt paths accept to settle, charges included, not a lower amount owing", async () => {
     loadChargesReplay.mockResolvedValue({
       result: result({ interestAccrued: 3_000, interestOutstanding: 3_000 }),
@@ -155,6 +167,28 @@ describe("loanSettlementFigures", () => {
     expect(figures.totalToSettle).toBe(223_000)
     expect(section129NoticeAmounts(twoMonth, figures).totalOutstanding).toBe(223_000)
     expect(certificateSettlement(figures)?.totalToSettle).toBe(223_000)
+  })
+})
+
+describe("section129NoticeAmounts while default charges are off", () => {
+  const off = (over: Partial<SettlementFigures>): SettlementFigures => ({
+    live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
+    interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0, s125Priced: false,
+    paymentsReceived: 0, chargeSplitsPaid: 0, ...over,
+  })
+  const loan = { arrearsAmount: 206_000, outstandingPrincipal: 850_000 }
+
+  it("states what settles an s125-priced loan today", () => {
+    expect(section129NoticeAmounts(loan, off({ s125Priced: true, totalToSettle: 916_800 })).totalOutstanding).toBe(916_800)
+  })
+
+  it("states the principal, not a contractual remainder with unearned interest, for any other loan", () => {
+    expect(section129NoticeAmounts(loan, off({ s125Priced: false, totalToSettle: 1_240_000 })).totalOutstanding).toBe(850_000)
+  })
+
+  it("never states less than the arrears", () => {
+    expect(section129NoticeAmounts({ arrearsAmount: 66_900, outstandingPrincipal: 50_000 }, off({})).totalOutstanding).toBe(66_900)
+    expect(section129NoticeAmounts(loan, off({ s125Priced: true, totalToSettle: 150_000 })).totalOutstanding).toBe(206_000)
   })
 })
 
