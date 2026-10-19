@@ -565,6 +565,12 @@ below. System notices and the NCA quotation remain governed by
   at or below that ceiling (including reduction or waiver), and why cancellation
   remains available. Billing and raw database acceptance require the retained
   assessment. Prior accepted charges are not silently backfilled or repriced.
+- **Changed 2026-10-19 (Hein approved, starter typo):** lease clause 9.3 printed
+  "linked to the Lender base rate rate" on a lease linked to the lender's base
+  rate; it now reads "linked to the Lender base rate" (other bases unchanged, e.g.
+  "the Prime rate"). SYSTEM_REVISION 2026-10-19.1: only the four lease variants'
+  fingerprints changed, so lenders re-approve those four; other approvals stand.
+
 - **Changed 2026-10-18 to give effect to total-loss clause 9.5:** closure has an
   evidenced TOTAL_LOSS outcome, with no physical-return/inspection prerequisite or
   stock return. Full-maintenance fund settlement preserves genuine cash: a refund

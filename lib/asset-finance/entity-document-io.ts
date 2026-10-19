@@ -189,7 +189,10 @@ export async function storeDealEvidenceDocument(params: {
         action: AuditAction.ENTITY_DOCUMENT_UPLOADED,
         entity: "AssetFinanceDeal",
         entityId: dealId,
-        newValue: { documentId: created.id, entityId, clientId, docType: upload.docType, contentSha256, ...uploaderActor(uploader) },
+        newValue: {
+          documentId: created.id, businessEntityId: entityId, entityId, clientId, docType: upload.docType, contentSha256,
+          ...uploaderActor(uploader),
+        },
       }, tx)
       if (params.withinTransaction) await params.withinTransaction(tx, { id: created.id, contentSha256 })
       return created

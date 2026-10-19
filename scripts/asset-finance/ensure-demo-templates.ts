@@ -4,6 +4,8 @@
 // as one staff user and publishes it as another, with the SYNTHETIC_DEMO
 // basis (documents keep the demo watermark). Refuses a lender that is not
 // TenantConfig.isDemoLender: it never records a legal approval. Idempotent.
+// Also run it after an upgrade that changes CredaFlow's protected wording
+// (SYSTEM_REVISION): it approves the lapsed variants again.
 //
 // The two users are different active LOAN_ADMIN-or-above staff of the lender
 // (the database refuses anyone else). On a stack restored from a snapshot,

@@ -115,6 +115,8 @@ export function ProductPicker({
                 {products.find((p) => p.id === selectedProductId)?.headline.kind === "quote"
                   ? "Product selected — this product is priced on quote: enter the cover and rate the premium below. Commission auto-filled."
                   : "Product selected — premium, sum assured and commission auto-filled below. You can still edit."}
+                {products.find((p) => p.id === selectedProductId)?.headline.kind === "from" &&
+                  " Premium and cover are indicative (the cheapest band's) until the client is rated."}
               </div>
             )}
           </div>

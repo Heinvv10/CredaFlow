@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { AlertTriangle } from "lucide-react"
 import { formatZAR } from "@/lib/utils"
 
@@ -24,9 +25,27 @@ export function OwnArrearsNotice({ arrears }: { arrears: OwnArrears }) {
           Your loan with us is {arrears.days} day{arrears.days === 1 ? "" : "s"} overdue ({formatZAR(arrears.amountCents)})
         </p>
         <p className="mt-1">
-          Your instalments on your loans with us are included in your existing debt below. The figures are estimates, not an offer.
+          Please bring your account up to date. We cannot take a new application until you have.
         </p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Stands in for the offers and the application form while an own-lender loan is
+ * overdue. English only, like the notice above: it is overdue-account text.
+ */
+export function ArrearsApplyBlock() {
+  return (
+    <div
+      data-testid="own-lender-arrears-block"
+      className="rounded-xl border border-[var(--cf-border-subtle)] bg-[var(--cf-bg-raised)] p-6 mb-6 text-sm text-[var(--cf-text-secondary)]"
+    >
+      <p className="font-semibold text-[var(--cf-text)]">New applications open once your account is up to date.</p>
+      <Link href="/portal/payment" className="mt-3 inline-block underline" style={{ color: "#4338CA" }}>
+        Make a payment
+      </Link>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { default as CollectionDetailPage } from "./page"
 import { describe, it, expect, vi } from "vitest"
+import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { formatZAR } from "@/lib/utils"
 
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
@@ -18,7 +19,17 @@ vi.mock("@/components/collections/PaymentPlanButton", () => ({ PaymentPlanButton
 vi.mock("@/components/collections/ManualReminderButton", () => ({ ManualReminderButton: () => null }))
 vi.mock("@/components/collections/CollectionDetailTabs", () => ({ CollectionDetailTabs: () => null }))
 vi.mock("@/components/clients/ClientWhatsAppButton", () => ({ ClientWhatsAppButton: () => null }))
-vi.mock("@/components/collections/CollectionsStagePanel", () => ({ CollectionsStagePanel: () => null }))
+const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean } } | undefined }))
+vi.mock("@/components/collections/CollectionsStagePanel", () => ({
+  CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean } }) => {
+    stagePanelProps.last = props
+    return null
+  },
+}))
+vi.mock("@/lib/collections/section129-eligibility", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/section129-eligibility")>()),
+  evaluateCollectionsEligibility: vi.fn((await orig<typeof import("@/lib/collections/section129-eligibility")>()).evaluateCollectionsEligibility),
+}))
 vi.mock("@/components/collections/ArrangementTracker", () => ({ ArrangementTracker: () => null }))
 vi.mock("@/components/collections/AttorneyReferralCard", () => ({ AttorneyReferralCard: () => null }))
 vi.mock("@/components/collections/WriteOffCard", () => ({ WriteOffCard: () => null }))
@@ -52,5 +63,23 @@ describe("collections loan page", () => {
     const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
     const card = html.slice(html.indexOf("Total Paid"))
     expect(card.slice(0, 200)).toContain(formatZAR(50_000))
+  })
+
+  it("takes 'temporary' from the eligibility result, not from the reason wording", async () => {
+    const real = vi.mocked(evaluateCollectionsEligibility).getMockImplementation()!
+    const render = async (temporary: boolean) => {
+      vi.mocked(evaluateCollectionsEligibility).mockImplementation((loan, op) =>
+        op === "SECTION_129"
+          ? { eligible: false, temporary, minimumDaysInArrears: 90, reason: "reworded: not yet" }
+          : real(loan, op))
+      renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+      return stagePanelProps.last?.section129Unavailable
+    }
+    try {
+      expect(await render(true)).toEqual({ reason: "reworded: not yet", temporary: true })
+      expect(await render(false)).toEqual({ reason: "reworded: not yet", temporary: false })
+    } finally {
+      vi.mocked(evaluateCollectionsEligibility).mockImplementation(real)
+    }
   })
 })
