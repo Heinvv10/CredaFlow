@@ -320,6 +320,7 @@ export function requireDebitMandateBankDetails(client: {
 // months, so its debits do not share one day; the mandate then keeps pointing
 // at the schedule rather than printing a day some debits miss.
 export function sharedDayOfMonth(schedule: readonly MandateScheduleItem[]): number | undefined {
+  if (schedule.length === 0) return undefined
   const day = sastParts(schedule[0].dueDate).day
   return schedule.every((item) => sastParts(item.dueDate).day === day) ? day : undefined
 }

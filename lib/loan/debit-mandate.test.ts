@@ -316,6 +316,10 @@ describe("sharedDayOfMonth", () => {
     expect(sharedDayOfMonth([item("2026-11-18T22:30:00.000Z"), item("2026-12-18T22:30:00.000Z")])).toBe(19)
   })
 
+  it("is absent for an empty schedule", () => {
+    expect(sharedDayOfMonth([])).toBeUndefined()
+  })
+
   it("is absent when a short month moves a debit to another day", () => {
     expect(sharedDayOfMonth([item("2027-01-31T08:00:00.000Z"), item("2027-03-03T08:00:00.000Z")])).toBeUndefined()
   })

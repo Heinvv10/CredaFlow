@@ -7,6 +7,7 @@ import { generateCreditAgreementPdf, generateCreditAgreementPdfWithAnchors } fro
 import { A4_WIDTH, MARGIN, LABEL_VALUE_OFFSET } from "../helpers"
 import { calculateLoan } from "@/lib/loan-calculator"
 import { ACME_LENDER } from "@/lib/config/__fixtures__/lender-identity"
+import { boundaryLoanInput, boundaryStartDate, noticesMovedAgreementInput } from "@/scripts/nca-pdf-fingerprint"
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
@@ -998,14 +999,6 @@ describe("consumer address is complete and never clipped", () => {
 })
 
 describe("notices survive every row-count combination", () => {
-  const longAddress = {
-    addressLine1: "Unit 14B Mocker Park Retirement Village, 227 Fixture Main Drive",
-    suburb: "Testcliffe Extension 4",
-    city: "Johannesburg",
-    province: "Gauteng",
-    postalCode: "2195",
-  }
-
   // A page is added ONLY when needed, so the ordinary document keeps its layout
   // and the approved render is untouched.
   it("does not add a page for an ordinary document", async () => {
@@ -1016,28 +1009,46 @@ describe("notices survive every row-count combination", () => {
 
   // The notices move whole to page 2 and the schedule follows them on that
   // page, so page 2 is not left nearly blank (Fair Score audit, 2026-10-16).
-  it("starts the schedule under the notices when a long address moves them to page 2", async () => {
-    const pdf = await generateCreditAgreementPdf({
-      ...baseInput,
-      variant: "pasq",
-      creditLife: {
-        elected: false,
-        productName: "Acme Credit Life",
-        insurerName: "Test Life",
-        monthlyPremiumCents: 2_250,
-      },
-      client: { ...baseInput.client, ...longAddress },
-    })
+  async function pageContents(pdf: Buffer): Promise<string[]> {
     const { PDFDocument } = await import("pdf-lib")
     const source = await PDFDocument.load(pdf)
-    expect(source.getPageCount()).toBe(4)
-    const single = await PDFDocument.create()
-    const [page2] = await single.copyPages(source, [1])
-    single.addPage(page2)
-    const page2Content = extractPdfContent(Buffer.from(await single.save()))
-    expect(page2Content).toContain(pdfHex("DEBT REVIEW"))
-    expect(page2Content).toContain(pdfHex("REPAYMENT SCHEDULE"))
-    expect(page2Content).toContain(pdfHex("TOTAL"))
+    return Promise.all(source.getPageIndices().map(async (index) => {
+      const single = await PDFDocument.create()
+      const [page] = await single.copyPages(source, [index])
+      single.addPage(page)
+      return extractPdfContent(Buffer.from(await single.save()))
+    }))
+  }
+  const occurrences = (content: string, text: string) => content.split(pdfHex(text)).length - 1
+
+  it.each(["pasq", "agreement"] as const)("starts the %s schedule under the notices on page 2", async (variant) => {
+    const calc = calculateLoan(boundaryLoanInput(12), boundaryStartDate)
+    const pages = await pageContents(await generateCreditAgreementPdf(noticesMovedAgreementInput(variant, calc)))
+    expect(pages).toHaveLength(4)
+    expect(pages[0]).not.toContain(pdfHex("DEBT REVIEW"))
+    expect(pages[1]).toContain(pdfHex("DEBT REVIEW"))
+    expect(pages[1]).toContain(pdfHex("REPAYMENT SCHEDULE"))
+    expect(pages[1].indexOf(pdfHex("DEBT REVIEW"))).toBeLessThan(pages[1].indexOf(pdfHex("REPAYMENT SCHEDULE")))
+    expect(pages[1]).toContain(pdfHex("TOTAL"))
+    expect(pages[2]).not.toContain(pdfHex("REPAYMENT SCHEDULE"))
+  })
+
+  it("continues a long schedule from the notices page with one header per page and one TOTAL", async () => {
+    const calc = calculateLoan(boundaryLoanInput(60), boundaryStartDate)
+    const pages = await pageContents(await generateCreditAgreementPdf(noticesMovedAgreementInput("pasq", calc)))
+    expect(pages).toHaveLength(5)
+    expect(occurrences(pages[1], "REPAYMENT SCHEDULE")).toBe(1)
+    expect(occurrences(pages[2], "REPAYMENT SCHEDULE")).toBe(1)
+    expect(pages.reduce((n, page) => n + occurrences(page, "TOTAL"), 0)).toBe(1)
+    expect(pages[2]).toContain(pdfHex("TOTAL"))
+  })
+
+  it("anchors the agreement's signature block on the page that carries it", async () => {
+    const calc = calculateLoan(boundaryLoanInput(12), boundaryStartDate)
+    const result = await generateCreditAgreementPdfWithAnchors(noticesMovedAgreementInput("agreement", calc))
+    const pages = await pageContents(result.bytes)
+    expect(result.signatureAnchors?.pageIndex).toBe(3)
+    expect(pages[3]).toContain(pdfHex("Consumer Signature"))
   })
 })
 

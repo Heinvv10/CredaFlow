@@ -63,6 +63,23 @@ export function boundaryAgreementInput<C extends { schedule: Array<{ dueDate: Da
   }
 }
 
+/**
+ * A quotation/agreement whose long address and offered credit life move the
+ * important notices off page 1, so the schedule starts under them on page 2.
+ */
+export function noticesMovedAgreementInput<C extends { schedule: Array<{ dueDate: Date }> }>(variant: "pasq" | "agreement", calc: C) {
+  const base = boundaryAgreementInput(variant, calc)
+  return {
+    ...base,
+    client: {
+      ...base.client,
+      addressLine1: "Unit 14B Mocker Park Retirement Village, 227 Fixture Main Drive",
+      suburb: "Testcliffe Extension 4", province: "Gauteng", postalCode: "2195",
+    },
+    creditLife: { elected: false, productName: "Fixture Credit Life", insurerName: "Fixture Life", monthlyPremiumCents: 2_250 },
+  }
+}
+
 /** generateStatementPdf input with `rows` schedule rows and `paid` payments. */
 export function boundaryStatementInput(rows: number, paid: number) {
   const month = (i: number) => new Date(Date.UTC(2026, 7 + i, 1, 8))
@@ -133,6 +150,13 @@ async function main() {
   const pasq38 = await generateCreditAgreementPdf(boundaryAgreementInput("pasq", calc38))
   const statement37 = await generateStatementPdf(boundaryStatementInput(37, 38))
   const variants = variantStatementInputs()
+  const noticesMoved: Record<string, string> = {}
+  for (const rows of [12, 60]) {
+    const calc = calculateLoan(boundaryLoanInput(rows), boundaryStartDate)
+    for (const variant of ["pasq", "agreement"] as const) {
+      noticesMoved[`${variant}${rows}`] = sha256(await generateCreditAgreementPdf(noticesMovedAgreementInput(variant, calc)))
+    }
+  }
   const statementCharges = await generateStatementPdf(variants.statementCharges)
   const statementReversed = await generateStatementPdf(variants.statementReversed)
   const statementOfWhich = await generateStatementPdf(variants.statementOfWhich)
@@ -140,7 +164,7 @@ async function main() {
     s129: sha256(s129), cob: sha256(cob), statement: sha256(statement),
     agreement38: sha256(agreement38), pasq38: sha256(pasq38), statement37: sha256(statement37),
     statementCharges: sha256(statementCharges), statementReversed: sha256(statementReversed),
-    statementOfWhich: sha256(statementOfWhich),
+    statementOfWhich: sha256(statementOfWhich), noticesMoved,
   }) + "\n")
 }
 

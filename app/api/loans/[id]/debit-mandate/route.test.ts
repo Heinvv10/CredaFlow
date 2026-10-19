@@ -208,6 +208,7 @@ describe("GET /api/loans/[id]/debit-mandate", () => {
         firstDebitAmount: evidence.calculation.schedule[0].totalDue,
         firstDebitInitiationFee: evidence.calculation.initiationFee,
         firstDebitDate: evidence.calculation.schedule[0].dueDate,
+        repaymentDayOfMonth: 1,
       },
     }))
     expect(documentAccessCreateMock).toHaveBeenCalledWith({
