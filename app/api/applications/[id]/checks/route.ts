@@ -5,12 +5,27 @@ import { logDocumentContentAccess } from "@/lib/document-auth"
 import { recomputeApplicationFlags } from "@/lib/credit-checks/recompute"
 import { flagViews } from "@/lib/credit-checks/evidence"
 import { enqueueApplication } from "@/lib/statement-ai/worker"
+import { statementAiEnabled } from "@/lib/statement-ai/enabled"
+import { flagExplanations } from "@/lib/statement-ai/views"
 import { isCrossOriginRequest } from "@/lib/proxy/same-origin"
+
+/** Advisory (Statement AI, if the lender has it): a failure here leaves the flags without explanations, never without the flags. */
+async function explanationsFor(tenantId: string, applicationId: string): Promise<Map<string, string>> {
+  try {
+    return (await statementAiEnabled(tenantId)) ? await flagExplanations(tenantId, applicationId) : new Map()
+  } catch (error) {
+    console.error("[checks] flag explanations failed:", error)
+    return new Map()
+  }
+}
 
 /**
  * GET /api/applications/[id]/checks — recompute the application's credit-check
  * flags (before a decision only) and return them with their evidence rows.
  * Quoting statement rows is document access: each quoted document is logged.
+ * A lender with Statement AI on also gets each open flag's explanation
+ * (`explanation`, written by code from the flag's own evidence) in that flag's
+ * row; with it off, the response is as it always was.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   // A GET that writes (flags, audit and access-log rows): no other origin, a
@@ -30,11 +45,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     enqueueApplication(tenant.id, id)
 
     const { flags, documentIds } = await flagViews(tenant.id, result.flags)
+    const explained = await explanationsFor(tenant.id, id)
     await logDocumentContentAccess({ documentIds, staffUserId: guard.user.id, action: "credit_check_evidence", req })
     return NextResponse.json({
       recomputed: result.recomputed,
       openCount: flags.filter((f) => f.status === "OPEN").length,
-      flags,
+      flags: flags.map((f) => (explained.has(f.id) ? { ...f, explanation: explained.get(f.id) } : f)),
     })
   })
 }

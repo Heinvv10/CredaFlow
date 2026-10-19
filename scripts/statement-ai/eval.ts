@@ -7,8 +7,10 @@
  * production buildPlans/produce; feature C with the production answerQuestion.
  *
  *   npx tsx scripts/statement-ai/eval.ts [--apps 30] [--runs 3] [--out report.json]
+ *   npx tsx scripts/statement-ai/eval.ts --only-b    # B alone: no model, any time
  *
- * Needs VLM_API_URL and VLM_MODEL. Runs only in the model window (model-window.ts).
+ * Needs VLM_API_URL and VLM_MODEL. Runs only in the model window (model-window.ts),
+ * except --only-b: flag explanations are written by code and ask no model.
  */
 import { writeFileSync } from "node:fs"
 import { runChecks } from "@/lib/credit-checks/run-checks"
@@ -179,9 +181,17 @@ const reasonKey = (r: string) => (r.startsWith("word outside") ? r : r.replace(/
 const pctOf = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : 0)
 const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] : 0)
 
+/**
+ * A shown explanation sits in its flag's row of the credit checks panel, which
+ * already shows the code, the check and the rows: it must name none of them.
+ */
+const repeatsTheRow = (e: { flagCode: string; text: string | null; facts: { flag: { check: string } } }) =>
+  e.text !== null && (e.text.includes(e.flagCode) || e.text.includes(e.facts.flag.check) || /S\d+-R\d+|Evidence rows/.test(e.text))
+
 async function main() {
-  assertModelWindow()
-  if (!process.env.VLM_API_URL || !process.env.VLM_MODEL) throw new Error("VLM_API_URL and VLM_MODEL are required")
+  const onlyB = process.argv.includes("--only-b")
+  if (!onlyB) assertModelWindow()
+  if (!onlyB && (!process.env.VLM_API_URL || !process.env.VLM_MODEL)) throw new Error("VLM_API_URL and VLM_MODEL are required")
   const appCount = Number(arg("apps", "30"))
   const runs = Number(arg("runs", "3"))
   const out = arg("out", "statement-ai-eval.json")
@@ -201,14 +211,16 @@ async function main() {
       const flags = runChecks(factsOf({ applicationDate: `${app.months[2]}-${lastDay(app.months[2])}`, clientName: app.clientName, monthlyIncomeCents: app.rows.find((t) => t.description.includes("SALARY"))!.amountCents, declaredExpensesCents: app.declaredExpensesCents, statements: [st] }))
       const counted = distinctRows([{ documentId: "doc-1", bank: "CAPITEC", balanceCheck: "PASS", read }])
       const { summary, explanations } = buildPlans(insights, counted, flags as unknown as Parameters<typeof buildPlans>[2], new Map([["an-1", read.transactions]]), app.clientName)
+      // Explanations are written by code: counted, never asked.
+      ab.explanations += explanations.length
+      ab.explanationsOk += explanations.filter((e) => e.text !== null && !repeatsTheRow(e)).length
+      for (const e of explanations.filter(repeatsTheRow)) examples.push({ app: app.id, kind: "FLAG_EXPLANATION", repeatsTheRow: true, code: e.flagCode, text: e.text })
+      if (onlyB) continue
       const res = await produce(summary, asker("SUMMARY"))
       ab.summaries++
       if (res.status === "OK") ab.summariesOk++
       else ab.reasons[reasonKey(res.rejectReason!)] = (ab.reasons[reasonKey(res.rejectReason!)] ?? 0) + 1
       if (run === 0 && examples.length < 6) examples.push({ app: app.id, kind: "SUMMARY", status: res.status, reason: res.rejectReason, claims: res.claims, text: res.text })
-      // Explanations are written by code: counted, never asked.
-      ab.explanations += explanations.length
-      ab.explanationsOk += explanations.filter((e) => e.text !== null).length
       const rows = askRows([{ ref: "S1", transactions: read.transactions.map((t, index) => ({ index, t })) }], app.clientName)
       for (const q of app.questions) {
         const res = await answerQuestion({ question: q.question, rows, raisedFlagCodes: flags.map((f) => f.code) }, asker("ANSWER"))

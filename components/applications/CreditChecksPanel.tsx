@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { CLEAR_REASON_MAX_LENGTH, CLEAR_REASON_MIN_LENGTH } from "@/lib/credit-checks/policy"
 import type { FlagView as ServerFlagView } from "@/lib/credit-checks/evidence"
 
-type FlagView = Omit<ServerFlagView, "status"> & { status: "OPEN" | "CLEARED" | "SUPERSEDED" }
+/** `explanation`: Statement AI's, sent only for a lender with it on (checks route). */
+type FlagView = Omit<ServerFlagView, "status"> & { status: "OPEN" | "CLEARED" | "SUPERSEDED"; explanation?: string }
 type CheckKind = FlagView["check"]
 
 interface Props {
@@ -167,6 +168,20 @@ export function Evidence({ flag }: { flag: FlagView }) {
   )
 }
 
+/**
+ * Why the rules raised a flag, written by code from its evidence (lib/statement-ai):
+ * the rule, the threshold and the figures. The row already shows the code and rows.
+ */
+export function WhyRaised({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <details data-testid="credit-check-why" className="mt-2 text-sm">
+      <summary className="cursor-pointer font-medium text-[var(--cf-brand)]">Why this was raised</summary>
+      <p className="mt-1 text-[var(--cf-text-secondary)]">{text}</p>
+    </details>
+  )
+}
+
 const sastDate = (iso: string) => new Date(iso).toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg" })
 
 export function CreditChecksPanel({ applicationId, canClear, initialOpenCount, needsTotp = false }: Props) {
@@ -255,6 +270,7 @@ export function CreditChecksPanel({ applicationId, canClear, initialOpenCount, n
                     <span className="font-mono text-xs text-[var(--cf-text-muted)]">{flag.code}</span>
                   </div>
                   <p className="mt-2 text-sm text-[var(--cf-text)]">{flag.summary}</p>
+                  <WhyRaised text={flag.explanation} />
                   <Evidence flag={flag} />
                   {flag.status === "CLEARED" && (
                     <p className="mt-2 text-xs text-[var(--cf-text-secondary)]">
