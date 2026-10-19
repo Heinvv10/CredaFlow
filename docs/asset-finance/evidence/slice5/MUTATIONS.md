@@ -284,7 +284,7 @@ suites could run), then the hand-written rules.
 | E-F04 uploads after hand-over, C3 | `documents.test.ts`, edge F04 | 4 + 1 failed | "expected { kind: 'stored' } to match { kind: 'refused', status: 409 }"; "Error: The document request was answered concurrently" |
 | E-U03 lower-case email | edge U03 | 1 failed | a mixed-case email was accepted |
 | B1 portal switch on a demo lender | staff-admin IT | 1 failed | "expected 422 to be 200" (the upsert's INSERT row met `TenantConfig_dealer_portal_demo_only`) |
-| B2 borrower address | `capture-address.test.ts`, dealer-submit IT | 2 + 1 failed | a business and a sole proprietor captured without an address; the accept submitted a deal whose borrower had none |
+| B2 borrower address | `capture-address.test.ts`, dealer-submit IT | 2 + 2 failed (one cascading) | a business and a sole proprietor captured without an address; the accept submitted a deal whose borrower had none |
 | B3 booking date | `deal-view-loan-performance.test.ts` | 1 failed | `bookedOn` "2026-10-29" for a 30 Oct SAST start |
 | B5 inline-script warning | browser (next dev, dealer.localhost) | 1 console error | "Encountered a script tag while rendering React component" on a dealer deal 404; gone with the root layout's script removed (the cause), and with `ThemeInitScript`; `ThemeInitScript.test.tsx` red with its browser guard removed |
 | C7 run unique conflicts | `payable-runs-unique.test.ts` | 2 failed | a line conflict answered as a period conflict; an unrelated P2002 swallowed |
