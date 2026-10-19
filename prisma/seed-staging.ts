@@ -10,6 +10,7 @@
  */
 import { PrismaClient } from "@prisma/client"
 import { demoLender } from "./demo-lender"
+import { seedExpenseBreakdown } from "./seed-expense-breakdown"
 
 if (process.env.NODE_ENV === "production") {
   process.stderr.write("Seed refused: NODE_ENV=production. The demo seed is for local and throwaway databases only.\n")
@@ -91,11 +92,9 @@ async function main() {
   for (const client of clients.slice(0, 3)) {
     await prisma.clientExpenseBreakdown.upsert({
       where: { clientId: client.id },
-      update: {},
-      create: {
-        clientId: client.id, housing: 650_000, transport: 240_000, food: 360_000, education: 95_000,
-        insurance: 120_000, clothing: 80_000, entertainment: 50_000, medical: 60_000, other: 90_000,
-      },
+      // Re-seeding repairs a breakdown left by an older seed that did not match.
+      update: seedExpenseBreakdown(client.monthlyExpenses),
+      create: { clientId: client.id, ...seedExpenseBreakdown(client.monthlyExpenses) },
     })
     await ensureOne(
       () => prisma.existingDebtObligation.findFirst({ where: { clientId: client.id, creditProvider: "Demo Retail Credit" } }),
