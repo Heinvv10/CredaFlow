@@ -120,4 +120,13 @@ describe("PolicyCreationWizard: rate-table premium", () => {
     expect(text()).toContain("no date of birth")
     expect(useButton()).toBeUndefined()
   })
+
+  // Fair Score audit row 117: the catalogue picker printed "R 20 000,00"
+  // (en-ZA locale) while the policy list prints "R 20,000.00".
+  it("prints catalogue amounts in the house money format", () => {
+    render()
+    expect(text()).toContain("R 118.00")
+    expect(text()).toContain("R 20,000.00")
+    expect(text()).not.toMatch(/R 20\s000,00/)
+  })
 })

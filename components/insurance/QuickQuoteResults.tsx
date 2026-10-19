@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  formatRands,
   parsePremium,
   sortQuotes,
   summariseQuotes,
@@ -10,6 +9,7 @@ import {
   type ParsedQuote,
   type QuoteSort,
 } from "@/lib/insurance/quickquote-bridge"
+import { formatRands } from "@/lib/utils"
 
 /**
  * Our results screen, rendered from the quotes FSP have already drawn.

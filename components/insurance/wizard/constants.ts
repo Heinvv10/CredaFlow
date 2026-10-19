@@ -8,16 +8,6 @@ export const TYPE_LABELS: Record<string, string> = {
   BUSINESS_INSURANCE: "Business Insurance",
 }
 
-export function formatR(n: number) {
-  return (
-    "R " +
-    n.toLocaleString("en-ZA", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  )
-}
-
 // Shared Tailwind classes for inputs / labels — kept identical to the pre-split
 // wizard so the visual output is byte-for-byte unchanged.
 export const inp =

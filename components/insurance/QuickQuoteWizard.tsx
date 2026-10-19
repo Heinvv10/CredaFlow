@@ -27,7 +27,6 @@ import {
   askedFields,
   CHECK_AFFIRMATIVES,
   summaryValue,
-  formatRands,
   isUnanswered,
   VEHICLE_FIELDS,
   LABELS,
@@ -43,6 +42,7 @@ import {
   type QuickQuoteField,
   type SavedVehicle,
 } from "@/lib/insurance/quickquote-bridge"
+import { formatRands } from "@/lib/utils"
 
 /**
  * Our stepped journey, driving FSP's form underneath.
