@@ -8,7 +8,7 @@ vi.mock("./charges-replay", async (importOriginal) => ({
 }))
 
 import {
-  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, isS125Priced, loanSettlementFigures, section129NoticeAmounts, summariseCharges,
+  certificatePaidToDate, certificateSettlement, chargeBreakdownLines, documentLoanFigures, isS125Priced, loanSettlementFigures, section129NoticeAmounts, summariseCharges, type SettlementFigures,
 } from "./charges-summary"
 import { currentSettlementAmount } from "./settlement"
 
@@ -167,6 +167,28 @@ describe("loanSettlementFigures", () => {
     expect(figures.totalToSettle).toBe(223_000)
     expect(section129NoticeAmounts(twoMonth, figures).totalOutstanding).toBe(223_000)
     expect(certificateSettlement(figures)?.totalToSettle).toBe(223_000)
+  })
+})
+
+describe("section129NoticeAmounts while default charges are off", () => {
+  const off = (over: Partial<SettlementFigures>): SettlementFigures => ({
+    live: false, charges: null, chargeLines: [], chargesOutstanding: 0, totalToSettle: 0,
+    interestAndFeesOutstanding: 0, arrearsIncludingCharges: 0, s125Priced: false,
+    paymentsReceived: 0, chargeSplitsPaid: 0, ...over,
+  })
+  const loan = { arrearsAmount: 206_000, outstandingPrincipal: 850_000 }
+
+  it("states what settles an s125-priced loan today", () => {
+    expect(section129NoticeAmounts(loan, off({ s125Priced: true, totalToSettle: 916_800 })).totalOutstanding).toBe(916_800)
+  })
+
+  it("states the principal, not a contractual remainder with unearned interest, for any other loan", () => {
+    expect(section129NoticeAmounts(loan, off({ s125Priced: false, totalToSettle: 1_240_000 })).totalOutstanding).toBe(850_000)
+  })
+
+  it("never states less than the arrears", () => {
+    expect(section129NoticeAmounts({ arrearsAmount: 66_900, outstandingPrincipal: 50_000 }, off({})).totalOutstanding).toBe(66_900)
+    expect(section129NoticeAmounts(loan, off({ s125Priced: true, totalToSettle: 150_000 })).totalOutstanding).toBe(206_000)
   })
 })
 

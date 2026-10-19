@@ -85,6 +85,7 @@ vi.mock("@/lib/collections/section129-artifact", () => ({
 import { Section129IssuanceConflictError } from "@/lib/collections/section129-artifact"
 import { ProviderDispatchError } from "@/lib/messaging/providers"
 import { POST } from "./route"
+import { formatZAR } from "@/lib/utils"
 
 const sampleLoan = {
   id: "loan_1",
@@ -189,6 +190,18 @@ describe("POST /api/loans/section129/bulk", () => {
       issuedAt: providerAcceptedAt,
     }))
     expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  // Charges off: an s125-priced loan's notice states what settles it today,
+  // not the principal alone (Fair Score audit 2026-10-19).
+  it("states the settlement figure as the total obligation in the notice, email and record", async () => {
+    settlementFiguresMock.mockImplementation(async (_db: unknown, l: { arrearsAmount: number; outstandingPrincipal: number }) => ({
+      live: false, charges: null, chargeLines: [], chargesOutstanding: 0, interestAndFeesOutstanding: 80_000,
+      totalToSettle: l.outstandingPrincipal + 80_000, arrearsIncludingCharges: l.arrearsAmount, s125Priced: true,
+    }))
+    await POST(request())
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ totalOutstanding: 5_080_000 }))
+    expect(JSON.stringify(sendEmailMock.mock.calls[0])).toContain(formatZAR(5_080_000))
   })
 
   it("records each .invalid mailbox's notice as simulated (not sent) on a demo stack", async () => {
