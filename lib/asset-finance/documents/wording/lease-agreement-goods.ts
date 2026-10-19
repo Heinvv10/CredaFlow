@@ -57,10 +57,11 @@ function rentals(i: LeaseWordingInput): string {
   const escalation = new Prisma.Decimal(t.escalationRate).isZero()
     ? "The rental does not escalate."
     : `The rental increases by ${percentPdf(t.escalationRate)} on each anniversary of the commencement date; the rentals in section 6 already include these increases.`
-  const label = RATE_BASIS_LABELS[i.pricing.rateBasis]
+  // "the Prime rate", but "the Lender base rate" (its label already ends in "rate").
+  const label = RATE_BASIS_LABELS[i.pricing.rateBasis].replace(/(?<! rate)$/, " rate")
   const rate = i.pricing.rateBasis === "FIXED"
     ? "The rentals are priced at the fixed contract rate in section 5 and do not change when interest rates change."
-    : `The rentals are priced at the contract rate in section 5, which is linked to the ${label} rate. When that reference rate changes, the lessor recalculates the rentals `
+    : `The rentals are priced at the contract rate in section 5, which is linked to the ${label}. When that reference rate changes, the lessor recalculates the rentals `
       + `not yet invoiced that fall due at least ${REPRICE_NOTICE_DAYS} days after the recalculation, at the new contract rate (the new reference rate with the same margin). `
       + "The term and the number of rentals do not change, and neither does the maintenance part of a rental; a rental already invoiced never changes. "
       + "The lessor tells the lessee the new rentals in writing before the first changed rental falls due."
