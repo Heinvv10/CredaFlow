@@ -179,3 +179,25 @@ describe("review round 5", () => {
     expect(checkFigures('Rows for all rows with "FIVE THOUSAND".', { amountsCents: [] })).toMatchObject({ ok: false })
   })
 })
+
+describe("no statement reconciles", () => {
+  const failed = { documentId: "doc-1", bank: "CAPITEC", balanceCheck: "FAIL", read }
+  const none = buildPlans(
+    computeInsights([failed], { clientName: "T TESTER", declaredExpensesCents: 400_000 }),
+    [], [], new Map(), "T TESTER",
+  ).summary
+  it("states no figure the statements did not give, whichever claims the model picks", () => {
+    const text = renderSummary([...SUMMARY_CLAIMS], none.built.facts)
+    expect(text.split("\n")).toEqual([
+      "No statement reconciles, so no money in, money out, salary or spend is counted from them.",
+      "Balances: S1 (CAPITEC) is not reconciled and is left out of the figures.",
+      "The credit checks raised no flags.",
+    ])
+    expect(checkFigures(text, none.built.allowed)).toEqual({ ok: true })
+  })
+  it("says why, even when the model chose only a figure claim", async () => {
+    const out = await produce(none, async () => '{"claims": ["money"]}')
+    expect(out).toMatchObject({ status: "OK" })
+    expect(out.text).toBe("No statement reconciles, so no money in, money out, salary or spend is counted from them.")
+  })
+})
