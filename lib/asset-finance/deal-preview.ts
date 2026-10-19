@@ -4,9 +4,10 @@
  * schedule with VAT at the rate in force on the commencement date; for a
  * known NCA borrower the NCA structure and its caps. A structure that cannot
  * be solved is an answer about the input (200 with `{ error }`), not a failed
- * request. The same steps as POST /api/asset-finance/deals/preview, for the
- * dealer portal (app/api/dealer/deals/preview), which checks first that the
- * asset is the dealer's own.
+ * request. The one copy behind both previews: staff POST
+ * /api/asset-finance/deals/preview and the dealer portal
+ * (app/api/dealer/deals/preview), which checks first that the asset is the
+ * dealer's own.
  */
 import { prisma } from "@/lib/prisma"
 import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
