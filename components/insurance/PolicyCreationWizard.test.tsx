@@ -91,7 +91,7 @@ describe("PolicyCreationWizard: rate-table premium", () => {
   }
 
   const nextButton = () => renderer.root.findAllByType("button").find((b) => String(b.props.children).includes("Next"))!
-  const useButton = () => renderer.root.findAllByType("button").find((b) => b.props.children?.toString().includes("Use R"))
+  const useButton = () => renderer.root.findAllByType("button").find((b) => b.props.children?.join?.("").includes("Use R"))
   const premiumInput = () => renderer.root.findAllByType("input").find((i) => i.props.placeholder === "150")!
   const refuse = () => vi.fn(async () => Response.json(
     { error: "Requested premium 118.00 does not match the 268.00 the product's ACTIVE rate table produces for this client and cover", reason: "PREMIUM_MISMATCH", derivedPremium: "268.00" },
@@ -105,7 +105,7 @@ describe("PolicyCreationWizard: rate-table premium", () => {
     expect(useButton()).toBeUndefined()
     await act(async () => { nextButton().props.onClick() })
     expect(text()).toContain("does not match the 268.00")
-    expect(useButton()?.props.children.join("")).toContain("Use R268.00")
+    expect(useButton()?.props.children.join("")).toContain("Use R 268.00")
     expect(premiumInput().props.value).toBe("118")
 
     act(() => { useButton()!.props.onClick() })

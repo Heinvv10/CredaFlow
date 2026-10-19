@@ -273,7 +273,7 @@ export function QuickQuoteResults({
               </div>
               <div className="cf-res-price">
                 <p className="cf-res-premium">
-                  {q.premiumLabel}
+                  {q.premium > 0 ? formatRands(q.premium) : q.premiumLabel}
                   {/* The unit was never stated on FSP's own screen — this is
                       the number the whole journey exists to deliver. Omitted
                       when there is no number, so an unpriced row does not read
