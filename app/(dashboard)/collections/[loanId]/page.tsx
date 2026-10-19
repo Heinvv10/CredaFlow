@@ -78,6 +78,14 @@ export default async function CollectionDetailPage({ params }: { params: Promise
     latestSection129Failures(tenantId, [loan.id]),
   ])
   const section129Failure = section129Failures.get(loan.id) ?? null
+  const section129Enabled = section129Eligibility.eligible && section129Availability.canReserve
+  // One reason for the disabled button's tooltip and the stage panel's hint.
+  const section129BlockReason = section129Enabled ? null : (section129Eligibility.reason
+    ?? (section129Availability.blockedBy === "ACTIVE_ISSUANCE"
+      ? `An issuance is already ${section129Availability.activeLifecycle?.toLowerCase().replaceAll("_", " ") ?? "in progress"}.`
+      : section129Availability.cooldownEndsAt
+        ? `A new notice can be reserved after ${formatDate(section129Availability.cooldownEndsAt)}.`
+        : "Section 129 issuance is currently unavailable."))
 
   // Serialize for client components
   const serializedNotes = JSON.parse(JSON.stringify(loan.notes))
@@ -157,18 +165,13 @@ export default async function CollectionDetailPage({ params }: { params: Promise
               {section129Availability.latestIssuedSimulated ? "View simulated S.129 (not sent)" : "View Issued S.129"}
             </a>
           )}
-          {section129Eligibility.eligible && section129Availability.canReserve ? (
+          {section129Enabled ? (
             <Section129Button loanId={loan.id} loanRef={loan.reference} clientName={clientName} />
           ) : (
             <button
               type="button"
               disabled
-              title={section129Eligibility.reason
-                ?? (section129Availability.blockedBy === "ACTIVE_ISSUANCE"
-                  ? `An issuance is already ${section129Availability.activeLifecycle?.toLowerCase().replaceAll("_", " ") ?? "in progress"}.`
-                  : section129Availability.cooldownEndsAt
-                    ? `A new notice can be reserved after ${formatDate(section129Availability.cooldownEndsAt)}.`
-                    : "Section 129 issuance is currently unavailable.")}
+              title={section129BlockReason ?? undefined}
               className="px-3 py-1.5 rounded text-[12px] font-semibold border border-gray-200 text-gray-400 bg-gray-100 cursor-not-allowed"
             >
               S.129 unavailable
@@ -218,6 +221,7 @@ export default async function CollectionDetailPage({ params }: { params: Promise
             daysInArrears={loan.daysInArrears}
             arrearsAmount={arrearsWithCharges(loan, chargesLive)}
             writeOffPending={writeOffPending}
+            section129Unavailable={section129BlockReason?.replace(/\.$/, "")}
             readOnlyReason={dunningEligibility.eligible ? undefined : dunningEligibility.reason ?? "Collections actions are unavailable"}
             existingArrangement={arrangement ? {
               agreedAmount: arrangement.agreedAmount,

@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "@/lib/toast"
-import { formatRands } from "@/lib/utils"
+import { formatZAR } from "@/lib/utils"
+import { splitPaymentPlan } from "@/lib/collections/payment-plan"
 
 interface Props {
   loanId: string
@@ -26,7 +27,7 @@ export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAm
   const [done, setDone] = useState(false)
 
   const totalArrears = arrearsAmount / 100
-  const installmentAmt = installments > 0 ? (totalArrears / installments) : 0
+  const split = arrearsAmount > 0 && installments >= 1 ? splitPaymentPlan(arrearsAmount, installments) : null
 
   async function save() {
     setSaving(true)
@@ -34,7 +35,7 @@ export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAm
       const res = await fetch(`/api/loans/${loanId}/payment-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ totalArrears, installments, installmentAmt, startDate, notes }),
+        body: JSON.stringify({ totalArrears, installments, startDate, notes }),
       })
       if (res.ok) {
         toast.success("Payment plan created")
@@ -90,9 +91,14 @@ export function PaymentPlanButton({ loanId, clientName, arrearsAmount, arrearsAm
               <div className="bg-amber-50 rounded-xl p-4 text-center">
                 <p className="text-xs text-gray-500">Monthly Payment</p>
                 <p className="text-2xl font-bold text-[#4F46E5]">
-                  {formatRands(installmentAmt)}
+                  {formatZAR(split?.regularCents ?? 0)}
                 </p>
                 <p className="text-xs text-gray-400">{installments} × payment{installments > 1 ? "s" : ""} of arrears only</p>
+                {split && split.finalCents !== split.regularCents && (
+                  <p className="text-xs text-gray-600 mt-1" data-testid="plan-final-instalment">
+                    Final instalment: {formatZAR(split.finalCents)} (rounding remainder)
+                  </p>
+                )}
               </div>
 
               <div>
