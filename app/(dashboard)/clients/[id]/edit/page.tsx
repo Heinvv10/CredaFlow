@@ -34,7 +34,7 @@ export default async function EditClientPage({
   await requireLoanBookPage()
   const { id } = await params
   const session = await auth()
-  if (!session?.user?.role || session.user.role === "CLIENT" || !hasMinRole(session.user.role, "CREDIT_OFFICER")) {
+  if (!session?.user?.role || session.user.role === "CLIENT" || session.user.role === "DEALER" || !hasMinRole(session.user.role, "CREDIT_OFFICER")) {
     return <div className="p-6 space-y-3"><h1 className="text-xl font-semibold">Client record is read-only</h1><p>Your role can view client records. Editing requires a credit officer or a role with higher permissions.</p><Link href={`/clients/${id}`} className="underline">Return to client</Link></div>
   }
   const tenantId = await getStaffTenantId()

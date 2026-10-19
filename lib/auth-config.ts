@@ -1,8 +1,12 @@
 import type { NextAuthConfig } from "next-auth"
-import type { UserRole } from "@prisma/client"
+import type { DealerRole, UserRole } from "@prisma/client"
 
-/** Staff roles plus the CLIENT sentinel used for portal sessions. */
-export type AppRole = UserRole | "CLIENT"
+/**
+ * Staff roles, the CLIENT sentinel used for portal sessions, and the DEALER
+ * sentinel for dealer portal sessions (lib/dealer/). DEALER is not a UserRole,
+ * so hasMinRole, canDo and requireApiRole refuse it by construction.
+ */
+export type AppRole = UserRole | "CLIENT" | "DEALER"
 
 declare module "next-auth" {
   interface User {
@@ -17,6 +21,9 @@ declare module "next-auth" {
     totpEnrolmentRequired?: boolean
     /** Operator staff only (OPERATOR_ADMIN / OPERATOR_SUPPORT): the operator they work for. */
     operatorId?: string | null
+    /** DEALER only: the dealer this dealer user works for, and their role there. */
+    dealerId?: string | null
+    dealerRole?: DealerRole | null
   }
   interface Session {
     user: {
@@ -32,6 +39,9 @@ declare module "next-auth" {
       tokenVersion?: number
       /** Operator staff only: the operator they work for (lib/operator/). */
       operatorId?: string | null
+      /** DEALER only (lib/dealer/): the dealer and the dealer user's role there. */
+      dealerId?: string | null
+      dealerRole?: DealerRole | null
     }
   }
 }
@@ -43,9 +53,13 @@ declare module "next-auth" {
  * a signing secret (docker-compose falls back to the shared AUTH_SECRET) and a
  * cookie from one is replayed against the other. Read per call, not at load.
  * A single host (APP_MODE unset or "all") honours both.
+ *
+ * A DEALER session lives on the dealer host, which runs on the staff container
+ * (lib/proxy/dealer-host.ts): the client host never honours one.
  */
 export function roleRefusedOnThisHost(role: unknown): boolean {
   const mode = process.env.APP_MODE
+  if (role === "DEALER" && mode === "client") return true
   if (mode === "client") return role !== "CLIENT"
   if (mode === "staff") return role === "CLIENT"
   return false

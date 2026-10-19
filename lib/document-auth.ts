@@ -47,6 +47,10 @@ export async function getDocumentCaller(): Promise<CallerInfo | null> {
     return null
   }
 
+  // Only a portal session is looked up as a client: a DEALER (or any other
+  // non-staff) session sharing a client's email must never resolve as them.
+  if (session.user.role !== "CLIENT") return null
+
   // Check if this is a portal client. Document routes call this before the
   // request tenant wrapper is established, so include an explicit tenantId to
   // satisfy the tenant-scope guard instead of throwing before the upload starts.
