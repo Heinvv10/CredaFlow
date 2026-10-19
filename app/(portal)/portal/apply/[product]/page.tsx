@@ -6,6 +6,7 @@ import { getPortalTenantId } from "@/lib/session-tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { portalExistingDebt } from "@/lib/affordability/portal-own-lender-debt"
 import { computeQualification } from "@/lib/qualify"
+import { ArrearsApplyBlock, OwnArrearsNotice } from "../OwnArrearsNotice"
 import { PortalApplyProductClient } from "./PortalApplyProductClient"
 import { isCreditLifeAutoBundleEnabled } from "@/lib/insurance/credit-life-containment"
 import { creditLifeOfferFindFirstArgs } from "@/lib/insurance/credit-life-offer"
@@ -59,7 +60,18 @@ export default async function PortalApplyProductPage({
   if (!product) notFound()
 
   // Counts the client's loans with this lender too, as the staff assessment does.
-  const { existingDebt } = await portalExistingDebt(prisma, tenantId, client.id, client.debtObligations)
+  const { existingDebt, ownLenderArrears } = await portalExistingDebt(prisma, tenantId, client.id, client.debtObligations)
+
+  // Overdue with this lender: no new credit until the account is up to date
+  // (the submit route refuses too). A loader fallback leaves this null.
+  if (ownLenderArrears) {
+    return (
+      <div className="max-w-2xl mx-auto px-6 py-8">
+        <OwnArrearsNotice arrears={ownLenderArrears} />
+        <ArrearsApplyBlock />
+      </div>
+    )
+  }
 
   const qualification = client.monthlyIncome > 0
     ? computeQualification(client.monthlyIncome, client.monthlyExpenses, existingDebt)

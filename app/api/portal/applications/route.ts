@@ -38,6 +38,7 @@ import {
   createCreditLifeNoOfferDisclosureSha256,
 } from "@/lib/insurance/credit-life-election.server"
 import { creditLifeAutoBundleDecision } from "@/lib/insurance/credit-life-containment"
+import { portalExistingDebt } from "@/lib/affordability/portal-own-lender-debt"
 import { creditBlock } from "@/lib/clients/status"
 import { CONSUMER_PRODUCT_WHERE } from "@/lib/product-config/product-kind"
 
@@ -223,6 +224,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "We cannot accept a new application at this time. Please contact us." },
         { status: 422 },
+      )
+    }
+
+    // Overdue on a loan with this lender: no new credit until it is paid up.
+    // Staff-side applications only warn; the portal refuses. A loader fallback
+    // (unreadable approved application) gives null and does not block.
+    const { ownLenderArrears } = await portalExistingDebt(prisma, tenant.id, client.id, client.debtObligations)
+    if (ownLenderArrears) {
+      await logAudit({
+        tenantId: tenant.id,
+        userEmail: session.user.email ?? undefined,
+        action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
+        entity: "LoanApplication",
+        newValue: { reason: "own_lender_arrears", clientId: client.id, days: ownLenderArrears.days },
+        ipAddress: callerIp(req),
+      })
+      return NextResponse.json(
+        {
+          error: "New applications open once your account is up to date. Please make a payment on your overdue loan.",
+          code: "OWN_LENDER_ARREARS",
+        },
+        { status: 409 },
       )
     }
 

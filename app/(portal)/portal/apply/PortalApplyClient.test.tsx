@@ -48,6 +48,19 @@ describe("PortalApplyClient", () => {
     expect(html).not.toContain("here&#x27;s what you qualify for")
   })
 
+  it("shows a client in arrears no offers, amounts or scenarios, and a way to pay", () => {
+    const html = render(null, { days: 60, amountCents: 205_834 })
+    expect(html).toContain('data-testid="own-lender-arrears"')
+    expect(html).toContain("New applications open once your account is up to date")
+    expect(html).toContain('href="/portal/payment"')
+    expect(html).not.toContain("here&#x27;s what you qualify for")
+    expect(html).not.toContain("What You Qualify For")
+    expect(html).not.toContain("You qualify for up to")
+    expect(html).not.toContain("Best Match")
+    expect(html).not.toContain("Explore Scenarios")
+    expect(html).not.toContain('href="/portal/apply/')
+  })
+
   it("shows the qualification to a client with no recent decline", () => {
     const html = render()
     expect(html).toContain("Best Match")
