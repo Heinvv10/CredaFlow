@@ -215,3 +215,41 @@ restored byte for byte from a copy; the suites above were green afterwards.
 | 9 | The settings route no longer maps the demo-only CHECK (`if (false && …)`) | settings route unit | 1 failed, 15 passed | "answers the demo-only CHECK 422 with the reason, and audits nothing" |
 | 9 | same | staff-admin IT | 1 failed, 6 passed | "the settings route answers the demo-only CHECK 422 on a lender that is not a demo…" (the real `TenantConfig_dealer_portal_demo_only` error reached the caller as a throw) |
 | 10 | `approvePayableRun` no longer refuses its creator in TS (`return null`); CHECK `DealerPayableRun_four_eyes` still refuses | payable-run-actions IT | 2 failed, 6 passed | "is approved only by another user…" (no `{ kind: "self_approval" }`), "is released with the lender's EFT reference" |
+
+## Part A — staff submit refuses a dealer deal
+
+`POST /api/asset-finance/deals/[id]/submit` answers 409 for a deal with a
+`dealerId`: the staff accept of the dealer's submission
+(`…/dealer-submission/accept`, deviation 1) is the only way a dealer deal
+reaches `submitDeal`. The check reads the deal's `dealerId` before the
+submit's transaction; a deal's dealer is fixed at insert
+(`guardAssetDealDealer`), so the read cannot race the submit. The existing
+`app/api/asset-finance/deals/deal-routes.test.ts` submit cases (staff deals)
+pass unchanged.
+
+### Before (test written first)
+
+`app/api/asset-finance/deals/[id]/submit/route.test.ts` with the two
+dealer-deal cases added, against the route without the check:
+
+```
+ FAIL  … dealer deals (SLICE5.md deviation 1) > answers 409 for a dealer's deal: …
+AssertionError: expected 200 to be 409 // Object.is equality
+      Tests  1 failed | 3 passed (4)
+```
+
+### After
+
+```
+npx vitest run "app/api/asset-finance/deals/[id]/submit/route.test.ts"
+      Tests  4 passed (4)
+```
+
+### Mutation
+
+Applied to the source, the suite run, then the file restored byte for byte
+from a copy; the suite was 4/4 green again.
+
+| # | Mutation | Suite | Result | Red test (assertion) |
+|---|---|---|---|---|
+| 1 | `submit/route.ts`: `if (deal?.dealerId && false) {` | submit route unit | 1 failed, 3 passed | "answers 409 for a dealer's deal: …" (`expected 200 to be 409`) |
