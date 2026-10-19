@@ -6,6 +6,7 @@
  */
 
 import { TRANSACTIONAL_ACCOUNT_PRODUCT_PREFIXES } from '@/lib/compliance/debit-mandate'
+import { isDemoMode } from '@/lib/config/demo-mode'
 import {
   crossValidateSaIdWithDob,
   isValidSaIdChecksum,
@@ -45,7 +46,8 @@ let hostedRefusalLogged = false
 
 function hostedVlmAllowed(apiUrl: string): boolean {
   const reason =
-    process.env.VLM_ALLOW_HOSTED !== 'true' ? 'VLM_ALLOW_HOSTED is not true'
+    !isDemoMode() ? 'DEMO_MODE is not true'
+    : process.env.VLM_ALLOW_HOSTED !== 'true' ? 'VLM_ALLOW_HOSTED is not true'
     : !apiUrl.startsWith('https://') ? 'VLM_API_URL is not https'
     : process.env.STATEMENT_CORPUS_DIR || process.env.VLM_ACCURACY_CORPUS ? 'a real corpus is configured'
     : null
@@ -67,8 +69,8 @@ export function getVlmConfig(): VlmConfig | null {
   const apiUrl = process.env.VLM_API_URL
   const model = process.env.VLM_MODEL
   if (isPlaceholder(apiUrl) || isPlaceholder(model)) return null
-  // VLM_API_KEY means a hosted endpoint: dev and demo stacks with synthetic data only,
-  // so it needs VLM_ALLOW_HOSTED=true, https, and no real corpus configured.
+  // VLM_API_KEY means a hosted endpoint: demo stacks with synthetic data only, so it
+  // needs DEMO_MODE=true, VLM_ALLOW_HOSTED=true, https, and no real corpus configured.
   const apiKey = process.env.VLM_API_KEY
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (apiKey) {
