@@ -52,7 +52,7 @@ Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_
 | Messaging cutover | `MESSAGING_NEW_SEND_*` (13 flags; only the literal `true` enables) |
 | Website AI chat | `ANTHROPIC_API_KEY`, `WEBSITE_CHAT_SECRET` (generated, 32+ chars) and `TRUSTED_PROXY` > 0, all three |
 | Bot protection | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (build), `TURNSTILE_SECRET_KEY` |
-| Document OCR | `VLM_API_URL`, `VLM_MODEL`; hosted endpoint (synthetic data only): `VLM_API_KEY` + `VLM_ALLOW_HOSTED=true`, https |
+| Document OCR | `VLM_API_URL`, `VLM_MODEL`; hosted endpoint (synthetic data only): `VLM_API_KEY` + `VLM_ALLOW_HOSTED=true` + `DEMO_MODE=true`, https |
 | Links | `NEXT_PUBLIC_PORTAL_LOGIN_URL` or `NEXT_PUBLIC_PORTAL_URL` (build; portal links are omitted or refused without), `NEXT_PUBLIC_PORTAL_ORIGIN`, `PORTAL_PUBLIC_ORIGIN`, `NEXT_PUBLIC_WEBSITE_URL`, `NEXT_PUBLIC_APP_URL`, `STAFF_APP_HOST`, `TENANT_HOST_MAP` |
 | Operator console | `OPERATOR_APP_HOST` (the one host that serves `/operator` and takes operator sign-ins; it serves nothing else, and links to it reuse `NEXTAUTH_URL`'s scheme and port; unset = no operator sign-in anywhere). Invites and reset links the console sends use `SMTP_*`; unset, nothing is sent and the console says so. Every console write must be same-origin: the app compares the browser's `Origin` with the request's `Host`, so the reverse proxy must pass the original Host unchanged (nginx `proxy_set_header Host $host;`, not `$proxy_host`, and no explicit `:443`), or every console write is refused 403 |
 | Insurance | `CREDIT_LIFE_AUTO_BUNDLE_ENABLED`, `CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS`, `FSP_QUICKQUOTE_*`, `DOCUMENT_SIGNUM_ENABLED` |

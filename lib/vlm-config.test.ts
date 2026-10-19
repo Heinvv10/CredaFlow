@@ -28,6 +28,7 @@ describe("getVlmConfig", () => {
       vi.stubEnv("VLM_API_URL", "https://hosted.test")
       vi.stubEnv("VLM_API_KEY", "test-key-not-real")
       vi.stubEnv("VLM_ALLOW_HOSTED", "true")
+      vi.stubEnv("DEMO_MODE", "true")
     })
 
     it("sends the key as a bearer token when hosted use is allowed", () => {
@@ -36,6 +37,11 @@ describe("getVlmConfig", () => {
 
     it("is not configured without VLM_ALLOW_HOSTED=true", () => {
       vi.stubEnv("VLM_ALLOW_HOSTED", "")
+      expect(getVlmConfig()).toBeNull()
+    })
+
+    it("is not configured outside demo mode, so never on a real lender", () => {
+      vi.stubEnv("DEMO_MODE", "")
       expect(getVlmConfig()).toBeNull()
     })
 

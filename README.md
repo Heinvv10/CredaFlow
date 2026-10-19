@@ -108,7 +108,7 @@ nightly schedule reruns integration against the current trunk.
 - **Payments and mandates** — `STITCH_*`, `DEBIT_MANDATE_CREDITOR_*`.
 - **Messaging** — `SMTP_FROM_NAME`, `EMAIL_INTERNAL_DOMAINS`, `WA_SENDER_URL`,
   `WA_BRIDGE_ALERT_RECIPIENTS`.
-- **Documents** — `VLM_API_URL`, `VLM_MODEL`, optional `VLM_API_KEY` + `VLM_ALLOW_HOSTED` for a hosted endpoint, synthetic data only (OCR of uploaded documents).
+- **Documents** — `VLM_API_URL`, `VLM_MODEL`, optional `VLM_API_KEY` + `VLM_ALLOW_HOSTED` for a hosted endpoint, demo stacks only (OCR of uploaded documents).
 - **Website** — `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`,
   `ANTHROPIC_API_KEY`, `WEBSITE_CHAT_SECRET`, `TRUSTED_PROXY`, analytics
   (`NEXT_PUBLIC_MATOMO_*`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_POSTHOG_*`),
