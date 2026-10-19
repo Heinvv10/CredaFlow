@@ -109,7 +109,7 @@ describe("which variants take lender text", () => {
     expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { additionalTerms: [{ heading: "Extra", text }] })).join()).toMatch(/may not override, vary or waive/)
   })
   it("names every refused word, not only the first", () => {
-    const text = "Notwithstanding clause 7.8 the Seller may waive notice and levy a fee on the Purchaser."
+    const text = "Notwithstanding clause 7.8 the Seller may waive notice and levy a fee on the Purchaser; a second Fee is due."
     expect(messages("af.isa.commercial", withEdits("af.isa.commercial", { additionalTerms: [{ heading: "Extra", text }] })).join())
       .toContain(`"Notwithstanding", "waive", "levy", "fee": lender text may not override`)
   })

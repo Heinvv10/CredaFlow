@@ -50,9 +50,11 @@ export function PrepareDocumentsForm(props: { dealId: string; today: string; lat
         {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
         {busy ? "Rendering…" : props.again ? "Prepare documents again" : "Prepare documents"}
       </Button>
-      <div className="basis-full">
-        <FormError message={error} />
-      </div>
+      {error && (
+        <div className="basis-full">
+          <FormError message={error} />
+        </div>
+      )}
     </div>
   )
 }
