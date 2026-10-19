@@ -31,6 +31,22 @@ export function activeEligibilityRulesFindManyArgs({ tenantId, productId }: Load
   } satisfies Prisma.InsuranceEligibilityRuleFindManyArgs
 }
 
+/** One query for a whole catalogue: tenant-scoped, active rows, grouped by the caller. */
+export function activeEligibilityRulesForProductsFindManyArgs(tenantId: string, productIds: string[]) {
+  return {
+    where: { tenantId, productId: { in: productIds }, active: true },
+    select: {
+      id: true,
+      productId: true,
+      lifeScope: true,
+      ruleType: true,
+      numericValue: true,
+      textValue: true,
+      active: true,
+    },
+  } satisfies Prisma.InsuranceEligibilityRuleFindManyArgs
+}
+
 export async function loadEligibilityRules(
   prisma: EligibilityRuleReader,
   params: LoadEligibilityRulesParams,

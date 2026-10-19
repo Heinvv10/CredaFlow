@@ -34,7 +34,7 @@ export default async function InsuranceProductsPage() {
     where: { tenantId },
     orderBy: { name: "asc" },
   })
-  const headlines = await loadHeadlines(prisma, tenantId, products.map((p) => p.id))
+  const headlines = await loadHeadlines(prisma, tenantId, products)
 
   return (
     <div className="p-6 lg:p-8">

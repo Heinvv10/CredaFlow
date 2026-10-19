@@ -11,7 +11,10 @@
 
 import type { Prisma } from "@prisma/client"
 import { evaluate, type EligibilityRuleInput } from "./eligibility/evaluate"
-import { activeEligibilityRulesFindManyArgs } from "./eligibility/rules"
+import { resolveRule } from "./eligibility/rule-resolution"
+import { activeEligibilityRulesForProductsFindManyArgs } from "./eligibility/rules"
+import { ruleAndCoverageReasons } from "./product-readiness"
+import { requiresRating } from "./policy/draft-rating-gate"
 import { formatCents, toCents } from "./rand-cents"
 import { inForceActiveTableWhere } from "./rating/rate-table"
 import { rateLife, type RateBandInput } from "./rating/rate-quote"
@@ -41,33 +44,41 @@ function dateOfBirthForAge(age: number, at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear() - age, at.getUTCMonth(), Math.min(at.getUTCDate(), 28)))
 }
 
-/** Pure: the cheapest main-member price this table and these rules can quote. */
+/** The youngest main member the insurer's MIN_ENTRY_AGE rule lets in, or 0 when none is set. */
+function minEntryAgeRule(rules: EligibilityRuleInput[]): number {
+  const resolved = resolveRule(rules, "MIN_ENTRY_AGE", "MAIN_MEMBER")
+  return resolved.status === "OK" ? Number(resolved.numericValue.toString()) : 0
+}
+
+/**
+ * Pure: the cheapest main-member price this table and these rules can quote.
+ * "quote" unless the product is sellable by the same readiness the draft gate
+ * uses (mandatory terms resolved, every screenable life type priceable).
+ */
 export function headlineForTable(table: TableForHeadline, rules: EligibilityRuleInput[], at: Date): Headline {
+  if (table.bands.length === 0 || ruleAndCoverageReasons(rules, table.bands).length > 0) return { kind: "quote" }
+  const floor = Math.max(MIN_ADULT_AGE, minEntryAgeRule(rules))
   let best: { premiumCents: number; coverCents: number } | null = null
   for (const band of table.bands) {
     if (band.lifeType !== "MAIN_MEMBER") continue
-    const age = Math.max(band.minAge, MIN_ADULT_AGE)
+    // Probe the youngest age both the band and the insurer admit.
+    const age = Math.max(band.minAge, floor)
     if (age > band.maxAge) continue
-    try {
-      const coverCents = toCents(band.sumAssured)
-      if (coverCents <= 0) continue
-      const rated = rateLife(table.bands, table.basis, "MAIN_MEMBER", age, band.sumAssured)
-      if (!rated.ok) continue
-      const screened = evaluate({
-        rules,
-        lives: [{ ref: "headline", lifeType: "MAIN_MEMBER", dateOfBirth: dateOfBirthForAge(age, at), sumAssured: formatCents(coverCents) }],
-        effectiveDate: at,
-      })
-      if (!screened.pass) continue
-      const better =
-        best === null ||
-        rated.premiumCents < best.premiumCents ||
-        (rated.premiumCents === best.premiumCents && coverCents < best.coverCents)
-      if (better) best = { premiumCents: rated.premiumCents, coverCents }
-    } catch {
-      // Unparseable money on a band: quoting would refuse it, so it is not a candidate.
-      continue
-    }
+    const coverCents = toCents(band.sumAssured)
+    if (coverCents <= 0) continue
+    const rated = rateLife(table.bands, table.basis, "MAIN_MEMBER", age, band.sumAssured)
+    if (!rated.ok) continue
+    const screened = evaluate({
+      rules,
+      lives: [{ ref: "headline", lifeType: "MAIN_MEMBER", dateOfBirth: dateOfBirthForAge(age, at), sumAssured: formatCents(coverCents) }],
+      effectiveDate: at,
+    })
+    if (!screened.pass) continue
+    const better =
+      best === null ||
+      rated.premiumCents < best.premiumCents ||
+      (rated.premiumCents === best.premiumCents && coverCents < best.coverCents)
+    if (better) best = { premiumCents: rated.premiumCents, coverCents }
   }
   return best ? { kind: "from", ...best } : { kind: "quote" }
 }
@@ -89,25 +100,36 @@ interface HeadlineReader {
     findMany(args: ReturnType<typeof headlineRateTablesFindManyArgs>): PromiseLike<(TableForHeadline & { productId: string })[]>
   }
   insuranceEligibilityRule: {
-    findMany(args: ReturnType<typeof activeEligibilityRulesFindManyArgs>): PromiseLike<EligibilityRuleInput[]>
+    findMany(
+      args: ReturnType<typeof activeEligibilityRulesForProductsFindManyArgs>,
+    ): PromiseLike<(EligibilityRuleInput & { productId: string })[]>
   }
 }
 
-/** Headline per product id, from the in-force ACTIVE rate table quoting would use. */
+/**
+ * Headline per product, from the in-force ACTIVE rate table quoting would use.
+ * Two queries for the whole catalogue (tables, then rules), grouped in memory.
+ * A rated type with no table is "quote": the draft gate refuses it
+ * (PRODUCT_NOT_SELLABLE), so the flat price would be one nobody can buy.
+ */
 export async function loadHeadlines(
   prisma: HeadlineReader,
   tenantId: string,
-  productIds: string[],
+  products: { id: string; type: string }[],
   at: Date = new Date(),
 ): Promise<Map<string, Headline>> {
   const out = new Map<string, Headline>()
-  if (productIds.length === 0) return out
-  const tables = await prisma.insuranceRateTable.findMany(headlineRateTablesFindManyArgs(tenantId, productIds, at))
-  for (const productId of productIds) {
-    const own = tables.filter((t) => t.productId === productId)
-    if (own.length === 0) out.set(productId, { kind: "flat" })
-    else if (own.length > 1) out.set(productId, { kind: "quote" }) // quoting: AMBIGUOUS_ACTIVE_TABLES
-    else out.set(productId, headlineForTable(own[0], await prisma.insuranceEligibilityRule.findMany(activeEligibilityRulesFindManyArgs({ tenantId, productId })), at))
+  if (products.length === 0) return out
+  const ids = products.map((p) => p.id)
+  const [tables, rules] = await Promise.all([
+    prisma.insuranceRateTable.findMany(headlineRateTablesFindManyArgs(tenantId, ids, at)),
+    prisma.insuranceEligibilityRule.findMany(activeEligibilityRulesForProductsFindManyArgs(tenantId, ids)),
+  ])
+  for (const { id, type } of products) {
+    const own = tables.filter((t) => t.productId === id)
+    if (own.length === 0) out.set(id, requiresRating(type) ? { kind: "quote" } : { kind: "flat" })
+    else if (own.length > 1) out.set(id, { kind: "quote" }) // quoting: AMBIGUOUS_ACTIVE_TABLES
+    else out.set(id, headlineForTable(own[0], rules.filter((r) => r.productId === id), at))
   }
   return out
 }

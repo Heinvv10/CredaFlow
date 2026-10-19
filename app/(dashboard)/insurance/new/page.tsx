@@ -39,7 +39,7 @@ async function getNewPolicyData() {
     }),
   ])
 
-  const headlines = await loadHeadlines(prisma, tenantId, products.map((p) => p.id))
+  const headlines = await loadHeadlines(prisma, tenantId, products)
 
   return {
     clients,
