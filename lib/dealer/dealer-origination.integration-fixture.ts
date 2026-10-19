@@ -30,10 +30,12 @@ export function createdId(result: CaptureResult): string {
 }
 
 export const registrationNumber = () => `20${randomInt(10, 99)}/${String(randomInt(0, 999_999)).padStart(6, "0")}/07`
-export const companyBody = (reg = registrationNumber()) => ({ type: "COMPANY", legalName: "TEST Dealer Plant (Pty) Ltd", registrationNumber: reg })
+/** A synthetic address: a borrower the dealer captures carries one (booking's tax invoice needs it). */
+export const ADDRESS = { addressLine1: "1 Synthetic Road", city: "Testville", province: "Gauteng", postalCode: "0001" }
+export const companyBody = (reg = registrationNumber()) => ({ type: "COMPANY", legalName: "TEST Dealer Plant (Pty) Ltd", registrationNumber: reg, ...ADDRESS })
 export const personBody = (over: Record<string, unknown> = {}) => ({
   idNumber: syntheticSaIdNumber(), firstName: "TEST", lastName: "Director",
-  email: `director-${randomInt(0, 1e9)}@client.invalid`, phone: "+27820000000", roles: ["DIRECTOR"], ...over,
+  email: `director-${randomInt(0, 1e9)}@client.invalid`, phone: "+27820000000", roles: ["DIRECTOR"], ...ADDRESS, ...over,
 })
 export const assetBody = () => ({
   assetClass: "TLB", make: "TEST", model: "TLB-1", year: 2025, serialNumber: `TESTDLR${randomInt(0, 1e9)}`,

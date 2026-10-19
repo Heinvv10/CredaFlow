@@ -142,6 +142,15 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
     expect(await inTenant(fx, () => verifyDealerConsent(staffOf(fx), draft.dealId, attestationId))).toMatchObject({ status: 409 })
   })
 
+  it("staff accept refuses a borrower without an address: it is fixed at approval and booking needs it", async () => {
+    const address = sql(`SELECT "addressLine1" FROM "BusinessEntity" WHERE "id" = ${lit(draft.entityId)}`)
+    sql(`UPDATE "BusinessEntity" SET "addressLine1" = NULL WHERE "id" = ${lit(draft.entityId)}`)
+    expect(await inTenant(fx, () => acceptDealerSubmission(staffOf(fx), draft.dealId)))
+      .toMatchObject({ kind: "refused", status: 422, error: expect.stringMatching(/address/) })
+    expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(draft.dealId)}`)).toBe("DRAFT")
+    sql(`UPDATE "BusinessEntity" SET "addressLine1" = ${lit(address)} WHERE "id" = ${lit(draft.entityId)}`)
+  })
+
   it("staff accept runs the unchanged submitDeal as the staff member", async () => {
     const result = await inTenant(fx, () => acceptDealerSubmission(staffOf(fx), draft.dealId))
     expect(["submitted", "refused_nca"]).toContain(result.kind)

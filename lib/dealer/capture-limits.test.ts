@@ -12,7 +12,7 @@ import { _resetRateLimitStore } from "@/lib/rate-limit"
 import { captureDealerEntity, DEALER_CAPTURE_RATE_LIMIT } from "./capture"
 
 const actor = { tenantId: "tenant-1", dealerId: "dealer-1", dealerUserId: "du-1", email: "sales@dealer.invalid", dealerRole: "DEALER_SALES" as const }
-const company = { type: "COMPANY", legalName: "TEST Plant (Pty) Ltd", registrationNumber: "2099/000001/07" }
+const company = { type: "COMPANY", legalName: "TEST Plant (Pty) Ltd", registrationNumber: "2099/000001/07", addressLine1: "1 Synthetic Road", city: "Testville" }
 
 beforeEach(() => {
   vi.clearAllMocks()

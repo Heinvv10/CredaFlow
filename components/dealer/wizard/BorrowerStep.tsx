@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button"
 import { FormError, SelectField, TextField, sendJson } from "@/components/asset-finance/register-form-controls"
 import { ENTITY_TYPE_LABELS } from "@/lib/asset-finance/labels"
 import { PersonFields, EMPTY_PERSON, type PersonValues } from "./PersonFields"
+import { AddressFields, EMPTY_ADDRESS, type AddressValues } from "./AddressFields"
 import { optionalCents, type BorrowerChoice, type DealerWizardOptions } from "./types"
 
 const EMPTY_ENTITY = { type: "COMPANY" as BusinessEntityType, legalName: "", tradingName: "", registrationNumber: "", vatNumber: "", turnoverRands: "", assetValueRands: "", financialYearEnd: "" }
 
 /**
  * Step 1: the borrower — a business (one the dealer captured before, or a new
- * one) or a sole proprietor (a person the dealer captured, or a new one). A
+ * one) or a sole proprietor (a person the dealer captured, or a new one),
+ * with its address (the lender's tax invoice needs it). A
  * business or person already on the lender's book is refused (409) and
  * nothing of it is shown: the lender is asked instead.
  */
@@ -21,6 +23,7 @@ export function BorrowerStep({ options, onChosen }: { options: DealerWizardOptio
   const [existing, setExisting] = useState("")
   const [entity, setEntity] = useState(EMPTY_ENTITY)
   const [person, setPerson] = useState<PersonValues>(EMPTY_PERSON)
+  const [address, setAddress] = useState<AddressValues>(EMPTY_ADDRESS)
   const [fields, setFields] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -41,9 +44,10 @@ export function BorrowerStep({ options, onChosen }: { options: DealerWizardOptio
       body = {
         type: entity.type, legalName: entity.legalName, tradingName: entity.tradingName, registrationNumber: entity.registrationNumber,
         vatNumber: entity.vatNumber, annualTurnover: turnover.cents ?? null, totalAssetValue: assets.cents ?? null, financialYearEnd: entity.financialYearEnd || null,
+        ...address,
       }
     } else {
-      body = { ...person }
+      body = { ...person, ...address }
     }
     setSaving(true)
     const result = await sendJson(kind === "ENTITY" ? "/api/dealer/borrowers/entities" : "/api/dealer/borrowers/clients", "POST", body)
@@ -84,6 +88,7 @@ export function BorrowerStep({ options, onChosen }: { options: DealerWizardOptio
       ) : (
         <PersonFields idPrefix="sole" values={person} onChange={setPerson} errors={fields} />
       )}
+      {existing ? null : <AddressFields idPrefix={kind === "ENTITY" ? "entity" : "sole"} values={address} onChange={setAddress} errors={fields} />}
       <Button size="sm" onClick={next} disabled={saving}>{saving ? "Saving…" : existing ? "Continue" : "Save and continue"}</Button>
     </div>
   )

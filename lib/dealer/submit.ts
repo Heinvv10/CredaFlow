@@ -12,6 +12,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { submitDeal, type SubmitDealResult } from "@/lib/asset-finance/deal-submit"
+import { recipientAddress } from "@/lib/asset-finance/booking-load"
 import { dealerAuditFields, type DealerActor, type StaffActor } from "./actor"
 import { dealSubjects } from "./consent"
 import { dealerDealWhere } from "./deals"
@@ -50,13 +51,18 @@ export async function submitDealerDeal(actor: DealerActor, dealId: string): Prom
   })
 }
 
+const ADDRESS = { addressLine1: true, city: true, province: true, postalCode: true } as const
+
 /**
  * Staff accept (manage_asset_finance): the unchanged submitDeal, as the staff
  * member. The NCA classification is the lender's: a sole proprietor's NCA
  * classification, written with the dealer user when the deal was created, is
  * re-stamped to the accepting staff member first (an entity's is re-run as
  * staff by submitDeal). A lease's NON_NCA classification is frozen by the
- * database and keeps the dealer user (SLICE5.md, known limitations).
+ * database and keeps the dealer user (SLICE5.md, known limitations). A
+ * borrower without an address is refused here: booking's tax invoice needs it
+ * and it is fixed once the deal is approved, so booking would be the first
+ * and last place to find out.
  */
 export async function acceptDealerSubmission(staff: StaffActor, dealId: string): Promise<SubmitDealResult | DealerRefusal> {
   return prisma.$transaction(async (tx) => {
@@ -70,10 +76,16 @@ export async function acceptDealerSubmission(staff: StaffActor, dealId: string):
       select: {
         id: true, status: true, dealerId: true, dealerUserId: true, dealerSubmittedAt: true,
         application: { select: { id: true, status: true, clientId: true, ncaRegime: true, ncaClassifiedById: true, ncaClassifiedAt: true } },
+        entity: { select: ADDRESS },
+        client: { select: ADDRESS },
       },
     })
     if (!deal) return dealerMiss("Deal")
     if (!deal.dealerId || !deal.dealerSubmittedAt) return dealerRefused(409, "The dealer has not submitted this deal")
+    const borrower = deal.entity ?? deal.client
+    if (deal.status === "DRAFT" && (!borrower || !recipientAddress(borrower))) {
+      return dealerRefused(422, "Record the borrower's address before accepting: booking's tax invoice needs it and it is fixed once the deal is approved")
+    }
     const app = deal.application
     const restamp = deal.status === "DRAFT" && app.status === "DRAFT" && app.clientId !== null && app.ncaRegime === "NCA"
       && app.ncaClassifiedById === deal.dealerUserId

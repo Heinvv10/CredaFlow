@@ -59,29 +59,62 @@ async function alreadyOnBook(actor: DealerActor, captured: Captured): Promise<De
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE = /^\+?[0-9 ]{9,15}$/
 
-export type DealerPersonInput = { idNumber: string; firstName: string; lastName: string; email: string; phone: string }
+export type DealerPersonInput = {
+  idNumber: string; firstName: string; lastName: string; email: string; phone: string
+  addressLine1: string | null; suburb: string | null; city: string | null; province: string | null; postalCode: string | null
+}
 
-export function parseDealerPerson(body: unknown): { data: DealerPersonInput } | { errors: Record<string, string> } {
+/**
+ * A borrower the dealer captures carries its address (a first line and a
+ * city, as booking's tax invoice needs: lib/asset-finance/booking-load.ts
+ * recipientAddress); it is fixed once the deal is approved, so it cannot be
+ * added at booking. A person of a business needs none.
+ */
+function missingAddress(address: { addressLine1: string | null; city: string | null }): Record<string, string> {
+  const errors: Record<string, string> = {}
+  if (!address.addressLine1) errors.addressLine1 = "Required: the lender's tax invoice needs the borrower's address"
+  if (!address.city) errors.city = "Required"
+  return errors
+}
+
+/** The person's fields; `soleProprietor` (the borrower itself) also requires the address. */
+export function parseDealerPerson(body: unknown, soleProprietor = false): { data: DealerPersonInput } | { errors: Record<string, string> } {
   const b = (body ?? {}) as Record<string, unknown>
   const text = (key: string) => (typeof b[key] === "string" ? (b[key] as string).trim() : "")
+  const optional = (key: string) => text(key) || null
   const data = {
     idNumber: text("idNumber"), firstName: text("firstName"), lastName: text("lastName"),
     email: text("email").toLowerCase(), phone: text("phone"),
+    addressLine1: optional("addressLine1"), suburb: optional("suburb"), city: optional("city"), province: optional("province"),
+    postalCode: optional("postalCode"),
   }
-  const errors: Record<string, string> = {}
+  const errors: Record<string, string> = soleProprietor ? missingAddress(data) : {}
   if (!isValidSaIdNumber(data.idNumber)) errors.idNumber = "A valid South African ID number is required"
   if (data.firstName.length < 1 || data.firstName.length > 100) errors.firstName = "Required, at most 100 characters"
   if (data.lastName.length < 1 || data.lastName.length > 100) errors.lastName = "Required, at most 100 characters"
   if (!EMAIL.test(data.email) || data.email.length > 200) errors.email = "A valid email address is required"
   if (!PHONE.test(data.phone)) errors.phone = "A phone number of 9-15 digits"
+  // The staff entity rules (lib/asset-finance/entity-input.ts).
+  for (const [key, max] of [["addressLine1", 200], ["suburb", 100], ["city", 100], ["province", 100]] as const) {
+    if ((data[key]?.length ?? 0) > max) errors[key] = `At most ${max} characters`
+  }
+  if (data.postalCode && !/^\d{4}$/.test(data.postalCode)) errors.postalCode = "Four digits"
   return Object.keys(errors).length > 0 ? { errors } : { data }
+}
+
+const addressOf = (body: unknown) => {
+  const b = (body ?? {}) as Record<string, unknown>
+  const text = (key: string) => (typeof b[key] === "string" && (b[key] as string).trim() ? (b[key] as string).trim() : null)
+  return { addressLine1: text("addressLine1"), city: text("city") }
 }
 
 export async function captureDealerEntity(actor: DealerActor, body: unknown): Promise<CaptureResult> {
   const limited = overCaptureLimit(actor)
   if (limited) return limited
   const input = parseBusinessEntityInput(body)
-  if ("errors" in input) return { kind: "invalid", fields: input.errors }
+  if ("errors" in input) return { kind: "invalid", fields: { ...missingAddress(addressOf(body)), ...input.errors } }
+  const noAddress = missingAddress(input.data)
+  if (Object.keys(noAddress).length > 0) return { kind: "invalid", fields: noAddress }
   const created = await createBusinessEntity({ kind: "dealer", actor }, input.data)
   return created.kind === "duplicate" ? alreadyOnBook(actor, "entity") : created
 }
@@ -129,7 +162,7 @@ async function linkPerson(
 export async function captureDealerPerson(actor: DealerActor, body: unknown, entityId: string | null = null): Promise<CaptureResult> {
   const limited = overCaptureLimit(actor)
   if (limited) return limited
-  const person = parseDealerPerson(body)
+  const person = parseDealerPerson(body, entityId === null)
   const entity = entityId === null ? null : await prisma.businessEntity.findFirst({
     where: { id: entityId, tenantId: actor.tenantId, createdByDealerId: actor.dealerId },
     select: { id: true, type: true },
