@@ -9,7 +9,8 @@ import { FormError, SelectField, TextField, sendJson } from "@/components/asset-
 const ACCOUNT_TYPES = { "": "Not specified", CHEQUE: "Cheque / current", SAVINGS: "Savings", TRANSMISSION: "Transmission" }
 type AccountType = keyof typeof ACCOUNT_TYPES
 
-export function BankAccountRequestForm({ supplierId, hasApproved }: { supplierId: string; hasApproved: boolean }) {
+/** `url`: the request route; default the supplier's (the dealer pages pass their own). */
+export function BankAccountRequestForm({ supplierId, hasApproved, url }: { supplierId: string; hasApproved: boolean; url?: string }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [bankName, setBankName] = useState("")
@@ -33,7 +34,7 @@ export function BankAccountRequestForm({ supplierId, hasApproved }: { supplierId
     setSaving(true)
     setError(null)
     setFields({})
-    const result = await sendJson(`/api/asset-finance/suppliers/${supplierId}/bank-accounts`, "POST", {
+    const result = await sendJson(url ?? `/api/asset-finance/suppliers/${supplierId}/bank-accounts`, "POST", {
       bankName, branchCode, accountNumber, accountHolder, accountType: accountType || null,
     })
     setSaving(false)

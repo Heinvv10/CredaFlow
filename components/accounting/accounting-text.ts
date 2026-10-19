@@ -30,6 +30,7 @@ const CONTROLS: Record<string, string> = {
   RECOVERY_RESULT: "Gain or loss left from a recovery",
   RECOVERY_REFUND_PAYABLE: "Surplus still owed back to the debtor",
   MAINTENANCE_FUND_LIABILITY: "Maintenance fund owed to the lessee",
+  DEALER_COMMISSION_PAYABLE: "Dealer commission owed, less payable runs released",
 }
 
 export function controlLabel(control: string): string {

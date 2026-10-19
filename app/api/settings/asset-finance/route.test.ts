@@ -38,7 +38,10 @@ vi.mock("@/lib/audit", async (importOriginal) => ({
 
 import { GET, PATCH } from "./route"
 
-const current = { featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false }
+const current = {
+  featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false,
+  featureDealerPortal: false, dealerCommissionClawbackMonths: 0, isDemoLender: false,
+}
 const patch = (body: unknown) => PATCH(new NextRequest("http://localhost/api/settings/asset-finance", {
   method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
 }))
@@ -58,7 +61,7 @@ describe("/api/settings/asset-finance", () => {
     expect(m.upsert).not.toHaveBeenCalled()
   })
 
-  it("reads the three values, the legal gate included, with schema defaults for a tenant with no row", async () => {
+  it("reads the values, the legal gate and demo-lender marker included, with schema defaults for a tenant with no row", async () => {
     m.findUnique.mockResolvedValue(null)
     expect(await (await GET(new NextRequest("http://localhost/api/settings/asset-finance"))).json()).toEqual(current)
   })
@@ -99,5 +102,46 @@ describe("/api/settings/asset-finance", () => {
   it("refuses an invalid threshold 400", async () => {
     expect((await patch({ assetPayoutDualApprovalCents: -5 })).status).toBe(400)
     expect(m.upsert).not.toHaveBeenCalled()
+  })
+
+  it("switches the dealer portal on and sets the clawback window, each audited on its own action", async () => {
+    const res = await patch({ featureDealerPortal: true, dealerCommissionClawbackMonths: 12 })
+    expect(res.status).toBe(200)
+    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { featureDealerPortal: true, dealerCommissionClawbackMonths: 12 } }))
+    expect(m.logAuditStrict).toHaveBeenCalledTimes(2)
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "DEALER_PORTAL_ENABLED", oldValue: { featureDealerPortal: false }, newValue: { featureDealerPortal: true },
+    }), expect.anything())
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "DEALER_CLAWBACK_MONTHS_CHANGED", oldValue: { dealerCommissionClawbackMonths: 0 }, newValue: { dealerCommissionClawbackMonths: 12 },
+    }), expect.anything())
+  })
+
+  it("audits switching the dealer portal off", async () => {
+    m.findUnique.mockResolvedValue({ ...current, featureDealerPortal: true, isDemoLender: true })
+    await patch({ featureDealerPortal: false })
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({ action: "DEALER_PORTAL_DISABLED" }), expect.anything())
+  })
+
+  it("answers the demo-only CHECK 422 with the reason, and audits nothing", async () => {
+    m.upsert.mockRejectedValue(Object.assign(new Error(
+      'new row for relation "TenantConfig" violates check constraint "TenantConfig_dealer_portal_demo_only"',
+    ), { code: "23514" }))
+    const res = await patch({ featureDealerPortal: true })
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toBe(
+      "The dealer portal can be switched on only for a demo lender until dealer two-factor sign-in ships",
+    )
+    expect(m.logAuditStrict).not.toHaveBeenCalled()
+  })
+
+  it.each([[-1], [61], [2.5], ["12"]])("refuses clawback months %j 400", async (months) => {
+    expect((await patch({ dealerCommissionClawbackMonths: months })).status).toBe(400)
+    expect(m.upsert).not.toHaveBeenCalled()
+  })
+
+  it("never writes the demo-lender marker", async () => {
+    await patch({ featureDealerPortal: true, isDemoLender: true })
+    expect(m.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { featureDealerPortal: true } }))
   })
 })

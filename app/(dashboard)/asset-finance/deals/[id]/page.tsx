@@ -27,6 +27,8 @@ import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
 import { PayoutPanel } from "./PayoutPanel"
 import { CancelDealForm } from "./CancelDealForm"
 import { CANCELLABLE_DEAL_STATUSES } from "@/lib/asset-finance/deal-cancel"
+import { loadDealDealerPanel } from "@/lib/dealer/staff-deal-panel"
+import { DealerPanel } from "./DealerPanel"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
@@ -45,8 +47,10 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const { schedule, financials } = deal
   const signing = SIGNING_STATUSES.includes(deal.status) ? await loadStaffSigningPanel(tenantId, id) : null
   const payout = PAYOUT_STATUSES.includes(deal.status) ? await loadPayoutPanel(tenantId, id) : null
+  const dealer = await loadDealDealerPanel(tenantId, id)
 
-  const submit = canManage && deal.status === "DRAFT"
+  // A dealer's draft is submitted by accepting the dealer's handover (the Dealer panel).
+  const submit = canManage && deal.status === "DRAFT" && !dealer
     ? <DealActionButton url={`/api/asset-finance/deals/${id}/submit`} label="Submit deal" busyLabel="Classifying…" />
     : null
 
@@ -65,6 +69,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       />
       <div className="space-y-5 p-4 lg:p-8">
         <DealSummaryPanel deal={deal} />
+
+        {dealer && <DealerPanel panel={dealer} canManage={canManage} />}
 
         <ClassificationPanel deal={deal}>
           {canDecide && deal.awaitingRegimeApproval && deal.pendingOverrideId && (
