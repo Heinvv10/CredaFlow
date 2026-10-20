@@ -100,7 +100,7 @@ export function StatusTab({ waEnabled, waSenderUrl, providers, initial }: Props)
           )}
         </div>
         {!waEnabled && (
-          <p className="text-xs text-amber-700 mt-3">Set WA_ENABLED=true in the server environment to enable sending.</p>
+          <p className="text-xs text-amber-700 mt-3">WA_ENABLED is set to something other than true in the server environment, which blocks all sending. Remove it or set it to true to allow sending.</p>
         )}
         <p className="text-[11px] text-gray-400 mt-3">
           <code className="font-mono">WA_ENABLED</code> and <code className="font-mono">WA_SENDER_URL</code> are set on the server; not editable here.

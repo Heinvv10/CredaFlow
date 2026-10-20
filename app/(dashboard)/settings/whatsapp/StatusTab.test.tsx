@@ -114,14 +114,16 @@ describe("the deployment card", () => {
     expect(json).toContain("set on the server; not editable here")
   })
 
-  it("hints how to enable sending when WA_ENABLED is off", () => {
+  it("explains that a WA_ENABLED other than true blocks sending and how to lift it", () => {
     const json = JSON.stringify(render(false, channel()).toJSON())
-    expect(json).toContain("Set WA_ENABLED=true in the server environment to enable sending.")
+    expect(json).toContain("WA_ENABLED is set to something other than true")
+    expect(json).toContain("Remove it or set it to true to allow sending.")
+    expect(json).not.toContain("Set WA_ENABLED=true")
   })
 
-  it("stays silent about WA_ENABLED when it is already on", () => {
+  it("stays silent about WA_ENABLED when sending is not vetoed", () => {
     const json = JSON.stringify(render(true, channel()).toJSON())
-    expect(json).not.toContain("Set WA_ENABLED=true")
+    expect(json).not.toContain("WA_ENABLED is set to something other than true")
   })
 })
 

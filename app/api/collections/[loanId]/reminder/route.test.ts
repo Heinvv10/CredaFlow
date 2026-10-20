@@ -221,7 +221,7 @@ describe("POST /api/collections/[loanId]/reminder", () => {
   // report SIMULATED as handled — a manual reminder the borrower never received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {
     afterEach(() => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
     })
 
     it("channel=sms: no SMS dispatch, 422, LoanNote names the blocked channel", async () => {
@@ -252,7 +252,7 @@ describe("POST /api/collections/[loanId]/reminder", () => {
     })
 
     it("CHANNEL ON: today's behaviour is unchanged — SMS still dispatched", async () => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
 
       const res = await POST(makeReq({ channel: "sms", message: "pay up" }), ctx)
 

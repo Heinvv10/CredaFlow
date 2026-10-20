@@ -4,7 +4,7 @@ import { verifyCronSecret } from "@/lib/cron-auth"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { listWaBridgeNumbers } from "@/lib/whatsapp-bridge-admin"
 import { decideWaBridgeAlert, sendWaBridgeAlert } from "@/lib/messaging/wa-bridge-alert"
-import { isWaEnabled } from "@/lib/whatsapp"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { logAudit, AuditAction } from "@/lib/audit"
 
 // Sends the alert then marks the alarm active, in that order, and only when
@@ -97,7 +97,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // throws when WA_SENDER_URL is unset, so without a skip that throw would
   // land in the same catch as a real outage and email ADMINs a false CRITICAL
   // wherever WhatsApp simply isn't set up.
-  if (!isWaEnabled()) {
+  //
+  // "Switched off" is any WA_ENABLED other than true (fail-closed parser,
+  // lib/whatsapp/env-switch.ts). WA_ENABLED UNSET with no
+  // WA_SENDER_URL is the same thing for a bridge: nobody opted in, and a
+  // CRITICAL about a bridge no one configured is a false alarm. Set explicitly
+  // without a URL, it still alerts below.
+  if (isWaEnvOff() || (process.env.WA_ENABLED === undefined && !process.env.WA_SENDER_URL)) {
     return NextResponse.json({ ok: true, skipped: "wa_disabled" })
   }
 

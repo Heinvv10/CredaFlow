@@ -75,6 +75,54 @@ describe("GET /api/cron/check-wa-bridge-status", () => {
     expect(prisma.waBridgeAlarm.upsert).not.toHaveBeenCalled()
   })
 
+  // WA_ENABLED is parsed by the one fail-closed parser (lib/whatsapp/env-switch.ts):
+  // unset defers (Cloud-only deployments never set it), "true" defers, every
+  // other value is off. For the bridge monitor, unset WITH NO WA_SENDER_URL
+  // means nobody opted in to a bridge: skip, do not page a false CRITICAL.
+  it("[CRON-SKIP] WA_ENABLED unset and no WA_SENDER_URL: skips as wa_disabled, no alert, no poll", async () => {
+    vi.stubEnv("WA_ENABLED", undefined)
+    vi.stubEnv("WA_SENDER_URL", undefined)
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, skipped: "wa_disabled" })
+    expect(listWaBridgeNumbers).not.toHaveBeenCalled()
+    expect(sendWaBridgeAlert).not.toHaveBeenCalled()
+    expect(prisma.waBridgeAlarm.upsert).not.toHaveBeenCalled()
+  })
+
+  it("[CRON-SKIP] WA_ENABLED unset with a WA_SENDER_URL still polls the bridge", async () => {
+    vi.stubEnv("WA_ENABLED", undefined)
+    vi.mocked(listWaBridgeNumbers).mockResolvedValue([])
+
+    await GET(req)
+
+    expect(listWaBridgeNumbers).toHaveBeenCalledOnce()
+  })
+
+  it.each(["false", "FALSE", "", "0", "off", "ture"])(
+    "[CRON-SKIP] WA_ENABLED=%j (anything but true) skips even with a WA_SENDER_URL",
+    async (value) => {
+      vi.stubEnv("WA_ENABLED", value)
+
+      const res = await GET(req)
+
+      expect(await res.json()).toEqual({ ok: true, skipped: "wa_disabled" })
+      expect(listWaBridgeNumbers).not.toHaveBeenCalled()
+      expect(sendWaBridgeAlert).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["TRUE", " true "])("[CRON-SKIP] WA_ENABLED=%j is not off and polls", async (value) => {
+    vi.stubEnv("WA_ENABLED", value)
+    vi.mocked(listWaBridgeNumbers).mockResolvedValue([])
+
+    await GET(req)
+
+    expect(listWaBridgeNumbers).toHaveBeenCalledOnce()
+  })
+
   it("[CLOUD-SKIP] skips cleanly when the tenant is on the Cloud API", async () => {
     vi.mocked(prisma.commsSettings.findUnique).mockResolvedValue({ waProvider: "WA_CLOUD" } as never)
 

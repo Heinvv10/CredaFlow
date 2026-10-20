@@ -67,7 +67,7 @@ const person = (id: string, firstName: string, whatsapp: string | null) => ({
 beforeEach(() => {
   vi.resetAllMocks()
   // SMS ON: the entity path must not use it even when the channel is enabled.
-  delete process.env.BULKSMS_DRY_RUN
+  process.env.BULKSMS_DRY_RUN = "false"
   process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
   m.tenantFindFirst.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   m.scheduleFindFirst.mockResolvedValue({ totalDue: 300_000, totalPaid: 0 })

@@ -49,7 +49,6 @@ vi.mock("@/lib/whatsapp-cloud", () => ({
   sendWhatsAppCloudMessage: (...a: any[]) => h.sendWhatsApp(...a),
 }))
 vi.mock("@/lib/whatsapp", () => ({
-  isWaEnabled: () => true,
   // Deliberately NOT wired to h.sendWhatsApp: WA_CLOUD is the provider, so reaching
   // the bridge sender from this cron is a defect the suite must catch.
   sendWhatsAppMessage: (...a: any[]) => h.sendWhatsAppBridge(...a),

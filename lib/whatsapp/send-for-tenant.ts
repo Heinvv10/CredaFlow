@@ -1,6 +1,8 @@
 import { getCommsSettings } from "@/lib/inbox/settings"
-import { isWaEnabled, sendWhatsAppMessage, type WaResult } from "@/lib/whatsapp"
+import { sendWhatsAppMessage, type WaResult } from "@/lib/whatsapp"
 import { sendWhatsAppCloudMessage } from "@/lib/whatsapp-cloud"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
+import { WA_ENV_OFF_REASON, WA_SETTINGS_UNAVAILABLE_REASON, whatsappRefusal } from "@/lib/whatsapp/kill-switch"
 
 /**
  * Send a WhatsApp message over whichever transport the tenant is actually
@@ -42,31 +44,33 @@ export async function sendWhatsAppForTenant(opts: {
   contactId?: string
   signal?: AbortSignal
 }): Promise<WaResult> {
-  // The env kill-switch comes free from inside sendWhatsAppMessage.
-  // sendWhatsAppCloudMessage has no equivalent, so routing to it would
-  // silently bypass WA_ENABLED — and this cron runs on EVERY non-client
-  // container, non-production ones included. With a non-production DB restored
-  // from a production backup (whatsappEnabled=true, waProvider=WA_CLOUD, sealed
-  // creds) that means real WhatsApp messages to real borrowers.
-  if (!isWaEnabled()) {
-    return { ok: false, error: "WhatsApp disabled", providerOutcome: "DEFINITELY_REJECTED" }
+  // One WA_ENABLED parser (lib/whatsapp/env-switch.ts) for both providers:
+  // off only when "false" or empty; unset defers to the tenant's
+  // whatsappEnabled, so a Cloud-only lender gets this send. The check comes
+  // before the settings read so an env-off process touches no database. It is
+  // also what stops a non-production container, restored from a production
+  // backup (whatsappEnabled=true, WA_CLOUD, sealed creds), from messaging real
+  // borrowers when WA_ENABLED=false.
+  if (isWaEnvOff()) {
+    return { ok: false, error: WA_ENV_OFF_REASON, providerOutcome: "DEFINITELY_REJECTED" }
   }
 
-  let provider: string
+  let settings: Awaited<ReturnType<typeof getCommsSettings>>
   try {
-    provider = (await getCommsSettings(opts.tenantId)).waProvider
-  } catch (e) {
+    settings = await getCommsSettings(opts.tenantId)
+  } catch {
     // Both callers inspect a WaResult and one writes its audit LoanNote from
     // it, so this must never throw: a throw would be recorded as "not sent"
     // by one and would abort the cron's whole remaining batch in the other.
-    return {
-      ok: false,
-      error: e instanceof Error ? `comms settings unavailable: ${e.message}` : "comms settings unavailable",
-      providerOutcome: "DEFINITELY_REJECTED",
-    }
+    // Constant text: no exception detail in a stored or returned error, and
+    // wording retry.ts classifies TRANSIENT.
+    return { ok: false, error: WA_SETTINGS_UNAVAILABLE_REASON, providerOutcome: "DEFINITELY_REJECTED" }
   }
 
-  if (provider === "WA_CLOUD") {
+  const refusal = whatsappRefusal(settings)
+  if (refusal) return { ok: false, error: refusal, providerOutcome: "DEFINITELY_REJECTED" }
+
+  if (settings.waProvider === "WA_CLOUD") {
     return sendWhatsAppCloudMessage({
       tenantId: opts.tenantId,
       to: opts.to,

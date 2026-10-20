@@ -102,7 +102,7 @@ describe("POST /api/applications/[id]/agreement/send-link", () => {
   // received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {
     afterEach(() => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
     })
 
     it("refuses an SMS send with 400 and dispatches nothing", async () => {
@@ -125,7 +125,7 @@ describe("POST /api/applications/[id]/agreement/send-link", () => {
     })
 
     it("CHANNEL ON: SMS still sends", async () => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
 
       const res = await POST(post({ channel: "SMS" }), params)
 

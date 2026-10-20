@@ -1,8 +1,12 @@
-import { afterEach, describe, it, expect, vi } from "vitest"
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 
 vi.mock("./whatsapp-cloud-config", () => ({
   getWabaCreds: vi.fn(),
 }))
+
+// The transport-level WhatsApp kill switch reads the tenant's CommsSettings.
+const { getCommsSettingsMock } = vi.hoisted(() => ({ getCommsSettingsMock: vi.fn() }))
+vi.mock("@/lib/inbox/settings", () => ({ getCommsSettings: getCommsSettingsMock }))
 
 vi.mock("@/lib/prisma", () => ({
   prisma: { contact: { findFirst: vi.fn() } },
@@ -11,6 +15,11 @@ vi.mock("@/lib/prisma", () => ({
 import { getWabaCreds } from "./whatsapp-cloud-config"
 import { prisma } from "@/lib/prisma"
 import { sendWhatsAppCloudMessage } from "./whatsapp-cloud"
+
+beforeEach(() => {
+  vi.stubEnv("WA_ENABLED", undefined)
+  getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: true })
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -193,5 +202,61 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
     expect(r).toEqual({ ok: false, error: "WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE", providerOutcome: "DEFINITELY_REJECTED" })
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+// Transport-level backstop: a future direct caller cannot bypass the kill
+// switches dispatch() and sendWhatsAppForTenant() apply. It sits before the
+// dry-run branch (which would report a simulated success) and credentials.
+describe("sendWhatsAppCloudMessage — kill switches", () => {
+  const send = () => sendWhatsAppCloudMessage({ tenantId: "tn1", to: "27821234567", message: "hi" })
+
+  it("WA_ENABLED=false refuses: no simulated success, no creds, no fetch, no settings read", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+
+    const r = await send()
+
+    expect(r).toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(r.simulated).toBeUndefined()
+    expect(r.error).toMatch(/whatsapp\s+disabled/i)
+    expect(getWabaCreds).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(getCommsSettingsMock).not.toHaveBeenCalled()
+  })
+
+  it("tenant whatsappEnabled=false refuses even outside the test dry-run (production path)", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: false })
+    stubCreds()
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+
+    const r = await send()
+
+    expect(r).toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(getWabaCreds).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("an unreadable settings row refuses with the TRANSIENT wording", async () => {
+    getCommsSettingsMock.mockRejectedValue(new Error("db down"))
+    const r = await send()
+    expect(r.ok).toBe(false)
+    expect(r.error).not.toMatch(/whatsapp\s+disabled/i)
+    expect(r.error).not.toMatch(/db down/)
+  })
+
+  it("WA_ENABLED unset + whatsappEnabled=true still sends (production path)", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("WA_ENABLED", undefined)
+    stubCreds()
+    stubWithinWindowContact()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [{ id: "wamid.U" }] }) }))
+
+    const r = await sendWhatsAppCloudMessage({ tenantId: "tn1", contactId: "ct1", to: "27821234567", message: "hi" })
+
+    expect(r).toEqual({ ok: true, messageId: "wamid.U" })
   })
 })
