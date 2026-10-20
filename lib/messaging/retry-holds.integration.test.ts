@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 import { PrismaClient, type MsgStatus, type TemplateCategory } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
+import { createChargesTenant, SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type HoldCase } from "@/lib/collections/dunning-holds.integration-fixture"
 import { prisma } from "@/lib/prisma"
 import { processRetryBatch } from "@/lib/messaging/retry"
@@ -106,6 +106,19 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       messages[`${c.name}/entity loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:loan_overdue:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `notification:loan_overdue:${seeded.loanId}:${day}:SMS`)
       messages[`${c.name}/collections statement`] = await queueMessage(contact.id, "SERVICE", false, `collections:${seeded.loanId}:statement:SMS:${day}`)
+    }
+    // A reminder queued for retry, then the borrower pays: what it says is no longer true.
+    for (const c of [{ name: "owing" }, { name: "paid" }]) {
+      const seeded = await seedHoldLoan(db, tenant, second, { name: c.name, held: false }, { inArrears: true })
+      const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
+      if (c.name === "paid") {
+        await db.loan.update({ where: { id: seeded.loanId }, data: { arrearsAmount: 0, daysInArrears: 0 } })
+        await db.repaymentSchedule.updateMany({ where: { loanId: seeded.loanId }, data: { totalPaid: SCHEDULE_TOTAL, status: "PAID" } })
+      }
+      messages[`${c.name}/overdue reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_overdue_3d:SMS:${day}`)
+      messages[`${c.name}/pre-due reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_7d:SMS:${day}`)
+      messages[`${c.name}/entity overdue reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_overdue_1d:${day}:${seeded.clientId}:SMS`)
+      messages[`${c.name}/notice`] = await queueMessage(contact.id, "SERVICE", true, `notification:loan_overdue:${seeded.loanId}:${day}:SMS`)
     }
     const lead = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "LEAD" } })
     messages["lead/reminder"] = await queueMessage(lead.id, "SERVICE", true)
@@ -223,6 +236,21 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     expect(await db.auditLog.count({ where: { entityId: id, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(1)
   })
 
+  it.each(["overdue reminder", "pre-due reminder", "entity overdue reminder"])("a retried %s on a loan that is still owing goes", async (kind) => {
+    expect((await row(`owing/${kind}`)).errorMessage ?? "", kind).not.toContain("nothing is owed")
+    expect(await audits(`owing/${kind}`, "MESSAGE_RETRY_DISPATCH_CLAIMED"), kind).toBe(1)
+  })
+
+  it.each(["overdue reminder", "pre-due reminder", "entity overdue reminder"])("a retried %s after the borrower paid is suppressed: nothing is owed", async (kind) => {
+    expect(await row(`paid/${kind}`)).toMatchObject({ status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("nothing is owed") })
+    expect(await audits(`paid/${kind}`, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(0)
+  })
+
+  // A 60-DPD notice is a statement of the default, not a demand for an amount: it is not held for being paid.
+  it("a retried loan_overdue notice is not held by 'nothing is owed'", async () => {
+    expect((await row("paid/notice")).errorMessage ?? "").not.toContain("nothing is owed")
+  })
+
   it("a loan with no hold is not suppressed", async () => {
     for (const kind of ["collections reminder", "entity reminder", "manual reminder"]) {
       const name = `no hold/${kind}`
@@ -294,6 +322,27 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       expect(await state(id)).toMatchObject({ status: "RETRYING", errorClass: null })
       await sweep("2026-11-10T09:00:00Z") // 11:00 SAST, 21 h after it was created
       expect(await claimed(id)).toBe(1)
+    })
+
+    // The sweep's blanket 24 hour expiry would drop a message queued at 10:00 before the next morning's window opens
+    // (the last backoff is 12 hours). A staff reminder or a 60-DPD notice gets that next window, and expires after it.
+    it.each(["staff", "notice", "entity notice"] as Kind[])("a %s created yesterday still goes in the next morning's window, 25 hours on", async (kind) => {
+      const id = await queue(kind, `next-morning-${kind}`, new Date("2026-11-14T08:00:00Z")) // 10:00 SAST on the 14th
+      await sweep("2026-11-15T09:00:00Z") // 11:00 SAST on the 15th
+      expect(await claimed(id)).toBe(1)
+    })
+
+    it.each(["staff", "notice", "entity notice"] as Kind[])("a %s expires once the next day's window is over, at 20:30 SAST", async (kind) => {
+      const id = await queue(kind, `window-over-${kind}`, new Date("2026-11-16T08:00:00Z")) // 10:00 SAST on the 16th
+      await sweep("2026-11-17T18:30:00Z") // 20:30 SAST on the 17th
+      expect(await state(id)).toMatchObject({ status: "EXPIRED", errorClass: "EXPIRED", nextRetryAt: null })
+      expect(await claimed(id)).toBe(0)
+    })
+
+    it("still expires a message that is not dunning after 24 hours, as before", async () => {
+      const id = await queue("statement", "old-statement", new Date("2026-11-18T08:00:00Z"))
+      await sweep("2026-11-19T09:00:00Z") // 25 hours on
+      expect(await state(id)).toMatchObject({ status: "EXPIRED" })
     })
 
     it("does not change a message that is not dunning: it is still sent at 21:00 SAST", async () => {

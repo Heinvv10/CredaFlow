@@ -7,7 +7,8 @@ import { triggerNotification } from "@/lib/notifications"
 import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commission"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
-import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
+import { loanDunningHold, section129DebtReviewReason } from "@/lib/collections/client-holds"
+import { NOTICE_LOAN_STATUSES } from "@/lib/collections/dunning-holds"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
@@ -66,6 +67,9 @@ async function createNote(loanId: string, type: string, note: string, tenantId: 
  */
 export const DEFAULT_NOTICE_MAX_DPD = 66
 
+/** The days in arrears at which a loan is defaulted. */
+const DEFAULT_AT_DPD = 60
+
 const RULES: EscalationRule[] = [
   {
     minDays: 5,
@@ -76,7 +80,7 @@ const RULES: EscalationRule[] = [
     },
   },
   {
-    minDays: 60,
+    minDays: DEFAULT_AT_DPD,
     noteType: "escalation_default",
     action: async (ctx) => {
       // The borrower is quoted arrears + default charges outstanding (0 while
@@ -84,10 +88,23 @@ const RULES: EscalationRule[] = [
       // Section 129 eligibility gate reads it. Read before any write, so a
       // failure leaves the rule to retry on the next run.
       const charges = await chargesOutstandingAt(prisma, { tenantId: ctx.tenantId, loanId: ctx.loanId }, new Date())
-      await prisma.loan.updateMany({
-        where: { id: ctx.loanId, tenantId: ctx.tenantId },
+      // Conditional, re-evaluated by the database at the moment of the write: the loan was read at the
+      // start of the run, and one settled (COMPLETED) or brought out of arrears since must not be
+      // defaulted, noted, have its commission clawed back or be sent the notice.
+      const flipped = await prisma.loan.updateMany({
+        where: {
+          id: ctx.loanId,
+          tenantId: ctx.tenantId,
+          status: { in: [...NOTICE_LOAN_STATUSES] },
+          daysInArrears: { gte: DEFAULT_AT_DPD },
+          arrearsAmount: { gt: 0 },
+          outstandingPrincipal: { gt: 0 },
+        },
         data: { status: "DEFAULTED" },
       })
+      if (flipped.count === 0) {
+        return `${ctx.loanRef}: not defaulted, the loan is no longer ACTIVE, ${DEFAULT_AT_DPD}+ days in arrears and in arrears (settled or cleared since it was read)`
+      }
       await reverseReferralCommissionForLoan(prisma, { tenantId: ctx.tenantId, loanId: ctx.loanId })
       await createNote(
         ctx.loanId,
@@ -95,13 +112,15 @@ const RULES: EscalationRule[] = [
         "Loan status changed to DEFAULTED — 60 days overdue",
         ctx.tenantId
       )
-      // The DEFAULTED flip above is business logic and always happens. The
-      // borrower notification does not go to a held loan or client (attorney
-      // referral, write-off, an arrangement or plan, a death, a debt-review
-      // notice; lib/collections/dunning-holds.ts): skipped, and said so.
-      if (await isLoanHeld({ tenantId: ctx.tenantId, loanId: ctx.loanId })) {
-        console.warn(`[escalation] ${ctx.loanRef}: loan_overdue defaulted notice not sent, the loan or client is on a dunning hold`)
-        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (dunning hold)`
+      // The DEFAULTED flip above is business logic and happens whenever the loan is still in
+      // arrears. The borrower notification does not go to a loan that has since left the
+      // statuses a notice reaches, or a held loan or client (attorney referral, write-off, an
+      // arrangement or plan, a death, a debt-review notice; lib/collections/dunning-holds.ts):
+      // skipped, and said so.
+      const hold = await loanDunningHold(prisma, { tenantId: ctx.tenantId, loanId: ctx.loanId, statuses: NOTICE_LOAN_STATUSES })
+      if (hold) {
+        console.warn(`[escalation] ${ctx.loanRef}: loan_overdue defaulted notice not sent: ${hold}`)
+        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (dunning hold): ${hold}`
       }
       // A consumer is messaged as the borrower; an entity borrower (no
       // Client) through the people who act for it, in copy that names the
@@ -121,6 +140,8 @@ const RULES: EscalationRule[] = [
         // The flip and note above stand, so this rule will not run again: log the
         // cause and count the failure so the run reports it.
         console.error(`[escalation] ${ctx.loanRef}: DEFAULTED notice failed:`, err)
+        // A database that is down is the tenant's fault to retry, not "the notice failed".
+        if (isDatabaseInfrastructureError(err)) throw err
         throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed; see the server log`)
       }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`

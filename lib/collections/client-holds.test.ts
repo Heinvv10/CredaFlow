@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
+const chargesOutstandingAt = vi.hoisted(() => vi.fn(async () => 0))
+vi.mock("@/lib/loan/charges-replay", () => ({ chargesOutstandingAt }))
 
 import { contactDunningHold, loanDunningHold } from "./client-holds"
 
@@ -101,5 +103,41 @@ describe("loanDunningHold", () => {
   it("looks only at the tenant's own loans: another tenant's held loan is not found, so it holds nothing", async () => {
     expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_b", loanId: "loan_a", statuses })).toBeNull()
     expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_b", loanId: "loan_a2", statuses })).toBeNull()
+  })
+})
+
+// An automated REMINDER that is retried after the borrower paid says something that is no longer true.
+describe("loanDunningHold for a retried reminder", () => {
+  const loan = (arrearsAmount: number) => ({ id: "loan_r", tenantId: "t_a", status: "ACTIVE", arrearsAmount })
+  const withSchedule = (arrearsAmount: number, instalment: { totalDue: number; totalPaid: number } | null) =>
+    ({
+      loan: {
+        findFirst: async () => loan(arrearsAmount),
+        count: async () => 1,
+      },
+      repaymentSchedule: { findFirst: async () => instalment },
+    }) as unknown as Parameters<typeof loanDunningHold>[0]
+  const args = (reminder?: { overdue: boolean; asOf: Date }) => ({ tenantId: "t_a", loanId: "loan_r", statuses: ["ACTIVE"] as const, reminder })
+  const asOf = new Date("2026-11-03T09:00:00Z")
+
+  it("holds an overdue reminder once the arrears are cleared and nothing is owed", async () => {
+    chargesOutstandingAt.mockResolvedValue(0)
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: true, asOf }))).toMatch(/nothing is owed/)
+  })
+
+  it("holds a pre-due reminder once the instalment is paid", async () => {
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: false, asOf }))).toMatch(/nothing is owed/)
+  })
+
+  it("lets a reminder go while something is owed: arrears, an instalment, or default charges", async () => {
+    chargesOutstandingAt.mockResolvedValue(0)
+    expect(await loanDunningHold(withSchedule(40_000, { totalDue: 100, totalPaid: 0 }), args({ overdue: true, asOf }))).toBeNull()
+    expect(await loanDunningHold(withSchedule(0, { totalDue: 100, totalPaid: 0 }), args({ overdue: false, asOf }))).toBeNull()
+    chargesOutstandingAt.mockResolvedValue(5_000)
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: false, asOf }))).toBeNull()
+  })
+
+  it("does not look at what is owed unless asked: a notice is not a reminder", async () => {
+    expect(await loanDunningHold(withSchedule(0, null), args())).toBeNull()
   })
 })

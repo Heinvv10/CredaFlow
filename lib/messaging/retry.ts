@@ -311,7 +311,7 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
   /** Message.dunning: only a reminder or overdue notice is held for a client hold. */
   dunning: boolean
   /** The loan an automated dunning message is about (lib/messaging/dunning-category.ts), checked inside this transaction. */
-  dunningLoan: { loanId: string; notice: boolean } | null
+  dunningLoan: { loanId: string; notice: boolean; overdue: boolean } | null
 }): Promise<RetryEligibilityClaim> {
   return prisma.$transaction(async (eligibilityTx) => {
     const eligibility = await canSendTx(
@@ -339,6 +339,8 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
         tenantId: args.tenantId,
         loanId: args.dunningLoan.loanId,
         statuses: args.dunningLoan.notice ? NOTICE_LOAN_STATUSES : [REMINDABLE_LOAN_STATUS],
+        // A reminder (not a notice) also stops when the borrower has since paid.
+        ...(args.dunningLoan.notice ? {} : { reminder: { overdue: args.dunningLoan.overdue, asOf: new Date() } }),
       })
       : null
 
@@ -445,10 +447,13 @@ async function processRetryBatchLocked(opts: {
   const { limit, now } = opts
   const ageLimit = new Date(now.getTime() - RETRY_AGE_LIMIT_MS)
 
-  // Bulk-expire — single SQL UPDATE, no per-row processing.
+  // Bulk-expire — single SQL UPDATE, no per-row processing. Not dunning: that is expired per row below,
+  // by the day it was created (lib/messaging/dunning-window.ts), because a blanket 24 hours would drop a
+  // message queued mid-morning before the next morning's window opens.
   const expiredResult = await tx.message.updateMany({
     where: {
       status: "RETRYING",
+      dunning: false,
       createdAt: { lt: ageLimit },
     },
     data: { status: "EXPIRED", errorClass: "EXPIRED" },

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { Prisma } from "@prisma/client"
 
 // The collections reminder cron for an ENTITY borrower (asset finance, goal
 // §4.11): no Client, so each trigger's WhatsApp leg goes to the entity's
@@ -200,6 +201,26 @@ describe("processPaymentReminders — entity borrower", () => {
     const r = await processPaymentReminders()
     expect(m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel).sort()).toEqual(["EMAIL", "EMAIL", "WHATSAPP", "WHATSAPP"])
     expect(r.warnings).toBe(1)
+  })
+
+  it("a database fault inside an entity send fails the tenant, and the leg that did go out is still recorded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.sendMessage.mockResolvedValueOnce({ id: "msg", status: "SENT" }).mockRejectedValue(new Prisma.PrismaClientInitializationError("can't reach", "5.22.0"))
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+    expect(r.failedTenants).toBe(1)
+    expect(m.loanNoteCreate, "the WhatsApp that went out has its note").toHaveBeenCalledTimes(1)
+  })
+
+  it("a database fault in the entity overdue notification fails the tenant; any other error is that loan's", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+    m.triggerNotification.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("closed", { code: "P1017", clientVersion: "5.22.0" }))
+    expect((await processPaymentReminders()).failedTenants).toBe(1)
+    m.triggerNotification.mockRejectedValue(new Error("smtp"))
+    const r = await processPaymentReminders()
+    expect(r.errors).toBeGreaterThan(0)
+    expect(r.details.join("\n")).toContain("loan_overdue: failed")
   })
 
   it("one entity loan's failure is counted and the next loan is still reminded", async () => {

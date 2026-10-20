@@ -8,7 +8,7 @@ const loanNoteCreateMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const reverseReferralCommissionMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
-const isLoanHeldMock = vi.fn()
+const loanDunningHoldMock = vi.fn()
 const debtReviewReasonMock = vi.fn()
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
@@ -19,7 +19,7 @@ vi.mock("@/lib/ops/send-reservation", () => ({
 }))
 vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/collections/client-holds", () => ({
-  isLoanHeld: (...a: unknown[]) => isLoanHeldMock(...a),
+  loanDunningHold: (...a: unknown[]) => loanDunningHoldMock(...a),
   section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
 }))
 
@@ -62,6 +62,15 @@ const loan60d = {
   ncaRegime: "NCA" as const,
 }
 
+/** What the DEFAULTED flip is conditional on, re-evaluated by the database at the moment of the write. */
+const guardedFlip = (loanId: string) => ({
+  where: {
+    id: loanId, tenantId: "tenant_acme", status: { in: ["ACTIVE", "DEFAULTED"] },
+    daysInArrears: { gte: 60 }, arrearsAmount: { gt: 0 }, outstandingPrincipal: { gt: 0 },
+  },
+  data: { status: "DEFAULTED" },
+})
+
 beforeEach(() => {
   vi.resetAllMocks()
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme" })
@@ -74,19 +83,20 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   reverseReferralCommissionMock.mockResolvedValue(undefined)
   chargesOutstandingAtMock.mockResolvedValue(0)
-  isLoanHeldMock.mockResolvedValue(false)
+  loanDunningHoldMock.mockResolvedValue(null)
   reserveOnceMock.mockResolvedValue(true)
   debtReviewReasonMock.mockResolvedValue(null)
 })
 
 describe("processEscalations", () => {
   it("a held loan is still flipped to DEFAULTED and noted, but the borrower is not notified, and the skip is reported", async () => {
-    isLoanHeldMock.mockResolvedValue(true)
+    loanDunningHoldMock.mockResolvedValue("the loan is under an arrangement")
 
     const r = await processEscalations()
 
-    expect(isLoanHeldMock).toHaveBeenCalledWith({ tenantId: "tenant_acme", loanId: "loan_1" })
-    expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_1", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+    // Judged on status and holds together, against the statuses a notice reaches.
+    expect(loanDunningHoldMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "tenant_acme", loanId: "loan_1", statuses: ["ACTIVE", "DEFAULTED"] })
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
     expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
     expect(triggerNotificationMock).not.toHaveBeenCalled()
     expect(r.processed).toBe(1)
@@ -223,9 +233,7 @@ describe("processEscalations — the regime decides Section 129; the borrower ty
     const r = await processEscalations()
 
     expect(createdNoteTypes()).toEqual(["escalation_soft", "escalation_default"])
-    expect(loanUpdateManyMock).toHaveBeenCalledWith({
-      where: { id: "loan_e_NON_NCA", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" },
-    })
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_e_NON_NCA"))
     expect(r).toMatchObject({ processed: 2, errors: 0 })
   })
 

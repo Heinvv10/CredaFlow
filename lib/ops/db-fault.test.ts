@@ -13,6 +13,10 @@ describe("isDatabaseInfrastructureError", () => {
     ["P1008 operation timed out", known("P1008")],
     ["P1017 server closed the connection", known("P1017")],
     ["P2024 connection pool timeout", known("P2024")],
+    ["P2028 transaction API error (the transaction was closed under it)", known("P2028")],
+    ["P2034 write conflict or deadlock", known("P2034")],
+    ["P2037 too many database connections", known("P2037")],
+    ["an unknown request error (the engine's connection errors surface as this)", new Prisma.PrismaClientUnknownRequestError("Error in PostgreSQL connection", { clientVersion: "5.22.0" })],
   ])("is true for %s", (_name, error) => {
     expect(isDatabaseInfrastructureError(error)).toBe(true)
   })

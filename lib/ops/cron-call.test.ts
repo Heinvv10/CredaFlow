@@ -76,7 +76,7 @@ describe("callCronRoute", () => {
   // Two properties that no short test can observe directly, pinned where they are set.
   it("keeps a ceiling long enough for a real nightly run, and finite", () => {
     expect(CALL_CEILING_MS).toBeGreaterThanOrEqual(50 * 60_000)
-    expect(CALL_CEILING_MS).toBeLessThanOrEqual(2 * 60 * 60_000)
+    expect(CALL_CEILING_MS).toBeLessThanOrEqual(60 * 60_000)
   })
 
   it("opens a connection of its own (agent: false): a pooled socket's idle timeout cannot cut a long run", async () => {

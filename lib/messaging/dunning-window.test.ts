@@ -39,6 +39,9 @@ describe("a dunning message that does not expire at the end of its day", () => {
     ["22:30 SAST the same day", "2026-11-03T20:30:00Z", "wait"],
     ["05:00 SAST the next day", "2026-11-04T03:00:00Z", "wait"],
     ["11:00 SAST the next day", "2026-11-04T09:00:00Z", "send"],
+    ["19:59 SAST the next day, the last minute of the window it gets", "2026-11-04T17:59:00Z", "send"],
+    ["20:00 SAST the next day: that window is over, so it expires", "2026-11-04T18:00:00Z", "expire"],
+    ["05:00 SAST two days on", "2026-11-05T03:00:00Z", "expire"],
   ])("%s -> %s", (_name, now, verdict) => {
     expect(dunningRetryVerdict(created, at(now), false)).toBe(verdict)
   })

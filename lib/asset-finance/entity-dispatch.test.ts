@@ -20,6 +20,7 @@ vi.mock("@/lib/messaging/send", () => ({
   MessageReconciliationRequiredError: class extends Error {},
 }))
 
+import { Prisma } from "@prisma/client"
 import { sendEntityNotice } from "./entity-dispatch"
 
 const request = {
@@ -51,5 +52,17 @@ describe("sendEntityNotice", () => {
     ])
     expect(m.sendMessage).toHaveBeenCalledTimes(1)
     expect(m.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ channel: "EMAIL" }))
+  })
+
+  // A cron that sends these must be able to tell a database that is down from a message that was refused:
+  // the outcome carries the fault itself (never into a report; the cron rethrows it).
+  it("carries a database fault on the failed leg, and none for an ordinary send failure", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const fault = new Prisma.PrismaClientInitializationError("can't reach", "5.22.0")
+    m.sendMessage.mockRejectedValueOnce(fault).mockRejectedValueOnce(new Error("provider said no"))
+    const outcomes = await sendEntityNotice({ ...request, channels: ["EMAIL", "EMAIL"] })
+    expect(outcomes[0]).toMatchObject({ status: "failed", reason: "send failed; see the server log", fault })
+    expect(outcomes[1]).toMatchObject({ status: "failed" })
+    expect(outcomes[1]).not.toHaveProperty("fault")
   })
 })

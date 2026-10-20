@@ -11,7 +11,7 @@ const loanNoteCreateMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const reverseReferralCommissionMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
-const isLoanHeldMock = vi.fn()
+const loanDunningHoldMock = vi.fn()
 const debtReviewReasonMock = vi.fn()
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
@@ -22,7 +22,7 @@ vi.mock("@/lib/ops/send-reservation", () => ({
 }))
 vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/collections/client-holds", () => ({
-  isLoanHeld: (...a: unknown[]) => isLoanHeldMock(...a),
+  loanDunningHold: (...a: unknown[]) => loanDunningHoldMock(...a),
   section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
 }))
 
@@ -65,6 +65,15 @@ const loan60d = {
   ncaRegime: "NCA" as const,
 }
 
+/** What the DEFAULTED flip is conditional on, re-evaluated by the database at the moment of the write. */
+const guardedFlip = (loanId: string) => ({
+  where: {
+    id: loanId, tenantId: "tenant_acme", status: { in: ["ACTIVE", "DEFAULTED"] },
+    daysInArrears: { gte: 60 }, arrearsAmount: { gt: 0 }, outstandingPrincipal: { gt: 0 },
+  },
+  data: { status: "DEFAULTED" },
+})
+
 beforeEach(() => {
   vi.resetAllMocks()
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme" })
@@ -77,7 +86,7 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   reverseReferralCommissionMock.mockResolvedValue(undefined)
   chargesOutstandingAtMock.mockResolvedValue(0)
-  isLoanHeldMock.mockResolvedValue(false)
+  loanDunningHoldMock.mockResolvedValue(null)
   reserveOnceMock.mockResolvedValue(true)
   debtReviewReasonMock.mockResolvedValue(null)
 })
@@ -93,7 +102,7 @@ describe("processEscalations", () => {
     it("flips and notes a loan already further past 60, but sends it no notice (the first-run backlog)", async () => {
       loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 67 }])
       const r = await processEscalations()
-      expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_1", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
       expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
       expect(triggerNotificationMock).not.toHaveBeenCalled()
       expect(r.details.join(" ")).toContain("borrower notification skipped (past the 66 DPD notice window)")
@@ -162,7 +171,52 @@ describe("processEscalations", () => {
       expect(r.details).toContainEqual(expect.stringMatching(/^Error L-100 escalation_\w+: failed; see the server log$/))
       expect(JSON.stringify(r.details)).not.toMatch(/deadlock|connection reset/)
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-100"), expect.any(Error))
-      expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_2", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_2"))
+    })
+  })
+
+  // The loan is read at the start of the run and flipped later: a settlement or a payment in between must win.
+  describe("the DEFAULTED flip is conditional on the loan still being in arrears", () => {
+    it("writes the flip only where the loan is still ACTIVE or DEFAULTED, 60+ DPD, in arrears and owing principal", async () => {
+      await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+    })
+
+    it("a loan that was settled or cleared since it was read is left alone: no note, no commission reversal, no notice", async () => {
+      loanUpdateManyMock.mockResolvedValue({ count: 0 })
+      const r = await processEscalations()
+      const types = loanNoteCreateMock.mock.calls.map(([a]) => (a as { data: { type: string } }).data.type)
+      expect(types).not.toContain("escalation_default")
+      expect(reverseReferralCommissionMock).not.toHaveBeenCalled()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.join(" ")).toContain("L-100: not defaulted")
+      expect(r).toMatchObject({ errors: 0, failedTenants: 0 })
+    })
+
+    // Between the flip and the send the loan can still be settled or put on a hold.
+    it("re-checks the loan against the statuses a notice reaches just before it sends, and does not send to one that is no longer dunnable", async () => {
+      loanDunningHoldMock.mockResolvedValue("the loan is COMPLETED")
+      const r = await processEscalations()
+      expect(loanDunningHoldMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "tenant_acme", loanId: "loan_1", statuses: ["ACTIVE", "DEFAULTED"] })
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.join(" ")).toContain("borrower notification skipped (dunning hold): the loan is COMPLETED")
+    })
+  })
+
+  // A tenant with nothing to escalate is a quiet tenant, not a failed one; and a loan that got some way is not "failed".
+  describe("a tenant with no failures to speak of", () => {
+    it("a tenant with no loans in arrears resolves and is not failed", async () => {
+      loanFindManyMock.mockResolvedValue([])
+      await expect(processEscalations()).resolves.toMatchObject({ failedTenants: 0, errors: 0, processed: 0 })
+    })
+
+    it("a loan whose first rule succeeds and second throws counts as progress: the tenant resolves with one error", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockResolvedValue(null) // no rule has run yet
+      loanUpdateManyMock.mockRejectedValue(new Error("the flip failed"))
+      const r = await processEscalations()
+      expect(r).toMatchObject({ failedTenants: 0, errors: 1, processed: 1 })
+      expect(loanNoteCreateMock.mock.calls.map(([a]) => (a as { data: { type: string } }).data.type)).toEqual(["escalation_soft"])
     })
   })
 
@@ -188,6 +242,15 @@ describe("processEscalations", () => {
       loanNoteFindFirstMock.mockRejectedValueOnce(known("P2002"))
       loanFindManyMock.mockResolvedValue(loans())
       expect(await processEscalations()).toMatchObject({ failedTenants: 0, errors: 1 })
+    })
+
+    // The notice is the last thing a rule does; a database that is down then must not be filed as "the notice failed".
+    it("a database fault while sending the DEFAULTED notice fails the tenant with the original fault", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      triggerNotificationMock.mockRejectedValue(new Prisma.PrismaClientInitializationError("can't reach the database", "5.22.0"))
+      const r = await processEscalations()
+      expect(r).toMatchObject({ failedTenants: 1 })
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("tenant tenant_acme failed"), expect.any(Prisma.PrismaClientInitializationError))
     })
 
     it("every loan failing fails the tenant", async () => {

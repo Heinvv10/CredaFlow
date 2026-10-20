@@ -49,6 +49,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
 import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { nextInstalmentOwed, nothingOwed } from "@/lib/collections/amount-owed"
 import { isLoanRemindable } from "@/lib/collections/client-holds"
 
 export type ReminderDeliveryOutcome =
@@ -294,6 +295,8 @@ async function remindEntityTrigger(args: {
       result.sent++
       await recordEntityReminder(args.tenantId, loan, trigger.noteType, sent)
     }
+    // A database that is down is not a leg that failed: the tenant is retried (the legs that went out are recorded above).
+    if (sent.fault) throw sent.fault
     if (sent.failed) result.errors++
     result.details.push(`Entity ${trigger.noteType} for ${loan.reference}: ${sent.summary}`)
   }
@@ -311,6 +314,7 @@ async function remindEntityTrigger(args: {
       })
     } catch (err) {
       await releaseReservation(overdueReservation, overdueReservedAt)
+      if (isDatabaseInfrastructureError(err)) throw err
       console.error(`[reminders] ${loan.reference} loan_overdue failed:`, err)
       result.errors++
       result.details.push(`Error ${loan.reference} loan_overdue: failed; see the server log`)
@@ -527,17 +531,8 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     const dueDate = loan.nextPaymentDate!
     const daysUntil = daysBetween(today, dueDate)
 
-    // Find next unpaid schedule entry for amount. `totalDue > 0` skips an
-    // asset-finance skip period's R0.00 row, which stays PENDING for good
-    // (lib/asset-finance/schedule-records.ts); a consumer row is never zero.
-    // PARTIAL is unpaid too: leaving it out quoted "R 0.00" to borrowers whose
-    // unpaid rows a writer had stored PARTIAL.
-    const nextSchedule = await prisma.repaymentSchedule.findFirst({
-      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] }, totalDue: { gt: 0 } },
-      orderBy: { dueDate: "asc" },
-      select: { totalDue: true, totalPaid: true },
-    })
-    const paymentAmount = nextSchedule ? Math.max(0, nextSchedule.totalDue - nextSchedule.totalPaid) : 0
+    // What is left of the next unpaid instalment (lib/collections/amount-owed.ts, shared with the retry sweep).
+    const paymentAmount = await nextInstalmentOwed(prisma, { tenantId: tenant.id, loanId: loan.id })
 
     for (const trigger of TRIGGERS) {
       if (daysUntil !== trigger.daysUntilDue) continue
@@ -564,7 +559,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
 
       // Never tell a borrower they owe R 0.00: nothing unpaid on the schedule,
       // or an overdue trigger on a loan with no arrears, is no reminder at all.
-      if (paymentAmount + charges <= 0 || (trigger.daysUntilDue < 0 && arrearsDue <= 0)) {
+      if (nothingOwed({ paymentAmount, charges, arrearsAmount: loan.arrearsAmount, overdue: trigger.daysUntilDue < 0 })) {
         result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, nothing owed`)
         continue
       }
@@ -749,6 +744,8 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
                 `Reconciliation required ${loan.reference} ${channel}: message ${err.messageRecord.id}; automatic replay blocked`,
               )
             } else {
+              // A database fault is the tenant's, not this loan's: retried (the per-loan loop rethrows it).
+              if (isDatabaseInfrastructureError(err)) throw err
               console.error(`[reminders] ${loan.reference} ${channel} failed:`, err)
               result.errors++
               result.details.push(`Error ${loan.reference} ${channel}: failed; see the server log`)

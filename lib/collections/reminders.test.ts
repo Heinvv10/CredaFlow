@@ -366,6 +366,38 @@ describe("processPaymentReminders", () => {
     })
   })
 
+  describe("a database fault inside a send", () => {
+    const withWa = () => {
+      const l = loanDueTomorrow()
+      l.client.whatsapp = "0821234567"
+      return l
+    }
+
+    it("on the sendMessage path fails the tenant, like any other fault, instead of one more per-loan error", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+      sendMessageMock.mockRejectedValue(new Prisma.PrismaClientInitializationError("can't reach", "5.22.0"))
+      loanFindManyMock.mockResolvedValue([withWa(), { ...withWa(), id: "loan_2", reference: "L-002" }])
+      const r = await processPaymentReminders()
+      expect(r.failedTenants).toBe(1)
+      expect(sendMessageMock, "the next loan is not tried against a database that is down").toHaveBeenCalledTimes(1)
+    })
+
+    it("an ordinary send error on that path stays that loan's", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+      sendMessageMock.mockRejectedValueOnce(new Error("provider down")).mockResolvedValue({ id: "m", status: "SENT" })
+      loanFindManyMock.mockResolvedValue([withWa(), { ...withWa(), id: "loan_2", reference: "L-002" }])
+      const r = await processPaymentReminders()
+      expect(r.failedTenants).toBe(0)
+      expect(r.errors).toBeGreaterThan(0)
+    })
+  })
+
   describe("SAST day key", () => {
     // The send reservation key was built from LOCAL date parts on a UTC
     // container, so the "one reminder per day" window rolled over at 02:00

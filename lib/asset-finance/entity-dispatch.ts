@@ -19,6 +19,7 @@ import type { Channel, MessageTemplate } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
+import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { getCommsSettings } from "@/lib/inbox/settings"
 import {
   MessageReconciliationRequiredError,
@@ -52,6 +53,8 @@ export interface EntityLegOutcome {
   status: EntityLegStatus
   messageId?: string
   reason?: string
+  /** A database fault that failed the leg, for a cron to rethrow; never put in a report. */
+  fault?: unknown
 }
 
 export interface EntityNoticeRequest {
@@ -123,7 +126,7 @@ async function sendLeg(
       return { ...leg, status: "reconciliation", messageId: error.messageRecord.id, reason: "delivery uncertain; automatic replay blocked" }
     }
     console.error(`[entity-dispatch] ${leg.channel} to ${leg.clientId} failed:`, error)
-    return { ...leg, status: "failed", reason: "send failed; see the server log" }
+    return { ...leg, status: "failed", reason: "send failed; see the server log", ...(isDatabaseInfrastructureError(error) ? { fault: error } : {}) }
   }
 }
 

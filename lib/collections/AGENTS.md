@@ -54,7 +54,12 @@ promise-to-pay tracking, and arrangement monitoring.
   and the claim (FAILED), not on health. The retry sweep sends ALL dunning only
   07:00-20:00 SAST; only an automated date-worded reminder (`collections:`,
   `entity-notice:<reminder>`) expires at the end of its creation day: a staff
-  reminder and a 60-DPD notice (consumer or entity `loan_overdue`) just wait.
+  reminder and a 60-DPD notice (consumer or entity `loan_overdue`) wait, and
+  expire once the next day's window is over. A queued reminder is also dropped when
+  the borrower has since paid (`nothingOwed`, one definition shared with the
+  reminders cron: `amount-owed.ts`). The 60-DPD flip is conditional (still
+  ACTIVE/DEFAULTED, 60+ DPD, in arrears) and the notice is re-checked against the
+  statuses a notice reaches just before it sends.
 - **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
   through `sendMessage`** (template `payment_reminder_email`; entities via
   `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`

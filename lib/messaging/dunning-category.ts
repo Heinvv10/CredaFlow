@@ -49,12 +49,13 @@ export function isDunningCategory(category: string | undefined | null): boolean 
  * attorney-referred loan open (lib/collections/.claude.md), so the retry sweep
  * holds only the automated ones for a loan hold (lib/messaging/retry.ts).
  */
-export function automatedDunningLoan(idempotencyKey: string | null | undefined): { loanId: string; notice: boolean } | null {
+export function automatedDunningLoan(idempotencyKey: string | null | undefined): { loanId: string; notice: boolean; overdue: boolean } | null {
   const key = idempotencyKey ?? ""
-  const collections = /^collections:([^:]+):/.exec(key)
-  if (collections) return { loanId: collections[1], notice: false }
+  // `overdue`: a reminder for a missed payment (the `reminder_overdue_*` triggers), whose point is the arrears.
+  const collections = /^collections:([^:]+):([^:]+):/.exec(key)
+  if (collections) return { loanId: collections[1], notice: false, overdue: collections[2].startsWith("reminder_overdue") }
   const entity = /^entity-notice:([^:]+):([^:]+):/.exec(key)
-  if (entity) return { loanId: entity[1], notice: entity[2].startsWith("loan_overdue") }
+  if (entity) return { loanId: entity[1], notice: entity[2].startsWith("loan_overdue"), overdue: entity[2].startsWith("reminder_overdue") }
   const notice = /^notification:loan_overdue[a-z0-9_]*:([^:]+):/.exec(key)
-  return notice ? { loanId: notice[1], notice: true } : null
+  return notice ? { loanId: notice[1], notice: true, overdue: false } : null
 }

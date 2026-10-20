@@ -1,7 +1,9 @@
 import type { LoanStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
+import { nextInstalmentOwed, nothingOwed, type InstalmentDb } from "@/lib/collections/amount-owed"
 import { notHeldLoanWhere, remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 
 /**
  * The holds that are decided per client or loan at the moment of a staff action
@@ -139,18 +141,27 @@ export interface LoanHoldDb {
  * Why a queued automated dunning message about this loan must not be re-sent, or
  * null: the loan is no longer in a status that is dunned (`statuses`), or it is on
  * a hold (an arrangement, a payment plan, an attorney referral, a write-off, a
- * death, a debt review). A loan that cannot be found is no reason: the key's
- * subject was not a loan. Run in the retry sweep's eligibility transaction.
+ * death, a debt review), or (for a REMINDER, `reminder`) the borrower has since paid
+ * and nothing is owed (`nothingOwed`, the definition the reminders cron skips by).
+ * A loan that cannot be found is no reason: the key's subject was not a loan. Run in
+ * the retry sweep's eligibility transaction.
  */
 export async function loanDunningHold(
-  db: LoanHoldDb,
-  args: { tenantId: string; loanId: string; statuses: readonly LoanStatus[] },
+  db: LoanHoldDb & Partial<InstalmentDb>,
+  args: { tenantId: string; loanId: string; statuses: readonly LoanStatus[]; reminder?: { overdue: boolean; asOf: Date } },
 ): Promise<string | null> {
-  const loan = await db.loan.findFirst({ where: { id: args.loanId, tenantId: args.tenantId }, select: { status: true } }) as { status: LoanStatus } | null
+  const loan = await db.loan.findFirst({ where: { id: args.loanId, tenantId: args.tenantId }, select: { status: true, arrearsAmount: true } }) as { status: LoanStatus; arrearsAmount: number } | null
   if (!loan) return null
   if (!args.statuses.includes(loan.status)) return `the loan is ${loan.status}`
   const notHeld = await db.loan.count({ where: { id: args.loanId, tenantId: args.tenantId, ...notHeldLoanWhere() } })
-  return notHeld === 0 ? "the loan is under an arrangement, a payment plan, an attorney referral, a write-off or a debt review" : null
+  if (notHeld === 0) return "the loan is under an arrangement, a payment plan, an attorney referral, a write-off or a debt review"
+  if (args.reminder) {
+    const ref = { tenantId: args.tenantId, loanId: args.loanId }
+    const paymentAmount = await nextInstalmentOwed(db as InstalmentDb, ref)
+    const charges = await chargesOutstandingAt(db as unknown as Parameters<typeof chargesOutstandingAt>[0], ref, args.reminder.asOf)
+    if (nothingOwed({ paymentAmount, charges, arrearsAmount: loan.arrearsAmount, overdue: args.reminder.overdue })) return "nothing is owed on the loan now, it was paid since this reminder was queued"
+  }
+  return null
 }
 
 /** True when the reminders cron may still remind this loan: ACTIVE and not held (remindableLoanWhere), read again just before each send. */
