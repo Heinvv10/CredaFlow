@@ -224,6 +224,9 @@ model Loan {
   surrenderRequests          SurrenderRequest[]
   suspiciousReportCases      SuspiciousReportCase[]
   taxInvoices                TaxInvoice[]
+  telematicsAlerts           TelematicsAlert[]
+  telematicsHeldReadings     TelematicsHeldReading[]
+  telematicsPositionAccesses TelematicsPositionAccess[]
 
   @@unique([tenantId, id])
   @@index([tenantId])

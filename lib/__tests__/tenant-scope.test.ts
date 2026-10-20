@@ -180,6 +180,13 @@ describe("tenant-scope — ALS primitives", () => {
       "DealerBankAccount",
       "DealerConsentAttestation",
       "DealerDocumentRequest",
+      // Tracker/telematics (slice 5 part B) — non-null tenantId.
+      "TrackerDevice",
+      "TelematicsEvent",
+      "TelematicsPosition",
+      "TelematicsHeldReading",
+      "TelematicsAlert",
+      "TelematicsPositionAccess",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",
