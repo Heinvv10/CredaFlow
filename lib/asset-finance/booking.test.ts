@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   tx: {
     $queryRaw: vi.fn(),
     assetFinanceDeal: { findFirst: vi.fn() },
+    client: { count: vi.fn() },
     referenceRate: { findFirst: vi.fn() },
     loan: { create: vi.fn() },
   },
@@ -65,6 +66,7 @@ beforeEach(() => {
   m.tx.$queryRaw.mockResolvedValue([{ status: "CONTRACTED", applicationId: "app-1", assetId: "asset-1" }])
   m.tx.assetFinanceDeal.findFirst.mockResolvedValue(deal())
   m.tx.referenceRate.findFirst.mockResolvedValue(prime("0.1075"))
+  m.tx.client.count.mockResolvedValue(0)
 })
 
 describe("bookDeal refusals: nothing is written", () => {
@@ -103,6 +105,13 @@ describe("bookDeal refusals: nothing is written", () => {
     expect(m.tx.referenceRate.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({
       where: expect.objectContaining({ effectiveDate: { lte: dbDate("2026-10-20") } }),
     }))
+  })
+
+  it("dealer_contact_unverified while a person on the deal has dealer-typed contacts staff have not verified", async () => {
+    m.tx.client.count.mockResolvedValue(1)
+    expect(await book()).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified" })
+    expect(m.tx.client.count).toHaveBeenCalledWith({ where: expect.objectContaining({ createdByDealerId: { not: null }, dealerContactVerifiedAt: null }) })
+    expect(m.tx.loan.create).not.toHaveBeenCalled()
   })
 
   it("not_contracted and already_booked from the locked row", async () => {

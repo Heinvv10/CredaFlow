@@ -17,6 +17,28 @@ const CONTACT = {
   },
 } as const
 
+type Contact = { id: string; createdByDealerId: string | null }
+
+/** The people on a deal a dealer captured (its sole proprietor, or active people of its entity), once each. */
+function dealerCaptured<P extends Contact>(client: P | null, entity: { relationships: { client: P }[] } | null): P[] {
+  const people = client ? [client] : (entity?.relationships ?? []).map((r) => r.client)
+  return people.filter((p, i) => p.createdByDealerId !== null && people.findIndex((q) => q.id === p.id) === i)
+}
+
+/**
+ * The dealer-captured people on any deal, a staff one included (a dealer's
+ * borrower can reappear there): their contacts are verified before booking.
+ */
+export async function loadDealerCapturedPeople(tenantId: string, dealId: string) {
+  const deal = await prisma.assetFinanceDeal.findFirst({
+    where: { id: dealId, tenantId },
+    select: { client: CONTACT, entity: { select: { relationships: { where: { active: true }, select: { client: CONTACT } } } } },
+  })
+  return deal ? dealerCaptured(deal.client, deal.entity) : []
+}
+
+export type DealerCapturedPerson = Awaited<ReturnType<typeof loadDealerCapturedPeople>>[number]
+
 export async function loadDealDealerPanel(tenantId: string, dealId: string) {
   const deal = await prisma.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId, dealerId: { not: null } },
@@ -49,12 +71,11 @@ export async function loadDealDealerPanel(tenantId: string, dealId: string) {
   })
   if (!deal?.dealer) return null
   const { client, entity, ...rest } = deal
-  const people = client ? [client] : (entity?.relationships ?? []).map((r) => r.client)
   return {
     ...rest,
     dealer: deal.dealer,
-    // Only the people this dealer captured: their contact details are untrusted until verified.
-    dealerPeople: people.filter((p, i) => p.createdByDealerId !== null && people.findIndex((q) => q.id === p.id) === i),
+    // Only the people a dealer captured: their contact details are untrusted until verified.
+    dealerPeople: dealerCaptured(client, entity),
     dealerCommissionLines: deal.dealerCommissionLines.map((line) => ({ ...line, effectiveOn: isoOfDbDate(line.effectiveOn) })),
   }
 }

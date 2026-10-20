@@ -7,6 +7,7 @@ import { DEALER_UPLOAD_DOC_TYPES } from "@/lib/dealer/documents"
 import { LINE_KIND_LABELS, RATE_SOURCE_LABELS, REVERSAL_REASON_LABELS, bpsPercent } from "@/lib/dealer/staff-labels"
 import type { DealDealerPanel } from "@/lib/dealer/staff-deal-panel"
 import { DealActionButton } from "./DealActionButton"
+import { DealerCapturedPeople } from "./DealerCapturedPeople"
 import { DealerDocumentRequestForm } from "./DealerDocumentRequestForm"
 
 const name = (p: { name: string | null; email: string } | null) => (p ? (p.name ?? p.email) : "—")
@@ -29,23 +30,7 @@ export function DealerPanel({ panel, canManage }: { panel: DealDealerPanel; canM
       density="loose"
     >
       <div className="space-y-5 text-sm">
-        <section className="space-y-2">
-          <h3 className="font-semibold text-[var(--cf-text)]">People the dealer captured</h3>
-          {panel.dealerPeople.length === 0 && <p className="text-[var(--cf-text-muted)]">None.</p>}
-          {panel.dealerPeople.map((p) => (
-            <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--cf-border-subtle)] p-2">
-              <p>{p.firstName} {p.lastName} · {p.email} · {p.phone}</p>
-              {p.dealerContactVerifiedAt ? (
-                <span className="text-xs text-[var(--cf-success)]">Contact verified by {name(p.dealerContactVerifiedBy)} {formatDateTime(p.dealerContactVerifiedAt)}</span>
-              ) : canManage ? (
-                <DealActionButton url={`/api/asset-finance/deals/${dealId}/dealer-people/${p.id}/verify-contact`} label="Contact details verified" busyLabel="Recording…" variant="outline" />
-              ) : <span className="text-xs text-[var(--cf-warning)]">Contact not verified</span>}
-            </div>
-          ))}
-          <p className="text-xs text-[var(--cf-text-muted)]">
-            The dealer typed these details. Confirm them with the person directly, not through the dealer: until then no portal activation code or signing code is sent to them.
-          </p>
-        </section>
+        <DealerCapturedPeople dealId={dealId} people={panel.dealerPeople} canManage={canManage} />
 
         <section className="space-y-2">
           <h3 className="font-semibold text-[var(--cf-text)]">Consent evidence</h3>

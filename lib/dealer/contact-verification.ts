@@ -3,7 +3,8 @@
  * (review finding S1): until then the client portal is not activated on them
  * and no signing code is sent to them (lib/clients/dealer-contact.ts), since
  * the email or phone could be the dealer's own. The person must be on the
- * deal (its sole proprietor, or an active person of its entity). Set once
+ * deal (its sole proprietor, or an active person of its entity); the deal may
+ * be a staff one, since a dealer-captured borrower can reappear there. Set once
  * (Client_dealer_contact_guard), audited DEALER_CONTACT_VERIFIED.
  */
 import { prisma } from "@/lib/prisma"
@@ -15,7 +16,7 @@ export async function verifyDealerContact(staff: StaffActor, dealId: string, cli
   const { tenantId } = staff
   return prisma.$transaction(async (tx) => {
     const deal = await tx.assetFinanceDeal.findFirst({
-      where: { id: dealId, tenantId, dealerId: { not: null } },
+      where: { id: dealId, tenantId },
       select: { id: true, clientId: true, entityId: true },
     })
     if (!deal) return dealerMiss("Deal")

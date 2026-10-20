@@ -10,9 +10,9 @@
  *    only on a dealer-captured client; verifyDealerContact is that staff
  *    action, for a person on the deal, audited.
  *  - AssetFinanceDeal_dealer_contacts_verified (migration
- *    20261019120400): a dealer deal is not BOOKED while a person on it the
- *    dealer captured has unverified contact details; booking's load step
- *    refuses first, with a reason.
+ *    20261019120400): no deal, dealer's or staff's, is BOOKED while a person
+ *    on it a dealer captured has unverified contact details; booking's load
+ *    step refuses first, with a reason.
  *
  *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/dealer/dealer-handover-contact.integration.test.ts
@@ -137,6 +137,22 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
       const loaded = await inTenant(fx, () => prisma.$transaction((tx) => loadBookingDeal(tx, fx.tenantId, dealId)))
       expect(loaded).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified" })
       sql(verify(director))
+      const loanId = sql(`SELECT l."id" FROM "Loan" l JOIN "AssetFinanceDeal" d ON d."applicationId" = l."applicationId" WHERE d."id" = ${lit(dealId)}`)
+      sql(`UPDATE "AssetFinanceDeal" SET "status" = 'BOOKED', "loanId" = ${lit(loanId)} WHERE "id" = ${lit(dealId)}`)
+      expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}`)).toBe("BOOKED")
+    })
+
+    it("gates a staff deal on a dealer-captured borrower the same way, and staff verify from that deal", async () => {
+      const captured = captureForDealer(fx, fx.dealerA)
+      const { dealId } = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captured })
+      const director = client(fx.dealerA)
+      sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
+        VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(captured.entityId)}, ${lit(director)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+      approve(fx, dealId)
+      expect(() => book(fx, dealId)).toThrow(/contact details/)
+      const loaded = await inTenant(fx, () => prisma.$transaction((tx) => loadBookingDeal(tx, fx.tenantId, dealId)))
+      expect(loaded).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified" })
+      expect(await inTenant(fx, () => verifyDealerContact(staffOf(fx), dealId, director))).toEqual({ kind: "verified" })
       const loanId = sql(`SELECT l."id" FROM "Loan" l JOIN "AssetFinanceDeal" d ON d."applicationId" = l."applicationId" WHERE d."id" = ${lit(dealId)}`)
       sql(`UPDATE "AssetFinanceDeal" SET "status" = 'BOOKED', "loanId" = ${lit(loanId)} WHERE "id" = ${lit(dealId)}`)
       expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}`)).toBe("BOOKED")

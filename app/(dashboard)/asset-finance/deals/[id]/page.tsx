@@ -27,8 +27,9 @@ import { loadPayoutPanel } from "@/lib/asset-finance/payout-view"
 import { PayoutPanel } from "./PayoutPanel"
 import { CancelDealForm } from "./CancelDealForm"
 import { CANCELLABLE_DEAL_STATUSES } from "@/lib/asset-finance/deal-cancel"
-import { loadDealDealerPanel } from "@/lib/dealer/staff-deal-panel"
+import { loadDealDealerPanel, loadDealerCapturedPeople } from "@/lib/dealer/staff-deal-panel"
 import { DealerPanel } from "./DealerPanel"
+import { DealerCapturedPeople } from "./DealerCapturedPeople"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
@@ -48,6 +49,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const signing = SIGNING_STATUSES.includes(deal.status) ? await loadStaffSigningPanel(tenantId, id) : null
   const payout = PAYOUT_STATUSES.includes(deal.status) ? await loadPayoutPanel(tenantId, id) : null
   const dealer = await loadDealDealerPanel(tenantId, id)
+  // A staff deal whose borrower a dealer captured: its contacts are verified here before booking.
+  const capturedPeople = dealer ? [] : await loadDealerCapturedPeople(tenantId, id)
 
   // A dealer's draft is submitted by accepting the dealer's handover (the Dealer panel).
   const submit = canManage && deal.status === "DRAFT" && !dealer
@@ -71,6 +74,11 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <DealSummaryPanel deal={deal} />
 
         {dealer && <DealerPanel panel={dealer} canManage={canManage} />}
+        {capturedPeople.length > 0 && (
+          <DataPanel title="Contacts a dealer captured" density="loose">
+            <div className="text-sm"><DealerCapturedPeople dealId={id} people={capturedPeople} canManage={canManage} /></div>
+          </DataPanel>
+        )}
 
         <ClassificationPanel deal={deal}>
           {canDecide && deal.awaitingRegimeApproval && deal.pendingOverrideId && (
