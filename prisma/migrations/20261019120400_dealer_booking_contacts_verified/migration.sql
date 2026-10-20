@@ -3,10 +3,9 @@
 --
 -- The contact details a dealer typed for a person it captured are untrusted
 -- until staff verify them (Client.dealerContactVerifiedAt, migration
--- 20261019120300). No deal, a dealer's or a staff one, is BOOKED while any
--- such person on it (its sole proprietor, or an active person of its entity)
--- is unverified: servicing messages go to those contacts from booking on, and
--- a dealer-captured borrower can reappear on a staff deal. Booking's load
+-- 20261019120300). A dealer deal is not BOOKED while any such person on it
+-- (its sole proprietor, or an active person of its entity) is unverified:
+-- servicing messages go to those contacts from booking on. Booking's load
 -- step (lib/asset-finance/booking-load.ts) refuses first, with a reason.
 CREATE OR REPLACE FUNCTION "guardDealerDealContactsVerified"()
 RETURNS trigger
@@ -21,12 +20,12 @@ BEGIN
         WHERE r."tenantId" = NEW."tenantId" AND r."entityId" = NEW."entityId" AND r."clientId" = c."id" AND r."active"))
   ) THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = 'A deal is booked only after staff verify the contact details a dealer captured for its people';
+      MESSAGE = 'A dealer deal is booked only after staff verify the contact details the dealer captured for its people';
   END IF;
   RETURN NEW;
 END;
 $function$;
 
 CREATE TRIGGER "AssetFinanceDeal_dealer_contacts_verified" BEFORE UPDATE OF "status" ON "AssetFinanceDeal"
-  FOR EACH ROW WHEN (NEW."status" = 'BOOKED' AND OLD."status" IS DISTINCT FROM 'BOOKED')
+  FOR EACH ROW WHEN (NEW."status" = 'BOOKED' AND OLD."status" IS DISTINCT FROM 'BOOKED' AND NEW."dealerId" IS NOT NULL)
   EXECUTE FUNCTION "guardDealerDealContactsVerified"();
