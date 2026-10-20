@@ -99,10 +99,11 @@ const NOT_BLOCKED: CreditBlock = { blocked: false }
  * estate apart from a credit decision — "client_blacklisted" was already in
  * use before deceased existed, so it keeps its exact spelling.
  *
- * Note this deliberately says nothing about collections: a blacklisted client
- * can still be dunned today, and recording a death does not change that. That
- * gap is real and tracked separately; widening this predicate to cover it
- * would reach into live money paths.
+ * Note this deliberately says nothing about collections. A recorded death holds
+ * automated reminders (lib/collections/dunning-holds.ts), refuses staff messages
+ * (lib/collections/client-holds.ts) and blocks the client's Contact
+ * (lib/clients/deceased-contacts.ts); those are separate rules, not this
+ * predicate. A blacklisted client can still be dunned.
  */
 export function creditBlock(input: Pick<ClientStatusInput, "deceasedAt" | "blacklisted">): CreditBlock {
   if (input.deceasedAt) {

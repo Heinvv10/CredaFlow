@@ -81,6 +81,7 @@ export default async function LoanDetailPage(
         canCapturePayment={role ? canDo(role, "capture_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
+        canManageDebtReview={Boolean(role && hasMinRole(role, "COLLECTIONS_OFFICER") && canDo(role, "act_on_collections"))}
       />
     )
   }

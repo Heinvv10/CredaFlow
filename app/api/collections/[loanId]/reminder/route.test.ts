@@ -10,6 +10,10 @@ const loanNoteCreateMock = vi.fn()
 const logAuditMock = vi.fn()
 const sendMessageMock = vi.fn()
 const getOrCreateAgentMessageTemplateMock = vi.fn()
+const refusalMock = vi.fn()
+vi.mock("@/lib/collections/client-holds", () => ({
+  staffMessageRefusal: (...a: unknown[]) => refusalMock(...a),
+}))
 
 vi.mock("@/lib/auth-guards", () => ({
   requireApiRole: () => requireApiRoleMock(),
@@ -96,6 +100,7 @@ beforeEach(() => {
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "o@x" } })
   withTenantContextMock.mockImplementation((_req: unknown, cb: (t: { id: string }) => Promise<unknown>) =>
     cb({ id: "t1" }))
+  refusalMock.mockResolvedValue(null)
   loanFindUniqueMock.mockResolvedValue(inArrears)
   contactFindFirstMock.mockResolvedValue(contact)
   getOrCreateAgentMessageTemplateMock.mockResolvedValue({ id: "tpl1" })
@@ -104,6 +109,23 @@ beforeEach(() => {
 })
 
 describe("POST /api/collections/[loanId]/reminder", () => {
+  // D2: a staff message to a deceased client or one under debt review is refused, with the reason.
+  it.each([
+    ["deceased", "a death is recorded for this client"],
+    ["under debt review", "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"],
+  ])("refuses with 409 and the reason when the client is %s, before any contact lookup or send", async (_n, reason) => {
+    refusalMock.mockResolvedValue(reason)
+
+    const res = await POST(makeReq({ channel: "both", message: "pay up" }), ctx)
+
+    expect(res.status).toBe(409)
+    expect((await res.json() as { error: string }).error).toBe(`Cannot send a collections reminder: ${reason}.`)
+    expect(refusalMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", clientId: "c1" })
+    expect(contactFindFirstMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(loanNoteCreateMock).not.toHaveBeenCalled()
+  })
+
   it("refuses a reminder on a settled account (422), never calls sendMessage", async () => {
     loanFindUniqueMock.mockResolvedValue(settled)
 

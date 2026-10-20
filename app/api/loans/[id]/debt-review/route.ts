@@ -20,7 +20,23 @@ import { sastCalendarDate, sastDayNumberStart } from "@/lib/date/sast"
  * with no audit row, or an audit row for a notice that never landed, are both
  * false records. Recording over an existing notice is refused (409); clear it
  * first, so the trail shows both the removal and its reason.
+ *
+ * Section 86 is for natural persons, so an entity (juristic) borrower is refused
+ * (409), as is a loan that is already COMPLETED, CANCELLED or WRITTEN_OFF. The
+ * notice is consumer-wide: it holds the reminders and Section 129 for every
+ * loan of the client (lib/collections/dunning-holds.ts, client-holds.ts).
  */
+
+const MAX_REFERENCE = 100
+const MAX_REASON = 500
+const CLOSED_STATUSES = ["COMPLETED", "CANCELLED", "WRITTEN_OFF"]
+
+/** Prisma's message can carry the query's values; the name and code identify the failure. */
+function failureSummary(error: unknown): { name: string; code?: string } {
+  if (!(error instanceof Error)) return { name: "UnknownError" }
+  const code = (error as { code?: unknown }).code
+  return { name: error.name, ...(typeof code === "string" ? { code } : {}) }
+}
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -50,7 +66,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   return await withTenantContext(req, async (tenant) => {
     const { id } = await params
-    const body = await req.json().catch(() => ({}))
+    const body = (await req.json().catch(() => null) ?? {}) as Record<string, unknown>
 
     const noticeAt = parseNoticeDate(body.noticeDate)
     if (!noticeAt) {
@@ -60,15 +76,21 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "The notice date cannot be in the future" }, { status: 422 })
     }
     const reference = typeof body.reference === "string" && body.reference.trim() ? body.reference.trim() : null
+    if (reference && reference.length > MAX_REFERENCE) {
+      return NextResponse.json({ error: `The reference is at most ${MAX_REFERENCE} characters` }, { status: 422 })
+    }
 
     try {
       const outcome = await prisma.$transaction(async (tx) => {
         await lockLoanForUpdate(tx, id)
         const loan = await tx.loan.findUnique({
           where: { id, tenantId: tenant.id },
-          select: { id: true, debtReviewNoticeAt: true, debtReviewNoticeRef: true },
+          select: { id: true, clientId: true, status: true, startDate: true, debtReviewNoticeAt: true, debtReviewNoticeRef: true },
         })
         if (!loan) return "NOT_FOUND" as const
+        if (!loan.clientId) return "ENTITY_BORROWER" as const
+        if (CLOSED_STATUSES.includes(loan.status)) return "CLOSED_LOAN" as const
+        if (sastCalendarDate(noticeAt) < sastCalendarDate(loan.startDate)) return "BEFORE_START" as const
         if (loan.debtReviewNoticeAt) return "ALREADY_RECORDED" as const
 
         const updated = await tx.loan.update({
@@ -89,6 +111,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       })
 
       if (outcome === "NOT_FOUND") return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+      if (outcome === "ENTITY_BORROWER") {
+        return NextResponse.json({ error: "Debt review (NCA s.86) applies to individual consumers; this loan's borrower is a business entity." }, { status: 409 })
+      }
+      if (outcome === "CLOSED_LOAN") {
+        return NextResponse.json({ error: "This loan is closed (completed, cancelled or written off); record the notice on the client's open loan." }, { status: 409 })
+      }
+      if (outcome === "BEFORE_START") {
+        return NextResponse.json({ error: "The notice date cannot be before the loan's start date" }, { status: 422 })
+      }
       if (outcome === "ALREADY_RECORDED") {
         return NextResponse.json(
           { error: "A debt-review notice is already recorded. Clear it, with a reason, before recording another." },
@@ -100,7 +131,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         debtReviewNoticeRef: outcome.debtReviewNoticeRef,
       })
     } catch (error) {
-      console.error(`[debt-review] failed to record notice for loan ${id}:`, error)
+      console.error(`[debt-review] failed to record notice for loan ${id}`, failureSummary(error))
       return NextResponse.json({ error: "Failed to record the debt-review notice" }, { status: 500 })
     }
   })
@@ -113,10 +144,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   return await withTenantContext(req, async (tenant) => {
     const { id } = await params
-    const body = await req.json().catch(() => ({}))
+    const body = (await req.json().catch(() => null) ?? {}) as Record<string, unknown>
     // The reason is the trail's only account of WHY dunning was allowed to resume.
     const reason = typeof body.reason === "string" ? body.reason.trim() : ""
     if (!reason) return NextResponse.json({ error: "A reason is required" }, { status: 422 })
+    if (reason.length > MAX_REASON) {
+      return NextResponse.json({ error: `The reason is at most ${MAX_REASON} characters` }, { status: 422 })
+    }
 
     try {
       const outcome = await prisma.$transaction(async (tx) => {
@@ -154,7 +188,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       }
       return NextResponse.json({ debtReviewNoticeAt: null, debtReviewNoticeRef: null })
     } catch (error) {
-      console.error(`[debt-review] failed to clear notice for loan ${id}:`, error)
+      console.error(`[debt-review] failed to clear notice for loan ${id}`, failureSummary(error))
       return NextResponse.json({ error: "Failed to clear the debt-review notice" }, { status: 500 })
     }
   })

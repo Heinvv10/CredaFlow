@@ -18,6 +18,7 @@ import { syncLoanCharges } from "@/lib/loan/charges-sync"
 import { ChargesError } from "@/lib/loan/charges-error"
 import { SAST_TIME_ZONE } from "@/lib/utils"
 import { SECTION129_BORROWER_INCLUDE, section129Addressee } from "./section129-addressee"
+import { section129DebtReviewReason } from "./client-holds"
 
 const NOTICE_TYPE = "SECTION_129_NOTICE" as const
 export const SECTION129_STALE_RESERVATION_MS = 60 * 60 * 1000
@@ -776,13 +777,18 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         throw new Section129EligibilityChangedError("loan no longer exists in this tenant")
       }
       const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
-      if (!eligibility.eligible) {
+      // A debt-review notice recorded after the reservation blocks the dispatch too.
+      const debtReview = eligibility.eligible && loan.clientId
+        ? await section129DebtReviewReason(tx, { tenantId: args.tenantId, clientId: loan.clientId })
+        : null
+      const blockedReason = eligibility.eligible ? debtReview : eligibility.reason
+      if (!eligibility.eligible || debtReview) {
         const failedAt = new Date()
         await deleteUnissuedArtifact(args.reservation.recordData)
         const failedData = withoutUnissuedArtifact(args.reservation.recordData, {
           lifecycle: "FAILED",
           failedAt: failedAt.toISOString(),
-          failureReason: `Eligibility changed before provider dispatch: ${eligibility.reason}`,
+          failureReason: `Eligibility changed before provider dispatch: ${blockedReason}`,
         }, failedAt)
         const released = await complianceRecordDelegate(tx).updateMany({
           where: {
@@ -814,7 +820,7 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
             issuanceId: args.reservation.issuanceId,
             lifecycle: "FAILED",
             providerInvoked: false,
-            reason: eligibility.reason,
+            reason: blockedReason,
             artifactDeletedAt: failedData.artifactDeletedAt,
             pdfSha256: failedData.pdfSha256,
           },
@@ -823,7 +829,7 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
         return {
           kind: "INELIGIBLE" as const,
           error: new Section129EligibilityChangedError(
-            eligibility.reason ?? "current policy rejected the loan",
+            blockedReason ?? "current policy rejected the loan",
           ),
         }
       }

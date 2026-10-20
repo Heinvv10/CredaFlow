@@ -4,6 +4,11 @@ import { describe, it, expect, vi } from "vitest"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { formatZAR } from "@/lib/utils"
 
+const holds = vi.hoisted(() => ({ message: null as string | null, s129: null as string | null }))
+vi.mock("@/lib/collections/client-holds", () => ({
+  staffMessageRefusal: vi.fn(async () => holds.message),
+  section129DebtReviewReason: vi.fn(async () => holds.s129),
+}))
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("next/navigation", () => ({ notFound: vi.fn() }))
@@ -59,6 +64,23 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 describe("collections loan page", () => {
+  it("states why reminders and messages are paused, in design tokens, with a link to the loan page", async () => {
+    holds.message = "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"
+    holds.s129 = "the client is under debt review (...)"
+    try {
+      const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+      expect(html).toContain("Automated reminders and staff messages are paused: the client is under debt review")
+      expect(html).toContain('href="/loans/l1"')
+      expect(html).toContain("var(--cf-warning)")
+      const at = html.indexOf("are paused")
+      expect(html.slice(at - 250, at + 350)).not.toContain("amber")
+      expect(stagePanelProps.last?.section129Unavailable).toMatchObject({ temporary: false, reason: expect.stringContaining("Cannot issue a Section 129 notice") })
+    } finally {
+      holds.message = null
+      holds.s129 = null
+    }
+  })
+
   it("states Total Paid as cash received, not the share applied to the instalments", async () => {
     const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
     const card = html.slice(html.indexOf("Total Paid"))

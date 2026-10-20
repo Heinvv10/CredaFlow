@@ -83,7 +83,7 @@ export async function PATCH(
           ? null
           : body.deceased
             ? { contactsBlocked: await blockContactsForDeceasedClient(tx, scope) }
-            : { contactsReleased: await releaseContactsForRevivedClient(tx, scope) }
+            : { contactsReleased: await releaseContactsForRevivedClient(tx, { ...scope, deceasedAt: client.deceasedAt ?? new Date(0) }) }
         await logAuditStrict({
           tenantId: tenant.id,
           userId: guard.user.id,

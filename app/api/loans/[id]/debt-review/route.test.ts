@@ -38,10 +38,13 @@ const req = (method: "POST" | "DELETE", body: unknown) =>
     body: JSON.stringify(body),
   })
 
-const open = { id: "L1", status: "ACTIVE", debtReviewNoticeAt: null, debtReviewNoticeRef: null }
+const startDate = new Date("2026-06-01T00:00:00+02:00")
+const open = { id: "L1", clientId: "c1", status: "ACTIVE", startDate, debtReviewNoticeAt: null, debtReviewNoticeRef: null }
 const underReview = {
   id: "L1",
+  clientId: "c1",
   status: "ACTIVE",
+  startDate,
   debtReviewNoticeAt: new Date("2026-10-01T00:00:00+02:00"),
   debtReviewNoticeRef: "DC-0001",
 }
@@ -146,6 +149,54 @@ describe("POST /api/loans/[id]/debt-review — record the s.86 notice", () => {
     expect(logAuditStrictMock).not.toHaveBeenCalled()
   })
 
+  it("refuses an entity (juristic) borrower with 409: s.86 is for natural persons", async () => {
+    loanFindUniqueMock.mockResolvedValue({ ...open, clientId: null })
+    const res = await POST(req("POST", { noticeDate: "2026-10-01" }), ctx)
+    expect(res.status).toBe(409)
+    expect((await res.json() as { error: string }).error).toContain("individual consumers")
+    expect(loanUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it.each(["COMPLETED", "CANCELLED", "WRITTEN_OFF"])("refuses a %s loan with 409", async (status) => {
+    loanFindUniqueMock.mockResolvedValue({ ...open, status })
+    const res = await POST(req("POST", { noticeDate: "2026-10-01" }), ctx)
+    expect(res.status).toBe(409)
+    expect(loanUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a notice date before the loan's start date with 422", async () => {
+    const res = await POST(req("POST", { noticeDate: "2026-05-31" }), ctx)
+    expect(res.status).toBe(422)
+    expect(loanUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts the loan's start date itself", async () => {
+    const res = await POST(req("POST", { noticeDate: "2026-06-01" }), ctx)
+    expect(res.status).toBe(200)
+  })
+
+  it("rejects a reference over 100 characters with 422, and accepts exactly 100", async () => {
+    expect((await POST(req("POST", { noticeDate: "2026-10-01", reference: "x".repeat(101) }), ctx)).status).toBe(422)
+    expect(loanUpdateMock).not.toHaveBeenCalled()
+    expect((await POST(req("POST", { noticeDate: "2026-10-01", reference: "x".repeat(100) }), ctx)).status).toBe(200)
+  })
+
+  it("treats a JSON null body as empty: 422, not a crash", async () => {
+    const res = await POST(new NextRequest("http://x/api/loans/L1/debt-review", { method: "POST", body: "null" }), ctx)
+    expect(res.status).toBe(422)
+  })
+
+  it("logs only the error name and code on a database failure, never the Prisma message", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    transactionMock.mockRejectedValueOnce(Object.assign(new Error("Invalid `prisma.loan.update()` invocation: ref=SECRET-REF"), { code: "P2002" }))
+    const res = await POST(req("POST", { noticeDate: "2026-10-01" }), ctx)
+    expect(res.status).toBe(500)
+    const logged = JSON.stringify(spy.mock.calls)
+    expect(logged).toContain("P2002")
+    expect(logged).not.toContain("SECRET-REF")
+    spy.mockRestore()
+  })
+
   it("does not claim success when the audit row cannot be written: the failure rolls the update back", async () => {
     logAuditStrictMock.mockRejectedValue(new Error("audit down"))
     const res = await POST(req("POST", { noticeDate: "2026-10-01" }), ctx)
@@ -182,6 +233,24 @@ describe("DELETE /api/loans/[id]/debt-review — clear the notice", () => {
     expect(res.status).toBe(422)
     expect(loanUpdateMock).not.toHaveBeenCalled()
     expect(logAuditStrictMock).not.toHaveBeenCalled()
+  })
+
+  it("locks the loan row first, before reading it", async () => {
+    await DELETE(req("DELETE", { reason: "withdrawn" }), ctx)
+    expect(queryRawMock).toHaveBeenCalledOnce()
+    expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(loanFindUniqueMock.mock.invocationCallOrder[0])
+  })
+
+  it("can clear a notice on a closed loan: a closed loan must never trap the hold", async () => {
+    loanFindUniqueMock.mockResolvedValue({ ...underReview, status: "WRITTEN_OFF" })
+    expect((await DELETE(req("DELETE", { reason: "withdrawn" }), ctx)).status).toBe(200)
+  })
+
+  it("rejects a reason over 500 characters with 422, and a JSON null body", async () => {
+    expect((await DELETE(req("DELETE", { reason: "x".repeat(501) }), ctx)).status).toBe(422)
+    const nullBody = new NextRequest("http://x/api/loans/L1/debt-review", { method: "DELETE", body: "null" })
+    expect((await DELETE(nullBody, ctx)).status).toBe(422)
+    expect(loanUpdateMock).not.toHaveBeenCalled()
   })
 
   it("409s when there is nothing to clear", async () => {

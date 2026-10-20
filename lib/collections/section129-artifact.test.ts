@@ -38,6 +38,10 @@ const {
   deleteFileMock: vi.fn(),
 }))
 
+const debtReviewReasonMock = vi.hoisted(() => vi.fn())
+vi.mock("./client-holds", () => ({
+  section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     complianceRecord: {
@@ -122,6 +126,7 @@ const naturalBorrower = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  debtReviewReasonMock.mockResolvedValue(null)
   transactionMock.mockImplementation((callback: (tx: unknown) => Promise<unknown>) => callback({
     complianceRecord: {
       findUnique: (args: unknown) => findUniqueMock(args),
@@ -739,9 +744,32 @@ describe("Section 129 private artifact lifecycle", () => {
     })
   })
 
+  // D1, at the last gate: a debt-review notice recorded between reservation and dispatch.
+  it("blocks the dispatch, provider never invoked, when a debt-review notice is recorded on the client before dispatch", async () => {
+    const reservation = await reserveSection129Issuance(reservationArgs)
+    vi.clearAllMocks()
+    updateManyMock.mockResolvedValue({ count: 1 })
+    debtReviewReasonMock.mockResolvedValue("the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)")
+    loanFindUniqueMock.mockResolvedValue({
+      ...naturalBorrower, clientId: "client-1", reference: "LN-1", status: "DEFAULTED",
+      arrearsAmount: 25_000, outstandingPrincipal: 100_000, daysInArrears: 90,
+    })
+    const dispatch = vi.fn(async () => ({ ok: true }))
+
+    const result = await dispatchSection129UnderEligibilityLock({
+      reservation, tenantId: "t1", loanId: "loan-1", actorId: "user-1", dispatch,
+    })
+
+    expect(result).toMatchObject({ kind: "INELIGIBLE" })
+    expect(String((result as { error: Error }).error.message)).toContain("under debt review")
+    expect(debtReviewReasonMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", clientId: "client-1" })
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
   it("rechecks eligibility under the loan lock before dispatch and guards reconciliation", async () => {
     const reservation = await reserveSection129Issuance(reservationArgs)
     vi.clearAllMocks()
+    debtReviewReasonMock.mockResolvedValue(null)
     updateManyMock.mockResolvedValue({ count: 1 })
     loanFindUniqueMock.mockResolvedValue({
       ...naturalBorrower,

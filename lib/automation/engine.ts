@@ -5,6 +5,7 @@ import type { AutomationRule } from "@prisma/client"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { automationCooldownMs } from "./occurrence"
 import { requireClientBorrowerId } from "@/lib/borrower"
+import { section129DebtReviewReason } from "@/lib/collections/client-holds"
 
 type AutomationLogResult = "success" | "failed" | "skipped"
 
@@ -122,6 +123,7 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
     select: {
       id: true,
       reference: true,
+      clientId: true,
       status: true,
       ncaRegime: true,
       daysInArrears: true,
@@ -148,6 +150,14 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
           result: "skipped",
           error: eligibility.reason ?? "not eligible for Section 129",
         })
+        continue
+      }
+      // Debt review (NCA s.86) blocks Section 129 on every loan of the client.
+      const debtReview = loan.clientId
+        ? await section129DebtReviewReason(prisma, { tenantId: rule.tenantId, clientId: loan.clientId })
+        : null
+      if (debtReview) {
+        await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: loan.id, result: "skipped", error: debtReview })
         continue
       }
     }
@@ -278,6 +288,7 @@ export async function replayAutomationLog(
           where: { id: entityId, tenantId },
           select: {
             reference: true,
+            clientId: true,
             status: true,
             ncaRegime: true,
             daysInArrears: true,
@@ -291,6 +302,10 @@ export async function replayAutomationLog(
           if (!eligibility.eligible) {
             throw new Error(`Section 129 replay blocked: ${eligibility.reason}`)
           }
+          const debtReview = loan.clientId
+            ? await section129DebtReviewReason(prisma, { tenantId, clientId: loan.clientId })
+            : null
+          if (debtReview) throw new Error(`Section 129 replay blocked: ${debtReview}`)
         }
         await actionCreateTask(rule, { type: "loan", id: entityId, ref: loan.reference }, tenantId)
         break

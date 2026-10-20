@@ -21,6 +21,7 @@ import {
   type ReminderDelivery,
 } from "@/lib/collections/manual-reminder-outcome"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { staffMessageRefusal } from "@/lib/collections/client-holds"
 
 export async function POST(
   req: NextRequest,
@@ -64,6 +65,13 @@ export async function POST(
     // is not the reason.
     if (!hasClientBorrower(loan)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
+
+    // A death or a debt-review notice (consumer-wide) refuses a staff message
+    // outright, with the reason. Arrangement and attorney-referred loans stay allowed.
+    const refusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId: loan.client.id })
+    if (refusal) {
+      return NextResponse.json({ error: `Cannot send a collections reminder: ${refusal}.` }, { status: 409 })
     }
 
     // Collections/dunning reminders are for accounts with arrears to collect —

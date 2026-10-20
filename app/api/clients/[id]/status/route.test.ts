@@ -5,11 +5,14 @@ const requireApiRoleMock = vi.fn()
 const clientFindFirstMock = vi.fn()
 const clientUpdateMock = vi.fn()
 const logAuditMock = vi.fn()
-const contactUpdateManyMock = vi.fn()
-const tx = {
-  client: { update: (a: unknown) => clientUpdateMock(a) },
-  contact: { updateMany: (a: unknown) => contactUpdateManyMock(a) },
-}
+const blockMock = vi.fn()
+const releaseMock = vi.fn()
+const tx = { client: { update: (a: unknown) => clientUpdateMock(a) } }
+// The helpers' own behaviour is proved on real Postgres (lib/clients/deceased-contacts.integration.test.ts).
+vi.mock("@/lib/clients/deceased-contacts", () => ({
+  blockContactsForDeceasedClient: (...a: unknown[]) => blockMock(...a),
+  releaseContactsForRevivedClient: (...a: unknown[]) => releaseMock(...a),
+}))
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: (r: string) => requireApiRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({
@@ -46,7 +49,8 @@ beforeEach(() => {
     Promise.resolve({ id: "c1", ...a.data })
   )
   logAuditMock.mockResolvedValue(undefined)
-  contactUpdateManyMock.mockResolvedValue({ count: 1 })
+  blockMock.mockResolvedValue(1)
+  releaseMock.mockResolvedValue(1)
 })
 
 describe("PATCH /api/clients/[id]/status — authorization", () => {
@@ -105,18 +109,15 @@ describe("PATCH /api/clients/[id]/status — recording a death", () => {
 })
 
 describe("PATCH /api/clients/[id]/status — a death silences every messaging channel", () => {
-  it("blocks the client's Contact in the same transaction, so the inbox cannot message the estate", async () => {
+  it("blocks the client's Contact inside the same transaction, so the inbox cannot message the estate", async () => {
     await PATCH(request({ deceased: true, reason: "Death certificate received" }), ctx)
 
-    expect(contactUpdateManyMock).toHaveBeenCalledOnce()
-    const arg = contactUpdateManyMock.mock.calls[0][0] as { where: unknown; data: Record<string, unknown> }
-    expect(arg.where).toEqual({ tenantId: "t1", clientId: "c1", status: { not: "BLOCKED" } })
-    expect(arg.data).toMatchObject({ status: "BLOCKED", blockedReason: "DECEASED: client death recorded" })
-    expect(arg.data.blockedAt).toBeInstanceOf(Date)
+    expect(blockMock).toHaveBeenCalledWith(tx, { tenantId: "t1", clientId: "c1" })
+    expect(releaseMock).not.toHaveBeenCalled()
   })
 
   it("records how many contacts it blocked in the audit row", async () => {
-    contactUpdateManyMock.mockResolvedValue({ count: 2 })
+    blockMock.mockResolvedValue(2)
     await PATCH(request({ deceased: true, reason: "Death certificate received" }), ctx)
 
     expect(logAuditMock).toHaveBeenCalledWith(
@@ -125,24 +126,23 @@ describe("PATCH /api/clients/[id]/status — a death silences every messaging ch
     )
   })
 
-  it("leaves a Contact blocked for another reason alone when the death is reversed, and re-opens only the ones it blocked", async () => {
-    clientFindFirstMock.mockResolvedValue({
-      id: "c1", firstName: "T", lastName: "C", blacklisted: false, deceasedAt: new Date("2026-08-01"),
-    })
+  it("re-opens only what the death blocked when it is reversed, passing the death date it predates", async () => {
+    const deceasedAt = new Date("2026-08-01")
+    clientFindFirstMock.mockResolvedValue({ id: "c1", firstName: "T", lastName: "C", blacklisted: false, deceasedAt })
     await PATCH(request({ deceased: false, reason: "Recorded against the wrong client" }), ctx)
 
-    const arg = contactUpdateManyMock.mock.calls[0][0] as { where: unknown; data: Record<string, unknown> }
-    expect(arg.where).toEqual({ tenantId: "t1", clientId: "c1", status: "BLOCKED", blockedReason: "DECEASED: client death recorded" })
-    expect(arg.data).toEqual({ status: "CLIENT", blockedAt: null, blockedReason: null })
+    expect(releaseMock).toHaveBeenCalledWith(tx, { tenantId: "t1", clientId: "c1", deceasedAt })
+    expect(blockMock).not.toHaveBeenCalled()
   })
 
   it("does not touch Contacts when blacklisting", async () => {
     await PATCH(request({ blacklisted: true, reason: "Confirmed first-party fraud" }), ctx)
-    expect(contactUpdateManyMock).not.toHaveBeenCalled()
+    expect(blockMock).not.toHaveBeenCalled()
+    expect(releaseMock).not.toHaveBeenCalled()
   })
 
-  it("rolls everything back and writes no audit row when the Contact block fails", async () => {
-    contactUpdateManyMock.mockRejectedValue(new Error("db down"))
+  it("returns 500 and writes no audit row when the Contact block fails", async () => {
+    blockMock.mockRejectedValue(new Error("db down"))
     const res = await PATCH(request({ deceased: true, reason: "x" }), ctx)
 
     expect(res.status).toBe(500)

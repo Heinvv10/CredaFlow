@@ -41,13 +41,25 @@ promise-to-pay tracking, and arrangement monitoring.
   created inline (type `"promise_to_pay"`) in
   `components/collections/LogContactButton.tsx`. `promiseToPay.ts` only reads
   them back — don't add a write path there.
-- **Every reminder cron selects loans through `remindableLoanWhere()`
-  (`dunning-holds.ts`)**: ACTIVE, stage not PAYMENT_ARRANGEMENT /
-  ATTORNEY_REFERRED / WRITTEN_OFF, no ACTIVE `PaymentArrangement`, client not
-  deceased, no debt-review notice (`Loan.debtReviewNoticeAt`, set only by
-  `app/api/loans/[id]/debt-review`). A new reminder path uses it; never
-  re-write the filter. Complaints do not hold dunning (decided 2026-10-19).
-  Recording a death also BLOCKs the client's Contact (`lib/clients/deceased-contacts.ts`).
+- **Dunning holds: one rule per path, all in `dunning-holds.ts` / `client-holds.ts`.**
+  - *Automated reminders* (the `reminders` cron, `payment-reminders`) select
+    through `remindableLoanWhere()`: ACTIVE, stage not ATTORNEY_REFERRED /
+    WRITTEN_OFF, no ACTIVE `PaymentArrangement`, no active `PaymentPlan`, client
+    not deceased, and no debt-review notice on this loan or ANY loan of the
+    client (consumer-wide). PAYMENT_ARRANGEMENT is not a hold by itself: the
+    stage never moves back, the ACTIVE arrangement decides. A new reminder path
+    uses it; never re-write the filter.
+  - *Escalation* still flips DEFAULTED at 60 DPD, but skips the borrower's
+    `loan_overdue` notice for a held loan (`isLoanHeld`) and reports it.
+  - *Staff messages* (manual reminder, collections-stage WhatsApp) refuse with
+    409 and the reason for a deceased client or a debt-review notice
+    (`staffMessageRefusal`). Arrangement and attorney-referred loans stay open.
+  - *Section 129* is blocked while a debt-review notice is on any loan of the
+    client: single and bulk routes, the automation `ISSUE_SECTION_129` task and
+    the dispatch-time recheck (`section129DebtReviewReason`).
+  - Complaints do not hold dunning (decided 2026-10-19). The notice is set and
+    cleared only by `app/api/loans/[id]/debt-review` (audited). Recording a
+    death also BLOCKs the client's Contact (`lib/clients/deceased-contacts.ts`).
 - **Notifications go through `lib/notifications`** — never call SMS/email
   providers directly from this module; you'd bypass channel preferences,
   quiet-hours, and the audit trail.

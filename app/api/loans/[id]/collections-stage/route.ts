@@ -21,6 +21,7 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { collectionsStageRank } from "@/lib/collections/stages"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { staffMessageRefusal } from "@/lib/collections/client-holds"
 
 const VALID_STAGES = [
   "SOFT_REMINDER",
@@ -101,6 +102,11 @@ export async function PATCH(
         // The collections ladder is the consumer NCA process; an entity borrower is refused.
         if (!hasClientBorrower(loan)) return { kind: "ENTITY_BORROWER" as const }
 
+        // Every stage this route sets sends the borrower a WhatsApp, so a death
+        // or a debt-review notice (consumer-wide) refuses it before any write.
+        const refusal = await staffMessageRefusal(tx, { tenantId: tenant.id, clientId: loan.client.id })
+        if (refusal) return { kind: "HELD" as const, reason: refusal }
+
         const collectionsEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
         if (!collectionsEligibility.eligible) {
           return { kind: "INELIGIBLE" as const, reason: collectionsEligibility.reason }
@@ -147,6 +153,9 @@ export async function PATCH(
       }
       if (transition.kind === "ENTITY_BORROWER") {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+      }
+      if (transition.kind === "HELD") {
+        return NextResponse.json({ error: `Cannot apply a collections stage: ${transition.reason}.` }, { status: 409 })
       }
       if (transition.kind === "INELIGIBLE") {
         return NextResponse.json(

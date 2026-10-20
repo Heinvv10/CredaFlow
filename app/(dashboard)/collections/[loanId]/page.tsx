@@ -23,6 +23,7 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { getSection129IssuanceAvailability } from "@/lib/collections/section129-artifact"
 import { latestSection129Failures } from "@/lib/collections/section129-failures"
 import { hasClientBorrower } from "@/lib/borrower"
+import { section129DebtReviewReason, staffMessageRefusal } from "@/lib/collections/client-holds"
 import { EntityBorrowerNotice } from "@/components/loans/EntityBorrowerNotice"
 
 async function getLoanDetail(loanId: string, tenantId: string) {
@@ -67,7 +68,7 @@ export default async function CollectionDetailPage({ params }: { params: Promise
   const section129Eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
 
   // Fetch arrangement + referral + (if pending) the current officer + requester
-  const [arrangement, referral, session, requester, section129Availability, section129Failures] = await Promise.all([
+  const [arrangement, referral, session, requester, section129Availability, section129Failures, messageRefusal, debtReviewBlock] = await Promise.all([
     prisma.paymentArrangement.findFirst({ where: { loanId, tenantId } }),
     prisma.attorneyReferral.findUnique({ where: { loanId } }),
     writeOffPending ? auth() : Promise.resolve(null),
@@ -76,15 +77,17 @@ export default async function CollectionDetailPage({ params }: { params: Promise
       : Promise.resolve(null),
     getSection129IssuanceAvailability(tenantId, loan.id),
     latestSection129Failures(tenantId, [loan.id]),
+    staffMessageRefusal(prisma, { tenantId, clientId: loan.client.id }),
+    section129DebtReviewReason(prisma, { tenantId, clientId: loan.client.id }),
   ])
   const section129Failure = section129Failures.get(loan.id) ?? null
-  const section129Enabled = section129Eligibility.eligible && section129Availability.canReserve
+  const section129Enabled = section129Eligibility.eligible && section129Availability.canReserve && !debtReviewBlock
   // Time alone lifts the DPD threshold and the re-issue cooldown; NON_NCA, status and an active issuance do not.
-  const section129BlockTemporary = section129Eligibility.reason
+  const section129BlockTemporary = debtReviewBlock ? false : section129Eligibility.reason
     ? section129Eligibility.temporary
     : section129Availability.blockedBy !== "ACTIVE_ISSUANCE" && Boolean(section129Availability.cooldownEndsAt)
   // One reason for the disabled button's tooltip and the stage panel's hint.
-  const section129BlockReason = section129Enabled ? null : (section129Eligibility.reason
+  const section129BlockReason = section129Enabled ? null : (debtReviewBlock ? `Cannot issue a Section 129 notice: ${debtReviewBlock}.` : section129Eligibility.reason
     ?? (section129Availability.blockedBy === "ACTIVE_ISSUANCE"
       ? `An issuance is already ${section129Availability.activeLifecycle?.toLowerCase().replaceAll("_", " ") ?? "in progress"}.`
       : section129Availability.cooldownEndsAt
@@ -202,12 +205,11 @@ export default async function CollectionDetailPage({ params }: { params: Promise
         </div>
       )}
 
-      {loan.debtReviewNoticeAt && (
-        <div role="status" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-[13px] text-amber-800">
-          <p className="font-semibold">Under debt review (notice received {formatDate(loan.debtReviewNoticeAt)})</p>
+      {messageRefusal && (
+        <div role="status" className="mb-6 rounded-lg border border-[var(--cf-warning)] p-4 text-[13px] text-[var(--cf-warning)]">
+          <p className="font-semibold">Automated reminders and staff messages are paused: {messageRefusal}.</p>
           <p className="mt-1">
-            {loan.debtReviewNoticeRef ? `Counsellor reference ${loan.debtReviewNoticeRef}. ` : ""}
-            Automated reminders to this borrower are paused. Record or clear the notice on the loan page.
+            <Link href={`/loans/${loan.id}`} className="underline">Open the loan page</Link> to see or clear the debt-review notice.
           </p>
         </div>
       )}

@@ -8,6 +8,10 @@ const loanNoteCreateMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const reverseReferralCommissionMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
+const isLoanHeldMock = vi.fn()
+vi.mock("@/lib/collections/client-holds", () => ({
+  isLoanHeld: (...a: unknown[]) => isLoanHeldMock(...a),
+}))
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -60,9 +64,24 @@ beforeEach(() => {
   triggerNotificationMock.mockResolvedValue(undefined)
   reverseReferralCommissionMock.mockResolvedValue(undefined)
   chargesOutstandingAtMock.mockResolvedValue(0)
+  isLoanHeldMock.mockResolvedValue(false)
 })
 
 describe("processEscalations", () => {
+  // F1: the DEFAULTED flip is business logic; the borrower notification is not sent to a held loan.
+  it("a held loan is still flipped to DEFAULTED and noted, but the borrower is not notified, and the skip is reported", async () => {
+    isLoanHeldMock.mockResolvedValue(true)
+
+    const r = await processEscalations()
+
+    expect(isLoanHeldMock).toHaveBeenCalledWith({ tenantId: "tenant_acme", loanId: "loan_1" })
+    expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_1", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+    expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+    expect(r.processed).toBe(1)
+    expect(r.details.join(" ")).toContain("borrower notification skipped (dunning hold)")
+  })
+
   it("the 60-day DEFAULTED rule triggers loan_overdue with data.amount = loan.arrearsAmount (WA vars fix)", async () => {
     const r = await processEscalations()
 
