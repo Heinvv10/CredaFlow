@@ -24,7 +24,7 @@ describe("sendWhatsAppForTenant", () => {
   // paired — so those sends fail regardless of how many Meta templates are
   // approved. Registering templates cannot fix a caller that never asks Meta.
   it("routes to the Cloud API when the tenant is on WA_CLOUD", async () => {
-    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_CLOUD" } as never)
+    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_CLOUD", whatsappEnabled: true } as never)
 
     const r = await sendWhatsAppForTenant({
       tenantId: "tn1", to: "27821234567", message: "hi", contactId: "ct1",
@@ -38,7 +38,7 @@ describe("sendWhatsAppForTenant", () => {
   })
 
   it("routes to the bridge when the tenant is still on WA_UNOFFICIAL", async () => {
-    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_UNOFFICIAL" } as never)
+    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_UNOFFICIAL", whatsappEnabled: true } as never)
 
     const r = await sendWhatsAppForTenant({ tenantId: "tn1", to: "27821234567", message: "hi" })
 
@@ -51,7 +51,7 @@ describe("sendWhatsAppForTenant", () => {
   // Dropping it makes every send resolve to a null window and fail with
   // WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE even when the customer wrote minutes ago.
   it("forwards contactId so the 24h window can be read", async () => {
-    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_CLOUD" } as never)
+    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_CLOUD", whatsappEnabled: true } as never)
     await sendWhatsAppForTenant({ tenantId: "tn1", to: "27821234567", message: "hi", contactId: "ct9" })
     expect(vi.mocked(sendWhatsAppCloudMessage).mock.calls[0][0].contactId).toBe("ct9")
   })
@@ -85,5 +85,32 @@ describe("sendWhatsAppForTenant", () => {
     }
     expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
     expect(sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+})
+
+// F4: the s129 courtesy notification and payment-reminders both land here. The
+// tenant's own WhatsApp switch must stop them on either provider, and WA_ENABLED
+// "false" must too (isWaEnabled is mocked true above; the explicit-false guard
+// is the shared kill switch, not isWaEnabled).
+describe("sendWhatsAppForTenant kill switches", () => {
+  it("refuses both providers when the tenant has whatsappEnabled=false", async () => {
+    for (const waProvider of ["WA_CLOUD", "WA_UNOFFICIAL"]) {
+      vi.mocked(getCommsSettings).mockResolvedValue({ waProvider, whatsappEnabled: false } as never)
+      const r = await sendWhatsAppForTenant({ tenantId: "tn1", to: "27821234567", message: "hi" })
+      expect(r.ok, waProvider).toBe(false)
+      expect(r.providerOutcome, waProvider).toBe("DEFINITELY_REJECTED")
+      expect(r.error, waProvider).toMatch(/whatsapp\s+disabled/i)
+    }
+    expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessage).not.toHaveBeenCalled()
+  })
+
+  it("refuses Cloud when WA_ENABLED=false even though isWaEnabled is mocked on", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+    vi.mocked(getCommsSettings).mockResolvedValue({ waProvider: "WA_CLOUD", whatsappEnabled: true } as never)
+    const r = await sendWhatsAppForTenant({ tenantId: "tn1", to: "27821234567", message: "hi" })
+    vi.unstubAllEnvs()
+    expect(r.ok).toBe(false)
+    expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
   })
 })

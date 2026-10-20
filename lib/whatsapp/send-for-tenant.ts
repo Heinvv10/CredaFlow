@@ -1,6 +1,7 @@
 import { getCommsSettings } from "@/lib/inbox/settings"
 import { isWaEnabled, sendWhatsAppMessage, type WaResult } from "@/lib/whatsapp"
 import { sendWhatsAppCloudMessage } from "@/lib/whatsapp-cloud"
+import { whatsappRefusal } from "@/lib/whatsapp/kill-switch"
 
 /**
  * Send a WhatsApp message over whichever transport the tenant is actually
@@ -42,19 +43,21 @@ export async function sendWhatsAppForTenant(opts: {
   contactId?: string
   signal?: AbortSignal
 }): Promise<WaResult> {
-  // The env kill-switch comes free from inside sendWhatsAppMessage.
+  // The bridge's env kill-switch comes free from inside sendWhatsAppMessage.
   // sendWhatsAppCloudMessage has no equivalent, so routing to it would
   // silently bypass WA_ENABLED — and this cron runs on EVERY non-client
   // container, non-production ones included. With a non-production DB restored
   // from a production backup (whatsappEnabled=true, waProvider=WA_CLOUD, sealed
   // creds) that means real WhatsApp messages to real borrowers.
+  // This caller has always required WA_ENABLED=true for BOTH providers; that
+  // stays. The shared kill switch below adds the tenant's whatsappEnabled.
   if (!isWaEnabled()) {
     return { ok: false, error: "WhatsApp disabled", providerOutcome: "DEFINITELY_REJECTED" }
   }
 
-  let provider: string
+  let settings: Awaited<ReturnType<typeof getCommsSettings>>
   try {
-    provider = (await getCommsSettings(opts.tenantId)).waProvider
+    settings = await getCommsSettings(opts.tenantId)
   } catch (e) {
     // Both callers inspect a WaResult and one writes its audit LoanNote from
     // it, so this must never throw: a throw would be recorded as "not sent"
@@ -66,7 +69,10 @@ export async function sendWhatsAppForTenant(opts: {
     }
   }
 
-  if (provider === "WA_CLOUD") {
+  const refusal = whatsappRefusal(settings)
+  if (refusal) return { ok: false, error: refusal, providerOutcome: "DEFINITELY_REJECTED" }
+
+  if (settings.waProvider === "WA_CLOUD") {
     return sendWhatsAppCloudMessage({
       tenantId: opts.tenantId,
       to: opts.to,

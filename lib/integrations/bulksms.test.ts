@@ -118,6 +118,22 @@ describe("sendSms — transport backstop when the SMS channel is off", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it("UNSET env fails closed: sendSms refuses with no provider call (SMS is off by policy)", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("BULKSMS_DRY_RUN", "")
+    delete process.env.BULKSMS_DRY_RUN
+    tenantConfigFindUnique.mockResolvedValue({ bulkSmsKey: "test-user:test-password" })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(sendSms({ tenantId: "tn1", to: "27821234567", message: "test" })).resolves.toEqual({
+      ok: false,
+      error: "SMS not enabled",
+      providerOutcome: "DEFINITELY_REJECTED",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("returns no simulated success — that is the whole point of the guard", async () => {
     vi.stubEnv("BULKSMS_DRY_RUN", "true")
 

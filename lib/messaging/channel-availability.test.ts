@@ -145,6 +145,19 @@ describe("getChannelAvailability", () => {
     expect(r.WHATSAPP).toEqual({ enabled: true, toValue: "27821234567@s.whatsapp.net" })
   })
 
+  it("BULKSMS_DRY_RUN unset disables SMS (fails closed: SMS is off unless explicitly enabled)", async () => {
+    delete process.env.BULKSMS_DRY_RUN
+
+    const r = await getChannelAvailability({
+      tenantId,
+      contact: { ...baseContact, primaryEmail: "a@b.com", primaryPhone: "+27821234567" },
+      whatsappEnabled: true,
+    })
+
+    expect(r.SMS).toEqual({ enabled: false, toValue: "+27821234567", reason: "SMS not enabled" })
+    expect(r.EMAIL).toEqual({ enabled: true, toValue: "a@b.com" })
+  })
+
   it("WHATSAPP toValue falls back to primaryPhone when primaryWaJid is null", async () => {
     const r = await getChannelAvailability({
       tenantId,

@@ -29,6 +29,9 @@ vi.mock("@/lib/prisma", () => ({
     client: { findUnique: (a: unknown) => m.clientFindUnique(a) },
     notificationLog: { create: (a: unknown) => m.notificationLogCreate(a) },
     contactIdentity: { findFirst: vi.fn() },
+    // The legacy loan_overdue consent gate (lib/notifications/legacy-consent.ts)
+    // looks the client's Contact up; none on file means nothing is suppressed.
+    contact: { findFirst: vi.fn() },
   },
 }))
 vi.mock("@/lib/config/identity", async () => {
