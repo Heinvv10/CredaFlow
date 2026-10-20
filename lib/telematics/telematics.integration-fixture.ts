@@ -7,7 +7,7 @@
  * Every value is synthetic. Not a test file.
  */
 import { randomUUID } from "node:crypto"
-import type { PrismaClient, TelematicsAlertKind } from "@prisma/client"
+import { PrismaClient, type TelematicsAlertKind } from "@prisma/client"
 import { expect } from "vitest"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { fromDayNumber, toDayNumber } from "@/lib/asset-finance/dates"
@@ -18,6 +18,13 @@ import { cleanupDealFixture, dealFixtureTenantId } from "@/lib/asset-finance/dea
 import { START_HOURS } from "./__fixtures__/simulated-telematics-scenarios"
 import { registerTrackerDevice } from "./devices"
 import type { NormalisedTelematicsEvent } from "./types"
+
+/**
+ * The suites' client. Its errors carry the database's message only: the default
+ * format quotes the calling source, so a refusal regex written beside its
+ * attack (ruleRefuses) would match its own text whatever the database said.
+ */
+export const telematicsTestClient = () => new PrismaClient({ errorFormat: "minimal" })
 
 export const today = () => sastCalendarDate(new Date())
 export const daysAgo = (n: number) => fromDayNumber(toDayNumber(today()) - n)

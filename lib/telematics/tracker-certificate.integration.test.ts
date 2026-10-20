@@ -8,21 +8,21 @@
  *     npx vitest run lib/telematics/tracker-certificate.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient } from "@prisma/client"
+import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import { approveLease, leaseBody, signLease, type LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import { bookingRoutes, type SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
 import { pollTenant } from "./poll"
 import { trackerHeartbeat } from "./devices"
-import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice } from "./telematics.integration-fixture"
+import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient } from "./telematics.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
-const db = RUN ? new PrismaClient() : null
+const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 let dealId = ""

@@ -8,19 +8,19 @@
  *     npx vitest run lib/telematics/devices.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient } from "@prisma/client"
+import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import { registerTrackerDevice, removeTrackerDevice, trackerHeartbeat } from "./devices"
-import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, today } from "./telematics.integration-fixture"
+import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient, today } from "./telematics.integration-fixture"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
-const db = RUN ? new PrismaClient() : null
+const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 let deviceId = ""

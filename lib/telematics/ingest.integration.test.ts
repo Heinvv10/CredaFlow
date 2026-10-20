@@ -9,7 +9,7 @@
  *     npx vitest run lib/telematics/ingest.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient } from "@prisma/client"
+import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
@@ -19,14 +19,14 @@ import { pollTenant } from "./poll"
 import { ingestEvent } from "./ingest"
 import { acceptHeldReading, rejectHeldReading } from "./held-readings"
 import { getTelematicsProvider } from "./registry"
-import { bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, loanStartDate } from "./telematics.integration-fixture"
+import { bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, loanStartDate, telematicsTestClient } from "./telematics.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
-const db = RUN ? new PrismaClient() : null
+const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 const ids = { rollbackLoan: "", spikeLoan: "", rollbackDevice: "", spikeDevice: "", start: "" }

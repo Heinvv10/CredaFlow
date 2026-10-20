@@ -11,7 +11,7 @@
  *     npx vitest run lib/telematics/guards.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient, type TelematicsEventKind } from "@prisma/client"
+import type { PrismaClient, TelematicsEventKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { attempt, ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
@@ -19,7 +19,7 @@ import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration
 import { pollTenant } from "./poll"
 import { acknowledgeAlert } from "./alerts"
 import { rejectHeldReading } from "./held-readings"
-import { alertEvent, bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice } from "./telematics.integration-fixture"
+import { alertEvent, bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient } from "./telematics.integration-fixture"
 import { ingestEvent } from "./ingest"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -27,7 +27,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
-const db = RUN ? new PrismaClient() : null
+const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 const ids = { loanA: "", loanB: "", deviceA: "", deviceB: "", held: "", rejected: "", alert: "" }

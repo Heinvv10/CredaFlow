@@ -11,7 +11,7 @@
  *     npx vitest run lib/telematics/meter-route.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient, type TrackerDevice } from "@prisma/client"
+import type { PrismaClient, TrackerDevice } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dbDate } from "@/lib/asset-finance/dates"
 import { ruleAdmits, ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
@@ -22,7 +22,7 @@ import { pollTenant } from "./poll"
 import { ingestEvent } from "./ingest"
 import { PACE_TABLE } from "./__fixtures__/pace-table"
 import {
-  bookInstalmentSale, bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, eveningOf, installDevice, meterEvent, today,
+  bookInstalmentSale, bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, eveningOf, installDevice, meterEvent, telematicsTestClient, today,
 } from "./telematics.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -30,7 +30,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
-const db = RUN ? new PrismaClient() : null
+const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
 let lease: { loanId: string; device: TrackerDevice }
