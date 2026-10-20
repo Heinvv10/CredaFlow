@@ -45,6 +45,7 @@ export const ENTITY_DOCUMENT_LABELS: Record<EntityDocumentType, string> = {
   SIGNED_RESOLUTION: "Signed resolution",
   LEGAL_DOCUMENT: "Legal document",
   OTHER: "Other",
+  POPIA_CONSENT: "POPIA consent (signed)",
 }
 
 /** "UNDER_REVIEW" → "Under review". */

@@ -159,7 +159,10 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
    excess-hours and wear billing, asset return.
 4. **Repossession and remarketing; journal export and IsaFlow integration.**
 5. **Dealer/broker portal, tracker/telematics integration, valuation
-   feeds.**
+   feeds.** Spec `SLICE5.md`, one PR per part. Part A (dealer/broker portal
+   and commission) built; legal and tax review items listed there, and the
+   portal is demo-lender-only until dealer 2FA ships. Part B (telematics) and
+   Part C (valuation guides) pending.
 
 ## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
 

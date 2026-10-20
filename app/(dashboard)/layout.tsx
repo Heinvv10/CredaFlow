@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { countLoansInArrears } from "@/lib/reports/book-arrears"
 import { getSession } from "@/lib/auth-session"
 import { redirectStaleSession } from "@/lib/auth-guards"
@@ -54,6 +54,8 @@ export default async function DashboardLayout({
   if (session.user.role === "CLIENT") {
     redirect("/portal")
   }
+  // A dealer session never reaches the staff workspace (lib/proxy/dealer-host.ts).
+  if (session.user.role === "DEALER") notFound()
   const tenantId = session.user.tenantId
   if (!tenantId) {
     redirectStaleSession()

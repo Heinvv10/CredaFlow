@@ -4,6 +4,7 @@
  * missing contacts, pending sends and ambiguous outcomes remain staff-visible.
  */
 import { Prisma, type AssetFinanceRateNotice } from "@prisma/client"
+import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import type { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
@@ -105,6 +106,8 @@ export async function dispatchRepriceNotices(
         tenantId,
         id: { in: notice.recipientClientIds },
         deceasedAt: null,
+        // Never contact details a dealer typed that staff have not verified (lib/clients/dealer-contact.ts).
+        ...TRUSTED_CONTACT_WHERE,
         ...(loan?.entityId
           ? {
               entityRelationships: {

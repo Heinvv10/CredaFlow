@@ -18,6 +18,7 @@ import {
   type RouteDeliveryOutcome,
 } from "@/lib/messaging/route-delivery"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         agreementExecutedDocumentId: true,
         agreementExecutedDocumentSha256: true,
         agreementCountersignedAt: true,
-        client: { select: { email: true, firstName: true, lastName: true } },
+        client: { select: { email: true, firstName: true, lastName: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
       },
     })
     if (!application) {
@@ -64,6 +65,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     // The credit agreement is a consumer NCA document; an entity borrower is refused.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
+    // Contact details a dealer typed may be the dealer's own: nothing goes to
+    // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+    if (dealerContactUnverified(application.client)) {
+      return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED }, { status: 409 })
     }
     if (
       !application.agreementCountersignedAt

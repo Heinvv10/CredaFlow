@@ -125,6 +125,25 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   outranks the slug in host resolution) is normalised and may not be a host the
   deployment serves or another lender's subdomain host
   (`lib/config/tenant-domain.ts`).
+- **Dealer portal.** A lender's dealers and brokers (`Dealer`, `DealerUser`;
+  asset finance slice 5, `docs/asset-finance/SLICE5.md`) are a third
+  principal, role `DEALER`, which is not a `UserRole`: every staff role gate
+  refuses it. Like operator staff they sign in and work only on their own
+  host, `DEALER_APP_HOST` (`/dealer`, `/api/dealer`;
+  `lib/proxy/dealer-host.ts`), which runs on the staff container and resolves
+  the lender through `TENANT_HOST_MAP`; off it the dealer paths 404 and a
+  dealer session is refused, and on it any other session 404s. Unlike them a
+  dealer user belongs to one lender and one dealer, and every refusal of a
+  signed-in dealer is 404 (`lib/dealer/guards.ts`). Revocation is
+  `DealerUser.tokenVersion`, re-checked on every request
+  (`lib/dealer/principal.ts`). Dealer actions are audited with no `userId`
+  and `newValue.actor` naming the dealer user. A dealer captures borrowers,
+  assets and draft deals and hands them over; the lender's staff accept the
+  handover and run the unchanged credit flow. Commission accrues, claws back
+  and nets into payable runs in the database. Passwords only, so the portal
+  is allowed only on a demo lender (CHECK
+  `TenantConfig_dealer_portal_demo_only`) until dealer 2FA ships. Module
+  rules: `lib/dealer/.claude.md`.
 - **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`

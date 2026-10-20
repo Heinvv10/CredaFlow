@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requiresPoFundingFacts } from "@/lib/applications/po-funding"
 import { prisma } from "@/lib/prisma"
+import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
@@ -584,8 +585,11 @@ export async function POST(req: NextRequest) {
         // Cooldown: at most one notice per on-file address per 6h, so the public
         // form can't be turned into an inbox-spam vector for a known ID/email.
         const notifyClient = existingByEmail ?? existingById
+        // Contact details a dealer typed may be the dealer's own: no notice
+        // goes to them until staff verify them (lib/clients/dealer-contact.ts).
+        const noticeWithheld = notifyClient !== null && dealerContactUnverified(notifyClient)
         let identityNoticeSent = false
-        if (notifyClient) {
+        if (notifyClient && !noticeWithheld) {
           try {
             // Atomic 6h per-recipient throttle. Claim a NotificationThrottle row
             // for this recipient's current 6h window BEFORE sending: the unique
@@ -680,6 +684,7 @@ export async function POST(req: NextRequest) {
             matchedByIdNumberClientId: existingById?.id ?? null,
             noticeRecipientClientId: notifyClient?.id ?? null,
             noticeSent: identityNoticeSent,
+            ...(noticeWithheld ? { noticeWithheld: "dealer_contact_unverified" } : {}),
           },
           ipAddress: ip,
         })

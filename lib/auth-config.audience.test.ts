@@ -29,4 +29,12 @@ describe("edge jwt callback host audience", () => {
     expect(await jwt({ token: staff })).toEqual(staff)
     expect(await jwt({ token: client })).toEqual(client)
   })
+
+  it("a DEALER token: never on the client host; kept on the staff container, which runs the dealer host", async () => {
+    const dealer = { id: "du1", role: "DEALER", tenantId: "t1", dealerId: "d1" }
+    vi.stubEnv("APP_MODE", "client")
+    expect(await jwt({ token: dealer })).toBeNull()
+    vi.stubEnv("APP_MODE", "staff")
+    expect(await jwt({ token: dealer })).toEqual(dealer)
+  })
 })

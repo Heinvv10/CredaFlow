@@ -70,6 +70,10 @@ model BusinessEntity {
   province              String?
   postalCode            String?
   createdById           String?
+  // Captured through the dealer portal by this dealer (provenance: a dealer
+  // deal may name only its own dealer's borrowers, guardAssetDealDealer).
+  createdByDealerId     String?
+  createdByDealer       Dealer?            @relation(fields: [tenantId, createdByDealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
@@ -357,6 +361,9 @@ enum EntityDocumentType {
   SIGNED_RESOLUTION
   LEGAL_DOCUMENT
   OTHER
+  // A data subject's signed POPIA consent form, uploaded by a dealer
+  // (DealerConsentAttestation). Added in its own migration.
+  POPIA_CONSENT
 }
 
 // A document about exactly one entity or natural borrower, or one of their
@@ -378,7 +385,7 @@ model EntityDocument {
   fileSize       Int
   storagePath    String
   contentSha256  String
-  uploadedByType String // "staff" | "client"
+  uploadedByType String // "staff" | "client" | "dealer" (uploadedById = the DealerUser)
   uploadedById   String
   verifiedAt     DateTime?
   verifiedById   String?
@@ -389,6 +396,8 @@ model EntityDocument {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   checklistEvidence PayoutChecklistItem[] @relation("PayoutChecklistEvidence")
   commercialCancellations CommercialCancellation[]
+  dealerConsentAttestations DealerConsentAttestation[] @relation("DealerConsentDocument")
+  dealerDocumentRequests    DealerDocumentRequest[]    @relation("DealerDocumentRequestFulfilled")
   legalMatterSteps  LegalMatterStep[]
   maintenanceClaims MaintenanceClaim[]
   maintenanceRefunds MaintenanceFundMovement[] @relation("MaintenanceRefundEvidence")
@@ -455,6 +464,9 @@ model FinancedAsset {
   lenderNotedConfirmed  Boolean            @default(false)
   releasedAt            DateTime?
   createdById           String?
+  // Captured through the dealer portal by this dealer (guardAssetDealDealer).
+  createdByDealerId     String?
+  createdByDealer       Dealer?            @relation(fields: [tenantId, createdByDealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
@@ -571,6 +583,7 @@ model Supplier {
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   bankAccounts      SupplierBankAccount[]
+  dealer            Dealer?
   deals             AssetFinanceDeal[]
   legalMatters      LegalMatter[]
   maintenanceClaims MaintenanceClaim[]
@@ -711,13 +724,34 @@ model AssetFinanceDeal {
   approvalExceptions             Json                  @default("[]")
   decidedById                    String?
   decidedAt                      DateTime?
+  // A dealer deal's createdById is its dealerUserId (CHECK AssetFinanceDeal_dealer_pair).
   createdById                    String
+  // Dealer portal (slice 5 part A, guardAssetDealDealer): the dealer and its
+  // user, fixed at insert; when the dealer handed it to the lender; and the
+  // commission snapshot the database takes on the move into APPROVED (rate in
+  // force that day, base = the goods advance: asset price incl. VAT less
+  // deposit and trade-in, migration 20261019120300), never changed after.
+  dealerId                       String?
+  dealer                         Dealer?               @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealerUserId                   String?
+  dealerUser                     DealerUser?           @relation(fields: [tenantId, dealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealerSubmittedAt              DateTime?
+  dealerCommissionSource         DealerCommissionRateSource?
+  dealerCommissionRateId         String?
+  dealerCommissionRate           DealerCommissionRate? @relation(fields: [tenantId, dealerCommissionRateId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealerCommissionBps            Int?
+  dealerCommissionFlatCents      Int?
+  dealerCommissionBaseCents      Int?
+  dealerCommissionSnapshotAt     DateTime?
   createdAt                      DateTime              @default(now())
   updatedAt                      DateTime              @updatedAt
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   affordabilityAssessment AssetFinanceAffordabilityAssessment?
   checklist               PayoutChecklistItem[]
+  dealerCommissionLines   DealerCommissionLine[]
+  dealerConsentAttestations DealerConsentAttestation[]
+  dealerDocumentRequests  DealerDocumentRequest[]
   documentIssuances       AssetDocumentIssuance[]
   documents               EntityDocument[]
   financials              EntityFinancials?
@@ -728,6 +762,7 @@ model AssetFinanceDeal {
   @@unique([tenantId, applicationId])
   @@unique([tenantId, loanId])
   @@index([tenantId, status])
+  @@index([tenantId, dealerId, status])
   @@index([clientId])
 }
 

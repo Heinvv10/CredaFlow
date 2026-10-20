@@ -48,7 +48,7 @@ type GateSession = { user?: { role?: string | null; totpEnrolmentRequired?: bool
  * Sec-Fetch-Site: same-origin. A write that carries neither is refused: every
  * browser that runs the console sends at least one.
  */
-function crossSiteWrite(req: GateRequest): boolean {
+export function crossSiteWrite(req: Pick<GateRequest, "headers">): boolean {
   const origin = req.headers.get("origin")
   const site = req.headers.get("sec-fetch-site")
   if (!origin && !site) return true

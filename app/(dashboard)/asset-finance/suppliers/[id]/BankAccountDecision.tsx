@@ -9,11 +9,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { FormError, sendJson } from "@/components/asset-finance/register-form-controls"
 
 /**
- * Approve or reject a pending supplier bank account. Rendered only for a user
+ * Approve or reject a pending supplier (or, with `url`, dealer) bank account. Rendered only for a user
  * with decide_asset_finance who did not request the account; the API enforces
  * both rules again, and the database enforces the second.
  */
-export function BankAccountDecision({ accountId }: { accountId: string }) {
+export function BankAccountDecision({ accountId, url }: { accountId: string; url?: string }) {
   const router = useRouter()
   const [note, setNote] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function BankAccountDecision({ accountId }: { accountId: string }) {
   const decide = async (decision: "APPROVE" | "REJECT") => {
     setSaving(decision)
     setError(null)
-    const result = await sendJson(`/api/asset-finance/suppliers/bank-accounts/${accountId}/decide`, "POST", { decision, note })
+    const result = await sendJson(url ?? `/api/asset-finance/suppliers/bank-accounts/${accountId}/decide`, "POST", { decision, note })
     setSaving(null)
     if (!result.ok) {
       setError(result.error)

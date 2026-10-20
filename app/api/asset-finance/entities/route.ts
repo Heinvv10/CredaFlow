@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import { loadEntityCore } from "@/lib/asset-finance/entity-detail"
+import { createBusinessEntity } from "@/lib/asset-finance/entity-create"
 
 /** The tenant's business entities, newest first. */
 export async function GET(req: NextRequest) {
@@ -53,42 +52,16 @@ export async function POST(req: NextRequest) {
     const input = parseBusinessEntityInput(body)
     if ("errors" in input) return NextResponse.json({ error: "Invalid entity", fields: input.errors }, { status: 400 })
 
-    try {
-      const id = await prisma.$transaction(async (tx) => {
-        const created = await tx.businessEntity.create({
-          data: { tenantId: tenant.id, ...input.data, createdById: guard.user.id },
-          select: { id: true },
-        })
-        await logAuditStrict(
-          {
-            tenantId: tenant.id,
-            userId: guard.user.id,
-            userEmail: guard.user.email,
-            action: AuditAction.BUSINESS_ENTITY_CREATED,
-            entity: "BusinessEntity",
-            entityId: created.id,
-            newValue: {
-              type: input.data.type,
-              legalName: input.data.legalName,
-              registrationNumber: input.data.registrationNumber,
-              annualTurnover: input.data.annualTurnover,
-              totalAssetValue: input.data.totalAssetValue,
-              financialYearEnd: input.data.financialYearEnd?.toISOString().slice(0, 10) ?? null,
-            },
-          },
-          tx,
-        )
-        return created.id
-      })
-      return NextResponse.json(await loadEntityCore(tenant.id, id), { status: 201 })
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        return NextResponse.json(
-          { error: `A ${input.data.type} with registration number ${input.data.registrationNumber} already exists` },
-          { status: 409 },
-        )
-      }
-      throw error
+    const created = await createBusinessEntity(
+      { kind: "staff", tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email },
+      input.data,
+    )
+    if (created.kind === "duplicate") {
+      return NextResponse.json(
+        { error: `A ${input.data.type} with registration number ${input.data.registrationNumber} already exists` },
+        { status: 409 },
+      )
     }
+    return NextResponse.json(await loadEntityCore(tenant.id, created.id), { status: 201 })
   })
 }

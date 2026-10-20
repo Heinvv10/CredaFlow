@@ -10,7 +10,7 @@
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { isQuickQuoteEmbeddingHost, isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
-import { normaliseHost, operatorAppHost, parseTenantHostMap, staffAppHost } from "./deployment-urls"
+import { dealerAppHost, normaliseHost, operatorAppHost, parseTenantHostMap, staffAppHost } from "./deployment-urls"
 
 /** The one query the host rules make; the app client and the CLI's transaction both fit. */
 export type TenantHostLookup = {
@@ -56,7 +56,7 @@ function urlHost(value: string): string | null {
 /** Hosts this deployment serves by configuration, which no lender's domain may claim. */
 export function reservedDeploymentHosts(env: Readonly<Record<string, string | undefined>> = process.env): Set<string> {
   const hosts = new Set<string>(Object.keys(parseTenantHostMap(env.TENANT_HOST_MAP)))
-  for (const host of [operatorAppHost(env), staffAppHost(env)]) if (host) hosts.add(host)
+  for (const host of [operatorAppHost(env), staffAppHost(env), dealerAppHost(env)]) if (host) hosts.add(host)
   for (const name of URL_VARS) {
     const host = env[name]?.trim() ? urlHost(env[name]!.trim()) : null
     if (host) hosts.add(host)

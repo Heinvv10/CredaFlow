@@ -12,6 +12,7 @@
 import type { SigningOtpPurpose } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { isSha256Digest } from "@/lib/documents/content-integrity"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import type { OtpRecipient } from "./deliver"
 
 export const SIGNING_OTP_PURPOSES: readonly SigningOtpPurpose[] = ["AGREEMENT", "DEBIT_MANDATE", "DOCUMENT", "DEAL_DOCUMENT"]
@@ -34,16 +35,32 @@ export type SigningSubject = {
 
 export type SubjectResult = { ok: true; subject: SigningSubject } | { ok: false; status: number; error: string }
 
-const clientSelect = { select: { firstName: true, lastName: true, email: true, whatsapp: true } } as const
+const clientSelect = {
+  select: { firstName: true, lastName: true, email: true, whatsapp: true, createdByDealerId: true, dealerContactVerifiedAt: true },
+} as const
 
-const notAwaiting = (what: string): SubjectResult =>
+const notAwaiting = (what: string): Extract<SubjectResult, { ok: false }> =>
   ({ ok: false, status: 409, error: `This ${what} is not waiting for a signature.` })
 
+/** A code is never sent to contact details a dealer typed that staff have not verified (lib/clients/dealer-contact.ts). */
 export async function resolveSigningSubject(
   tenantId: string,
   purpose: SigningOtpPurpose,
   subjectId: string,
 ): Promise<SubjectResult> {
+  const resolved = await resolveSubject(tenantId, purpose, subjectId)
+  if (!resolved.ok) return resolved
+  if (dealerContactUnverified(resolved.contact)) return { ok: false, status: 409, error: DEALER_CONTACT_UNVERIFIED }
+  return { ok: true, subject: resolved.subject }
+}
+
+type Contact = { createdByDealerId: string | null; dealerContactVerifiedAt: Date | null }
+
+async function resolveSubject(
+  tenantId: string,
+  purpose: SigningOtpPurpose,
+  subjectId: string,
+): Promise<{ ok: true; subject: SigningSubject; contact: Contact } | Extract<SubjectResult, { ok: false }>> {
   if (purpose === "DEAL_DOCUMENT") {
     // The asset-finance signer row; its digest is what both e-sign paths
     // (recordESignature, signAssetNcaAgreement) bind the signature to.
@@ -59,6 +76,7 @@ export async function resolveSigningSubject(
     return {
       ok: true,
       subject: { tenantId, clientId: signer.clientId, purpose, subjectId, documentSha256: signer.documentSha256, recipient: signer.client },
+      contact: signer.client,
     }
   }
   if (purpose === "DOCUMENT") {
@@ -76,6 +94,7 @@ export async function resolveSigningSubject(
     return {
       ok: true,
       subject: { tenantId, clientId: doc.clientId, purpose, subjectId, documentSha256: doc.contentSha256, recipient: doc.client },
+      contact: doc.client,
     }
   }
 
@@ -107,5 +126,6 @@ export async function resolveSigningSubject(
   return {
     ok: true,
     subject: { tenantId, clientId: app.clientId, purpose, subjectId, documentSha256: digest, recipient: app.client },
+    contact: app.client,
   }
 }

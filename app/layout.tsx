@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { ThemeInitScript } from "@/components/ThemeInitScript";
 import { DeploymentConfigError, requireAppBaseUrl } from "@/lib/config/deployment-urls";
 import { DemoBanner } from "@/components/demo/DemoBanner";
 import { isDemoMode } from "@/lib/config/demo-mode";
@@ -57,7 +57,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <ThemeInitScript />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

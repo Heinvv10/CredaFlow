@@ -16,7 +16,9 @@ import { screenOnSubmit } from "@/lib/screening/on-submit"
  *     REFUSED_NCA and the application DECLINED, audited);
  *   - `awaitingRegimeApproval: true` when a NON_NCA override awaits a second
  *     approver (POST /api/asset-finance/nca-overrides/[id]/decide).
- * 409 when the deal is not DRAFT.
+ * 409 when the deal is not DRAFT, and for a dealer's deal: its way in is the
+ * staff accept of the dealer's submission (…/dealer-submission/accept,
+ * SLICE5.md deviation 1). A deal's dealer is fixed when it is created.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
@@ -29,6 +31,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Submitting a deal needs the manage_asset_finance permission" }, { status: 403 })
     }
     const { id } = await params
+
+    // The database fixes a deal's dealer at insert, so this read cannot race the submit.
+    const deal = await prisma.assetFinanceDeal.findFirst({ where: { id, tenantId: tenant.id }, select: { dealerId: true } })
+    if (deal?.dealerId) {
+      return NextResponse.json({ error: "A dealer's deal is submitted by its dealer; accept the dealer's submission instead" }, { status: 409 })
+    }
 
     let result: Awaited<ReturnType<typeof submitDeal>>
     try {

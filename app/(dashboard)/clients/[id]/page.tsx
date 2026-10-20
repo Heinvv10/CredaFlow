@@ -105,7 +105,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
   ])
   if (!loadedClient) notFound()
   const session = await auth()
-  const staffRole = session?.user?.role && session.user.role !== "CLIENT" ? session.user.role : null
+  const staffRole = session?.user?.role && session.user.role !== "CLIENT" && session.user.role !== "DEALER" ? session.user.role : null
   // A role without the loan book (INSURANCE_OFFICER) sees the client, not its
   // applications, loans, affordability evidence, lending figures or bureau
   // history (lib/security/client-redaction.ts).
@@ -257,7 +257,7 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
       biometricFailureReason: compositeKyc.biometricEvidence,
     })
 
-  const exceptionEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+  const exceptionEligibility = session?.user && staffRole ? overrideEligibility({
     kind: "EXCEPTION",
     mode: overridePolicy.secondApprover ? "request" : "direct",
     attempt: selfieDoc ? {
@@ -267,21 +267,21 @@ export default async function ClientDetailPage({ params, searchParams }: PagePro
       faceVerdict: readFaceVerdict(selfieDoc.biometricResult),
     } : null,
     policy: overridePolicy,
-    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+    caller: { role: staffRole, totpVerified: session.user.totpVerified === true },
   }) : { allowed: false as const, code: "role_below_policy" as const }
-  const inPersonEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+  const inPersonEligibility = session?.user && staffRole ? overrideEligibility({
     kind: "IN_PERSON",
     mode: overridePolicy.secondApprover ? "request" : "direct",
     attempt: null,
     policy: overridePolicy,
-    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+    caller: { role: staffRole, totpVerified: session.user.totpVerified === true },
   }) : { allowed: false as const, code: "role_below_policy" as const }
-  const reviewerEligibility = session?.user?.role && session.user.role !== "CLIENT" ? overrideEligibility({
+  const reviewerEligibility = session?.user && staffRole ? overrideEligibility({
     kind: "IN_PERSON",
     mode: "approve",
     attempt: null,
     policy: { ...overridePolicy, enabled: true },
-    caller: { role: session.user.role, totpVerified: session.user.totpVerified === true },
+    caller: { role: staffRole, totpVerified: session.user.totpVerified === true },
   }) : { allowed: false as const, code: "role_below_policy" as const }
 
   const selfieImageUrl = selfieDoc?.deletedAt === null && selfieDoc.storagePath

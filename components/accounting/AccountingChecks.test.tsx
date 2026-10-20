@@ -21,8 +21,10 @@ describe("refusal text", () => {
   })
 
   it("names every asset-finance control", () => {
-    for (const control of ["AF_OUTPUT_VAT", "AF_INPUT_VAT", "RECOVERY_CLEARING", "RECOVERY_RESULT", "RECOVERY_REFUND_PAYABLE", "MAINTENANCE_FUND_LIABILITY"]) {
+    for (const control of ["AF_OUTPUT_VAT", "AF_INPUT_VAT", "RECOVERY_CLEARING", "RECOVERY_RESULT", "RECOVERY_REFUND_PAYABLE", "MAINTENANCE_FUND_LIABILITY", "DEALER_COMMISSION_PAYABLE"]) {
       expect(controlLabel(control)).not.toMatch(/[A-Z_]{4,}/)
+      // Not the fallback for an unknown control: each has its own plain-language label.
+      expect(controlLabel(control), control).not.toBe(control.replaceAll("_", " ").toLowerCase())
     }
   })
 })
@@ -94,11 +96,11 @@ describe("ConfirmedRoles", () => {
 
   it("lists only the roles still missing", () => {
     const html = renderToStaticMarkup(<ConfirmedRoles confirmed={ASSET_FINANCE_ROLES.filter((r) => r !== "RECOVERY_RESULT")} mappingConfirmed />)
-    expect(html).toContain("15 of 16 confirmed")
+    expect(html).toContain("17 of 18 confirmed")
     expect(html).toContain("Not yet confirmed: Recovery result.")
   })
 
   it("counts none as confirmed while the mapping itself is not confirmed", () => {
-    expect(renderToStaticMarkup(<ConfirmedRoles confirmed={[...ASSET_FINANCE_ROLES]} mappingConfirmed={false} />)).toContain("0 of 16 confirmed")
+    expect(renderToStaticMarkup(<ConfirmedRoles confirmed={[...ASSET_FINANCE_ROLES]} mappingConfirmed={false} />)).toContain("0 of 18 confirmed")
   })
 })

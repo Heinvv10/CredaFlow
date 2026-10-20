@@ -36,6 +36,8 @@ export type EventType =
   | "RECOVERY_REFUND"
   | "RECOVERY_RESULT"
   | "CREDIT_NOTE"
+  | "DEALER_COMMISSION"
+  | "DEALER_COMMISSION_PAID"
 
 export interface SourcePayment {
   id: string
@@ -150,6 +152,20 @@ export interface SourceRecovery {
   refund: { id: string; amountCents: number; releasedAt: Date } | null
 }
 
+/** A dealer commission line (slice 5), signed as stored: a clawback (REVERSED) carries the earned line's exact negatives. */
+export interface SourceDealerCommission {
+  id: string
+  kind: "EARNED" | "REVERSED"
+  /** SAST midnight of the line's effective day. */
+  effectiveOn: Date
+  netCents: number
+  /** Zero unless the dealer was a VAT vendor on the line's day. */
+  vatCents: number
+  grossCents: number
+  /** When the payable run that holds the line (live link) was released, or null. */
+  releasedAt: Date | null
+}
+
 export interface SourceAssetFinance {
   contractType: "INSTALMENT_SALE" | "FINANCE_LEASE" | "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE"
   financedFeesCents: number
@@ -166,6 +182,8 @@ export interface SourceAssetFinance {
   creditNotes: SourceCreditNote[]
   fund: { riskModel: "LENDER_RISK" | "LESSEE_SETTLED"; movements: Array<{ id: string; kind: "CONTRIBUTION_CREDIT" | "CONTRIBUTION" | "CLAIM" | "SETTLEMENT_REFUND" | "SETTLEMENT_BILLED"; amountCents: number; occurredOn: Date }> } | null
   recoveries: SourceRecovery[]
+  /** Dealer commission on the contract (lib/accounting/sources-dealer-commission.ts); absent or empty for a staff deal. */
+  dealerCommission?: SourceDealerCommission[]
 }
 
 export interface DesiredSource {
