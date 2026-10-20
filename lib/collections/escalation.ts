@@ -13,6 +13,8 @@ import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
+import { ensureDunningTemplates } from "@/lib/collections/dunning-templates"
+import { DUNNING_SEND_WINDOW_LABEL, outsideDunningSendWindow } from "@/lib/collections/send-window"
 
 interface EscalationResult {
   processed: number
@@ -44,6 +46,8 @@ interface EscalationContext {
   outstandingPrincipal: number
   status: string
   ncaRegime: "NCA" | "NON_NCA"
+  /** False outside the dunning send window: statuses still move, no borrower is messaged. */
+  noticesAllowed: boolean
 }
 
 async function noteExists(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -129,14 +133,19 @@ const RULES: EscalationRule[] = [
       if (ctx.daysInArrears > DEFAULT_NOTICE_MAX_DPD) {
         return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (past the ${DEFAULT_NOTICE_MAX_DPD} DPD notice window)`
       }
+      if (!ctx.noticesAllowed) {
+        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (outside the ${DUNNING_SEND_WINDOW_LABEL} send window)`
+      }
+      let failedLegs: string[] = []
       try {
-        await triggerNotification({
+        const outcome = await triggerNotification({
           tenantId: ctx.tenantId,
           event: "loan_overdue",
           loanId: ctx.loanId,
           ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
           data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
         })
+        failedLegs = [...new Set(outcome?.failedLegs ?? [])]
       } catch (err) {
         // The flip and note above stand, so this rule will not run again: log the
         // cause and count the failure so the run reports it.
@@ -144,6 +153,12 @@ const RULES: EscalationRule[] = [
         // A database that is down is the tenant's fault to retry, not "the notice failed".
         if (isDatabaseInfrastructureError(err)) throw err
         throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed; see the server log`)
+      }
+      // A leg the notification itself reports as failed (a provider's rejection, no
+      // Contact, a missing template) is the same failure: counted, not left looking sent.
+      if (failedLegs.length > 0) {
+        console.error(`[escalation] ${ctx.loanRef}: DEFAULTED notice failed on ${failedLegs.join("+")}; the cause is in the notification log`)
+        throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed (${failedLegs.join("+")}); see the notification log`)
       }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
@@ -200,6 +215,9 @@ export async function processEscalations(): Promise<EscalationResult> {
 
 async function processTenantEscalations(tenant: SweepTenant): Promise<EscalationResult> {
   await ensureDpdCurrent(tenant.id)
+  // The 60-DPD notice is loan_overdue, which sends through its template rows.
+  await ensureDunningTemplates(tenant, "escalations")
+  const noticesAllowed = !outsideDunningSendWindow(new Date())
   const result: EscalationResult = { processed: 0, errors: 0, details: [], tenants: 0, failedTenants: 0 }
 
   const loans = await prisma.loan.findMany({
@@ -246,6 +264,7 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
           outstandingPrincipal: loan.outstandingPrincipal,
           status: loan.status,
           ncaRegime: loan.ncaRegime,
+          noticesAllowed,
         }
         if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 

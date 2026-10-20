@@ -20,6 +20,12 @@ vi.mock("@/lib/notifications", async (importOriginal) => ({
   triggerNotification: vi.fn(async (a: { loanId: string }) => { notified.push(a.loanId) }),
 }))
 
+// Inside the dunning send window whatever the clock says (the window has its own pinned-clock test).
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
+}))
+
 import { prisma } from "@/lib/prisma"
 import { processEscalations } from "@/lib/collections/escalation"
 

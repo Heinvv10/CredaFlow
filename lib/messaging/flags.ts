@@ -52,10 +52,6 @@ export function isLoanDisbursedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_DISBURSED === "true"
 }
 
-export function isLoanOverdueNewSendEnabled(): boolean {
-  return process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE === "true"
-}
-
 export function isPaymentReceivedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_PAYMENT_RECEIVED === "true"
 }

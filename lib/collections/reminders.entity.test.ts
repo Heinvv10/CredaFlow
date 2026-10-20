@@ -60,11 +60,17 @@ vi.mock("@/lib/contact/identity", async (orig) => ({
   lookupContactByChannelValue: m.lookupContact,
 }))
 vi.mock("@/lib/notifications", () => ({ triggerNotification: m.triggerNotification }))
+// The send window is the clock's: pinned open here.
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
+}))
 vi.mock("@/lib/loan/charges-replay", () => ({ chargesOutstandingAt: m.chargesOutstandingAt }))
 
 import { processPaymentReminders } from "./reminders"
 import { WABA_BODY_TEMPLATES } from "@/lib/whatsapp/template-vars"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
 
 function entityLoanDueIn(days: number) {
   const due = new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
@@ -74,7 +80,15 @@ function entityLoanDueIn(days: number) {
   }
 }
 
-const person = (id: string, firstName: string, whatsapp: string | null) => ({
+// Whose Contact each email address and WhatsApp number is: a person's own, as
+// person() registers it. The dispatch refuses a Contact that is someone else's.
+const owners = new Map<string, string>()
+const person = (id: string, firstName: string, whatsapp: string | null) => {
+  owners.set(normaliseEmail(`${id}@example.test`), id)
+  if (whatsapp) owners.set(toWaJid(whatsapp), id)
+  return personRow(id, firstName, whatsapp)
+}
+const personRow = (id: string, firstName: string, whatsapp: string | null) => ({
   client: { id, firstName, lastName: "Testperson", email: `${id}@example.test`, whatsapp },
 })
 
@@ -95,7 +109,7 @@ beforeEach(() => {
   m.relationshipFindMany.mockResolvedValue([
     person("cl_jane", "Jane", "0820000001"), person("cl_jane", "Jane", "0820000001"), person("cl_sam", "Sam", "0820000002"),
   ])
-  m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
+  m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}`, clientId: owners.get(a.value) ?? null }))
   m.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
   m.triggerNotification.mockResolvedValue(undefined)
   m.emailConfigFindUnique.mockResolvedValue({ active: true })

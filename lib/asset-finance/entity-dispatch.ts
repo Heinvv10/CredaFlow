@@ -9,7 +9,8 @@
  * here, whatever the env says (lib/messaging/.claude.md).
  *
  * Every leg is reported, never dropped: a recipient without WhatsApp, without a
- * Contact row for the value, or blocked by consent is an outcome with a reason.
+ * Contact row for the value (or whose value resolves to another person's
+ * Contact), or blocked by consent is an outcome with a reason.
  * A missing or unusable template row fails that channel for every recipient.
  *
  * Idempotency: one key per (occurrence, recipient, channel), so two directors
@@ -99,6 +100,12 @@ async function sendLeg(
   if (!value) return { ...leg, status: "failed", reason: `Unparseable ${channel} value` }
   const contact = await lookupContactByChannelValue(prisma, { tenantId: request.tenantId, channel, value })
   if (!contact) return { ...leg, status: "failed", reason: "No Contact row" }
+  // The value resolves to SOMEONE ELSE's Contact (a lead, another client): their
+  // consent would be checked instead of this person's, and they would read the
+  // entity's loan. Refused; the reason names no number or address.
+  if (contact.clientId !== recipient.clientId) {
+    return { ...leg, status: "failed", reason: "Contact belongs to someone else" }
+  }
   const vars = channel === "EMAIL"
     ? entityEmailVars(request.facts, request.lender, recipient)
     : entityWhatsAppVars(request.facts, request.lender, recipient)

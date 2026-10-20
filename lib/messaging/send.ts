@@ -54,9 +54,15 @@ function buildListUnsubscribeUrl(
   channel: Channel,
   contactId: string,
   template: Pick<MessageTemplate, "statutoryOverride">,
+  category: string | undefined,
   preparedAt = new Date(),
 ): string | undefined {
   if (channel !== "EMAIL") return undefined
+  // Dunning (a reminder, an overdue notice) is service mail: the one-click link
+  // revokes MARKETING_GENERAL only, so on a reminder it would promise an opt-out
+  // that does not stop the next reminder. No header: an opt-out of reminders is a
+  // SERVICE_COMMS revocation, which this link never recorded.
+  if (isDunningCategory(category)) return undefined
   // Statutory mail (NCA s.129, court process, anything that bypasses
   // canSend via statutoryOverride) MUST NOT offer an unsubscribe — the
   // recipient cannot lawfully opt out of a notice the law requires us
@@ -346,6 +352,7 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
       opts.channel,
       opts.contactId,
       opts.template,
+      opts.category,
       preparedAt,
     )
     return {

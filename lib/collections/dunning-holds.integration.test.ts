@@ -49,6 +49,12 @@ vi.mock("@/lib/email/service", async (importOriginal) => ({
   sendEmail: vi.fn(async (a: { to: string }) => (sends.email.push(a.to), await tripWire(a.to), { ok: true, messageId: "m" })),
 }))
 
+// Inside the dunning send window whatever the clock says (the window has its own pinned-clock test).
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
+}))
+
 import { prisma } from "@/lib/prisma"
 import { processPaymentReminders } from "@/lib/collections/reminders"
 

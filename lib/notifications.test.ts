@@ -129,11 +129,16 @@ vi.mock("@/lib/contact/identity", async () => {
   const actual = await vi.importActual<typeof import("@/lib/contact/identity")>("@/lib/contact/identity")
   return {
     ...actual,
-    lookupContactByChannelValue: (...args: unknown[]) => lookupContactMock(...args),
+    // A stubbed Contact is the client's own ("cli1") unless the stub names another
+    // owner: dispatch refuses a Contact that is someone else's.
+    lookupContactByChannelValue: async (...args: unknown[]) => {
+      const contact = (await lookupContactMock(...args)) as Record<string, unknown> | null | undefined
+      return contact && !("clientId" in contact) ? { ...contact, clientId: "cli1" } : contact
+    },
   }
 })
 
-import { notificationMessageIdempotencyKey, triggerNotification } from "./notifications"
+import { CONTACT_NOT_CLIENTS, notificationMessageIdempotencyKey, triggerNotification } from "./notifications"
 import {
   KnownDispatchPersistenceError,
   MessageReconciliationRequiredError,
@@ -579,7 +584,7 @@ function templatesForEvent(event: string) {
 }
 
 interface EventCase {
-  event: "application_declined" | "loan_approved" | "loan_disbursed" | "loan_overdue" | "payment_received"
+  event: "application_declined" | "loan_approved" | "loan_disbursed" | "payment_received"
   flagEnv: string
   fixtureType: "application" | "loan"
 }
@@ -588,7 +593,6 @@ const EVENT_CASES: EventCase[] = [
   { event: "application_declined", flagEnv: "MESSAGING_NEW_SEND_NOTIF_APP_DECLINED", fixtureType: "application" },
   { event: "loan_approved", flagEnv: "MESSAGING_NEW_SEND_NOTIF_LOAN_APPROVED", fixtureType: "application" },
   { event: "loan_disbursed", flagEnv: "MESSAGING_NEW_SEND_NOTIF_LOAN_DISBURSED", fixtureType: "loan" },
-  { event: "loan_overdue", flagEnv: "MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE", fixtureType: "loan" },
   { event: "payment_received", flagEnv: "MESSAGING_NEW_SEND_NOTIF_PAYMENT_RECEIVED", fixtureType: "loan" },
 ]
 
@@ -664,6 +668,76 @@ describe.each(EVENT_CASES)("triggerNotification — $event cutover", (c) => {
   })
 })
 
+// loan_overdue is dunning and has no flag (MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE was
+// retired): it always goes through sendMessage, whose consent gate, Contact check,
+// Message.dunning and idempotency key the direct path never had. Its outcome names
+// the legs that failed, so the collections cron and escalation can count them.
+describe("triggerNotification — loan_overdue always goes through sendMessage", () => {
+  const overdue = { tenantId: "tn1", event: "loan_overdue" as const, loanId: "ln1", clientId: "cli1", data: { daysOverdue: 1, amount: 25000 } }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0821234567" })
+    loanFindUniqueMock.mockResolvedValue(loanCommon)
+    tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
+    notificationLogCreateMock.mockResolvedValue({})
+    messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
+    lookupContactMock.mockResolvedValue({ id: "ct-1" })
+    sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
+    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "false"
+  })
+  afterEach(() => {
+    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
+  })
+
+  it("with the old flag set to anything, it routes through sendMessage and never the direct senders", async () => {
+    const outcome = await triggerNotification(overdue)
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    const calls = sendMessageMock.mock.calls.map((c: any[]) => [c[0].channel, c[0].template.key, c[0].category])
+    expect(calls).toEqual([
+      ["EMAIL", "loan_overdue_email", "loan_overdue"],
+      ["SMS", "loan_overdue_sms", "loan_overdue"],
+      ["WHATSAPP", "loan_overdue_1d_whatsapp", "loan_overdue"],
+    ])
+    expect(outcome).toEqual({ failedLegs: [] })
+  })
+
+  it("a leg the provider definitely rejected is a failed leg in the outcome", async () => {
+    sendMessageMock.mockImplementation(async (a: { channel: string }) =>
+      a.channel === "EMAIL" ? { id: "msg-e", status: "FAILED_PERMANENT" } : { id: "msg-1", status: "SENT" })
+    const outcome = await triggerNotification(overdue)
+    expect(outcome.failedLegs).toEqual(["email"])
+  })
+
+  it("a consent block or a pending retry is not a failure", async () => {
+    sendMessageMock.mockImplementation(async (a: { channel: string }) => {
+      if (a.channel === "EMAIL") throw new SendBlockedError("CHANNEL_OPTED_OUT")
+      return { id: "msg-1", status: a.channel === "SMS" ? "RETRYING" : "SUPPRESSED_BY_CONSENT" }
+    })
+    const outcome = await triggerNotification(overdue)
+    expect(outcome.failedLegs).toEqual([])
+    const statuses = notificationLogCreateMock.mock.calls.map((c: any[]) => [c[0].data.channel, c[0].data.status])
+    expect(statuses).toEqual([["email", "blocked"], ["sms", "pending"], ["whatsapp", "blocked"]])
+  })
+
+  // The client's number resolves to another person's Contact (a lead, another client): that
+  // person's consent is not this client's, and they must not read this client's loan.
+  it("a Contact that belongs to someone else is refused, logged failed without the number, and never sent", async () => {
+    lookupContactMock.mockImplementation(async (_db: unknown, a: { channel: string }) =>
+      a.channel === "WHATSAPP" ? { id: "ct-lead", clientId: null } : { id: "ct-1" })
+    const outcome = await triggerNotification(overdue)
+
+    expect(sendMessageMock.mock.calls.map((c: any[]) => c[0].channel)).toEqual(["EMAIL", "SMS"])
+    expect(outcome.failedLegs).toEqual(["whatsapp"])
+    const waLog = notificationLogCreateMock.mock.calls.find((c: any[]) => c[0].data.channel === "whatsapp")![0].data
+    expect(waLog).toMatchObject({ status: "failed", error: CONTACT_NOT_CLIENTS })
+    expect(waLog.error).not.toMatch(/0821234567|27821234567/)
+  })
+})
+
 // ── WhatsApp template vars must come from the SAME
 // DB-fetched entity data as email/SMS, not from opts.data (which most
 // triggerNotification() call sites never populate). Before this fix,
@@ -681,7 +755,6 @@ describe("buildWaMessage — template variables", () => {
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_DISBURSED
     delete process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED
     delete process.env.MESSAGING_NEW_SEND_NOTIF_APP_DECLINED
-    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
   })
 
   it("application_submitted WA message is DB-sourced", async () => {
@@ -768,7 +841,6 @@ describe("buildWaMessage — template variables", () => {
   it("loan_overdue WA leg interpolates amount + reference when the trigger site supplies both", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
     lookupContactMock.mockResolvedValue({ id: "ct-1" })
     sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -798,7 +870,6 @@ describe("buildWaMessage — template variables", () => {
   it("loan_overdue WA leg skips + writes a failed NotificationLog row when a call site supplies no amount at all (defensive path — buildWaMessage must never interpolate an empty *amount*)", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
     lookupContactMock.mockResolvedValue({ id: "ct-1" })
     sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -828,7 +899,6 @@ describe("buildWaMessage — template variables", () => {
   ] as const)("loan_overdue at %i days overdue sends the %s WABA template, with the arrears amount in rands", async (days, variant) => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
     lookupContactMock.mockResolvedValue({ id: "ct-1" })
     sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -878,7 +948,6 @@ describe("buildWaMessage — template variables", () => {
 
     it("NEW path: no WhatsApp send, email still sent, and the skip is logged as blocked with the reason", async () => {
       clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
-      process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
       messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
       lookupContactMock.mockResolvedValue({ id: "ct-1" })
       sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -895,34 +964,9 @@ describe("buildWaMessage — template variables", () => {
       expect(waLog, "the skipped WhatsApp leg must still be recorded").toBeDefined()
       expect(waLog![0].data.status).toBe("blocked")
       expect(waLog![0].data.error).toBe(suppressed.suppressWhatsAppReason)
-      // Never recorded as a fault — this is a deliberate policy skip.
+      // Never recorded as a fault — this is a deliberate policy skip, and recorded once.
       expect(waLog![0].data.status).not.toBe("failed")
-    })
-
-    it("LEGACY path: no WhatsApp send, email still sent", async () => {
-      isWaEnabledMock.mockReturnValue(true)
-      clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
-      delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
-      sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
-      sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
-
-      try {
-        await triggerNotification(suppressed)
-      } finally {
-        isWaEnabledMock.mockReturnValue(false)
-      }
-
-      expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-      expect(sendEmailMock).toHaveBeenCalledOnce()
-      // EXACTLY one whatsapp row. The legacy path logs each leg's outcome from
-      // `byName`, where an absent leg reads as not-attempted → "failed", so a
-      // second row would show a WhatsApp FAULT for a leg deliberately not sent.
-      const waLogs = notificationLogCreateMock.mock.calls.filter(
-        (c: any[]) => c[0].data.channel === "whatsapp",
-      )
-      expect(waLogs).toHaveLength(1)
-      expect(waLogs[0][0].data.status).toBe("blocked")
-      expect(waLogs[0][0].data.error).toBe(suppressed.suppressWhatsAppReason)
+      expect(notificationLogCreateMock.mock.calls.filter((c: any[]) => c[0].data.channel === "whatsapp")).toHaveLength(1)
     })
 
     it("WITHOUT the reason the WhatsApp leg is untouched — this is the 60-DPD escalation's call shape", async () => {
@@ -930,7 +974,6 @@ describe("buildWaMessage — template variables", () => {
       // no suppression. That stage has no reminder trigger covering it, so its
       // WhatsApp must keep going out.
       clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
-      process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
       messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
       lookupContactMock.mockResolvedValue({ id: "ct-1" })
       sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -963,7 +1006,6 @@ describe("buildWaMessage — template variables", () => {
   ] as const)("loan_overdue with its 7-day row %s skips only the WhatsApp leg; email + SMS still send", async (_label, mutate, error) => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0739999999" })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(mutate(templatesForEvent("loan_overdue")))
     lookupContactMock.mockResolvedValue({ id: "ct-1" })
     sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
@@ -986,7 +1028,6 @@ describe("buildWaMessage — template variables", () => {
   it("loan_overdue with a variant row missing leaves a client with no WhatsApp exactly as before", async () => {
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: null })
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(
       templatesForEvent("loan_overdue").filter((t) => t.key !== "loan_overdue_1d_whatsapp"),
     )
@@ -1143,16 +1184,15 @@ describe("loan_overdue email — carries the payment reference (#424)", () => {
   // omitted the reference entirely.
   beforeEach(() => {
     vi.clearAllMocks()
-    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
     clientFindUniqueMock.mockResolvedValue(client)
     tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
     notificationLogCreateMock.mockResolvedValue({})
     loanFindUniqueMock.mockResolvedValue({ id: "ln1", reference: "LN-0007", outstandingPrincipal: 250000 })
-    sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
-    sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
+    messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
+    lookupContactMock.mockResolvedValue({ id: "ct-1" })
+    sendMessageMock.mockResolvedValue({ id: "msg-1", status: "SENT" })
   })
   afterEach(() => {
-    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
   })
 
   it("includes the loan reference in both the email HTML and the SMS/text body", async () => {
@@ -1164,8 +1204,7 @@ describe("loan_overdue email — carries the payment reference (#424)", () => {
       data: { daysOverdue: 5 },
     })
 
-    expect(sendEmailMock).toHaveBeenCalledOnce()
-    const emailArg = sendEmailMock.mock.calls[0][0]
+    const emailArg = sendMessageMock.mock.calls.find((c: any[]) => c[0].channel === "EMAIL")![0].vars
     expect(emailArg.html).toContain("LN-0007")
     expect(emailArg.text).toContain("LN-0007")
   })
@@ -1175,7 +1214,6 @@ const ALL_FLAGS = [
   "MESSAGING_NEW_SEND_NOTIF_APP_DECLINED",
   "MESSAGING_NEW_SEND_NOTIF_LOAN_APPROVED",
   "MESSAGING_NEW_SEND_NOTIF_LOAN_DISBURSED",
-  "MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE",
   "MESSAGING_NEW_SEND_NOTIF_PAYMENT_RECEIVED",
 ]
 
@@ -1231,7 +1269,6 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
   })
   afterEach(() => {
     process.env.BULKSMS_DRY_RUN = "false"
-    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
     isWaEnabledMock.mockReturnValue(false)
   })
 
@@ -1264,7 +1301,6 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
 
   it("loan_overdue on the new-send path still sends email + WhatsApp, never SMS", async () => {
     process.env.BULKSMS_DRY_RUN = "true"
-    process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE = "true"
     messageTemplateFindManyMock.mockResolvedValue(templatesForEvent("loan_overdue"))
     clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0821234567" })
     loanFindUniqueMock.mockResolvedValue({
@@ -1301,155 +1337,6 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
   })
 })
 
-// F3: the legacy loan_overdue path (the default until
-// MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE=true) emailed and WhatsApped with no
-// blocked / opt-out check at all. It must honour the same rules as the new-send
-// path: a blocked or opted-out client gets nothing on that channel, and the
-// skip is logged.
-describe("triggerNotification — legacy loan_overdue consent gate", () => {
-  const overdue = {
-    tenantId: "tn1",
-    event: "loan_overdue" as const,
-    loanId: "ln1",
-    clientId: "cli1",
-    data: { daysOverdue: 1, amount: 25000 },
-  }
-  const logFor = (channel: string) =>
-    notificationLogCreateMock.mock.calls.filter((c: any[]) => c[0].data.channel === channel).map((c: any[]) => c[0].data)
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
-    process.env.BULKSMS_DRY_RUN = "false"
-    isWaEnabledMock.mockReturnValue(true)
-    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0821234567" })
-    tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
-    notificationLogCreateMock.mockResolvedValue({})
-    loanFindUniqueMock.mockResolvedValue({
-      ...loanCommon,
-      arrearsAmount: 25000,
-      nextPaymentDate: new Date("2026-08-01"),
-      client,
-    })
-    sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
-    sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
-    sendWhatsAppMessageMock.mockResolvedValue({ ok: true, messageId: "wa-1" })
-    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: null, status: "CLIENT" })
-    consentFindFirstMock.mockResolvedValue(null)
-  })
-  afterEach(() => {
-    isWaEnabledMock.mockReturnValue(false)
-  })
-
-  it("a BLOCKED contact (blockedAt) gets nothing on any channel, and every skip is logged blocked", async () => {
-    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: new Date("2026-09-01"), status: "CLIENT" })
-
-    await triggerNotification(overdue)
-
-    expect(sendEmailMock).not.toHaveBeenCalled()
-    expect(sendSmsMock).not.toHaveBeenCalled()
-    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-    for (const channel of ["email", "sms", "whatsapp"]) {
-      const rows = logFor(channel)
-      expect(rows, channel).toHaveLength(1)
-      expect(rows[0].status, channel).toBe("blocked")
-      expect(rows[0].error, channel).toBe("Do not contact")
-    }
-  })
-
-  it("a contact with status BLOCKED is treated the same as blockedAt", async () => {
-    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: null, status: "BLOCKED" })
-
-    await triggerNotification(overdue)
-
-    expect(sendEmailMock).not.toHaveBeenCalled()
-    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-  })
-
-  it("a contact opted out (SERVICE_COMMS REVOKED) on every channel gets nothing", async () => {
-    consentFindFirstMock.mockResolvedValue({ status: "REVOKED" })
-
-    await triggerNotification(overdue)
-
-    expect(sendEmailMock).not.toHaveBeenCalled()
-    expect(sendSmsMock).not.toHaveBeenCalled()
-    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-    for (const channel of ["email", "sms", "whatsapp"]) {
-      const rows = logFor(channel)
-      expect(rows, channel).toHaveLength(1)
-      expect(rows[0].status, channel).toBe("blocked")
-      expect(rows[0].error, channel).toBe("Client opted out")
-    }
-    // The opt-out lane is SERVICE_COMMS, tenant-scoped, per channel.
-    const lanes = consentFindFirstMock.mock.calls.map((c: any[]) => c[0].where)
-    for (const channel of ["EMAIL", "SMS", "WHATSAPP"]) {
-      expect(lanes, channel).toContainEqual(
-        expect.objectContaining({ tenantId: "tn1", contactId: "ct-1", channel, purpose: "SERVICE_COMMS" }),
-      )
-    }
-  })
-
-  it("opt-out is per channel: WhatsApp opted out, email and SMS still go", async () => {
-    consentFindFirstMock.mockImplementation(async (a: any) =>
-      a.where.channel === "WHATSAPP" ? { status: "REVOKED" } : null)
-
-    await triggerNotification(overdue)
-
-    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-    expect(sendEmailMock).toHaveBeenCalledOnce()
-    expect(sendSmsMock).toHaveBeenCalledOnce()
-    const wa = logFor("whatsapp")
-    expect(wa).toHaveLength(1)
-    expect(wa[0].status).toBe("blocked")
-    expect(logFor("email")[0].status).toBe("sent")
-  })
-
-  it("a contact in good standing still receives every leg (the gate is not a blanket block)", async () => {
-    await triggerNotification(overdue)
-
-    expect(sendEmailMock).toHaveBeenCalledOnce()
-    expect(sendSmsMock).toHaveBeenCalledOnce()
-    expect(sendWhatsAppMessageMock).toHaveBeenCalledOnce()
-  })
-
-  it("the consent query is tenant-scoped and keyed by the client", async () => {
-    await triggerNotification(overdue)
-
-    expect(contactFindFirstMock).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { clientId: "cli1", tenantId: "tn1" } }),
-    )
-  })
-
-  it("a failing consent lookup fails CLOSED: nothing sent, logged blocked, never thrown", async () => {
-    contactFindFirstMock.mockRejectedValue(new Error("db down"))
-
-    await expect(triggerNotification(overdue)).resolves.toBeUndefined()
-
-    expect(sendEmailMock).not.toHaveBeenCalled()
-    expect(sendSmsMock).not.toHaveBeenCalled()
-    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
-    for (const channel of ["email", "sms", "whatsapp"]) {
-      const rows = logFor(channel)
-      expect(rows, channel).toHaveLength(1)
-      expect(rows[0].status, channel).toBe("blocked")
-      expect(rows[0].error, channel).toBe("Consent check unavailable")
-    }
-  })
-
-  it("SMS env UNSET: no sendSms, sms row blocked 'SMS not enabled' (fails closed)", async () => {
-    delete process.env.BULKSMS_DRY_RUN
-
-    await triggerNotification(overdue)
-
-    expect(sendSmsMock).not.toHaveBeenCalled()
-    const sms = logFor("sms")
-    expect(sms).toHaveLength(1)
-    expect(sms[0].status).toBe("blocked")
-    expect(sms[0].error).toBe("SMS not enabled")
-    expect(sendEmailMock).toHaveBeenCalledOnce()
-  })
-})
-
 // Item F3 widened: the gate covers every event on the legacy path, not only
 // loan_overdue. section129_sent is statutory: only a BLOCKED contact stops it,
 // an opt-out never does (the new-send path's statutoryOverride lane is the
@@ -1459,7 +1346,6 @@ describe.each([
   { event: "application_declined", id: "app1" },
   { event: "loan_approved", id: "app1" },
   { event: "loan_disbursed", id: "ln1" },
-  { event: "loan_overdue", id: "ln1" },
   { event: "payment_received", id: "ln1" },
   { event: "section129_sent", id: "ln1" },
 ] as const)("legacy consent gate — $event", ({ event, id }) => {

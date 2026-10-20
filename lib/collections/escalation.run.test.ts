@@ -39,6 +39,14 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
+// The send window is the clock's: pinned open unless a test closes it.
+const sendWindow = vi.hoisted(() => ({ outside: false }))
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => sendWindow.outside,
+}))
+// Template seeding is the reminders suite's to test; here it is a no-op.
+vi.mock("@/lib/collections/dunning-templates", () => ({ ensureDunningTemplates: async () => undefined }))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (a: unknown) => triggerNotificationMock(a),
 }))
@@ -76,6 +84,7 @@ const guardedFlip = (loanId: string) => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
+  sendWindow.outside = false
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme" })
   loanFindManyMock.mockResolvedValue([loan60d])
   loanNoteFindFirstMock.mockImplementation((args: { where: { type: string } }) =>
@@ -92,6 +101,31 @@ beforeEach(() => {
 })
 
 describe("processEscalations", () => {
+  // A manual call with the cron secret at night must not message a borrower; the
+  // statuses still move, as they are not borrower communication.
+  it("outside the dunning send window: the DEFAULTED flip and note stand, the notice is skipped and said so", async () => {
+    sendWindow.outside = true
+    const r = await processEscalations()
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+    expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+    expect(r.details).toContainEqual("L-100: marked DEFAULTED at 65 DPD; borrower notification skipped (outside the 07:00-20:00 SAST send window)")
+    expect(r.errors).toBe(0)
+  })
+
+  // The notice now always goes through sendMessage; a leg it reports failed (a definite
+  // rejection, no Contact, a missing template) is the notice failing, not a notice sent.
+  it("a DEFAULTED notice whose leg failed is counted like one that threw, and its reservation is given back", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockResolvedValueOnce({ failedLegs: ["email"] })
+    loanFindManyMock.mockResolvedValue([loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }])
+    const r = await processEscalations()
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error L-100 escalation_default: failed; see the server log")
+    expect(releaseReservationMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default", expect.any(Date))
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("DEFAULTED notice failed on email"))
+  })
+
   describe("the 60-DPD notice window", () => {
     it("notifies a loan that crossed 60 days recently, up to 66 DPD", async () => {
       loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 66 }])

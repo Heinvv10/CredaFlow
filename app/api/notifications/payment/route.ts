@@ -4,17 +4,12 @@ import { isBalanceWaiver } from "@/lib/payments/waiver"
 import { sendEmail } from "@/lib/email/service"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { getLenderIdentity } from "@/lib/config/identity"
-import { formatDate } from "@/lib/utils"
-import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
-import {
-  paymentReceivedEmail,
-  paymentDueReminderEmail,
-} from "@/lib/email/templates/portal"
+import { paymentReceivedEmail } from "@/lib/email/templates/portal"
 import { EntityBorrowerError } from "@/lib/borrower"
 
 interface RequestBody {
   paymentId: string
-  event: "received" | "due_reminder"
+  event: "received"
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -96,54 +91,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true, messageId: result.messageId })
   }
 
-  if (event === "due_reminder") {
-    const schedule = await prisma.repaymentSchedule.findUnique({
-      where: { id: paymentId, tenantId: tenant.id },
-      include: {
-        loan: {
-          select: {
-            reference: true,
-            client: { select: { firstName: true, lastName: true, email: true } },
-          },
-        },
-      },
-    })
-
-    if (!schedule) {
-      return NextResponse.json({ error: "Repayment schedule not found" }, { status: 404 })
-    }
-    // These emails address a natural person; an entity borrower is refused.
-    if (!schedule.loan.client) {
-      return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
-    }
-
-    const clientName = `${schedule.loan.client.firstName} ${schedule.loan.client.lastName}`
-    // The unpaid instalment + default charges outstanding (0 while the flag is off).
-    const charges = await chargesOutstandingAt(prisma, { tenantId: tenant.id, loanId: schedule.loanId }, new Date())
-    const html = paymentDueReminderEmail(
-      identity,
-      clientName,
-      schedule.totalDue - schedule.totalPaid + charges,
-      formatDate(schedule.dueDate),
-      schedule.loan.reference
-    )
-
-    const result = await sendEmail({
-      tenantId: tenant.id,
-      to: schedule.loan.client.email,
-      toName: clientName,
-      subject: `Payment reminder — ${identity.tradingName}`,
-      html,
-      category: "payment_due_reminder",
-      referenceId: paymentId,
-    })
-
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error ?? "Failed to send email" }, { status: 500 })
-    }
-
-    return NextResponse.json({ ok: true, messageId: result.messageId })
-  }
-
+  // There is no "due_reminder" event: a payment reminder is dunning, and dunning
+  // goes out only from the reminders cron (lib/collections/reminders.ts), through
+  // sendMessage with its opt-out, holds, dedupe and send window. A direct email
+  // from here had none of them.
   return NextResponse.json({ error: "Unknown event" }, { status: 400 })
 }

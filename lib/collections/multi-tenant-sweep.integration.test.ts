@@ -44,6 +44,12 @@ vi.mock("@/lib/whatsapp/send-for-tenant", () => ({
   sendWhatsAppForTenant: vi.fn(async (a: { to: string; message?: string }) => (sent.whatsapp.push({ to: a.to, body: a.message ?? "" }), { ok: true })),
 }))
 
+// Inside the dunning send window whatever the clock says (the window has its own pinned-clock test).
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
+}))
+
 import { prisma } from "@/lib/prisma"
 import { processPaymentReminders } from "@/lib/collections/reminders"
 import { processEscalations } from "@/lib/collections/escalation"

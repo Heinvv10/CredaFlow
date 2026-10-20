@@ -1449,6 +1449,24 @@ describe("sendMessage", () => {
     expect(dispatchOpts.listUnsubscribeUrl).toBeUndefined()
   })
 
+  // The one-click link revokes MARKETING_GENERAL only. On a reminder or an overdue
+  // notice it would promise an opt-out that does not stop the next one.
+  it.each(["collections", "loan_overdue", "manual_reminder"])("omits listUnsubscribeUrl on a dunning email (category %s)", async (category) => {
+    process.env.UNSUB_TOKEN_SECRET = "test-secret"
+    process.env.NEXTAUTH_URL = "https://test.example"
+    const tx = buildTx()
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(tx))
+    vi.mocked(dispatch).mockResolvedValue({ providerMessageId: "em-dun", acceptedAt: providerAcceptedAt })
+    vi.mocked(prisma.message.update).mockResolvedValue({} as any)
+
+    await sendMessage({
+      contactId: "ct1", channel: "EMAIL", template: fullTemplate,
+      vars: { name: "X" }, toValue: "x@y.com", category,
+    })
+
+    expect(vi.mocked(dispatch).mock.calls[0][3].listUnsubscribeUrl).toBeUndefined()
+  })
+
   it("passes contactId + a WABA template ref to dispatch for WA_CLOUD", async () => {
     vi.mocked(prisma.commsSettings.findUnique).mockResolvedValue({ waProvider: "WA_CLOUD" } as never)
     const tx = buildTx()
