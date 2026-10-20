@@ -132,6 +132,12 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
   })
 
   it("escalations: both tenants' loans are defaulted and both borrowers get the 60-DPD notice, in their own lender's name", async () => {
+    // The notice (loan_overdue) emails through sendMessage, which needs the tenant's own
+    // email provider; there is no SMTP-env fallback on that path. B gets one now (the
+    // test above proved the reminders' email leg skipped without it).
+    await db.emailConfig.create({
+      data: { tenantId: b.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender B", fromAddress: "sender-b@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
+    })
     sent.email.length = 0
     const result = await processEscalations()
     const refs = (await db.loan.findMany({ where: { id: { in: [arrearsA.loanId, arrearsB.loanId] } }, select: { reference: true } })).map((l) => l.reference)
