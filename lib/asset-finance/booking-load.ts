@@ -3,7 +3,8 @@
  * asset FOR UPDATE, in that order, and load what booking writes from. Refuses
  * a deal that is not ready: not CONTRACTED, application not APPROVED and
  * NON_NCA, payout not APPROVED or its account no longer APPROVED, or a
- * contract type asset finance does not book. A lease (operating or
+ * contract type asset finance does not book, or a dealer deal with a person
+ * whose dealer-typed contact details staff have not verified. A lease (operating or
  * full-maintenance) is NON_NCA for an entity or a sole proprietor alike.
  */
 import { Prisma } from "@prisma/client"
@@ -12,6 +13,7 @@ import { DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { isLeaseContract } from "./lease-input"
 import { dealCreditGate } from "./deal-credit-gate"
 import type { ArrearsGrowth } from "./deal-exception-severity"
+import { unverifiedDealerContactsOnDeal } from "@/lib/clients/dealer-contact"
 
 export interface BookingRefusal {
   kind: "refused"
@@ -25,6 +27,7 @@ const BOOKING_SELECT = {
   ...DEAL_STRUCTURE_SELECT,
   id: true,
   status: true,
+  dealerId: true,
   contractType: true,
   cpaApplies: true,
   cpaRule: true,
@@ -96,6 +99,9 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
 
   const deal = await tx.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: BOOKING_SELECT })
   if (!deal) return { kind: "not_found" }
+  if (deal.dealerId && await unverifiedDealerContactsOnDeal(tx, tenantId, { clientId: deal.client?.id ?? null, entityId: deal.entity?.id ?? null }) > 0) {
+    return refuse("dealer_contact_unverified", "Verify the contact details the dealer captured for the people on this deal first (the Dealer panel)")
+  }
   const lease = isLeaseContract(deal.contractType)
   if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE" && !lease) return refuse("contract_type", `Asset finance cannot book ${deal.contractType}`)
   if (deal.application.status !== "APPROVED" || !deal.application.ncaRegime) {

@@ -9,6 +9,10 @@
  *    until then no portal password is set. Verification is staff, once, and
  *    only on a dealer-captured client; verifyDealerContact is that staff
  *    action, for a person on the deal, audited.
+ *  - AssetFinanceDeal_dealer_contacts_verified (migration
+ *    20261019120400): a dealer deal is not BOOKED while a person on it the
+ *    dealer captured has unverified contact details; booking's load step
+ *    refuses first, with a reason.
  *
  *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/dealer/dealer-handover-contact.integration.test.ts
@@ -19,7 +23,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { syntheticSaIdNumber } from "@/lib/asset-finance/synthetic-sa-id.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
-import { captureForDealer, dealerDeal } from "./dealer-booking.integration-fixture"
+import { prisma } from "@/lib/prisma"
+import { loadBookingDeal } from "@/lib/asset-finance/booking-load"
+import { approve, book, captureForDealer, dealerDeal } from "./dealer-booking.integration-fixture"
 import { inTenant, staffOf } from "./dealer-origination.integration-fixture"
 import { verifyDealerContact } from "./contact-verification"
 
@@ -116,6 +122,24 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
       expect(sql(`SELECT "userId", "newValue"->>'dealId' FROM "AuditLog" WHERE "entityId" = ${lit(director)} AND "action" = 'DEALER_CONTACT_VERIFIED'`))
         .toBe(`${fx.officer}|${dealId}`)
       expect(await verify(director)).toMatchObject({ status: 409 })
+    })
+
+    it("refuses to book a dealer deal until every dealer-captured person on it is verified", async () => {
+      const captured = captureForDealer(fx, fx.dealerA)
+      const { dealId } = dealerDeal(fx, { dealerId: fx.dealerA, dealerUserId: fx.salesUserA, ...captured })
+      const director = client(fx.dealerA)
+      sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
+        VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(captured.entityId)}, ${lit(director)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+      approve(fx, dealId)
+      // book() writes the booking's history, then the CONTRACTED -> BOOKED move, which the database refuses.
+      expect(() => book(fx, dealId)).toThrow(/contact details/)
+      expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}`)).toBe("CONTRACTED")
+      const loaded = await inTenant(fx, () => prisma.$transaction((tx) => loadBookingDeal(tx, fx.tenantId, dealId)))
+      expect(loaded).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified" })
+      sql(verify(director))
+      const loanId = sql(`SELECT l."id" FROM "Loan" l JOIN "AssetFinanceDeal" d ON d."applicationId" = l."applicationId" WHERE d."id" = ${lit(dealId)}`)
+      sql(`UPDATE "AssetFinanceDeal" SET "status" = 'BOOKED', "loanId" = ${lit(loanId)} WHERE "id" = ${lit(dealId)}`)
+      expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}`)).toBe("BOOKED")
     })
 
     it("leaves a staff-captured client's portal password alone", () => {
