@@ -382,3 +382,15 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 (3)'s mutation is its before run (the route without the check). After
 restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
 dealer-submit 11/11, reprice-notice-dispatch 17/17, dealer-entity-people 5/5.
+
+### PR B carry-overs (website identity notice)
+
+`dealer-website-identity-notice` IT now asserts the audit row's `noticeWithheld`
+and has a positive control (a verified dealer-captured client is notified).
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| 19 | `app/api/website/apply/route.ts`: `if (notifyClient && !noticeWithheld)` → `if (notifyClient)` | dealer-website-identity-notice IT | 1 failed, 1 passed | "sends no identity notice to the dealer-typed address …" (`expected [ Array(1) ] to deeply equal []`) |
+| 20 | same file: `noticeWithheld = notifyClient !== null` (withhold from everyone) | dealer-website-identity-notice IT | 1 failed, 1 passed | "sends the notice to the address on file once staff verified … (positive control)" |
+
+Restored: 2/2.
