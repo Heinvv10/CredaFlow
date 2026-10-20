@@ -208,6 +208,30 @@ describe("POST /api/applications/[id]/selfie/send-link", () => {
     expect(mintSelfieLinkToken).not.toHaveBeenCalled()
   })
 
+  it("refuses with 409 to send the link to contact details a dealer typed that staff have not verified", async () => {
+    applicationFindUnique.mockResolvedValue({
+      id: "app1",
+      clientId: "c1",
+      status: "UNDER_REVIEW",
+      client: { ...CLIENT, createdByDealerId: "dealer-1", dealerContactVerifiedAt: null },
+    })
+
+    const res = await POST(post({ channel: "WHATSAPP" }), params)
+
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/dealer captured this person's contact details/i)
+    expect(mintSelfieLinkToken).not.toHaveBeenCalled()
+    expect(sendWhatsApp).not.toHaveBeenCalled()
+
+    applicationFindUnique.mockResolvedValue({
+      id: "app1",
+      clientId: "c1",
+      status: "UNDER_REVIEW",
+      client: { ...CLIENT, createdByDealerId: "dealer-1", dealerContactVerifiedAt: new Date("2026-10-19T10:00:00Z") },
+    })
+    expect((await POST(post({ channel: "WHATSAPP" }), params)).status).toBe(200)
+  })
+
   it("refuses with 422 when the client record has no valid email", async () => {
     applicationFindUnique.mockResolvedValue({
       id: "app1",
