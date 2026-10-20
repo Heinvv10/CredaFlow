@@ -212,8 +212,11 @@ Review rounds 2 and 3 (migrations `20261019120400_dealer_booking_contacts_verifi
     register/forgot/reset routes, the selfie, PASQ and agreement links, the
     agreement and signing-packet emails, application status emails and event
     notifications (`triggerNotification`) skip or refuse it, and an entity's
-    servicing recipients exclude it. Loan-scoped sends (reminders, Section
-    129, collections) rely on the booking gate; staff-chosen conversation
+    servicing recipients exclude it, and the website's identity-conflict
+    notice is withheld. No Loan, consumer or asset-finance, is created for
+    such a client (`Loan_dealer_contact_verified`, migration
+    `20261019120700`; the consumer disburse route answers 409 first), so
+    loan-scoped sends (reminders, Section 129, collections) need no check; staff-chosen conversation
     sends (CRM WhatsApp, inbox, AI agent) go to a Contact's identity, which a
     dealer capture never creates. A person with unverified dealer-typed contacts joins a
     business only while it has no deal beyond that dealer's own unsubmitted

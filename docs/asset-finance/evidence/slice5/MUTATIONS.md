@@ -349,6 +349,9 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | (7) PASQ acknowledgement link to a dealer-typed contact | PASQ send-link route unit | 1 failed, 22 passed | "expected 200 to be 409" |
 | (8) agreement email and link, signing-packet email, application status email | `lib/clients/dealer-contact-routes.test.ts` | 4 failed | each route answered another refusal or threw, not the dealer-contact 409 |
 | (9) event notifications (`triggerNotification`) | `lib/notifications.test.ts` | 1 failed | the email and SMS legs were attempted |
+| (10) website identity notice to a dealer-typed email | dealer-website-identity-notice IT | 1 failed | "expected [ Array(1) ] to deeply equal []" (the notice went to the dealer's inbox) |
+| (11) consumer loan for an unverified dealer-typed client | disburse route unit; dealer-handover-contact IT | 1 failed each | the route went on to its other gates; the Loan INSERT met only the loan's other guards |
+| (12) the capture pre-check with a staff deal (trigger refusal mapping off) | dealer-entity-people IT | 1 failed, 4 passed | "refuses it for a business with a staff deal on it" (the NOT on nullable dealerId skipped it) |
 | (6) linking an unverified dealer-typed person to a business with a live deal (database) | dealer-entity-people IT | 4 failed, 1 passed | each link was accepted ("expected true to be false"): own deal handed over, staff deal, another dealer's draft, re-activation and re-pointing |
 
 ### Mutations (applied to the migrated database or the source, then restored)
@@ -372,6 +375,9 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | 13 | `triggerNotification` guard off | same | 1 failed, 83 passed | "sends nothing to a client whose dealer-typed contacts staff have not verified, and records why" |
 | 14 | `entityContactRecipients` client filter without `TRUSTED_CONTACT_WHERE` | `lib/asset-finance/reprice-notice.test.ts` (pins the exact where clause) | 1 failed, 4 passed | "are the entity's servicing contacts: … no unverified dealer-typed contact, once each" |
 | 15 | the booking refusal back to "(the Dealer panel)" | `lib/asset-finance/booking.test.ts` | 1 failed, 17 passed | "dealer_contact_unverified while a person on the deal …" (the message must name "Contacts a dealer captured") |
+| 16 | website apply: the notice not withheld | dealer-website-identity-notice IT | 1 failed | the notice went to the dealer-typed address |
+| 17 | `DROP TRIGGER "Loan_dealer_contact_verified"` | dealer-handover-contact IT | 1 failed, 10 passed | "refuses any Loan (a consumer loan included) …" |
+| 18 | disburse route: the dealer-contact refusal off | disburse route unit | 1 failed, 77 passed | "refuses to pay out to a client whose dealer-typed contact details …" |
 
 (3)'s mutation is its before run (the route without the check). After
 restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
