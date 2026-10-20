@@ -10,6 +10,8 @@ const reverseReferralCommissionMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 const isLoanHeldMock = vi.fn()
 const debtReviewReasonMock = vi.fn()
+const ensureDpdCurrentMock = vi.fn()
+vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/collections/client-holds", () => ({
   isLoanHeld: (...a: unknown[]) => isLoanHeldMock(...a),
   section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
@@ -17,7 +19,7 @@ vi.mock("@/lib/collections/client-holds", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return t ? [t] : [] } },
+    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return Array.isArray(t) ? t : t ? [t] : [] } },
     loan: {
       findMany: (a: unknown) => loanFindManyMock(a),
       updateMany: (a: unknown) => loanUpdateManyMock(a),
@@ -71,6 +73,69 @@ beforeEach(() => {
 })
 
 describe("processEscalations", () => {
+  describe("the 60-DPD notice window", () => {
+    it("notifies a loan that crossed 60 days recently, up to 66 DPD", async () => {
+      loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 66 }])
+      await processEscalations()
+      expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("flips and notes a loan already further past 60, but sends it no notice (the first-run backlog)", async () => {
+      loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 67 }])
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_1", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+      expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.join(" ")).toContain("borrower notification skipped (past the 66 DPD notice window)")
+      expect(r.errors).toBe(0)
+    })
+  })
+
+  it("logs and counts a DEFAULTED notice that failed, instead of swallowing it", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockRejectedValue(new Error("smtp exploded"))
+    const r = await processEscalations()
+    expect(r.errors).toBe(1)
+    // Generic in the body; the cause (and the notice failure) is in the log only.
+    expect(r.details.join(" ")).toContain("Error L-100 escalation_default: failed; see the server log")
+    expect(r.details.join(" ")).not.toContain("smtp exploded")
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("DEFAULTED notice failed"), expect.objectContaining({ message: "smtp exploded" }))
+    logged.mockRestore()
+  })
+
+  describe("several tenants", () => {
+    const tenants = [{ id: "tenant_a", name: "A" }, { id: "tenant_b", name: "B" }]
+
+    it("makes sure DPD is current for each tenant before it reads the loans", async () => {
+      tenantFindFirstMock.mockResolvedValue(tenants)
+      await processEscalations()
+      expect(ensureDpdCurrentMock.mock.calls.map((c) => c[0])).toEqual(["tenant_a", "tenant_b"])
+    })
+
+    it("reports a tenant that threw, names it without the cause, and still runs the next", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      tenantFindFirstMock.mockResolvedValue(tenants)
+      loanFindManyMock.mockImplementation(async (a: { where: { tenantId: string } }) => {
+        if (a.where.tenantId === "tenant_a") throw new Error("connection string postgres://secret")
+        return [loan60d]
+      })
+      const r = await processEscalations()
+      expect(r).toMatchObject({ tenants: 2, failedTenants: 1, errors: 1, processed: 1 })
+      expect(r.details.join(" ")).toContain("Tenant A (tenant_a) failed")
+      expect(r.details.join(" ")).not.toContain("secret")
+      expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tenantId: "tenant_b" }) }))
+    })
+
+    it("a tenant whose DPD refresh failed is not escalated on stale figures", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      ensureDpdCurrentMock.mockRejectedValueOnce(new Error("dpd failed"))
+      tenantFindFirstMock.mockResolvedValue(tenants)
+      const r = await processEscalations()
+      expect(r.failedTenants).toBe(1)
+      expect(loanFindManyMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
   // F1: the DEFAULTED flip is business logic; the borrower notification is not sent to a held loan.
   it("a held loan is still flipped to DEFAULTED and noted, but the borrower is not notified, and the skip is reported", async () => {
     isLoanHeldMock.mockResolvedValue(true)
@@ -231,7 +296,8 @@ describe("processEscalations — the regime decides Section 129; the borrower ty
   })
 
   it("a defaulted entity loan's notice is raised by loan, with no clientId: triggerNotification routes it to the entity's contacts", async () => {
-    loanFindManyMock.mockResolvedValue([entityLoan("NON_NCA")])
+    // 62 DPD: inside the notice window.
+    loanFindManyMock.mockResolvedValue([{ ...entityLoan("NON_NCA"), daysInArrears: 62 }])
 
     await processEscalations()
 
@@ -242,7 +308,7 @@ describe("processEscalations — the regime decides Section 129; the borrower ty
   })
 
   it("a consumer loan is still messaged when it defaults", async () => {
-    loanFindManyMock.mockResolvedValue([{ ...entityLoan("NCA"), id: "loan_c", clientId: "cl_c" }])
+    loanFindManyMock.mockResolvedValue([{ ...entityLoan("NCA"), id: "loan_c", clientId: "cl_c", daysInArrears: 62 }])
 
     await processEscalations()
 

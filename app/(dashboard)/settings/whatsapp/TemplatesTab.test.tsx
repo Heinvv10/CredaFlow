@@ -69,7 +69,7 @@ describe("TemplatesTab", () => {
   it("shows Meta's review status verbatim, defaulting an unset status to PENDING", () => {
     const json = JSON.stringify(render([
       { id: "t1", wabaTemplateName: "loan_approved", providerStatus: "REJECTED" },
-      { id: "t2", wabaTemplateName: "payment_due_3d", providerStatus: null },
+      { id: "t2", wabaTemplateName: "payment_due_today", providerStatus: null },
     ]).toJSON())
     expect(json).toContain("WABA Template Approval")
     expect(json).toContain("REJECTED")

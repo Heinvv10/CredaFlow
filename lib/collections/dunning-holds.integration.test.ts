@@ -51,7 +51,7 @@ let tenant: ChargesTenant
 const seeded: SeededHoldLoan[] = []
 let optedOut: SeededHoldLoan
 
-suite.sequential("dunning holds on the real reminder queries (real Postgres)", () => {
+suite.sequential("dunning holds on the real reminder queries (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     delete process.env.MESSAGING_NEW_SEND_COLLECTIONS

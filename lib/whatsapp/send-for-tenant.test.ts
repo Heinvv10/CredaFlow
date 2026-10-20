@@ -106,8 +106,9 @@ describe("sendWhatsAppForTenant", () => {
   })
 })
 
-// F4: the s129 courtesy notification and payment-reminders both land here. The
-// tenant's own WhatsApp switch must stop them on either provider.
+// F4: the s129 courtesy notification (and the retired payment-reminders cron,
+// which was the other caller) lands here. The tenant's own WhatsApp switch must
+// stop it on either provider.
 describe("sendWhatsAppForTenant kill switches", () => {
   it("refuses both providers when the tenant has whatsappEnabled=false", async () => {
     for (const waProvider of ["WA_CLOUD", "WA_UNOFFICIAL"]) {

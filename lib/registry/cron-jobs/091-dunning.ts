@@ -1,7 +1,11 @@
 import { DAY, HOUR, defineCronJobs } from "../define"
 
-// The nightly dunning chain, in the order its data flows, once a SAST day on one
-// replica (singleRun). Each job sweeps every ACTIVE tenant.
+// The nightly dunning chain, in the order its data flows. Each job sweeps every
+// ACTIVE tenant. escalations and reminders send borrower comms, so they run on
+// one replica a day (singleRun) and are fired again 30 and 60 minutes later: a
+// later firing runs only over a FAILED or dead run (lib/ops/cron-run-claim.ts).
+// dpd-update is idempotent, so every replica may run it; escalations and
+// reminders make sure it is done for their tenant first (lib/loan/dpd-update.ts).
 //
 //   01:30 default-charges  accrue the completed day's default interest
 //   02:00 dpd-update       recompute DPD + arrears (what the next two read)
@@ -14,7 +18,7 @@ import { DAY, HOUR, defineCronJobs } from "../define"
 // them as well would fire them twice: the single-run claim covers only this
 // scheduler (docs/DEPLOY.md, "Scheduling").
 export default defineCronJobs([
-  { route: "dpd-update", owner: "in-process", schedule: "0 2 * * *", freshnessMinutes: DAY + 2 * HOUR, singleRun: true },
+  { route: "dpd-update", owner: "in-process", schedule: "0 2 * * *", freshnessMinutes: DAY + 2 * HOUR },
   { route: "escalations", owner: "in-process", schedule: "30 2 * * *", freshnessMinutes: DAY + 2 * HOUR, singleRun: true },
   { route: "reminders", owner: "in-process", schedule: "0 7 * * *", freshnessMinutes: DAY + 2 * HOUR, singleRun: true },
 ] as const)

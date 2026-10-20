@@ -17,15 +17,21 @@ const chargesOutstandingAtMock = vi.fn()
 
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
+const ensureDpdCurrentMock = vi.fn()
+const emailConfigFindUniqueMock = vi.fn()
+const seedDefaultMessageTemplatesMock = vi.fn()
+vi.mock("@/lib/messaging/default-templates", () => ({ seedDefaultMessageTemplates: (...a: unknown[]) => seedDefaultMessageTemplatesMock(...a) }))
+vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return t ? [t] : [] } },
+    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return Array.isArray(t) ? t : t ? [t] : [] } },
     loan: {
       findMany: (a: unknown) => loanFindManyMock(a),
       findUnique: (a: unknown) => loanFindUniqueMock(a),
     },
     repaymentSchedule: { findFirst: (a: unknown) => repaymentScheduleFindFirstMock(a) },
     tenantConfig: { findUnique: (a: unknown) => tenantConfigFindUniqueMock(a) },
+    emailConfig: { findUnique: (a: unknown) => emailConfigFindUniqueMock(a) },
     loanNote: {
       findFirst: (a: unknown) => loanNoteFindFirstMock(a),
       create: (a: unknown) => loanNoteCreateMock(a),
@@ -220,6 +226,7 @@ beforeEach(() => {
   loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
   repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00, totalPaid: 0 })
   tenantConfigFindUniqueMock.mockResolvedValue({})
+  emailConfigFindUniqueMock.mockResolvedValue({ active: true })
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
@@ -248,8 +255,26 @@ describe("processPaymentReminders", () => {
     const result = await processPaymentReminders()
     expect(result.errors).toBe(1)
     expect(result.details.join("\n")).toContain("Tenant Acme (tenant_acme) failed")
+    expect(result.details.join("\n"), "the cause stays in the server log").not.toContain("collectionsPhone")
+    expect(result).toMatchObject({ tenants: 1, failedTenants: 1 })
     expect(sendSmsMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  describe("several tenants", () => {
+    it("makes sure DPD is current for each tenant, and a tenant that threw does not stop the next", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      tenantFindFirstMock.mockResolvedValue([{ id: "tenant_a", name: "A" }, { id: "tenant_b", name: "B" }])
+      getLenderIdentityMock.mockImplementation(async (id: string) => {
+        if (id === "tenant_a") throw new Error("identity missing")
+        return { tradingName: "Acme", collectionsPhone: "0110000001" }
+      })
+      loanFindManyMock.mockResolvedValue([])
+      const result = await processPaymentReminders()
+      expect(ensureDpdCurrentMock.mock.calls.map((c) => c[0])).toEqual(["tenant_a", "tenant_b"])
+      expect(result).toMatchObject({ tenants: 2, failedTenants: 1, errors: 1 })
+      expect(getLenderIdentityMock).toHaveBeenCalledWith("tenant_b")
+    })
   })
 
   describe("SAST day key", () => {
@@ -338,6 +363,18 @@ describe("processPaymentReminders", () => {
       expect(r.details.join("\n")).toContain("Skipped 1 email leg(s) this run: no email address on file (reminder_7d x1)")
     })
 
+    it("a failed send is a generic line in the report; the cause goes to the log only", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      sendMessageMock.mockRejectedValue(new Error("smtp password rejected for mailer@secret.invalid"))
+      const r = await processPaymentReminders()
+      expect(r.errors).toBeGreaterThan(0)
+      expect(r.details.join("\n")).toContain("Error L-001 email: failed; see the server log")
+      expect(JSON.stringify(r)).not.toContain("secret.invalid")
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-001 email failed"), expect.objectContaining({ message: expect.stringContaining("secret.invalid") }))
+      logged.mockRestore()
+    })
+
     it("a blocked send (opt-out, hold) is a skip, never an error", async () => {
       loanFindManyMock.mockResolvedValue([withEmail(7)])
       sendMessageMock.mockRejectedValue(new SendBlockedError("CHANNEL_OPTED_OUT"))
@@ -346,21 +383,44 @@ describe("processPaymentReminders", () => {
       expect(r.details.join("\n")).toContain("L-001 email: blocked")
     })
 
-    it("a tenant without the email template has the leg reported per loan, and nothing is sent without one", async () => {
-      stubTemplates({ payment_reminder_email: undefined })
-      loanFindManyMock.mockResolvedValue([withEmail(7)])
+    // A tenant that cannot send the email leg skips it for the whole run: one
+    // warning, no error (so the cron is not 503), and the other legs still go.
+    it.each([
+      ["has no payment_reminder_email template", () => stubTemplates({ payment_reminder_email: undefined }), "template payment_reminder_email is missing or inactive"],
+      ["has a template that bypasses consent", () => stubTemplates({ payment_reminder_email: emailTpl({ statutoryOverride: true }) }), "statutoryOverride=true"],
+      ["has no active email provider", () => emailConfigFindUniqueMock.mockResolvedValue({ active: false }), "no active email provider"],
+      ["has no email provider row", () => emailConfigFindUniqueMock.mockResolvedValue(null), "no active email provider"],
+    ])("a tenant that %s: the email leg is skipped with one tenant warning, not an error per loan", async (_name, arrange, reason) => {
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      arrange()
+      loanFindManyMock.mockResolvedValue([withEmail(7), { ...withEmail(7), id: "loan_2", reference: "L-002" }])
       const r = await processPaymentReminders()
       expect(emailCalls()).toHaveLength(0)
-      expect(r.errors).toBe(1)
-      expect(r.details.join("\n")).toContain("via email: template payment_reminder_email missing/inactive")
+      expect(r.errors).toBe(0)
+      expect(r.warnings).toBe(1)
+      expect(r.details.filter((d) => d.startsWith("Warning: email reminder leg skipped"))).toHaveLength(1)
+      expect(r.details.join("\n")).toContain(reason)
+      expect(warned).toHaveBeenCalledTimes(1)
+      expect(sendWhatsAppMock, "the other legs are unaffected").toHaveBeenCalledTimes(2)
+      warned.mockRestore()
     })
 
-    it("a template that bypasses consent is refused", async () => {
-      stubTemplates({ payment_reminder_email: emailTpl({ statutoryOverride: true }) })
+    it("seeds the tenant's missing default templates when the run starts, under its brand name", async () => {
+      tenantConfigFindUniqueMock.mockResolvedValue({ brandName: "Beta Credit" })
+      loanFindManyMock.mockResolvedValue([])
+      await processPaymentReminders()
+      expect(seedDefaultMessageTemplatesMock).toHaveBeenCalledWith(expect.anything(), "tenant_acme", "Beta Credit")
+    })
+
+    it("a seeding failure is logged and does not stop the run", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      seedDefaultMessageTemplatesMock.mockRejectedValue(new Error("db hiccup"))
       loanFindManyMock.mockResolvedValue([withEmail(7)])
       const r = await processPaymentReminders()
-      expect(emailCalls()).toHaveLength(0)
-      expect(r.details.join("\n")).toContain("statutoryOverride=true")
+      expect(r.failedTenants).toBe(0)
+      expect(emailCalls()).toHaveLength(1)
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("could not seed the default message templates"), expect.any(Error))
+      logged.mockRestore()
     })
   })
 

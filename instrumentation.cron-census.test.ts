@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
 import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
+import { cronOccurrences } from "@/lib/ops/cron-run-claim"
 
 /**
  * Every `/api/cron/*` route must have an owner.
@@ -146,7 +147,12 @@ const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
 const claimCronRun = vi.hoisted(() => vi.fn(async (_job: string) => true))
-vi.mock("@/lib/ops/cron-run-claim", () => ({ claimCronRun }))
+const finishCronRun = vi.hoisted(() => vi.fn(async (_job: string, _ok: boolean) => undefined))
+vi.mock("@/lib/ops/cron-run-claim", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ops/cron-run-claim")>()),
+  claimCronRun,
+  finishCronRun,
+}))
 
 describe("instrumentation register()", () => {
   const env = { ...process.env }
@@ -167,20 +173,25 @@ describe("instrumentation register()", () => {
     vi.restoreAllMocks()
   })
 
-  it("schedules exactly the in-process jobs, in registry order, pinned to SAST", () => {
+  // The in-process jobs at their own time, in registry order, then the +30 and
+  // +60 minute retries of the single-run ones.
+  const occurrences = cronOccurrences(CRON_JOBS.flatMap((j) => (j.owner === "in-process" ? [j] : [])))
+
+  it("schedules exactly the in-process jobs and their single-run retries, pinned to SAST", () => {
     // The container sets no TZ (`date` reports UTC): an unpinned or wrongly
     // pinned expression fires hours away from the time its entry states.
-    const expected = CRON_JOBS.flatMap((j) => (j.owner === "in-process" ? [j.schedule] : []))
-    expect(schedule.mock.calls.map((c) => c[0])).toEqual(expected)
+    expect(schedule.mock.calls.map((c) => c[0])).toEqual(occurrences.map((o) => o.schedule))
+    const retries = occurrences.filter((o) => o.attempt > 0)
+    expect(retries.length).toBeGreaterThan(0)
+    expect(retries.every((o) => o.job.singleRun)).toBe(true)
     for (const call of schedule.mock.calls) expect(call[2]).toEqual({ timezone: "Africa/Johannesburg" })
   })
 
   it("calls each job's route with its method and the cron secret", async () => {
-    const jobs = CRON_JOBS.filter((j) => j.owner === "in-process")
     for (const [i, call] of schedule.mock.calls.entries()) {
       fetchMock.mockClear()
       await call[1]()
-      const job = jobs[i]
+      const job = occurrences[i].job
       expect(fetchMock).toHaveBeenCalledWith(`http://cron.test/api/cron/${job.route}`, {
         method: job.method,
         headers: { "x-cron-secret": "test-secret" },
@@ -197,24 +208,35 @@ describe("instrumentation register()", () => {
   })
 
   it("claims the SAST day before it calls a single-run job, and only then", async () => {
-    const jobs = CRON_JOBS.filter((j) => j.owner === "in-process")
     claimCronRun.mockResolvedValue(false)
     for (const [i, call] of schedule.mock.calls.entries()) {
-      const job = jobs[i]
+      const job = occurrences[i].job
       claimCronRun.mockClear()
+      finishCronRun.mockClear()
       fetchMock.mockClear()
       await call[1]()
       const singleRun = "singleRun" in job && job.singleRun === true
       expect(claimCronRun.mock.calls.map((c) => c[0]), job.route).toEqual(singleRun ? [job.route] : [])
+      expect(finishCronRun, "a run that was not claimed is not closed").not.toHaveBeenCalled()
       // A lost claim means another replica runs it: this one makes no call.
       expect(fetchMock.mock.calls.length, job.route).toBe(singleRun ? 0 : 1)
     }
     claimCronRun.mockResolvedValue(true)
   })
 
+  it("closes a claimed run as DONE on a 2xx and FAILED otherwise", async () => {
+    const index = occurrences.findIndex((o) => o.job.route === "reminders")
+    claimCronRun.mockResolvedValue(true)
+    finishCronRun.mockClear()
+    await schedule.mock.calls[index][1]()
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }))
+    await schedule.mock.calls[index][1]()
+    expect(finishCronRun.mock.calls.map((c) => c[1])).toEqual([true, false])
+  })
+
   it("skips a single-run job whose claim cannot be made, rather than risk a duplicate", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    const index = CRON_JOBS.filter((j) => j.owner === "in-process").findIndex((j) => j.route === "reminders")
+    const index = occurrences.findIndex((o) => o.job.route === "reminders")
     claimCronRun.mockRejectedValueOnce(new Error("db down"))
     fetchMock.mockClear()
     await schedule.mock.calls[index][1]()
@@ -222,9 +244,7 @@ describe("instrumentation register()", () => {
   })
 
   it("never schedules an external or unwired route", () => {
-    const scheduled = new Set<string>(
-      schedule.mock.calls.map((_, i) => CRON_JOBS.filter((j) => j.owner === "in-process")[i].route),
-    )
+    const scheduled = new Set<string>(schedule.mock.calls.map((_, i) => occurrences[i].job.route))
     for (const r of [...EXTERNALLY_SCHEDULED, ...INTENTIONALLY_UNWIRED]) expect(scheduled.has(r)).toBe(false)
   })
 

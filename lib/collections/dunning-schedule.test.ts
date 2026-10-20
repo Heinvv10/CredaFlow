@@ -41,13 +41,17 @@ describe("nightly dunning schedule", () => {
     expect(dailyMinuteOfDay("arrangement-check")).toBeLessThan(dailyMinuteOfDay("reminders"))
   })
 
-  it("leaves a gap between the jobs that a run on a large book cannot overrun", () => {
+  it("leaves at least 15 minutes between dpd-update, escalations and reminders", () => {
     expect(dailyMinuteOfDay("escalations") - dailyMinuteOfDay("dpd-update")).toBeGreaterThanOrEqual(15)
     expect(dailyMinuteOfDay("reminders") - dailyMinuteOfDay("escalations")).toBeGreaterThanOrEqual(15)
   })
 
-  it.each(["dpd-update", "escalations", "reminders"])("%s runs on one replica a day", (route) => {
+  it.each(["escalations", "reminders"])("%s sends borrower comms, so it runs on one replica a day", (route) => {
     expect(inProcess(route)).toMatchObject({ singleRun: true })
+  })
+
+  it("lets every replica run dpd-update: it is idempotent, and the other two make sure it is done", () => {
+    expect(inProcess("dpd-update")).toMatchObject({ singleRun: false })
   })
 
   it("has retired the payment-reminders courtesy cron: no route, no schedule, no owner", () => {

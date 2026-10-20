@@ -122,7 +122,8 @@ async function sendLeg(
     if (error instanceof MessageReconciliationRequiredError) {
       return { ...leg, status: "reconciliation", messageId: error.messageRecord.id, reason: "delivery uncertain; automatic replay blocked" }
     }
-    return { ...leg, status: "failed", reason: error instanceof Error ? error.message : String(error) }
+    console.error(`[entity-dispatch] ${leg.channel} to ${leg.clientId} failed:`, error)
+    return { ...leg, status: "failed", reason: "send failed; see the server log" }
   }
 }
 

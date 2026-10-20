@@ -129,6 +129,11 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
         if (job.singleRun && !/^\d+ \d+ \* \* \*$/.test(fields.join(" "))) {
           fail(`${file}: ${job.route} singleRun needs a once-a-day schedule ("M H * * *"), not "${job.schedule}"`)
         }
+        // The scheduler also fires a singleRun job 30 and 60 minutes later, the same day.
+        if (job.singleRun) {
+          const [minute, hour] = fields.map(Number)
+          if (hour * 60 + minute + 60 >= 24 * 60) fail(`${file}: ${job.route} singleRun needs room for a +60 minute retry before midnight`)
+        }
         return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes, singleRun: job.singleRun === true }
       }
       case "external":

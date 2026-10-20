@@ -26,12 +26,18 @@ promise-to-pay tracking, and arrangement monitoring.
   once a SAST day on one replica, each over EVERY ACTIVE tenant in its own
   frame** (`tenant-sweep.ts`; never `tenant.findFirst`). Times and order:
   `lib/registry/cron-jobs/091-dunning.ts`, pinned by `dunning-schedule.test.ts`.
-  The old 3-day `payment-reminders` courtesy cron is retired.
+  The old 3-day `payment-reminders` courtesy cron is retired. Escalations and
+  reminders first make sure DPD is current for the tenant (`ensureDpdCurrent`)
+  and run it if not. The 60-DPD "defaulted" notice goes only to a loan at 60-66
+  DPD; an older one is flipped and noted without it.
 - **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
   through `sendMessage`** (template `payment_reminder_email`; entities via
   `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`
-  apply. A tenant without the template has that leg reported per loan until
-  `seedDefaultMessageTemplates` is run for it.
+  apply. Each reminders run first seeds the tenant's missing default templates
+  (`seedDefaultMessageTemplates`, idempotent), so a tenant that predates a row
+  gets it. If the template or the tenant's email provider is still unusable the
+  email leg is skipped for the run: one log line and `warnings++`, not an error.
+  Report bodies are generic ("failed; see the server log"); the cause is logged.
 - **Section 129 issuance triggers a real legal letter.** When an escalation
   marks `SECTION_129_SENT`, a Section 129 PDF MUST be generated via `lib/pdf/section129.ts`
   and the audit log MUST record dispatch. Don't flip the status without

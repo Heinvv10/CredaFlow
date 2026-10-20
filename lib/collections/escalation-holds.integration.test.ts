@@ -33,7 +33,7 @@ let details: string[] = []
 // The escalation query takes ACTIVE and DEFAULTED loans only.
 const ESCALATABLE = HOLD_CASES.filter((c) => c.status === undefined)
 
-suite.sequential("escalation borrower notice and dunning holds (real Postgres)", () => {
+suite.sequential("escalation borrower notice and dunning holds (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     const second = await createSecondProduct(db, tenant.tenantId)
@@ -56,8 +56,10 @@ suite.sequential("escalation borrower notice and dunning holds (real Postgres)",
     for (const s of seeded) expect(notified.includes(s.loanId), `${s.name}: ${s.held ? "must be held" : "must be notified"}`).toBe(!s.held)
   })
 
-  it("reports each skipped notification", () => {
-    const skipped = details.filter((d) => d.includes("borrower notification skipped (dunning hold)"))
+  it("reports each skipped notification", async () => {
+    // The run sweeps every tenant, so rows other suites left in a shared database report too: only these loans count.
+    const refs = (await db.loan.findMany({ where: { id: { in: seeded.map((s) => s.loanId) } }, select: { reference: true } })).map((l) => l.reference)
+    const skipped = details.filter((d) => d.includes("borrower notification skipped (dunning hold)") && refs.some((r) => d.includes(r)))
     expect(skipped).toHaveLength(seeded.filter((s) => s.held).length)
   })
 })

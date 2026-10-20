@@ -28,6 +28,17 @@ function fakeDb(existing: Row[] = []) {
     && w.OR.some((o) => ("key" in o ? r.key === o.key : r.event === o.event && r.channel === o.channel))
   const messageTemplate = {
     findFirst: async (args: { where: Where }) => { calls.push({ method: "findFirst", args }); return rows.find((r) => matches(r, args.where)) ?? null },
+    findMany: async (args: { where: { tenantId: string } }) => { calls.push({ method: "findMany", args }); return rows.filter((r) => r.tenantId === args.where.tenantId) },
+    // ON CONFLICT DO NOTHING on both uniques.
+    createMany: async (args: { data: Row[]; skipDuplicates?: boolean }) => {
+      calls.push({ method: "createMany", args })
+      for (const data of args.data) {
+        const clash = rows.some((r) => r.tenantId === data.tenantId && ((data.key != null && r.key === data.key) || (r.event === data.event && r.channel === data.channel)))
+        if (clash && !args.skipDuplicates) throw p2002()
+        if (!clash) rows.push({ ...data })
+      }
+      return { count: args.data.length }
+    },
     create: async (args: { data: Row }) => { calls.push({ method: "create", args }); return create(args.data) },
     // Prisma's upsert: update when (tenantId, key) exists, else create.
     upsert: async (args: { where: { tenantId_key: { tenantId: string; key: string } }; create: Row }) => {
@@ -41,7 +52,7 @@ function fakeDb(existing: Row[] = []) {
 }
 
 const created = (calls: { method: string; args: unknown }[]) =>
-  calls.filter((c) => c.method === "create").map((c) => (c.args as { data: Row }).data)
+  calls.flatMap((c) => (c.method === "createMany" ? (c.args as { data: Row[] }).data : []))
 
 describe("default message templates", () => {
   it("name no lender: the brand is a seed-time token", () => {
@@ -103,6 +114,14 @@ describe("seedDefaultMessageTemplates", () => {
     expect(created(calls).map((r) => r.key)).not.toContain(first.key)
     expect(created(calls)).toHaveLength(DEFAULT_MESSAGE_TEMPLATES.length - 1)
     expect(rows[0]).toEqual(existing[0])
+  })
+
+  it("is two queries when nothing is missing, so the nightly run can afford every tenant", async () => {
+    const { calls, db } = fakeDb()
+    await seedDefaultMessageTemplates(db, "tenant-acme", ACME_LENDER.tradingName)
+    calls.length = 0
+    await seedDefaultMessageTemplates(db, "tenant-acme", ACME_LENDER.tradingName)
+    expect(calls.map((c) => c.method)).toEqual(["findMany"])
   })
 
   it("matches existing rows only within the same tenant", async () => {

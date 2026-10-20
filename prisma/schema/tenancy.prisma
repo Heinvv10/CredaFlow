@@ -520,13 +520,25 @@ model CronHeartbeat {
   lastError       String?
 }
 
-// One row per (single-run in-process job, SAST day), inserted by the replica
-// that wins the claim before it calls the route (lib/ops/cron-run-claim.ts).
-// A second replica's insert hits the primary key and the job is skipped.
+// One row per (single-run in-process job, SAST day): the replica that inserts it
+// runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
+// A later firing the same day proceeds only over a FAILED row or a stale RUNNING
+// one. Also holds the per-tenant "dpd-update:<tenantId>" DONE markers the
+// escalations and reminders read.
+enum CronRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
 model CronRunClaim {
-  job       String
-  runDay    String
-  claimedAt DateTime @default(now())
+  job        String
+  runDay     String
+  /// Start of the current attempt.
+  claimedAt  DateTime      @default(now())
+  status     CronRunStatus @default(RUNNING)
+  finishedAt DateTime?
+  attempts   Int           @default(1)
 
   @@id([job, runDay])
 }

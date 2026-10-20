@@ -8,12 +8,17 @@ import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commissi
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
+import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 
 interface EscalationResult {
   processed: number
+  /** includes each failed tenant */
   errors: number
   details: string[]
+  /** ACTIVE tenants swept, and the ones whose run threw */
+  tenants: number
+  failedTenants: number
 }
 
 interface EscalationRule {
@@ -49,6 +54,15 @@ async function createNote(loanId: string, type: string, note: string, tenantId: 
     data: { tenantId, loanId, type, note, createdBy: "system" },
   })
 }
+
+/**
+ * The 60-DPD DEFAULTED notice goes only to a loan that crossed 60 days
+ * recently. Anything older (the first run after this cron was scheduled finds
+ * every loan already past 60) still gets its status flip and note, but not a
+ * "you are now defaulted" notice that is weeks stale. The window tolerates a
+ * few missed nights.
+ */
+export const DEFAULT_NOTICE_MAX_DPD = 66
 
 const RULES: EscalationRule[] = [
   {
@@ -90,13 +104,23 @@ const RULES: EscalationRule[] = [
       // A consumer is messaged as the borrower; an entity borrower (no
       // Client) through the people who act for it, in copy that names the
       // entity (triggerNotification → lib/asset-finance/entity-notifications.ts).
-      triggerNotification({
-        tenantId: ctx.tenantId,
-        event: "loan_overdue",
-        loanId: ctx.loanId,
-        ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
-        data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
-      }).catch(() => {})
+      if (ctx.daysInArrears > DEFAULT_NOTICE_MAX_DPD) {
+        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (past the ${DEFAULT_NOTICE_MAX_DPD} DPD notice window)`
+      }
+      try {
+        await triggerNotification({
+          tenantId: ctx.tenantId,
+          event: "loan_overdue",
+          loanId: ctx.loanId,
+          ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
+          data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
+        })
+      } catch (err) {
+        // The flip and note above stand, so this rule will not run again: log the
+        // cause and count the failure so the run reports it.
+        console.error(`[escalation] ${ctx.loanRef}: DEFAULTED notice failed:`, err)
+        throw new Error(`${ctx.loanRef}: marked DEFAULTED but the borrower notice failed; see the server log`)
+      }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
   },
@@ -132,13 +156,15 @@ const RULES: EscalationRule[] = [
 
 /** Every ACTIVE tenant, each in its own frame (lib/collections/tenant-sweep.ts). */
 export async function processEscalations(): Promise<EscalationResult> {
-  const total: EscalationResult = { processed: 0, errors: 0, details: [] }
+  const total: EscalationResult = { processed: 0, errors: 0, details: [], tenants: 0, failedTenants: 0 }
   const outcomes = await sweepActiveTenants("escalations", (tenant) => processTenantEscalations(tenant))
+  total.tenants = outcomes.length
   if (outcomes.length === 0) total.details.push("No active tenant found")
   for (const outcome of outcomes) {
     if (!outcome.ok) {
       total.errors++
-      total.details.push(tenantFailureDetail(outcome.tenant, outcome.error))
+      total.failedTenants++
+      total.details.push(tenantFailureDetail(outcome.tenant))
       continue
     }
     total.processed += outcome.value.processed
@@ -149,7 +175,8 @@ export async function processEscalations(): Promise<EscalationResult> {
 }
 
 async function processTenantEscalations(tenant: SweepTenant): Promise<EscalationResult> {
-  const result: EscalationResult = { processed: 0, errors: 0, details: [] }
+  await ensureDpdCurrent(tenant.id)
+  const result: EscalationResult = { processed: 0, errors: 0, details: [], tenants: 0, failedTenants: 0 }
 
   const loans = await prisma.loan.findMany({
     where: {
@@ -197,8 +224,8 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
         result.processed++
         result.details.push(detail)
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error"
-        result.details.push(`Error ${loan.reference} ${rule.noteType}: ${msg}`)
+        console.error(`[escalation] ${loan.reference} ${rule.noteType} failed:`, err)
+        result.details.push(`Error ${loan.reference} ${rule.noteType}: failed; see the server log`)
         // This is a Section 129 legal notice / DEFAULTED status / commission
         // clawback pipeline (see the module doc). A rule that keeps throwing
         // was previously invisible: no counter, no ok field, and the loan's

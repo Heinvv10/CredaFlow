@@ -60,8 +60,10 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
     `runWithTenant` (website-chat-close, website-chat-handoffs,
     sweep-stuck-selfies; cross-sell and dormant-clients, which sweep ACTIVE
     tenants only because they create sales opportunities; dpd-update,
-    escalations and reminders, the nightly dunning chain, through
-    `sweepActiveTenants` in `lib/collections/tenant-sweep.ts`);
+    escalations, reminders, arrangement-check and default-charges, the nightly
+    dunning chain, through `sweepActiveTenants` in
+    `lib/collections/tenant-sweep.ts`, which also decides the HTTP status: 503
+    only when every tenant failed);
   - an explicit `tenantId` on every tenant-scope query, with no frame:
     insurance-renewal;
   - a loop over the tenants whose `TenantConfig` enables the job, still one
@@ -74,7 +76,7 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
     stale-leads-alert;
   - unscoped, under `withoutTenantScope`: email-poll;
   - the default tenant, `getDefaultTenantId()`, which throws rather than
-    guess: arrangement-check and licence-expiry still use it.
+    guess: licence-expiry still uses it.
 - **Scoping queries.** `lib/tenant-scope.ts` is a Prisma extension that adds
   the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
@@ -349,7 +351,7 @@ change that domain's entries.
 |---|---|---|---|
 | Audit actions | `lib/registry/audit-actions/` | `defineAuditActions({ X_DONE: "X_DONE" })` — value equals name | `AuditAction` (`lib/audit.ts`) |
 | Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
-| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
+| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it, and fires it again +30 and +60 minutes later to run it over a FAILED or dead run only); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
 | Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — a minimum role on the ladder (`ROLE_HIERARCHY`), a Prisma `UserRole`; or `key: ["ROLE", …]`, the exact roles that hold it, when a minimum would also grant a role that must not have it (a specialist role ranked above the roles it is kept from, e.g. `capture_payment` without INSURANCE_OFFICER). Prefer the minimum: a role added to the ladder inherits it, while a list names everyone by hand | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |

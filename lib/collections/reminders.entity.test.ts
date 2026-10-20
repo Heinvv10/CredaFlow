@@ -23,13 +23,19 @@ const m = vi.hoisted(() => ({
 
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
+const ensureDpdCurrentMock = vi.fn()
+const seedDefaultMessageTemplatesMock = vi.fn()
+vi.mock("@/lib/messaging/default-templates", () => ({ seedDefaultMessageTemplates: (...a: unknown[]) => seedDefaultMessageTemplatesMock(...a) }))
+vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findMany: async (a: unknown) => { const t = await m.tenantFindFirst(a); return t ? [t] : [] } },
+    tenant: { findMany: async (a: unknown) => { const t = await m.tenantFindFirst(a); return Array.isArray(t) ? t : t ? [t] : [] } },
     loan: { findMany: m.loanFindMany },
     repaymentSchedule: { findFirst: m.scheduleFindFirst },
     loanNote: { findFirst: m.loanNoteFindFirst, create: m.loanNoteCreate },
     messageTemplate: { findFirst: m.templateFindFirst },
+    tenantConfig: { findUnique: async () => ({}) },
+    emailConfig: { findUnique: async () => ({ active: true }) },
     entityRelationship: { findMany: m.relationshipFindMany },
   },
 }))

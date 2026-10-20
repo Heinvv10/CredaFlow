@@ -10,7 +10,7 @@ import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/reminders"))
 
-const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] as string[] }
+const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] as string[], tenants: 1, failedTenants: 0, warnings: 0 }
 
 describe("GET /api/cron/reminders", () => {
   beforeEach(() => {
@@ -82,5 +82,28 @@ describe("GET /api/cron/reminders", () => {
     const json = await res.json()
     expect(json).toMatchObject({ ok: true, sent: 5, simulated: 1 })
     expect(res.status).toBe(200)
+  })
+
+  // One lender that fails every night (no lender identity, say) is that tenant's
+  // failure, named in the body; only all tenants failing makes the job look failed.
+  it("is 200 and partial when some tenants failed and the rest ran clean", async () => {
+    vi.mocked(processPaymentReminders).mockResolvedValue({
+      ...emptyResult, sent: 4, errors: 1, tenants: 3, failedTenants: 1, details: ["Tenant A (t_a) failed; see the server log"],
+    })
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, partial: true, failedTenants: 1 })
+  })
+
+  it("is 503 when every tenant failed", async () => {
+    vi.mocked(processPaymentReminders).mockResolvedValue({ ...emptyResult, errors: 2, tenants: 2, failedTenants: 2 })
+    const res = await GET(req())
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ ok: false, partial: false })
+  })
+
+  it("is 503 when a tenant failed AND a send failed elsewhere", async () => {
+    vi.mocked(processPaymentReminders).mockResolvedValue({ ...emptyResult, errors: 2, tenants: 3, failedTenants: 1 })
+    expect((await GET(req())).status).toBe(503)
   })
 })

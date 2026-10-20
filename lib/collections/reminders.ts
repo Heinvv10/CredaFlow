@@ -32,6 +32,8 @@ import {
   SendBlockedError,
 } from "@/lib/messaging/send"
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 import type { MessageTemplate, MsgStatus } from "@prisma/client"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
@@ -78,8 +80,14 @@ interface ReminderResult {
   reconciliationRequired: number
   /** SMS legs not dispatched because the channel is off. Not an error. */
   smsChannelOff: number
+  /** includes each failed tenant */
   errors: number
   details: string[]
+  /** ACTIVE tenants swept, and the ones whose run threw */
+  tenants: number
+  failedTenants: number
+  /** Tenant-level conditions that skipped a leg for the tenant (a missing template or provider). Not errors. */
+  warnings: number
 }
 
 interface ReminderTrigger {
@@ -285,8 +293,9 @@ async function remindEntityTrigger(args: {
         suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
       })
     } catch (err) {
+      console.error(`[reminders] ${loan.reference} loan_overdue failed:`, err)
       result.errors++
-      result.details.push(`Error ${loan.reference} loan_overdue: ${err instanceof Error ? err.message : String(err)}`)
+      result.details.push(`Error ${loan.reference} loan_overdue: failed; see the server log`)
     }
   }
 }
@@ -300,13 +309,15 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
   // where:tenantId): it would throw TenantScopeError on every successful
   // dispatch, leaving rows stuck in QUEUED and ops unable to tell delivered
   // from undelivered.
-  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
+  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0 }
   const outcomes = await sweepActiveTenants("reminders", (tenant) => processTenantReminders(tenant))
+  total.tenants = outcomes.length
   if (outcomes.length === 0) total.details.push("No active tenant found")
   for (const outcome of outcomes) {
     if (!outcome.ok) {
       total.errors++
-      total.details.push(tenantFailureDetail(outcome.tenant, outcome.error))
+      total.failedTenants++
+      total.details.push(tenantFailureDetail(outcome.tenant))
       continue
     }
     const r = outcome.value
@@ -315,13 +326,33 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
     total.reconciliationRequired += r.reconciliationRequired
     total.smsChannelOff += r.smsChannelOff
     total.errors += r.errors
+    total.warnings += r.warnings
     total.details.push(...r.details)
   }
   return total
 }
 
+/**
+ * Seeds the default message templates the tenant lacks (idempotent: a row with
+ * the same key or (event, channel) is left alone, never updated). A tenant that
+ * predates a template, such as `payment_reminder_email`, gets it here instead of
+ * waiting on a deploy step someone has to remember. Never fatal: a failure is
+ * logged and the legs that need the missing row are skipped with a warning.
+ */
+async function ensureDefaultTemplates(tenant: SweepTenant): Promise<void> {
+  try {
+    const config = await prisma.tenantConfig.findUnique({ where: { tenantId: tenant.id }, select: { brandName: true } })
+    // The extended client (tenant scope) is structurally a PrismaClient for the one model used.
+    await seedDefaultMessageTemplates(prisma as unknown as Parameters<typeof seedDefaultMessageTemplates>[0], tenant.id, config?.brandName?.trim() || tenant.name)
+  } catch (err) {
+    console.error(`[reminders] tenant ${tenant.id}: could not seed the default message templates:`, err)
+  }
+}
+
 async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResult> {
-  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
+  await ensureDpdCurrent(tenant.id)
+  await ensureDefaultTemplates(tenant)
+  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0 }
 
   // Counted per trigger and reported ONCE at the end of the run, not as a
   // detail line per loan. An SMS-only trigger writes no LoanNote (there was no
@@ -417,16 +448,26 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   }
 
   // The email leg goes through sendMessage whatever the new-send flag says, so
-  // its template is checked on every path. A tenant without the row (seed the
-  // default templates) has that leg reported per loan, never sent without one.
+  // its template and the tenant's email provider are checked on every path. A
+  // tenant that lacks either has the leg skipped for the whole run: logged once
+  // and counted as a tenant-level warning (the other legs are unaffected), never
+  // an error per loan, and never sent without a usable template.
   const templateEmail = await prisma.messageTemplate.findFirst({
     where: { tenantId: tenant.id, key: "payment_reminder_email", channel: "EMAIL", active: true },
   })
-  const emailTemplateProblem = !templateEmail
-    ? "template payment_reminder_email missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)"
+  const emailConfig = templateEmail ? await prisma.emailConfig.findUnique({ where: { tenantId: tenant.id }, select: { active: true } }) : null
+  const emailLegSkipReason = !templateEmail
+    ? "template payment_reminder_email is missing or inactive"
     : templateEmail.statutoryOverride !== false
-      ? "template payment_reminder_email has statutoryOverride=true — collections reminders must NOT bypass eligibility"
-      : null
+      ? "template payment_reminder_email has statutoryOverride=true, and collections reminders must not bypass consent"
+      : !emailConfig?.active
+        ? "the tenant has no active email provider"
+        : null
+  if (emailLegSkipReason) {
+    result.warnings++
+    result.details.push(`Warning: email reminder leg skipped for tenant ${tenant.name}: ${emailLegSkipReason}`)
+    console.warn(`[reminders] tenant ${tenant.id}: email reminder leg skipped: ${emailLegSkipReason}`)
+  }
 
   const loans = await prisma.loan.findMany({
     where: {
@@ -576,6 +617,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           continue
         }
 
+        if (channel === "email" && emailLegSkipReason) continue
         if (channel === "email" && !loan.client.email) {
           noEmailByTrigger.set(trigger.noteType, (noEmailByTrigger.get(trigger.noteType) ?? 0) + 1)
           continue
@@ -590,11 +632,6 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
             result.details.push(
               `Blocked ${trigger.noteType} for ${loan.reference} via whatsapp: ${waTemplateProblems[trigger.noteType]}`,
             )
-            continue
-          }
-          if (channel === "email" && emailTemplateProblem) {
-            result.errors++
-            result.details.push(`Blocked ${trigger.noteType} for ${loan.reference} via email: ${emailTemplateProblem}`)
             continue
           }
           const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : channel === "email" ? loan.client.email! : loan.client.phone
@@ -682,9 +719,9 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
                 `Reconciliation required ${loan.reference} ${channel}: message ${err.messageRecord.id}; automatic replay blocked`,
               )
             } else {
+              console.error(`[reminders] ${loan.reference} ${channel} failed:`, err)
               result.errors++
-              const msg = err instanceof Error ? err.message : String(err)
-              result.details.push(`Error ${loan.reference} ${channel}: ${msg}`)
+              result.details.push(`Error ${loan.reference} ${channel}: failed; see the server log`)
             }
           }
         } else {
@@ -703,8 +740,9 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
             if (sendResult.simulated) channelsSimulated.push(channel)
             else channelsSent.push(channel)
           } else {
+            console.error(`[reminders] ${loan.reference} ${channel} failed: ${sendResult.error}`)
             result.errors++
-            result.details.push(`Error ${loan.reference} ${channel}: ${sendResult.error}`)
+            result.details.push(`Error ${loan.reference} ${channel}: failed; see the server log`)
           }
         }
       }

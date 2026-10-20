@@ -45,16 +45,20 @@ export async function register() {
       method: "GET" | "POST" = "GET",
       singleRun = false,
     ) => {
-      // Every replica fires every job. A single-run job (borrower comms) goes
-      // to the one replica that claims its SAST day; the rest skip it without
-      // touching the heartbeat, which the winner writes. A claim that cannot
-      // be made fails closed: a skipped night shows on /api/health, a
-      // duplicate reminder or Section 129 notice cannot be taken back.
+      // Every replica fires every job, a single-run one also 30 and 60 minutes
+      // after its time. It goes to the one replica that wins its SAST-day
+      // claim (a DONE run is never repeated; a FAILED or dead one is taken
+      // over by a later firing); the rest skip it without touching the
+      // heartbeat, which the runner writes. A claim that cannot be made fails
+      // closed: a skipped run shows on /api/health, a duplicate reminder or
+      // Section 129 notice cannot be taken back.
+      const claimKey = path.replace("/api/cron/", "")
+      const claimedAt = new Date()
       if (singleRun) {
         try {
           const { claimCronRun } = await import("@/lib/ops/cron-run-claim")
-          if (!(await claimCronRun(path.replace("/api/cron/", "")))) {
-            console.log(`[cron] ${path} already claimed for today by another replica, skipping`)
+          if (!(await claimCronRun(claimKey, claimedAt))) {
+            console.log(`[cron] ${path} already claimed for today (done, or running elsewhere), skipping`)
             return
           }
         } catch (err) {
@@ -79,6 +83,14 @@ export async function register() {
         error = err instanceof Error ? err.message : String(err)
         console.error(`[cron] ${path} error:`, err)
       }
+      if (singleRun) {
+        try {
+          const { finishCronRun } = await import("@/lib/ops/cron-run-claim")
+          await finishCronRun(claimKey, status !== null && status >= 200 && status < 300, claimedAt)
+        } catch (err) {
+          console.error(`[cron] ${path} run claim not closed:`, err)
+        }
+      }
       // The run's outcome for /api/health (lib/ops/cron-heartbeat.ts).
       try {
         const { recordCronRun } = await import("@/lib/ops/cron-heartbeat")
@@ -94,14 +106,14 @@ export async function register() {
     // never scheduled here: both firing would duplicate NCA-mandated borrower
     // comms (Section 129 notices, payment reminders).
     const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
-    let registered = 0
-    for (const job of CRON_JOBS) {
-      if (job.owner !== "in-process") continue
-      cron.schedule(job.schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun), {
+    const { cronOccurrences } = await import("@/lib/ops/cron-run-claim")
+    const occurrences = cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
+    for (const { job, schedule } of occurrences) {
+      cron.schedule(schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun), {
         timezone: SAST,
       })
-      registered++
     }
+    const registered = occurrences.length
 
     console.log(`[cron] scheduler registered — ${registered} jobs active`)
   }

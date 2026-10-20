@@ -181,11 +181,6 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     redactStoredBody: true,
   },
   {
-    key: "payment_due_3d_whatsapp", event: "payment_due_3d", channel: "WHATSAPP", category: "SERVICE",
-    body: WABA_BODY_TEMPLATES.payment_due_3d, bodyTemplate: WABA_BODY_TEMPLATES.payment_due_3d,
-    wabaTemplateName: "payment_due_3d",
-  },
-  {
     key: "payment_received_email", event: "payment_received", channel: "EMAIL", category: "TRANSACTIONAL",
     subject: "{{subject}}",
     body: "{{text}}",
@@ -288,12 +283,16 @@ export async function seedDefaultMessageTemplates(
   if (!lenderName.trim() || lenderName.includes(SEED_BRAND_TOKEN)) {
     throw new Error("seedDefaultMessageTemplates: lenderName is required")
   }
-  for (const t of DEFAULT_MESSAGE_TEMPLATES) {
-    const existing = await db.messageTemplate.findFirst({
-      where: { tenantId, OR: [{ key: t.key }, { event: t.event, channel: t.channel }] },
-      select: { id: true },
-    })
-    if (existing) continue
-    await db.messageTemplate.create({ data: { tenantId, ...defaultTemplateForTenant(t, lenderName) } })
-  }
+  // Two queries, not one per default: the reminders cron runs this for every
+  // ACTIVE tenant each night. skipDuplicates keeps it safe against a concurrent
+  // seed, which is the same ON CONFLICT DO NOTHING.
+  const existing = await db.messageTemplate.findMany({ where: { tenantId }, select: { key: true, event: true, channel: true } })
+  const keys = new Set(existing.map((e) => e.key))
+  const pairs = new Set(existing.map((e) => `${e.event}/${e.channel}`))
+  const missing = DEFAULT_MESSAGE_TEMPLATES.filter((t) => !keys.has(t.key) && !pairs.has(`${t.event}/${t.channel}`))
+  if (missing.length === 0) return
+  await db.messageTemplate.createMany({
+    data: missing.map((t) => ({ tenantId, ...defaultTemplateForTenant(t, lenderName) })),
+    skipDuplicates: true,
+  })
 }

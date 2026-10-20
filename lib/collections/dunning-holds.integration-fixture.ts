@@ -76,8 +76,12 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
       ...(o.inArrears ? { daysInArrears: 65, arrearsAmount: 100_000 } : {}),
     },
   })
+  // In arrears: the instalment fell due 65 days ago, so the nightly DPD pass
+  // (which escalations and reminders run first when it has not) reproduces the
+  // 65 DPD the loan row carries, instead of resetting it to 0.
+  const scheduleDue = o.inArrears ? new Date(sastStartOfDay(new Date()).getTime() - 65 * 86_400_000) : due
   await db.repaymentSchedule.create({
-    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: due, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
+    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: scheduleDue, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
   })
   if (o.status === "CANCELLED") {
     await db.$transaction(async (tx) => {

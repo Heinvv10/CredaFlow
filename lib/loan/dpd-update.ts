@@ -4,6 +4,7 @@ import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commission"
 import { sastStartOfDay } from "@/lib/date/sast"
 import { sweepActiveTenants } from "@/lib/collections/tenant-sweep"
+import { cronDoneToday, recordCronDone } from "@/lib/ops/cron-run-claim"
 
 export interface DpdUpdateCounts {
   processed: number
@@ -11,10 +12,12 @@ export interface DpdUpdateCounts {
   skipped: number
 }
 
-export type DpdUpdateTenantResult = { tenantId: string } & (DpdUpdateCounts | { error: string })
+/** A failed tenant carries no cause: it is in the server log, not the response. */
+export type DpdUpdateTenantResult = { tenantId: string } & (DpdUpdateCounts | { error: "failed; see the server log" })
 
 export interface DpdUpdateResult extends DpdUpdateCounts {
   perTenant: DpdUpdateTenantResult[]
+  failedTenants: number
 }
 
 /**
@@ -31,10 +34,11 @@ export interface DpdUpdateResult extends DpdUpdateCounts {
  */
 export async function runDpdUpdate(): Promise<DpdUpdateResult> {
   const outcomes = await sweepActiveTenants("dpd-update", (tenant) => updateTenantDpd(tenant.id))
-  const total: DpdUpdateResult = { processed: 0, updated: 0, skipped: 0, perTenant: [] }
+  const total: DpdUpdateResult = { processed: 0, updated: 0, skipped: 0, perTenant: [], failedTenants: 0 }
   for (const outcome of outcomes) {
     if (!outcome.ok) {
-      total.perTenant.push({ tenantId: outcome.tenant.id, error: outcome.error })
+      total.failedTenants++
+      total.perTenant.push({ tenantId: outcome.tenant.id, error: "failed; see the server log" })
       continue
     }
     total.processed += outcome.value.processed
@@ -45,7 +49,24 @@ export async function runDpdUpdate(): Promise<DpdUpdateResult> {
   return total
 }
 
-async function updateTenantDpd(tenantId: string): Promise<DpdUpdateCounts> {
+/** Today's "dpd-update done" marker for one tenant (a DONE CronRunClaim row). */
+const doneMarker = (tenantId: string) => `dpd-update:${tenantId}`
+
+/**
+ * Escalations and reminders act on the DPD and arrears this job writes, so each
+ * makes sure it has run for its tenant today before it sends anything, and runs
+ * it first if not (it is idempotent and a few seconds a tenant). The
+ * alternative, logging and proceeding, would escalate and remind on yesterday's
+ * figures: a borrower who paid yesterday could still be defaulted and sent a
+ * notice. If it fails here the tenant's run fails (reported, retried by the
+ * later firing) rather than send on stale data.
+ */
+export async function ensureDpdCurrent(tenantId: string): Promise<void> {
+  if (await cronDoneToday(doneMarker(tenantId))) return
+  await updateTenantDpd(tenantId)
+}
+
+export async function updateTenantDpd(tenantId: string): Promise<DpdUpdateCounts> {
   // SAST midnight, not the container's. This ran `setHours(0, 0, 0, 0)` on a
   // UTC container, so the DPD day rolled over at 02:00 SAST.
   const today = sastStartOfDay(new Date())
@@ -119,5 +140,6 @@ async function updateTenantDpd(tenantId: string): Promise<DpdUpdateCounts> {
     updated++
   }
 
+  await recordCronDone(doneMarker(tenantId))
   return { processed: loans.length, updated, skipped }
 }

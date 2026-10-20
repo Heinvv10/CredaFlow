@@ -359,7 +359,10 @@ Every variable the app reads, required or optional per integration, with what se
   (`lib/registry/cron-jobs/091-dunning.ts`). Do NOT also point an external timer at
   those three routes: the claim covers only the in-process scheduler, so a second
   caller would run them twice (the routes stay callable with `x-cron-secret` for a
-  manual run). `cleanup-notifications`, `email-poll`, `lead-task-reminders` and
+  manual run, and a re-run the same day is mostly harmless: reminders are deduped by
+  LoanNote and idempotency key, escalations by their notes, dpd-update is idempotent).
+  A lost `escalations` or `reminders` run is retried 30 and 60 minutes later by a
+  second firing, which proceeds only over a FAILED or dead run (`CronRunClaim`). `cleanup-notifications`, `email-poll`, `lead-task-reminders` and
   `messaging-retry` still need an external scheduler calling them with
   `x-cron-secret` (the ownership comment in
   `lib/registry/cron-jobs/100-external-scheduler.ts`); nothing here installs one.

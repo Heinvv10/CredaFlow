@@ -159,9 +159,6 @@ export const WA_TEMPLATES = {
   loan_disbursed: (name: string, amount: string, dueDate: string) =>
     `Hi ${name} ✅\n\nYour loan of *${amount}* has been paid to your account.\n\nYour first payment is due on *${dueDate}*. You can view your repayment schedule on the client portal.`,
 
-  payment_due_3d: (name: string, amount: string, dueDate: string, ref: string) =>
-    `Hi ${name},\n\nReminder: A payment of *${amount}* is due on *${dueDate}*.\n\nPayment reference: *${ref}*\n\nPlease ensure funds are available. Log in to the portal to pay or view your schedule.`,
-
   payment_due_today: (name: string, amount: string, ref: string) =>
     `Hi ${name},\n\nYour loan payment of *${amount}* is due *today*.\n\nPayment reference: *${ref}*\n\nContact us if you need assistance.`,
 
