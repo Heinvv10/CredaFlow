@@ -211,16 +211,13 @@ model AutomationLog {
   entityId      String
   result        String
   error         String?
-  // Stable trigger occurrence used by outbound automation idempotency. A
-  // manual replay reuses this value so uncertain provider outcomes can never
-  // be converted into a second Message reservation. Nullable for historical
-  // logs written before occurrence-aware delivery.
+  // LEGACY: the three columns below belong to the retired engine SEND_WA
+  // action, which the engine no longer runs (WhatsApp reminders are sent by the
+  // reminders crons). Nothing writes them now; they stay for old rows.
+  // Formerly the stable trigger occurrence used by outbound idempotency.
   occurrenceKey String?        @db.VarChar(128)
-  // Replay evidence for SEND_WA. `dispatchPhase` distinguishes a failure
-  // before any Message reservation from a provider rejection that may be
-  // explicitly re-armed. `messageId` binds the latter to the exact durable
-  // reservation. Both are nullable for pre-deployment logs, which therefore
-  // fail closed during replay.
+  // LEGACY: replay evidence for the retired SEND_WA action (failure phase and
+  // the bound Message reservation).
   messageId     String?
   dispatchPhase String?        @db.VarChar(32)
   createdAt     DateTime       @default(now())
