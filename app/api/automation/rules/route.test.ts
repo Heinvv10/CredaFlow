@@ -29,6 +29,12 @@ describe("POST /api/automation/rules", () => {
     expect(h.create).not.toHaveBeenCalled()
   })
 
+  it.each(["PAYMENT_DUE", "LOAN_PAID_IN_FULL"])("refuses the retired %s trigger (no evaluator, the rule would be inert)", async (trigger) => {
+    const res = await post({ name: "Inert", trigger, condition: {}, action: "NOTIFY_AGENT" })
+    expect(res.status).toBe(422)
+    expect(h.create).not.toHaveBeenCalled()
+  })
+
   it("still creates a non-WhatsApp rule", async () => {
     const res = await post({ name: "Task", trigger: "DPD_THRESHOLD", condition: {}, action: "CREATE_AGENT_TASK" })
     expect(res.status).toBe(201)

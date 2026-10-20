@@ -49,17 +49,28 @@ async function writeLog(opts: {
   })
 }
 
-/** Log once per rule (not once per run) that a SEND_WA rule row is being skipped. */
-async function skipWhatsAppRule(rule: AutomationRule): Promise<void> {
+/** A trigger whose evaluator was removed (PAYMENT_DUE, LOAN_PAID_IN_FULL drove only WhatsApp). */
+export const NO_EVALUATOR_FOR_TRIGGER = "no_evaluator_for_trigger"
+
+/** Log once per rule (not once per run) that a rule row is being skipped, and why. */
+async function skipRuleOnce(rule: AutomationRule, reason: string): Promise<void> {
   const logged = await prisma.automationLog.findFirst({
-    where: { ruleId: rule.id, entityType: "rule", entityId: rule.id, error: WHATSAPP_HANDLED_BY_REMINDERS_CRON },
+    where: { ruleId: rule.id, entityType: "rule", entityId: rule.id, error: reason },
     select: { id: true },
   })
   if (logged) return
   await writeLog({
     ruleId: rule.id, tenantId: rule.tenantId, entityType: "rule", entityId: rule.id,
-    result: "skipped", error: WHATSAPP_HANDLED_BY_REMINDERS_CRON,
+    result: "skipped", error: reason,
   })
+}
+
+/** Why replaying a log entry was refused. The route maps these, and only these, to 404/422. */
+export class AutomationReplayRefusedError extends Error {
+  constructor(readonly code: "not_found" | "not_failed" | "paused" | "whatsapp_retired", message: string) {
+    super(message)
+    this.name = "AutomationReplayRefusedError"
+  }
 }
 
 // ── Trigger evaluators ────────────────────────────────────────────────────────
@@ -207,7 +218,7 @@ export async function runAutomationEngine(tenantId: string): Promise<{ ran: numb
 
   for (const rule of rules) {
     if (rule.action === "SEND_WA") {
-      await skipWhatsAppRule(rule)
+      await skipRuleOnce(rule, WHATSAPP_HANDLED_BY_REMINDERS_CRON)
       continue
     }
     try {
@@ -216,6 +227,9 @@ export async function runAutomationEngine(tenantId: string): Promise<{ ran: numb
         case "LEAD_STALE":          count = await evaluateLeadStale(rule); break
         case "DPD_THRESHOLD":       count = await evaluateDpdThreshold(rule); break
         case "LOAN_PAID_ON_TIME_N": count = await evaluateLoanPaidOnTimeN(rule); break
+        default:
+          await skipRuleOnce(rule, NO_EVALUATOR_FOR_TRIGGER)
+          continue
       }
       ran++; actions += count
     } catch (err) {
@@ -239,16 +253,16 @@ export async function replayAutomationLog(
     include: { rule: true },
   })
   if (!log || log.rule.tenantId !== tenantId || log.rule.tenantId !== log.tenantId) {
-    throw new Error("Log entry not found")
+    throw new AutomationReplayRefusedError("not_found", "Log entry not found")
   }
-  if (log.result !== "failed") throw new Error("Only failed log entries can be replayed")
+  if (log.result !== "failed") throw new AutomationReplayRefusedError("not_failed", "Only failed log entries can be replayed")
   if (log.rule.action === "SEND_WA") {
-    throw new Error("WhatsApp reminders are no longer sent by the automation engine; they are handled by the reminders cron, so this entry cannot be replayed")
+    throw new AutomationReplayRefusedError("whatsapp_retired", "WhatsApp reminders are no longer sent by the automation engine; they are handled by the reminders cron, so this entry cannot be replayed")
   }
 
   const { rule, entityType, entityId } = log
   if (await isPaused(rule.id, entityId)) {
-    throw new Error("Entity is paused — remove the pause before replaying")
+    throw new AutomationReplayRefusedError("paused", "Entity is paused — remove the pause before replaying")
   }
 
   try {

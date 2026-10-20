@@ -41,6 +41,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 })
     }
 
+    // Their evaluators are gone (they drove only WhatsApp): such a rule would be silently inert.
+    if (body.trigger === "PAYMENT_DUE" || body.trigger === "LOAN_PAID_IN_FULL") {
+      return NextResponse.json({
+        error: "This trigger is retired: WhatsApp payment and paid-in-full reminders are sent by the reminders cron.",
+      }, { status: 422 })
+    }
     if (body.action === "SEND_WA") {
       return NextResponse.json({
         error: "WhatsApp reminders are sent by the reminders cron, not by automation rules.",

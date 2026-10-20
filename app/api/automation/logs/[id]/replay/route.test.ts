@@ -8,28 +8,44 @@ vi.mock("@/lib/auth-guards", () => ({
 vi.mock("@/lib/tenant", () => ({
   withTenantContext: async (_req: Request, fn: (tenant: { id: string }) => Promise<Response>) => fn({ id: "t1" }),
 }))
-vi.mock("@/lib/automation/engine", () => ({ replayAutomationLog: h.replay }))
+vi.mock("@/lib/automation/engine", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/automation/engine")>()),
+  replayAutomationLog: h.replay,
+}))
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
+import { AutomationReplayRefusedError } from "@/lib/automation/engine"
 import { POST } from "./route"
 
 const call = () => POST(new Request("http://localhost/api/automation/logs/log1/replay", { method: "POST" }), {
   params: Promise.resolve({ id: "log1" }),
 })
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.spyOn(console, "error").mockImplementation(() => {})
+})
 
 describe("POST /api/automation/logs/[id]/replay", () => {
-  it("answers 422 with the reason when the replay is refused (not a 500)", async () => {
-    h.replay.mockRejectedValue(new Error("WhatsApp reminders are no longer sent by the automation engine; they are handled by the reminders cron, so this entry cannot be replayed"))
+  it.each([
+    ["not_failed", 422],
+    ["paused", 422],
+    ["whatsapp_retired", 422],
+    ["not_found", 404],
+  ] as const)("answers %s with %i and the reason", async (code, status) => {
+    h.replay.mockRejectedValue(new AutomationReplayRefusedError(code, `refused: ${code}`))
     const res = await call()
-    expect(res.status).toBe(422)
-    expect((await res.json()).error).toMatch(/reminders cron/)
+    expect(res.status).toBe(status)
+    expect((await res.json()).error).toBe(`refused: ${code}`)
   })
 
-  it("answers 404 for an unknown log", async () => {
-    h.replay.mockRejectedValue(new Error("Log entry not found"))
-    expect((await call()).status).toBe(404)
+  it("answers an unexpected error with a generic 500, logged, never the raw message", async () => {
+    h.replay.mockRejectedValue(new Error("connection to 10.0.0.5 refused, password=hunter2 not found"))
+    const res = await call()
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: "Replay failed" })
+    expect(console.error).toHaveBeenCalled()
   })
 
   it("returns the replay outcome", async () => {

@@ -201,4 +201,24 @@ describe("SEND_WA rule rows are retired (the reminders cron owns WhatsApp)", () 
     await expect(replayAutomationLog("log1", "tenant-a")).rejects.toThrow(/handled by the reminders cron/)
     expect(actionCreateTask).not.toHaveBeenCalled()
   })
+
+  it.each(["PAYMENT_DUE", "LOAN_PAID_IN_FULL"] as const)("skips a %s rule once: its evaluator is gone", async (trigger) => {
+    vi.mocked(prisma.automationRule.findMany).mockResolvedValue([
+      { ...waRule, id: "rule-x", trigger, action: "NOTIFY_AGENT" },
+    ] as any)
+    vi.mocked(prisma.automationLog.findFirst).mockResolvedValueOnce(null)
+
+    const result = await runAutomationEngine("tenant-a")
+
+    expect(result).toEqual({ ran: 0, actions: 0, errors: 0 })
+    expect(prisma.automationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ ruleId: "rule-x", entityType: "rule", result: "skipped", error: "no_evaluator_for_trigger" }),
+    })
+
+    vi.mocked(prisma.automationLog.create).mockClear()
+    vi.mocked(prisma.automationLog.findFirst).mockResolvedValue({ id: "log-1" } as any)
+    await runAutomationEngine("tenant-a")
+    expect(prisma.automationLog.create).not.toHaveBeenCalled()
+  })
 })
+

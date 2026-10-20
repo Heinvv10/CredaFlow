@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { replayAutomationLog } from "@/lib/automation/engine"
+import { AutomationReplayRefusedError, replayAutomationLog } from "@/lib/automation/engine"
 import { logAudit } from "@/lib/audit"
 
 export async function POST(
@@ -14,7 +14,7 @@ export async function POST(
 
     const { id } = await params
 
-    // Awaited, so a refusal thrown inside is caught below (422), not an unhandled 500.
+    // Awaited, so a refusal thrown inside is caught below.
     return await withTenantContext(req, async (tenant) => {
       const outcome = await replayAutomationLog(id, tenant.id)
 
@@ -31,9 +31,12 @@ export async function POST(
       return NextResponse.json(outcome)
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    // Only the engine's own typed refusals carry their message to the client;
+    // anything else is a server fault: logged, generic body.
+    if (err instanceof AutomationReplayRefusedError) {
+      return NextResponse.json({ error: err.message }, { status: err.code === "not_found" ? 404 : 422 })
+    }
     console.error("Automation replay failed:", err)
-    const isNotFound = msg.includes("not found")
-    return NextResponse.json({ error: msg }, { status: isNotFound ? 404 : 422 })
+    return NextResponse.json({ error: "Replay failed" }, { status: 500 })
   }
 }
