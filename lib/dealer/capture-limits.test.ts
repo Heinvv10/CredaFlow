@@ -27,7 +27,8 @@ describe("dealer capture limits", () => {
     expect(h.auditRefusal).toHaveBeenCalledTimes(1)
     const row = h.auditRefusal.mock.calls[0][0]
     expect(row).toMatchObject({
-      action: "DEALER_CAPTURE_REFUSED_ON_BOOK", tenantId: "tenant-1", userEmail: "sales@dealer.invalid", status: 409,
+      // The row is the dealer user's attempt: the existing row is never named.
+      action: "DEALER_CAPTURE_REFUSED_ON_BOOK", entity: "DealerUser", entityId: "du-1", tenantId: "tenant-1", userEmail: "sales@dealer.invalid", status: 409,
       detail: { captured: "entity", actor: { type: "dealer", dealerId: "dealer-1", dealerUserId: "du-1" } },
     })
     expect(JSON.stringify(row)).not.toContain("2099/000001/07")

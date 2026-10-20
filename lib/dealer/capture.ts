@@ -38,7 +38,6 @@ export type CaptureResult = { kind: "created"; id: string } | { kind: "invalid";
 export const DEALER_CAPTURE_RATE_LIMIT = { limit: 30, windowMs: 15 * 60 * 1000 } as const
 
 type Captured = "entity" | "person" | "asset"
-const CAPTURED_ENTITY: Record<Captured, string> = { entity: "BusinessEntity", person: "Client", asset: "FinancedAsset" }
 
 function overCaptureLimit(actor: DealerActor): DealerRefusal | null {
   const gate = checkRateLimit(`dealer-capture:${actor.tenantId}:${actor.dealerUserId}`, DEALER_CAPTURE_RATE_LIMIT)
@@ -49,7 +48,8 @@ function overCaptureLimit(actor: DealerActor): DealerRefusal | null {
 async function alreadyOnBook(actor: DealerActor, captured: Captured): Promise<DealerRefusal> {
   const audit = dealerAuditFields(actor)
   await auditRefusal({
-    action: AuditAction.DEALER_CAPTURE_REFUSED_ON_BOOK, entity: CAPTURED_ENTITY[captured], entityId: actor.dealerUserId,
+    // The audited row is the dealer user's attempt; the existing row is never named.
+    action: AuditAction.DEALER_CAPTURE_REFUSED_ON_BOOK, entity: "DealerUser", entityId: actor.dealerUserId,
     tenantId: actor.tenantId, userEmail: audit.userEmail, reason: "already_on_book", status: 409,
     detail: { captured, actor: audit.actor },
   })
