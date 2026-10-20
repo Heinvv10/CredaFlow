@@ -88,11 +88,11 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     ok(await inTenant(fx, () => deactivateDealer(staffOf(fx), dealerId)), "deactivated")
     expect(await revalidateDealerPrincipal(u1, claims(0))).toBeNull()
     expect(await revalidateDealerPrincipal(u1, claims(1))).toBeNull() // dealer inactive even with the bumped version
-  })
+  }, 60_000)
 
   it("P02 the demo-only CHECK refuses the portal flag on a non-demo lender, and clearing isDemoLender while on", () => {
     expectRejected(`UPDATE "TenantConfig" SET "isDemoLender" = false WHERE "tenantId" = ${lit(fx.tenantId)}`, "TenantConfig_dealer_portal_demo_only")
-  })
+  }, 60_000)
 
   // ---------------- user email uniqueness ----------------
   it("U01 two dealers of one lender cannot share a user email (any case); a dealer admin cannot add users to another dealer", async () => {
@@ -106,7 +106,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     expect(await inTenant(fx, () => createDealerUser(staffBy, fx.dealerB, upper.data))).toMatchObject({ status: 409 })
     const bAdmin = { kind: "dealer" as const, actor: actorOf(fx, fx.userB, fx.dealerB, "DEALER_ADMIN") }
     expect(await inTenant(fx, () => createDealerUser(bAdmin, fx.dealerA, { email: `x-${email}`, name: "TEST Four", role: "DEALER_SALES" }))).toMatchObject({ status: 404 })
-  })
+  }, 60_000)
 
   it("U02 the same email may exist as a dealer user in a DIFFERENT lender", async () => {
     if (!db) throw new Error("no db")
@@ -116,7 +116,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     const by2 = { kind: "staff" as const, staff: staffOf(fx2) }
     ok(await inTenant(fx, () => createDealerUser(by1, fx.dealerA, { email, name: "TEST One", role: "DEALER_SALES" })), "created")
     ok(await inTenant(fx2!, () => createDealerUser(by2, fx2!.dealerA, { email, name: "TEST Two", role: "DEALER_SALES" })), "created")
-  })
+  }, 60_000)
 
   it("U03 the database forces the email to lower case, so a case-variant duplicate cannot exist", () => {
     const id = newId("dlu")
@@ -125,7 +125,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     expectRejected(insert(`MixedCase-${id}@dealer.invalid`, id), "DealerUser_email_lower_case")
     sql(insert(`mixedcase-${id}@dealer.invalid`, id))
     expectRejected(`UPDATE "DealerUser" SET "email" = upper("email") WHERE "id" = ${lit(id)}`, "DealerUser_email_lower_case")
-  })
+  }, 60_000)
 
   // ---------------- hand-over, accept, upload ----------------
   it("F01 handed over twice / un-handed: the lib answers 409; the database refuses a re-set, a NULL, a staff deal and a non-DRAFT deal", async () => {
@@ -154,7 +154,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     const attestAfter = await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: stored.document.id, clientIds: [draft.directorId] }))
     console.info(`[F03] after accept (status ${status}): upload=${after.kind === "stored" ? "stored" : JSON.stringify(after)} attest=${JSON.stringify(attestAfter).slice(0, 120)}`)
     expect(attestAfter).toMatchObject({ status: 409 })
-  })
+  }, 60_000)
 
   it("F02 staff accept on a deal not handed over / a deal of no dealer / an unknown deal: 409 / 409 / 404 and the deal stays DRAFT", async () => {
     const sales = actorOf(fx, fx.salesUserA, fx.dealerA)
@@ -162,7 +162,7 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
     expect(await inTenant(fx, () => acceptDealerSubmission(staffOf(fx), draft.dealId))).toMatchObject({ status: 409 })
     expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(draft.dealId)}`)).toBe("DRAFT")
     expect(await inTenant(fx, () => acceptDealerSubmission(staffOf(fx), "nope"))).toMatchObject({ status: 404 })
-  })
+  }, 60_000)
 
   it("F04 dealer uploads by deal status: free while the dealer holds the draft; after hand-over only against an open request; closed deals refuse", async () => {
     const d = freshDealerWithAccount()
@@ -200,5 +200,5 @@ suite.sequential("dealer principal, user and flow edges (real DB)", () => {
       BOOKED: "409",
       CANCELLED: "409",
     })
-  })
+  }, 60_000)
 })

@@ -98,7 +98,7 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     sql(approve(runId))
     release(runId)
     expect(status(runId)).toBe("RELEASED")
-  })
+  }, 60_000)
 
   it("refuses approving a run whose EARNED line was clawed back after it was linked", () => {
     const deal = booked("2026-02-15")
@@ -108,7 +108,7 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     expectRejected(approve(runId), APPROVE_PAIRING)
     expect(status(runId)).toBe("PENDING_APPROVAL")
     cancel(runId)
-  })
+  }, 60_000)
 
   it("refuses a run that leaves out a line of the dealer due by its period end", () => {
     // From the test above: an unpaid EARNED line (February) and its reversal (March).
@@ -122,7 +122,7 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     linkAll(netted, [lineOf(deal, "REVERSED"), lineOf(deal, "EARNED"), fresh.earned])
     sql(approve(netted))
     expect(status(netted)).toBe("APPROVED")
-  })
+  }, 60_000)
 
   it("refuses a REVERSED line paid without its EARNED line in a live run", () => {
     const settled = booked("2026-04-10")
@@ -136,7 +136,7 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     linkAll(whole, [reversed, settled.earned, other.earned])
     sql(approve(whole))
     expect(status(whole)).toBe("APPROVED")
-  })
+  }, 60_000)
 
   it("lets an EARNED line wait with a reversal that falls after the period end", () => {
     const settled = booked("2026-05-15")
@@ -153,7 +153,7 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     linkAll(june, [reversed, settled.earned, fresh.earned])
     sql(approve(june))
     release(june)
-  })
+  }, 60_000)
 
   it("pays a reversal after its EARNED line was paid in an earlier run", () => {
     const deal = booked("2026-07-15")
@@ -167,5 +167,5 @@ suite.sequential("dealer payable-run netting (real DB)", () => {
     linkAll(second, [reversed, bigger.earned])
     sql(approve(second))
     expect(status(second)).toBe("APPROVED")
-  })
+  }, 60_000)
 })

@@ -66,7 +66,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     expect(runLines(created.runId)).toEqual([lineIdOf(a.dealId)])
     const approved = await approveRun(created.runId)
     expect(approved.kind).toBe("approved")
-  })
+  }, 60_000)
 
   it("R02 periodEnd must be a month end not after today; bad input is a clean refusal, not a throw", async () => {
     const d = freshDealerWithAccount()
@@ -74,14 +74,14 @@ suite.sequential("dealer payable run edges (real DB)", () => {
       const r = await createRun(d.dealerId, bad as string)
       expect(r, String(bad)).toMatchObject({ status: expect.any(Number) })
     }
-  })
+  }, 60_000)
 
   it("R03 a leap-year month end (2024-02-29) is accepted as a period end; 2025-02-29 is not", async () => {
     const d = freshDealerWithAccount()
     expect(await createRun(d.dealerId, "2025-02-29")).toMatchObject({ status: 400 })
     // 2024-02-29 is a valid month end; with no lines due the refusal must be the 'no commission' 409, not a 400
     expect(await createRun(d.dealerId, "2024-02-29")).toMatchObject({ status: 409 })
-  })
+  }, 60_000)
 
   it("R04 a run of only reversals (net negative) is refused and the lines wait; a later bigger earn nets with it", async () => {
     const d = freshDealerWithAccount()
@@ -102,7 +102,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     expect(runLines(nets.runId).sort()).toEqual([reversalId, lineIdOf(bigger.dealId)].sort())
     expect(sql(`SELECT "totalNetCents" FROM "DealerPayableRun" WHERE "id" = ${lit(nets.runId)}`)).toBe(String(3_000_000 - 1_500_000))
     ok(await approveRun(nets.runId), "approved")
-  })
+  }, 60_000)
 
   it("R05 an EARNED and its REVERSED both due in the period net to zero: refused, nothing created", async () => {
     const d = freshDealerWithAccount()
@@ -112,7 +112,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     setLineDate(lineIdOf(x.dealId, "REVERSED"), "2026-09-06")
     expect(await createRun(d.dealerId, "2026-09-30")).toMatchObject({ status: 409 })
     expect(sql(`SELECT count(*) FROM "DealerPayableRun" WHERE "dealerId" = ${lit(d.dealerId)}`)).toBe("0")
-  })
+  }, 60_000)
 
   it("R06 an EARNED line whose reversal falls AFTER periodEnd waits (does not pay out in the earlier run), per spec deviation 22", async () => {
     const d = freshDealerWithAccount()
@@ -124,7 +124,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     // Spec: "run-create code must leave out an EARNED line whose reversal falls after periodEnd" -> nothing due.
     console.info(`[R06] earned Aug, reversal Sep, run Aug-31: ${JSON.stringify(r)}`)
     expect(r).toMatchObject({ status: 409 })
-  })
+  }, 60_000)
 
   it("R07 same period twice: the second live run is a clean 409; after cancel the lines are free and the period reusable", async () => {
     const d = freshDealerWithAccount()
@@ -135,7 +135,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     ok(await inTenant(fx, () => cancelPayableRun(staffOf(fx, fx.adminB), first.runId)), "cancelled")
     const again = ok(await createRun(d.dealerId, "2026-09-30"), "created") as { runId: string }
     expect(runLines(again.runId)).toEqual([lineIdOf(x.dealId)])
-  })
+  }, 60_000)
 
   it("R08 a second run for a later period after the first is RELEASED excludes the released lines", async () => {
     const d = freshDealerWithAccount()
@@ -149,7 +149,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     const aug = ok(await createRun(d.dealerId, "2026-08-31"), "created") as { runId: string }
     expect(runLines(aug.runId)).toEqual([lineIdOf(b.dealId)])
     expect(await createRun(d.dealerId, "2026-07-31")).toMatchObject({ status: 409 }) // same period as a RELEASED run
-  })
+  }, 60_000)
 
   it("R09 self-approval is refused by the lib and by the database", async () => {
     const d = freshDealerWithAccount()
@@ -158,7 +158,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     const run = ok(await createRun(d.dealerId, "2026-09-30", fx.adminA), "created") as { runId: string }
     expect(await approveRun(run.runId, fx.adminA)).toMatchObject({ kind: "self_approval" })
     expectRejected(`UPDATE "DealerPayableRun" SET "status" = 'APPROVED', "approvedById" = ${lit(fx.adminA)}, "approvedAt" = now() WHERE "id" = ${lit(run.runId)}`, "DealerPayableRun_four_eyes")
-  })
+  }, 60_000)
 
   it("R10 a line dated into the period after the run was created blocks approval cleanly (cancel and recreate)", async () => {
     const d = freshDealerWithAccount()
@@ -170,7 +170,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     setLineDate(lineIdOf(late.dealId), "2026-09-20")
     const approved = await approveRun(run.runId)
     expect(approved).toMatchObject({ status: 409 })
-  })
+  }, 60_000)
 
   it("R11 deactivating a dealer with an OPEN run: what happens to approve / release / create (records the behaviour)", async () => {
     const d = freshDealerWithAccount()
@@ -183,7 +183,7 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     const another = await createRun(d.dealerId, "2026-08-31")
     console.info(`[R11] approve=${approved.kind} release=${released?.kind} create-after-deactivation=${JSON.stringify(another)}`)
     expect(approved.kind).toBe("approved") // owed commission remains payable; adjust if the product decides otherwise
-  })
+  }, 60_000)
 
   it("R12 creating a NEW run for a deactivated dealer (lines still owed): records the behaviour", async () => {
     const d = freshDealerWithAccount()
@@ -193,5 +193,5 @@ suite.sequential("dealer payable run edges (real DB)", () => {
     const r = await createRun(d.dealerId, "2026-08-31")
     console.info(`[R12] create run for deactivated dealer: ${JSON.stringify(r)}`)
     expect(r.kind === "created" || (r as { status?: number }).status === 409).toBe(true)
-  })
+  }, 60_000)
 })

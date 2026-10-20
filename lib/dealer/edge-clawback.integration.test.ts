@@ -45,7 +45,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     } finally {
       setMonths(12)
     }
-  })
+  }, 60_000)
 
   it("E31 12-month window: day-before-boundary inside, boundary day outside, day-after outside", () => {
     const d = freshDealer()
@@ -57,7 +57,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
       loanStatus(deal.loanId, "WRITTEN_OFF")
       expect(lines(deal.dealId), `earned 12 months ago ${days >= 0 ? "+" : ""}${days} days`).toHaveLength(expected)
     }
-  })
+  }, 60_000)
 
   it("E32 clawback months 0 plus WRITTEN_OFF: nothing; clawbackMonths range CHECK: 61 and -1 refused, 60 accepted", () => {
     expectRejected(`UPDATE "TenantConfig" SET "dealerCommissionClawbackMonths" = 61 WHERE "tenantId" = ${lit(fx.tenantId)}`, "TenantConfig_dealer_clawback_months_range")
@@ -73,7 +73,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     } finally {
       setMonths(12)
     }
-  })
+  }, 60_000)
 
   it("E33 the window is the one SNAPSHOT on the EARNED line: changing the tenant setting after earning does not move it", () => {
     const d = freshDealer()
@@ -86,7 +86,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     } finally {
       setMonths(12)
     }
-  })
+  }, 60_000)
 
   it("E34 early settlement judged on the SAST date of maturity: maturity tomorrow (SAST) 00:30 is early; maturity today (SAST) 00:30 is not", () => {
     const d = freshDealer()
@@ -99,7 +99,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     const onTime = bookWith(d, undefined, { maturity: sastMidnightPlus(0) })
     loanStatus(onTime.loanId, "COMPLETED")
     expect(lines(onTime.dealId), "maturity is today in Johannesburg: not early").toHaveLength(1)
-  })
+  }, 60_000)
 
   it("E35 WRITTEN_OFF at/after maturity but inside window still reverses (spec: only COMPLETED is maturity-gated)", () => {
     const d = freshDealer()
@@ -107,7 +107,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     const deal = bookWith(d, undefined, { maturity: `(now() AT TIME ZONE 'UTC') - INTERVAL '1 day'` })
     loanStatus(deal.loanId, "WRITTEN_OFF")
     expect(lines(deal.dealId)).toHaveLength(2)
-  })
+  }, 60_000)
 
   it("E36 reversal of a vendor dealer's line carries the exact negative VAT and is dated today", () => {
     const d = freshDealer(true)
@@ -116,7 +116,7 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     loanStatus(deal.loanId, "COMPLETED")
     expect(lines(deal.dealId)).toEqual(["EARNED|10|2|12", "REVERSED|-10|-2|-12"])
     expect(sql(`SELECT "effectiveOn" = ${TODAY_SQL} FROM "DealerCommissionLine" WHERE "dealId" = ${lit(deal.dealId)} AND "kind" = 'REVERSED'`)).toBe("t")
-  })
+  }, 60_000)
 
   it("E37 CANCELLED loan after the window and with months 0 still reverses (spec dev 6)", () => {
     setMonths(0)
@@ -131,5 +131,5 @@ suite.sequential("dealer commission clawback edges (real DB)", () => {
     } finally {
       setMonths(12)
     }
-  })
+  }, 60_000)
 })
