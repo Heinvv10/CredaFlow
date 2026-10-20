@@ -46,6 +46,12 @@ interface Props {
   existingReferral: ReferralData | null
   writeOffPending?: boolean
   readOnlyReason?: string
+  /**
+   * Set when a staff message to this client is refused (a death, or debt review).
+   * Disables ONLY the reminder moves, the stage changes that auto-send a
+   * WhatsApp; arrangement, attorney and every other action stay usable.
+   */
+  reminderHoldReason?: string
   /** Why the S.129 action is disabled (same reason as its button tooltip); unset when it is available. */
   section129Unavailable?: Section129Block
 }
@@ -74,6 +80,7 @@ export function CollectionsStagePanel({
   existingReferral,
   writeOffPending = false,
   readOnlyReason,
+  reminderHoldReason,
   section129Unavailable,
 }: Props) {
   const router = useRouter()
@@ -144,7 +151,8 @@ export function CollectionsStagePanel({
       {!isWrittenOff && !readOnlyReason && (
         <div className="px-5 py-4 space-y-2">
           {currentStage === "NONE" && (
-            <button onClick={() => advanceStage("SOFT_REMINDER")} disabled={loading !== null}
+            <button onClick={() => advanceStage("SOFT_REMINDER")} disabled={loading !== null || !!reminderHoldReason}
+              title={reminderHoldReason}
               className="w-full flex items-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium text-white disabled:opacity-50 transition-colors"
               style={{ backgroundColor: "#3B82F6" }}>
               <AlertTriangle className="h-4 w-4" />
@@ -153,12 +161,19 @@ export function CollectionsStagePanel({
           )}
 
           {currentStage === "SOFT_REMINDER" && (
-            <button onClick={() => advanceStage("FORMAL_REMINDER")} disabled={loading !== null}
+            <button onClick={() => advanceStage("FORMAL_REMINDER")} disabled={loading !== null || !!reminderHoldReason}
+              title={reminderHoldReason}
               className="w-full flex items-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium text-white disabled:opacity-50"
               style={{ backgroundColor: "#F59E0B" }}>
               <AlertTriangle className="h-4 w-4" />
               {loading === "FORMAL_REMINDER" ? "Sending…" : "Issue Formal Reminder"}
             </button>
+          )}
+
+          {reminderHoldReason && (currentStage === "NONE" || currentStage === "SOFT_REMINDER") && (
+            <p role="status" className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded border border-gray-200">
+              Reminder moves are paused: {reminderHoldReason}.
+            </p>
           )}
 
           {(currentStage === "SOFT_REMINDER" || currentStage === "FORMAL_REMINDER") && !showArrangementForm && (

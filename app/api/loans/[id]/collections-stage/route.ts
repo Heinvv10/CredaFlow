@@ -102,9 +102,13 @@ export async function PATCH(
         // The collections ladder is the consumer NCA process; an entity borrower is refused.
         if (!hasClientBorrower(loan)) return { kind: "ENTITY_BORROWER" as const }
 
-        // Every stage this route sets sends the borrower a WhatsApp, so a death
-        // or a debt-review notice (consumer-wide) refuses it before any write.
-        const refusal = await staffMessageRefusal(tx, { tenantId: tenant.id, clientId: loan.client.id })
+        // A reminder stage sends the borrower a WhatsApp, so a death or a
+        // debt-review notice (consumer-wide) refuses it before any write. A stage
+        // that sends nothing is not held.
+        const sendsMessage = body.stage === "SOFT_REMINDER" || body.stage === "FORMAL_REMINDER"
+        const refusal = sendsMessage
+          ? await staffMessageRefusal(tx, { tenantId: tenant.id, clientId: loan.client.id })
+          : null
         if (refusal) return { kind: "HELD" as const, reason: refusal }
 
         const collectionsEligibility = evaluateCollectionsEligibility(loan, "DUNNING")

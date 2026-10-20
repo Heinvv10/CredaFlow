@@ -141,6 +141,22 @@ describe("PATCH collections-stage — settled-account guard", () => {
     refusalMock.mockResolvedValue(null)
   })
 
+  // Hein, D2: arrangement and attorney actions stay available under a hold. They
+  // have their own routes (payment-arrangement, attorney-referral), which are not
+  // gated; this route refuses them with its usual 400 and never consults the hold.
+  it.each(["PAYMENT_ARRANGEMENT", "ATTORNEY_REFERRED", "WRITTEN_OFF", "SECTION_129_SENT"])(
+    "a %s move is not decided by the client hold: the usual 400, the hold is not consulted",
+    async (stage) => {
+      loanFindUniqueMock.mockResolvedValue(inArrears)
+      refusalMock.mockResolvedValue("a death is recorded for this client")
+
+      const res = await PATCH(makeReq({ stage }), ctx)
+
+      expect(res.status).toBe(400)
+      expect(refusalMock).not.toHaveBeenCalled()
+    },
+  )
+
   it("does not send the WhatsApp when the hold appears after the stage change committed, and audits why", async () => {
     loanFindUniqueMock.mockResolvedValue(inArrears)
     const reason = "a death is recorded for this client"

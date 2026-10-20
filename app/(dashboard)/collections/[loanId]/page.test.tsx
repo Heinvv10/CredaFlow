@@ -30,9 +30,9 @@ vi.mock("@/components/collections/ManualReminderButton", () => ({
 }))
 vi.mock("@/components/collections/CollectionDetailTabs", () => ({ CollectionDetailTabs: () => null }))
 vi.mock("@/components/clients/ClientWhatsAppButton", () => ({ ClientWhatsAppButton: () => null }))
-const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string } | undefined }))
+const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string; reminderHoldReason?: string } | undefined }))
 vi.mock("@/components/collections/CollectionsStagePanel", () => ({
-  CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string }) => {
+  CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string; reminderHoldReason?: string }) => {
     stagePanelProps.last = props
     return null
   },
@@ -84,7 +84,9 @@ describe("collections loan page", () => {
       expect(html.slice(at - 250, at + 350)).toContain("var(--cf-warning)")
       expect(html.slice(at - 250, at + 350)).not.toContain("amber")
       expect(reminderButton.rendered).toBe(0)
-      expect(stagePanelProps.last).toMatchObject({ readOnlyReason: expect.stringContaining("staff messages are paused (the client is under debt review") })
+      // Only the reminder moves are held; the panel as a whole stays writable (arrangement, attorney).
+      expect(stagePanelProps.last).toMatchObject({ reminderHoldReason: expect.stringContaining("the client is under debt review") })
+      expect(stagePanelProps.last?.readOnlyReason).toBeUndefined()
       expect(stagePanelProps.last?.section129Unavailable).toMatchObject({ temporary: false, reason: expect.stringContaining("Cannot issue a Section 129 notice") })
     } finally {
       holds.hold = null
@@ -110,6 +112,7 @@ describe("collections loan page", () => {
     renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
     expect(reminderButton.rendered).toBe(1)
     expect(stagePanelProps.last?.readOnlyReason).toBeUndefined()
+    expect(stagePanelProps.last?.reminderHoldReason).toBeUndefined()
   })
 
   it("states Total Paid as cash received, not the share applied to the instalments", async () => {

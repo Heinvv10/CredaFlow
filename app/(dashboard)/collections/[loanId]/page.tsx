@@ -254,9 +254,9 @@ export default async function CollectionDetailPage({ params }: { params: Promise
             arrearsAmount={arrearsWithCharges(loan, chargesLive)}
             writeOffPending={writeOffPending}
             section129Unavailable={section129BlockReason ? { reason: section129BlockReason, temporary: section129BlockTemporary } : undefined}
-            readOnlyReason={messageRefusal
-              ? `staff messages are paused (${messageRefusal})`
-              : dunningEligibility.eligible ? undefined : dunningEligibility.reason ?? "Collections actions are unavailable"}
+            readOnlyReason={dunningEligibility.eligible ? undefined : dunningEligibility.reason ?? "Collections actions are unavailable"}
+            // Only the reminder moves (they auto-send a WhatsApp); arrangement and attorney stay usable.
+            reminderHoldReason={messageRefusal ?? undefined}
             existingArrangement={arrangement ? {
               agreedAmount: arrangement.agreedAmount,
               frequency: arrangement.frequency,
