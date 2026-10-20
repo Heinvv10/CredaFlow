@@ -33,14 +33,19 @@ export function isDunningCategory(category: string | undefined | null): boolean 
 /**
  * The loan an AUTOMATED dunning message was sent about, read from its idempotency
  * key (Message has no loan column): `collections:<loanId>:...` from the reminders
- * cron and `entity-notice:<loanId>:...` from an entity borrower's. Null for
- * anything else. A staff reminder (`manual-reminder:`), a stage WhatsApp
- * (`collections-stage:`) and a notification carry no automated key on purpose:
- * staff keep an arrangement or an attorney-referred loan open
- * (lib/collections/.claude.md), so the retry sweep holds only the automated ones
- * for a loan hold (lib/messaging/retry.ts).
+ * cron, `entity-notice:<loanId>:...` from an entity borrower's, and
+ * `notification:loan_overdue:<loanId>:...` for the consumer loan_overdue
+ * notification (which is also the 60-DPD DEFAULTED notice: `notice: true`, because
+ * a notice must still reach a DEFAULTED loan). Null for anything else.
+ *
+ * A staff reminder (`manual-reminder:`) and a stage WhatsApp (`collections-stage:`)
+ * are null on purpose: staff chose to write, and keep an arrangement or an
+ * attorney-referred loan open (lib/collections/.claude.md), so the retry sweep
+ * holds only the automated ones for a loan hold (lib/messaging/retry.ts).
  */
-export function automatedDunningLoanId(idempotencyKey: string | null | undefined): string | null {
-  const match = /^(?:collections|entity-notice):([^:]+):/.exec(idempotencyKey ?? "")
-  return match ? match[1] : null
+export function automatedDunningLoan(idempotencyKey: string | null | undefined): { loanId: string; notice: boolean } | null {
+  const reminder = /^(?:collections|entity-notice):([^:]+):/.exec(idempotencyKey ?? "")
+  if (reminder) return { loanId: reminder[1], notice: false }
+  const notice = /^notification:loan_overdue[a-z0-9_]*:([^:]+):/.exec(idempotencyKey ?? "")
+  return notice ? { loanId: notice[1], notice: true } : null
 }

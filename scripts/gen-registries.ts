@@ -107,12 +107,15 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
     }),
   )
   const validateAfter = (jobs: CronJob[]): CronJob[] => {
+    // A single-run job's last firing is 60 minutes after its own time (lib/ops/cron-run-claim.ts).
+    const finalFiring = (j: { schedule: string }) => { const [m, h] = j.schedule.split(/\s+/).map(Number); return h * 60 + m + 60 }
     for (const job of jobs) {
       if (job.owner !== "in-process" || !job.after) continue
+      if (!job.singleRun) fail(`${job.route}: after "${job.after}" needs ${job.route} to be singleRun`)
       const target = jobs.find((j) => j.route === job.after)
       if (!target || target.owner !== "in-process" || !target.singleRun) fail(`${job.route}: after "${job.after}" must name a singleRun in-process job`)
-      const minuteOfDay = (j: { schedule: string }) => { const [m, h] = j.schedule.split(/\s+/).map(Number); return h * 60 + m }
-      if (minuteOfDay(target) >= minuteOfDay(job)) fail(`${job.route}: after "${job.after}" must be scheduled earlier in the day`)
+      // The waiting job's last chance must come after the other job's last firing is over, or it could never run.
+      if (finalFiring(target) >= finalFiring(job)) fail(`${job.route}: after "${job.after}": ${job.route}'s final firing must come after ${job.after}'s`)
     }
     return jobs
   }

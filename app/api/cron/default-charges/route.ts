@@ -13,8 +13,8 @@ import { sweepActiveTenants, sweepStatus } from "@/lib/ops/tenant-sweep"
  *
  * A failed loan makes the response 503, as does every swept tenant failing; one
  * tenant whose sweep could not start is named in `perTenant` and answered 200
- * partial (sweepStatus). The scheduler treats only a non-2xx as a failure and
- * never reads the body, so the causes are logged, not returned.
+ * partial (sweepStatus). The scheduler reads only the status of this job (it has
+ * no claim); the body is for an operator, and carries no cause: those are logged.
  */
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)

@@ -8,8 +8,9 @@ import { sweepStatus } from "@/lib/ops/tenant-sweep"
  * collectible book of every ACTIVE tenant (lib/loan/dpd-update.ts). Scheduled
  * in-process, first of the nightly dunning jobs; this route is also the manual
  * ops trigger. A failed tenant is named in `perTenant` and `failedTenants`; the
- * response is 503 only when every tenant failed (sweepStatus): the scheduler
- * treats only a non-2xx as a failure and never reads the body.
+ * response is 503 only when every tenant failed (sweepStatus). The scheduler
+ * reads only the status of this job (it is idempotent and has no claim), and
+ * /api/health reads the heartbeat that status feeds.
  */
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)

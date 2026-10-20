@@ -132,6 +132,9 @@ describe("processPaymentReminders — entity borrower", () => {
     expect(email.every((c) => c.template.key === "entity_reminder_email")).toBe(true)
     expect(whatsapp[0].vars).toMatchObject({ firstName: "Jane", entityName: "TEST Earthmoving (Pty) Ltd", reference: "LN-AF-1", amount: "R 3,123.45" })
     expect(new Set(calls.map((c) => c.idempotencyKey)).size).toBe(4)
+    // The report names the loan, not the borrower.
+    expect(r.details.join("\n")).not.toContain("TEST Earthmoving")
+    expect(r.details.join("\n")).toContain("LN-AF-1")
     expect(m.loanNoteCreate).toHaveBeenCalledTimes(1)
     expect(m.loanNoteCreate.mock.calls[0][0].data).toMatchObject({ loanId: "loan_af", type: "reminder_1d" })
     // The amount is the next instalment that asks for money, never a skip period's R0.00 row.
@@ -184,6 +187,30 @@ describe("processPaymentReminders — entity borrower", () => {
     const r = await processPaymentReminders()
     expect(r.details.join("\n")).toContain("No Contact row")
     expect(r.details.join("\n")).not.toMatch(/example\.test|0820000|27820000/)
+  })
+
+  it("an unusable consumer email template does not switch off the entity email leg", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    m.templateFindFirst.mockImplementation(async (a: { where: { key: string; channel: string } }) =>
+      a.where.key === "payment_reminder_email" ? null : {
+        id: `tpl_${a.where.key}`, tenantId: "tenant_acme", key: a.where.key, channel: a.where.channel,
+        statutoryOverride: false, body: "{{body}}", bodyTemplate: null,
+      })
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+    expect(m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel).sort()).toEqual(["EMAIL", "EMAIL", "WHATSAPP", "WHATSAPP"])
+    expect(r.warnings).toBe(1)
+  })
+
+  it("one entity loan's failure is counted and the next loan is still reminded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.relationshipFindMany.mockRejectedValueOnce(new Error("connection reset"))
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1), { ...entityLoanDueIn(1), id: "loan_af2", reference: "LN-AF-2" }])
+    const r = await processPaymentReminders()
+    expect(r.failedTenants).toBe(0)
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error LN-AF-1: failed; see the server log")
+    expect(m.sendMessage.mock.calls.length, "the second loan is reminded").toBeGreaterThan(0)
   })
 
   it("a person without WhatsApp is skipped and reported, their email still goes; no LoanNote when nobody was reached", async () => {

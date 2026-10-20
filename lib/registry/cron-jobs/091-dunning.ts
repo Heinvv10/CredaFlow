@@ -17,10 +17,11 @@ import { DAY, HOUR, defineCronJobs } from "../define"
 //
 // Reminders must see the DEFAULTED flips escalations makes, and escalations' retries
 // overlap reminders' own times, so the order is not left to the clock: reminders
-// declare `after: "escalations"` and wait until it is DONE, or FAILED on its last
-// firing (so a tenant that always fails cannot hold every lender back). If
-// escalations is still running at 08:30 reminders do not run that day, and
-// /api/health shows them stale.
+// declare `after: "escalations"` and wait until it is DONE, or its final firing
+// (08:00) has passed with nothing running: judged by the clock, not by how many
+// claims it took, so a missed firing cannot hold reminders back, and a tenant that
+// always fails cannot hold every lender back. If escalations is still running at
+// 08:30 reminders do not run that day, and /api/health shows them stale.
 //
 // The routes stay callable with the cron secret for a manual ops run. An external
 // timer calling them as well would fire them twice: the single-run claim covers

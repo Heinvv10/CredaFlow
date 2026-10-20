@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client"
+import type { LoanStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
 import { notHeldLoanWhere } from "@/lib/collections/dunning-holds"
@@ -110,8 +110,9 @@ export async function staffMessageRefusal(
  * has, and fails closed: a director under personal debt review is held on a
  * retry of their own consumer reminder. The accepted trade-off is that an
  * entity-debt reminder sent to such a director may be held on retry too (its
- * first send went out), because a Message does not yet carry the loan it is
- * about. Revisit when it does.
+ * first send went out), because a Message carries no loan column. The loan an
+ * AUTOMATED dunning message is about is read from its idempotency key instead
+ * (`automatedDunningLoan`) and held by `loanDunningHold`.
  */
 export async function contactDunningHold(
   db: ClientHoldDb & { contact: { findFirst: (args: Prisma.ContactFindFirstArgs) => PromiseLike<unknown> } },
@@ -124,6 +125,32 @@ export async function contactDunningHold(
   const reason = staffRefusalFrom(hold)
   if (!reason) return null
   return { kind: hold.deceased ? "DECEASED" : "DEBT_REVIEW", reason }
+}
+
+// Structural, so a transaction client of the tenant-scoped extension fits too.
+export interface LoanHoldDb {
+  loan: {
+    findFirst: (args: Prisma.LoanFindFirstArgs) => PromiseLike<unknown>
+    count: (args: Prisma.LoanCountArgs) => PromiseLike<number>
+  }
+}
+
+/**
+ * Why a queued automated dunning message about this loan must not be re-sent, or
+ * null: the loan is no longer in a status that is dunned (`statuses`), or it is on
+ * a hold (an arrangement, a payment plan, an attorney referral, a write-off, a
+ * death, a debt review). A loan that cannot be found is no reason: the key's
+ * subject was not a loan. Run in the retry sweep's eligibility transaction.
+ */
+export async function loanDunningHold(
+  db: LoanHoldDb,
+  args: { tenantId: string; loanId: string; statuses: readonly LoanStatus[] },
+): Promise<string | null> {
+  const loan = await db.loan.findFirst({ where: { id: args.loanId, tenantId: args.tenantId }, select: { status: true } }) as { status: LoanStatus } | null
+  if (!loan) return null
+  if (!args.statuses.includes(loan.status)) return `the loan is ${loan.status}`
+  const notHeld = await db.loan.count({ where: { id: args.loanId, tenantId: args.tenantId, ...notHeldLoanWhere() } })
+  return notHeld === 0 ? "the loan is under an arrangement, a payment plan, an attorney referral, a write-off or a debt review" : null
 }
 
 /** True when automated dunning must not reach this loan (the escalation cron's borrower notification). */

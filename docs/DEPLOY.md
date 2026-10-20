@@ -359,8 +359,8 @@ Every variable the app reads, required or optional per integration, with what se
   07:30 (one replica a day, a `CronRunClaim` row per job and day; no borrower
   message goes before 07:00 SAST). Both are fired again 30 and 60 minutes later,
   which proceeds only over a FAILED run or one whose heartbeat stopped, and
-  `reminders` wait until `escalations` has settled, so they see its DEFAULTED
-  flips. Do NOT also point an external timer at those three routes: the claim
+  `reminders` wait until `escalations` has settled (DONE, or its 08:00 firing has
+  passed with nothing running), so they see its DEFAULTED flips. Do NOT also point an external timer at those three routes: the claim
   covers only the in-process scheduler, so a second caller would run them twice
   (the routes stay callable with `x-cron-secret` for a manual run, and a re-run
   the same day is mostly harmless: reminders are deduped by LoanNote, idempotency

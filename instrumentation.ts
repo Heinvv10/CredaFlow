@@ -33,7 +33,6 @@ export async function register() {
     // schedule comment must describe the behaviour, so the timezone is explicit.
     const SAST = "Africa/Johannesburg"
 
-    const BASE_URL = process.env.NEXTAUTH_URL ?? `http://localhost:${process.env.PORT ?? 3300}`
     const CRON_SECRET = process.env.CRON_SECRET ?? ""
     if (!CRON_SECRET) {
       console.warn("[cron] CRON_SECRET is not configured; scheduler not registered")
@@ -43,7 +42,16 @@ export async function register() {
     // Loaded once, before any job fires: two jobs firing in the same instant would
     // otherwise both be the first to import them.
     const claims = await import("@/lib/ops/cron-run-claim")
-    const { callCronRoute } = await import("@/lib/ops/cron-call")
+    const { callCronRoute, cronCallTarget } = await import("@/lib/ops/cron-call")
+    // Every in-process job, its schedule and its reason live in
+    // lib/registry/cron-jobs/ (docs/ARCHITECTURE.md, "Registries"). Jobs the
+    // deployment's external scheduler owns are declared there too and are
+    // never scheduled here: both firing would duplicate NCA-mandated borrower
+    // comms (Section 129 notices, payment reminders).
+    const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
+    const occurrences = claims.cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
+    // This server on loopback, not the public origin and its proxy timeouts (lib/ops/cron-call.ts).
+    const target = cronCallTarget(process.env)
 
     const callCron = async (
       path: string,
@@ -66,7 +74,7 @@ export async function register() {
       // firing of its own tries again.
       if (singleRun && after) {
         try {
-          if (!(await claims.cronSettledToday(after))) {
+          if (!(await claims.cronSettledToday(after, claims.finalFiringMinuteOfDay(occurrences, after)))) {
             console.log(`[cron] ${path} waits: ${after} has not settled today`)
             return
           }
@@ -106,13 +114,15 @@ export async function register() {
       let tenantFailed = false
       try {
         // No client timeout: see lib/ops/cron-call.ts.
-        const res = await callCronRoute(`${BASE_URL}${path}`, method, CRON_SECRET)
+        const res = await callCronRoute(`${target.baseUrl}${path}`, method, CRON_SECRET, target.host ? { host: target.host } : {})
         status = res.status
-        tenantFailed = claims.reportsFailedTenant(res.body)
+        // A single-run route says how many tenants threw in a header. A 2xx without it is not a clean
+        // run: it cannot be told from a body that was too big to read, so it fails closed.
+        tenantFailed = singleRun && (res.failedTenants === null || res.failedTenants > 0)
         if (status < 200 || status >= 300) {
           console.error(`[cron] ${path} failed: ${status}`)
         } else if (tenantFailed) {
-          console.error(`[cron] ${path} ok, but a tenant's run threw; the claim is marked FAILED so a later firing retries it`)
+          console.error(`[cron] ${path} ok, but ${res.failedTenants === null ? "it did not say whether a tenant failed" : `${res.failedTenants} tenant(s) threw`}; the claim is marked FAILED so a later firing retries it`)
         } else {
           console.log(`[cron] ${path} ok`)
         }
@@ -141,13 +151,6 @@ export async function register() {
       }
     }
 
-    // Every in-process job, its schedule and its reason live in
-    // lib/registry/cron-jobs/ (docs/ARCHITECTURE.md, "Registries"). Jobs the
-    // deployment's external scheduler owns are declared there too and are
-    // never scheduled here: both firing would duplicate NCA-mandated borrower
-    // comms (Section 129 notices, payment reminders).
-    const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
-    const occurrences = claims.cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
     for (const { job, schedule } of occurrences) {
       cron.schedule(schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun, job.after), {
         timezone: SAST,

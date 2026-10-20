@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { processEscalations } from "@/lib/collections/escalation"
 import { verifyCronSecret } from "@/lib/cron-auth"
+import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 import { sweepStatus } from "@/lib/ops/tenant-sweep"
 
 export async function GET(req: NextRequest) {
@@ -18,5 +19,5 @@ export async function GET(req: NextRequest) {
   // retry it (the rules are deduped, so that is safe); the status is 503 only when
   // EVERY tenant threw (sweepStatus).
   const { status, partial } = sweepStatus({ tenants: result.tenants, failedTenants: result.failedTenants, otherErrors: 0 })
-  return NextResponse.json({ ok: status === 200, partial, ...result }, { status })
+  return NextResponse.json({ ok: status === 200, partial, ...result }, { status, headers: { [FAILED_TENANTS_HEADER]: String(result.failedTenants) } })
 }

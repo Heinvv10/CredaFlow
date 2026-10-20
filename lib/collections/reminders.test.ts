@@ -284,6 +284,38 @@ describe("processPaymentReminders", () => {
     })
   })
 
+  describe("one loan's failure", () => {
+    const withWa = (id: string, reference: string) => {
+      const l = loanDueTomorrow()
+      l.id = id
+      l.reference = reference
+      l.client.whatsapp = "0821234567"
+      return l
+    }
+
+    // The loans are processed one after another; a throw from any query for one of them (the
+    // already-sent check, the hold recheck, the charges replay, the LoanNote write) used to end the
+    // tenant's run, so the loans after it went unreminded that day.
+    it.each([
+      ["the already-processed check", () => loanNoteFindFirstMock.mockRejectedValueOnce(new Error("deadlock"))],
+      ["the charges replay", () => chargesOutstandingAtMock.mockRejectedValueOnce(new Error("replay failed"))],
+      ["the schedule lookup", () => repaymentScheduleFindFirstMock.mockRejectedValueOnce(new Error("connection reset"))],
+      ["the LoanNote write", () => loanNoteCreateMock.mockRejectedValueOnce(new Error("disk full"))],
+    ])("a throw from %s is counted for that loan, with the cause in the log only, and the next loan is still reminded", async (_name, arrange) => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+      arrange()
+      loanFindManyMock.mockResolvedValue([withWa("loan_1", "L-001"), withWa("loan_2", "L-002")])
+      const r = await processPaymentReminders()
+
+      expect(r.failedTenants, "the tenant did not fail").toBe(0)
+      expect(r.errors).toBe(1)
+      expect(r.details).toContainEqual("Error L-001: failed; see the server log")
+      expect(JSON.stringify(r.details)).not.toMatch(/deadlock|replay failed|connection reset|disk full/)
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-001"), expect.any(Error))
+      expect(sendWhatsAppMock.mock.calls.length, "L-002 is still reminded").toBeGreaterThanOrEqual(1)
+    })
+  })
+
   describe("SAST day key", () => {
     // The send reservation key was built from LOCAL date parts on a UTC
     // container, so the "one reminder per day" window rolled over at 02:00
@@ -410,6 +442,27 @@ describe("processPaymentReminders", () => {
       expect(warned).toHaveBeenCalledTimes(1)
       expect(sendWhatsAppMock, "the other legs are unaffected").toHaveBeenCalledTimes(2)
       warned.mockRestore()
+    })
+
+    // One unusable entity template used to switch the consumer email leg off too (and the reverse).
+    it("an unusable entity email template does not switch off the consumer email leg, and says which leg is skipped", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      stubTemplates({ entity_reminder_email: undefined })
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      const r = await processPaymentReminders()
+      expect(emailCalls(), "consumer email still goes").toHaveLength(1)
+      expect(r.warnings).toBe(1)
+      expect(r.details).toContainEqual(expect.stringMatching(/^Warning: email reminder leg skipped for tenant Acme \(entity loans\): template entity_reminder_email is missing/))
+    })
+
+    it("an unusable consumer email template does not switch off the entity email leg", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      stubTemplates({ payment_reminder_email: undefined })
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      const r = await processPaymentReminders()
+      expect(emailCalls()).toHaveLength(0)
+      expect(r.details).toContainEqual(expect.stringMatching(/\(consumer loans\): template payment_reminder_email is missing/))
+      expect(r.details.filter((d) => d.includes("(entity loans)"))).toHaveLength(0)
     })
 
     it("seeds the tenant's missing reminder templates when the run starts, under its brand name, and only those", async () => {
@@ -574,26 +627,32 @@ describe("processPaymentReminders", () => {
       process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
     })
 
-    it("aborts when one or both templates missing", async () => {
+    // A tenant-level abort is a FAILED TENANT, not a quiet `errors++`: the scheduler marks the claim FAILED,
+    // health goes red and the later firings retry it. (R4 changes these template semantics; until then
+    // they must not look green.)
+    it("fails the tenant when the SMS template is missing: counted as a failed tenant, the cause in the log", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
       messageTemplateFindFirstMock.mockResolvedValue(null)
 
       const r = await processPaymentReminders()
 
-      expect(r.errors).toBe(1)
-      expect(r.details[0]).toMatch(/template missing/i)
+      expect(r).toMatchObject({ failedTenants: 1, errors: 1 })
+      expect(r.details[0]).toBe("Tenant Acme (tenant_acme) failed; see the server log")
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("tenant tenant_acme failed"), expect.objectContaining({ message: expect.stringMatching(/template missing/i) }))
       expect(sendMessageMock).not.toHaveBeenCalled()
       expect(sendSmsMock).not.toHaveBeenCalled()
       // Should NOT have fetched loans (early-return)
       expect(loanFindManyMock).not.toHaveBeenCalled()
     })
 
-    it("aborts when a template has statutoryOverride=true (misconfigured)", async () => {
+    it("fails the tenant when a template has statutoryOverride=true (misconfigured)", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
       stubTemplates({ payment_reminder_sms: { ...sampleSmsTpl, statutoryOverride: true } })
 
       const r = await processPaymentReminders()
 
-      expect(r.errors).toBe(1)
-      expect(r.details[0]).toMatch(/statutoryOverride=true/i)
+      expect(r).toMatchObject({ failedTenants: 1, errors: 1 })
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining("tenant tenant_acme failed"), expect.objectContaining({ message: expect.stringMatching(/statutoryOverride=true/i) }))
       expect(sendMessageMock).not.toHaveBeenCalled()
     })
 

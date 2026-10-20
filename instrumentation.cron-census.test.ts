@@ -146,19 +146,16 @@ describe("scheduler cadence", () => {
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
-// The scheduler's HTTP call (lib/ops/cron-call.ts): no client timeout, status plus the JSON body.
-const callCronRoute = vi.hoisted(() => vi.fn(async (_url: string, _method: string, _secret: string): Promise<{ status: number; body: unknown }> => ({ status: 200, body: null })))
-vi.mock("@/lib/ops/cron-call", () => ({ callCronRoute }))
-const claimCronRun = vi.hoisted(() => vi.fn(async (_job: string): Promise<string | null> => "tok"))
-const finishCronRun = vi.hoisted(() => vi.fn(async (_job: string, _token: string, _ok: boolean) => true))
-const renewCronClaim = vi.hoisted(() => vi.fn(async (_job: string, _token: string) => true))
-const cronSettledToday = vi.hoisted(() => vi.fn(async (_job: string) => true))
+// The scheduler's HTTP call (lib/ops/cron-call.ts) and its claims: the behaviour of those is in
+// instrumentation.scheduler-claims.test.ts. Here only what is scheduled and what is called.
+const callCronRoute = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ status: 200, body: null, failedTenants: 0 })))
+vi.mock("@/lib/ops/cron-call", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/ops/cron-call")>()), callCronRoute }))
 vi.mock("@/lib/ops/cron-run-claim", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ops/cron-run-claim")>()),
-  claimCronRun,
-  finishCronRun,
-  renewCronClaim,
-  cronSettledToday,
+  claimCronRun: vi.fn(async () => "tok"),
+  finishCronRun: vi.fn(async () => true),
+  renewCronClaim: vi.fn(async () => true),
+  cronSettledToday: vi.fn(async () => true),
 }))
 
 describe("instrumentation register()", () => {
@@ -168,6 +165,8 @@ describe("instrumentation register()", () => {
     process.env.APP_MODE = "staff"
     process.env.CRON_SECRET = "test-secret"
     process.env.NEXTAUTH_URL = "http://cron.test"
+    delete process.env.CRON_BASE_URL
+    delete process.env.PORT
     vi.spyOn(console, "log").mockImplementation(() => {})
     const { register } = await import("./instrumentation")
     await register()
@@ -197,7 +196,7 @@ describe("instrumentation register()", () => {
       callCronRoute.mockClear()
       await call[1]()
       const job = occurrences[i].job
-      expect(callCronRoute).toHaveBeenCalledWith(`http://cron.test/api/cron/${job.route}`, job.method, "test-secret")
+      expect(callCronRoute).toHaveBeenCalledWith(`http://127.0.0.1:3300/api/cron/${job.route}`, job.method, "test-secret", { host: "cron.test" })
     }
   })
 
@@ -207,109 +206,6 @@ describe("instrumentation register()", () => {
     const urls = callCronRoute.mock.calls.map((c) => String(c[0]))
     expect(urls.length).toBeGreaterThan(0)
     expect(urls.filter((u) => u.includes("payment-reminders"))).toEqual([])
-  })
-
-  it("claims the SAST day before it calls a single-run job, and only then", async () => {
-    claimCronRun.mockResolvedValue(null)
-    for (const [i, call] of schedule.mock.calls.entries()) {
-      const job = occurrences[i].job
-      claimCronRun.mockClear()
-      finishCronRun.mockClear()
-      callCronRoute.mockClear()
-      await call[1]()
-      const singleRun = "singleRun" in job && job.singleRun === true
-      expect(claimCronRun.mock.calls.map((c) => c[0]), job.route).toEqual(singleRun ? [job.route] : [])
-      expect(finishCronRun, "a run that was not claimed is not closed").not.toHaveBeenCalled()
-      // A lost claim means another replica runs it: this one makes no call.
-      expect(callCronRoute.mock.calls.length, job.route).toBe(singleRun ? 0 : 1)
-    }
-    claimCronRun.mockResolvedValue("tok")
-  })
-
-  it("closes a claimed run as DONE on a 2xx and FAILED otherwise", async () => {
-    const index = occurrences.findIndex((o) => o.job.route === "reminders")
-    claimCronRun.mockResolvedValue("tok")
-    finishCronRun.mockClear()
-    await schedule.mock.calls[index][1]()
-    callCronRoute.mockResolvedValueOnce({ status: 503, body: null })
-    await schedule.mock.calls[index][1]()
-    expect(finishCronRun.mock.calls.map((c) => [c[1], c[2]])).toEqual([["tok", true], ["tok", false]])
-  })
-
-  it("renews the claim every minute while the call is in flight, and stops when it returns", async () => {
-    vi.useFakeTimers()
-    try {
-      const index = occurrences.findIndex((o) => o.job.route === "reminders")
-      let finish: (r: { status: number; body: unknown }) => void = () => undefined
-      callCronRoute.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
-      renewCronClaim.mockClear()
-      const running = schedule.mock.calls[index][1]() as Promise<void>
-      await vi.advanceTimersByTimeAsync(3 * 60_000)
-      expect(renewCronClaim.mock.calls.map((c) => c[1])).toEqual(["tok", "tok", "tok"])
-      finish({ status: 200, body: null })
-      await running
-      await vi.advanceTimersByTimeAsync(3 * 60_000)
-      expect(renewCronClaim, "no renewal once the run has returned").toHaveBeenCalledTimes(3)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  // The call has no client timeout (lib/ops/cron-call.ts): a run longer than undici's 300 s
-  // default is still running, not failed, and its retry must not overlap it.
-  it("a call that takes longer than five minutes keeps its claim alive and closes it DONE", async () => {
-    vi.useFakeTimers()
-    try {
-      const index = occurrences.findIndex((o) => o.job.route === "reminders")
-      let finish: (r: { status: number; body: unknown }) => void = () => undefined
-      callCronRoute.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
-      renewCronClaim.mockClear()
-      finishCronRun.mockClear()
-      const running = schedule.mock.calls[index][1]() as Promise<void>
-      await vi.advanceTimersByTimeAsync(7 * 60_000)
-      expect(finishCronRun, "still running: nothing has closed it").not.toHaveBeenCalled()
-      expect(renewCronClaim).toHaveBeenCalledTimes(7)
-      finish({ status: 200, body: { failedTenants: 0 } })
-      await running
-      expect(finishCronRun.mock.calls.map((c) => [c[1], c[2]])).toEqual([["tok", true]])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  // Per-item errors are reported in the body and leave the claim DONE; a tenant that threw
-  // (failedTenants) is what a retry is for.
-  it.each([
-    ["a 2xx with no tenant failed", { status: 200, body: { failedTenants: 0, errors: 3, reconciliationRequired: 1 } }, true],
-    ["a 2xx with a body that is not JSON", { status: 200, body: null }, true],
-    ["a 2xx where a tenant threw", { status: 200, body: { failedTenants: 1, partial: true } }, false],
-    ["a 503", { status: 503, body: { failedTenants: 2 } }, false],
-  ])("closes the claim for %s as DONE=%s", async (_name, outcome, done) => {
-    const index = occurrences.findIndex((o) => o.job.route === "escalations")
-    callCronRoute.mockResolvedValueOnce(outcome)
-    finishCronRun.mockClear()
-    await schedule.mock.calls[index][1]()
-    expect(finishCronRun.mock.calls.map((c) => c[2])).toEqual([done])
-  })
-
-  it("does not fire a job whose `after` job has not settled today, and does not take its claim", async () => {
-    const index = occurrences.findIndex((o) => o.job.route === "reminders" && o.attempt === 0)
-    cronSettledToday.mockResolvedValueOnce(false)
-    callCronRoute.mockClear()
-    claimCronRun.mockClear()
-    await schedule.mock.calls[index][1]()
-    expect(cronSettledToday).toHaveBeenCalledWith("escalations")
-    expect(callCronRoute).not.toHaveBeenCalled()
-    expect(claimCronRun).not.toHaveBeenCalled()
-  })
-
-  it("skips a single-run job whose claim cannot be made, rather than risk a duplicate", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    const index = occurrences.findIndex((o) => o.job.route === "reminders")
-    claimCronRun.mockRejectedValueOnce(new Error("db down"))
-    callCronRoute.mockClear()
-    await schedule.mock.calls[index][1]()
-    expect(callCronRoute).not.toHaveBeenCalled()
   })
 
   it("never schedules an external or unwired route", () => {

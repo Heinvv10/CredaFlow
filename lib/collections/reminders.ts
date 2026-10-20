@@ -268,7 +268,7 @@ async function remindEntityTrigger(args: {
   charges: number
   arrearsDue: number
   lender: { tradingName: string; collectionsPhone: string }
-  /** False when the tenant cannot send the email leg (see emailLegSkipReason). */
+  /** False when the tenant cannot send the entity email leg (see entityEmailSkipReason). */
   emailLeg: boolean
   result: ReminderResult
 }): Promise<void> {
@@ -294,7 +294,7 @@ async function remindEntityTrigger(args: {
       await recordEntityReminder(args.tenantId, loan, trigger.noteType, sent)
     }
     if (sent.failed) result.errors++
-    result.details.push(`Entity ${trigger.noteType} for ${loan.reference} (${loan.entityName}): ${sent.summary}`)
+    result.details.push(`Entity ${trigger.noteType} for ${loan.reference}: ${sent.summary}`)
   }
   const overdueReservation = `send:${loan.id}:${trigger.noteType}:loan_overdue`
   const overdueReservedAt = new Date()
@@ -422,19 +422,17 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     templateSms = await prisma.messageTemplate.findFirst({
       where: { tenantId: tenant.id, key: "payment_reminder_sms", channel: "SMS", active: true },
     })
+    // Thrown, so the sweep counts the tenant as FAILED (sweepActiveTenants): the claim is marked FAILED, the
+    // later firings retry it and /api/health goes red, instead of a quiet `errors++` that looks like a clean run.
     if (!templateSms) {
-      result.errors++
-      result.details.push(
-        "Aborting cron: MESSAGING_NEW_SEND_COLLECTIONS=true but payment_reminder_sms template missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts) before flipping the flag",
+      throw new Error(
+        "MESSAGING_NEW_SEND_COLLECTIONS=true but payment_reminder_sms template missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts) before flipping the flag",
       )
-      return result
     }
     if (templateSms.statutoryOverride !== false) {
-      result.errors++
-      result.details.push(
-        "Aborting cron: payment_reminder template has statutoryOverride=true — collections reminders are SERVICE category and must NOT bypass eligibility",
+      throw new Error(
+        "payment_reminder template has statutoryOverride=true — collections reminders are SERVICE category and must NOT bypass eligibility",
       )
-      return result
     }
     for (const trigger of TRIGGERS) {
       if (!trigger.waTemplateEvent) continue
@@ -466,27 +464,31 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   // The email leg (a consumer's payment_reminder_email, an entity's
   // entity_reminder_email) goes through sendMessage whatever the new-send flag
   // says, so its templates and the tenant's email provider are checked on every
-  // path. A tenant that lacks any of them has the leg skipped for the whole run,
-  // consumer and entity alike: logged once and counted as a tenant-level warning
-  // (the other legs are unaffected), never an error per loan, and never sent
-  // without a usable template.
+  // path. A leg whose template is unusable, or a tenant with no active email
+  // provider, has that leg skipped for the whole run: logged once and counted as a
+  // tenant-level warning (the other legs are unaffected), never an error per loan,
+  // and never sent without a usable template. The consumer and the entity leg are
+  // judged on their own template: one unusable row does not switch the other off.
   const [templateEmail, templateEntityEmail] = await Promise.all(
     EMAIL_LEG_TEMPLATE_KEYS.map((key) => prisma.messageTemplate.findFirst({ where: { tenantId: tenant.id, key, channel: "EMAIL", active: true } })),
   )
   const emailConfig = await prisma.emailConfig.findUnique({ where: { tenantId: tenant.id }, select: { active: true } })
-  const emailLegSkipReason = !templateEmail
-    ? `template ${EMAIL_LEG_TEMPLATE_KEYS[0]} is missing or inactive`
-    : !templateEntityEmail
-      ? `template ${EMAIL_LEG_TEMPLATE_KEYS[1]} is missing or inactive`
-      : templateEmail.statutoryOverride !== false || templateEntityEmail.statutoryOverride !== false
-        ? "an email reminder template has statutoryOverride=true, and collections reminders must not bypass consent"
-        : !emailConfig?.active
-          ? "the tenant has no active email provider"
-          : null
-  if (emailLegSkipReason) {
+  const emailProviderReason = emailConfig?.active ? null : "the tenant has no active email provider"
+  const emailTemplateReason = (template: MessageTemplate | null, key: string): string | null =>
+    !template
+      ? `template ${key} is missing or inactive`
+      : template.statutoryOverride !== false
+        ? `template ${key} has statutoryOverride=true, and collections reminders must not bypass consent`
+        : null
+  const consumerEmailSkipReason = emailProviderReason ?? emailTemplateReason(templateEmail, EMAIL_LEG_TEMPLATE_KEYS[0])
+  const entityEmailSkipReason = emailProviderReason ?? emailTemplateReason(templateEntityEmail, EMAIL_LEG_TEMPLATE_KEYS[1])
+  const skipped: Array<[string, string]> = emailProviderReason
+    ? [["", emailProviderReason]]
+    : [[" (consumer loans)", consumerEmailSkipReason], [" (entity loans)", entityEmailSkipReason]].filter((e): e is [string, string] => e[1] !== null)
+  for (const [which, reason] of skipped) {
     result.warnings++
-    result.details.push(`Warning: email reminder leg skipped for tenant ${tenant.name}: ${emailLegSkipReason}`)
-    console.warn(`[reminders] tenant ${tenant.id}: email reminder leg skipped: ${emailLegSkipReason}`)
+    result.details.push(`Warning: email reminder leg skipped for tenant ${tenant.name}${which}: ${reason}`)
+    console.warn(`[reminders] tenant ${tenant.id}: email reminder leg skipped${which}: ${reason}`)
   }
 
   const loans = await prisma.loan.findMany({
@@ -517,7 +519,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   const lenderName = identity.tradingName
   const companyPhone = identity.collectionsPhone
 
-  for (const loan of loans) {
+  const remindLoan = async (loan: (typeof loans)[number]): Promise<void> => {
     const today = new Date()
     const dueDate = loan.nextPaymentDate!
     const daysUntil = daysBetween(today, dueDate)
@@ -574,7 +576,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           loan: { id: loan.id, reference: loan.reference, entityId: loan.entityId, entityName: loan.entity.legalName },
           trigger, dueDate, today, paymentAmount, charges, arrearsDue,
           lender: { tradingName: lenderName, collectionsPhone: companyPhone },
-          emailLeg: emailLegSkipReason === null,
+          emailLeg: entityEmailSkipReason === null,
           result,
         })
         continue
@@ -638,7 +640,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           continue
         }
 
-        if (channel === "email" && emailLegSkipReason) continue
+        if (channel === "email" && consumerEmailSkipReason) continue
         if (channel === "email" && !loan.client.email) {
           noEmailByTrigger.set(trigger.noteType, (noEmailByTrigger.get(trigger.noteType) ?? 0) + 1)
           continue
@@ -883,6 +885,18 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
         }).catch(() => releaseReservation(overdueReservation, overdueReservedAt).catch(() => undefined))
       }
+    }
+  }
+
+  for (const loan of loans) {
+    // A throw from any query for one loan (the already-sent check, the hold recheck, the charges
+    // replay, the LoanNote write, the entity send) is that loan's error, not the tenant's day.
+    try {
+      await remindLoan(loan)
+    } catch (err) {
+      console.error(`[reminders] ${loan.reference} failed:`, err)
+      result.errors++
+      result.details.push(`Error ${loan.reference}: failed; see the server log`)
     }
   }
 

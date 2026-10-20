@@ -1,19 +1,14 @@
 /**
- * The message templates a new tenant starts with, and the function the seed
- * calls to create them.
+ * The message templates a new tenant starts with, and the function the seed calls to create them.
  *
- * These rows used to be written by data migrations, for one named tenant only,
- * so a database built from the migrations had none. They are seeded per
- * tenant instead. Wherever the copy names the lender it carries
- * SEED_BRAND_TOKEN, which the seed replaces with the tenant's brand
- * (`brandName ?? tenant.name`, as the SMS copy does): it is not a send-time
- * variable, so a stored row never contains it.
+ * These rows used to be written by data migrations, for one named tenant only, so a database built
+ * from the migrations had none. They are seeded per tenant instead. Wherever the copy names the
+ * lender it carries SEED_BRAND_TOKEN, which the seed replaces with the tenant's brand
+ * (`brandName ?? tenant.name`): it is not a send-time variable, so a stored row never contains it.
  *
- * Not seeded: `section129_email`. Its body was the forked lender's statutory
- * notice. The S129 email path (MESSAGING_NEW_SEND_S129) refuses with
- * "template not found" until a tenant creates one with its own identity.
- *
- * WhatsApp bodies come from WABA_BODY_TEMPLATES, so the stored row and the
+ * Not seeded: `section129_email`. Its body was the forked lender's statutory notice; the S129 email
+ * path (MESSAGING_NEW_SEND_S129) refuses with "template not found" until a tenant creates one with
+ * its own identity. WhatsApp bodies come from WABA_BODY_TEMPLATES, so the stored row and the
  * variables the code supplies cannot drift (template-vars-contract.test.ts).
  */
 import type { Channel, TemplateCategory } from "@prisma/client"
@@ -268,18 +263,7 @@ export function defaultTemplateForTenant(t: DefaultMessageTemplate, lenderName: 
   return { ...t, subject: brand(t.subject), body: brand(t.body)!, bodyTemplate: brand(t.bodyTemplate) }
 }
 
-/**
- * Create every default template the tenant lacks, as the old SQL seed's
- * `ON CONFLICT DO NOTHING` did. A default is skipped when the tenant already
- * has a row with the same `key` OR the same (event, channel) — the Settings UI
- * writes key-less rows, and an operator may re-key one, and either would make
- * the create violate a unique. Existing rows are never updated.
- */
-/**
- * The two MessageTemplate calls the seed makes. A structural type, not
- * `Pick<PrismaClient, "messageTemplate">`, so the tenant-scoped client the crons
- * use fits it as well as a plain PrismaClient, without a cast.
- */
+// Structural, so the tenant-scoped client the crons use fits as well as a plain PrismaClient, without a cast.
 export interface TemplateSeedDb {
   messageTemplate: {
     findMany(args: { where: { tenantId: string }; select: { key: true; event: true; channel: true } }): PromiseLike<Array<{ key: string | null; event: string; channel: string }>>
@@ -287,19 +271,22 @@ export interface TemplateSeedDb {
   }
 }
 
+/**
+ * Create every default template the tenant lacks, as the old SQL seed's `ON CONFLICT DO NOTHING`
+ * did: one that has the same `key` OR the same (event, channel) is skipped (the Settings UI writes
+ * key-less rows, an operator may re-key one), and existing rows are never updated. Two queries,
+ * not one per default: the reminders cron runs it for every ACTIVE tenant each night, with
+ * `only` to seed just the rows it needs (not the OTP and portal ones).
+ */
 export async function seedDefaultMessageTemplates(
   db: TemplateSeedDb,
   tenantId: string,
   lenderName: string,
-  /** `only` seeds just the defaults it accepts (the reminders cron needs a handful, not the OTP and portal rows). */
   options: { only?: (template: DefaultMessageTemplate) => boolean } = {},
 ): Promise<void> {
   if (!lenderName.trim() || lenderName.includes(SEED_BRAND_TOKEN)) {
     throw new Error("seedDefaultMessageTemplates: lenderName is required")
   }
-  // Two queries, not one per default: the reminders cron runs this for every
-  // ACTIVE tenant each night. skipDuplicates keeps it safe against a concurrent
-  // seed, which is the same ON CONFLICT DO NOTHING.
   const existing = await db.messageTemplate.findMany({ where: { tenantId }, select: { key: true, event: true, channel: true } })
   const keys = new Set(existing.map((e) => e.key))
   const pairs = new Set(existing.map((e) => `${e.event}/${e.channel}`))

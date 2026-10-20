@@ -9,13 +9,14 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | Variable | Needed | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_TENANT_SLUG` | required | the `Tenant.slug`; baked at build and read at runtime |
-| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin; also the base for the in-process cron scheduler's calls and reset links |
+| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin and the base of reset links. The in-process cron scheduler does NOT call it: it calls this server on loopback (`http://127.0.0.1:$PORT`, default 3300) and sends this origin's host as the `Host` header, so a run is never cut by the TLS proxy's timeout (nginx 60 s, Cloudflare 100 s). |
 | `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` | required | generated, distinct, in `secrets/auth.env`; become each container's `AUTH_SECRET`. Never fall back to a shared one |
 | `PORTAL_NEXTAUTH_URL`, `PORTAL_PORT` | required | portal origin (becomes its `NEXTAUTH_URL` and `AUTH_URL`) and host port |
 | `NEXTAUTH_SECRET` | required | generated; insurance disclosure tokens. Must differ from both auth secrets |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | required | generated; compose builds `DATABASE_URL` |
 | `APP_PORT`, `APP_BIND` | required / optional | staff host port (compose only, not an app variable); bind address, default `127.0.0.1` |
 | `CRON_SECRET` | required | gates `app/api/cron/*`; unset, the scheduler in `instrumentation.ts` is not registered |
+| `CRON_BASE_URL` | optional | where the in-process scheduler sends its calls instead of loopback (no `Host` is sent with it). Set it only if the server does not listen on `127.0.0.1:$PORT` inside its own container; the image binds `HOSTNAME=0.0.0.0` and `PORT=3300`. The call has a 55 minute ceiling, no other timeout |
 | `INTERNAL_API_SECRET` | required | bearer for `/api/notifications/*` |
 | `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
 | `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |

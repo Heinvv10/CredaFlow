@@ -204,46 +204,50 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
     for (const rule of RULES) {
       if (loan.daysInArrears < rule.minDays) continue
 
-      const exists = await noteExists(loan.id, rule.noteType, tenant.id)
-      if (exists) continue
-
-      const ctx: EscalationContext = {
-        loanId: loan.id,
-        loanRef: loan.reference,
-        tenantId: tenant.id,
-        clientId: loan.clientId,
-        daysInArrears: loan.daysInArrears,
-        arrearsAmount: loan.arrearsAmount,
-        outstandingPrincipal: loan.outstandingPrincipal,
-        status: loan.status,
-        ncaRegime: loan.ncaRegime,
-      }
-      if (rule.appliesTo && !rule.appliesTo(ctx)) continue
-
-      // noteExists above is checked before the rule writes its note, so two
-      // overlapping runs (a takeover of a runner that only lost its heartbeat)
-      // can both get here and both flip the status and notify the borrower. One
-      // reservation per loan, rule and SAST day lets only one act; it is
-      // released if the rule fails so the retry can run it.
-      const reservation = `escalation:${loan.id}:${rule.noteType}`
-      const reservedAt = new Date()
-      if (!(await reserveOnce(tenant.id, reservation, reservedAt))) {
-        result.details.push(`Skip ${loan.reference} ${rule.noteType}: another run is already handling it today`)
-        continue
-      }
+      // The reservation this rule holds, so a failure anywhere below gives it back.
+      let reserved: { key: string; at: Date } | null = null
       try {
+        const exists = await noteExists(loan.id, rule.noteType, tenant.id)
+        if (exists) continue
+
+        const ctx: EscalationContext = {
+          loanId: loan.id,
+          loanRef: loan.reference,
+          tenantId: tenant.id,
+          clientId: loan.clientId,
+          daysInArrears: loan.daysInArrears,
+          arrearsAmount: loan.arrearsAmount,
+          outstandingPrincipal: loan.outstandingPrincipal,
+          status: loan.status,
+          ncaRegime: loan.ncaRegime,
+        }
+        if (rule.appliesTo && !rule.appliesTo(ctx)) continue
+
+        // noteExists above is checked before the rule writes its note, so two
+        // overlapping runs (a takeover of a runner that only lost its heartbeat)
+        // can both get here and both flip the status and notify the borrower. One
+        // reservation per loan, rule and SAST day lets only one act. It is given
+        // back if the rule fails; but a failure of one loan is a per-item error, which
+        // leaves the run DONE and unretried, so the rule is next tried tomorrow.
+        const reservation = `escalation:${loan.id}:${rule.noteType}`
+        const reservedAt = new Date()
+        if (!(await reserveOnce(tenant.id, reservation, reservedAt))) {
+          result.details.push(`Skip ${loan.reference} ${rule.noteType}: another run is already handling it today`)
+          continue
+        }
+        reserved = { key: reservation, at: reservedAt }
         const detail = await rule.action(ctx)
         result.processed++
         result.details.push(detail)
       } catch (err) {
-        await releaseReservation(reservation, reservedAt)
+        if (reserved) await releaseReservation(reserved.key, reserved.at)
         console.error(`[escalation] ${loan.reference} ${rule.noteType} failed:`, err)
         result.details.push(`Error ${loan.reference} ${rule.noteType}: failed; see the server log`)
         // This is a Section 129 legal notice / DEFAULTED status / commission
         // clawback pipeline (see the module doc). A rule that keeps throwing
         // was previously invisible: no counter, no ok field, and the loan's
-        // escalation simply never advances. Count it so the cron can report
-        // the run as failed.
+        // escalation simply never advances. Count it so the run reports it. It
+        // does not fail the tenant: the other loans are escalated.
         result.errors++
       }
     }

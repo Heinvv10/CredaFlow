@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
-import { sastCalendarDate } from "@/lib/date/sast"
+import { SAST_OFFSET_MS, sastCalendarDate } from "@/lib/date/sast"
 
 /**
  * Run claims for the single-run in-process jobs (`singleRun` in
@@ -57,17 +57,14 @@ export function cronOccurrences<T extends { schedule: string; singleRun: boolean
   return [...own, ...retries]
 }
 
-/** The number of times a single-run job is fired a day: its own time and its retries. */
-export const FIRINGS_PER_DAY = 1 + RETRY_OFFSET_MINUTES.length
-
-/**
- * Whether a run's response says a tenant threw. That, not a per-item error (a send
- * that failed, a reconciliation case), is what the retry firings are for: a retry
- * is safe because the work is deduped, and could fix a tenant that threw on a
- * transient fault, but would fix nothing for one loan with no Contact row.
- */
-export function reportsFailedTenant(body: unknown): boolean {
-  return typeof body === "object" && body !== null && Number((body as { failedTenants?: unknown }).failedTenants) > 0
+/** The clock minute (0-1439, SAST) of the last scheduled firing of `route`. */
+export function finalFiringMinuteOfDay(occurrences: ReadonlyArray<{ job: { route: string }; schedule: string }>, route: string): number {
+  const minutes = occurrences.filter((o) => o.job.route === route).map((o) => {
+    const [minute, hour] = o.schedule.split(" ").map(Number)
+    return hour * 60 + minute
+  })
+  if (minutes.length === 0) throw new Error(`${route} is not scheduled`)
+  return Math.max(...minutes)
 }
 
 /** The attempt's owner token, or null when the job is DONE, running, or claimed elsewhere. */
@@ -103,19 +100,32 @@ export async function finishCronRun(job: string, ownerToken: string, ok: boolean
   return count === 1
 }
 
+/** A minute of grace after the final firing's own minute, so a firing that is starting is not mistaken for one that is over. */
+const SETTLE_GRACE_MINUTES = 1
+
 /**
- * Whether `job` is finished for today and will not run again: DONE, or FAILED on
- * its last firing. A job that must see another's results (reminders see the
+ * Whether `job` is finished for today and will not run again: DONE, or its final
+ * scheduled firing (`finalFiringMinute`, SAST clock minute) has passed and no
+ * runner is alive on it. A job that must see another's results (reminders see the
  * DEFAULTED flips escalations makes) waits for this, so a retry of the first can
  * never overlap the second, while a tenant that fails every night cannot hold the
  * other job back for good.
+ *
+ * By the clock, not by `attempts`: attempts counts claims, and a firing that was
+ * missed (a replica down) takes none, so counting them would hold the job back for
+ * ever after fewer claims than firings.
  */
-export async function cronSettledToday(job: string, now: Date = new Date()): Promise<boolean> {
+export async function cronSettledToday(job: string, finalFiringMinute: number, now: Date = new Date()): Promise<boolean> {
   const row = await prisma.cronRunClaim.findUnique({
     where: { job_runDay: { job, runDay: sastCalendarDate(now) } },
-    select: { status: true, attempts: true },
+    select: { status: true, claimedAt: true },
   })
-  return row?.status === "DONE" || (row?.status === "FAILED" && row.attempts >= FIRINGS_PER_DAY)
+  if (row?.status === "DONE") return true
+  const shifted = new Date(now.getTime() + SAST_OFFSET_MS)
+  const minuteOfDay = shifted.getUTCHours() * 60 + shifted.getUTCMinutes()
+  if (minuteOfDay < finalFiringMinute + SETTLE_GRACE_MINUTES) return false
+  const alive = row?.status === "RUNNING" && row.claimedAt.getTime() >= now.getTime() - STALE_RUNNING_MINUTES * 60_000
+  return !alive
 }
 
 /** Marks `job` DONE for today without a claim, e.g. the per-tenant "dpd-update:<tenantId>". */

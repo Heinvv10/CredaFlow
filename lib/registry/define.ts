@@ -56,9 +56,11 @@ export type CronJob =
        */
       singleRun?: boolean
       /**
-       * The singleRun job whose results this one reads. It is not fired until that
-       * job has settled today (DONE, or FAILED on its last firing), so a retry of the
-       * first never overlaps this one (lib/ops/cron-run-claim.ts, `cronSettledToday`).
+       * The singleRun job whose results this one reads (and this one must be
+       * singleRun too). It is not fired until that job has settled today: DONE, or
+       * its final scheduled firing has passed with no runner alive on it, so a retry
+       * of the first never overlaps this one (lib/ops/cron-run-claim.ts,
+       * `cronSettledToday`). This job's final firing must come after the other's.
        */
       after?: string | null
     }

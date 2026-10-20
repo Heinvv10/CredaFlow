@@ -52,9 +52,14 @@ export function tenantFailureDetail(tenant: SweepTenant): string {
  * The HTTP status of a sweep. A tenant that fails every night (an unconfigured
  * lender identity, say) is reported as that tenant's failure (`partial`, in the
  * body and the log) without turning the whole job red: 503 only when EVERY
- * tenant failed, or something other than a tenant failure went wrong
- * (`otherErrors`: sends that failed, reconciliation needed). The scheduler, the
- * run claim and /api/health all read a 2xx as a run that did its work.
+ * tenant failed, or when the caller counts something else as a failed run
+ * (`otherErrors`: an arrangement whose verdict was not written, a loan whose
+ * charges did not sync). Per-item outcomes of the borrower-comms crons (a send
+ * that failed, a reconciliation case) are NOT passed as `otherErrors`: they stay
+ * in the body and the run is still a 2xx. /api/health and the retry condition
+ * read the status; a single-run job's claim also reads the failed-tenant count
+ * from a header (lib/ops/cron-call.ts), because a tenant that threw is a 200
+ * `partial` that must still be retried.
  */
 export function sweepStatus(s: { tenants: number; failedTenants: number; otherErrors: number }): { status: 200 | 503; partial: boolean } {
   const allFailed = s.tenants > 0 && s.failedTenants === s.tenants

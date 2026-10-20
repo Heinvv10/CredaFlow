@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { processPaymentReminders } from "@/lib/collections/reminders"
 import { verifyCronSecret } from "@/lib/cron-auth"
+import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 import { sweepStatus } from "@/lib/ops/tenant-sweep"
 
 export async function GET(req: NextRequest) {
@@ -19,5 +20,5 @@ export async function GET(req: NextRequest) {
   // but the status is 503 only when EVERY tenant threw, so one lender that fails
   // nightly does not make the job look permanently failed for the rest.
   const { status, partial } = sweepStatus({ tenants: result.tenants, failedTenants: result.failedTenants, otherErrors: 0 })
-  return NextResponse.json({ ok: status === 200, partial, ...result }, { status })
+  return NextResponse.json({ ok: status === 200, partial, ...result }, { status, headers: { [FAILED_TENANTS_HEADER]: String(result.failedTenants) } })
 }
