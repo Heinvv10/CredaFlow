@@ -100,7 +100,7 @@ export async function loadBookingDeal(tx: SigningTx, tenantId: string, dealId: s
   const deal = await tx.assetFinanceDeal.findFirst({ where: { id: dealId, tenantId }, select: BOOKING_SELECT })
   if (!deal) return { kind: "not_found" }
   if (await unverifiedDealerContactsOnDeal(tx, tenantId, { clientId: deal.client?.id ?? null, entityId: deal.entity?.id ?? null }) > 0) {
-    return refuse("dealer_contact_unverified", "Verify the contact details the dealer captured for the people on this deal first (the Dealer panel)")
+    return refuse("dealer_contact_unverified", "Verify the contact details a dealer captured for the people on this deal first (Contacts a dealer captured, on the deal page)")
   }
   const lease = isLeaseContract(deal.contractType)
   if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE" && !lease) return refuse("contract_type", `Asset finance cannot book ${deal.contractType}`)

@@ -109,7 +109,8 @@ describe("bookDeal refusals: nothing is written", () => {
 
   it("dealer_contact_unverified while a person on the deal has dealer-typed contacts staff have not verified", async () => {
     m.tx.client.count.mockResolvedValue(1)
-    expect(await book()).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified" })
+    // The message names the panel on both a dealer deal and a staff deal.
+    expect(await book()).toMatchObject({ kind: "refused", reason: "dealer_contact_unverified", error: expect.stringContaining("Contacts a dealer captured") })
     expect(m.tx.client.count).toHaveBeenCalledWith({ where: expect.objectContaining({ createdByDealerId: { not: null }, dealerContactVerifiedAt: null }) })
     expect(m.tx.loan.create).not.toHaveBeenCalled()
   })

@@ -13,7 +13,7 @@ const name = (p: { name: string | null; email: string } | null) => (p ? (p.name 
 export function DealerCapturedPeople({ dealId, people, canManage }: { dealId: string; people: DealerCapturedPerson[]; canManage: boolean }) {
   return (
     <section className="space-y-2">
-      <h3 className="font-semibold text-[var(--cf-text)]">People a dealer captured</h3>
+      <h3 className="font-semibold text-[var(--cf-text)]">Contacts a dealer captured</h3>
       {people.length === 0 && <p className="text-[var(--cf-text-muted)]">None.</p>}
       {people.map((p) => (
         <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--cf-border-subtle)] p-2">
