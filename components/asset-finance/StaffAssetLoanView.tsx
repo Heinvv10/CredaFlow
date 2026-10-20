@@ -1,3 +1,5 @@
+import { DebtReviewPanel } from "@/components/collections/DebtReviewPanel"
+import { loadClientHold, siblingNoticeFrom } from "@/lib/collections/client-holds"
 import { RateNoticePanel } from "./RateNoticePanel"
 import { RateCorrectionPanel } from "./RateCorrectionPanel"
 import Link from "next/link"
@@ -45,6 +47,9 @@ export interface StaffAssetLoan extends SettlementLoanLike {
   client: { id: string; firstName: string; lastName: string } | null
   asset: { id: string; make: string; model: string; year: number; serialNumber: string; registrationNumber: string | null } | null
   assetFinanceDeal: { id: string } | null
+  /** Debt review (NCA s.86), a consumer notion: shown only for a client borrower. */
+  debtReviewNoticeAt?: Date | null
+  debtReviewNoticeRef?: string | null
   /** appliedAmount is the amount financed */
   application: { appliedAmount: number } | null
   product: { name: string }
@@ -70,7 +75,7 @@ const row = (label: string, value: React.ReactNode) => (
   </div>
 )
 
-export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges }: {
+export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLease, canDecideLease, canRecordPayment, canCapturePayment, canAuthoriseBackdate, canManageCharges, canManageDebtReview = false }: {
   loan: StaffAssetLoan
   tenantId: string
   userId: string
@@ -81,10 +86,14 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
   canCapturePayment: boolean
   canAuthoriseBackdate: boolean
   canManageCharges: boolean
+  /** act_on_collections: record/clear a debt-review notice on a consumer lease. The route re-checks. */
+  canManageDebtReview?: boolean
 }) {
-  const [figures, invoice] = await Promise.all([
+  const [figures, invoice, clientHold] = await Promise.all([
     staffLoanFigures(prisma, { ...loan, tenantId }, new Date()),
     prisma.taxInvoice.findFirst({ where: { tenantId, loanId: loan.id }, orderBy: { number: "asc" }, select: { id: true, invoiceNumber: true } }),
+    // A consumer lease: the client's debt-review notice may sit on another of their loans.
+    loan.client ? loadClientHold(prisma, tenantId, loan.client.id) : Promise.resolve(null),
   ])
   const { charges, settlementAmount, balance, maturityBalance, arrears, waivable, chargesNotDerived } = figures
   const nextPayment = loan.repaymentSchedule.find((s) => s.totalDue > 0 && (s.status === "PENDING" || s.status === "PARTIAL"))
@@ -233,6 +242,17 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
           </DataPanel>
         </div>
       </div>
+
+      {/* A sole-proprietor lessee is a consumer: s.86 applies. An entity borrower has no panel. */}
+      {loan.client && (
+        <DebtReviewPanel
+          loanId={loan.id}
+          noticeAt={loan.debtReviewNoticeAt ?? null}
+          noticeRef={loan.debtReviewNoticeRef ?? null}
+          canManage={canManageDebtReview}
+          siblingNotice={siblingNoticeFrom(clientHold, loan.id)}
+        />
+      )}
 
       {lease && <LeaseStaffPanel tenantId={tenantId} loanId={loan.id} userId={userId} canManage={canManageLease} canDecide={canDecideLease} />}
 

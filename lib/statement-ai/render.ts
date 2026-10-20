@@ -38,12 +38,18 @@ export const ClaimsSchema = z.object({ claims: z.array(z.enum(SUMMARY_CLAIMS)).m
 const list = (items: string[]) => items.join("; ")
 const sized = (s: Sized) => `${s.amount} ${s.direction === "in" ? "in" : "out"}`
 
-/** Claims whose figures come only from reconciled statements: with none, each would read as a real zero. */
-const FROM_RECONCILED: ReadonlySet<SummaryClaim> = new Set(["money", "months", "salary", "living", "categories", "uncategorised", "payees"])
+/**
+ * Whether a claim's figures come only from reconciled statements: with none, each would read as a real zero.
+ * A Record, so a new claim does not compile until it says which it is.
+ */
+const FROM_RECONCILED: Record<SummaryClaim, boolean> = {
+  coverage: false, money: true, months: true, balances: false, salary: true,
+  living: true, categories: true, uncategorised: true, payees: true, flags: false,
+}
 
 function claimSentence(claim: SummaryClaim, f: SummaryFacts): string | null {
   if (f.reconciledStatementCount === 0) {
-    if (FROM_RECONCILED.has(claim)) return null
+    if (FROM_RECONCILED[claim]) return null
     if (claim === "coverage") return "No statement reconciles, so no money in, money out, salary or spend is counted from them."
   }
   switch (claim) {

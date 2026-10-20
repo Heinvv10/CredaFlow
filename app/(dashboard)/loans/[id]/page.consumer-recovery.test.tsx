@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react"
 
 const mocks = vi.hoisted(() => ({ findUnique: vi.fn(), session: vi.fn() }))
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("not found") } }))
-vi.mock("@/lib/prisma", () => ({ prisma: { loan: { findUnique: mocks.findUnique } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { loan: { findUnique: mocks.findUnique }, client: { findFirst: async () => ({ deceasedAt: null, loans: [] }) } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/payouts/view", () => ({ loadPayoutView: async () => null }))
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: async () => "t-1" }))

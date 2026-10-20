@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
   charges: vi.fn(),
 }))
 
+const holds = vi.hoisted(() => ({ held: false }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     repaymentSchedule: { findMany: h.findMany },

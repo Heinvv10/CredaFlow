@@ -21,6 +21,7 @@ import {
   type ReminderDelivery,
 } from "@/lib/collections/manual-reminder-outcome"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { staffMessageRefusal } from "@/lib/collections/client-holds"
 
 export async function POST(
   req: NextRequest,
@@ -66,6 +67,13 @@ export async function POST(
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
     }
 
+    // A death or a debt-review notice (consumer-wide) refuses a staff message
+    // outright, with the reason. Arrangement and attorney-referred loans stay allowed.
+    const refusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId: loan.client.id })
+    if (refusal) {
+      return NextResponse.json({ error: `Cannot send a collections reminder: ${refusal}.` }, { status: 409 })
+    }
+
     // Collections/dunning reminders are for accounts with arrears to collect —
     // never dun a settled R0 account. Also gate on
     // outstandingPrincipal so a fully-repaid loan carrying stale arrears isn't
@@ -84,6 +92,7 @@ export async function POST(
       )
     }
 
+    const clientId = loan.client.id
     const phone = loan.client.phone
     const waNumber = loan.client.whatsapp ?? phone
     const deliveries: ReminderDelivery[] = []
@@ -101,6 +110,13 @@ export async function POST(
         return
       }
       try {
+        // Rechecked right before each leg: a notice or a death recorded since the
+        // request began (or between the SMS and WhatsApp legs) stops this send.
+        const lateRefusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId })
+        if (lateRefusal) {
+          deliveries.push({ channel: label, outcome: "blocked", detail: lateRefusal })
+          return
+        }
         const template = await getOrCreateAgentMessageTemplate(tenant.id, ch)
         const result = await sendMessage({
           contactId: contact.id,

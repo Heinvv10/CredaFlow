@@ -11,6 +11,7 @@ import { CollectionsTabs } from "@/components/collections/CollectionsTabs"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { BOOK_DEFINITIONS, getBookArrears } from "@/lib/reports/book-arrears"
 import { BookDefinitions } from "@/components/reports/BookDefinitions"
+import { clientIdsUnderDebtReview } from "@/lib/collections/client-holds"
 import { getSection129ReservationAvailability } from "@/lib/collections/section129-artifact"
 import { borrowerDisplayName, hasClientBorrower, hasClientBorrowerId } from "@/lib/borrower"
 import { latestSection129Failures } from "@/lib/collections/section129-failures"
@@ -92,7 +93,14 @@ async function getSection129DueCount(tenantId: string) {
   let count = 0
   // The bulk send's own rules: a NON_NCA agreement is never S129-due, and the
   // notice is addressed to a Client (an entity borrower has none).
-  for (const loan of loans.filter(isSection129Eligible).filter(hasClientBorrowerId)) {
+  const consumerLoans = loans.filter(isSection129Eligible).filter(hasClientBorrowerId)
+  // Debt review (NCA s.86) blocks Section 129 on every loan of the client, so
+  // those accounts are not "due" a notice: the header agrees with what bulk send does.
+  const underReview = await clientIdsUnderDebtReview({
+    tenantId,
+    clientIds: [...new Set(consumerLoans.map((loan) => loan.clientId))],
+  })
+  for (const loan of consumerLoans.filter((l) => !underReview.has(l.clientId))) {
     const availability = await getSection129ReservationAvailability(tenantId, loan.id)
     if (availability.canReserve) count++
   }

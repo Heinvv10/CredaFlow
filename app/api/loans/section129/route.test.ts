@@ -19,6 +19,10 @@ const dispatchUnderLockMock = vi.fn()
 const markKnownNotSentMock = vi.fn()
 const markReconciliationRequiredMock = vi.fn()
 const finaliseIssuanceMock = vi.fn()
+const debtReviewReasonMock = vi.fn()
+vi.mock("@/lib/collections/client-holds", () => ({
+  section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
+}))
 
 // No tenant logo unless a test sets one: documents print the text letterhead.
 const getLenderLogoMock = vi.fn()
@@ -145,6 +149,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.MESSAGING_NEW_SEND_S129
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "o@x" } })
+  debtReviewReasonMock.mockResolvedValue(null)
   loanFindUniqueMock.mockResolvedValue(loan)
   // No default charges unless a test says so: the notice states the loan's own figures.
   settlementFiguresMock.mockImplementation(async (_db: unknown, l: { arrearsAmount: number; outstandingPrincipal: number }) => ({
@@ -183,6 +188,19 @@ afterEach(() => {
 })
 
 describe("POST /api/loans/section129", () => {
+  // D1: a debt-review notice on ANY loan of the client blocks Section 129.
+  it("refuses with 409 and the reason before the lender, PDF, reservation or any send when the client is under debt review", async () => {
+    debtReviewReasonMock.mockResolvedValue("the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)")
+    const response = await POST(request())
+    expect(response.status).toBe(409)
+    expect((await response.json() as { error: string }).error).toContain("under debt review")
+    expect(debtReviewReasonMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", clientId: "C1" })
+    expect(lenderIdentityMock).not.toHaveBeenCalled()
+    expect(buildAttachmentsMock).not.toHaveBeenCalled()
+    expect(reserveIssuanceMock).not.toHaveBeenCalled()
+    expect(sendEmailMock).not.toHaveBeenCalled()
+  })
+
   // no configured, valid lender identity ⇒ no notice can be issued.
   it("refuses with 409 before reserving or sending when the lender identity is not configured", async () => {
     lenderIdentityMock.mockResolvedValue({

@@ -16,6 +16,7 @@ import { getLenderLogo } from "@/lib/config/lender-logo"
 import { formatZAR } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
 import { logAudit } from "@/lib/audit"
+import { section129DebtReviewReason } from "@/lib/collections/client-holds"
 import {
   evaluateCollectionsEligibility,
 } from "@/lib/collections/section129-eligibility"
@@ -58,6 +59,13 @@ export async function POST(req: NextRequest) {
         { error: `Cannot issue a Section 129 default notice: ${eligibility.reason}.` },
         { status: 422 }
       )
+    }
+    // Debt review is consumer-wide: a notice on ANY of the client's loans blocks it.
+    const debtReview = loan.clientId
+      ? await section129DebtReviewReason(prisma, { tenantId: tenant.id, clientId: loan.clientId })
+      : null
+    if (debtReview) {
+      return NextResponse.json({ error: `Cannot issue a Section 129 default notice: ${debtReview}.` }, { status: 409 })
     }
     const addressee = section129Addressee(loan)
     if (!addressee) return NextResponse.json({ error: "The borrower has no active authorised contact for statutory delivery" }, { status: 409 })
