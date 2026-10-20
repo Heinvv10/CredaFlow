@@ -9,13 +9,16 @@ import { LegalStepsTimeline } from "./LegalStepsTimeline"
 import { hintText, REGIME_LABELS } from "./legal-matter-form"
 import { OpenLegalMatterButton } from "./OpenLegalMatterButton"
 import { RecordStepForm } from "./RecordStepForm"
+import { LastKnownPosition } from "../telematics/LastKnownPosition"
 
 /**
  * The legal matter of an asset-finance loan on the staff loan page: open it,
  * appoint the attorney, record steps (lib/asset-finance/legal-matter-*.ts).
  * Server component: it reads the matter and the tenant's suppliers; the
  * forms are client components posting to app/api/asset-finance/. `canManage`
- * is manage_asset_finance; without it the panel only reads.
+ * is manage_asset_finance; without it the panel only reads. `canViewPosition`
+ * (view_asset_position) shows the logged "Show last known position" while the
+ * matter is open.
  */
 
 const subheading = "mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--cf-text-muted)]"
@@ -29,7 +32,7 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-export async function LegalMatterPanel({ tenantId, loanId, canManage }: { tenantId: string; loanId: string; canManage: boolean }) {
+export async function LegalMatterPanel({ tenantId, loanId, canManage, canViewPosition = false }: { tenantId: string; loanId: string; canManage: boolean; canViewPosition?: boolean }) {
   const result = await getLegalMatterView(tenantId, { loanId })
   if (result.kind === "not_found") return null
   const matter = result.view
@@ -67,6 +70,13 @@ export async function LegalMatterPanel({ tenantId, loanId, canManage }: { tenant
           <p className="rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-text)]">
             <span className="text-[var(--cf-text-muted)]">Next: </span>{hintText(matter.nextStep)}
           </p>
+        )}
+
+        {canViewPosition && open && (
+          <section>
+            <h3 className={subheading}>Asset</h3>
+            <LastKnownPosition loanId={loanId} context="LEGAL_MATTER" />
+          </section>
         )}
 
         <section>

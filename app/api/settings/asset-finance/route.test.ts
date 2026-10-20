@@ -41,7 +41,7 @@ import { GET, PATCH } from "./route"
 
 const current = {
   featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false,
-  featureDealerPortal: false, dealerCommissionClawbackMonths: 0, isDemoLender: false,
+  featureDealerPortal: false, dealerCommissionClawbackMonths: 0, isDemoLender: false, telematicsPositionRetentionDays: 90,
 }
 const patch = (body: unknown) => PATCH(new NextRequest("http://localhost/api/settings/asset-finance", {
   method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -151,5 +151,25 @@ describe("/api/settings/asset-finance", () => {
     expect((await patch({ featureAssetFinance: true })).status).toBe(200)
     expect(m.create).toHaveBeenCalledWith(expect.objectContaining({ data: { tenantId: "tenant-1", featureAssetFinance: true } }))
     expect(m.update).not.toHaveBeenCalled()
+  })
+
+  it("sets the tracker position retention, audited on its own action", async () => {
+    const res = await patch({ telematicsPositionRetentionDays: 30 })
+    expect(res.status).toBe(200)
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ data: { telematicsPositionRetentionDays: 30 } }))
+    expect(m.logAuditStrict).toHaveBeenCalledWith(expect.objectContaining({
+      action: "TELEMATICS_RETENTION_CHANGED", oldValue: { telematicsPositionRetentionDays: 90 }, newValue: { telematicsPositionRetentionDays: 30 },
+    }), expect.anything())
+  })
+
+  it("answers the retention range CHECK 422 with the reason, audits nothing, and refuses a non-number 400", async () => {
+    m.update.mockRejectedValue(Object.assign(new Error(
+      'new row for relation "TenantConfig" violates check constraint "TenantConfig_telematics_retention_range"',
+    ), { code: "23514" }))
+    const res = await patch({ telematicsPositionRetentionDays: 366 })
+    expect(res.status).toBe(422)
+    expect((await res.json()).fields).toEqual({ telematicsPositionRetentionDays: "Tracker positions are kept from 1 to 365 days; a longer period needs legal sign-off" })
+    expect(m.logAuditStrict).not.toHaveBeenCalled()
+    for (const days of [1.5, "90", null]) expect((await patch({ telematicsPositionRetentionDays: days })).status).toBe(400)
   })
 })

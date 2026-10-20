@@ -11,6 +11,9 @@ import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS, assetBookStatus } from "@/lib/asset-finance/asset-labels"
 import { ValuationForm } from "./ValuationForm"
 import { AssetReadinessForm } from "./AssetReadinessForm"
+import { TrackerDevicesPanel } from "@/components/asset-finance/telematics/TrackerDevicesPanel"
+import { assetTrackerDevices } from "@/lib/telematics/devices"
+import { getTelematicsProvider, registeredTelematicsProviderIds } from "@/lib/telematics/registry"
 
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -32,6 +35,8 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
     },
   })
   if (!asset) notFound()
+  const devices = await assetTrackerDevices(tenantId, asset.id)
+  const providers = registeredTelematicsProviderIds().map((key) => ({ id: key, label: getTelematicsProvider(key)?.label ?? key }))
 
   const title = `${asset.year} ${asset.make} ${asset.model}`
   const money = (cents: number | null) => (cents === null ? null : formatMoney(cents))
@@ -78,6 +83,8 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             lenderNotedConfirmed: asset.lenderNotedConfirmed,
           }} />
         )}
+
+        <TrackerDevicesPanel assetId={asset.id} devices={devices} canManage={canManage} providers={providers} />
 
         <DataPanel title="Valuations" density="loose">
           {asset.valuations.length === 0 ? (

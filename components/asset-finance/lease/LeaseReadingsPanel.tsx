@@ -10,7 +10,7 @@ import type { LeaseStaffData } from "./lease-staff-data"
 // would bill at the end of term (lib/asset-finance/lease-usage.ts).
 
 const metric = (text: string) => <span className="block text-xl tabular-nums">{text}</span>
-const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)" }
+const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)", TELEMATICS: "Telematics" }
 
 export function LeaseReadingsPanel({ data, usage, canRecord }: {
   data: LeaseStaffData
@@ -51,7 +51,7 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
                 <TableRow key={r.id}>
                   <TableCell>{formatIsoDate(r.readingDate)}</TableCell>
                   <TableCell className="text-right">{r.value.toLocaleString("en-ZA")}</TableCell>
-                  <TableCell>{SOURCES[r.source] ?? r.source}</TableCell>
+                  <TableCell>{r.simulated ? "Telematics, simulated" : SOURCES[r.source] ?? r.source}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
