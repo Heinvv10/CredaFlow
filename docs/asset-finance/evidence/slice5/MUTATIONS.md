@@ -316,9 +316,6 @@ Database: throwaway PostgreSQL 16 (`scripts/it-db.sh up cf-it-s5fx-<random>`,
 |---|---|---|---|
 | R2-L1 booking needs verified contacts | dealer-handover-contact IT | 1 failed, 7 passed | "expected [Function] to throw an error" (a dealer deal with an unverified dealer-captured director was BOOKED) |
 | R2-C1 on-book audit row | `capture-limits.test.ts` | 1 failed | the audit named entity `BusinessEntity` with the dealer user's id |
-| S-R2-1 portal reset to a dealer-typed email | dealer-contact-bypass IT | 1 failed, 1 passed | "expected { status: 200, issued: '1' } to deeply equal { status: 200, issued: '0' }" |
-| S-R2-2 selfie link to a dealer-typed contact | selfie send-link route unit | 1 failed | the link was sent (no 409) |
-| Booking gate on staff deals | dealer-handover-contact IT | 1 failed, 8 passed | "expected [Function] to throw an error" (a staff deal on a dealer-captured borrower was BOOKED) |
 
 ### Mutations (applied to the migrated throwaway database or the source, then restored)
 
@@ -333,11 +330,29 @@ Database: throwaway PostgreSQL 16 (`scripts/it-db.sh up cf-it-s5fx-<random>`,
 | 7 | `DROP CONSTRAINT "DealerPayableRun_status_shape"` | dealer-row-shapes IT | 4 failed, 5 passed | pending, approved, released and cancelled shape tests |
 | 8 | `DealerPayableRun_status_shape` without the non-blank `releaseReference` clause | dealer-row-shapes IT | 1 failed, 8 passed | "refuses a released run without its approval, its release, or a non-blank release reference, or with a cancellation" |
 
-| 9 | `forgot-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | "issues no code … refuses it cleanly" (`issued: '1'`) |
-| 10 | `reset-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | same test: the reset threw `PrismaClientUnknownRequestError` (the database guard), not a refusal |
-| 11 | trigger WHEN back to `NEW."dealerId" IS NOT NULL` | dealer-handover-contact IT | 1 failed, 8 passed | "gates a staff deal on a dealer-captured borrower the same way …" |
-| 12 | `booking-load.ts` unverified-contacts check disabled | dealer-handover-contact IT | 2 failed, 7 passed | both booking cases: refused with another reason |
+After restoring each: dealer-handover-contact 8/8, dealer-row-shapes 9/9.
 
-S-R2-2's mutation is its before run (the route without the check). After
-restoring each: dealer-handover-contact 9/9, dealer-row-shapes 9/9,
-dealer-contact-bypass 2/2.
+## Part A — review round 3
+
+Security review round 2. Database: throwaway PostgreSQL 16, migrated to
+`20261019120500`. Tests written first.
+
+### Before
+
+| Fix | Suite | Result | Red assertion |
+|---|---|---|---|
+| (1) booking gate on every deal | dealer-handover-contact IT, database migrated to `20261019120400` only | 1 failed, 8 passed | "expected [Function] to throw an error" (a staff deal on a dealer-captured borrower with an unverified director was BOOKED) |
+| (2) portal reset to a dealer-typed email | dealer-contact-bypass IT | 1 failed, 1 passed | "expected { status: 200, issued: '1' } to deeply equal { status: 200, issued: '0' }" |
+| (3) selfie link to a dealer-typed contact | selfie send-link route unit | 1 failed, 18 passed | the link was sent (no 409) |
+
+### Mutations (applied to the migrated database or the source, then restored)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| 1 | trigger WHEN back to `NEW."dealerId" IS NOT NULL` (the `20261019120400` shape) | dealer-handover-contact IT | 1 failed, 8 passed | "gates a staff deal on a dealer-captured borrower the same way, and staff verify from that deal" |
+| 2 | `booking-load.ts` unverified-contacts check disabled | dealer-handover-contact IT | 2 failed, 7 passed | both booking cases: refused with another reason |
+| 3 | `forgot-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | "issues no code … refuses it cleanly" (`issued: '1'`) |
+| 4 | `reset-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | same test: the reset threw `PrismaClientUnknownRequestError` (the database guard), not a refusal |
+
+(3)'s mutation is its before run (the route without the check). After
+restoring each: dealer-handover-contact 9/9, dealer-contact-bypass 2/2.

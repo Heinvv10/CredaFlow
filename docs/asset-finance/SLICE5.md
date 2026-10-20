@@ -199,7 +199,8 @@ replacements named in it):
     proprietor (street line and city required; a person of a business needs
     none), and the staff accept refuses a borrower without one (422).
 
-Review round 2 (migration `20261019120400_dealer_booking_contacts_verified`):
+Review rounds 2 and 3 (migrations `20261019120400_dealer_booking_contacts_verified`,
+`20261019120500_booking_contacts_verified_every_deal`):
 
 40. **Booking needs verified contacts.** No deal, a dealer's or a staff one,
     moves into BOOKED while its sole proprietor or an active person of its
