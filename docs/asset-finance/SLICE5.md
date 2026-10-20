@@ -210,9 +210,11 @@ Review rounds 2 and 3 (migrations `20261019120400_dealer_booking_contacts_verifi
     is on (a "Contacts a dealer captured" panel on a staff deal). The portal
     forgot/reset-password routes and the selfie capture link skip or refuse an
     unverified dealer-typed contact too, as do an entity's servicing
-    recipients; a dealer adds no person to a business whose deal is past the
-    hand-over (409). A partial index (migration `20261019120600`) serves
-    these checks. The on-book refusal audit names the dealer user as its row
+    recipients. A person with unverified dealer-typed contacts joins a
+    business only while it has no deal beyond that dealer's own unsubmitted
+    draft (`EntityRelationship_dealer_contact_link`; the dealer's capture
+    answers 409). Migration `20261019120600` holds that trigger and a partial
+    index serving these checks. The on-book refusal audit names the dealer user as its row
     (entity `DealerUser`).
 
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
@@ -624,6 +626,7 @@ cron.
 | Lender-added people (31) | `lib/dealer/dealer-consent.integration.test.ts`, `dealer-submit.integration.test.ts`, `deal-view.test.ts` | IT + unit | attest a lender-added or other dealer's person |
 | Classification re-stamp (32) | `lib/dealer/cost-of-credit.integration.test.ts` | IT | — |
 | Hand-over; uploads after it (33) | `lib/dealer/dealer-handover-contact.integration.test.ts`, `documents.test.ts`, edge F04 (`edge-principal-flow`) | IT + unit | SUBMITTED before hand-over; free upload after it |
+| Linking unverified dealer-typed people (40) | `lib/dealer/dealer-entity-people.integration.test.ts` | IT | own deal handed over, staff deal, another dealer's draft, re-activation, re-pointing |
 | Untrusted dealer contacts (34, 40) | `lib/dealer/dealer-borrower-identity.integration.test.ts`, `dealer-handover-contact.integration.test.ts`, `lib/signing-otp/subject-dealer-contact.test.ts` | IT + unit | register, OTP, password, signing code, booking before verification |
 | Row-shape CHECKs | `lib/dealer/dealer-row-shapes.integration.test.ts` | IT | each clause of `DealerCommissionLine_shape` and `DealerPayableRun_status_shape`, triggers off |
 | Reset link (35) | `lib/dealer/dealer-reset-link.integration.test.ts` | IT | old password after reset; deactivated dealer |
@@ -703,11 +706,13 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
   booked while a person on it has unverified dealer-typed contacts
   (deviation 40); a wet-ink contract can still complete before the
   verification (the signing paths would need their own refusal).
-- **Servicing messages skip unverified dealer-typed people.** A dealer cannot
-  add a person to a business once a deal on it is handed over, and an
-  entity's servicing messages (reminders, notifications, rate notices) go
-  only to people whose dealer-typed contacts staff verified. A person staff
-  add later is the lender's capture and trusted as such.
+- **Servicing messages skip unverified dealer-typed people.** No one with
+  unverified dealer-typed contacts joins a business with a live deal beyond
+  the dealer's own draft, and an entity's servicing messages (reminders,
+  notifications, rate notices) go only to people whose dealer-typed contacts
+  staff verified. The link check reads committed deals: a deal created in a
+  transaction still open while the link is made is not seen (READ
+  COMMITTED); the servicing filter still applies to that person.
 - **A run covers a finished period.** `periodEnd` is a month end not after
   today, so commission earned this month, and a clawback netting it, is paid
   in next month's run at the earliest.
