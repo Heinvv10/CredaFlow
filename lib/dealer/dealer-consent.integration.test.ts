@@ -110,6 +110,8 @@ suite.sequential("dealer consent attestations and document requests (real DB)", 
       relate(fx.director)
       expectRejected(attest({ clientId: fx.director }), message)
       const otherDealers = person(fx.dealerB)
+      // Verified, so the link itself is allowed (EntityRelationship_dealer_contact_link); the attestation is still refused.
+      sql(`UPDATE "Client" SET "dealerContactVerifiedAt" = CURRENT_TIMESTAMP, "dealerContactVerifiedById" = ${lit(fx.officer)} WHERE "id" = ${lit(otherDealers)}`)
       relate(otherDealers)
       expectRejected(attest({ clientId: otherDealers }), message)
     })

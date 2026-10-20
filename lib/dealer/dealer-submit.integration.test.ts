@@ -134,7 +134,7 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
 
   it("adds no person to the business once its deal is handed over (the lender's people from then on)", async () => {
     expect(await inTenant(fx, () => captureDealerPerson(sales, personBody(), draft.entityId)))
-      .toMatchObject({ kind: "refused", status: 409, error: expect.stringMatching(/handed to the lender/) })
+      .toMatchObject({ kind: "refused", status: 409, error: expect.stringMatching(/deal with the lender/) })
     expect(sql(`SELECT count(*) FROM "EntityRelationship" WHERE "entityId" = ${lit(draft.entityId)}`)).toBe("1")
     // A business whose only dealer deal was cancelled takes people again.
     const other = await dealerDraft(fx, sales)

@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { createBusinessEntity } from "@/lib/asset-finance/entity-create"
 import { createFinancedAsset } from "@/lib/asset-finance/asset-create"
 import { parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
@@ -31,6 +32,7 @@ import { dealerAuditFields, type DealerActor } from "./actor"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
 export const ALREADY_ON_BOOK = "Already on the lender's book: ask the lender"
+const LENDERS_PEOPLE = "This business has a deal with the lender: ask the lender to add the person"
 
 export type CaptureResult = { kind: "created"; id: string } | { kind: "invalid"; fields: Record<string, string> } | DealerRefusal
 
@@ -158,9 +160,9 @@ async function linkPerson(
  * A new person captured by the dealer: a sole proprietor (no `entityId`), or
  * a person of one of the dealer's own entities in `roles` (body.roles,
  * body.trusteeKind, body.ownershipPct as the staff people route takes them),
- * while no deal on that entity is past the hand-over (then the lender adds
- * people: a dealer-added person would otherwise receive the booked loan's
- * servicing messages).
+ * while the entity has no deal beyond this dealer's own unsubmitted draft:
+ * from then on the lender adds people, since a dealer-added person would
+ * receive that deal's messages (EntityRelationship_dealer_contact_link).
  */
 export async function captureDealerPerson(actor: DealerActor, body: unknown, entityId: string | null = null): Promise<CaptureResult> {
   const limited = overCaptureLimit(actor)
@@ -171,12 +173,6 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
     select: { id: true, type: true },
   })
   if (entityId !== null && !entity) return dealerMiss("Entity")
-  // Once a deal on the business is with the lender, its people are the lender's to add.
-  if (entity && await prisma.assetFinanceDeal.count({
-    where: { tenantId: actor.tenantId, entityId: entity.id, dealerSubmittedAt: { not: null }, status: { not: "CANCELLED" } },
-  }) > 0) {
-    return dealerRefused(409, "A deal on this business has been handed to the lender: ask the lender to add the person")
-  }
   // Validated before anything is written (the client id it names is the new row's).
   let link: { entityId: string; relationship: RelationshipInput } | null = null
   if (entity) {
@@ -190,6 +186,15 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
   const audit = dealerAuditFields(actor)
   try {
     const id = await prisma.$transaction(async (tx) => {
+      // The friendly answer to EntityRelationship_dealer_contact_link, which the database enforces again.
+      if (linked && await tx.assetFinanceDeal.count({
+        where: {
+          tenantId: actor.tenantId, entityId: linked.entityId, status: { not: "CANCELLED" },
+          NOT: { dealerId: actor.dealerId, dealerSubmittedAt: null },
+        },
+      }) > 0) {
+        return null
+      }
       const client = await tx.client.create({
         data: { tenantId: actor.tenantId, ...person.data, createdByDealerId: actor.dealerId },
         select: { id: true, reference: true },
@@ -206,9 +211,10 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
       }
       return client.id
     })
-    return { kind: "created", id }
+    return id === null ? dealerRefused(409, LENDERS_PEOPLE) : { kind: "created", id }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return alreadyOnBook(actor, "person")
+    if (isCheckViolation(error) && String(error).includes("joins a business only while")) return dealerRefused(409, LENDERS_PEOPLE)
     throw error
   }
 }

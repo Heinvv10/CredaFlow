@@ -145,10 +145,11 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
 
     it("gates a staff deal on a dealer-captured borrower the same way, and staff verify from that deal", async () => {
       const captured = captureForDealer(fx, fx.dealerA)
-      const { dealId } = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captured })
+      // Linked while the business had no deal (EntityRelationship_dealer_contact_link refuses it after).
       const director = client(fx.dealerA)
       sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
         VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(captured.entityId)}, ${lit(director)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+      const { dealId } = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captured })
       approve(fx, dealId)
       expect(() => book(fx, dealId)).toThrow(/contact details/)
       const loaded = await inTenant(fx, () => prisma.$transaction((tx) => loadBookingDeal(tx, fx.tenantId, dealId)))
