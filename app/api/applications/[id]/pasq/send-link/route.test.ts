@@ -185,6 +185,25 @@ describe("POST /api/applications/[id]/pasq/send-link", () => {
     })
   })
 
+  it("refuses with 409 to send the link to contact details a dealer typed that staff have not verified", async () => {
+    const base = {
+      clientId: "client-1", status: "APPROVED", agreementGeneratedAt: null, pasqDocumentId: "pasq-doc-1",
+      pasqDocumentSha256: "f".repeat(64), pasqAcknowledgedAt: null,
+      client: { phone: "+27821110000", whatsapp: "+27822220000", email: "client@example.test", firstName: "Sipho", lastName: "Nkosi" },
+    }
+    applicationFindUnique.mockResolvedValue({ ...base, client: { ...base.client, createdByDealerId: "dealer-1", dealerContactVerifiedAt: null } })
+
+    const response = await POST(request({ channel: "WHATSAPP" }), context)
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(/dealer captured this person's contact details/i)
+    expect(mintPasqLinkToken).not.toHaveBeenCalled()
+    expect(sendWhatsApp).not.toHaveBeenCalled()
+
+    applicationFindUnique.mockResolvedValue({ ...base, client: { ...base.client, createdByDealerId: "dealer-1", dealerContactVerifiedAt: new Date("2026-10-19T10:00:00Z") } })
+    expect((await POST(request({ channel: "WHATSAPP" }), context)).status).toBe(200)
+  })
+
   it("refuses when the client record has no valid number for the channel", async () => {
     applicationFindUnique.mockResolvedValue({
       clientId: "client-1",
