@@ -6,6 +6,7 @@ import { contactDunningHold } from "./client-holds"
 
 const NOTICE = { id: "l2", reference: "LN-2", debtReviewNoticeAt: new Date("2026-10-15T00:00:00+02:00"), debtReviewNoticeRef: null }
 
+// `actsForEntity` models a director's other roles; the hold must not look at them.
 function db(opts: { clientId?: string | null; deceasedAt?: Date | null; notice?: boolean; actsForEntity?: number }) {
   const entityCount = vi.fn(async () => opts.actsForEntity ?? 0)
   return {
@@ -35,19 +36,28 @@ describe("contactDunningHold", () => {
     expect(hold?.reason).toContain("LN-2")
   })
 
-  it("has no hold for a clean client, and never asks about entities then", async () => {
-    const { db: fake, entityCount } = db({})
-    expect(await contactDunningHold(fake, args)).toBeNull()
+  it("has no hold for a clean client, whatever their entity roles", async () => {
+    expect(await contactDunningHold(db({ actsForEntity: 1 }).db, args)).toBeNull()
+  })
+
+  it("never consults entity roles at all", async () => {
+    const { db: fake, entityCount } = db({ notice: true, actsForEntity: 1 })
+    await contactDunningHold(fake, args)
     expect(entityCount).not.toHaveBeenCalled()
   })
 
-  // A director's s.86 notice is about their own credit, not the entity's; the first send ignores it too.
-  it("does NOT hold an entity contact (an active director, trustee or signatory) for debt review", async () => {
-    const { db: fake, entityCount } = db({ notice: true, actsForEntity: 1 })
-    expect(await contactDunningHold(fake, args)).toBeNull()
-    expect(entityCount).toHaveBeenCalledWith({
-      where: { tenantId: "t1", clientId: "c1", active: true, role: { in: ["DIRECTOR", "TRUSTEE", "AUTHORISED_SIGNATORY"] } },
-    })
+  // Fail closed: the hold keys on the Contact's own client, not on their entity roles. A director
+  // under personal debt review is held on a retry of their OWN consumer reminder. (An entity-debt
+  // reminder to them may be held on retry too, the accepted trade-off until Message carries its loan.)
+  it("holds a director who is under personal debt review: the entity roles are not an exemption", async () => {
+    const { db: fake } = db({ notice: true, actsForEntity: 1 })
+    expect(await contactDunningHold(fake, args)).toMatchObject({ kind: "DEBT_REVIEW", reason: expect.stringContaining("under debt review") })
+  })
+
+  it("holds a director's personal consumer reminder: the client has a notice on one of their own loans", async () => {
+    const hold = await contactDunningHold(db({ notice: true, actsForEntity: 2 }).db, args)
+    expect(hold).toMatchObject({ kind: "DEBT_REVIEW" })
+    expect(hold?.reason).toContain("LN-2")
   })
 
   it("still holds an entity contact for a death", async () => {

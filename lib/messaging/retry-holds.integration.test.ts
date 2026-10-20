@@ -69,7 +69,7 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
       for (const k of KINDS) messages[`${c.name}/${k.kind}`] = await queueMessage(contact.id, k.category, k.dunning)
     }
-    // Directors of a borrowing entity: held for a death, but a director's own s.86 notice is not the entity's.
+    // Directors of a borrowing entity: the hold keys on the person's own client, so they are held like anyone.
     const entity = await db.businessEntity.create({
       data: { tenantId: tenant.tenantId, type: "COMPANY", legalName: "Hold Test (Pty) Ltd", registrationNumber: `2026/${randomUUID().slice(0, 6)}/07` },
     })
@@ -112,11 +112,12 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     }
   })
 
-  it("a director's reminder is NOT held for the director's own debt review, but is held for a death", async () => {
-    const underReview = await row("director under debt review/reminder")
-    expect(underReview.errorMessage ?? "").not.toContain("client hold")
-    expect(await audits("director under debt review/reminder", "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(1)
-
+  // Fail closed: the hold keys on the Contact's own client, not on entity roles.
+  it("a director's reminder is held for the director's own debt review, and for a death", async () => {
+    expect(await row("director under debt review/reminder")).toMatchObject({
+      status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("client hold: debt review"),
+    })
+    expect(await audits("director under debt review/reminder", "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(0)
     expect(await row("director deceased/reminder")).toMatchObject({
       status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("client hold: deceased"),
     })
