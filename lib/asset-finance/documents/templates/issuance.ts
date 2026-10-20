@@ -70,6 +70,10 @@ function label(templateKey: string): string {
   return key ? `${key.family.name} (${variant?.label ?? key.variant})` : templateKey
 }
 
+function publishedWhilePreparing(templateKey: string): string {
+  return `A new version of your ${label(templateKey)} template was published while the documents were being prepared. Prepare them again.`
+}
+
 /**
  * The lender's published, approved version of `templateKey`, or a refusal
  * naming what is missing. Read again inside the issuing transaction
@@ -87,6 +91,11 @@ export async function selectIssuableTemplate(db: Db, tenantId: string, templateK
   if (!version || version.status !== "ACTIVE" || !version.approvedById || !version.approvedAt || !version.approvalBasis
     || !version.contentSha256 || version.approvedContentSha256 !== version.contentSha256 || !version.content
     || contentSha256(version.content) !== version.contentSha256) {
+    // A publication that commits between the two reads above archives the
+    // version we were pointed at. That is the same race lockSelectedTemplate
+    // refuses, so it gets the same refusal, not a false "not approved".
+    const now = await db.documentTemplate.findFirst({ where: { id: template.id, tenantId }, select: { currentVersionId: true } })
+    if (now && now.currentVersionId !== template.currentVersionId) throw new TemplateNotIssuableError(publishedWhilePreparing(templateKey))
     throw new TemplateNotIssuableError(`Your published ${name} template version is not approved for this exact wording. Approve and publish a version first.`)
   }
   const config = await db.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } })
@@ -140,7 +149,7 @@ export async function lockSelectedTemplate(tx: Tx, tenantId: string, selected: S
   const rows = await tx.$queryRaw<Array<{ currentVersionId: string | null }>>`
     SELECT "currentVersionId" FROM "DocumentTemplate" WHERE "id" = ${selected.templateId} AND "tenantId" = ${tenantId} FOR SHARE`
   if (rows[0]?.currentVersionId !== selected.versionId) {
-    throw new TemplateNotIssuableError(`A new version of your ${label(selected.templateKey)} template was published while the documents were being prepared. Prepare them again.`)
+    throw new TemplateNotIssuableError(publishedWhilePreparing(selected.templateKey))
   }
 }
 
