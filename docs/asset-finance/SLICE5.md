@@ -199,6 +199,15 @@ replacements named in it):
     proprietor (street line and city required; a person of a business needs
     none), and the staff accept refuses a borrower without one (422).
 
+Review round 2 (migration `20261019120400_dealer_booking_contacts_verified`):
+
+40. **Booking needs verified contacts.** A dealer deal moves into BOOKED only
+    when its sole proprietor and every active person of its entity the dealer
+    captured have verified contact details
+    (`AssetFinanceDeal_dealer_contacts_verified`); booking's load step refuses
+    first (`dealer_contact_unverified`). The on-book refusal audit names the
+    dealer user as its row (entity `DealerUser`).
+
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
 Two migrations: `20261019120000_dealer_portal_enum_values` (only
@@ -320,7 +329,7 @@ Back-relations alphabetical (`prisma/schema-order.test.ts`).
   - `dealerSubmittedAt`: set once, only while status DRAFT.
   - Snapshot: on the transition into APPROVED with `dealerId` set, the trigger
     SETS the six columns: rate from `dealerCommissionRateAt(tenant, dealer,
-    today)`, base from the application. Any other change to them is refused
+    today)`, base the goods advance (deviation 29). Any other change to them is refused
     (including a caller passing values on the transition that differ).
 - `accrueDealerCommission` (AFTER INSERT OR UPDATE OF status ON
   "AssetFinanceDeal"): when `NEW.status = 'BOOKED'` (and OLD was not) and
@@ -479,9 +488,8 @@ Back-relations alphabetical (`prisma/schema-order.test.ts`).
 
 ### Commission, runs and journals
 
-- Accrual and clawback are the DB functions above (no TS writer). TS mirror
-  `dealerCommissionCents({ baseCents, bps, flatCents, vatRate, vendor })` in
-  `lib/dealer/commission-math.ts` is display-only and tested against the SQL.
+- Accrual and clawback are the DB functions above (no TS writer, no TS
+  mirror: the accrual and edge IT suites compute the expected figures).
 - **Rates** (staff `manage_dealers`): insert a dealer or tenant-default row;
   audited `DEALER_COMMISSION_RATE_SET`. Settings PATCH
   (`app/api/settings/asset-finance`) gains `featureDealerPortal` and
@@ -601,15 +609,16 @@ cron.
 | Release only to APPROVED account | same | IT | pending, rejected, superseded account; release before approval |
 | Dealer bank account four-eyes + evidence | `lib/dealer/dealer-bank-accounts.integration.test.ts` | IT | self-decision; details changed |
 | Cost of credit unchanged | `lib/dealer/cost-of-credit.integration.test.ts`, `lib/dealer/no-borrower-charge.test.ts` | IT + unit | NCA deal with commission |
-| Commission math (TS = SQL) | `lib/dealer/commission-math.test.ts` + accrual IT | unit + IT | half-up rounding, vendor/non-vendor |
+| Commission math (SQL) | `lib/dealer/commission-accrual.integration.test.ts`, `edge-commission.integration.test.ts` | IT | half-up rounding, vendor/non-vendor |
 | Journals, control, IsaFlow | `lib/accounting/sources-dealer-commission.test.ts`, `lib/accounting/dealer-commission.integration.test.ts` (`RUN_ACCOUNTING_IT`) | unit + IT | payable mismatch detected; unmapped role refuses close |
 | RLS on new models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | — |
 | Base = goods advance (29) | `lib/dealer/commission-accrual.integration.test.ts`, edge E15 | IT | fees on every fixture deal |
 | No reversal reason to the dealer (30) | `lib/dealer/deal-view-loan-performance.test.ts`, `commission-statement.test.ts` | unit | written-off line |
 | Lender-added people (31) | `lib/dealer/dealer-consent.integration.test.ts`, `dealer-submit.integration.test.ts`, `deal-view.test.ts` | IT + unit | attest a lender-added or other dealer's person |
 | Classification re-stamp (32) | `lib/dealer/cost-of-credit.integration.test.ts` | IT | — |
-| Hand-over; uploads after it (33) | `lib/dealer/dealer-handover-contact.integration.test.ts`, `documents.test.ts`, edge F04 | IT + unit | SUBMITTED before hand-over; free upload after it |
-| Untrusted dealer contacts (34) | `lib/dealer/dealer-borrower-identity.integration.test.ts`, `dealer-handover-contact.integration.test.ts`, `lib/signing-otp/subject-dealer-contact.test.ts` | IT + unit | register, OTP, password, signing code before verification |
+| Hand-over; uploads after it (33) | `lib/dealer/dealer-handover-contact.integration.test.ts`, `documents.test.ts`, edge F04 (`edge-principal-flow`) | IT + unit | SUBMITTED before hand-over; free upload after it |
+| Untrusted dealer contacts (34, 40) | `lib/dealer/dealer-borrower-identity.integration.test.ts`, `dealer-handover-contact.integration.test.ts`, `lib/signing-otp/subject-dealer-contact.test.ts` | IT + unit | register, OTP, password, signing code, booking before verification |
+| Row-shape CHECKs | `lib/dealer/dealer-row-shapes.integration.test.ts` | IT | each clause of `DealerCommissionLine_shape` and `DealerPayableRun_status_shape`, triggers off |
 | Reset link (35) | `lib/dealer/dealer-reset-link.integration.test.ts` | IT | old password after reset; deactivated dealer |
 | Refusal audits, capture limit (36) | `dealer-borrower-identity.integration.test.ts`, `capture-limits.test.ts`, `staff-routes.test.ts` | IT + unit | 31st capture; self-approval |
 | Borrower address (39) | `lib/dealer/capture-address.test.ts`, `dealer-submit.integration.test.ts` | unit + IT | business or sole proprietor without one; accept without one |
@@ -683,17 +692,14 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
 - **A dealer lease keeps the dealer user as classifier.** A lease application
   is written NON_NCA (`LEASE_NOT_CREDIT_AGREEMENT`, fixed by contract type) and
   the database freezes a NON_NCA snapshot, so the accept cannot re-stamp it.
-- **Only portal activation and signing codes are gated** on a verified
-  dealer-typed contact. Servicing messages to a booked borrower
-  (`lib/asset-finance/entity-dispatch.ts`) use the contacts on file; a dealer
-  deal reaches booking only through signing, which needs the verification for
-  an e-signature but not for wet ink.
+- **Verification is enforced at booking, not at CONTRACTED.** A dealer deal is
+  not booked while a person on it has unverified dealer-typed contacts
+  (deviation 40), so servicing messages never go to them; a wet-ink contract
+  can still complete before the verification (the signing paths would need
+  their own refusal).
 - **A run covers a finished period.** `periodEnd` is a month end not after
   today, so commission earned this month, and a clawback netting it, is paid
   in next month's run at the earliest.
-- **No TS commission mirror.** `lib/dealer/commission-math.ts` (named in
-  "Commission, runs and journals") was not built; the IT suites compute the
-  expected figures and the database is the only writer.
 
 ### Review items
 

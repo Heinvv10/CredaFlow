@@ -729,7 +729,8 @@ model AssetFinanceDeal {
   // Dealer portal (slice 5 part A, guardAssetDealDealer): the dealer and its
   // user, fixed at insert; when the dealer handed it to the lender; and the
   // commission snapshot the database takes on the move into APPROVED (rate in
-  // force that day, base = the approved amount), never changed after.
+  // force that day, base = the goods advance: asset price incl. VAT less
+  // deposit and trade-in, migration 20261019120300), never changed after.
   dealerId                       String?
   dealer                         Dealer?               @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   dealerUserId                   String?

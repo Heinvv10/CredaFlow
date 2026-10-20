@@ -304,3 +304,30 @@ After restoring each: the three suites 22/22, commission-accrual 14/14.
 The TypeScript fixes' mutation is the "Before" run above: each is the fix
 reverted (the file restored from the parent commit), its test red, then the
 fix put back and the test green.
+
+## Part A — review round 2
+
+Database: throwaway PostgreSQL 16 (`scripts/it-db.sh up cf-it-s5fx-<random>`,
+`npx prisma migrate deploy` to `20261019120400`). Tests written first.
+
+### Before
+
+| Fix | Suite | Result | Red assertion |
+|---|---|---|---|
+| R2-L1 booking needs verified contacts | dealer-handover-contact IT | 1 failed, 7 passed | "expected [Function] to throw an error" (a dealer deal with an unverified dealer-captured director was BOOKED) |
+| R2-C1 on-book audit row | `capture-limits.test.ts` | 1 failed | the audit named entity `BusinessEntity` with the dealer user's id |
+
+### Mutations (applied to the migrated throwaway database or the source, then restored)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| 1 | `DROP TRIGGER "AssetFinanceDeal_dealer_contacts_verified"` | dealer-handover-contact IT | 1 failed, 7 passed | "refuses to book a dealer deal until every dealer-captured person on it is verified" (`book()` did not throw) |
+| 2 | `booking-load.ts`: the unverified-contacts check disabled (`if (false && …)`) | dealer-handover-contact IT | 1 failed, 7 passed | same test: refused with `application_not_ready`, not `dealer_contact_unverified` |
+| 3 | `DROP CONSTRAINT "DealerCommissionLine_shape"` | dealer-row-shapes IT | 3 failed, 6 passed | EARNED, REVERSED and gross/VAT clause tests |
+| 4 | `DealerCommissionLine_shape` without the sign pairing (`netCents > 0` / `< 0`) | dealer-row-shapes IT | 2 failed, 7 passed | "refuses an EARNED line … net that is not positive", "refuses a REVERSED line … net that is not negative" |
+| 5 | `DealerCommissionLine_shape` without `grossCents = netCents + vatCents` | dealer-row-shapes IT | 1 failed, 8 passed | "refuses a gross that is not net plus VAT, and VAT for a dealer that is not a vendor" |
+| 6 | `DealerCommissionLine_shape` without `dealerVatVendor OR vatCents = 0` | dealer-row-shapes IT | 1 failed, 8 passed | same test |
+| 7 | `DROP CONSTRAINT "DealerPayableRun_status_shape"` | dealer-row-shapes IT | 4 failed, 5 passed | pending, approved, released and cancelled shape tests |
+| 8 | `DealerPayableRun_status_shape` without the non-blank `releaseReference` clause | dealer-row-shapes IT | 1 failed, 8 passed | "refuses a released run without its approval, its release, or a non-blank release reference, or with a cancellation" |
+
+After restoring each: dealer-handover-contact 8/8, dealer-row-shapes 9/9.
