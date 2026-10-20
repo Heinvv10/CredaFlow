@@ -10,6 +10,7 @@ import {
   applicationDeclinedEmail,
 } from "@/lib/email/templates/portal"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 
 interface RequestBody {
   applicationId: string
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const application = await prisma.loanApplication.findUnique({
     where: { id: applicationId, tenantId: tenant.id },
     include: {
-      client: { select: { firstName: true, lastName: true, email: true, portalPassword: true } },
+      client: { select: { firstName: true, lastName: true, email: true, portalPassword: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
       product: { select: { name: true } },
     },
   })
@@ -54,6 +55,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The application emails address a consumer; an entity borrower is refused.
   if (!hasClientBorrower(application)) {
     return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+  }
+  // Contact details a dealer typed may be the dealer's own: nothing goes to
+  // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+  if (dealerContactUnverified(application.client)) {
+    return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED }, { status: 409 })
   }
 
   // Customer email names the lender: refuse when its identity is unconfigured.
