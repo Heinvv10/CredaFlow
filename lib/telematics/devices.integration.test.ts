@@ -52,6 +52,13 @@ suite.sequential("tracker devices (real DB)", () => {
     expect(await register({ provider: "acme-trackers" })).toMatchObject({ kind: "refused", status: 422, fields: { provider: expect.any(String) } })
     expect(await register({ externalDeviceId: "TRK-1" })).toMatchObject({ kind: "refused", status: 422, fields: { externalDeviceId: expect.stringMatching(/SIM-<SCENARIO>-<n>/) } })
     expect(await register({ installedOn: daysAgo(-1) })).toMatchObject({ kind: "refused", status: 422, fields: { installedOn: expect.any(String) } })
+    // A deployed build that does not name simulated-telematics refuses the simulator.
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-collections")
+    expect(await register({})).toMatchObject({ kind: "refused", status: 422, error: expect.stringMatching(/not permitted on a deployed build/) })
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-telematics")
+    expect(await register({}, "not-an-asset")).toMatchObject({ kind: "refused", status: 404 })
+    vi.unstubAllEnvs()
     expect(await register({}, "not-an-asset")).toMatchObject({ kind: "refused", status: 404 })
     expect(await register({}, fx.assets[0])).toMatchObject({ kind: "refused", status: 409 })
     expect(await register({ externalDeviceId: "SIM-STEADY-1" })).toMatchObject({ kind: "refused", status: 409 })

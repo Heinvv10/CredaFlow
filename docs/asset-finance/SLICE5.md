@@ -790,9 +790,614 @@ g) Income tax: commission deductible under s11(a) when incurred; adviser to
   clawback. Dealer drafts cannot be edited or cancelled by the dealer (staff
   cancel).
 
-## Part B — Telematics
+## Part B — Tracker/telematics adapter and simulator
 
-Specified in PR B.
+Goal §2a items 8–12, §3 PR B negative cases, §5 B acceptance. Names below were
+re-checked against the `CredaFlow-s5b` worktree (PR A #216 with main 0d29dddc)
+on 2026-10-20 and corrected where the code differs; "Built" at the end lists
+what changed while building.
+
+### Deviations from the goal's defaults (and why)
+
+1. **Coordinates live in their own table, `TelematicsPosition`.** Events
+   (`TelematicsEvent`) carry no coordinates and no raw payload. The purge
+   deletes position rows (plus HEARTBEAT/IGNITION/POSITION events) past
+   retention, while METER and ALERT events stay because meter readings,
+   held readings and alerts refer to them. No other copy of a coordinate
+   exists, so retention is one DELETE.
+2. **A position is never server-rendered.** The only read path is
+   `POST /api/asset-finance/loans/[loanId]/telematics/position`
+   (`lib/telematics/position-view.ts`). It writes the access-log row first and
+   returns the position second, in one transaction. Pages show a "Show last
+   known position" button. Because the access is an explicit act, "every view
+   logged" holds by construction, and a READONLY page load can never
+   materialise a coordinate. A static test allows only three modules to select
+   the coordinate columns: the ingest writer, the purge and `position-view.ts`.
+3. **Purpose and tenure gates (POPIA minimality).** The position is shown only
+   when the loan is DEFAULTED, has an OPEN `LegalMatter`, or has an open
+   `Recovery` (status not CLOSED/WITHDRAWN). It must also fall inside *this*
+   loan's tenure of the asset: `occurredAt ≥ loan.startDate` and earlier than
+   the start of the next loan on the same asset. On an asset that has been
+   re-leased, the old lessee's page never sees the new lessee's movements, and
+   the new lessee's page never sees the old lessee's.
+4. **`view_asset_position` is a role list, not `"COLLECTIONS_OFFICER"`.**
+   `ROLE_HIERARCHY` puts COLLECTIONS_OFFICER at index 1, so `hasMinRole(…,
+   "COLLECTIONS_OFFICER")` would admit INSURANCE_OFFICER. That role lost
+   loan-book access for POPIA least privilege
+   (`lib/registry/permissions/050-insurance-officer-scope.ts`). The list
+   matches `act_on_collections`: COLLECTIONS_OFFICER, COLLECTIONS_AGENT,
+   CREDIT_OFFICER, LOAN_ADMIN, BRANCH_MANAGER, ADMIN, SUPER_ADMIN. READONLY,
+   INSURANCE_OFFICER, operator roles and DEALER are refused (DEALER and the
+   operator roles because they are not in the hierarchy).
+5. **The work item is a new `TelematicsAlert` table.** No collections or
+   recovery work-item model exists. `AgentTask` is CRM-shaped: it is not
+   tenant-scoped, its `type`/`status` are free text, and
+   `lead-task-reminders` sends outbound reminders from it. `Notification`
+   (bell) has an outbound twin for reminders. Raising an alert writes only
+   `TelematicsAlert`, and `lib/telematics/**` imports nothing from
+   `lib/messaging`, `lib/notifications`, `lib/whatsapp` or `lib/email`
+   (static test), which keeps "no outbound message" provable.
+6. **"Implausible" = the existing portal pace ceiling, enforced in SQL.**
+   An unattended TELEMATICS write must be ≤ start reading +
+   ceil(allowance × `PORTAL_PACE_LIMIT` (3) × (days + 31) / 365), the rule
+   `recordMeterReading` already applies to the portal. It is extracted as
+   `paceCeiling()` and has an SQL twin, `telematicsPaceCeiling`. A staff accept
+   of a held IMPLAUSIBLE reading is a vouching act (`recordedById` = the
+   accepter) and skips the ceiling. A LOWER or ABOVE_LATER reading can never be
+   accepted, because the existing monotonic trigger refuses it. Staff can only
+   reject it, or record a corrected STAFF reading with evidence.
+7. **TELEMATICS writes stop before the end of term.** A device reading taken on
+   or after the inspection would block the staff final reading
+   (`lease-end-of-term.ts` refuses "a reading … later than the inspection", and
+   the monotonic trigger refuses a lower final reading). So TELEMATICS needs:
+   loan ACTIVE/DEFAULTED; `readingDate < leaseTermEnd(loan)`; no ACCEPTED
+   `LeaseTerminationQuote`; no `LeaseEndOfTerm` row. Readings outside these
+   bounds are stored as device readings only.
+8. **One TELEMATICS reading per lease per SAST day** (partial unique). Later
+   same-day METER events are kept as device readings (outcome `SAME_DAY`). The
+   simulator emits one per day.
+9. **Leases with usage only = OPERATING_LEASE and FULL_MAINTENANCE_LEASE**,
+   the set `recordMeterReading` already uses. FINANCE_LEASE and INSTALMENT_SALE
+   telemetry is stored as device readings only, and the DB refuses a
+   TELEMATICS `AssetMeterReading` on them.
+10. **Position access log = new tenant-scoped `TelematicsPositionAccess`**, not
+    `DocumentAccessLog`, which has no `tenantId` and keys on a document id. It
+    stores who, when, which loan, which context, and the position row's id and
+    time. It stores no coordinate, so it is kept after the purge.
+11. **Retention range 1–365 days** (CHECK). Default 90 days. A longer period
+    needs a migration and legal sign-off.
+12. **No "poll now" route.** Acceptance drives
+    `GET /api/cron/asset-finance-telematics-poll` with `x-cron-secret`, which
+    is the production code path. Determinism comes from the simulator's
+    scenario fixture and the anchoring below, not from a dev-only action.
+13. **The device id is not forced to equal `FinancedAsset.trackerId`.** The
+    payout item reads `trackerId` unchanged. The heartbeat row shows "matches /
+    does not match the recorded tracker id" as information only.
+
+### Data (prisma/schema/asset-finance-telematics.prisma, new file)
+
+Two migrations, after main's latest `20261020042833_message_dunning_flag`:
+
+- `20261020160000_telematics_enum_values`: only
+  `ALTER TYPE "MeterReadingSource" ADD VALUE 'TELEMATICS';`. A new value cannot
+  be used in the transaction that adds it.
+- `20261020160100_telematics`: everything else.
+
+Every new table is tenant-scoped in the same way as PR A: `tenantId`,
+`@@unique([tenantId, id])`, composite FKs `(tenantId, x)` ON DELETE/UPDATE
+RESTRICT, listed in `lib/registry/tenant-scoped-models/250-asset-finance-telematics.ts`,
+with RLS `tenant_isolation` copied from `20261019120100_dealer_portal`
+(`cf_rls_unrestricted() OR "tenantId" = cf_rls_tenant()`). Every guard has a
+`_no_truncate` statement trigger. Errors use ERRCODE `23514`. Today =
+`(now() AT TIME ZONE 'Africa/Johannesburg')::date`.
+
+```prisma
+enum TrackerDeviceStatus { ACTIVE REMOVED }
+enum TelematicsEventKind { HEARTBEAT POSITION METER IGNITION ALERT }
+enum TelematicsAlertKind { TAMPER POWER_CUT GEOFENCE_EXIT }
+enum TelematicsMeterOutcome { RECORDED HELD SAME_DAY NOT_LEASE LEASE_NOT_RUNNING NO_USAGE_TERMS }
+enum TelematicsHeldReason { LOWER ABOVE_LATER IMPLAUSIBLE }
+enum TelematicsHeldStatus { HELD ACCEPTED REJECTED }
+enum TelematicsAlertQueue { COLLECTIONS RECOVERY }
+enum TelematicsAlertStatus { OPEN ACKNOWLEDGED RESOLVED }
+enum TelematicsPositionContext { RECOVERY LEGAL_MATTER }
+
+model TrackerDevice {      // assetId (→ FinancedAsset), provider String (registry key), externalDeviceId String,
+                           // installedOn @db.Date, status @default(ACTIVE), removedOn @db.Date?, removedById? (→ User),
+                           // createdById (→ User), pollCursor String?, lastPolledAt?, lastPollError String?, createdAt, updatedAt
+}
+model TelematicsEvent {    // deviceId, provider (copied from device), providerEventId, kind, occurredAt, receivedAt @default(now()),
+                           // meterValue Int?, meterUnit UsageUnit?, ignitionOn Boolean?, alertKind TelematicsAlertKind?,
+                           // simulated Boolean, meterOutcome TelematicsMeterOutcome?; @@unique([tenantId, provider, providerEventId]);
+                           // @@index([tenantId, deviceId, kind, occurredAt])
+}
+model TelematicsPosition { // eventId @unique (→ TelematicsEvent), deviceId, occurredAt, latitude Decimal(9,6), longitude Decimal(9,6),
+                           // accuracyM Int?; @@index([tenantId, deviceId, occurredAt])
+}
+model TelematicsHeldReading { // eventId @unique, loanId, assetId, readingDate @db.Date, value, unit UsageUnit, reason, status @default(HELD),
+                              // decidedById? (→ User), decidedAt?, decisionNote?, meterReadingId? @unique (→ AssetMeterReading), createdAt
+}
+model TelematicsAlert {    // eventId @unique (first event), deviceId, assetId, loanId?, kind, queue, status @default(OPEN),
+                           // firstOccurredAt, lastOccurredAt, occurrences Int @default(1), acknowledgedById?, acknowledgedAt?,
+                           // resolvedById?, resolvedAt?, resolutionNote?, createdAt, updatedAt (all *ById → User)
+}
+model TelematicsPositionAccess { // userId (→ User), loanId, assetId, deviceId, context, positionId String? (no FK: survives purge),
+                                 // positionOccurredAt?, ipAddress?, userAgent?, createdAt
+}
+```
+
+Additive columns:
+
+- `TenantConfig.telematicsPositionRetentionDays Int @default(90)` (tenancy.prisma).
+- `AssetMeterReading.telematicsEventId String? @unique` (FK `(tenantId,
+  telematicsEventId)` → `TelematicsEvent`). `ADD COLUMN` does not fire the
+  row trigger.
+- Back-relations stay alphabetical (`prisma/schema-order.test.ts`):
+  `FinancedAsset.trackerDevices`, `Loan.telematicsAlerts`,
+  `Loan.telematicsHeldReadings`, `User.*` as needed, `Tenant.*`.
+
+#### CHECKs
+
+- `TenantConfig_telematics_retention_range`: `BETWEEN 1 AND 365`.
+- `TrackerDevice_provider_key`: `provider ~ '^[a-z0-9-]{1,40}$'`;
+  `TrackerDevice_external_id`: `length(btrim("externalDeviceId")) BETWEEN 1 AND 100`;
+  `TrackerDevice_status_shape`: ACTIVE ⇔ `removedOn`/`removedById` NULL.
+- Partial uniques: `(tenantId, assetId) WHERE status='ACTIVE'` (one live device
+  per asset); `(tenantId, provider, externalDeviceId) WHERE status='ACTIVE'`.
+- `TelematicsEvent_kind_shape`: METER ⇔ `meterValue`, `meterUnit` set and
+  `meterValue >= 0`; IGNITION ⇔ `ignitionOn` set; ALERT ⇔ `alertKind` set.
+  Each field is NULL on the other kinds. `meterOutcome` is NULL unless METER.
+  `TelematicsEvent_provider_event_id`: `length("providerEventId") BETWEEN 1 AND 200`.
+- `TelematicsPosition_range`: `latitude BETWEEN -90 AND 90`,
+  `longitude BETWEEN -180 AND 180`, `accuracyM IS NULL OR accuracyM >= 0`.
+- `TelematicsHeldReading_decision_shape`: HELD ⇔ `decidedById`/`decidedAt`
+  NULL; ACCEPTED ⇒ `meterReadingId` set; REJECTED ⇒ `meterReadingId` NULL and
+  `length(btrim(decisionNote)) BETWEEN 3 AND 500`.
+- `TelematicsAlert_status_shape`: ACKNOWLEDGED ⇒ ack pair set; RESOLVED ⇒
+  resolved pair set and the note is 3–500 non-blank characters;
+  `occurrences >= 1`; `lastOccurredAt >= firstOccurredAt`. Partial unique
+  `(tenantId, deviceId, kind) WHERE status <> 'RESOLVED'` (repeats fold into
+  the open item).
+- `AssetMeterReading_telematics_shape`:
+  `("source" = 'TELEMATICS') = ("telematicsEventId" IS NOT NULL) AND ("source" <> 'TELEMATICS' OR "recordedByClientId" IS NULL)`.
+  Partial unique `AssetMeterReading_telematics_one_per_day` on
+  `(tenantId, loanId, readingDate) WHERE source = 'TELEMATICS'`.
+
+#### Triggers and functions
+
+- `telematicsPaceCeiling(tenant text, loan text, on date) → integer`: NULL when
+  the deal has no `usageAllowancePerYear`. Otherwise it is the start reading's
+  value plus `ceil(allowance × 3 × (on − start.readingDate + 31) / 365.0)`,
+  where the start reading is the loan's earliest reading. This is the same
+  arithmetic as `meter-readings.ts`. The TS twin `paceCeiling()` is tested
+  equal to it.
+- `guardTrackerDevice` (BEFORE INSERT OR UPDATE OR DELETE):
+  - INSERT: status ACTIVE, `installedOn ≤ today` (the composite FK keeps the
+    asset the tenant's).
+  - UPDATE: `tenantId, assetId, provider, externalDeviceId, installedOn,
+    createdById` are immutable. ACTIVE → REMOVED is one-way, with `removedOn`
+    between `installedOn` and today. A REMOVED device is final: nothing on it
+    changes, so `pollCursor/lastPolledAt/lastPollError` change only while ACTIVE.
+  - DELETE refused.
+- `guardTelematicsEvent`:
+  - INSERT: the device is the tenant's and ACTIVE, and `provider` = the
+    device's provider. `occurredAt` is no later than `now() + interval '5 minutes'`
+    and its SAST date is no earlier than `installedOn`. `meterOutcome` is NULL.
+  - UPDATE: only `meterOutcome` may change, NULL → a value, METER only, and
+    consistently: RECORDED exactly when an `AssetMeterReading` names the event,
+    HELD exactly when a `TelematicsHeldReading` does.
+  - DELETE: only kinds HEARTBEAT, IGNITION, POSITION with `occurredAt < now() −
+    retentionDays` (the purge). METER and ALERT events are refused (they are
+    referenced business records).
+- `guardTelematicsPosition`: INSERT only for its event's device and
+  `occurredAt` (event kind POSITION or ALERT), with `occurredAt ≥ now() −
+  retentionDays`, so a stale backfill is never stored. UPDATE refused. DELETE
+  allowed (the purge, or DSAR erasure). TRUNCATE refused.
+- `guardTelematicsMeterReading` (trigger `AssetMeterReading_telematics`, BEFORE
+  INSERT ON "AssetMeterReading" FOR EACH ROW WHEN (NEW."source" = 'TELEMATICS');
+  its name sorts after the existing `AssetMeterReading_guard`, which fires
+  first and still enforces the monotonic, immutable and date rules):
+  - Event: the tenant's, kind METER, `meterValue = NEW.value`,
+    `meterUnit = NEW.unit`, SAST date of `occurredAt` = `readingDate`, and its
+    device's `assetId = NEW.assetId`.
+  - Loan: `loanId` NOT NULL, same tenant and asset, `contractType IN
+    ('OPERATING_LEASE','FULL_MAINTENANCE_LEASE')`, status IN
+    ('ACTIVE','DEFAULTED'), `readingDate < leaseTermEnd(loan_id, tenant_id)`
+    (a lease without rentals is refused), no
+    `LeaseEndOfTerm` for the loan, and no `LeaseTerminationQuote` with status
+    ACCEPTED.
+  - `recordedById IS NULL` (unattended) ⇒ no `TelematicsHeldReading` for the
+    event, and `NEW.value ≤ telematicsPaceCeiling(...)` when that is not NULL.
+    `recordedById` set ⇒ a HELD `TelematicsHeldReading` for the event exists
+    (the accept path).
+- `guardTelematicsHeldReading`:
+  - INSERT: status HELD, and event, asset, date, value and unit equal the
+    event's and its device's; the loan is an operating or full-maintenance
+    lease of that asset. The event's `meterOutcome` is set to HELD in the same
+    tx (the event guard checks that a HELD outcome has its held reading).
+  - UPDATE: HELD → ACCEPTED requires the `meterReadingId` row's
+    `telematicsEventId = eventId` and `recordedById = decidedById`. HELD →
+    REJECTED requires the note. Nothing else changes.
+  - DELETE refused.
+- `guardTelematicsAlert`:
+  - INSERT: status OPEN, `occurrences` 1, first and last occurrence the event's
+    time; the event kind is ALERT with `alertKind = kind`, and device and asset
+    are the event's. If `loanId` is set, the loan is that asset's.
+  - UPDATE: `occurrences` +1 and `lastOccurredAt` forward only while not
+    RESOLVED. OPEN → ACKNOWLEDGED, and OPEN or ACKNOWLEDGED → RESOLVED. The
+    identity columns and `queue` are fixed.
+  - DELETE refused.
+- `guardTelematicsPositionAccess`: INSERT only, by a `User` of the same tenant
+  (composite FK), naming a loan on its asset and, if any, a device of that
+  asset (`deviceId` is NULL when the asset never had one). UPDATE, DELETE and
+  TRUNCATE are refused.
+
+### Provider adapter (lib/telematics/)
+
+- `types.ts`: `NormalisedTelematicsEvent { providerEventId; externalDeviceId;
+  occurredAt: Date; kind; position?: { latitude; longitude; accuracyM | null };
+  meter?: { value; unit: "HOURS" | "KM" }; ignitionOn?; alert?:
+  TelematicsAlertKind }`; `TelematicsProvider { id; label; simulated: boolean;
+  poll({ devices: { externalDeviceId; cursor: string | null; installedOn:
+  string }[]; now: Date }): Promise<{ events; cursors: Record<string, string>;
+  simulated: boolean; simulationSource?: "simulated-telematics" }>;
+  deviceIdError(externalDeviceId): string | null; assertUsable(): void }`
+  (registration asks both: a simulated device id is `SIM-<SCENARIO>-<n>`);
+  `TelematicsProviderError` with codes `NOT_CONFIGURED | UNAVAILABLE |
+  BAD_RESPONSE`. Device status and heartbeat come from the HEARTBEAT events
+  (`lastSeenAt` = the newest event of any kind). No real provider is included.
+- `registry.ts`: `registerTelematicsProvider`, `getTelematicsProvider`,
+  `registeredTelematicsProviderIds`, copied from `lib/bureau/registry.ts`.
+  Device registration refuses an unregistered key (422).
+- `providers/simulated.ts` (`SIMULATED_TELEMATICS_ID = "simulated"`, guard key
+  `"simulated-telematics"`, registered in
+  `lib/registry/simulated-integrations/050-telematics.ts` with
+  `sandboxEnvVar: null`). It calls `assertSimulationAllowed("simulated-telematics",
+  true)` when `poll` is invoked and when a simulated device is registered. On
+  a deployed build without `SIMULATED_INTEGRATIONS=simulated-telematics` it
+  throws `NOT_CONFIGURED`. Every result and every stored event carries
+  `simulated: true`. The UI shows an amber "Simulated" chip on the device, the
+  readings ("Telematics, simulated"), the alerts and the position.
+- **Deterministic scenarios** (`__fixtures__/simulated-telematics-scenarios.ts`).
+  The device id `SIM-<SCENARIO>-<n>` picks the scenario. The timeline is a
+  pure function of `(externalDeviceId, installedOn, now)` with no state. Day
+  *d* after `installedOn` (SAST) emits HEARTBEAT 06:00, POSITION 12:00 (a
+  synthetic point that clearly is not real: a fixed origin plus a
+  deterministic offset under 0.05°), and METER 18:00 = `startValue + perDay ×
+  d` HOURS. Scenarios:
+  - STEADY: start 1 000, 6 h/day (2 190/yr, over a 1 500 allowance, so a
+    projected excess shows).
+  - TAMPER: STEADY + TAMPER on day 25 at 19:00 + POWER_CUT on day 26.
+  - GEOFENCE: STEADY + GEOFENCE_EXIT with a position on day 20.
+  - ROLLBACK: STEADY, but day 15 reads 200 lower.
+  - SPIKE: STEADY, but day 10 reads +50 000.
+  - SILENT: nothing after day 5.
+
+  The event id is `sim:<device>:<d>:<kind>[:<alert>]`, so a re-poll yields the
+  same ids. The cursor is the last emitted `occurredAt` ISO. A poll returns
+  events in (cursor, now], at most 500 per device (the next poll pages on).
+
+### Ingest (lib/telematics/ingest.ts, poll.ts)
+
+- **Sweep** `runTelematicsPoll(now)`, in the style of
+  `runRecoveryDeadlineSweep`. For each tenant with `featureAssetFinance`, take
+  its ACTIVE devices grouped by provider and call `provider.poll`. A provider
+  error sets `lastPollError` on those devices (audited `TELEMATICS_POLL_FAILED`),
+  adds to `run.failed`, and the sweep goes on. Unknown device ids in a result
+  are counted and dropped; a malformed event (`event-shape.ts`) is counted as
+  rejected and skipped.
+- **Per event, one transaction** (`ingestEvent(tx, device, event, now)`):
+  1. `INSERT … ON CONFLICT ("tenantId","provider","providerEventId") DO
+     NOTHING RETURNING id`. No row means a duplicate: stop, with no side
+     effects. This is the only idempotency key, and a replayed batch changes
+     nothing.
+  2. If there is a position, insert `TelematicsPosition`, unless it is older
+     than retention. In that case drop the position and keep the event.
+  3. A METER event goes to `routeMeterReading`:
+     - Find the asset's loan where `startDate ≤ event date`, status ACTIVE or
+       DEFAULTED. If there is none, the outcome is `LEASE_NOT_RUNNING`.
+     - Not an operating or full-maintenance lease: `NOT_LEASE`.
+     - No usage terms, or terms in another unit than the meter's: `NO_USAGE_TERMS`.
+     - On or after the term end, or after an accepted termination or end of
+       term: `LEASE_NOT_RUNNING`.
+     - A TELEMATICS reading already exists that day: `SAME_DAY`.
+     - Otherwise call
+       `recordMeterReading(tx, { tenantId, telematics: { eventId } }, {
+       loanId, readingDate, value, evidenceDocumentId: null, today })`. A
+       recorded reading gives `RECORDED`. A refusal with `not_monotonic` (below
+       an earlier reading gives LOWER; above a later one gives ABOVE_LATER) or
+       `implausible_reading` (IMPLAUSIBLE) inserts `TelematicsHeldReading` and
+       gives `HELD` (audit `TELEMATICS_READING_HELD`).
+     - The event's `meterOutcome` is set at the end.
+  4. An ALERT event goes to `raiseAlert`. If an unresolved alert exists for
+     the same (device, kind), increment it. Otherwise insert OPEN with queue
+     RECOVERY when the loan has an open `Recovery` or an OPEN `LegalMatter`,
+     and COLLECTIONS otherwise. Audit `TELEMATICS_ALERT_RAISED`. Nothing is
+     sent.
+  5. After the batch, advance the device's `pollCursor`/`lastPolledAt`, unless
+     one of its events failed: then only `lastPolledAt` and `lastPollError`
+     move, the device's later events wait, and the next poll retries from the
+     old cursor (the ingest is idempotent).
+- **`recordMeterReading` change.** `ReadingActor` gains a third arm,
+  `{ tenantId; telematics: { eventId: string; acceptedById?: string } }`. For
+  it, source is `TELEMATICS`, `telematicsEventId` is set, `recordedById` is
+  `acceptedById ?? null`, the loan must be ACTIVE/DEFAULTED, the date must be
+  ≤ today, and the pace ceiling applies unless `acceptedById` is set.
+  `paceCeiling()` is extracted and shared with the portal. The audit is
+  `METER_READING_RECORDED` with `source: "TELEMATICS"`, `userId` set to the
+  accepter or undefined, and `newValue.actor = { type: "system", source:
+  "telematics", eventId }`. The STAFF and PORTAL behaviour is unchanged, and
+  the existing tests stay green.
+- **Held readings** (`held-readings.ts`, `manage_asset_finance`):
+  - `acceptHeldReading` locks the row and calls `recordMeterReading` with
+    `acceptedById`. A monotonic refusal surfaces as 422 "a lower reading
+    cannot be accepted; reject it or record a corrected reading with
+    evidence". On success it sets ACCEPTED.
+  - `rejectHeldReading` requires a note.
+  - Both are audited (`TELEMATICS_HELD_READING_ACCEPTED/_REJECTED`).
+
+### Heartbeat beside the certificate
+
+`trackerHeartbeat(tenantId, assetId)` (`lib/telematics/devices.ts`) →
+`{ deviceId, provider, externalDeviceId, simulated, lastSeenAt, matchesTrackerId }`
+is loaded by the deal page and shown on the TRACKER_CONFIRMED row of
+`app/(dashboard)/asset-finance/deals/[id]/PayoutPanel.tsx`, as "Live heartbeat
+2026-10-19 06:00 (simulated) — evidence still required: tracker certificate".
+`payout-checklist.ts`, `payout-checklist-store.ts` and
+`guardPayoutChecklistItem` are not touched. The SQL still demands a
+staff-uploaded TRACKER_CERTIFICATE (migration 20261013114400). A static test
+asserts that no payout module imports `lib/telematics`.
+
+### Position view and POPIA
+
+- `revealPosition(actor, loanId, context, req)`:
+  1. `canDo(role, "view_asset_position")`; failure is 403 with no log row.
+  2. Loan: the tenant's, on an asset (404 otherwise).
+  3. Purpose gate (Deviation 3); failure is 409 "Position is shown only for a
+     loan in default, legal action or recovery".
+  4. Context: LEGAL_MATTER needs an OPEN matter; RECOVERY passes on any of the
+     three purposes.
+  5. Pick the latest `TelematicsPosition` of the asset's devices within the
+     tenure window and with `occurredAt ≥ now() − retentionDays` (the filter
+     holds even if the purge has not run).
+  6. Insert `TelematicsPositionAccess` and then return
+     `{ latitude, longitude, accuracyM, occurredAt, simulated }`, or
+     `{ none: true }`. Both outcomes are logged.
+
+  No map tile and no third-party link: the coordinates are shown as text and
+  never sent off-box.
+- **Retention.** Admins set `telematicsPositionRetentionDays` through
+  `PATCH app/api/settings/asset-finance` (existing ADMIN guard). A 23514 error
+  becomes 422. Audit `TELEMATICS_RETENTION_CHANGED`.
+- **Purge.** `purgeTelematicsPositions()` runs nightly for every tenant that has
+  a device (whatever its feature flag), using that tenant's days and the
+  database's clock (the one `guardTelematicsEvent` checks). It deletes in 5 000-row batches as
+  `lib/lender-api/retention.ts` does: first `TelematicsPosition`, then
+  HEARTBEAT/IGNITION/POSITION events older than the cutoff that nothing
+  references. Each tenant with deletions gets one audit row,
+  `TELEMATICS_POSITIONS_PURGED` (counts only). Access-log rows are kept.
+- **Dealers.** They are refused in four ways: the dealer host gate 404s
+  `/api/asset-finance/*`; `canDo("DEALER", …)` is false by construction; the
+  dealer projection (`lib/dealer/deal-view.ts`) whitelists nothing from
+  telematics; and a sentinel test proves it.
+
+### Routes
+
+Staff (house pattern `requireApiRole` → `withTenantContext` →
+`requireAssetFinanceEnabled` → `canDo`):
+
+| Route | Permission |
+|---|---|
+| `POST /api/asset-finance/assets/[id]/tracker-devices` (register) | `manage_asset_finance` |
+| `POST /api/asset-finance/tracker-devices/[deviceId]/remove` | `manage_asset_finance` |
+| `GET /api/asset-finance/telematics/alerts?queue=&status=` | `work_telematics_alerts` |
+| `POST /api/asset-finance/telematics/alerts/[alertId]/acknowledge` and `…/resolve` (one `[action]` route) | `work_telematics_alerts` |
+| `GET /api/asset-finance/telematics/held-readings` | `manage_asset_finance` |
+| `POST /api/asset-finance/telematics/held-readings/[id]/accept` and `…/reject` (one `[action]` route) | `manage_asset_finance` |
+| `POST /api/asset-finance/loans/[loanId]/telematics/position` (body `{ context }`) | `view_asset_position` |
+
+Cron (`verifyCronSecret`, registered in
+`lib/registry/cron-jobs/140-asset-finance-telematics.ts`):
+
+| Route | Schedule | Freshness |
+|---|---|---|
+| `GET /api/cron/asset-finance-telematics-poll` | `*/15 * * * *` | `HOUR` |
+| `GET /api/cron/asset-finance-telematics-purge` | `40 3 * * *` | `DAY + 2 * HOUR` |
+
+Both answer 503 when any tenant failed.
+
+Pages and components:
+
+- `(dashboard)/asset-finance/telematics`: work queue, with tabs for alerts by
+  queue/status and for held readings.
+- Asset page `assets/[id]`: a "Tracker devices" card (register or remove; last
+  seen; simulated chip).
+- Staff loan page: `TelematicsPanel` (device, heartbeat, alerts, held readings),
+  in `AssetLoanRecoveryPanels`; TELEMATICS readings appear in the existing
+  readings table via `components/asset-finance/lease/lease-staff-data.ts`,
+  which already feeds `projectedExcessUsage` with every source.
+- `LastKnownPosition` client button inside `RecoveryPanel` (context RECOVERY)
+  and `LegalMatterPanel` (context LEGAL_MATTER, while the matter is open). It
+  renders only when the server passes `canDo(role, "view_asset_position")`.
+  The Recovery panel shows it even before a recovery exists (the server
+  answers 409 unless the loan is in default, legal action or recovery).
+- Settings → Asset Finance: the retention field. Navigation: "Tracker alerts"
+  (minRole COLLECTIONS_OFFICER; the page re-checks the permissions).
+
+Registries:
+
+- Permissions (`lib/registry/permissions/070-asset-finance-telematics.ts`):
+  `view_asset_position` and `work_telematics_alerts`, both the
+  `act_on_collections` list.
+- Audit actions (`lib/registry/audit-actions/430-asset-finance-telematics.ts`):
+  TRACKER_DEVICE_REGISTERED, TRACKER_DEVICE_REMOVED, TELEMATICS_READING_HELD,
+  TELEMATICS_HELD_READING_ACCEPTED, TELEMATICS_HELD_READING_REJECTED,
+  TELEMATICS_ALERT_RAISED, TELEMATICS_ALERT_ACKNOWLEDGED,
+  TELEMATICS_ALERT_RESOLVED, TELEMATICS_RETENTION_CHANGED,
+  TELEMATICS_POSITIONS_PURGED, TELEMATICS_POLL_FAILED.
+
+### Rule-to-test matrix (IT = `RUN_ASSET_FINANCE_TELEMATICS_IT` unless noted)
+
+DB rules use the `ruleRefuses(db, rule, message, attack)` helper
+(`lease-servicing.integration-fixture.ts`): the attack passes with the rule
+dropped and fails with it in place. Fixture: `lib/telematics/telematics.integration-fixture.ts`
+on `createLeaseFixture` / `payoutAndBook` / `shiftLease`, plus an
+instalment sale through `approveDeal` (`payout-booking.integration-fixture.ts`).
+
+| Rule | Test file | Kind | Negative cases (§3 B) |
+|---|---|---|---|
+| Simulated provider refused on a deployed build | `lib/telematics/providers/simulated.test.ts`, `lib/telematics/poll.test.ts`, `lib/telematics/devices.integration.test.ts` | unit + IT | NODE_ENV=production with no allow-list: poll throws NOT_CONFIGURED, no event written, `lastPollError` set; registering a simulated device is refused; `SIMULATED_INTEGRATIONS=simulated-telematics` allows it; every event `simulated: true` |
+| Scenario determinism | `lib/telematics/providers/simulated.test.ts` | unit | the same (device, installedOn, now) gives identical ids; the cursor pages without gaps or repeats |
+| Idempotent ingest | `lib/telematics/ingest.integration.test.ts` | IT | duplicate events: the same batch twice, and two concurrent sweeps, give one event, one reading, one alert increment; the unique index dropped makes the duplicate pass |
+| Lower meter value held, not written | same | IT | ROLLBACK day 15 → HELD/LOWER, no `AssetMeterReading`; a direct TELEMATICS insert is refused by `AssetMeterReading_guard`; accept is refused 422; reject sets REJECTED |
+| Implausible value held | same + `lib/telematics/pace-ceiling.test.ts` + `lib/asset-finance/meter-readings-telematics.test.ts` | IT + unit | SPIKE → HELD/IMPLAUSIBLE; a direct unattended insert above the ceiling is refused by `guardTelematicsMeterReading` (rule-dropped passes); staff accept writes it with `recordedById`; `paceCeiling()` equals `telematicsPaceCeiling` on the table in `lib/telematics/__fixtures__/pace-table.ts` (SQL side in the meter-route IT) |
+| Instalment-sale write refused | `lib/telematics/meter-route.integration.test.ts` | IT | an INSTALMENT_SALE (and FINANCE_LEASE, the loan's type set inside the rolled-back attack) METER event → `NOT_LEASE`, a device reading only; a direct TELEMATICS insert on such a loan is refused |
+| Writes stop at end of term | same | IT | a reading on or after `leaseTermEnd`, with a `LeaseEndOfTerm` row, or with an ACCEPTED termination → `LEASE_NOT_RUNNING`; the staff final reading at inspection still succeeds |
+| One per day; event binding | same | IT | a second same-day event → SAME_DAY; a TELEMATICS insert whose value or date or asset differs from its event is refused; the `_telematics_shape` CHECK |
+| `recordMeterReading` unchanged for STAFF/PORTAL | existing `lib/asset-finance/meter-readings.test.ts`, `lease-servicing-rules-readings.integration.test.ts` | unit + IT (`RUN_*` existing) | no edits other than additions |
+| Alert raises a work item, no message | `lib/telematics/alerts.integration.test.ts`, `lib/telematics/no-outbound.test.ts` | IT + unit | TAMPER → OPEN COLLECTIONS item; with an open LegalMatter → RECOVERY; a repeat folds in (occurrences 2); zero `Message`/`Notification`/`EmailLog` rows; import graph has no messaging modules |
+| Alert lifecycle guard | same | IT | resolve without a note; reopen RESOLVED; change `queue`; DELETE |
+| Position visible to COLLECTIONS_OFFICER+, logged | `lib/telematics/position-view.integration.test.ts` | IT | READONLY → 403 and no access row; INSURANCE_OFFICER → 403; COLLECTIONS_OFFICER → position plus one access row; `{ none }` is logged too |
+| Position refused to a dealer | `lib/telematics/dealer-refusal.test.ts` | unit | DEALER session → `requireApiRole` 403; `dealerOffHostRefusal`/`dealerHostGate` 404 for the position route; `deal-view` sentinel (a telematics value is never in the projection) |
+| Purpose and tenure gates | `position-view.integration.test.ts` | IT | ACTIVE loan with no default, matter or recovery → 409; on a re-leased asset the old loan sees no new-lease positions, and the reverse |
+| Coordinates have one read path | `lib/telematics/position-read-path.test.ts` | unit | a grep over `lib app components` finds `latitude`/`longitude` selects only in the three allow-listed modules; pages contain no `telematicsPosition` query |
+| Access log immutable | `position-view.integration.test.ts` | IT | UPDATE, DELETE and TRUNCATE are refused |
+| The purge | `lib/telematics/purge.integration.test.ts` | IT | positions older than the tenant's days are deleted and younger ones kept; per-tenant days (30 vs 90); METER/ALERT events and access rows survive; a stale position insert is refused; deleting a METER event is refused; the view never returns a position past retention even before the purge; retention 0 and 366 are refused by the CHECK |
+| Heartbeat without a certificate does not complete TRACKER_CONFIRMED | `lib/telematics/tracker-certificate.integration.test.ts`, `lib/telematics/payout-isolation.test.ts`, `PayoutPanel.test.tsx` | IT + unit | live heartbeats and no TRACKER_CERTIFICATE → confirm refused (route 422; a direct confirm with no evidence by CHECK `PayoutChecklistItem_evidence_required`, with a non-certificate document by `guardPayoutChecklistItem`); the payout modules import nothing from `lib/telematics`; the panel shows the heartbeat and still "Open" |
+| Device guard | `lib/telematics/devices.integration.test.ts` | IT | two ACTIVE devices on one asset; changing `externalDeviceId`; REMOVED → ACTIVE; DELETE; an event for a REMOVED device |
+| Cron secret and registry | `instrumentation.cron-census.test.ts`, `app/api/cron/asset-finance-telematics-{poll,purge}/route.test.ts` | unit | missing or wrong secret → 401; 503 on any failure |
+| Staff route contract | `app/api/asset-finance/telematics/routes.test.ts` | unit | flag off → 404 everywhere; READONLY and INSURANCE_OFFICER → 403 everywhere, no lib call; lib status and fields as is; unknown action 404 |
+| Retention setting | `app/api/settings/asset-finance/route.test.ts` | unit | change audited `TELEMATICS_RETENTION_CHANGED`; the range CHECK → 422; a non-number → 400 |
+| RLS on the new models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | cross-tenant device, event and alert reads |
+
+Mutation evidence (`evidence/slice5/MUTATIONS.md`, Part B): drop each CHECK,
+partial unique and trigger branch above; drop the `ON CONFLICT` clause; drop
+the role list (replace it with `"COLLECTIONS_OFFICER"`); remove the
+access-log insert; remove the tenure filter; remove the retention filter in
+the view; remove `assertSimulationAllowed` from the simulator. Each one must
+turn a named test red.
+
+### Build task DAG (sequential; each file ≤ 300 lines)
+
+1. **Failing DB suites first.** Fixture and the IT files for ingest,
+   meter-route, alerts, position view, purge, devices and tracker certificate.
+   verify: they fail against a migrated IT DB (`it-db.sh up
+   cf-it-telematics-<id>`).
+2. **Schema, migrations and registries.** The new schema file, the columns,
+   both migrations, the tenant-scoped/permission/audit/cron/simulated
+   registries, and `npm run gen:registries`. verify: `npx prisma migrate
+   deploy` and the guard-level parts of step 1 green; `npx tsc --noEmit`;
+   registry snapshot tests.
+3. **Adapter.** types, registry, the simulated provider and the scenario
+   fixture. verify: `npx vitest run lib/telematics/providers`.
+4. **Meter path.** `paceCeiling` extraction, the `ReadingActor` telematics
+   arm, `routeMeterReading` and held readings. verify: meter-route and ingest
+   IT, plus the existing `meter-readings.test.ts` and readings IT unchanged.
+5. **Ingest, poll and alerts.** `ingestEvent`, `runTelematicsPoll` and
+   `raiseAlert`. verify: ingest and alerts IT, `poll.test.ts`,
+   `no-outbound.test.ts`.
+6. **Position, access log and purge.** `position-view.ts` and `purge.ts`.
+   verify: position-view and purge IT, `position-read-path.test.ts`.
+7. **Cron routes.** verify: the cron registry/secret tests.
+8. **Staff API and UI.** Device card, `TelematicsPanel`, `LastKnownPosition`
+   in the Recovery and LegalMatter panels, the PayoutPanel heartbeat, the
+   queue page and the settings field. verify: route tests (403/404/422),
+   `dealer-refusal.test.ts`, `npm run lint`.
+9. **Browser seed** `lib/telematics/telematics-browser-seed.test.ts` (how to
+   run it: `evidence/slice5/browser/B/README.md`), gated by
+   `TELEMATICS_BROWSER_SEED=1` (the `lease-final-browser-seed.test.ts`
+   pattern). It works on an owned disposable PG and does the following:
+   - books an OPERATING_LEASE (HOURS, allowance 1 500) with `shiftLease` back
+     30 days and a start reading of 1 000;
+   - registers `SIM-TAMPER-0001` installed 30 days ago, plus `SIM-ROLLBACK-0002`
+     on a second lease and `SIM-STEADY-0003` on an instalment sale;
+   - creates a COLLECTIONS_OFFICER, a READONLY user and a dealer user (demo
+     lender, portal on);
+   - writes the logins to a local file (`/tmp/cf-telematics-browser.json`,
+     mode 600; `TELEMATICS_BROWSER_SEED_OUT` overrides).
+
+   verify: running it twice on fresh DBs gives the same rows.
+10. **Docs.** `lib/telematics/.claude.md` (summary line), a
+    `lib/asset-finance/.claude.md` line about the TELEMATICS source,
+    DEPLOY-ENV.md (the two crons; `simulated-telematics` in
+    `SIMULATED_INTEGRATIONS` for demo stacks only), DESIGN.md slice 5 status,
+    and `npm run agents:mirror`. verify: `npm run claude-md:check && npm run
+    agents:check`.
+11. **Gates.** `npm run ci:full` in a fresh clone, the mutations, and the
+    browser acceptance (§5 B) with `curl -H "x-cron-secret: …"
+    /api/cron/asset-finance-telematics-poll`. Screenshots go in
+    `evidence/slice5/browser/B/`:
+    - the device card with heartbeat and the simulated chip;
+    - the PayoutPanel heartbeat beside the certificate requirement;
+    - the readings table with TELEMATICS rows and the projected excess;
+    - the held ROLLBACK reading and its reject;
+    - the TAMPER work item;
+    - after a matter is opened, the Recovery and LegalMatter panels revealing
+      the last position with its time;
+    - READONLY with no button and an API 403;
+    - the dealer getting a 404;
+    - 0 page errors.
+
+### Review items
+
+- **Legal (POPIA / NCA).**
+  - Is tracking location a lawful basis under the agreement, and does the
+    lender-owned template (#183) disclose telematics collection? No template
+    wording is changed here.
+  - Is the purpose gate (default, legal or recovery only) right, or too narrow
+    for theft response?
+  - Is the 90-day default right?
+  - Are a juristic borrower's drivers data subjects too?
+  - DSAR erasure of positions (DELETE is allowed).
+- **Security / policy-breaker.**
+  - Any path that returns coordinates without an access row.
+  - INSURANCE_OFFICER, READONLY, DEALER or operator reaching the position.
+  - Cross-tenant device or event injection through the provider id map.
+  - Forged `providerEventId` collisions across providers (the key includes
+    the provider).
+  - The `SIMULATED_INTEGRATIONS` allow-list on deployed demo stacks.
+- **Open risks.**
+  - **Device meter offset.** A device whose hour meter differs from the
+    dashboard start reading holds every reading LOWER, or worse, ratchets
+    readings above the true value. A higher TELEMATICS reading then caps the
+    staff final reading at inspection (monotonic). There is no per-device
+    offset in this slice; staff reject held readings and keep the lease on
+    STAFF readings. A real provider needs a baseline or offset before go-live.
+  - Simulated readings feed the projected excess on the demo stacks
+    (labelled).
+  - Polling only: no provider webhook.
+  - The alert queue is fixed at raise time (an alert raised before a matter
+    opens stays COLLECTIONS).
+  - Purge batches are per tenant in one process, as with the lender-API
+    retention.
+
+### Built (PR B): what changed against this spec while building
+
+- Migrations renamed to `20261020160000_telematics_enum_values` and
+  `20261020160100_telematics`; the registry file numbers (250, 070, 430, 140,
+  050) were free.
+- The PR A carry-overs already on the branch: the breaker's
+  `dealer-entity-link-attacks` IT (committed in #216, gated by
+  `RUN_ASSET_FINANCE_DEALER_IT`), the capture pre-check's NULL arm (#216
+  0aea36c0) and the section129 note in `lib/notifications.ts` (same commit).
+  This PR adds the website identity-notice IT's `noticeWithheld` assertion and
+  its verified positive control.
+- `TelematicsEvent`'s provider-event-id length is its own CHECK; the event
+  guard also keeps `meterOutcome` consistent with what was written; the alert
+  guard fixes the first occurrence; the access-log guard checks the loan,
+  asset and device agree (all above).
+- A meter in another unit than the lease's is `NO_USAGE_TERMS`, not written
+  (the binding check would refuse it).
+- Malformed provider events are skipped and counted; a device whose event
+  failed keeps its cursor.
+- `purgeTelematicsPositions()` uses the database's clock and covers every
+  tenant with a device.
+- The retention parser takes any whole number; the CHECK is the bound, mapped
+  to 422.
+- The browser seed marks the lender as a demo lender after the bookings: its
+  templates were approved as the lender's own (`LENDER_LEGAL`), which a demo
+  lender's documents refuse.
+
 
 ## Part C — Valuation guides
 
