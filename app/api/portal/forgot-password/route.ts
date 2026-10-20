@@ -13,6 +13,7 @@ import { findLenderIdentity } from "@/lib/config/identity"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
 import { escapeHtml } from "@/lib/utils"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { isWhatsAppCloudConfigured } from "@/lib/signing-otp/deliver"
 import { clientReachableOnWhatsApp, portalOtpChannelFrom, sendPortalOtpByWhatsApp } from "@/lib/portal/portal-otp-whatsapp"
 
@@ -89,7 +90,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId } })
+    // A dealer-captured client's contact details are untrusted until staff
+    // verify them (lib/clients/dealer-contact.ts): no code goes to them.
+    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE } })
 
     // Always return success to avoid leaking account existence
     if (!client) {

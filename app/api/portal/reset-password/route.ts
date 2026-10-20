@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { portalOffRefusal } from "@/lib/portal/portal-policy"
+import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { passwordPolicyError } from "@/lib/security/password-policy"
 
 // Per-EMAIL brute-force bound on the OTP (the load-bearing gate below).
@@ -81,7 +82,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid or expired reset code." }, { status: 400 })
     }
 
-    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId } })
+    // Never a dealer-captured client whose contacts staff have not verified
+    // (lib/clients/dealer-contact.ts; the database refuses its password too).
+    const client = await prisma.client.findFirst({ where: { email: normalised, tenantId, ...TRUSTED_CONTACT_WHERE } })
     if (!client) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 })
     }
