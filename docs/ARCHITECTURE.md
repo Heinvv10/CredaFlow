@@ -60,8 +60,10 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
     `runWithTenant` (website-chat-close, website-chat-handoffs,
     sweep-stuck-selfies; cross-sell and dormant-clients, which sweep ACTIVE
     tenants only because they create sales opportunities; dpd-update,
-    escalations and reminders, the nightly dunning chain, through
-    `sweepActiveTenants` in `lib/collections/tenant-sweep.ts`);
+    escalations, reminders, arrangement-check and default-charges, the nightly
+    dunning chain, through `sweepActiveTenants` in
+    `lib/ops/tenant-sweep.ts`, which also decides the HTTP status: 503
+    only when every tenant failed);
   - an explicit `tenantId` on every tenant-scope query, with no frame:
     insurance-renewal;
   - a loop over the tenants whose `TenantConfig` enables the job, still one
@@ -74,7 +76,7 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
     stale-leads-alert;
   - unscoped, under `withoutTenantScope`: email-poll;
   - the default tenant, `getDefaultTenantId()`, which throws rather than
-    guess: arrangement-check and licence-expiry still use it.
+    guess: licence-expiry still uses it.
 - **Scoping queries.** `lib/tenant-scope.ts` is a Prisma extension that adds
   the current tenant (from `AsyncLocalStorage`, set by `runWithTenant`) to
   queries on the models in `TENANT_SCOPED_MODELS`. Models outside that list
@@ -123,6 +125,25 @@ one or more `Tenant` rows; each tenant has one `TenantConfig`.
   outranks the slug in host resolution) is normalised and may not be a host the
   deployment serves or another lender's subdomain host
   (`lib/config/tenant-domain.ts`).
+- **Dealer portal.** A lender's dealers and brokers (`Dealer`, `DealerUser`;
+  asset finance slice 5, `docs/asset-finance/SLICE5.md`) are a third
+  principal, role `DEALER`, which is not a `UserRole`: every staff role gate
+  refuses it. Like operator staff they sign in and work only on their own
+  host, `DEALER_APP_HOST` (`/dealer`, `/api/dealer`;
+  `lib/proxy/dealer-host.ts`), which runs on the staff container and resolves
+  the lender through `TENANT_HOST_MAP`; off it the dealer paths 404 and a
+  dealer session is refused, and on it any other session 404s. Unlike them a
+  dealer user belongs to one lender and one dealer, and every refusal of a
+  signed-in dealer is 404 (`lib/dealer/guards.ts`). Revocation is
+  `DealerUser.tokenVersion`, re-checked on every request
+  (`lib/dealer/principal.ts`). Dealer actions are audited with no `userId`
+  and `newValue.actor` naming the dealer user. A dealer captures borrowers,
+  assets and draft deals and hands them over; the lender's staff accept the
+  handover and run the unchanged credit flow. Commission accrues, claws back
+  and nets into payable runs in the database. Passwords only, so the portal
+  is allowed only on a demo lender (CHECK
+  `TenantConfig_dealer_portal_demo_only`) until dealer 2FA ships. Module
+  rules: `lib/dealer/.claude.md`.
 - **Borrowers are per lender.** `Client` is unique on `(tenantId, idNumber)`
   and `(tenantId, email)`; one person may be a client of two lenders.
 - **Provider credentials** are per tenant, sealed in `TenantConfig`
@@ -349,7 +370,7 @@ change that domain's entries.
 |---|---|---|---|
 | Audit actions | `lib/registry/audit-actions/` | `defineAuditActions({ X_DONE: "X_DONE" })` — value equals name | `AuditAction` (`lib/audit.ts`) |
 | Tenant-scoped models | `lib/registry/tenant-scoped-models/` | `defineTenantScopedModels(["Model"] as const)` — model needs a non-null `tenantId`, and RLS coverage (`lib/tenant-isolation.integration.test.ts`) | `TENANT_SCOPED_MODELS` (`lib/tenant-scope.ts`) |
-| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
+| Cron jobs | `lib/registry/cron-jobs/` | `defineCronJobs([{ route, owner: "in-process", schedule, method?, freshnessMinutes }])`, or `owner: "external"`, or `owner: "unwired", reason` | `instrumentation.ts` schedules in-process jobs (SAST; `singleRun: true` claims the SAST day in `CronRunClaim` first, so one replica runs it, and fires it again +30 and +60 minutes later to run it over a FAILED or dead run only; `after: "<route>"` holds it until that single-run job is DONE or its final scheduled firing has passed with nothing running; the call is on loopback, `CRON_BASE_URL` overrides it); `CRON_FRESHNESS_MINUTES` (`lib/ops/cron-heartbeat.ts`); `instrumentation.cron-census.test.ts` requires every `app/api/cron/*` route to be declared once |
 | Simulated integrations | `lib/registry/simulated-integrations/` | `defineSimulatedIntegrations({ key: { sandboxEnvVar, sandboxSafeValues } })` | `GuardedIntegration` (`lib/integrations/simulation-guard.ts`) |
 | Permissions | `lib/registry/permissions/` | `definePermissions({ key: "ROLE" })` — a minimum role on the ladder (`ROLE_HIERARCHY`), a Prisma `UserRole`; or `key: ["ROLE", …]`, the exact roles that hold it, when a minimum would also grant a role that must not have it (a specialist role ranked above the roles it is kept from, e.g. `capture_payment` without INSURANCE_OFFICER). Prefer the minimum: a role added to the ladder inherits it, while a list names everyone by hand | `PERMISSIONS` (`lib/auth-guards.ts`), `canDo` (`lib/permissions.ts`) |
 | Module rules | a `.claude.md` beside the module | a `<!-- summary: … -->` line under its title | `docs/module-rules.md` (generated); CLAUDE.md only points to it |

@@ -33,51 +33,114 @@ export async function register() {
     // schedule comment must describe the behaviour, so the timezone is explicit.
     const SAST = "Africa/Johannesburg"
 
-    const BASE_URL = process.env.NEXTAUTH_URL ?? `http://localhost:${process.env.PORT ?? 3300}`
     const CRON_SECRET = process.env.CRON_SECRET ?? ""
     if (!CRON_SECRET) {
       console.warn("[cron] CRON_SECRET is not configured; scheduler not registered")
       return
     }
 
+    // Loaded once, before any job fires: two jobs firing in the same instant would
+    // otherwise both be the first to import them.
+    const claims = await import("@/lib/ops/cron-run-claim")
+    const { callCronRoute, cronCallTarget } = await import("@/lib/ops/cron-call")
+    // Every in-process job, its schedule and its reason live in
+    // lib/registry/cron-jobs/ (docs/ARCHITECTURE.md, "Registries"). Jobs the
+    // deployment's external scheduler owns are declared there too and are
+    // never scheduled here: both firing would duplicate NCA-mandated borrower
+    // comms (Section 129 notices, payment reminders).
+    const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
+    const occurrences = claims.cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
+    // This server on loopback, not the public origin and its proxy timeouts (lib/ops/cron-call.ts).
+    const target = cronCallTarget(process.env)
+
     const callCron = async (
       path: string,
       method: "GET" | "POST" = "GET",
       singleRun = false,
+      after: string | null = null,
     ) => {
-      // Every replica fires every job. A single-run job (borrower comms) goes
-      // to the one replica that claims its SAST day; the rest skip it without
-      // touching the heartbeat, which the winner writes. A claim that cannot
-      // be made fails closed: a skipped night shows on /api/health, a
-      // duplicate reminder or Section 129 notice cannot be taken back.
-      if (singleRun) {
+      // Every replica fires every job, a single-run one also 30 and 60 minutes
+      // after its time. It goes to the one replica that wins its SAST-day
+      // claim (a DONE run is never repeated; a FAILED or dead one is taken
+      // over by a later firing); the rest skip it without touching the
+      // heartbeat, which the runner writes. A claim that cannot be made fails
+      // closed: a skipped run shows on /api/health, a duplicate reminder or
+      // Section 129 notice cannot be taken back.
+      const claimKey = path.replace("/api/cron/", "")
+      const claimedAt = new Date()
+      let ownerToken: string | null = null
+      // A job that reads another's results does not fire until that job has settled
+      // today (DONE, or out of firings), and takes no claim while it waits: a later
+      // firing of its own tries again.
+      if (singleRun && after) {
         try {
-          const { claimCronRun } = await import("@/lib/ops/cron-run-claim")
-          if (!(await claimCronRun(path.replace("/api/cron/", "")))) {
-            console.log(`[cron] ${path} already claimed for today by another replica, skipping`)
+          if (!(await claims.cronSettledToday(after, claims.finalFiringMinuteOfDay(occurrences, after)))) {
+            console.log(`[cron] ${path} waits: ${after} has not settled today`)
             return
           }
+        } catch (err) {
+          console.error(`[cron] ${path} not run, could not read whether ${after} settled:`, err)
+          return
+        }
+      }
+      if (singleRun) {
+        try {
+          ownerToken = await claims.claimCronRun(claimKey, claimedAt)
         } catch (err) {
           console.error(`[cron] ${path} not run, run claim failed:`, err)
           return
         }
+        if (!ownerToken) {
+          console.log(`[cron] ${path} already claimed for today (done, or running elsewhere), skipping`)
+          return
+        }
+      }
+      // While the call is in flight, prove this runner is alive: a claim whose
+      // heartbeat goes stale is how a later firing knows the runner died.
+      let heartbeat: ReturnType<typeof setInterval> | undefined
+      if (ownerToken) {
+        const token = ownerToken
+        heartbeat = setInterval(() => {
+          claims.renewCronClaim(claimKey, token, claimedAt)
+            .then((held) => {
+              if (!held) console.error(`[cron] ${path} lost its run claim to another attempt; this run is no longer the owner`)
+            })
+            .catch((err) => console.error(`[cron] ${path} heartbeat failed:`, err))
+        }, claims.HEARTBEAT_INTERVAL_MS)
       }
       const startedAt = new Date()
       let status: number | null = null
       let error: string | null = null
+      let tenantFailed = false
       try {
-        const headers: Record<string, string> = { "x-cron-secret": CRON_SECRET }
-
-        const res = await fetch(`${BASE_URL}${path}`, { method, headers })
+        // No client timeout: see lib/ops/cron-call.ts.
+        const res = await callCronRoute(`${target.baseUrl}${path}`, method, CRON_SECRET, target.host ? { host: target.host } : {})
         status = res.status
-        if (!res.ok) {
-          console.error(`[cron] ${path} failed: ${res.status}`)
+        // A single-run route says how many tenants threw in a header. A 2xx without it is not a clean
+        // run: it cannot be told from a body that was too big to read, so it fails closed.
+        tenantFailed = singleRun && (res.failedTenants === null || res.failedTenants > 0)
+        if (status < 200 || status >= 300) {
+          console.error(`[cron] ${path} failed: ${status}`)
+        } else if (tenantFailed) {
+          console.error(`[cron] ${path} ok, but ${res.failedTenants === null ? "it did not say whether a tenant failed" : `${res.failedTenants} tenant(s) threw`}; the claim is marked FAILED so a later firing retries it`)
         } else {
           console.log(`[cron] ${path} ok`)
         }
       } catch (err) {
         error = err instanceof Error ? err.message : String(err)
         console.error(`[cron] ${path} error:`, err)
+      } finally {
+        if (heartbeat) clearInterval(heartbeat)
+      }
+      if (ownerToken) {
+        try {
+          // DONE only for a 2xx in which no tenant's run threw; per-item errors
+          // (a send that failed, a reconciliation case) are in the body and do not retry.
+          const closed = await claims.finishCronRun(claimKey, ownerToken, status !== null && status >= 200 && status < 300 && !tenantFailed, claimedAt)
+          if (!closed) console.error(`[cron] ${path} run claim was taken over before this run finished; its outcome is not recorded on the claim`)
+        } catch (err) {
+          console.error(`[cron] ${path} run claim not closed:`, err)
+        }
       }
       // The run's outcome for /api/health (lib/ops/cron-heartbeat.ts).
       try {
@@ -88,20 +151,12 @@ export async function register() {
       }
     }
 
-    // Every in-process job, its schedule and its reason live in
-    // lib/registry/cron-jobs/ (docs/ARCHITECTURE.md, "Registries"). Jobs the
-    // deployment's external scheduler owns are declared there too and are
-    // never scheduled here: both firing would duplicate NCA-mandated borrower
-    // comms (Section 129 notices, payment reminders).
-    const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
-    let registered = 0
-    for (const job of CRON_JOBS) {
-      if (job.owner !== "in-process") continue
-      cron.schedule(job.schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun), {
+    for (const { job, schedule } of occurrences) {
+      cron.schedule(schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun, job.after), {
         timezone: SAST,
       })
-      registered++
     }
+    const registered = occurrences.length
 
     console.log(`[cron] scheduler registered — ${registered} jobs active`)
   }

@@ -195,10 +195,14 @@ suite.sequential("collections reminders go through sendMessage (real Postgres)",
     expect(wire.whatsapp).toEqual([])
   })
 
-  it("a tenant with no templates is warned, not aborted; the others are still reminded", async () => {
+  it("a tenant with no usable templates is warned, not aborted; the others are still reminded", async () => {
     const bare = await createChargesTenant(db, false)
     const bareLoan = await seedHoldLoan(db, bare, await createSecondProduct(db, bare.tenantId), { name: "no templates", held: false })
     await db.commsSettings.create({ data: { tenantId: bare.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" } })
+    // Each run seeds the defaults a tenant LACKS, and leaves an existing row alone: rows that exist
+    // but are inactive (under revision) are what leaves a tenant with nothing usable.
+    await seedDefaultMessageTemplates(db, bare.tenantId, "Bare Lending")
+    await db.messageTemplate.updateMany({ where: { tenantId: bare.tenantId }, data: { active: false } })
     const ours = await fresh("beside the bare tenant")
 
     const result = await processPaymentReminders()

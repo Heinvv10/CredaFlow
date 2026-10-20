@@ -56,6 +56,7 @@ model User {
   branchSignedApplications     LoanApplication[]                     @relation("AgreementSignedBy")
   bureauOverriddenApplications LoanApplication[]                     @relation("BureauOverrideBy")
   clearedCheckFlags            ApplicationCheckFlag[]                @relation("CheckFlagClearedBy")
+  clientDealerContactsVerified Client[]                              @relation("ClientDealerContactVerifiedBy")
   coiDeclarations              CoiDeclaration[]
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
   commercialCancellations       CommercialCancellation[]
@@ -67,6 +68,18 @@ model User {
   // records and FAIS GCC s.3(2) record-of-advice retention.
   contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
   countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
+  dealerAccountsDecided        DealerBankAccount[]                   @relation("DealerAccountDecidedBy")
+  dealerAccountsRequested      DealerBankAccount[]                   @relation("DealerAccountRequestedBy")
+  dealerCommissionRatesCreated DealerCommissionRate[]                @relation("DealerCommissionRateCreatedBy")
+  dealerConsentsVerified       DealerConsentAttestation[]            @relation("DealerConsentVerifiedBy")
+  dealerDocumentRequests       DealerDocumentRequest[]               @relation("DealerDocumentRequestedBy")
+  dealerRunsApproved           DealerPayableRun[]                    @relation("DealerRunApprovedBy")
+  dealerRunsCancelled          DealerPayableRun[]                    @relation("DealerRunCancelledBy")
+  dealerRunsCreated            DealerPayableRun[]                    @relation("DealerRunCreatedBy")
+  dealerRunsReleased           DealerPayableRun[]                    @relation("DealerRunReleasedBy")
+  dealersCreated               Dealer[]                              @relation("DealerCreatedBy")
+  dealersDeactivated           Dealer[]                              @relation("DealerDeactivatedBy")
+  dealerUsersCreated           DealerUser[]                          @relation("DealerUserCreatedBy")
   debitMandatesCreated         DebitMandate[]                        @relation("DebitMandatesCreated")
   disbursedApplications        LoanApplication[]                     @relation("DisbursedBy")
   fitAndProper                 FitAndProper?

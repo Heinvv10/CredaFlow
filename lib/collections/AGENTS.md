@@ -22,11 +22,56 @@ promise-to-pay tracking, and arrangement monitoring.
   `collectionsStage` is staff-advanced via `CollectionsStagePanel`, which is
   hard-gated server-side (a direct PATCH to `SECTION_129_SENT` is rejected;
   the stage must follow the real S129 issuance).
-- **The nightly chain is `dpd-update` → `escalations` → `reminders`: in-process,
-  once a SAST day on one replica, each over EVERY ACTIVE tenant in its own
-  frame** (`tenant-sweep.ts`; never `tenant.findFirst`). Times and order:
-  `lib/registry/cron-jobs/091-dunning.ts`, pinned by `dunning-schedule.test.ts`.
-  The old 3-day `payment-reminders` courtesy cron is retired.
+- **The nightly chain is `dpd-update` (02:00) → `escalations` (07:00) →
+  `reminders` (07:30): in-process, each over EVERY ACTIVE tenant in its own frame**
+  (`lib/ops/tenant-sweep.ts`; never `tenant.findFirst`). `escalations` and
+  `reminders` send borrower comms, so they run on one replica a day, never before
+  07:00 SAST, and are fired again 30 and 60 minutes later; `dpd-update` sends
+  nothing, is idempotent and runs on every replica. Times, order and the
+  `after: "escalations"` gate: `lib/registry/cron-jobs/091-dunning.ts`, pinned by
+  `dunning-schedule.test.ts`. The old 3-day `payment-reminders` courtesy cron is
+  retired. Escalations and reminders first make sure DPD is current for the tenant
+  (`ensureDpdCurrent`) and run it if not. The 60-DPD "defaulted" notice goes only to
+  a loan at 60-66 DPD; an older one is flipped and noted without it.
+  A single-run claim has an owner token and a one-minute heartbeat; a later firing
+  takes over only a FAILED claim or one whose heartbeat is 5 minutes stale. The
+  scheduler calls this server on loopback with no timeout but a 55 minute ceiling
+  (`lib/ops/cron-call.ts`, `CRON_BASE_URL`), never the public origin and its proxy.
+  A run is FAILED, and retried, when a tenant threw: the route says how many in the
+  `x-cron-failed-tenants` header, and a 2xx without it fails closed. A per-item error
+  (a send that failed, a reconciliation case) is in the body, leaves the claim DONE
+  and the status 200, and waits for tomorrow. Because a takeover can still overlap a
+  runner that only lost its heartbeat, each reminder leg is reserved by
+  `sendMessage`'s idempotency key (`collections:<loan>:<trigger>:<channel>:<SAST day>`,
+  a Message row committed before the provider call; an ambiguous outcome keeps it and
+  is held for reconciliation), and `loan_overdue` and every escalation rule first take
+  `reserveOnce(tenantId, key, at)` (`lib/ops/send-reservation.ts`), unique per loan,
+  message and SAST day, released, against the day it was taken, only when the send
+  threw. One loan's throw is that loan's error, not the
+  tenant's day, unless it is a database fault (`lib/ops/db-fault.ts`) or every loan
+  failed: then the tenant fails and is retried. /api/health reads the status, which is 503 only when
+  EVERY tenant failed, so a failing tenant among several shows in the log, the body
+  and the claim (FAILED), not on health. The retry sweep sends ALL dunning only
+  07:00-20:00 SAST; only an automated date-worded reminder (`collections:`,
+  `entity-notice:<reminder>`) expires at the end of its creation day: a staff
+  reminder and a 60-DPD notice (consumer or entity `loan_overdue`) wait, and
+  expire once the next day's window is over. A queued reminder is also dropped when
+  the borrower has since paid (`nothingOwed`, one definition shared with the
+  reminders cron: `amount-owed.ts`); a PRE-DUE one (7d, 1d, 0d) is also dropped
+  once `nextPaymentDate` is no longer the day it was queued for plus its offset,
+  which is the cron's own trigger match (`reminder-offsets.ts`; it matters when
+  that instalment is paid and the next is unpaid, so something is still owed). The
+  60-DPD flip is conditional (still ACTIVE/DEFAULTED, 60+ DPD, in arrears): a loan
+  it finds settled gets no later escalation rule (no 90-DPD flag) either, and the
+  notice is re-checked against the statuses a notice reaches just before it sends.
+- **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
+  through `sendMessage`** (template `payment_reminder_email`; entities via
+  `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`
+  apply. Each reminders run first seeds the tenant's missing default templates
+  (`seedDefaultMessageTemplates`, idempotent), so a tenant that predates a row
+  gets it. If the template or the tenant's email provider is still unusable the
+  email leg is skipped for the run: one log line and `warnings++`, not an error.
+  Report bodies are generic ("failed; see the server log"); the cause is logged.
 - **Section 129 issuance triggers a real legal letter.** When an escalation
   marks `SECTION_129_SENT`, a Section 129 PDF MUST be generated via `lib/pdf/section129.ts`
   and the audit log MUST record dispatch. Don't flip the status without
@@ -54,7 +99,7 @@ promise-to-pay tracking, and arrangement monitoring.
     client (consumer-wide). PAYMENT_ARRANGEMENT is not a hold by itself: the
     stage never moves back, the ACTIVE arrangement decides. A new reminder path
     uses it; never re-write the filter.
-  - The reminders cron rechecks `isLoanHeld` immediately before EACH send (the loans are
+  - The reminders cron rechecks `isLoanRemindable` (ACTIVE and not held) immediately before EACH send (the loans are
     selected once at the start of a run, which can be long), and so do the staff
     routes before each leg. The messaging retry sweep suppresses (not retries) a
     queued DUNNING message (`Message.dunning`, set by `sendMessage` from its
@@ -64,7 +109,7 @@ promise-to-pay tracking, and arrangement monitoring.
     "client hold: deceased|debt review"). Statements, receipts and transactional
     messages are not held.
   - *Escalation* still flips DEFAULTED at 60 DPD, but skips the borrower's
-    `loan_overdue` notice for a held loan (`isLoanHeld`) and reports it; it writes
+    `loan_overdue` notice for a held or no longer dunnable loan (`loanDunningHold`) and reports it; it writes
     no 90-DPD `escalation_legal` flag, and the "S129 Due" count leaves the client out,
     while debt review stands.
   - *Staff messages* (manual reminder, collections-stage WhatsApp) refuse with

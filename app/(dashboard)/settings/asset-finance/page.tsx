@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { Header } from "@/components/layout/Header"
 import { AssetFinanceModuleSettings } from "@/components/settings/AssetFinanceModuleSettings"
 import { VatConfigForm } from "@/components/settings/VatConfigForm"
+import { DealerPortalSettings } from "@/components/settings/DealerPortalSettings"
 
 // Deliberately NOT under app/(dashboard)/asset-finance/layout.tsx: that layout
 // redirects while featureAssetFinance is off, and this page turns it on.
@@ -12,7 +13,10 @@ export const metadata = {
 }
 
 // Schema defaults (prisma/schema/tenancy.prisma model TenantConfig), for a tenant with no config row.
-const DEFAULTS = { featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false }
+const DEFAULTS = {
+  featureAssetFinance: false, assetPayoutDualApprovalCents: 100_000_000, assetFinanceLegalWordingApproved: false,
+  featureDealerPortal: false, dealerCommissionClawbackMonths: 0, isDemoLender: false,
+}
 
 export default async function AssetFinanceSettingsPage() {
   // A tenant-wide switch is ADMIN (manage_settings), as the API requires.
@@ -20,7 +24,10 @@ export default async function AssetFinanceSettingsPage() {
   const [config, vat] = await Promise.all([
     prisma.tenantConfig.findUnique({
       where: { tenantId },
-      select: { featureAssetFinance: true, assetPayoutDualApprovalCents: true, assetFinanceLegalWordingApproved: true },
+      select: {
+        featureAssetFinance: true, assetPayoutDualApprovalCents: true, assetFinanceLegalWordingApproved: true,
+        featureDealerPortal: true, dealerCommissionClawbackMonths: true, isDemoLender: true,
+      },
     }),
     prisma.vatConfig.findUnique({ where: { tenantId }, select: { vatNumber: true, registeredName: true, address: true } }),
   ])
@@ -30,11 +37,20 @@ export default async function AssetFinanceSettingsPage() {
     <>
       <Header
         title="Asset Finance"
-        subtitle="Switch the module on or off, set the payout approval threshold and the VAT vendor details."
+        subtitle="Switch the module on or off, set the payout approval threshold, the dealer portal and the VAT vendor details."
         breadcrumbs={[{ label: "Settings", href: "/settings" }, { label: "Asset Finance" }]}
       />
       <div className="max-w-4xl space-y-6 p-4 lg:p-8">
-        <AssetFinanceModuleSettings {...settings} />
+        <AssetFinanceModuleSettings
+          featureAssetFinance={settings.featureAssetFinance}
+          assetPayoutDualApprovalCents={settings.assetPayoutDualApprovalCents}
+          assetFinanceLegalWordingApproved={settings.assetFinanceLegalWordingApproved}
+        />
+        <DealerPortalSettings
+          featureDealerPortal={settings.featureDealerPortal}
+          dealerCommissionClawbackMonths={settings.dealerCommissionClawbackMonths}
+          isDemoLender={settings.isDemoLender}
+        />
         <VatConfigForm initial={vat} moduleEnabled={settings.featureAssetFinance} />
       </div>
     </>

@@ -15,10 +15,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type SeededHoldLoan } from "@/lib/collections/dunning-holds.integration-fixture"
-import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 
 interface Sent { to: string; body: string }
-const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[] }))
+const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[], delayMs: 0 }))
 
 // The transports under sendMessage, which carries every reminder. Provider message ids are
 // unique per provider in the database, so each call gets its own.
@@ -28,9 +27,12 @@ vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
 }))
 vi.mock("@/lib/whatsapp-cloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/whatsapp-cloud")>()),
-  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string; message: string }) => (
-    sent.whatsapp.push({ to: a.to, body: a.message }), { ok: true, messageId: `wamid-${randomUUID()}` }
-  )),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string; message: string }) => {
+    // A slow provider is what lets a second run get past the "already sent today" check.
+    if (sent.delayMs) await new Promise((resolve) => setTimeout(resolve, sent.delayMs))
+    sent.whatsapp.push({ to: a.to, body: a.message })
+    return { ok: true, messageId: `wamid-${randomUUID()}` }
+  }),
 }))
 vi.mock("@/lib/email/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email/service")>()),
@@ -62,7 +64,7 @@ let arrearsB: SeededHoldLoan
 
 const delivered = (list: Sent[], to: string) => list.filter((s) => s.to.includes(to.replace(/^\+/, "")))
 
-suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)", () => {
+suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     process.env.CRON_SECRET = "it-secret"
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
@@ -73,14 +75,18 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
     await db.tenantConfig.update({ where: { tenantId: b.tenantId }, data: { brandName: BRAND.b, legalName: `${BRAND.b} (Pty) Ltd` } })
     // dpd-update's default tenant is A: the sweep must still reach B.
     process.env.NEXT_PUBLIC_TENANT_SLUG = (await db.tenant.findUniqueOrThrow({ where: { id: a.tenantId } })).slug
-    for (const [t, brand] of [[a, BRAND.a], [b, BRAND.b]] as const) {
-      await seedDefaultMessageTemplates(db, t.tenantId, brand)
+    // No templates seeded here: the run seeds the defaults each tenant lacks (asserted below).
+    for (const t of [a, b]) {
       await db.commsSettings.upsert({
         where: { tenantId: t.tenantId },
         create: { tenantId: t.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
         update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
       })
     }
+    // A has an email provider, B does not; neither was created with the default templates.
+    await db.emailConfig.create({
+      data: { tenantId: a.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender", fromAddress: "sender@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
+    })
     const secondA = await createSecondProduct(db, a.tenantId)
     const secondB = await createSecondProduct(db, b.tenantId)
     remindA = await seedHoldLoan(db, a, secondA, { name: "remind A", held: false })
@@ -97,7 +103,17 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
 
   it("reminders: each tenant's normal loan is reminded once, about its own loan, and no held loan is", async () => {
     sent.whatsapp.length = 0
-    await processPaymentReminders()
+    sent.email.length = 0
+    const templates = (tenantId: string) => db.messageTemplate.count({ where: { tenantId, key: "payment_reminder_email" } })
+    expect([await templates(a.tenantId), await templates(b.tenantId)], "tenants predating the template").toEqual([0, 0])
+
+    const result = await processPaymentReminders()
+
+    // The run seeds the default templates every tenant lacks, then emails where the tenant can send email.
+    expect([await templates(a.tenantId), await templates(b.tenantId)]).toEqual([1, 1])
+    expect(delivered(sent.email, remindA.email), "A has an email provider: its borrower is emailed").toHaveLength(1)
+    expect(delivered(sent.email, remindB.email), "B has none: the leg is skipped, not sent").toHaveLength(0)
+    expect(result.warnings, "B's skipped email leg is a tenant warning").toBeGreaterThanOrEqual(1)
 
     for (const [seeded, otherSeeded] of [[remindA, remindB], [remindB, remindA]] as const) {
       const got = delivered(sent.whatsapp, seeded.whatsapp)
@@ -126,6 +142,50 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
       expect(got[0].body).toContain(own)
       expect(got[0].body).not.toContain(other)
     }
+  })
+
+  // The backstop under the run claim: a takeover can overlap a runner that only lost its heartbeat,
+  // and both then pass the "already sent today" check before either has written its marker.
+  it("two runs racing on the same day send each message and each notice once", async () => {
+    const [remindFreshA, remindFreshB, defaultFreshA, defaultFreshB] = await Promise.all([
+      seedHoldLoan(db, a, a.productId, { name: "race remind A", held: false }),
+      seedHoldLoan(db, b, b.productId, { name: "race remind B", held: false }),
+      seedHoldLoan(db, a, a.productId, { name: "race default A", held: false }, { inArrears: true }),
+      seedHoldLoan(db, b, b.productId, { name: "race default B", held: false }, { inArrears: true }),
+    ])
+    sent.whatsapp.length = 0
+    sent.email.length = 0
+    sent.delayMs = 150
+    let emailsBeforeEscalations = 0
+    try {
+      await Promise.all([processPaymentReminders(), processPaymentReminders()])
+      emailsBeforeEscalations = sent.email.length
+      await Promise.all([processEscalations(), processEscalations()])
+      await new Promise((resolve) => setTimeout(resolve, 600))
+    } finally {
+      sent.delayMs = 0
+    }
+
+    for (const s of [remindFreshA, remindFreshB]) expect(delivered(sent.whatsapp, s.whatsapp), `${s.name}: reminded once`).toHaveLength(1)
+    // These loans are also pre-due, so they get a reminder email; the escalation phase's emails are the notices.
+    const notices = sent.email.slice(emailsBeforeEscalations)
+    for (const s of [defaultFreshA, defaultFreshB]) expect(delivered(notices, s.email), `${s.name}: one DEFAULTED notice`).toHaveLength(1)
+  })
+
+  // A lost run is retried the same day (lib/ops/cron-run-claim.ts), so a repeat must be harmless.
+  it("a second run the same day sends nothing new and writes nothing twice", async () => {
+    sent.whatsapp.length = 0
+    sent.email.length = 0
+    const notes = () => db.loanNote.count({ where: { loanId: { in: [remindA.loanId, remindB.loanId, arrearsA.loanId, arrearsB.loanId] } } })
+    const before = await notes()
+
+    await processPaymentReminders()
+    await processEscalations()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    expect(delivered(sent.whatsapp, remindA.whatsapp).concat(delivered(sent.whatsapp, remindB.whatsapp))).toHaveLength(0)
+    expect(delivered(sent.email, arrearsA.email).concat(delivered(sent.email, arrearsB.email))).toHaveLength(0)
+    expect(await notes()).toBe(before)
   })
 
   // Last: it recomputes DPD for every tenant, which resets the arrears the escalation case seeds by hand.

@@ -12,7 +12,7 @@ import { AlertCircle } from "lucide-react"
 import { safeInternalPath } from "@/lib/safe-path"
 import { accessRefusalMessage } from "@/lib/security/staff-access-messages"
 
-export type LoginVariant = "staff" | "client" | "operator"
+export type LoginVariant = "staff" | "client" | "operator" | "dealer"
 
 type CopyMap = {
   title: string
@@ -43,6 +43,13 @@ const COPY: Record<LoginVariant, CopyMap> = {
     subtitle: "Platform operator sign-in. Two-factor authentication is required.",
     emailPlaceholder: "you@example.com",
     fallbackDest: "/operator",
+    errorWrongAudience: "Invalid email or password",
+  },
+  dealer: {
+    title: "Dealer portal",
+    subtitle: "Sign in to capture and track your finance deals",
+    emailPlaceholder: "you@example.com",
+    fallbackDest: "/dealer",
     errorWrongAudience: "Invalid email or password",
   },
 }
@@ -196,8 +203,9 @@ function LoginFormInner({ variant, brandName, crossLink }: Required<LoginFormPro
                   /api/portal/{forgot,reset}-password). Replaces the previous dead
                   a dead mailto: link. */}
               {/* Operator staff have no self-service reset: an OPERATOR_ADMIN
-                  sends them a new link from the console. */}
-              {variant !== "operator" ? (
+                  sends them a new link from the console. Nor do dealer users:
+                  their admin or the lender issues a new set-password link. */}
+              {variant !== "operator" && variant !== "dealer" ? (
                 <Link
                   href={variant === "staff" ? "/forgot-password" : "/portal/forgot-password"}
                   className="text-sm font-medium text-[var(--cf-brand-alt)] hover:underline"

@@ -105,10 +105,12 @@ describe("every other staff role keeps the loan book", () => {
 
 // Every top-level staff page and API is classified: in the loan book, or open
 // to INSURANCE_OFFICER on purpose. A new one fails here until it is decided.
+// "operator" and "dealer" are their own hosts' APIs: no staff session reaches
+// them (lib/proxy/operator-host.ts, lib/proxy/dealer-host.ts).
 const OPEN_PAGES = ["clients", "compliance", "inbox", "insurance", "learn", "no-access", "settings"]
 const OPEN_APIS = [
   "admin", "agent-hub", "audit", "auth", "automation", "branches", "clients", "complaints", "compliance", "cron",
-  "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "messaging",
+  "dealer", "documents", "dsar", "email", "health", "inbox", "insurance", "insurers", "integrations", "messaging",
   "notifications", "operator", "pasq-link", "portal", "products", "screening", "selfie-link", "settings",
   "signing-otp", "staff", "users", "v1", "webhooks", "website",
 ]
@@ -137,7 +139,7 @@ describe("the loan-book classification", () => {
 const routeFiles = (dir: string): string[] =>
   readdirSync(path.join(__dirname, dir), { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? routeFiles(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name)] : [])
-const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|\b(withRecoveryStaff|recoveryWrite|leaseStaffAction|withPayoutStaff|withSigningStaff)\(/
+const GUARDS = /requireApiRole\(|requireOwnerOrStaff\(|\b(withRecoveryStaff|recoveryWrite|leaseStaffAction|withPayoutStaff|withSigningStaff|withDealerStaff)\(/
 // Session-checked by hand, and closed to INSURANCE_OFFICER by their own rule.
 const OWN_CHECK: Record<string, string> = {
   "app/api/applications/[id]/agreement/sign/route.ts POST": "CLIENT or CREDIT_OFFICER and above",
@@ -188,6 +190,12 @@ describe("the second layer covers every loan-book route", () => {
     ["withPayoutStaff", "payout-route"], ["withSigningStaff", "signing-route"],
   ])("%s (lib/asset-finance/%s.ts) is the helper the routes import", (fn, helper) => {
     expect(readFileSync(path.join(__dirname, "lib/asset-finance", `${helper}.ts`), "utf8")).toMatch(new RegExp(`export (async )?function ${fn}\\b`))
+  })
+
+  it("withDealerStaff (lib/dealer/staff-route.ts) is exported and calls requireApiRole", () => {
+    const source = readFileSync(path.join(__dirname, "lib/dealer/staff-route.ts"), "utf8")
+    expect(source).toMatch(/export async function withDealerStaff\b/)
+    expect(source).toMatch(/requireApiRole\(/)
   })
 
   it.each(LOAN_BOOK_PAGES)("the %s page segment calls requireLoanBookPage", (page) => {

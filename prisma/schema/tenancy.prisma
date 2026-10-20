@@ -105,6 +105,8 @@ model Tenant {
   crmActivities              CrmActivity[]
   crossSellOpps              CrossSellOpportunity[]
   dataSubjectRequests        DataSubjectRequest[]
+  dealerCommissionRates      DealerCommissionRate[]
+  dealers                    Dealer[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]
   documentTemplates          DocumentTemplate[]
@@ -221,6 +223,12 @@ model TenantConfig {
   featureReports                    Boolean @default(true)
   // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
   featureAssetFinance               Boolean @default(false)
+  // Dealer/broker portal (docs/asset-finance/SLICE5.md part A). Demo lenders
+  // only until dealer 2FA ships (CHECK TenantConfig_dealer_portal_demo_only).
+  featureDealerPortal               Boolean @default(false)
+  // Months after booking in which commission is clawed back when the loan
+  // settles early or is written off; 0 = off (CHECK 0..60).
+  dealerCommissionClawbackMonths    Int     @default(0)
   // Statement AI (lib/statement-ai): advisory summaries, flag explanations and
   // answers from the self-hosted model. Priced per statement; only a
   // SUPER_ADMIN switches it (app/api/settings/statement-ai), audited.
@@ -520,13 +528,41 @@ model CronHeartbeat {
   lastError       String?
 }
 
-// One row per (single-run in-process job, SAST day), inserted by the replica
-// that wins the claim before it calls the route (lib/ops/cron-run-claim.ts).
-// A second replica's insert hits the primary key and the job is skipped.
+// One row per (single-run in-process job, SAST day): the replica that inserts it
+// runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
+// A later firing the same day proceeds only over a FAILED row, or a RUNNING one
+// whose runner stopped renewing it. Also holds the per-tenant "dpd-update:<tenantId>"
+// DONE markers that escalations and reminders read.
+enum CronRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
 model CronRunClaim {
-  job       String
-  runDay    String
-  claimedAt DateTime @default(now())
+  job        String
+  runDay     String
+  /// Start of the current attempt, renewed by its runner while it works.
+  claimedAt  DateTime      @default(now())
+  status     CronRunStatus @default(RUNNING)
+  finishedAt DateTime?
+  attempts   Int           @default(1)
+  /// Random per attempt: only the attempt that holds it may renew or close the claim.
+  ownerToken String?
 
   @@id([job, runDay])
+}
+
+// One row per borrower message (or escalation rule action) per SAST day, taken
+// BEFORE it is sent so that two overlapping runs cannot both send it
+// (lib/ops/send-reservation.ts). `tenantId` is a plain column, not a relation: the
+// row is bookkeeping and is never read across tenants.
+model SendReservation {
+  key       String
+  runDay    String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  @@id([key, runDay])
+  @@index([tenantId])
 }

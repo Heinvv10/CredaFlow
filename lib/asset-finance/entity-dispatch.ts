@@ -19,6 +19,7 @@ import type { Channel, MessageTemplate } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
+import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { getCommsSettings } from "@/lib/inbox/settings"
 import {
   MessageReconciliationRequiredError,
@@ -52,6 +53,8 @@ export interface EntityLegOutcome {
   status: EntityLegStatus
   messageId?: string
   reason?: string
+  /** A database fault that failed the leg, for a cron to rethrow; never put in a report. */
+  fault?: unknown
 }
 
 export interface EntityNoticeRequest {
@@ -95,7 +98,7 @@ async function sendLeg(
   const value = channelValue(recipient, channel)
   if (!value) return { ...leg, status: "failed", reason: `Unparseable ${channel} value` }
   const contact = await lookupContactByChannelValue(prisma, { tenantId: request.tenantId, channel, value })
-  if (!contact) return { ...leg, status: "failed", reason: `No Contact row for ${value}` }
+  if (!contact) return { ...leg, status: "failed", reason: "No Contact row" }
   const vars = channel === "EMAIL"
     ? entityEmailVars(request.facts, request.lender, recipient)
     : entityWhatsAppVars(request.facts, request.lender, recipient)
@@ -122,7 +125,8 @@ async function sendLeg(
     if (error instanceof MessageReconciliationRequiredError) {
       return { ...leg, status: "reconciliation", messageId: error.messageRecord.id, reason: "delivery uncertain; automatic replay blocked" }
     }
-    return { ...leg, status: "failed", reason: error instanceof Error ? error.message : String(error) }
+    console.error(`[entity-dispatch] ${leg.channel} to ${leg.clientId} failed:`, error)
+    return { ...leg, status: "failed", reason: "send failed; see the server log", ...(isDatabaseInfrastructureError(error) ? { fault: error } : {}) }
   }
 }
 
@@ -151,11 +155,22 @@ export async function sendEntityNotice(request: EntityNoticeRequest): Promise<En
   return outcomes
 }
 
-/** One line for a LoanNote or cron detail: who got what, per channel. */
-export function describeEntityOutcomes(outcomes: EntityLegOutcome[], names: Map<string, string>): string {
+/**
+ * One line for a LoanNote or cron detail: who got what, per channel. With `names`
+ * (a staff-visible LoanNote) a recipient is their name; without (the cron's
+ * response and logs) they are "recipient N" in order of appearance, so the report
+ * names no person.
+ */
+export function describeEntityOutcomes(outcomes: EntityLegOutcome[], names?: Map<string, string>): string {
   if (outcomes.length === 0) return "no director, trustee or authorised signatory to message"
+  const ordinal = new Map<string, number>()
+  const label = (clientId: string) => {
+    if (names) return names.get(clientId) ?? clientId
+    if (!ordinal.has(clientId)) ordinal.set(clientId, ordinal.size + 1)
+    return `recipient ${ordinal.get(clientId)}`
+  }
   return outcomes
-    .map((o) => `${names.get(o.clientId) ?? o.clientId} ${o.channel.toLowerCase()}: ${o.status}${o.reason ? ` (${o.reason})` : ""}`)
+    .map((o) => `${label(o.clientId)} ${o.channel.toLowerCase()}: ${o.status}${o.reason ? ` (${o.reason})` : ""}`)
     .join("; ")
 }
 

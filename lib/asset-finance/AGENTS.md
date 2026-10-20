@@ -52,3 +52,4 @@
 - An issuance's input snapshot is personal data kept as long as its PDF; a
   purge must keep `ASSET_NCA_QUOTE_ISSUED` audit rows (DB-immutable). See
   SPEC.md §4 in docs/asset-finance/evidence/lender-owned-templates/.
+- Dealer deals (`dealerId`, `lib/dealer/AGENTS.md`): staff submit 409s them (accept only); the borrower-figure graph never imports `lib/dealer/*`; one preview solver, `deal-preview.ts`.

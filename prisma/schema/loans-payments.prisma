@@ -199,6 +199,7 @@ model Loan {
   commercialCancellationEvent CommercialCancellation? @relation("CommercialCancellationEvent")
   contractRates              ContractRate[]
   conversations              Conversation[]
+  dealerCommissionLines      DealerCommissionLine[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]
   disbursementReversals      DisbursementReversal[]

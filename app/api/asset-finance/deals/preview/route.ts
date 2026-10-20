@@ -5,13 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseDealPreview } from "@/lib/asset-finance/deal-input"
-import { solveWithRate } from "@/lib/asset-finance/deal-structure"
-import { NCA_ASSET_CAPS, resolvedAssetFinanceNcaCapProblems } from "@/lib/asset-finance/nca-caps"
-import { solveNcaDealStructure } from "@/lib/asset-finance/nca-structure"
-import { isLeaseTerms, priceLeaseTerms } from "@/lib/asset-finance/lease-structure"
-import { isLeaseContract } from "@/lib/asset-finance/lease-input"
-import { leaseScheduleView } from "@/lib/asset-finance/lease-view"
-import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
+import { previewDealStructure } from "@/lib/asset-finance/deal-preview"
 
 /**
  * Preview a deal structure (manage_asset_finance). Writes nothing: reads the
@@ -20,7 +14,8 @@ import { loadRateOn, NoVatRateError } from "@/lib/vat/vat-rate"
  * part of a create (lib/asset-finance/deal-input.ts). A structure that cannot
  * be solved is an answer about the input, not a failed request: 200 with
  * `{ error }` (the solver's reason) and no schedule. 400 for malformed fields,
- * 422 when the asset is not on the register.
+ * 422 when the asset is not on the register. The solving is shared with the
+ * dealer portal (lib/asset-finance/deal-preview.ts).
  */
 export async function POST(req: NextRequest) {
   const guard = await requireApiRole("READONLY")
@@ -42,50 +37,7 @@ export async function POST(req: NextRequest) {
     })
     if (!asset) return NextResponse.json({ error: "The asset is not on this lender's register" }, { status: 422 })
 
-    const genericSolved = await solveWithRate(prisma, tenant.id, asset, parsed.data.terms)
-    if (!genericSolved.ok) return NextResponse.json({ error: genericSolved.error })
-    // A lease: the rental schedule with VAT at the rate in force on the commencement date.
-    const { terms } = parsed.data
-    if (isLeaseTerms(terms)) {
-      const vat = await loadRateOn(prisma, genericSolved.startDate).catch((error: unknown) => {
-        if (error instanceof NoVatRateError) return null
-        throw error
-      })
-      if (!vat) return NextResponse.json({ error: `No VAT rate is in force on ${genericSolved.startDate}` })
-      const priced = priceLeaseTerms(asset, terms, genericSolved.rate, genericSolved.startDate, vat.rateTenThousandths)
-      if (!priced.ok) return NextResponse.json({ error: priced.error })
-      return NextResponse.json({
-        startDate: priced.startDate,
-        termDays: priced.termDays,
-        rate: priced.rate,
-        weights: terms.weights,
-        ...priced.result,
-        lease: leaseScheduleView(priced.lease, vat.rate),
-      })
-    }
-    const { contractType } = parsed.data
-    if (isLeaseContract(contractType)) return NextResponse.json({ error: "A lease needs its lease terms" }, { status: 400 })
-    const solved = parsed.data.nca
-      ? solveNcaDealStructure(asset, parsed.data.terms, genericSolved.rate, genericSolved.startDate)
-      : genericSolved
-    if (!solved.ok) return NextResponse.json({ error: solved.error })
-    if (parsed.data.nca) {
-      const problems = await resolvedAssetFinanceNcaCapProblems(prisma, tenant.id, solved.startDate, {
-        contractType,
-        annualRate: Number(solved.rate.annualRate),
-        principalCents: solved.result.financedAmountCents,
-        initiationFeeCents: parsed.data.terms.financedFeesCents,
-        monthlyServiceFeeCents: NCA_ASSET_CAPS.monthlyServiceFeeCents,
-      })
-      if (problems === null) return NextResponse.json({ error: "No approved REPO rate exists for the NCA cap on the deal start date" })
-      if (problems.length > 0) return NextResponse.json({ error: problems[0].message })
-    }
-    return NextResponse.json({
-      startDate: solved.startDate,
-      termDays: solved.termDays,
-      rate: solved.rate,
-      weights: parsed.data.terms.weights,
-      ...solved.result,
-    })
+    const { status, body } = await previewDealStructure(tenant.id, parsed.data, asset)
+    return NextResponse.json(body, { status })
   })
 }

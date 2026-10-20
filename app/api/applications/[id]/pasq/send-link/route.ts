@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { recordedCallerIp } from "@/lib/rate-limit"
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         pasqDocumentId: true,
         pasqDocumentSha256: true,
         pasqAcknowledgedAt: true,
-        client: { select: { phone: true, whatsapp: true, email: true, firstName: true, lastName: true } },
+        client: { select: { phone: true, whatsapp: true, email: true, firstName: true, lastName: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
       },
     })
     if (!application) {
@@ -102,6 +103,12 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
       return NextResponse.json({
         error: "The consumer has already acknowledged this quotation.",
       }, { status: 409 })
+    }
+
+    // Contact details a dealer typed may be the dealer's own: nothing goes to
+    // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+    if (dealerContactUnverified(application.client)) {
+      return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED }, { status: 409 })
     }
 
     // The destination is ALWAYS the number on the client record — never a

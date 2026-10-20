@@ -353,13 +353,21 @@ Every variable the app reads, required or optional per integration, with what se
 
 ## Not covered
 
-- Scheduling: the nightly dunning chain runs in-process, once a SAST day on one
-  replica (a `CronRunClaim` row per job and day): `dpd-update` 02:00, `escalations`
-  02:30, `reminders` 07:00, each sweeping every ACTIVE tenant
-  (`lib/registry/cron-jobs/091-dunning.ts`). Do NOT also point an external timer at
-  those three routes: the claim covers only the in-process scheduler, so a second
-  caller would run them twice (the routes stay callable with `x-cron-secret` for a
-  manual run). `cleanup-notifications`, `email-poll`, `lead-task-reminders` and
+- Scheduling: the nightly dunning chain runs in-process, each job sweeping every
+  ACTIVE tenant (`lib/registry/cron-jobs/091-dunning.ts`): `dpd-update` 02:00 (every
+  replica; it is idempotent and sends nothing), `escalations` 07:00 and `reminders`
+  07:30 (one replica a day, a `CronRunClaim` row per job and day; no borrower
+  message goes before 07:00 SAST). Both are fired again 30 and 60 minutes later,
+  which proceeds only over a FAILED run or one whose heartbeat stopped, and
+  `reminders` wait until `escalations` has settled (DONE, or its 08:00 firing has
+  passed with nothing running), so they see its DEFAULTED flips. Do NOT also point an external timer at those three routes: the claim
+  covers only the in-process scheduler, so a second caller would run them twice
+  (the routes stay callable with `x-cron-secret` for a manual run, and a re-run
+  the same day is mostly harmless: reminders are deduped by LoanNote, idempotency
+  key and reservation, escalations by their notes and reservation, dpd-update is
+  idempotent). `arrangement-check` and `default-charges` also sweep every tenant
+  but are NOT single-run: on a multi-replica deployment each replica runs them.
+  `cleanup-notifications`, `email-poll`, `lead-task-reminders` and
   `messaging-retry` still need an external scheduler calling them with
   `x-cron-secret` (the ownership comment in
   `lib/registry/cron-jobs/100-external-scheduler.ts`); nothing here installs one.

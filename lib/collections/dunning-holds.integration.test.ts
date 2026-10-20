@@ -57,18 +57,28 @@ const db = new PrismaClient()
 
 let tenant: ChargesTenant
 const seeded: SeededHoldLoan[] = []
+let optedOut: SeededHoldLoan
 
-suite.sequential("dunning holds on the real reminder queries (real Postgres)", () => {
+suite.sequential("dunning holds on the real reminder queries (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
-    await seedDefaultMessageTemplates(db, tenant.tenantId, "Acme Lending")
     await db.commsSettings.upsert({
       where: { tenantId: tenant.tenantId },
       create: { tenantId: tenant.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
       update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
     })
+    // The email leg needs the tenant's email provider and the seeded `payment_reminder_email` template.
+    await db.emailConfig.create({
+      data: { tenantId: tenant.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender", fromAddress: "sender@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
+    })
+    await seedDefaultMessageTemplates(db, tenant.tenantId, "Acme Lending")
     const second = await createSecondProduct(db, tenant.tenantId)
     for (const c of HOLD_CASES) seeded.push(await seedHoldLoan(db, tenant, second, c))
+    // Not held, but the borrower has revoked service comms on email.
+    optedOut = await seedHoldLoan(db, tenant, second, { name: "opted out of email", held: false })
+    await db.contactConsent.create({
+      data: { tenantId: tenant.tenantId, contactId: optedOut.contactId, channel: "EMAIL", purpose: "SERVICE_COMMS", status: "REVOKED", source: "EMAIL_LIST_UNSUBSCRIBE" },
+    })
   })
   afterAll(async () => {
     await db.$disconnect()
@@ -79,13 +89,27 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", (
     sends.onSend = null
   })
 
-  it("the reminders cron (lib/collections/reminders.ts) sends the WhatsApp reminder to each normal loan and to no held one", async () => {
+  it("the reminders cron (lib/collections/reminders.ts) sends the WhatsApp and email reminders to each normal loan and to no held one", async () => {
     await processPaymentReminders()
 
     expect(sends.whatsapp.length, "the harness must observe the WhatsApp leg").toBeGreaterThan(0)
     for (const s of seeded) {
       expect(sends.whatsapp.includes(toWaJid(s.whatsapp)), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
     }
+
+    // The 7-day email leg goes through sendMessage (consent, holds, Message.dunning): each
+    // normal loan is emailed once, a held loan never, an opted-out borrower gets nothing.
+    expect(sends.email.length, "the harness must observe the email leg").toBeGreaterThan(0)
+    for (const s of seeded) {
+      expect(sends.email.filter((to) => to === s.email), `${s.name}: ${s.held ? "must be held" : "must be emailed once"}`).toHaveLength(s.held ? 0 : 1)
+    }
+    expect(sends.email.filter((to) => to === optedOut.email), "an opted-out email address is not sent to").toHaveLength(0)
+    // ...while that borrower's other channel is unaffected: consent is per channel.
+    expect(sends.whatsapp).toContain(toWaJid(optedOut.whatsapp))
+
+    const messages = await db.message.findMany({ where: { tenantId: tenant.tenantId, channel: "EMAIL" }, select: { dunning: true, status: true } })
+    expect(messages.length).toBeGreaterThan(0)
+    expect(messages.every((m) => m.dunning), "email reminders are dunning messages").toBe(true)
   })
 
   it("the fragment itself, on the real tables, selects the normal loans and no held one", async () => {
@@ -105,6 +129,21 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", (
       sends.onSend = async (to) => {
         if (!fresh.some((f) => toWaJid(f.whatsapp) === to)) return false
         for (const f of fresh) if (toWaJid(f.whatsapp) !== to) await record(f.loanId)
+        return true
+      }
+      await processPaymentReminders()
+      expect(sends.whatsapp.filter((to) => fresh.some((f) => toWaJid(f.whatsapp) === to))).toHaveLength(1)
+    })
+  })
+
+  // The loans are selected ACTIVE at the start of a run; one that stops being ACTIVE since (dpd-update defaulting it
+  // at 90 DPD, a write-off, a settlement) must not be reminded: the per-send recheck is status-aware too.
+  describe("a loan that stops being ACTIVE mid-run", () => {
+    it("is not reminded after that: the remaining loans of the run are skipped", async () => {
+      const fresh = await Promise.all([0, 1, 2].map((i) => seedHoldLoan(db, tenant, tenant.productId, { name: `status mid-run ${i}`, held: false })))
+      sends.onSend = async (to) => {
+        if (!fresh.some((f) => toWaJid(f.whatsapp) === to)) return false
+        for (const f of fresh) if (toWaJid(f.whatsapp) !== to) await db.loan.update({ where: { id: f.loanId }, data: { status: "DEFAULTED" } })
         return true
       }
       await processPaymentReminders()

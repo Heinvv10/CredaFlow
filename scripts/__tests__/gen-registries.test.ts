@@ -136,6 +136,31 @@ describe("gen-registries", () => {
     ).rejects.toThrow(/not a valid cron expression/)
   })
 
+  describe("`after`: a job that waits for another single-run job", () => {
+    const job = (route: string, schedule: string, extra = "singleRun: true") =>
+      `{ route: "${route}", owner: "in-process", schedule: "${schedule}", freshnessMinutes: 60, ${extra} }`
+    const jobs = (entries: string[]) => repo({ "lib/registry/cron-jobs/a.ts": `export default [${entries.join(", ")}]` })
+
+    it("accepts a single-run job that waits for an earlier single-run job", async () => {
+      const out = await buildRegistries(jobs([job("first", "0 7 * * *"), job("second", "30 7 * * *", 'singleRun: true, after: "first"')]))
+      expect(out["lib/registry/generated/cron-jobs.ts"]).toContain(`"after": "first"`)
+    })
+
+    it("refuses a waiting job that is not itself single-run: it has no firings of its own to wait with", async () => {
+      await expect(buildRegistries(jobs([job("first", "0 7 * * *"), job("second", "30 7 * * *", 'after: "first"')]))).rejects.toThrow(/second: after "first" needs second to be singleRun/)
+    })
+
+    it("refuses an `after` that is not a single-run in-process job", async () => {
+      await expect(buildRegistries(jobs([job("first", "0 7 * * *", "freshnessMinutes: 60"), job("second", "30 7 * * *", 'singleRun: true, after: "first"')]))).rejects.toThrow(/after "first" must name a singleRun in-process job/)
+      await expect(buildRegistries(jobs([job("second", "30 7 * * *", 'singleRun: true, after: "nope"')]))).rejects.toThrow(/after "nope" must name a singleRun in-process job/)
+    })
+
+    it("refuses a job whose final firing is not after the final firing of the job it waits for", async () => {
+      await expect(buildRegistries(jobs([job("first", "30 7 * * *"), job("second", "0 7 * * *", 'singleRun: true, after: "first"')]))).rejects.toThrow(/final firing must come after first's/)
+      await expect(buildRegistries(jobs([job("first", "0 7 * * *"), job("second", "0 7 * * *", 'singleRun: true, after: "first"')]))).rejects.toThrow(/final firing must come after first's/)
+    })
+  })
+
   it("refuses a field the owner does not take, so a schedule is never silently dropped", async () => {
     await expect(
       buildRegistries(

@@ -34,6 +34,7 @@
  *   credit note Dr the income the invoice credited (spread pro rata), Dr OUTPUT_VAT; Cr LEASE_DEBTORS, on its issue date
  *   fund        maintenance fund movements; a lessee-settled fund is the lessee's
  *               money, a lender-risk fund's claims are an expense.
+ * Any contract: dealer commission and its payment (lib/accounting/sources-dealer-commission.ts).
  * Receipts, charges and the write-off are the generic sources, on the loan's
  * receivable role. Depreciation and the net book value of a leased asset sold
  * or recovered stay in the lender's fixed-asset register: documented, not posted.
@@ -46,6 +47,7 @@
  * // invoice is untouched (a dealer's own credit note is the accountant's entry), and the schedule is settled separately (DESIGN.md).
  */
 import { addTo, before, type DesiredSource, type EventType, type SourceCreditNote, type SourceInvoice, type SourceLoan, type Vector } from "./source-types"
+import { dealerCommissionSources } from "./sources-dealer-commission"
 import { recoverySources } from "./sources-recovery"
 import { receiptSources } from "./sources-receipts"
 import { adjustment, chargeSources, raisedOn, writtenOffAt } from "./sources-shared"
@@ -208,5 +210,6 @@ export function assetFinanceSources(loan: SourceLoan, asOf: Date): DesiredSource
   out.push(...chargeSources(loan, asOf, true, null))
   out.push(...receiptSources(loan, asOf, writtenOffAt(loan, asOf)))
   out.push(...recoverySources(loan, asOf, out))
+  out.push(...dealerCommissionSources(loan, asOf))
   return out
 }

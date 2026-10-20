@@ -121,8 +121,8 @@ image (`deploy.sh <dir> <image>`) so the container is recreated with the new val
 
 - [ ] TLS and DNS in front of `127.0.0.1:<port>`; `TRUSTED_PROXY` set to the proxy count.
 - [ ] `NEXTAUTH_URL`/`AUTH_URL` equal the staff origin, `PORTAL_NEXTAUTH_URL` the portal origin, and the proxy routes each host to its own port.
-- [ ] `dpd-update`, `escalations` and `reminders` run in-process (02:00, 02:30 and 07:00 SAST,
-      one replica a day): install **no** external timer for them. `CRON_SECRET` must be set,
+- [ ] `dpd-update`, `escalations` and `reminders` run in-process (02:00, 07:00 and 07:30 SAST;
+      the last two on one replica a day): install **no** external timer for them. `CRON_SECRET` must be set,
       or the in-process scheduler does not start. Still external and not installed by these
       scripts: `cleanup-notifications`, `email-poll`, `lead-task-reminders`, `messaging-retry`.
 - [ ] Nightly `backup.sh` and a weekly `restore.sh … --drop-scratch` in cron (lines in

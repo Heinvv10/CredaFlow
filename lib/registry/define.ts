@@ -50,10 +50,19 @@ export type CronJob =
        * Every replica schedules every in-process job, so a job that must not
        * run twice in a SAST day (borrower comms) sets this: the scheduler
        * claims (route, SAST day) in the database first and only the replica
-       * that wins calls the route (lib/ops/cron-run-claim.ts). Daily jobs only:
-       * the claim is per day.
+       * that wins calls the route. It is also fired 30 and 60 minutes later,
+       * and a later firing runs only over a FAILED or dead run
+       * (lib/ops/cron-run-claim.ts). Once-a-day schedules only.
        */
       singleRun?: boolean
+      /**
+       * The singleRun job whose results this one reads (and this one must be
+       * singleRun too). It is not fired until that job has settled today: DONE, or
+       * its final scheduled firing has passed with no runner alive on it, so a retry
+       * of the first never overlaps this one (lib/ops/cron-run-claim.ts,
+       * `cronSettledToday`). This job's final firing must come after the other's.
+       */
+      after?: string | null
     }
   | { route: string; owner: "external" }
   | { route: string; owner: "unwired"; reason: string }

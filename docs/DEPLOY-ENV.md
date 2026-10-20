@@ -9,13 +9,14 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | Variable | Needed | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_TENANT_SLUG` | required | the `Tenant.slug`; baked at build and read at runtime |
-| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin; also the base for the in-process cron scheduler's calls and reset links |
+| `NEXTAUTH_URL`, `AUTH_URL` | required | staff public origin and the base of reset links. The in-process cron scheduler does NOT call it: it calls this server on loopback (`http://127.0.0.1:$PORT`, default 3300) and sends this origin's host as the `Host` header, so a run is never cut by the TLS proxy's timeout (nginx 60 s, Cloudflare 100 s). |
 | `STAFF_AUTH_SECRET`, `PORTAL_AUTH_SECRET` | required | generated, distinct, in `secrets/auth.env`; become each container's `AUTH_SECRET`. Never fall back to a shared one |
 | `PORTAL_NEXTAUTH_URL`, `PORTAL_PORT` | required | portal origin (becomes its `NEXTAUTH_URL` and `AUTH_URL`) and host port |
 | `NEXTAUTH_SECRET` | required | generated; insurance disclosure tokens. Must differ from both auth secrets |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | required | generated; compose builds `DATABASE_URL` |
 | `APP_PORT`, `APP_BIND` | required / optional | staff host port (compose only, not an app variable); bind address, default `127.0.0.1` |
 | `CRON_SECRET` | required | gates `app/api/cron/*`; unset, the scheduler in `instrumentation.ts` is not registered |
+| `CRON_BASE_URL` | optional | where the in-process scheduler sends its calls instead of loopback (no `Host` is sent with it). Set it only if the server does not listen on `127.0.0.1:$PORT` inside its own container; the image binds `HOSTNAME=0.0.0.0` and `PORT=3300`. The call has a 55 minute ceiling, no other timeout |
 | `INTERNAL_API_SECRET` | required | bearer for `/api/notifications/*` |
 | `UNSUB_TOKEN_SECRET` | required | unsubscribe links; templated emails are refused without it |
 | `WABA_ENC_KEY` | required | 32 bytes base64; seals stored email and WhatsApp credentials. Losing it orphans them |
@@ -56,6 +57,7 @@ Provider credentials are per lender: TenantConfig columns sealed with `WABA_ENC_
 | Document OCR | `VLM_API_URL`, `VLM_MODEL`; hosted endpoint (synthetic data only): `VLM_API_KEY` + `VLM_ALLOW_HOSTED=true` + `DEMO_MODE=true`, https |
 | Links | `NEXT_PUBLIC_PORTAL_LOGIN_URL` or `NEXT_PUBLIC_PORTAL_URL` (build; portal links are omitted or refused without), `NEXT_PUBLIC_PORTAL_ORIGIN`, `PORTAL_PUBLIC_ORIGIN`, `NEXT_PUBLIC_WEBSITE_URL`, `NEXT_PUBLIC_APP_URL`, `STAFF_APP_HOST`, `TENANT_HOST_MAP` |
 | Operator console | `OPERATOR_APP_HOST` (the one host that serves `/operator` and takes operator sign-ins; it serves nothing else, and links to it reuse `NEXTAUTH_URL`'s scheme and port; unset = no operator sign-in anywhere). Invites and reset links the console sends use `SMTP_*`; unset, nothing is sent and the console says so. Every console write must be same-origin: the app compares the browser's `Origin` with the request's `Host`, so the reverse proxy must pass the original Host unchanged (nginx `proxy_set_header Host $host;`, not `$proxy_host`, and no explicit `:443`), or every console write is refused 403 |
+| Dealer portal | `DEALER_APP_HOST` (the one host that serves `/dealer` and `/api/dealer` and takes dealer sign-ins; it serves nothing else, must differ from `STAFF_APP_HOST` and `OPERATOR_APP_HOST`, and runs on the staff container, not `APP_MODE=client`; add it to `TENANT_HOST_MAP` for its lender, or the subdomain fallback reads it as a slug; set-password links reuse `NEXTAUTH_URL`'s scheme and port; unset = no dealer sign-in anywhere and the dealer paths 404). The lender must also switch the portal on (asset finance on; only a demo lender until dealer 2FA ships). Writes must be same-origin, so the reverse proxy passes the original Host as for the console |
 | Insurance | `CREDIT_LIFE_AUTO_BUNDLE_ENABLED`, `CREDIT_LIFE_AUTO_BUNDLE_THRESHOLD_CENTS`, `FSP_QUICKQUOTE_*`, `DOCUMENT_SIGNUM_ENABLED` |
 | Analytics | `NEXT_PUBLIC_MATOMO_URL`, `_MATOMO_SITE_ID`, `_MATOMO_BLOCKED_HOSTS`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_POSTHOG_KEY`, `_POSTHOG_HOST` (all build-time) |
 | Demo only, leave unset | `DEMO_MODE` and friends, `TURNSTILE_DEV_BYPASS` |

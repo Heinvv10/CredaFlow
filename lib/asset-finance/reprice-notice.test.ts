@@ -25,14 +25,14 @@ function db(rows: Array<{ client: { id: string } }>) {
 }
 
 describe("queueRepriceNotice recipients", () => {
-  it("are the entity's servicing contacts: active acting roles, no recorded death, once each", async () => {
+  it("are the entity's servicing contacts: active acting roles, no recorded death, no unverified dealer-typed contact, once each", async () => {
     const { handle, relFindMany } = db([{ client: { id: "c-1" } }, { client: { id: "c-1" } }, { client: { id: "c-2" } }])
     expect(await queueRepriceNotice(handle, notice)).toEqual(["c-1", "c-2"])
     expect(relFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         tenantId: "t1", entityId: "ent-1", active: true,
         role: { in: ["DIRECTOR", "TRUSTEE", "AUTHORISED_SIGNATORY"] },
-        client: { deceasedAt: null },
+        client: { deceasedAt: null, OR: [{ createdByDealerId: null }, { dealerContactVerifiedAt: { not: null } }] },
       },
     }))
   })

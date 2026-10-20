@@ -1,11 +1,15 @@
 /**
  * Payment Reminder Cron — checks active loans and sends reminders based on due dates.
  *
- * Every reminder is sent through lib/messaging/sendMessage() (consent and block
- * gate, WhatsApp kill switches, channel-aware provider routing, Message row with
- * `dunning` set, Conversation thread, audit trail). There is no other path: the
- * direct BulkSMS leg that used to run while MESSAGING_NEW_SEND_COLLECTIONS was
- * unset had no opt-out, block or kill-switch gate, and was retired.
+ * Every reminder leg (SMS, WhatsApp, the pre-due email, every entity leg) is
+ * sent through lib/messaging/sendMessage() (consent and block gate, WhatsApp kill
+ * switches, channel-aware provider routing, Message row with `dunning` set,
+ * Conversation thread, audit trail). There is no other path: the direct BulkSMS
+ * leg that used to run while MESSAGING_NEW_SEND_COLLECTIONS was unset had no
+ * opt-out, block or kill-switch gate, and was retired. Each leg's once-per-day
+ * reservation is sendMessage's idempotency key: a Message row committed under a
+ * database-unique key before the provider is called, so an overlapping run gets
+ * the existing row back instead of sending again.
  *
  * The trigger schedule + verbatim message text live in the TRIGGERS array
  * below — preserved verbatim from pre-cutover so the cover legal voice and
@@ -20,7 +24,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { triggerNotification } from "@/lib/notifications"
-import { formatDate, formatZAR } from "@/lib/utils"
+import { escapeHtml, formatDate, formatZAR } from "@/lib/utils"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
 import { whatsappRefusalForTenant } from "@/lib/whatsapp/kill-switch"
@@ -31,8 +35,12 @@ import {
   sendMessage,
   SendBlockedError,
 } from "@/lib/messaging/send"
-import { lookupContactByChannelValue, normalisePhone, toWaJid } from "@/lib/contact/identity"
-import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
+import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
+import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
+import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
 import type { MessageTemplate, MsgStatus } from "@prisma/client"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
@@ -40,7 +48,9 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
 import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
-import { isLoanHeld } from "@/lib/collections/client-holds"
+import { nextInstalmentOwed, nothingOwed } from "@/lib/collections/amount-owed"
+import { isLoanRemindable } from "@/lib/collections/client-holds"
+import { REMINDER_DAYS_UNTIL_DUE, sastDaysBetween } from "@/lib/collections/reminder-offsets"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -80,17 +90,24 @@ interface ReminderResult {
   smsChannelOff: number
   /** WhatsApp legs not dispatched because WhatsApp is off (WA_ENABLED or the tenant switch). Not an error. */
   whatsappChannelOff: number
-  /** Tenant-level setup problems that skipped a leg for the whole run (an enabled channel's template). Not an error. */
-  warnings: number
+  /** includes each failed tenant */
   errors: number
   details: string[]
+  /** ACTIVE tenants swept, and the ones whose run threw */
+  tenants: number
+  failedTenants: number
+  /** Tenant-level conditions that skipped a leg for the tenant (a missing template or provider). Not errors. */
+  warnings: number
 }
 
 interface ReminderTrigger {
   daysUntilDue: number
   noteType: string
-  channels: Array<"sms" | "whatsapp">
+  channels: Array<"sms" | "whatsapp" | "email">
   getMessage: (ctx: MessageContext) => string
+  /** The email leg's subject and, where the SMS copy does not suit an email, its text. */
+  emailSubject?: (ctx: MessageContext) => string
+  emailText?: (ctx: MessageContext) => string
   /** WABA_BODY_TEMPLATES event the WhatsApp leg sends. Required when
    *  `channels` includes "whatsapp". */
   waTemplateEvent?: string
@@ -109,34 +126,45 @@ interface MessageContext {
   phone: string
 }
 
+/** The default templates this cron (and the loan_overdue notification it raises) sends through; not the OTP or portal rows. */
+const REMINDER_TEMPLATE_KEY = /^(payment_reminder_|entity_reminder_|entity_payment_(due|overdue)_|loan_overdue)/
+
+/** The consumer and the entity email templates the pre-due email leg needs. */
+const EMAIL_LEG_TEMPLATE_KEYS = ["payment_reminder_email", "entity_reminder_email"] as const
+
 export const TRIGGERS: ReminderTrigger[] = [
   {
-    daysUntilDue: 7,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_7d,
     noteType: "reminder_7d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_7d",
+    emailSubject: (ctx) => `Payment reminder: ${ctx.amount} due on ${ctx.date}`,
+    emailText: (ctx) =>
+      `Hi ${ctx.firstName}, your loan payment of ${ctx.amount} is due on ${ctx.date}. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
     getMessage: (ctx) =>
       `Hi ${ctx.firstName}, your loan payment of ${ctx.amount} is due on ${ctx.date}. Ref: ${ctx.loanRef}. Reply STOP to opt out.`,
   },
   {
-    daysUntilDue: 1,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_1d,
     noteType: "reminder_1d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_1d",
+    emailSubject: (ctx) => `Payment due tomorrow: ${ctx.amount} on ${ctx.loanRef}`,
     getMessage: (ctx) =>
       `Reminder: ${ctx.amount} due TOMORROW (${ctx.date}) on loan ${ctx.loanRef}. Please ensure funds are available. ${ctx.lenderName}`,
   },
   {
-    daysUntilDue: 0,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_0d,
     noteType: "reminder_0d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_0d",
+    emailSubject: (ctx) => `Payment due today: ${ctx.amount} on ${ctx.loanRef}`,
     waTemplateSuccessor: "payment_reminder_0d_v3",
     getMessage: (ctx) =>
       `Your loan payment of ${ctx.amount} is due today. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
   },
   {
-    daysUntilDue: -1,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_overdue_1d,
     noteType: "reminder_overdue_1d",
     channels: ["sms", "whatsapp"],
     waTemplateEvent: "payment_reminder_overdue_1d",
@@ -144,7 +172,7 @@ export const TRIGGERS: ReminderTrigger[] = [
       `URGENT: Your payment of ${ctx.amount} on loan ${ctx.loanRef} was due yesterday. Please pay immediately to avoid additional charges.`,
   },
   {
-    daysUntilDue: -3,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_overdue_3d,
     noteType: "reminder_overdue_3d",
     channels: ["sms", "whatsapp"],
     waTemplateEvent: "payment_reminder_overdue_3d",
@@ -177,9 +205,9 @@ export const TRIGGERS: ReminderTrigger[] = [
  * is available — it is not taken because a QUEUED or reconciliation-pending
  * leg would then reinstate `loan_overdue`'s WhatsApp and reintroduce the
  * duplicate this exists to prevent. The cost of the choice: if the stage's
- * own WABA row is missing, its leg is blocked and `loan_overdue`'s is
+ * own WABA row is missing, its leg is skipped and `loan_overdue`'s is
  * suppressed, so no WhatsApp goes out — the borrower still gets the email,
- * and the missing row is already a loud per-loan error.
+ * and the missing row is already a counted warning for the tenant.
  */
 export function overdueWhatsAppSuppressionReason(
   trigger: Pick<ReminderTrigger, "noteType" | "channels">,
@@ -206,11 +234,6 @@ function localDayKey(d: Date): string {
   return sastCalendarDate(d)
 }
 
-function daysBetween(a: Date, b: Date): number {
-  const msPerDay = 86_400_000
-  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / msPerDay)
-}
-
 async function alreadyProcessedToday(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
   const todayStart = startOfDay(new Date())
   const todayEnd = new Date(todayStart)
@@ -229,19 +252,15 @@ async function alreadyProcessedToday(loanId: string, noteType: string, tenantId:
 
 /**
  * The `loan_overdue` notification of an overdue trigger, at most once per loan
- * per trigger per SAST day.
+ * per trigger per SAST day, for a consumer and an entity loan alike.
  *
- * The trigger's own LoanNote is what stops a same-day re-run, and it is written
- * only when a leg reached a borrower. A run on which no leg did (SMS off and no
- * WhatsApp number, every leg blocked by consent) left nothing behind, so the
- * next run fired the notification, and its email, again. `reminderNoted` says a
- * note of the trigger's own type was written this pass; otherwise a marker note
- * of its own type is, once the notification has gone, and it is what the next
- * run finds. A note is written only after the notification returned: one that
- * threw is retried on the next run, not recorded as sent.
- *
- * Awaited, so a failure lands in this run's report: logged and counted, never
- * swallowed.
+ * The trigger's own LoanNote is written only when a leg reached a borrower, so
+ * it cannot stop a same-day re-run on which no leg did (SMS off and no WhatsApp
+ * number, every leg blocked by consent): that run fired the notification, and
+ * its email, again. The reservation is taken before the notification and given
+ * back only when it threw, so a failure is retried by the next run and a success
+ * is not repeated. Awaited, so a failure lands in this run's report: logged and
+ * counted, never swallowed.
  */
 async function fireOverdueNotice(args: {
   tenantId: string
@@ -249,12 +268,12 @@ async function fireOverdueNotice(args: {
   clientId?: string
   trigger: ReminderTrigger
   arrearsDue: number
-  reminderNoted: boolean
   result: ReminderResult
 }): Promise<void> {
   const { tenantId, loan, trigger, result } = args
-  const markerType = `${trigger.noteType}_overdue_notice`
-  if (await alreadyProcessedToday(loan.id, markerType, tenantId)) {
+  const reservation = `send:${loan.id}:${trigger.noteType}:loan_overdue`
+  const reservedAt = new Date()
+  if (!(await reserveOnce(tenantId, reservation, reservedAt))) {
     result.details.push(`Skip ${loan.reference}: loan_overdue for ${trigger.noteType} already fired today`)
     return
   }
@@ -271,29 +290,20 @@ async function fireOverdueNotice(args: {
       suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
     })
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    console.error(`[reminders] ${loan.reference} loan_overdue notification failed: ${reason}`)
+    await releaseReservation(reservation, reservedAt)
+    // A database fault is the tenant's, not this loan's: retried (the per-loan loop rethrows it).
+    if (isDatabaseInfrastructureError(err)) throw err
+    console.error(`[reminders] ${loan.reference} loan_overdue failed:`, err)
     result.errors++
-    result.details.push(`Error ${loan.reference} loan_overdue: ${reason}`)
-    return
+    result.details.push(`Error ${loan.reference} loan_overdue: failed; see the server log`)
   }
-  if (args.reminderNoted) return
-  await prisma.loanNote.create({
-    data: {
-      tenantId,
-      loanId: loan.id,
-      type: markerType,
-      note: `Overdue notice (loan_overdue) triggered at the ${trigger.noteType} stage; no reminder leg was recorded this run.`,
-      createdBy: "system",
-    },
-  })
 }
 
 /**
  * One trigger for an entity-borrower loan: its WhatsApp leg to every person
- * who acts for the entity (never SMS), the trigger's LoanNote when a leg went
- * out, and, on an overdue trigger, the `loan_overdue` notification (email to
- * the same people) exactly as for a consumer.
+ * who acts for the entity (never SMS), and on a pre-due trigger its email leg,
+ * the trigger's LoanNote when a leg went out, and, on an overdue trigger, the
+ * `loan_overdue` notification (email to the same people) exactly as for a consumer.
  */
 async function remindEntityTrigger(args: {
   tenantId: string
@@ -305,14 +315,20 @@ async function remindEntityTrigger(args: {
   charges: number
   arrearsDue: number
   lender: { tradingName: string; collectionsPhone: string }
-  /** WhatsApp is off: the entity's only reminder channel is skipped before sendMessage. */
+  /** False when the tenant cannot send the entity email leg (see entityEmailSkipReason). */
+  emailLeg: boolean
+  /** WhatsApp is off: the WhatsApp leg is skipped before sendMessage. */
   skipWhatsApp: boolean
   result: ReminderResult
 }): Promise<void> {
   const { loan, trigger, result } = args
   const overdue = trigger.daysUntilDue < 0
-  let reminderNoted = false
-  if (trigger.channels.includes("whatsapp") && !args.skipWhatsApp) {
+  const channels: Array<"WHATSAPP" | "EMAIL"> = []
+  if (trigger.channels.includes("whatsapp") && !args.skipWhatsApp) channels.push("WHATSAPP")
+  // The pre-due triggers also email the people who act for the entity; an
+  // overdue one reaches them by email through loan_overdue below.
+  if (trigger.channels.includes("email") && !overdue && args.emailLeg) channels.push("EMAIL")
+  if (channels.length > 0) {
     const sent = await sendEntityReminder({
       tenantId: args.tenantId,
       loan,
@@ -321,39 +337,40 @@ async function remindEntityTrigger(args: {
       dueDate: args.dueDate,
       daysOverdue: overdue ? -trigger.daysUntilDue : undefined,
       lender: args.lender,
-      channels: ["WHATSAPP"],
+      channels,
       occurrence: `${trigger.noteType}:${localDayKey(args.today)}`,
       category: "collections",
     })
     if (sent.reached) {
       result.sent++
       await recordEntityReminder(args.tenantId, loan, trigger.noteType, sent)
-      reminderNoted = true
     }
+    // A database that is down is not a leg that failed: the tenant is retried (the legs that went out are recorded above).
+    if (sent.fault) throw sent.fault
     if (sent.failed) result.errors++
-    result.details.push(`Entity ${trigger.noteType} for ${loan.reference} (${loan.entityName}): ${sent.summary}`)
+    result.details.push(`Entity ${trigger.noteType} for ${loan.reference}: ${sent.summary}`)
   }
-  if (overdue) {
-    await fireOverdueNotice({ tenantId: args.tenantId, loan, trigger, arrearsDue: args.arrearsDue, reminderNoted, result })
-  }
+  if (overdue) await fireOverdueNotice({ tenantId: args.tenantId, loan, trigger, arrearsDue: args.arrearsDue, result })
 }
 
 export async function processPaymentReminders(): Promise<ReminderResult> {
   // The reminders cron runs without a request (cron-secret auth on
   // app/api/cron/reminders/route.ts, or the in-process scheduler), so it opens
-  // each ACTIVE tenant's own frame (lib/collections/tenant-sweep.ts). Without a
+  // each ACTIVE tenant's own frame (lib/ops/tenant-sweep.ts). Without a
   // frame the per-tenant-scoped Prisma extension cannot inject tenantId into the
   // queries sendMessage() makes on its own (Message updates without a
   // where:tenantId): it would throw TenantScopeError on every successful
   // dispatch, leaving rows stuck in QUEUED and ops unable to tell delivered
   // from undelivered.
-  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, warnings: 0, errors: 0, details: [] }
+  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0 }
   const outcomes = await sweepActiveTenants("reminders", (tenant) => processTenantReminders(tenant))
+  total.tenants = outcomes.length
   if (outcomes.length === 0) total.details.push("No active tenant found")
   for (const outcome of outcomes) {
     if (!outcome.ok) {
       total.errors++
-      total.details.push(tenantFailureDetail(outcome.tenant, outcome.error))
+      total.failedTenants++
+      total.details.push(tenantFailureDetail(outcome.tenant))
       continue
     }
     const r = outcome.value
@@ -362,15 +379,33 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
     total.reconciliationRequired += r.reconciliationRequired
     total.smsChannelOff += r.smsChannelOff
     total.whatsappChannelOff += r.whatsappChannelOff
-    total.warnings += r.warnings
     total.errors += r.errors
+    total.warnings += r.warnings
     total.details.push(...r.details)
   }
   return total
 }
 
+/**
+ * Seeds the default message templates the tenant lacks (idempotent: a row with
+ * the same key or (event, channel) is left alone, never updated). A tenant that
+ * predates a template, such as `payment_reminder_email`, gets it here instead of
+ * waiting on a deploy step someone has to remember. Never fatal: a failure is
+ * logged and the legs that need the missing row are skipped with a warning.
+ */
+async function ensureDefaultTemplates(tenant: SweepTenant): Promise<void> {
+  try {
+    const config = await prisma.tenantConfig.findUnique({ where: { tenantId: tenant.id }, select: { brandName: true } })
+    await seedDefaultMessageTemplates(prisma, tenant.id, config?.brandName?.trim() || tenant.name, { only: (t) => REMINDER_TEMPLATE_KEY.test(t.key) })
+  } catch (err) {
+    console.error(`[reminders] tenant ${tenant.id}: could not seed the default message templates:`, err)
+  }
+}
+
 async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResult> {
-  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, warnings: 0, errors: 0, details: [] }
+  await ensureDpdCurrent(tenant.id)
+  await ensureDefaultTemplates(tenant)
+  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0 }
 
   // Counted per trigger and reported ONCE at the end of the run, not as a
   // detail line per loan. An SMS-only trigger writes no LoanNote (there was no
@@ -405,6 +440,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   // "everyone was reached" when in fact nobody was. Hence the name, and the
   // wording of the line it prints.
   const noWaNumberByTrigger = new Map<string, number>()
+  const noEmailByTrigger = new Map<string, number>()
   const noLegDispatchedByTrigger = new Map<string, number>()
 
   // Hoist template lookups once per run, for the channels that are ON only: a
@@ -462,6 +498,35 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     }
   }
 
+  // The email leg (a consumer's payment_reminder_email, an entity's
+  // entity_reminder_email) needs its template and the tenant's email provider.
+  // A leg whose template is unusable, or a tenant with no active email
+  // provider, has that leg skipped for the whole run: logged once and counted as a
+  // tenant-level warning (the other legs are unaffected), never an error per loan,
+  // and never sent without a usable template. The consumer and the entity leg are
+  // judged on their own template: one unusable row does not switch the other off.
+  const [templateEmail, templateEntityEmail] = await Promise.all(
+    EMAIL_LEG_TEMPLATE_KEYS.map((key) => prisma.messageTemplate.findFirst({ where: { tenantId: tenant.id, key, channel: "EMAIL", active: true } })),
+  )
+  const emailConfig = await prisma.emailConfig.findUnique({ where: { tenantId: tenant.id }, select: { active: true } })
+  const emailProviderReason = emailConfig?.active ? null : "the tenant has no active email provider"
+  const emailTemplateReason = (template: MessageTemplate | null, key: string): string | null =>
+    !template
+      ? `template ${key} is missing or inactive`
+      : template.statutoryOverride !== false
+        ? `template ${key} has statutoryOverride=true, and collections reminders must not bypass consent`
+        : null
+  const consumerEmailSkipReason = emailProviderReason ?? emailTemplateReason(templateEmail, EMAIL_LEG_TEMPLATE_KEYS[0])
+  const entityEmailSkipReason = emailProviderReason ?? emailTemplateReason(templateEntityEmail, EMAIL_LEG_TEMPLATE_KEYS[1])
+  const skipped: Array<[string, string]> = emailProviderReason
+    ? [["", emailProviderReason]]
+    : [[" (consumer loans)", consumerEmailSkipReason], [" (entity loans)", entityEmailSkipReason]].filter((e): e is [string, string] => e[1] !== null)
+  for (const [which, reason] of skipped) {
+    result.warnings++
+    result.details.push(`Warning: email reminder leg skipped for tenant ${tenant.name}${which}: ${reason}`)
+    console.warn(`[reminders] tenant ${tenant.id}: email reminder leg skipped${which}: ${reason}`)
+  }
+
   const loans = await prisma.loan.findMany({
     where: {
       tenantId: tenant.id,
@@ -477,6 +542,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           lastName: true,
           phone: true,
           whatsapp: true,
+          email: true,
         },
       },
       entity: { select: { legalName: true } },
@@ -489,22 +555,13 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   const lenderName = identity.tradingName
   const companyPhone = identity.collectionsPhone
 
-  for (const loan of loans) {
+  const remindLoan = async (loan: (typeof loans)[number]): Promise<void> => {
     const today = new Date()
     const dueDate = loan.nextPaymentDate!
-    const daysUntil = daysBetween(today, dueDate)
+    const daysUntil = sastDaysBetween(today, dueDate)
 
-    // Find next unpaid schedule entry for amount. `totalDue > 0` skips an
-    // asset-finance skip period's R0.00 row, which stays PENDING for good
-    // (lib/asset-finance/schedule-records.ts); a consumer row is never zero.
-    // PARTIAL is unpaid too: leaving it out quoted "R 0.00" to borrowers whose
-    // unpaid rows a writer had stored PARTIAL.
-    const nextSchedule = await prisma.repaymentSchedule.findFirst({
-      where: { loanId: loan.id, tenantId: tenant.id, status: { in: ["PENDING", "PARTIAL", "OVERDUE"] }, totalDue: { gt: 0 } },
-      orderBy: { dueDate: "asc" },
-      select: { totalDue: true, totalPaid: true },
-    })
-    const paymentAmount = nextSchedule ? Math.max(0, nextSchedule.totalDue - nextSchedule.totalPaid) : 0
+    // What is left of the next unpaid instalment (lib/collections/amount-owed.ts, shared with the retry sweep).
+    const paymentAmount = await nextInstalmentOwed(prisma, { tenantId: tenant.id, loanId: loan.id })
 
     for (const trigger of TRIGGERS) {
       if (daysUntil !== trigger.daysUntilDue) continue
@@ -516,10 +573,11 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       }
 
       // The loans were selected at the start of the run, which can be long: a
-      // debt-review notice, a death or an arrangement recorded since then must
-      // stop this send. Checked per send, immediately before it.
-      if (await isLoanHeld({ tenantId: tenant.id, loanId: loan.id })) {
-        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, the loan or client was put on a dunning hold during this run`)
+      // debt-review notice, a death, an arrangement, or the loan leaving ACTIVE
+      // (defaulted, settled, written off) since then must stop this send. Checked
+      // per send, immediately before it (remindableLoanWhere, status included).
+      if (!(await isLoanRemindable({ tenantId: tenant.id, loanId: loan.id }))) {
+        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, the loan stopped being ACTIVE or the loan or client was put on a dunning hold during this run`)
         continue
       }
 
@@ -530,7 +588,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
 
       // Never tell a borrower they owe R 0.00: nothing unpaid on the schedule,
       // or an overdue trigger on a loan with no arrears, is no reminder at all.
-      if (paymentAmount + charges <= 0 || (trigger.daysUntilDue < 0 && arrearsDue <= 0)) {
+      if (nothingOwed({ paymentAmount, charges, arrearsAmount: loan.arrearsAmount, overdue: trigger.daysUntilDue < 0 })) {
         result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, nothing owed`)
         continue
       }
@@ -548,6 +606,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           loan: { id: loan.id, reference: loan.reference, entityId: loan.entityId, entityName: loan.entity.legalName },
           trigger, dueDate, today, paymentAmount, charges, arrearsDue,
           lender: { tradingName: lenderName, collectionsPhone: companyPhone },
+          emailLeg: entityEmailSkipReason === null,
           skipWhatsApp,
           result,
         })
@@ -565,6 +624,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       }
 
       const message = trigger.getMessage(ctx)
+      const emailText = trigger.emailText ? trigger.emailText(ctx) : message
       const channelsSent: string[] = []
       const channelsSimulated: string[] = []
       const channelsReconciliation: string[] = []
@@ -614,24 +674,32 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           continue
         }
 
-        // New path: route through sendMessage(). Channel-keyed Contact
-        // lookup, eligibility check (consent + block-status), Message
-        // row + Conversation thread + audit trail.
-        // No usable template for this ENABLED channel: already warned once for
-        // the tenant at the top of the run, so the leg is skipped here, quietly.
-        if (channel === "sms" && !templateSms) continue
-        if (channel === "whatsapp" && !templatesWa[trigger.noteType]) continue
-        const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : loan.client.phone
-        if (!rawPhone) {
-          result.errors++
-          result.details.push(`Error ${loan.reference} ${channel}: no phone on file`)
+        if (channel === "email" && consumerEmailSkipReason) continue
+        if (channel === "email" && !loan.client.email) {
+          noEmailByTrigger.set(trigger.noteType, (noEmailByTrigger.get(trigger.noteType) ?? 0) + 1)
           continue
         }
-        const channelEnum = channel === "whatsapp" ? "WHATSAPP" : "SMS"
-        const value = channel === "whatsapp" ? toWaJid(rawPhone) : normalisePhone(rawPhone)
+
+        // Route through sendMessage(): channel-keyed Contact lookup, eligibility
+        // check (consent + block-status), Message row + Conversation thread +
+        // audit trail. No usable template for this ENABLED channel: already warned
+        // once for the tenant at the top of the run, so the leg is skipped here, quietly.
+        if (channel === "sms" && !templateSms) continue
+        if (channel === "whatsapp" && !templatesWa[trigger.noteType]) continue
+        const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : channel === "email" ? loan.client.email! : loan.client.phone
+        // The report carries the loan reference and the problem, never the number or
+        // address: this body is returned over HTTP and held in logs.
+        const addressKind = channel === "email" ? "email address" : "phone number"
+        if (!rawPhone) {
+          result.errors++
+          result.details.push(`Error ${loan.reference} ${channel}: no ${addressKind} on file`)
+          continue
+        }
+        const channelEnum = channel === "whatsapp" ? "WHATSAPP" : channel === "email" ? "EMAIL" : "SMS"
+        const value = channel === "whatsapp" ? toWaJid(rawPhone) : channel === "email" ? normaliseEmail(rawPhone) : normalisePhone(rawPhone)
         if (!value) {
           result.errors++
-          result.details.push(`Error ${loan.reference} ${channel}: unparseable phone "${rawPhone}"`)
+          result.details.push(`Error ${loan.reference} ${channel}: unparseable ${addressKind}`)
           continue
         }
         const contact = await lookupContactByChannelValue(prisma, {
@@ -644,10 +712,10 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           // channel. Surface the gap — don't silently drop. Operator
           // backfills then re-runs.
           result.errors++
-          result.details.push(`Error ${loan.reference} ${channel}: no Contact row for ${value}`)
+          result.details.push(`Error ${loan.reference} ${channel}: no Contact row`)
           continue
         }
-        const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : templateSms!
+        const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : channel === "email" ? templateEmail! : templateSms!
         // WhatsApp: the discrete named vars its WABA body declares, from the
         // same ctx the SMS copy interpolates, so both quote one set of figures.
         const vars = channel === "whatsapp"
@@ -659,7 +727,9 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
               dueDate: ctx.date,
               supportPhone: ctx.phone,
             })
-          : { body: message }
+          : channel === "email"
+            ? { subject: trigger.emailSubject!(ctx), text: emailText, html: `<p>${escapeHtml(emailText)}</p>` }
+            : { body: message }
         try {
           // What this channel actually carries, for the LoanNote: the
           // WhatsApp leg sends its row's body, not the SMS text. Rendered
@@ -704,15 +774,16 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
               `Reconciliation required ${loan.reference} ${channel}: message ${err.messageRecord.id}; automatic replay blocked`,
             )
           } else {
+            // A database fault is the tenant's, not this loan's: retried (the per-loan loop rethrows it).
+            if (isDatabaseInfrastructureError(err)) throw err
+            console.error(`[reminders] ${loan.reference} ${channel} failed:`, err)
             result.errors++
-            const msg = err instanceof Error ? err.message : String(err)
-            result.details.push(`Error ${loan.reference} ${channel}: ${msg}`)
+            result.details.push(`Error ${loan.reference} ${channel}: failed; see the server log`)
           }
         }
       }
 
-      const reminderNoted = channelsSent.length > 0 || channelsSimulated.length > 0 || channelsReconciliation.length > 0
-      if (reminderNoted) {
+      if (channelsSent.length > 0 || channelsSimulated.length > 0 || channelsReconciliation.length > 0) {
         if (channelsSent.length > 0) result.sent++
         if (channelsSimulated.length > 0) result.simulated++
         if (channelsReconciliation.length > 0) result.reconciliationRequired++
@@ -787,10 +858,30 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           tenantId: tenant.id,
           loan: { id: loan.id, reference: loan.reference },
           clientId: loan.client.id,
-          trigger, arrearsDue, reminderNoted, result,
+          trigger, arrearsDue, result,
         })
       }
     }
+  }
+
+  let loansFailed = 0
+  for (const loan of loans) {
+    // A throw from any query for one loan (the already-sent check, the hold recheck, the charges
+    // replay, the LoanNote write, the entity send) is that loan's error, not the tenant's day.
+    try {
+      await remindLoan(loan)
+    } catch (err) {
+      // Except a fault that is the database's: that is the tenant's, and it is retried.
+      if (isDatabaseInfrastructureError(err)) throw err
+      console.error(`[reminders] ${loan.reference} failed:`, err)
+      result.errors++
+      loansFailed++
+      result.details.push(`Error ${loan.reference}: failed; see the server log`)
+    }
+  }
+  // Every loan failing is not a run of bad luck with loans: the tenant is broken, and the retry is for it.
+  if (loans.length > 0 && loansFailed === loans.length) {
+    throw new Error(`every one of the ${loans.length} loan(s) failed; see the errors logged above`)
   }
 
   const tally = (m: Map<string, number>) =>
@@ -818,6 +909,12 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   if (result.whatsappChannelOff > 0) {
     result.details.push(
       `Skipped ${result.whatsappChannelOff} whatsapp leg(s) this run: ${waRefusal} (${tally(waOffByTrigger)}).`,
+    )
+  }
+
+  if (total(noEmailByTrigger) > 0) {
+    result.details.push(
+      `Skipped ${total(noEmailByTrigger)} email leg(s) this run: no email address on file (${tally(noEmailByTrigger)}).`,
     )
   }
 

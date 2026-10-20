@@ -128,6 +128,15 @@ describe("written repricing notices", () => {
     expect(await dispatchRepriceNotices(db, "tenant-1", send)).toEqual({ completed: 0, pending: 1 })
     expect(send).not.toHaveBeenCalled()
   })
+  it("never releases a notice to contact details a dealer typed that staff have not verified", async () => {
+    const { db, loan, client } = setup()
+    loan.findFirst.mockResolvedValue({ clientId: null, entityId: "entity-1" } as never)
+    await dispatchRepriceNotices(db, "tenant-1", vi.fn(async () => ({ id: "m1", status: "SENT", sentAt: new Date() })) as never)
+    expect(client.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: [{ createdByDealerId: null }, { dealerContactVerifiedAt: { not: null } }] }),
+    }))
+  })
+
   it("rechecks active acting roles before releasing an entity's notice", async () => {
     const { db, loan, client } = setup()
     loan.findFirst.mockResolvedValue({ clientId: null, entityId: "entity-1" } as never)

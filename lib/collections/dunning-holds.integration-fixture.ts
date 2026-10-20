@@ -77,8 +77,12 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
       ...(o.inArrears ? { daysInArrears: 65, arrearsAmount: 100_000 } : {}),
     },
   })
+  // In arrears: the instalment fell due 65 days ago, so the nightly DPD pass
+  // (which escalations and reminders run first when it has not) reproduces the
+  // 65 DPD the loan row carries, instead of resetting it to 0.
+  const scheduleDue = o.inArrears ? new Date(sastStartOfDay(new Date()).getTime() - 65 * 86_400_000) : due
   await db.repaymentSchedule.create({
-    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: due, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
+    data: { tenantId: tenant.tenantId, loanId: loan.id, installmentNo: 1, dueDate: scheduleDue, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
   })
   if (o.status === "CANCELLED") {
     await db.$transaction(async (tx) => {
@@ -113,11 +117,13 @@ export async function seedHoldLoan(
       primaryEmail: email, primaryPhone: phone, primaryWaJid: `${whatsapp.slice(1)}@s.whatsapp.net`,
     },
   })
-  // The identities a reminder resolves its Contact through (lookupContactByChannelValue).
+  // The identities a reminder resolves its Contact through (lookupContactByChannelValue),
+  // the email one included: what sendMessage resolves an email recipient from.
   await db.contactIdentity.createMany({
     data: [
       { tenantId: tenant.tenantId, contactId: contact.id, channel: "SMS", value: normalisePhone(phone), source: "MANUAL" },
       { tenantId: tenant.tenantId, contactId: contact.id, channel: "WHATSAPP", value: toWaJid(whatsapp), source: "MANUAL" },
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "EMAIL", value: email, source: "MANUAL" },
     ],
   })
   const loan = await createLoan(db, tenant, client.id, { productId: tenant.productId, status: c.status, stage: c.stage, debtReview: c.debtReview, inArrears: opts.inArrears })

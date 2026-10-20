@@ -96,14 +96,6 @@ export const WABA_BODY_TEMPLATES: Record<string, string> = {
   payment_received:
     "Hi {{firstName}} ✅\n\nWe've received your payment of *{{amount}}*.\n\nOutstanding balance: *{{outstanding}}*. Thank you!",
 
-  // Wording carried over verbatim from WA_TEMPLATES.payment_due_3d. Its row is
-  // a NEW key (`payment_due_3d_whatsapp`), NOT the existing
-  // `payment_reminder_whatsapp` — that one is a literal `{{body}}` passthrough
-  // the collections cron used to send, before each of its WhatsApp triggers
-  // got its own row. No current code reads it.
-  payment_due_3d:
-    "Hi {{firstName}},\n\nReminder: A payment of *{{amount}}* is due on *{{dueDate}}*.\n\nPayment reference: *{{reference}}*\n\nPlease ensure funds are available. Log in to the portal to pay or view your schedule.",
-
   // Not a notification event — the inbox sends this. Meta forbids a body that
   // is only a parameter, so an agent can never deliver their own free text to
   // an out-of-window customer. This template exists to REOPEN the 24h window:
@@ -206,13 +198,6 @@ export function waTemplateVarsFor(
       return { firstName: src.firstName, amount: src.amount, dueDate: src.dueDate }
     case "payment_received":
       return { firstName: src.firstName, amount: src.amount, outstanding: src.outstanding }
-    case "payment_due_3d":
-      return {
-        firstName: src.firstName,
-        amount: src.amount,
-        dueDate: src.dueDate,
-        reference: src.reference,
-      }
     case "agent_reengagement":
       return { firstName: src.firstName }
     case "payment_reminder_7d":

@@ -170,6 +170,16 @@ describe("tenant-scope — ALS primitives", () => {
       "StatementAiUsage",
       // Lender-template provenance of issued asset-finance documents — non-null tenantId.
       "AssetDocumentIssuance",
+      // Dealer/broker portal and commission (slice 5 part A) — non-null tenantId.
+      "Dealer",
+      "DealerUser",
+      "DealerCommissionRate",
+      "DealerCommissionLine",
+      "DealerPayableRun",
+      "DealerPayableRunLine",
+      "DealerBankAccount",
+      "DealerConsentAttestation",
+      "DealerDocumentRequest",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

@@ -53,11 +53,6 @@ describe("payment-due WA templates quote the loan reference", () => {
   // reconciler matches on. A client who quotes it on their EFT gets an
   // EXACT match instead of a manual reconcile, so every payment-due
   // reminder must surface it.
-  it("payment_due_3d includes the payment reference", () => {
-    const msg = WA_TEMPLATES.payment_due_3d("Thabo", "R1 500.00", "15 Aug 2026", "LN-0007")
-    expect(msg).toContain("LN-0007")
-  })
-
   it("payment_due_today includes the payment reference", () => {
     const msg = WA_TEMPLATES.payment_due_today("Thabo", "R1 500.00", "LN-0007")
     expect(msg).toContain("LN-0007")

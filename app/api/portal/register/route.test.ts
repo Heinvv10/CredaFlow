@@ -255,6 +255,8 @@ describe("POST /api/portal/register — request-code mode (SIGN-02 enumeration s
         idNumber: "9001016000082",
         tenantId: "tenant-1",
         portalPassword: null,
+        // Never a dealer-captured client whose contact details staff have not verified.
+        OR: [{ createdByDealerId: null }, { dealerContactVerifiedAt: { not: null } }],
       },
     })
     expect(createClientOtp).toHaveBeenCalledTimes(1)

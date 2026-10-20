@@ -5,7 +5,7 @@ import { isPublicOperationalRoute } from "@/lib/public-routes"
 import { isQuickQuoteHost } from "@/lib/insurance/quickquote-config"
 import { isSharedClientApiPath } from "@/lib/proxy/shared-client-api"
 import { applyDemoHeaders } from "@/lib/config/demo-mode"
-import { operatorAppHost, staffAppHost } from "@/lib/config/deployment-urls"
+import { dealerAppHost, operatorAppHost, staffAppHost } from "@/lib/config/deployment-urls"
 import { enrolmentGate, isHeldAtEnrolment } from "@/lib/proxy/totp-enrolment"
 import { NO_ACCESS_PAGE } from "@/lib/proxy/no-access"
 import { isLoanBookPath, lacksLoanBook, NO_LOAN_BOOK_HOME, pathSegments } from "@/lib/security/loan-book-scope"
@@ -14,6 +14,7 @@ import { authBaseConfig } from "@/lib/auth-config"
 import { removeMiddlewareSessionRenewals, isCanonicalSignOutPost } from "@/lib/proxy/auth-endpoints"
 import { operatorWriteRefusal, stampRequest } from "@/lib/proxy/operator-read-only"
 import { operatorHostGate, operatorOffHostRefusal } from "@/lib/proxy/operator-host"
+import { dealerHostGate, dealerOffHostRefusal } from "@/lib/proxy/dealer-host"
 import { crossOriginWriteRefusal } from "@/lib/proxy/same-origin"
 import {
   buildTenantHeaders,
@@ -72,6 +73,13 @@ function route(req: NextAuthRequest): Response {
   }
   const offHostRefusal = operatorOffHostRefusal(path, req.auth?.user?.role)
   if (offHostRefusal) return offHostRefusal
+  // Likewise the dealer portal host (lib/proxy/dealer-host.ts).
+  const portalHost = dealerAppHost()
+  if (portalHost !== null && baseHostname === portalHost) {
+    return dealerHostGate(req, req.auth, stampRequest(buildTenantHeaders(req, resolveTenantSlug(req)), req.method, req.nextUrl.pathname), APP_MODE)
+  }
+  const dealerRefusal = dealerOffHostRefusal(path, req.auth?.user?.role)
+  if (dealerRefusal) return dealerRefusal
 
   const isLoginPage = req.nextUrl.pathname === "/login"
   const isPortalLoginPage = req.nextUrl.pathname === "/portal/login"
