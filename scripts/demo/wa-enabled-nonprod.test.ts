@@ -36,6 +36,9 @@ describe('non-production stacks pin WA_ENABLED=false in the repo', () => {
   it.each([
     ['docker-compose.demo-sim.yml'],
     ['docker-compose.staging.yml'],
+    // Restores a REAL lender backup (whatsappEnabled=true, sealed credentials)
+    // into a throwaway app; its compose file is a heredoc in the script.
+    ['scripts/lender/restore-drill.sh'],
   ])('%s sets the app service WA_ENABLED to exactly "false"', (file) => {
     expect(waEnabledOf(serviceEnvLines(read(file), 'app'))).toBe('false')
   })
@@ -56,6 +59,8 @@ describe('real-lender provisioning sets nothing', () => {
     ['scripts/lender/docker-compose.lender.yml'],
     ['.env.example'],
   ])('%s does not set WA_ENABLED, so a Cloud lender keeps sending', (file) => {
-    expect(read(file)).not.toMatch(/^\s*(-e\s+|export\s+)?WA_ENABLED\b/m)
+    // Any mention at all, not just a line-start assignment: a quoted, indented,
+    // inline or commented-in-place setting would still be a decision made here.
+    expect(read(file)).not.toContain('WA_ENABLED')
   })
 })

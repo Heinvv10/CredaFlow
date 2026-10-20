@@ -345,7 +345,11 @@ describe("dispatch", () => {
 })
 
 describe("dispatch WHATSAPP provider routing", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubEnv("WA_ENABLED", undefined)
+  })
+  afterEach(() => vi.unstubAllEnvs())
 
   it("routes WA_UNOFFICIAL to the bridge sender", async () => {
     vi.mocked(sendWhatsAppMessage).mockResolvedValue({ ok: true, messageId: "wa-1" })
