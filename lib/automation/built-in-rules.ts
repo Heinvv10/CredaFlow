@@ -22,30 +22,6 @@ const BUILT_IN_RULES: RuleSeed[] = [
     actionConfig: { taskTitle: "Stale lead needs follow-up", taskType: "REVIEW_STALE_LEAD", priority: "MEDIUM" },
   },
   {
-    name: "Payment due in 3 days — WA reminder",
-    description: "Send WhatsApp reminder to client 3 days before payment is due",
-    trigger: "PAYMENT_DUE",
-    condition: { paymentDueDays: 3 },
-    action: "SEND_WA",
-    actionConfig: { templateKey: "payment_due_3d" },
-  },
-  {
-    name: "DPD 1 — overdue WA notice",
-    description: "Send WhatsApp overdue notice on day 1 past due",
-    trigger: "DPD_THRESHOLD",
-    condition: { dpdThreshold: 1 },
-    action: "SEND_WA",
-    actionConfig: { templateKey: "payment_overdue_1d" },
-  },
-  {
-    name: "DPD 7 — formal WA notice + activity log",
-    description: "Send formal overdue WhatsApp message and log collections activity at 7 DPD",
-    trigger: "DPD_THRESHOLD",
-    condition: { dpdThreshold: 7 },
-    action: "SEND_WA",
-    actionConfig: { templateKey: "payment_overdue_7d", logActivity: true },
-  },
-  {
     name: "DPD 90 — Section 129 task",
     description: "Create an agent task to review Section 129 eligibility at 90 DPD",
     trigger: "DPD_THRESHOLD",
@@ -68,14 +44,6 @@ const BUILT_IN_RULES: RuleSeed[] = [
     condition: { onTimeCount: 3 },
     action: "CREATE_OPPORTUNITY",
     actionConfig: { opportunityType: "PERSONAL_LOAN", description: "Client has 3+ on-time payments — good upgrade candidate" },
-  },
-  {
-    name: "Loan paid in full — congratulations WA",
-    description: "Send congratulations WhatsApp message when a loan is fully repaid",
-    trigger: "LOAN_PAID_IN_FULL",
-    condition: {},
-    action: "SEND_WA",
-    actionConfig: { templateKey: "loan_paid_in_full" },
   },
 ]
 

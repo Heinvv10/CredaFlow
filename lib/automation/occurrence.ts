@@ -11,13 +11,3 @@ export const AUTOMATION_COOLDOWN_MS: Readonly<Record<string, number>> = {
 export function automationCooldownMs(trigger: string): number {
   return AUTOMATION_COOLDOWN_MS[trigger] ?? DEFAULT_COOLDOWN_MS
 }
-
-/**
- * Stable window identity for one trigger occurrence. The engine's rolling
- * cooldown still decides WHEN an entity is eligible; this key decides WHICH
- * eligible occurrence owns the durable Message reservation.
- */
-export function automationOccurrenceKey(trigger: string, at = new Date()): string {
-  const window = Math.floor(at.getTime() / automationCooldownMs(trigger))
-  return `${trigger.toLowerCase()}:window:${window}`
-}
