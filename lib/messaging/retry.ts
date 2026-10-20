@@ -5,7 +5,7 @@ import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
 import { contactDunningHold, loanDunningHold } from "@/lib/collections/client-holds"
 import { NOTICE_LOAN_STATUSES, REMINDABLE_LOAN_STATUS } from "@/lib/collections/dunning-holds"
 import { automatedDunningLoan } from "@/lib/messaging/dunning-category"
-import { dunningRetryVerdict } from "@/lib/messaging/dunning-window"
+import { dunningRetryVerdict, nextDunningWindowStart } from "@/lib/messaging/dunning-window"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
 
@@ -496,6 +496,7 @@ async function processRetryBatchLocked(opts: {
   let rescheduled = 0
   let failedPermanent = 0
   let expiredDunning = 0
+  const sweepStartedAt = Date.now()
 
   for (const msg of rows) {
     let claimedDispatchToken: string | null = null
@@ -548,11 +549,23 @@ async function processRetryBatchLocked(opts: {
         continue
       }
 
-      // Dunning goes out 07:00-20:00 SAST, on the day it was created: outside the window it stays due,
-      // and one not sent by the end of its day expires rather than say "due TOMORROW" a day late.
+      // Dunning goes out 07:00-20:00 SAST. Outside the window it waits: rescheduled to the next 07:00 so
+      // it stops heading every batch (oldest nextRetryAt first, `take: limit`). An automated reminder not
+      // sent by the end of its day expires rather than say "due TOMORROW" a day late; a staff reminder
+      // and a 60-DPD notice do not. Judged at the moment of THIS send (the sweep's clock plus the time
+      // it has been running), not the moment the sweep started.
       if (msg.dunning) {
-        const verdict = dunningRetryVerdict(msg.createdAt, now)
-        if (verdict === "wait") continue
+        const sendNow = new Date(now.getTime() + (Date.now() - sweepStartedAt))
+        const dunningKind = automatedDunningLoan(msg.idempotencyKey)
+        const verdict = dunningRetryVerdict(msg.createdAt, sendNow, dunningKind !== null && !dunningKind.notice)
+        if (verdict === "wait") {
+          // Guarded on status and retryCount: a concurrent change to the row is not overwritten.
+          await tx.message.updateMany({
+            where: { id: msg.id, tenantId: msg.tenantId, status: "RETRYING", retryCount: msg.retryCount },
+            data: { nextRetryAt: nextDunningWindowStart(sendNow) },
+          })
+          continue
+        }
         if (verdict === "expire") {
           const expiredNow = await tx.message.updateMany({
             where: { id: msg.id, tenantId: msg.tenantId, status: "RETRYING", retryCount: msg.retryCount },

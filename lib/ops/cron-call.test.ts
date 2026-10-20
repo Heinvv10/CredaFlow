@@ -1,7 +1,7 @@
 import http from "node:http"
 import type { AddressInfo } from "node:net"
-import { afterEach, describe, expect, it } from "vitest"
-import { callCronRoute, cronCallTarget, FAILED_TENANTS_HEADER } from "./cron-call"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { CALL_CEILING_MS, callCronRoute, cronCallTarget, FAILED_TENANTS_HEADER } from "./cron-call"
 
 let server: http.Server | undefined
 const listen = async (handler: http.RequestListener): Promise<string> => {
@@ -71,6 +71,24 @@ describe("callCronRoute", () => {
     const started = Date.now()
     await expect(callCronRoute(url, "GET", "s", { ceilingMs: 300 })).rejects.toThrow(/ceiling/)
     expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  // Two properties that no short test can observe directly, pinned where they are set.
+  it("keeps a ceiling long enough for a real nightly run, and finite", () => {
+    expect(CALL_CEILING_MS).toBeGreaterThanOrEqual(50 * 60_000)
+    expect(CALL_CEILING_MS).toBeLessThanOrEqual(2 * 60 * 60_000)
+  })
+
+  it("opens a connection of its own (agent: false): a pooled socket's idle timeout cannot cut a long run", async () => {
+    const url = await listen((_req, res) => void res.writeHead(200).end("{}"))
+    const request = vi.spyOn(http, "request")
+    try {
+      await callCronRoute(url, "GET", "s")
+      expect(request).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ agent: false }), expect.any(Function))
+      expect(request.mock.calls[0][1]).not.toHaveProperty("timeout")
+    } finally {
+      request.mockRestore()
+    }
   })
 
   it("rejects when the connection fails", async () => {

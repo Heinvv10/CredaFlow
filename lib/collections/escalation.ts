@@ -9,6 +9,7 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
 
@@ -200,7 +201,10 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
     },
   })
 
+  let loansFailed = 0
   for (const loan of loans) {
+    let loanErrored = false
+    let loanAdvanced = false
     for (const rule of RULES) {
       if (loan.daysInArrears < rule.minDays) continue
 
@@ -238,9 +242,19 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
         reserved = { key: reservation, at: reservedAt }
         const detail = await rule.action(ctx)
         result.processed++
+        loanAdvanced = true
         result.details.push(detail)
       } catch (err) {
-        if (reserved) await releaseReservation(reserved.key, reserved.at)
+        if (reserved) {
+          try {
+            await releaseReservation(reserved.key, reserved.at)
+          } catch (releaseErr) {
+            console.error(`[escalation] ${loan.reference} ${rule.noteType}: could not give the reservation back:`, releaseErr)
+          }
+        }
+        // A fault that is the database's is the tenant's, not this loan's: it is retried.
+        if (isDatabaseInfrastructureError(err)) throw err
+        loanErrored = true
         console.error(`[escalation] ${loan.reference} ${rule.noteType} failed:`, err)
         result.details.push(`Error ${loan.reference} ${rule.noteType}: failed; see the server log`)
         // This is a Section 129 legal notice / DEFAULTED status / commission
@@ -251,6 +265,11 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
         result.errors++
       }
     }
+    if (loanErrored && !loanAdvanced) loansFailed++
+  }
+  // Every loan failing means the tenant is broken, not that a few loans were: the retry is for it.
+  if (loans.length > 0 && loansFailed === loans.length) {
+    throw new Error(`every one of the ${loans.length} loan(s) failed; see the errors logged above`)
   }
 
   return result

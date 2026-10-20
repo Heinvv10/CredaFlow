@@ -6,6 +6,7 @@ vi.mock("@/lib/collections/reminders", () => ({ processPaymentReminders: vi.fn()
 
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { processPaymentReminders } from "@/lib/collections/reminders"
+import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/reminders"))
@@ -100,5 +101,19 @@ describe("GET /api/cron/reminders", () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect((await res.json()).failedTenants).toBe(1)
+  })
+
+  // The scheduler decides DONE or FAILED from this header (lib/ops/cron-call.ts): a route that stops sending
+  // it makes every run FAILED (the scheduler fails closed), and one that sends a wrong count hides a failure.
+  it.each([
+    ["a clean run", { failedTenants: 0, tenants: 2, errors: 0 }, 200, "0"],
+    ["a run where one of three tenants threw", { failedTenants: 1, tenants: 3, errors: 1 }, 200, "1"],
+    ["a run where every tenant threw", { failedTenants: 2, tenants: 2, errors: 2 }, 503, "2"],
+    ["a run with per-item errors only", { failedTenants: 0, tenants: 1, errors: 5 }, 200, "0"],
+  ])("sets x-cron-failed-tenants to the failed-tenant count for %s", async (_name, counts, status, header) => {
+    vi.mocked(processPaymentReminders).mockResolvedValue({ ...emptyResult, ...counts })
+    const res = await GET(req())
+    expect(res.status).toBe(status)
+    expect(res.headers.get(FAILED_TENANTS_HEADER)).toBe(header)
   })
 })

@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { PrismaClient, type MsgStatus, type TemplateCategory } from "@prisma/client"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type HoldCase } from "@/lib/collections/dunning-holds.integration-fixture"
 import { prisma } from "@/lib/prisma"
@@ -103,6 +103,7 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       messages[`${c.name}/collections reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_7d:SMS:${day}`)
       messages[`${c.name}/entity reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_1d:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/manual reminder`] = await queueMessage(contact.id, "SERVICE", true, `manual-reminder:${seeded.loanId}:op1:SMS`)
+      messages[`${c.name}/entity loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:loan_overdue:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `notification:loan_overdue:${seeded.loanId}:${day}:SMS`)
       messages[`${c.name}/collections statement`] = await queueMessage(contact.id, "SERVICE", false, `collections:${seeded.loanId}:statement:SMS:${day}`)
     }
@@ -177,6 +178,21 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(1)
   })
 
+  // The same notice to an ENTITY borrower shares the `entity-notice:` key prefix with the entity reminders.
+  it("a retry of the ENTITY loan_overdue notice on a DEFAULTED loan still goes, like the consumer one", async () => {
+    const name = "defaulted/entity loan_overdue notice"
+    expect((await row(name)).errorMessage ?? "").not.toContain("loan hold")
+    expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(1)
+  })
+
+  it.each(["arrangement", "plan", "attorney", "completed", "cancelled"])("a retry of the entity loan_overdue notice on a %s loan is suppressed", async (hold) => {
+    expect(await row(`${hold}/entity loan_overdue notice`)).toMatchObject({ status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("loan hold") })
+  })
+
+  it("a retry of an ENTITY reminder on a DEFAULTED loan is suppressed, unlike its notice: only an ACTIVE loan is reminded", async () => {
+    expect(await row("defaulted/entity reminder")).toMatchObject({ status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("the loan is DEFAULTED") })
+  })
+
   it.each([["completed", "COMPLETED"], ["cancelled", "CANCELLED"], ["defaulted", "DEFAULTED"]])("a retry of a reminder on a %s loan is suppressed: only an ACTIVE loan is reminded", async (hold, status) => {
     expect(await row(`${hold}/collections reminder`)).toMatchObject({ status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining(`the loan is ${status}`) })
   })
@@ -187,6 +203,26 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     }
   })
 
+  // A key names a loan id; a message of ANOTHER tenant that happens to carry the id of this tenant's held loan
+  // must not be held by it (the lookup is by tenant and id).
+  it("another tenant's message is not held by this tenant's held loan", async () => {
+    const other = await createChargesTenant(db, false)
+    const contact = await db.contact.create({ data: { tenantId: other.tenantId, firstSeenChannel: "SMS", status: "CLIENT" } })
+    const conversation = await db.conversation.create({ data: { tenantId: other.tenantId, contactId: contact.id, channel: "SMS" } })
+    const heldLoan = (await db.loan.findFirstOrThrow({ where: { tenantId: tenant.tenantId, paymentArrangement: { is: { status: "ACTIVE" } } } })).id
+    const tpl = await db.messageTemplate.create({ data: { tenantId: other.tenantId, event: "retry_hold_x", key: `retry_hold_x_${randomUUID()}`, channel: "SMS", body: "x", category: "SERVICE" } })
+    const id = (await db.message.create({
+      data: {
+        tenantId: other.tenantId, conversationId: conversation.id, channel: "SMS", direction: "OUTBOUND", provider: "BULKSMS", status: "RETRYING",
+        retryCount: 1, nextRetryAt: new Date("2000-01-01T00:00:00Z"), templateId: tpl.id, lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "Synthetic",
+        toValue: "+27820000000", dunning: true, idempotencyKey: `collections:${heldLoan}:reminder_7d:SMS:2026-11-01`, createdAt: CREATED,
+      },
+    })).id
+    await processRetryBatch({ limit: 500, now: SWEEP_AT })
+    expect((await db.message.findUniqueOrThrow({ where: { id } })).errorMessage ?? "").not.toContain("loan hold")
+    expect(await db.auditLog.count({ where: { entityId: id, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(1)
+  })
+
   it("a loan with no hold is not suppressed", async () => {
     for (const kind of ["collections reminder", "entity reminder", "manual reminder"]) {
       const name = `no hold/${kind}`
@@ -195,49 +231,109 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     }
   })
 
-  // Dunning goes out 07:00-20:00 SAST on the day it was created. A late first failure whose retries fall
-  // after midnight, or a stalled timer flushing at 05:00, must not send; and a reminder not sent by the end
-  // of its day is stale ("due TOMORROW" a day late) and expires instead.
+  // ALL dunning retries (the automated reminders, staff reminders and the 60-DPD notices) go only 07:00-20:00 SAST.
+  // Outside it a message stays due: its nextRetryAt moves to the next 07:00, so it does not sit at the front of
+  // the batch. Only an automated, date-worded REMINDER (`collections:`, `entity-notice:<reminder>`) also goes stale
+  // at the end of its creation day and EXPIRES ("due TOMORROW" a day late); a staff reminder and a 60-DPD notice
+  // keep the sweep's ordinary 24 hour expiry.
   describe("the dunning send window", () => {
     const clean = () => db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, client: { lastName: { startsWith: "clean" } } } })
-    const queue = async (kind: "dunning" | "other", n: string, created: Date) => {
-      const contact = await clean()
-      const key = `collections:window:${n}`
-      return queueMessage(contact.id, "SERVICE", kind === "dunning", kind === "dunning" ? key : undefined, created)
+    type Kind = "reminder" | "entity reminder" | "staff" | "notice" | "entity notice" | "unkeyed" | "statement"
+    const KEYS: Record<Kind, (n: string) => string | undefined> = {
+      reminder: (n) => `collections:window:${n}`,
+      "entity reminder": (n) => `entity-notice:window:reminder_1d:${n}:cl:SMS`,
+      staff: (n) => `manual-reminder:window:${n}:SMS`,
+      notice: (n) => `notification:loan_overdue:window:${n}:SMS`,
+      "entity notice": (n) => `entity-notice:window:loan_overdue:${n}:cl:SMS`,
+      unkeyed: () => undefined,
+      statement: () => undefined,
     }
-    const sweep = (now: string) => processRetryBatch({ limit: 500, now: new Date(now) })
+    const queue = async (kind: Kind, n: string, created: Date) =>
+      queueMessage((await clean()).id, "SERVICE", kind !== "statement", KEYS[kind](n), created)
+    const sweep = (now: string, limit = 500) => processRetryBatch({ limit, now: new Date(now) })
+    const state = (id: string) => db.message.findUniqueOrThrow({ where: { id } })
+    const claimed = (id: string) => db.auditLog.count({ where: { entityId: id, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })
 
-    it("leaves a dunning message due, untouched, at 05:00 SAST and at 21:00 SAST of its day", async () => {
-      const early = await queue("dunning", "early", new Date("2026-11-04T00:30:00Z")) // created 02:30 SAST on the 4th
-      await sweep("2026-11-04T03:00:00Z") // 05:00 SAST, same day
-      expect(await db.message.findUniqueOrThrow({ where: { id: early } })).toMatchObject({ status: "RETRYING", errorClass: null })
-      const evening = await queue("dunning", "evening", new Date("2026-11-04T16:00:00Z")) // 18:00 SAST
-      await sweep("2026-11-04T19:00:00Z") // 21:00 SAST, same day
-      expect(await db.message.findUniqueOrThrow({ where: { id: evening } })).toMatchObject({ status: "RETRYING" })
-      expect(await db.auditLog.count({ where: { entityId: early, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(0)
-    })
-
-    it("sends a dunning message that is due inside the window", async () => {
-      const midday = await queue("dunning", "midday", new Date("2026-11-05T06:00:00Z"))
-      await sweep("2026-11-05T09:00:00Z") // 11:00 SAST, same day
-      expect((await db.message.findUniqueOrThrow({ where: { id: midday } })).status).not.toBe("RETRYING")
-      expect(await db.auditLog.count({ where: { entityId: midday, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(1)
-    })
-
-    it.each([["05:00 SAST, a stalled timer flushing", "2026-11-07T03:00:00Z"], ["11:00 SAST, inside the window but a day late", "2026-11-07T09:00:00Z"]])(
-      "expires a dunning message that was not sent by the end of its day, at %s, rather than send it",
-      async (_name, now) => {
-        const stale = await queue("dunning", `stale-${now}`, new Date("2026-11-06T12:00:00Z")) // 14:00 SAST on the 6th: under 24 h before both sweeps, so it is the day rule that expires it
-        await sweep(now)
-        expect(await db.message.findUniqueOrThrow({ where: { id: stale } })).toMatchObject({ status: "EXPIRED", errorClass: "EXPIRED", nextRetryAt: null })
-        expect(await db.auditLog.count({ where: { entityId: stale, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(0)
+    it.each(["reminder", "entity reminder", "staff", "notice", "entity notice", "unkeyed"] as Kind[])(
+      "a %s waits at 05:00 SAST and at 21:00 SAST of its day, and is rescheduled to the next 07:00",
+      async (kind) => {
+        const early = await queue(kind, `early-${kind}`, new Date("2026-11-04T00:30:00Z")) // created 02:30 SAST on the 4th
+        await sweep("2026-11-04T03:00:00Z") // 05:00 SAST, same day
+        expect(await state(early)).toMatchObject({ status: "RETRYING", errorClass: null, nextRetryAt: new Date("2026-11-04T05:00:00Z") })
+        const evening = await queue(kind, `evening-${kind}`, new Date("2026-11-04T16:00:00Z")) // 18:00 SAST
+        await sweep("2026-11-04T19:00:00Z") // 21:00 SAST, same day
+        expect(await state(evening)).toMatchObject({ status: "RETRYING", nextRetryAt: new Date("2026-11-05T05:00:00Z") })
+        expect(await claimed(early)).toBe(0)
+        expect(await claimed(evening)).toBe(0)
       },
     )
 
+    it("sends a dunning message that is due inside the window", async () => {
+      const midday = await queue("reminder", "midday", new Date("2026-11-05T06:00:00Z"))
+      await sweep("2026-11-05T09:00:00Z") // 11:00 SAST, same day
+      expect((await state(midday)).status).not.toBe("RETRYING")
+      expect(await claimed(midday)).toBe(1)
+    })
+
+    it.each(["reminder", "entity reminder"] as Kind[])("expires an automated %s that was not sent by the end of its day, at 05:00 and at 11:00 SAST, rather than send it", async (kind) => {
+      for (const now of ["2026-11-07T03:00:00Z", "2026-11-07T09:00:00Z"]) {
+        // 14:00 SAST on the 6th: under 24 h before both sweeps, so it is the day rule that expires it.
+        const stale = await queue(kind, `stale-${kind}-${now}`, new Date("2026-11-06T12:00:00Z"))
+        await sweep(now)
+        expect(await state(stale)).toMatchObject({ status: "EXPIRED", errorClass: "EXPIRED", nextRetryAt: null })
+        expect(await claimed(stale)).toBe(0)
+      }
+    })
+
+    // The wording of these is not dated, so a night is only a wait, not an expiry.
+    it.each(["staff", "notice", "entity notice", "unkeyed"] as Kind[])("does not expire a %s at the end of its day: it waits through the night and goes at 11:00", async (kind) => {
+      const created = new Date("2026-11-09T12:00:00Z") // 14:00 SAST on the 9th
+      const id = await queue(kind, `overnight-${kind}`, created)
+      await sweep("2026-11-09T22:30:00Z") // 00:30 SAST on the 10th, next calendar day
+      await sweep("2026-11-10T03:00:00Z") // 05:00 SAST
+      expect(await state(id)).toMatchObject({ status: "RETRYING", errorClass: null })
+      await sweep("2026-11-10T09:00:00Z") // 11:00 SAST, 21 h after it was created
+      expect(await claimed(id)).toBe(1)
+    })
+
     it("does not change a message that is not dunning: it is still sent at 21:00 SAST", async () => {
-      const statement = await queue("other", "statement", new Date("2026-11-08T08:00:00Z"))
+      const statement = await queue("statement", "statement", new Date("2026-11-08T08:00:00Z"))
       await sweep("2026-11-08T19:00:00Z") // 21:00 SAST
-      expect(await db.auditLog.count({ where: { entityId: statement, action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(1)
+      expect(await claimed(statement)).toBe(1)
+    })
+
+    // A big batch can run for minutes: the window is judged at the moment of each send, not when the sweep began.
+    it("judges the window when it reaches the message, not when the sweep started", async () => {
+      const id = await queue("staff", "slow-sweep", new Date("2026-11-12T10:00:00Z"))
+      const real = Date.now.bind(Date)
+      let calls = 0
+      // The first reading is the sweep's start; every later one is an hour on (19:30 SAST -> 20:30 SAST).
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => (calls++ === 0 ? real() : real() + 3_600_000))
+      try {
+        await sweep("2026-11-12T17:30:00Z")
+      } finally {
+        clock.mockRestore()
+      }
+      expect(await claimed(id)).toBe(0)
+      expect((await state(id)).nextRetryAt).toEqual(new Date("2026-11-13T05:00:00Z"))
+    })
+
+    // A waiting row kept its old nextRetryAt, stayed at the front of the batch (oldest first, `take: limit`) and
+    // starved everything behind it. Now it is rescheduled to the next 07:00, so the next batch reaches the others.
+    it("a batch full of waiting dunning rows does not starve a non-dunning row behind them", async () => {
+      const head = new Date("1999-01-01T00:00:00Z")
+      const waiting = await Promise.all(
+        [1, 2, 3].map((n) => queue("reminder", `starve-${n}`, new Date("2026-11-11T00:30:00Z")).then((id) => db.message.update({ where: { id }, data: { nextRetryAt: head } }).then(() => id))),
+      )
+      const behind = await queue("statement", "starve-behind", new Date("2026-11-11T00:30:00Z"))
+      await db.message.update({ where: { id: behind }, data: { nextRetryAt: new Date("1999-06-01T00:00:00Z") } })
+
+      await sweep("2026-11-11T03:00:00Z", 3) // 05:00 SAST: the three waiting rows fill the whole batch
+      expect(await claimed(behind), "the batch was spent on rows that only wait").toBe(0)
+      for (const id of waiting) expect((await state(id)).nextRetryAt).toEqual(new Date("2026-11-11T05:00:00Z"))
+
+      await sweep("2026-11-11T03:01:00Z", 3)
+      expect(await claimed(behind), "the next batch reaches it").toBe(1)
     })
   })
 

@@ -16,7 +16,7 @@ const loanFindUniqueMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 
 const holds = vi.hoisted(() => ({ held: false }))
-vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held, isLoanRemindable: async () => !holds.held }))
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
 const releaseReservationMock = vi.fn()
@@ -82,6 +82,7 @@ import {
   TRIGGERS,
 } from "./reminders"
 import { SendBlockedError } from "@/lib/messaging/send"
+import { Prisma } from "@prisma/client"
 import { WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
 import { sastStartOfDay } from "@/lib/date/sast"
@@ -313,6 +314,55 @@ describe("processPaymentReminders", () => {
       expect(JSON.stringify(r.details)).not.toMatch(/deadlock|replay failed|connection reset|disk full/)
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-001"), expect.any(Error))
       expect(sendWhatsAppMock.mock.calls.length, "L-002 is still reminded").toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // Isolating one loan's failure must not hide a fault that is the database's: a restart mid-run would
+  // otherwise be N per-loan errors on a claim that stays DONE, and the tenant would not be retried.
+  describe("a fault that is not one loan's", () => {
+    const loans = () => [loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }].map((l) => ({ ...l, client: { ...l.client, whatsapp: "0821234567" } }))
+    const known = (code: string) => new Prisma.PrismaClientKnownRequestError("msg", { code, clientVersion: "5.22.0" })
+
+    it.each([
+      ["an initialisation error", () => new Prisma.PrismaClientInitializationError("can't reach the database", "5.22.0")],
+      ["a connection reset (P1017)", () => known("P1017")],
+      ["a pool timeout (P2024)", () => known("P2024")],
+    ])("%s fails the tenant at once, though the other loan could have been tried", async (_name, error) => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValueOnce(error())
+      loanFindManyMock.mockResolvedValue(loans())
+      const r = await processPaymentReminders()
+      expect(r).toMatchObject({ failedTenants: 1, tenants: 1 })
+      expect(r.details).toContainEqual("Tenant Acme (tenant_acme) failed; see the server log")
+      expect(loanNoteFindFirstMock, "the second loan was not tried against a database that is down").toHaveBeenCalledTimes(1)
+    })
+
+    it("a unique violation (P2002) on one loan is that loan's error, not the tenant's", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValueOnce(known("P2002"))
+      loanFindManyMock.mockResolvedValue(loans())
+      const r = await processPaymentReminders()
+      expect(r).toMatchObject({ failedTenants: 0, errors: 1 })
+    })
+
+    it("every loan failing fails the tenant: it is the tenant that is broken", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValue(new Error("something systemic"))
+      loanFindManyMock.mockResolvedValue(loans())
+      const r = await processPaymentReminders()
+      expect(r.failedTenants).toBe(1)
+    })
+
+    it("a tenant with a single loan that fails is a failed tenant too", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValue(new Error("boom"))
+      loanFindManyMock.mockResolvedValue(loans().slice(0, 1))
+      expect((await processPaymentReminders()).failedTenants).toBe(1)
+    })
+
+    it("a tenant with no loans is not failed", async () => {
+      loanFindManyMock.mockResolvedValue([])
+      expect((await processPaymentReminders()).failedTenants).toBe(0)
     })
   })
 
@@ -627,8 +677,8 @@ describe("processPaymentReminders", () => {
       process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
     })
 
-    // A tenant-level abort is a FAILED TENANT, not a quiet `errors++`: the scheduler marks the claim FAILED,
-    // health goes red and the later firings retry it. (R4 changes these template semantics; until then
+    // A tenant-level abort is a FAILED TENANT, not a quiet `errors++`: the scheduler marks the claim FAILED and
+    // the later firings retry it (health goes red only when every tenant failed). (R4 changes these template semantics; until then
     // they must not look green.)
     it("fails the tenant when the SMS template is missing: counted as a failed tenant, the cause in the log", async () => {
       const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)

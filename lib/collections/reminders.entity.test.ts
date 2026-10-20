@@ -23,7 +23,7 @@ const m = vi.hoisted(() => ({
 }))
 
 const holds = vi.hoisted(() => ({ held: false }))
-vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held, isLoanRemindable: async () => !holds.held }))
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
 const releaseReservationMock = vi.fn()

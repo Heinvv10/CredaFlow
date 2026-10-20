@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { Prisma } from "@prisma/client"
 // The nightly run around the rules (the per-rule tests are in escalation.test.ts): the 60-DPD notice
 // window, the per-rule reservation, one loan's failure and several tenants. The mocks are the same.
 
@@ -102,7 +103,9 @@ describe("processEscalations", () => {
 
   it("logs and counts a DEFAULTED notice that failed, instead of swallowing it", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
-    triggerNotificationMock.mockRejectedValue(new Error("smtp exploded"))
+    triggerNotificationMock.mockRejectedValueOnce(new Error("smtp exploded"))
+    // A second loan, so this is one loan's failure and not the whole tenant's.
+    loanFindManyMock.mockResolvedValue([loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }])
     const r = await processEscalations()
     expect(r.errors).toBe(1)
     // Generic in the body; the cause (and the notice failure) is in the log only.
@@ -160,6 +163,45 @@ describe("processEscalations", () => {
       expect(JSON.stringify(r.details)).not.toMatch(/deadlock|connection reset/)
       expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-100"), expect.any(Error))
       expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_2", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+    })
+  })
+
+  describe("a fault that is not one loan's", () => {
+    const loans = () => [loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }]
+    const known = (code: string) => new Prisma.PrismaClientKnownRequestError("msg", { code, clientVersion: "5.22.0" })
+
+    it.each([
+      ["an initialisation error", () => new Prisma.PrismaClientInitializationError("can't reach the database", "5.22.0")],
+      ["P1001", () => known("P1001")],
+      ["P2024", () => known("P2024")],
+    ])("%s fails the tenant at once, so the claim is retried", async (_name, error) => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValueOnce(error())
+      loanFindManyMock.mockResolvedValue(loans())
+      const r = await processEscalations()
+      expect(r).toMatchObject({ failedTenants: 1, tenants: 1 })
+      expect(loanNoteFindFirstMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("a unique violation (P2002) on one loan is that loan's error", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValueOnce(known("P2002"))
+      loanFindManyMock.mockResolvedValue(loans())
+      expect(await processEscalations()).toMatchObject({ failedTenants: 0, errors: 1 })
+    })
+
+    it("every loan failing fails the tenant", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValue(new Error("systemic"))
+      loanFindManyMock.mockResolvedValue(loans())
+      expect((await processEscalations()).failedTenants).toBe(1)
+    })
+
+    it("a loan that only fails to be noted is not 'every loan' when another loan was escalated", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      loanNoteFindFirstMock.mockRejectedValueOnce(new Error("one"))
+      loanFindManyMock.mockResolvedValue(loans())
+      expect((await processEscalations()).failedTenants).toBe(0)
     })
   })
 

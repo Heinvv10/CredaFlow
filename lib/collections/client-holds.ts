@@ -1,7 +1,7 @@
 import type { LoanStatus, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
-import { notHeldLoanWhere } from "@/lib/collections/dunning-holds"
+import { notHeldLoanWhere, remindableLoanWhere } from "@/lib/collections/dunning-holds"
 
 /**
  * The holds that are decided per client or loan at the moment of a staff action
@@ -151,6 +151,11 @@ export async function loanDunningHold(
   if (!args.statuses.includes(loan.status)) return `the loan is ${loan.status}`
   const notHeld = await db.loan.count({ where: { id: args.loanId, tenantId: args.tenantId, ...notHeldLoanWhere() } })
   return notHeld === 0 ? "the loan is under an arrangement, a payment plan, an attorney referral, a write-off or a debt review" : null
+}
+
+/** True when the reminders cron may still remind this loan: ACTIVE and not held (remindableLoanWhere), read again just before each send. */
+export async function isLoanRemindable(args: { tenantId: string; loanId: string }): Promise<boolean> {
+  return (await prisma.loan.count({ where: { id: args.loanId, tenantId: args.tenantId, ...remindableLoanWhere() } })) > 0
 }
 
 /** True when automated dunning must not reach this loan (the escalation cron's borrower notification). */

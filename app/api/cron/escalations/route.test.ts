@@ -6,6 +6,7 @@ vi.mock("@/lib/collections/escalation", () => ({ processEscalations: vi.fn() }))
 
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { processEscalations } from "@/lib/collections/escalation"
+import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/escalations"))
@@ -69,5 +70,17 @@ describe("GET /api/cron/escalations", () => {
   it("is 503 when every tenant failed", async () => {
     vi.mocked(processEscalations).mockResolvedValue({ tenants: 1, failedTenants: 1, processed: 0, errors: 1, details: [] })
     expect((await GET(req())).status).toBe(503)
+  })
+
+  it.each([
+    ["a clean run", { failedTenants: 0, tenants: 2, errors: 0 }, 200, "0"],
+    ["a run where one of three tenants threw", { failedTenants: 1, tenants: 3, errors: 1 }, 200, "1"],
+    ["a run where every tenant threw", { failedTenants: 2, tenants: 2, errors: 2 }, 503, "2"],
+    ["a run with per-item errors only", { failedTenants: 0, tenants: 1, errors: 5 }, 200, "0"],
+  ])("sets x-cron-failed-tenants to the failed-tenant count for %s", async (_name, counts, status, header) => {
+    vi.mocked(processEscalations).mockResolvedValue({ processed: 0, details: [], ...counts })
+    const res = await GET(req())
+    expect(res.status).toBe(status)
+    expect(res.headers.get(FAILED_TENANTS_HEADER)).toBe(header)
   })
 })

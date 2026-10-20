@@ -79,4 +79,17 @@ describe("nightly dunning schedule", () => {
     expect(fs.existsSync(path.join(ROOT, "app", "api", "cron", "payment-reminders"))).toBe(false)
     expect(CRON_JOBS.map((j) => j.route)).not.toContain("payment-reminders")
   })
+
+  // The scheduler fails closed on a single-run job whose 2xx carries no x-cron-failed-tenants header, so a
+  // single-run route that stops sending it would make every night's run FAILED and retried. The route tests
+  // pin the count; this pins that no single-run route is left without the header.
+  it("every single-run job's route sets the failed-tenants header", () => {
+    const singleRun = CRON_JOBS.flatMap((j) => (j.owner === "in-process" && j.singleRun ? [j.route] : []))
+    expect(singleRun.length).toBeGreaterThan(0)
+    for (const route of singleRun) {
+      const src = fs.readFileSync(path.join(ROOT, "app", "api", "cron", route, "route.ts"), "utf8")
+      expect(src, `${route} must import FAILED_TENANTS_HEADER from @/lib/ops/cron-call`).toMatch(/import \{[^}]*FAILED_TENANTS_HEADER[^}]*\} from "@\/lib\/ops\/cron-call"/)
+      expect(src, `${route} must set [FAILED_TENANTS_HEADER] on its response`).toMatch(/headers:\s*\{\s*\[FAILED_TENANTS_HEADER\]:/)
+    }
+  })
 })

@@ -126,6 +126,21 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", {
     })
   })
 
+  // The loans are selected ACTIVE at the start of a run; one that stops being ACTIVE since (dpd-update defaulting it
+  // at 90 DPD, a write-off, a settlement) must not be reminded: the per-send recheck is status-aware too.
+  describe("a loan that stops being ACTIVE mid-run", () => {
+    it("is not reminded after that: the remaining loans of the run are skipped", async () => {
+      const fresh = await Promise.all([0, 1, 2].map((i) => seedHoldLoan(db, tenant, tenant.productId, { name: `status mid-run ${i}`, held: false })))
+      sends.onSend = async (to) => {
+        if (!fresh.some((f) => f.whatsapp === to)) return false
+        for (const f of fresh) if (f.whatsapp !== to) await db.loan.update({ where: { id: f.loanId }, data: { status: "DEFAULTED" } })
+        return true
+      }
+      await processPaymentReminders()
+      expect(sends.whatsapp.filter((to) => fresh.some((f) => f.whatsapp === to))).toHaveLength(1)
+    })
+  })
+
   it("selects an entity-borrower loan (no client), which the client clauses must not exclude", async () => {
     const id = randomUUID().replaceAll("-", "").slice(0, 12)
     const entity = await db.businessEntity.create({

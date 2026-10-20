@@ -38,6 +38,7 @@ import {
 } from "@/lib/messaging/send"
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
 import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
@@ -48,7 +49,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
 import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
-import { isLoanHeld } from "@/lib/collections/client-holds"
+import { isLoanRemindable } from "@/lib/collections/client-holds"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -422,8 +423,10 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     templateSms = await prisma.messageTemplate.findFirst({
       where: { tenantId: tenant.id, key: "payment_reminder_sms", channel: "SMS", active: true },
     })
-    // Thrown, so the sweep counts the tenant as FAILED (sweepActiveTenants): the claim is marked FAILED, the
-    // later firings retry it and /api/health goes red, instead of a quiet `errors++` that looks like a clean run.
+    // Thrown, so the sweep counts the tenant as FAILED (sweepActiveTenants): the run's claim is marked FAILED and
+    // the later firings retry it, instead of a quiet `errors++` that looks like a clean run. (/api/health reads
+    // the status, which is 503 only when every tenant failed: it goes red for this alone on a single-tenant
+    // deployment.)
     if (!templateSms) {
       throw new Error(
         "MESSAGING_NEW_SEND_COLLECTIONS=true but payment_reminder_sms template missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts) before flipping the flag",
@@ -546,10 +549,11 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       }
 
       // The loans were selected at the start of the run, which can be long: a
-      // debt-review notice, a death or an arrangement recorded since then must
-      // stop this send. Checked per send, immediately before it.
-      if (await isLoanHeld({ tenantId: tenant.id, loanId: loan.id })) {
-        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, the loan or client was put on a dunning hold during this run`)
+      // debt-review notice, a death, an arrangement, or the loan leaving ACTIVE
+      // (defaulted, settled, written off) since then must stop this send. Checked
+      // per send, immediately before it (remindableLoanWhere, status included).
+      if (!(await isLoanRemindable({ tenantId: tenant.id, loanId: loan.id }))) {
+        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, the loan stopped being ACTIVE or the loan or client was put on a dunning hold during this run`)
         continue
       }
 
@@ -888,16 +892,24 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     }
   }
 
+  let loansFailed = 0
   for (const loan of loans) {
     // A throw from any query for one loan (the already-sent check, the hold recheck, the charges
     // replay, the LoanNote write, the entity send) is that loan's error, not the tenant's day.
     try {
       await remindLoan(loan)
     } catch (err) {
+      // Except a fault that is the database's: that is the tenant's, and it is retried.
+      if (isDatabaseInfrastructureError(err)) throw err
       console.error(`[reminders] ${loan.reference} failed:`, err)
       result.errors++
+      loansFailed++
       result.details.push(`Error ${loan.reference}: failed; see the server log`)
     }
+  }
+  // Every loan failing is not a run of bad luck with loans: the tenant is broken, and the retry is for it.
+  if (loans.length > 0 && loansFailed === loans.length) {
+    throw new Error(`every one of the ${loans.length} loan(s) failed; see the errors logged above`)
   }
 
   const tally = (m: Map<string, number>) =>

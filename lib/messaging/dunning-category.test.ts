@@ -18,6 +18,10 @@ describe("automatedDunningLoan", () => {
   it.each([
     ["collections:loan_1:reminder_7d:EMAIL:2026-11-01", { loanId: "loan_1", notice: false }],
     ["entity-notice:loan_2:reminder_1d:2026-11-01:cl_9:WHATSAPP", { loanId: "loan_2", notice: false }],
+    // The entity's loan_overdue notice (lib/asset-finance/entity-notifications.ts) is the entity 60-DPD DEFAULTED
+    // notice: it shares the `entity-notice:` prefix with the entity reminders, and must not be read as one.
+    ["entity-notice:loan_4:loan_overdue:2026-11-01:cl_9:EMAIL", { loanId: "loan_4", notice: true }],
+    ["entity-notice:loan_5:reminder_overdue_3d:2026-11-01:cl_9:WHATSAPP", { loanId: "loan_5", notice: false }],
     // The consumer loan_overdue notification, which the 60-DPD DEFAULTED notice also is (lib/notifications.ts).
     ["notification:loan_overdue:loan_3:2026-11-01:SMS", { loanId: "loan_3", notice: true }],
   ])("reads the loan of an automated dunning key: %s", (key, expected) => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-import { contactDunningHold } from "./client-holds"
+import { contactDunningHold, loanDunningHold } from "./client-holds"
 
 const NOTICE = { id: "l2", reference: "LN-2", debtReviewNoticeAt: new Date("2026-10-15T00:00:00+02:00"), debtReviewNoticeRef: null }
 
@@ -62,5 +62,44 @@ describe("contactDunningHold", () => {
 
   it("still holds an entity contact for a death", async () => {
     expect(await contactDunningHold(db({ deceasedAt: new Date(), actsForEntity: 1 }).db, args)).toMatchObject({ kind: "DECEASED" })
+  })
+})
+
+// A loan table of two tenants. Every query is answered only for rows of the tenant it names, as Postgres would.
+function loanDb(rows: Array<{ id: string; tenantId: string; status: string; held?: boolean }>) {
+  const match = (where: { id: string; tenantId?: string }) => rows.filter((r) => r.id === where.id && (where.tenantId === undefined || r.tenantId === where.tenantId))
+  return {
+    loan: {
+      findFirst: async (a: { where: { id: string; tenantId?: string } }) => match(a.where)[0] ?? null,
+      count: async (a: { where: { id: string; tenantId?: string } }) => match(a.where).filter((r) => !r.held).length,
+    },
+  } as unknown as Parameters<typeof loanDunningHold>[0]
+}
+const ROWS = [
+  { id: "loan_a", tenantId: "t_a", status: "ACTIVE", held: true },
+  { id: "loan_a2", tenantId: "t_a", status: "COMPLETED" },
+  { id: "loan_a3", tenantId: "t_a", status: "ACTIVE" },
+  { id: "loan_a4", tenantId: "t_a", status: "DEFAULTED" },
+]
+
+describe("loanDunningHold", () => {
+  const statuses = ["ACTIVE"] as const
+
+  it("names a hold on the loan, and a status that is not dunned", async () => {
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "loan_a", statuses })).toMatch(/arrangement/)
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "loan_a2", statuses })).toBe("the loan is COMPLETED")
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "loan_a4", statuses })).toBe("the loan is DEFAULTED")
+  })
+
+  it("has no reason for a loan that is dunnable, for a notice a DEFAULTED one too, or for an id that is not a loan", async () => {
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "loan_a3", statuses })).toBeNull()
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "loan_a4", statuses: ["ACTIVE", "DEFAULTED"] })).toBeNull()
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_a", loanId: "nope", statuses })).toBeNull()
+  })
+
+  // A message's key names a loan id; another tenant's loan must never hold this tenant's message.
+  it("looks only at the tenant's own loans: another tenant's held loan is not found, so it holds nothing", async () => {
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_b", loanId: "loan_a", statuses })).toBeNull()
+    expect(await loanDunningHold(loanDb(ROWS), { tenantId: "t_b", loanId: "loan_a2", statuses })).toBeNull()
   })
 })
