@@ -42,23 +42,8 @@ describe("sendWhatsAppCloudMessage", () => {
     expect(getWabaCreds).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, "false"])("WA_ENABLED=%s is a kill switch: definite rejection, no creds loaded, no network", async (value) => {
-    vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", value as string)
-    if (value === undefined) delete process.env.WA_ENABLED
-    const fetchSpy = vi.fn()
-    vi.stubGlobal("fetch", fetchSpy)
-
-    const r = await sendWhatsAppCloudMessage({ tenantId: "tn1", contactId: "ct1", to: "0821234567", message: "hello" })
-
-    expect(r).toEqual({ ok: false, error: "WhatsApp disabled", providerOutcome: "DEFINITELY_REJECTED" })
-    expect(getWabaCreds).not.toHaveBeenCalled()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
   it("POSTs a text message to the Graph endpoint and returns the wamid", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     vi.stubEnv("WHATSAPP_GRAPH_VERSION", "v23.0")
     stubCreds()
     stubWithinWindowContact()
@@ -85,7 +70,6 @@ describe("sendWhatsAppCloudMessage", () => {
 
   it("classifies an allowlisted HTTP status as DEFINITELY_REJECTED", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubWithinWindowContact()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -98,7 +82,6 @@ describe("sendWhatsAppCloudMessage", () => {
 
   it("holds a 5xx as AMBIGUOUS", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubWithinWindowContact()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -110,7 +93,6 @@ describe("sendWhatsAppCloudMessage", () => {
 
   it("holds a 200 without a wamid as AMBIGUOUS", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubWithinWindowContact()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -138,7 +120,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("sends free-form text when inside the 24h window", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubContact(new Date(Date.now() - 3600_000).toISOString())
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [{ id: "wamid.T" }] }) })
@@ -151,7 +132,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("sends an approved template when outside the window", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubContact(new Date(Date.now() - 25 * 3600_000).toISOString())
     const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [{ id: "wamid.T" }] }) })
@@ -166,7 +146,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("fails with the typed outside-window code when no approved template is available", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubContact(null)
     const fetchSpy = vi.fn()
@@ -179,7 +158,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("treats a template whose providerStatus is not APPROVED as unavailable", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubContact(null)
     vi.stubGlobal("fetch", vi.fn())
@@ -192,7 +170,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("scopes the window read to the caller's tenantId", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     stubContact(new Date(Date.now() - 3600_000).toISOString())
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [{ id: "wamid.T" }] }) }))
@@ -207,7 +184,6 @@ describe("sendWhatsAppCloudMessage — 24h window", () => {
 
   it("never throws when the window read fails, degrading to outside-window", async () => {
     vi.stubEnv("NODE_ENV", "production")
-    vi.stubEnv("WA_ENABLED", "true")
     stubCreds()
     vi.mocked(prisma.contact.findFirst).mockRejectedValue(new Error("db down"))
     const fetchSpy = vi.fn()

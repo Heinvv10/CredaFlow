@@ -11,7 +11,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDateTime } from "@/lib/utils"
 import { RefreshCw, PauseCircle, PlayCircle } from "lucide-react"
-import { AutomatedWhatsAppToggle } from "@/components/settings/AutomatedWhatsAppToggle"
 import { AutomationPausesTab, type Pause } from "@/components/settings/AutomationPausesTab"
 
 interface Rule {
@@ -35,7 +34,6 @@ const TRIGGER_LABELS: Record<string, string> = {
 }
 
 const ACTION_LABELS: Record<string, string> = {
-  SEND_WA: "Send WhatsApp",
   CREATE_ACTIVITY: "Log Activity",
   CHANGE_COLLECTIONS_STAGE: "Change Stage",
   NOTIFY_AGENT: "Notify Agent",
@@ -128,7 +126,6 @@ export default function AutomationPage() {
         ]}
       />
       <div className="p-4 lg:p-8 space-y-6">
-        <AutomatedWhatsAppToggle />
         <Tabs defaultValue="rules">
           <TabsList>
             <TabsTrigger value="rules">Rules ({rules.length})</TabsTrigger>
@@ -183,7 +180,7 @@ export default function AutomationPage() {
               )}
             </div>
             <p className="text-xs text-gray-400 mt-3">
-              Built-in rules are seeded automatically. Disable to pause; the engine runs hourly via cron.
+              Built-in rules are seeded automatically. Disable to pause. The engine has no schedule: it runs only when the automation-engine cron endpoint is called. WhatsApp reminders are sent by the borrower reminder crons, not by rules.
             </p>
           </TabsContent>
 

@@ -41,6 +41,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 })
     }
 
+    if (body.action === "SEND_WA") {
+      return NextResponse.json({
+        error: "WhatsApp reminders are sent by the reminders cron, not by automation rules.",
+      }, { status: 422 })
+    }
+
     const rule = await prisma.automationRule.create({
       data: {
         tenantId: tenant.id,

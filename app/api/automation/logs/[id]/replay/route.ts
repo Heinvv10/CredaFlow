@@ -14,11 +14,9 @@ export async function POST(
 
     const { id } = await params
 
-    return withTenantContext(req, async (tenant) => {
-      const outcome = await replayAutomationLog(id, tenant.id, {
-        userId: guard.user.id,
-        userEmail: guard.user.email,
-      })
+    // Awaited, so a refusal thrown inside is caught below (422), not an unhandled 500.
+    return await withTenantContext(req, async (tenant) => {
+      const outcome = await replayAutomationLog(id, tenant.id)
 
       void logAudit({
         tenantId: tenant.id,

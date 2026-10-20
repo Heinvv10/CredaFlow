@@ -327,11 +327,6 @@ model TenantConfig {
   // by ADMIN or SUPER_ADMIN, audited. Default on, for existing rows too.
   requireSegregationOfDuties Boolean @default(true)
 
-  // Automated WhatsApp reminders (lib/automation/whatsapp-switch.ts). Off by
-  // default: the automation engine sends no SEND_WA rule (payment due, overdue,
-  // paid in full) for the lender until an ADMIN switches this on, audited.
-  automatedWhatsAppReminders Boolean @default(false)
-
   // Failed-selfie and in-person override policy (lib/kyc/override-policy.ts).
   // A clear biometric mismatch remains non-overridable regardless of these
   // settings; the database independently enforces that boundary.
