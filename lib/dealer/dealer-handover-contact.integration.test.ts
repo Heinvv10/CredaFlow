@@ -174,6 +174,20 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
       expect(await recipients()).toEqual([dealers, lenders].sort())
     })
 
+    it("refuses any Loan (a consumer loan included) for a client whose dealer-typed contacts are unverified", () => {
+      const insertLoan = (clientId: string) => `INSERT INTO "Loan" ("id", "tenantId", "reference", "applicationId", "clientId", "productId", "principal",
+          "totalInterest", "initiationFee", "totalRepayable", "outstandingPrincipal", "startDate", "maturityDate", "interestRatePm", "interestModel", "updatedAt")
+        VALUES (${lit(newId("loan"))}, ${lit(fx.tenantId)}, ${lit(newId("ref"))}, ${lit(newId("app"))}, ${lit(clientId)}, ${lit(fx.product)}, 100000,
+          1000, 0, 101000, 100000, now(), now() + interval '1 year', 1.0, 'DAILY_ACCRUAL', now())`
+      const rule = "A loan is made only after staff verify the contact details a dealer captured for its client"
+      const captured = client(fx.dealerA)
+      expectRejected(insertLoan(captured), rule)
+      sql(verify(captured))
+      // Past this rule the insert meets the loan's other guards; this one no longer refuses it.
+      const after = (() => { try { sql(insertLoan(captured)); return "" } catch (error) { return String(error) } })()
+      expect(after).not.toContain(rule)
+    })
+
     it("leaves a staff-captured client's portal password alone", () => {
       const staff = client(null)
       sql(setPassword(staff))
