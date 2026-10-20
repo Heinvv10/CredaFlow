@@ -132,6 +132,18 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
     expect(await inTenant(fx, () => submitDealerDeal(sales, draft.dealId))).toMatchObject({ status: 409 })
   })
 
+  it("adds no person to the business once its deal is handed over (the lender's people from then on)", async () => {
+    expect(await inTenant(fx, () => captureDealerPerson(sales, personBody(), draft.entityId)))
+      .toMatchObject({ kind: "refused", status: 409, error: expect.stringMatching(/handed to the lender/) })
+    expect(sql(`SELECT count(*) FROM "EntityRelationship" WHERE "entityId" = ${lit(draft.entityId)}`)).toBe("1")
+    // A business whose only dealer deal was cancelled takes people again.
+    const other = await dealerDraft(fx, sales)
+    sql(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(other.dealId)};
+      UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = CURRENT_TIMESTAMP, "cancelledById" = ${lit(fx.officer)},
+        "cancelReason" = 'Synthetic: cancelled hand-over' WHERE "id" = ${lit(other.dealId)}`)
+    expect(await inTenant(fx, () => captureDealerPerson(sales, personBody(), other.entityId))).toMatchObject({ kind: "created" })
+  })
+
   it("staff verify the consent: attestation, document and ClientConsent, once", async () => {
     const attestationId = sql(`SELECT "id" FROM "DealerConsentAttestation" WHERE "dealId" = ${lit(draft.dealId)}`)
     expect(await inTenant(fx, () => verifyDealerConsent(staffOf(fx), draft.dealId, attestationId))).toEqual({ kind: "verified" })

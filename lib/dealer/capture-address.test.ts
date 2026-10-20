@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // deal is approved, so a deal without one could never book (browser
 // acceptance B2). A person captured into a business needs none.
 const h = vi.hoisted(() => ({ createEntity: vi.fn(), transaction: vi.fn(), entity: vi.fn() }))
-vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: h.transaction, businessEntity: { findFirst: h.entity } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: h.transaction, businessEntity: { findFirst: h.entity }, assetFinanceDeal: { count: vi.fn(async () => 0) } } }))
 vi.mock("@/lib/audit-refusals", () => ({ auditRefusal: vi.fn() }))
 vi.mock("@/lib/asset-finance/entity-create", () => ({ createBusinessEntity: h.createEntity }))
 

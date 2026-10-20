@@ -157,7 +157,10 @@ async function linkPerson(
 /**
  * A new person captured by the dealer: a sole proprietor (no `entityId`), or
  * a person of one of the dealer's own entities in `roles` (body.roles,
- * body.trusteeKind, body.ownershipPct as the staff people route takes them).
+ * body.trusteeKind, body.ownershipPct as the staff people route takes them),
+ * while no deal on that entity is past the hand-over (then the lender adds
+ * people: a dealer-added person would otherwise receive the booked loan's
+ * servicing messages).
  */
 export async function captureDealerPerson(actor: DealerActor, body: unknown, entityId: string | null = null): Promise<CaptureResult> {
   const limited = overCaptureLimit(actor)
@@ -168,6 +171,12 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
     select: { id: true, type: true },
   })
   if (entityId !== null && !entity) return dealerMiss("Entity")
+  // Once a deal on the business is with the lender, its people are the lender's to add.
+  if (entity && await prisma.assetFinanceDeal.count({
+    where: { tenantId: actor.tenantId, entityId: entity.id, dealerSubmittedAt: { not: null }, status: { not: "CANCELLED" } },
+  }) > 0) {
+    return dealerRefused(409, "A deal on this business has been handed to the lender: ask the lender to add the person")
+  }
   // Validated before anything is written (the client id it names is the new row's).
   let link: { entityId: string; relationship: RelationshipInput } | null = null
   if (entity) {
