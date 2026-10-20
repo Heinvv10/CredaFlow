@@ -207,10 +207,15 @@ Review rounds 2 and 3 (migrations `20261019120400_dealer_booking_contacts_verifi
     entity was captured by a dealer and has unverified contact details
     (`AssetFinanceDeal_dealer_contacts_verified`); booking's load step refuses
     first (`dealer_contact_unverified`). Staff verify from any deal the person
-    is on (a "Contacts a dealer captured" panel on a staff deal). The portal
-    forgot/reset-password routes and the selfie capture link skip or refuse an
-    unverified dealer-typed contact too, as do an entity's servicing
-    recipients. A person with unverified dealer-typed contacts joins a
+    is on (a "Contacts a dealer captured" panel on a staff deal). Before
+    booking, nothing goes to an unverified dealer-typed contact: the portal
+    register/forgot/reset routes, the selfie, PASQ and agreement links, the
+    agreement and signing-packet emails, application status emails and event
+    notifications (`triggerNotification`) skip or refuse it, and an entity's
+    servicing recipients exclude it. Loan-scoped sends (reminders, Section
+    129, collections) rely on the booking gate; staff-chosen conversation
+    sends (CRM WhatsApp, inbox, AI agent) go to a Contact's identity, which a
+    dealer capture never creates. A person with unverified dealer-typed contacts joins a
     business only while it has no deal beyond that dealer's own unsubmitted
     draft (`EntityRelationship_dealer_contact_link`; the dealer's capture
     answers 409). Migration `20261019120600` holds that trigger and a partial

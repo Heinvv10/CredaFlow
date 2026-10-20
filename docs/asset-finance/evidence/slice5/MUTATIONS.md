@@ -346,6 +346,9 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | (3) selfie link to a dealer-typed contact | selfie send-link route unit | 1 failed, 18 passed | the link was sent (no 409) |
 | (4) servicing messages to an unverified dealer-typed person | dealer-handover-contact IT; `reprice-notice-dispatch.test.ts` | 1 failed each | the dealer-captured director was among the entity's recipients; the rate-notice re-check had no trust filter |
 | (5) a person added after the hand-over | dealer-submit IT | 1 failed, 10 passed | "expected { kind: 'created' } to match object { kind: 'refused', status: 409 }" |
+| (7) PASQ acknowledgement link to a dealer-typed contact | PASQ send-link route unit | 1 failed, 22 passed | "expected 200 to be 409" |
+| (8) agreement email and link, signing-packet email, application status email | `lib/clients/dealer-contact-routes.test.ts` | 4 failed | each route answered another refusal or threw, not the dealer-contact 409 |
+| (9) event notifications (`triggerNotification`) | `lib/notifications.test.ts` | 1 failed | the email and SMS legs were attempted |
 | (6) linking an unverified dealer-typed person to a business with a live deal (database) | dealer-entity-people IT | 4 failed, 1 passed | each link was accepted ("expected true to be false"): own deal handed over, staff deal, another dealer's draft, re-activation and re-pointing |
 
 ### Mutations (applied to the migrated database or the source, then restored)
@@ -364,6 +367,9 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | 8 | `DROP TRIGGER "EntityRelationship_dealer_contact_link"` | dealer-entity-people IT | 4 failed, 1 passed | the four refusal cases |
 | 9 | `captureDealerPerson`'s in-transaction check off, the trigger's refusal still mapped | dealer-entity-people IT | 5 passed (survives by design: the database refuses and the route maps it to the same 409) | — |
 | 10 | the in-transaction check and the refusal mapping both off | dealer-entity-people IT | 2 failed, 3 passed | "refuses it once the dealer's own deal is handed over", "refuses it for a business with a staff deal on it" (the capture threw) |
+| 11 | agreement send-link guard off | dealer-contact-routes + PASQ + notifications units | 1 failed, 83 passed | "agreement link › refuses 409 and sends nothing …" |
+| 12 | PASQ send-link guard off | same | 1 failed, 83 passed | "refuses with 409 to send the link to contact details a dealer typed …" |
+| 13 | `triggerNotification` guard off | same | 1 failed, 83 passed | "sends nothing to a client whose dealer-typed contacts staff have not verified, and records why" |
 
 (3)'s mutation is its before run (the route without the check). After
 restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
