@@ -32,7 +32,7 @@ import {
   SendBlockedError,
 } from "@/lib/messaging/send"
 import { lookupContactByChannelValue, normalisePhone, toWaJid } from "@/lib/contact/identity"
-import { withoutTenantScope } from "@/lib/tenant-scope"
+import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 import type { MessageTemplate, MsgStatus } from "@prisma/client"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
@@ -281,18 +281,35 @@ async function remindEntityTrigger(args: {
 }
 
 export async function processPaymentReminders(): Promise<ReminderResult> {
-  // The reminders cron runs without a tenant request frame (cron-secret
-  // auth on app/api/cron/reminders/route.ts), so the per-tenant-scoped
-  // Prisma extension cannot auto-inject tenantId for queries that lack
-  // an explicit one. sendMessage() does internal Message updates without
-  // a where:tenantId — the extension would throw TenantScopeError on
-  // every successful dispatch, leaving rows stuck in QUEUED and ops
-  // unable to tell delivered from undelivered. Mirror the retry-cron
-  // pattern in lib/messaging/retry.ts:processRetryBatch.
-  return withoutTenantScope(() => processPaymentRemindersInner())
+  // The reminders cron runs without a request (cron-secret auth on
+  // app/api/cron/reminders/route.ts, or the in-process scheduler), so it opens
+  // each ACTIVE tenant's own frame (lib/collections/tenant-sweep.ts). Without a
+  // frame the per-tenant-scoped Prisma extension cannot inject tenantId into the
+  // queries sendMessage() makes on its own (Message updates without a
+  // where:tenantId): it would throw TenantScopeError on every successful
+  // dispatch, leaving rows stuck in QUEUED and ops unable to tell delivered
+  // from undelivered.
+  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
+  const outcomes = await sweepActiveTenants("reminders", (tenant) => processTenantReminders(tenant))
+  if (outcomes.length === 0) total.details.push("No active tenant found")
+  for (const outcome of outcomes) {
+    if (!outcome.ok) {
+      total.errors++
+      total.details.push(tenantFailureDetail(outcome.tenant, outcome.error))
+      continue
+    }
+    const r = outcome.value
+    total.sent += r.sent
+    total.simulated += r.simulated
+    total.reconciliationRequired += r.reconciliationRequired
+    total.smsChannelOff += r.smsChannelOff
+    total.errors += r.errors
+    total.details.push(...r.details)
+  }
+  return total
 }
 
-async function processPaymentRemindersInner(): Promise<ReminderResult> {
+async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResult> {
   const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
 
   // Counted per trigger and reported ONCE at the end of the run, not as a
@@ -323,16 +340,6 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   // wording of the line it prints.
   const noWaNumberByTrigger = new Map<string, number>()
   const noLegDispatchedByTrigger = new Map<string, number>()
-
-  // Resolve tenant first so we can scope the loan query
-  const tenant = await prisma.tenant.findFirst({
-    where: { status: "ACTIVE" },
-    select: { id: true, name: true },
-  })
-  if (!tenant) {
-    result.details.push("No active tenant found")
-    return result
-  }
 
   const newSend = isCollectionsNewSendEnabled()
 

@@ -8,6 +8,7 @@ import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commissi
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
+import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 
 interface EscalationResult {
   processed: number
@@ -129,17 +130,26 @@ const RULES: EscalationRule[] = [
   },
 ]
 
+/** Every ACTIVE tenant, each in its own frame (lib/collections/tenant-sweep.ts). */
 export async function processEscalations(): Promise<EscalationResult> {
-  const result: EscalationResult = { processed: 0, errors: 0, details: [] }
-
-  const tenant = await prisma.tenant.findFirst({
-    where: { status: "ACTIVE" },
-    select: { id: true },
-  })
-  if (!tenant) {
-    result.details.push("No active tenant found")
-    return result
+  const total: EscalationResult = { processed: 0, errors: 0, details: [] }
+  const outcomes = await sweepActiveTenants("escalations", (tenant) => processTenantEscalations(tenant))
+  if (outcomes.length === 0) total.details.push("No active tenant found")
+  for (const outcome of outcomes) {
+    if (!outcome.ok) {
+      total.errors++
+      total.details.push(tenantFailureDetail(outcome.tenant, outcome.error))
+      continue
+    }
+    total.processed += outcome.value.processed
+    total.errors += outcome.value.errors
+    total.details.push(...outcome.value.details)
   }
+  return total
+}
+
+async function processTenantEscalations(tenant: SweepTenant): Promise<EscalationResult> {
+  const result: EscalationResult = { processed: 0, errors: 0, details: [] }
 
   const loans = await prisma.loan.findMany({
     where: {

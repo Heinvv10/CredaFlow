@@ -33,7 +33,8 @@ export function defineTenantScopedModels<T extends readonly string[]>(models: T)
  * - `in-process`: instrumentation.ts schedules it with node-cron, pinned to
  *   SAST; `freshnessMinutes` is how long it may go without a successful run
  *   before /api/health calls it stale (lib/ops/cron-heartbeat.ts) — about
- *   twice its schedule, plus slack.
+ *   twice its schedule, plus slack. `singleRun` makes it run on one replica a
+ *   day.
  * - `external`: the deployment's own scheduler calls it with the cron secret.
  *   Nothing in this repository schedules it; it must never be in-process too.
  * - `unwired`: deliberately unscheduled, with the reason.
@@ -45,6 +46,14 @@ export type CronJob =
       schedule: string
       method?: "GET" | "POST"
       freshnessMinutes: number
+      /**
+       * Every replica schedules every in-process job, so a job that must not
+       * run twice in a SAST day (borrower comms) sets this: the scheduler
+       * claims (route, SAST day) in the database first and only the replica
+       * that wins calls the route (lib/ops/cron-run-claim.ts). Daily jobs only:
+       * the claim is per day.
+       */
+      singleRun?: boolean
     }
   | { route: string; owner: "external" }
   | { route: string; owner: "unwired"; reason: string }

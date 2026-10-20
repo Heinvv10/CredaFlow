@@ -63,13 +63,3 @@ export function isLoanOverdueNewSendEnabled(): boolean {
 export function isPaymentReceivedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_PAYMENT_RECEIVED === "true"
 }
-
-/**
- * The payment-reminders cron's WhatsApp leg. Distinct from
- * MESSAGING_NEW_SEND_COLLECTIONS, which governs the OTHER reminder cron
- * (lib/collections/reminders.ts) — the two fire on different days and hold
- * different templates, so they cut over independently.
- */
-export function isPaymentRemindersNewSendEnabled(): boolean {
-  return process.env.MESSAGING_NEW_SEND_PAYMENT_REMINDERS === "true"
-}

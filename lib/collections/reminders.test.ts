@@ -19,7 +19,7 @@ const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findFirst: (a: unknown) => tenantFindFirstMock(a) },
+    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return t ? [t] : [] } },
     loan: {
       findMany: (a: unknown) => loanFindManyMock(a),
       findUnique: (a: unknown) => loanFindUniqueMock(a),
@@ -239,7 +239,11 @@ describe("processPaymentReminders", () => {
     const { LenderIdentityError } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     getLenderIdentityMock.mockRejectedValue(new LenderIdentityError(["collectionsPhone"]))
     loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
-    await expect(processPaymentReminders()).rejects.toBeInstanceOf(LenderIdentityError)
+    // Reported as the tenant's failure (the cron answers 503), not thrown: the
+    // tenants after it still get their reminders.
+    const result = await processPaymentReminders()
+    expect(result.errors).toBe(1)
+    expect(result.details.join("\n")).toContain("Tenant Acme (tenant_acme) failed")
     expect(sendSmsMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
   })

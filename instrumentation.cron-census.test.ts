@@ -86,11 +86,24 @@ describe("cron route census", () => {
     expect(inProcessScheduled()).toContain("poll-wa-templates")
   })
 
-  it("keeps payment-reminders and poll-wa-templates out of the unwired list", () => {
-    // Both were once listed (or nearly listed) as unwired while they ran.
-    expect([...INTENTIONALLY_UNWIRED]).not.toContain("payment-reminders")
+  it("keeps poll-wa-templates out of the unwired list", () => {
+    // Once listed (or nearly listed) as unwired while it ran.
     expect([...INTENTIONALLY_UNWIRED]).not.toContain("poll-wa-templates")
-    expect(EXTERNALLY_SCHEDULED).toContain("reminders")
+  })
+
+  it("schedules the nightly dunning chain in-process, not through an external timer", () => {
+    // Regression pin: these three once needed a timer nothing in the repo
+    // installed, so a stock deploy never reminded or escalated anyone.
+    for (const route of ["dpd-update", "escalations", "reminders"]) {
+      expect(inProcessScheduled(), route).toContain(route)
+      expect([...EXTERNALLY_SCHEDULED], route).not.toContain(route)
+    }
+  })
+
+  it("has retired the payment-reminders courtesy cron: no owner, no route on disk", () => {
+    const declared = CRON_JOBS.map((j) => j.route)
+    expect(declared).not.toContain("payment-reminders")
+    expect(cronRoutes()).not.toContain("payment-reminders")
   })
 })
 
@@ -132,6 +145,8 @@ describe("scheduler cadence", () => {
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
+const claimCronRun = vi.hoisted(() => vi.fn(async (_job: string) => true))
+vi.mock("@/lib/ops/cron-run-claim", () => ({ claimCronRun }))
 
 describe("instrumentation register()", () => {
   const env = { ...process.env }
@@ -171,6 +186,39 @@ describe("instrumentation register()", () => {
         headers: { "x-cron-secret": "test-secret" },
       })
     }
+  })
+
+  it("never calls the retired payment-reminders route", async () => {
+    fetchMock.mockClear()
+    for (const call of schedule.mock.calls) await call[1]()
+    const urls = fetchMock.mock.calls.map((c) => String((c as unknown[])[0]))
+    expect(urls.length).toBeGreaterThan(0)
+    expect(urls.filter((u) => u.includes("payment-reminders"))).toEqual([])
+  })
+
+  it("claims the SAST day before it calls a single-run job, and only then", async () => {
+    const jobs = CRON_JOBS.filter((j) => j.owner === "in-process")
+    claimCronRun.mockResolvedValue(false)
+    for (const [i, call] of schedule.mock.calls.entries()) {
+      const job = jobs[i]
+      claimCronRun.mockClear()
+      fetchMock.mockClear()
+      await call[1]()
+      const singleRun = "singleRun" in job && job.singleRun === true
+      expect(claimCronRun.mock.calls.map((c) => c[0]), job.route).toEqual(singleRun ? [job.route] : [])
+      // A lost claim means another replica runs it: this one makes no call.
+      expect(fetchMock.mock.calls.length, job.route).toBe(singleRun ? 0 : 1)
+    }
+    claimCronRun.mockResolvedValue(true)
+  })
+
+  it("skips a single-run job whose claim cannot be made, rather than risk a duplicate", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const index = CRON_JOBS.filter((j) => j.owner === "in-process").findIndex((j) => j.route === "reminders")
+    claimCronRun.mockRejectedValueOnce(new Error("db down"))
+    fetchMock.mockClear()
+    await schedule.mock.calls[index][1]()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("never schedules an external or unwired route", () => {

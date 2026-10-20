@@ -17,7 +17,7 @@ vi.mock("@/lib/collections/client-holds", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findFirst: (a: unknown) => tenantFindFirstMock(a) },
+    tenant: { findMany: async (a: unknown) => { const t = await tenantFindFirstMock(a); return t ? [t] : [] } },
     loan: {
       findMany: (a: unknown) => loanFindManyMock(a),
       updateMany: (a: unknown) => loanUpdateManyMock(a),

@@ -11,7 +11,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import {
-  createSecondProduct, HOLD_CASES, parkOtherTenants, seedHoldLoan, type SeededHoldLoan,
+  createSecondProduct, HOLD_CASES, seedHoldLoan, type SeededHoldLoan,
 } from "@/lib/collections/dunning-holds.integration-fixture"
 
 const notified = vi.hoisted(() => [] as string[])
@@ -27,7 +27,6 @@ const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 
 let tenant: ChargesTenant
-let restoreTenants: () => Promise<void> = async () => undefined
 const seeded: SeededHoldLoan[] = []
 let details: string[] = []
 
@@ -37,18 +36,13 @@ const ESCALATABLE = HOLD_CASES.filter((c) => c.status === undefined)
 suite.sequential("escalation borrower notice and dunning holds (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
-    restoreTenants = await parkOtherTenants(db, tenant.tenantId)
     const second = await createSecondProduct(db, tenant.tenantId)
     for (const c of ESCALATABLE) seeded.push(await seedHoldLoan(db, tenant, second, c, { inArrears: true }))
     details = (await processEscalations()).details
   })
   afterAll(async () => {
-    try {
-      await db.$disconnect()
-      await prisma.$disconnect()
-    } finally {
-      await restoreTenants()
-    }
+    await db.$disconnect()
+    await prisma.$disconnect()
   })
 
   it("flips every loan to DEFAULTED, held or not: the status change is business logic", async () => {

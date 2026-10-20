@@ -1,13 +1,11 @@
 /**
- * Payment reminders for an entity-borrower loan, called by the two reminder
- * crons where they skip a loan with no `Client`:
+ * Payment reminders for an entity-borrower loan, called by the reminder
+ * cron where it skips a loan with no `Client`:
  *  - lib/collections/reminders.ts (the dunning triggers: 7, 1 and 0 days
  *    before due, 1 and 3 days after): the trigger's WhatsApp leg. Its SMS leg
  *    is never sent for an entity (SMS is off by policy, and an entity notice
  *    has no SMS copy). The overdue triggers' `loan_overdue` email goes through
  *    triggerNotification, which routes an entity loan to ./entity-notifications.ts.
- *  - app/api/cron/payment-reminders (the 3-day courtesy reminder): email and
- *    WhatsApp.
  * Recipients, wording and dispatch: ./entity-contacts.ts, ./entity-notices.ts,
  * ./entity-dispatch.ts. Always the sendMessage() pipeline, whatever the
  * crons' legacy/new-send flags say: there is no legacy entity path to keep.

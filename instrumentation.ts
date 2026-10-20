@@ -43,7 +43,25 @@ export async function register() {
     const callCron = async (
       path: string,
       method: "GET" | "POST" = "GET",
+      singleRun = false,
     ) => {
+      // Every replica fires every job. A single-run job (borrower comms) goes
+      // to the one replica that claims its SAST day; the rest skip it without
+      // touching the heartbeat, which the winner writes. A claim that cannot
+      // be made fails closed: a skipped night shows on /api/health, a
+      // duplicate reminder or Section 129 notice cannot be taken back.
+      if (singleRun) {
+        try {
+          const { claimCronRun } = await import("@/lib/ops/cron-run-claim")
+          if (!(await claimCronRun(path.replace("/api/cron/", "")))) {
+            console.log(`[cron] ${path} already claimed for today by another replica, skipping`)
+            return
+          }
+        } catch (err) {
+          console.error(`[cron] ${path} not run, run claim failed:`, err)
+          return
+        }
+      }
       const startedAt = new Date()
       let status: number | null = null
       let error: string | null = null
@@ -79,7 +97,7 @@ export async function register() {
     let registered = 0
     for (const job of CRON_JOBS) {
       if (job.owner !== "in-process") continue
-      cron.schedule(job.schedule, () => callCron(`/api/cron/${job.route}`, job.method), {
+      cron.schedule(job.schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun), {
         timezone: SAST,
       })
       registered++

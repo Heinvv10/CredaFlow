@@ -519,3 +519,14 @@ model CronHeartbeat {
   lastStatus      Int?
   lastError       String?
 }
+
+// One row per (single-run in-process job, SAST day), inserted by the replica
+// that wins the claim before it calls the route (lib/ops/cron-run-claim.ts).
+// A second replica's insert hits the primary key and the job is skipped.
+model CronRunClaim {
+  job       String
+  runDay    String
+  claimedAt DateTime @default(now())
+
+  @@id([job, runDay])
+}

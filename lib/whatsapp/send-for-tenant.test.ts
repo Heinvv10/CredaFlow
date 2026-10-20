@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 describe("sendWhatsAppForTenant", () => {
-  // Two callers (the payment-reminders cron and the
+  // Two callers (the payment-reminders cron, since retired, and the
   // section129_sent courtesy notification) must not call the Baileys bridge directly,
   // with no reference to CommsSettings.waProvider. Under WA_CLOUD
   // that is a transport nothing routes through — the bridge has no numbers

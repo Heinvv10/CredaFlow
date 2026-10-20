@@ -106,7 +106,7 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       return (value as CronJob[]).map((job) => ({ file, key: String(job?.route), value: job }))
     }),
   )
-  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
+  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes", "singleRun"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
   return items.map(({ file, value: job }) => {
     const keys = allowed[job.owner as keyof typeof allowed]
     const extra = keys ? Object.keys(job).filter((k) => !keys.includes(k)) : []
@@ -124,7 +124,12 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
         if (!Number.isInteger(job.freshnessMinutes) || job.freshnessMinutes <= 0) {
           fail(`${file}: ${job.route} needs a positive whole freshnessMinutes`)
         }
-        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes }
+        if (job.singleRun !== undefined && typeof job.singleRun !== "boolean") fail(`${file}: ${job.route} singleRun must be true or false`)
+        // The claim is one row per SAST day: a job firing more often than daily would run once and be skipped the rest of the day.
+        if (job.singleRun && !/^\d+ \d+ \* \* \*$/.test(fields.join(" "))) {
+          fail(`${file}: ${job.route} singleRun needs a once-a-day schedule ("M H * * *"), not "${job.schedule}"`)
+        }
+        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes, singleRun: job.singleRun === true }
       }
       case "external":
         return { route: job.route, owner: job.owner }

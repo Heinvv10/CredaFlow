@@ -13,9 +13,10 @@ const { reverse, findMany, updateMany, recomputeLoanBalances } = vi.hoisted(() =
 }))
 vi.mock("@/lib/referral-agents/commission", () => ({ reverseReferralCommissionForLoan: reverse }))
 vi.mock("@/lib/cron-auth", () => ({ verifyCronSecret: () => null }))
-vi.mock("@/lib/tenant", () => ({ getDefaultTenantId: async () => "t1" }))
 vi.mock("@/lib/loan/balances", () => ({ recomputeLoanBalances }))
-vi.mock("@/lib/prisma", () => ({ prisma: { loan: { findMany: (a: unknown) => findMany(a), updateMany } } }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: { tenant: { findMany: async () => [{ id: "t1", name: "One" }] }, loan: { findMany: (a: unknown) => findMany(a), updateMany } },
+}))
 
 import { GET } from "./route"
 

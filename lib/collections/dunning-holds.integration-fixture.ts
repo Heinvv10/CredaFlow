@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { randomInt, randomUUID } from "node:crypto"
 import type { CollectionsStage, LoanStatus, PrismaClient } from "@prisma/client"
 import { SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { sastStartOfDay } from "@/lib/date/sast"
@@ -44,16 +44,6 @@ export const HOLD_CASES: HoldCase[] = [
 
 export interface SeededHoldLoan extends HoldCase { loanId: string; clientId: string; email: string; phone: string; whatsapp: string }
 
-let counter = 0
-
-/** Tenants other than `keep` that are ACTIVE, so a cron that takes "the first ACTIVE tenant" takes ours. */
-export async function parkOtherTenants(db: PrismaClient, keep: string): Promise<() => Promise<void>> {
-  const parked = (await db.tenant.findMany({ where: { id: { not: keep }, status: "ACTIVE" }, select: { id: true } })).map((t) => t.id)
-  await db.tenant.updateMany({ where: { id: { in: parked } }, data: { status: "SUSPENDED" } })
-  // Restores exactly the tenants this call suspended.
-  return async () => { await db.tenant.updateMany({ where: { id: { in: parked } }, data: { status: "ACTIVE" } }) }
-}
-
 export async function createSecondProduct(db: PrismaClient, tenantId: string): Promise<string> {
   const product = await db.loanProduct.create({
     data: {
@@ -77,7 +67,7 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
       tenantId: tenant.tenantId, reference: `LN-${id}`, applicationId: app.id, clientId, productId: o.productId,
       principal: 200_000, totalInterest: 10_000, initiationFee: 0, totalRepayable: SCHEDULE_TOTAL, outstandingPrincipal: 200_000,
       startDate: new Date(due.getTime() - 31 * 86_400_000), maturityDate: due,
-      // Path A's 7-day reminder fires on nextPaymentDate; path B's 3-day one on the schedule row below.
+      // The 7-day reminder fires on nextPaymentDate.
       nextPaymentDate: new Date(sastStartOfDay(new Date()).getTime() + 7 * 86_400_000),
       interestRatePm: 0.05, interestModel: "FLAT", monthlyServiceFee: 6_900,
       // CANCELLED is created ACTIVE and forced below: the guardLoanCancellation trigger refuses it without a reversal.
@@ -102,11 +92,14 @@ async function createLoan(db: PrismaClient, tenant: ChargesTenant, clientId: str
 export async function seedHoldLoan(
   db: PrismaClient, tenant: ChargesTenant, secondProductId: string, c: HoldCase, opts: { inArrears?: boolean } = {},
 ): Promise<SeededHoldLoan> {
-  const n = ++counter
   const id = randomUUID().replaceAll("-", "").slice(0, 12)
   const email = `hold-${id}@client.invalid`
-  const phone = `+2781${String(1_000_000 + n).slice(1).padStart(7, "0")}`
-  const whatsapp = `+2783${String(1_000_000 + n).slice(1).padStart(7, "0")}`
+  // Random, not numbered: a cron now sweeps every ACTIVE tenant, so rows left by an
+  // earlier run or suite in a shared test database are reached too, and a number
+  // that repeats from one run to the next would read as that loan's reminder.
+  const digits = String(randomInt(10_000_000)).padStart(7, "0")
+  const phone = `+2781${digits}`
+  const whatsapp = `+2783${digits}`
   const client = await db.client.create({
     data: {
       tenantId: tenant.tenantId, idNumber: `91${id.slice(0, 11)}`, firstName: "Hold", lastName: c.name.slice(0, 20),

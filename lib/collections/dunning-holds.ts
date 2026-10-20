@@ -3,8 +3,8 @@ import type { CollectionsStage, Prisma } from "@prisma/client"
 /**
  * The one rule for "may an AUTOMATED reminder go to this loan's borrower".
  *
- * Every automated dunning path takes its loans from here: the two reminder
- * crons (lib/collections/reminders.ts, app/api/cron/payment-reminders) through
+ * Every automated dunning path takes its loans from here: the reminder
+ * cron (lib/collections/reminders.ts) through
  * `remindableLoanWhere()`, and the escalation cron's borrower notification
  * through `notHeldLoanWhere()` (lib/collections/client-holds.ts). A loan is held
  * if ANY of these is true:

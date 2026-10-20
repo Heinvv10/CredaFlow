@@ -353,10 +353,16 @@ Every variable the app reads, required or optional per integration, with what se
 
 ## Not covered
 
-- Scheduling: only some cron routes are registered in-process. `dpd-update`,
-  `reminders` and `escalations` must be called by an external scheduler with
-  `x-cron-secret` (see the ownership comment in `instrumentation.ts`); nothing here
-  installs one.
+- Scheduling: the nightly dunning chain runs in-process, once a SAST day on one
+  replica (a `CronRunClaim` row per job and day): `dpd-update` 02:00, `escalations`
+  02:30, `reminders` 07:00, each sweeping every ACTIVE tenant
+  (`lib/registry/cron-jobs/091-dunning.ts`). Do NOT also point an external timer at
+  those three routes: the claim covers only the in-process scheduler, so a second
+  caller would run them twice (the routes stay callable with `x-cron-secret` for a
+  manual run). `cleanup-notifications`, `email-poll`, `lead-task-reminders` and
+  `messaging-retry` still need an external scheduler calling them with
+  `x-cron-secret` (the ownership comment in
+  `lib/registry/cron-jobs/100-external-scheduler.ts`); nothing here installs one.
 - TLS, DNS and the reverse proxy. Log shipping, and alerting on `/api/health`.
 - Pushing images to a registry, and pulling both tags from one.
 - Rotating `WABA_ENC_KEY`, `UPLOADS_ENC_KEY`, `WEBHOOK_SECRET_KEY` or the backup passphrase.

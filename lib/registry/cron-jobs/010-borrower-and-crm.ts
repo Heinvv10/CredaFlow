@@ -1,10 +1,6 @@
 import { DAY, HOUR, defineCronJobs } from "../define"
 
 export default defineCronJobs([
-  // Nightly at 07:00 — send payment reminder emails (3-day-before).
-  // It duplicates the externally scheduled `reminders` endpoint, but it IS
-  // scheduled in-process and runs nightly; never declare it unwired.
-  { route: "payment-reminders", owner: "in-process", schedule: "0 7 * * *", freshnessMinutes: DAY + 2 * HOUR },
   // Nightly at 06:00 — insurance renewal reminders (30-day warning)
   { route: "insurance-renewal", owner: "in-process", schedule: "0 6 * * *", method: "POST", freshnessMinutes: DAY + 2 * HOUR },
   // Weekly Sunday at 03:00 — cross-sell opportunity evaluation

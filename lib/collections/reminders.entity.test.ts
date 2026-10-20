@@ -25,7 +25,7 @@ const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findFirst: m.tenantFindFirst },
+    tenant: { findMany: async (a: unknown) => { const t = await m.tenantFindFirst(a); return t ? [t] : [] } },
     loan: { findMany: m.loanFindMany },
     repaymentSchedule: { findFirst: m.scheduleFindFirst },
     loanNote: { findFirst: m.loanNoteFindFirst, create: m.loanNoteCreate },
