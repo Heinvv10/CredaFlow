@@ -13,6 +13,8 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { createChargesTenant, SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
+import { toWaJid } from "@/lib/contact/identity"
 import {
   createSecondProduct, HOLD_CASES, seedHoldLoan, type SeededHoldLoan,
 } from "@/lib/collections/dunning-holds.integration-fixture"
@@ -26,10 +28,17 @@ const tripWire = async (to: string) => {
   if (await sends.onSend?.(to)) sends.onSend = null
 }
 
+// The transports under sendMessage (every reminder goes through it). Provider message ids are
+// unique per provider in the database, so each call gets its own.
 vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/bulksms")>()),
-  sendSms: vi.fn(async (a: { to: string }) => (sends.sms.push(a.to), { ok: true })),
-  sendWhatsApp: vi.fn(async (a: { to: string }) => (sends.whatsapp.push(a.to), await tripWire(a.to), { ok: true })),
+  sendSms: vi.fn(async (a: { to: string }) => (sends.sms.push(a.to), { ok: true, messageId: `sms-${randomUUID()}` })),
+}))
+vi.mock("@/lib/whatsapp-cloud", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/whatsapp-cloud")>()),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string }) => (
+    sends.whatsapp.push(a.to), await tripWire(a.to), { ok: true, messageId: `wamid-${randomUUID()}` }
+  )),
 }))
 vi.mock("@/lib/notifications", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/notifications")>()),
@@ -52,8 +61,12 @@ const seeded: SeededHoldLoan[] = []
 suite.sequential("dunning holds on the real reminder queries (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
-    await db.commsSettings.upsert({ where: { tenantId: tenant.tenantId }, create: { tenantId: tenant.tenantId, whatsappEnabled: true }, update: { whatsappEnabled: true } })
+    await seedDefaultMessageTemplates(db, tenant.tenantId, "Acme Lending")
+    await db.commsSettings.upsert({
+      where: { tenantId: tenant.tenantId },
+      create: { tenantId: tenant.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
+      update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
+    })
     const second = await createSecondProduct(db, tenant.tenantId)
     for (const c of HOLD_CASES) seeded.push(await seedHoldLoan(db, tenant, second, c))
   })
@@ -71,7 +84,7 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", (
 
     expect(sends.whatsapp.length, "the harness must observe the WhatsApp leg").toBeGreaterThan(0)
     for (const s of seeded) {
-      expect(sends.whatsapp.includes(s.whatsapp), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
+      expect(sends.whatsapp.includes(toWaJid(s.whatsapp)), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
     }
   })
 
@@ -90,12 +103,12 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", (
     it("after the first send, the remaining loans of the run are not reminded", async () => {
       const fresh = await freshLoans()
       sends.onSend = async (to) => {
-        if (!fresh.some((f) => f.whatsapp === to)) return false
-        for (const f of fresh) if (f.whatsapp !== to) await record(f.loanId)
+        if (!fresh.some((f) => toWaJid(f.whatsapp) === to)) return false
+        for (const f of fresh) if (toWaJid(f.whatsapp) !== to) await record(f.loanId)
         return true
       }
       await processPaymentReminders()
-      expect(sends.whatsapp.filter((to) => fresh.some((f) => f.whatsapp === to))).toHaveLength(1)
+      expect(sends.whatsapp.filter((to) => fresh.some((f) => toWaJid(f.whatsapp) === to))).toHaveLength(1)
     })
   })
 

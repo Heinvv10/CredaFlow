@@ -85,6 +85,20 @@ describe("processEscalations", () => {
     expect(r.details.join(" ")).toContain("borrower notification skipped (dunning hold)")
   })
 
+  it("a DEFAULTED notice that cannot be sent is logged and counted; the flip and its note stand", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockRejectedValue(new Error("mail relay down"))
+
+    const r = await processEscalations()
+
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual(expect.stringContaining("Error L-100 loan_overdue defaulted notice: mail relay down"))
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("mail relay down"))
+    expect(loanUpdateManyMock).toHaveBeenCalledWith({ where: { id: "loan_1", tenantId: "tenant_acme" }, data: { status: "DEFAULTED" } })
+    expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
+    logged.mockRestore()
+  })
+
   it("the 60-day DEFAULTED rule triggers loan_overdue with data.amount = loan.arrearsAmount (WA vars fix)", async () => {
     const r = await processEscalations()
 

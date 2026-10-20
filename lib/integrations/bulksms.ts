@@ -165,8 +165,8 @@ export async function sendSms(opts: SmsOptions): Promise<SmsResult> {
 
 export async function sendWhatsApp(opts: SmsOptions): Promise<SmsResult> {
   // Transport-level WhatsApp kill switch (WA_ENABLED, tenant whatsappEnabled),
-  // so every caller is covered: the send-link routes and the legacy
-  // collections leg alike. Above the dry-run short-circuit, which would
+  // so every caller is covered, the send-link routes among them. Above the
+  // dry-run short-circuit, which would
   // otherwise record a simulated success for a send that must not happen.
   //
   // BULKSMS_DRY_RUN is deliberately NOT fail-closed here, unlike sendSms():

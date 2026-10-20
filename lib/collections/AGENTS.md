@@ -76,6 +76,14 @@ promise-to-pay tracking, and arrangement monitoring.
   - Complaints do not hold dunning (decided 2026-10-19). The notice is set and
     cleared only by `app/api/loans/[id]/debt-review` (audited). Recording a
     death also BLOCKs the client's Contact (`lib/clients/deceased-contacts.ts`).
+- **Every reminder goes through `sendMessage`; there is no direct-provider
+  leg.** The reminders cron has no flag-off path (`MESSAGING_NEW_SEND_COLLECTIONS`
+  is retired): template rows, the consent/block gate, the WhatsApp kill switches,
+  the holds and `Message.dunning` all apply. A direct BulkSMS leg once sent with
+  no opt-out check. Proof on a real database:
+  `reminders.consent.integration.test.ts`. The `loan_overdue` notice it fires is
+  once per loan per trigger per SAST day (`fireOverdueNotice`), and a failure
+  there is logged and counted in `errors`, never swallowed.
 - **Notifications go through `lib/notifications`** — never call SMS/email
   providers directly from this module; you'd bypass channel preferences,
   quiet-hours, and the audit trail.

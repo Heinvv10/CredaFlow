@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 
 // The collections reminder cron for an ENTITY borrower (asset finance, goal
 // §4.11): no Client, so each trigger's WhatsApp leg goes to the entity's
@@ -68,7 +68,6 @@ beforeEach(() => {
   vi.resetAllMocks()
   // SMS ON: the entity path must not use it even when the channel is enabled.
   process.env.BULKSMS_DRY_RUN = "false"
-  process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
   m.tenantFindFirst.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   m.scheduleFindFirst.mockResolvedValue({ totalDue: 300_000, totalPaid: 0 })
   m.loanNoteFindFirst.mockResolvedValue(null)
@@ -85,10 +84,6 @@ beforeEach(() => {
   m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
   m.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
   m.triggerNotification.mockResolvedValue(undefined)
-})
-
-afterEach(() => {
-  delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
 })
 
 describe("processPaymentReminders — entity borrower", () => {

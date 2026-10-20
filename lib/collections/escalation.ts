@@ -35,6 +35,8 @@ interface EscalationContext {
   outstandingPrincipal: number
   status: string
   ncaRegime: "NCA" | "NON_NCA"
+  /** Counts a failure that did not stop the rule (a notice that could not be sent) in the run's report. */
+  reportError: (detail: string) => void
 }
 
 async function noteExists(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -90,13 +92,22 @@ const RULES: EscalationRule[] = [
       // A consumer is messaged as the borrower; an entity borrower (no
       // Client) through the people who act for it, in copy that names the
       // entity (triggerNotification → lib/asset-finance/entity-notifications.ts).
-      triggerNotification({
-        tenantId: ctx.tenantId,
-        event: "loan_overdue",
-        loanId: ctx.loanId,
-        ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
-        data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
-      }).catch(() => {})
+      try {
+        await triggerNotification({
+          tenantId: ctx.tenantId,
+          event: "loan_overdue",
+          loanId: ctx.loanId,
+          ...(ctx.clientId !== null ? { clientId: ctx.clientId } : {}),
+          data: { daysOverdue: ctx.daysInArrears, amount: ctx.arrearsAmount + charges, escalation: "defaulted" },
+        })
+      } catch (err) {
+        // The DEFAULTED flip and its note are already written and stay: only the
+        // borrower's notice failed. Logged and counted in this run's report.
+        const reason = err instanceof Error ? err.message : String(err)
+        console.error(`[escalation] ${ctx.loanRef}: loan_overdue defaulted notice failed: ${reason}`)
+        ctx.reportError(`Error ${ctx.loanRef} loan_overdue defaulted notice: ${reason}`)
+        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification failed`
+      }
       return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD`
     },
   },
@@ -189,6 +200,10 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
         outstandingPrincipal: loan.outstandingPrincipal,
         status: loan.status,
         ncaRegime: loan.ncaRegime,
+        reportError: (detail) => {
+          result.errors++
+          result.details.push(detail)
+        },
       }
       if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 

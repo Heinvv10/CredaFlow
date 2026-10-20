@@ -14,7 +14,7 @@ import { isWaEnvOff } from "./env-switch"
  * settings-unreadable reason deliberately does NOT: a database blip is
  * transient, so where the message pipeline retries (sendMessage) it must be
  * retried, not parked as FAILED_PERMANENT. Other callers (S129 courtesy,
- * send-link, the legacy collections leg) are one-shot, so
+ * send-link) are one-shot, so
  * the text makes no promise of a retry. It also carries no exception text
  * (that can name internals and is stored).
  */

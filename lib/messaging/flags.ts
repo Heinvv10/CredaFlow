@@ -36,10 +36,6 @@ export function isSection129NewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_S129 === "true"
 }
 
-export function isCollectionsNewSendEnabled(): boolean {
-  return process.env.MESSAGING_NEW_SEND_COLLECTIONS === "true"
-}
-
 export function isAppSubmittedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED === "true"
 }

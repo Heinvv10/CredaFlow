@@ -9,19 +9,28 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/collections/multi-tenant-sweep.integration.test.ts
  */
+import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type SeededHoldLoan } from "@/lib/collections/dunning-holds.integration-fixture"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 
 interface Sent { to: string; body: string }
 const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[] }))
 
+// The transports under sendMessage, which carries every reminder. Provider message ids are
+// unique per provider in the database, so each call gets its own.
 vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/bulksms")>()),
-  sendSms: vi.fn(async () => ({ ok: true })),
-  sendWhatsApp: vi.fn(async (a: { to: string; message: string }) => (sent.whatsapp.push({ to: a.to, body: a.message }), { ok: true })),
+  sendSms: vi.fn(async () => ({ ok: true, messageId: `sms-${randomUUID()}` })),
+}))
+vi.mock("@/lib/whatsapp-cloud", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/whatsapp-cloud")>()),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string; message: string }) => (
+    sent.whatsapp.push({ to: a.to, body: a.message }), { ok: true, messageId: `wamid-${randomUUID()}` }
+  )),
 }))
 vi.mock("@/lib/email/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email/service")>()),
@@ -56,7 +65,6 @@ const delivered = (list: Sent[], to: string) => list.filter((s) => s.to.includes
 suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)", () => {
   beforeAll(async () => {
     process.env.CRON_SECRET = "it-secret"
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
     a = await createChargesTenant(db, false)
     b = await createChargesTenant(db, false)
@@ -65,8 +73,13 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
     await db.tenantConfig.update({ where: { tenantId: b.tenantId }, data: { brandName: BRAND.b, legalName: `${BRAND.b} (Pty) Ltd` } })
     // dpd-update's default tenant is A: the sweep must still reach B.
     process.env.NEXT_PUBLIC_TENANT_SLUG = (await db.tenant.findUniqueOrThrow({ where: { id: a.tenantId } })).slug
-    for (const t of [a, b]) {
-      await db.commsSettings.upsert({ where: { tenantId: t.tenantId }, create: { tenantId: t.tenantId, whatsappEnabled: true }, update: { whatsappEnabled: true } })
+    for (const [t, brand] of [[a, BRAND.a], [b, BRAND.b]] as const) {
+      await seedDefaultMessageTemplates(db, t.tenantId, brand)
+      await db.commsSettings.upsert({
+        where: { tenantId: t.tenantId },
+        create: { tenantId: t.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
+        update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
+      })
     }
     const secondA = await createSecondProduct(db, a.tenantId)
     const secondB = await createSecondProduct(db, b.tenantId)
@@ -108,7 +121,6 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
       const note = await db.loanNote.findFirst({ where: { loanId: seeded.loanId, type: "escalation_default" } })
       expect(note?.tenantId, `${seeded.name}: the note belongs to the loan's own tenant`).toBe(tenant.tenantId)
 
-      // The rule fires the notification without awaiting it (escalation.ts), so it lands just after the run returns.
       await vi.waitFor(() => expect(delivered(sent.email, seeded.email), `${seeded.name}: the DEFAULTED notice must reach the borrower`).toHaveLength(1), { timeout: 5000 })
       const got = delivered(sent.email, seeded.email)
       expect(got[0].body).toContain(own)
