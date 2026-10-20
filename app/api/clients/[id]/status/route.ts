@@ -3,7 +3,8 @@ import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { logAudit, AuditAction } from "@/lib/audit"
+import { logAuditStrict, AuditAction } from "@/lib/audit"
+import { blockContactsForDeceasedClient, releaseContactsForRevivedClient } from "@/lib/clients/deceased-contacts"
 
 /**
  * Set the ASSERTED half of a client's status.
@@ -66,28 +67,39 @@ export async function PATCH(
       data.blacklistReason = body.blacklisted ? reason : null
     }
 
-    // The write happens BEFORE the audit call, and the audit is awaited. An
-    // audit row describing a status change that never landed is worse than no
-    // row: it is a false statement in the record auditors read. So a failed
-    // update returns here and never reaches logAudit.
+    // One transaction: the status write, the Contact block and the audit row
+    // commit together or not at all. An audit row describing a status change
+    // that never landed is worse than no row, and a death recorded without its
+    // Contact blocked would leave the inbox free to message the estate. So a
+    // failure anywhere returns here with nothing written.
     let updated
     try {
-      updated = await prisma.client.update({ where: { id: client.id }, data })
+      updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.client.update({ where: { id: client.id }, data })
+        // Only `deceased` touches the Contact. Blacklisting is a credit
+        // decision and leaves messaging to the consent rules, as before.
+        const scope = { tenantId: tenant.id, clientId: client.id }
+        const contacts = !setsDeceased
+          ? null
+          : body.deceased
+            ? { contactsBlocked: await blockContactsForDeceasedClient(tx, scope) }
+            : { contactsReleased: await releaseContactsForRevivedClient(tx, { ...scope, deceasedAt: client.deceasedAt ?? new Date(0) }) }
+        await logAuditStrict({
+          tenantId: tenant.id,
+          userId: guard.user.id,
+          userEmail: guard.user.email,
+          action: setsDeceased ? AuditAction.CLIENT_DECEASED_RECORDED : AuditAction.CLIENT_BLACKLISTED,
+          entity: "Client",
+          entityId: client.id,
+          oldValue: { blacklisted: client.blacklisted, deceasedAt: client.deceasedAt },
+          newValue: { ...data, reason, ...contacts },
+        }, tx)
+        return row
+      })
     } catch (error) {
       console.error("Failed to update client status:", error)
       return NextResponse.json({ error: "Failed to update client status" }, { status: 500 })
     }
-
-    await logAudit({
-      tenantId: tenant.id,
-      userId: guard.user.id,
-      userEmail: guard.user.email,
-      action: setsDeceased ? AuditAction.CLIENT_DECEASED_RECORDED : AuditAction.CLIENT_BLACKLISTED,
-      entity: "Client",
-      entityId: client.id,
-      oldValue: { blacklisted: client.blacklisted, deceasedAt: client.deceasedAt },
-      newValue: { ...data, reason },
-    })
 
     return NextResponse.json({
       id: updated.id,

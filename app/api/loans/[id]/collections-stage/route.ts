@@ -21,6 +21,7 @@ import { lockLoanForUpdate } from "@/lib/loan/lock"
 import { collectionsStageRank } from "@/lib/collections/stages"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { staffMessageRefusal } from "@/lib/collections/client-holds"
 
 const VALID_STAGES = [
   "SOFT_REMINDER",
@@ -101,6 +102,15 @@ export async function PATCH(
         // The collections ladder is the consumer NCA process; an entity borrower is refused.
         if (!hasClientBorrower(loan)) return { kind: "ENTITY_BORROWER" as const }
 
+        // A reminder stage sends the borrower a WhatsApp, so a death or a
+        // debt-review notice (consumer-wide) refuses it before any write. A stage
+        // that sends nothing is not held.
+        const sendsMessage = body.stage === "SOFT_REMINDER" || body.stage === "FORMAL_REMINDER"
+        const refusal = sendsMessage
+          ? await staffMessageRefusal(tx, { tenantId: tenant.id, clientId: loan.client.id })
+          : null
+        if (refusal) return { kind: "HELD" as const, reason: refusal }
+
         const collectionsEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
         if (!collectionsEligibility.eligible) {
           return { kind: "INELIGIBLE" as const, reason: collectionsEligibility.reason }
@@ -148,6 +158,9 @@ export async function PATCH(
       if (transition.kind === "ENTITY_BORROWER") {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
       }
+      if (transition.kind === "HELD") {
+        return NextResponse.json({ error: `Cannot apply a collections stage: ${transition.reason}.` }, { status: 409 })
+      }
       if (transition.kind === "INELIGIBLE") {
         return NextResponse.json(
           { error: `Cannot apply a collections stage: ${transition.reason}.` },
@@ -193,18 +206,26 @@ export async function PATCH(
         } else {
           const template = await getOrCreateAgentMessageTemplate(tenant.id, "WHATSAPP")
           try {
-            const sendResult = await sendMessage({
-              contactId: contact.id,
-              channel: "WHATSAPP",
-              template,
-              vars: { body: msg },
-              toValue,
-              createdById: guard.user.id,
-              category: "collections_stage_reminder",
-              loanId: id,
-              idempotencyKey: `collections-stage:${id}:${body.stage}:WHATSAPP`,
-            })
-            waReminderResult = messageDeliveryOutcome(sendResult.status)
+            // The stage change committed above; a death or notice recorded since
+            // then still stops the message itself.
+            const lateRefusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId: client.id })
+            if (lateRefusal) {
+              waReminderResult = `blocked:client_hold:${lateRefusal}`
+              console.error(`[collections-stage] auto-WA not sent for loan ${id}: ${lateRefusal}`)
+            } else {
+              const sendResult = await sendMessage({
+                contactId: contact.id,
+                channel: "WHATSAPP",
+                template,
+                vars: { body: msg },
+                toValue,
+                createdById: guard.user.id,
+                category: "collections_stage_reminder",
+                loanId: id,
+                idempotencyKey: `collections-stage:${id}:${body.stage}:WHATSAPP`,
+              })
+              waReminderResult = messageDeliveryOutcome(sendResult.status)
+            }
           } catch (err) {
             if (err instanceof SendBlockedError) {
               waReminderResult = `blocked:${err.reason}`

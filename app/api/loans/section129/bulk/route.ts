@@ -30,6 +30,7 @@ import {
   Section129IssuanceConflictError,
 } from "@/lib/collections/section129-artifact"
 import { hasClientBorrower } from "@/lib/borrower"
+import { clientIdsUnderDebtReview } from "@/lib/collections/client-holds"
 
 type BulkSection129Result = {
   loanId: string
@@ -72,14 +73,28 @@ export async function POST(req: NextRequest) {
     // The notice itself is a consumer document addressed to a natural person
     // (the Client's name, ID number and address), so an NCA loan to an entity
     // borrower, which has no Client, is skipped too. Both count in `skipped`.
-    const eligible = loans.filter(isSection129Eligible).filter(hasClientBorrower)
+    const consumerLoans = loans.filter(isSection129Eligible).filter(hasClientBorrower)
+    // Debt review (NCA s.86) is consumer-wide: a notice on ANY of the client's
+    // loans blocks Section 129 on all of them. Reported per loan, never silent.
+    const underReview = await clientIdsUnderDebtReview({
+      tenantId: tenant.id,
+      clientIds: [...new Set(consumerLoans.map((loan) => loan.client.id))],
+    })
+    const eligible = consumerLoans.filter((loan) => !underReview.has(loan.client.id))
     const noticeDateValue = new Date()
     const noticeDate = section129NoticeDateLabel(noticeDateValue)
     let sent = 0
     let failed = 0
     let skipped = loans.length - eligible.length
     const failures: string[] = []
-    const results: BulkSection129Result[] = []
+    const results: BulkSection129Result[] = consumerLoans
+      .filter((loan) => underReview.has(loan.client.id))
+      .map((loan) => ({
+        loanId: loan.id,
+        reference: loan.reference,
+        outcome: "SKIPPED" as const,
+        error: "The client is under debt review (NCA s.86); a Section 129 notice cannot be issued until the notice is cleared",
+      }))
     const newSend = isSection129NewSendEnabled()
 
     const template = newSend

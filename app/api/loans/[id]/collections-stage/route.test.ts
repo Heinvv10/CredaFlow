@@ -15,6 +15,10 @@ const logAuditMock = vi.fn()
 const auditCreateMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 const waOverdue7dMock = vi.fn((..._a: unknown[]) => "7d msg")
+const refusalMock = vi.fn()
+vi.mock("@/lib/collections/client-holds", () => ({
+  staffMessageRefusal: (...a: unknown[]) => refusalMock(...a),
+}))
 
 const findLenderIdentityMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/config/identity", async (orig) => {
@@ -134,6 +138,54 @@ describe("PATCH collections-stage — settled-account guard", () => {
     sendMessageMock.mockResolvedValue({ id: "m1", status: "SENT" })
     auditCreateMock.mockResolvedValue({ id: "audit-1" })
     chargesOutstandingAtMock.mockResolvedValue(0)
+    refusalMock.mockResolvedValue(null)
+  })
+
+  // Hein, D2: arrangement and attorney actions stay available under a hold. They
+  // have their own routes (payment-arrangement, attorney-referral), which are not
+  // gated; this route refuses them with its usual 400 and never consults the hold.
+  it.each(["PAYMENT_ARRANGEMENT", "ATTORNEY_REFERRED", "WRITTEN_OFF", "SECTION_129_SENT"])(
+    "a %s move is not decided by the client hold: the usual 400, the hold is not consulted",
+    async (stage) => {
+      loanFindUniqueMock.mockResolvedValue(inArrears)
+      refusalMock.mockResolvedValue("a death is recorded for this client")
+
+      const res = await PATCH(makeReq({ stage }), ctx)
+
+      expect(res.status).toBe(400)
+      expect(refusalMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it("does not send the WhatsApp when the hold appears after the stage change committed, and audits why", async () => {
+    loanFindUniqueMock.mockResolvedValue(inArrears)
+    const reason = "a death is recorded for this client"
+    refusalMock.mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce(reason)
+
+    const res = await PATCH(makeReq({ stage: "FORMAL_REMINDER" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(JSON.stringify(logAuditMock.mock.calls)).toContain(`blocked:client_hold:${reason}`)
+  })
+
+  // D2: the stage change sends the borrower a WhatsApp, so a death or a
+  // debt-review notice refuses it with the reason, before any write.
+  it.each([
+    ["deceased", "a death is recorded for this client"],
+    ["under debt review", "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"],
+  ])("refuses with 409 and the reason when the client is %s: no stage write, no audit, no WhatsApp", async (_n, reason) => {
+    loanFindUniqueMock.mockResolvedValue(inArrears)
+    refusalMock.mockResolvedValue(reason)
+
+    const res = await PATCH(makeReq({ stage: "FORMAL_REMINDER" }), ctx)
+
+    expect(res.status).toBe(409)
+    expect((await res.json() as { error: string }).error).toBe(`Cannot apply a collections stage: ${reason}.`)
+    expect(refusalMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", clientId: "c1" })
+    expect(loanUpdateMock).not.toHaveBeenCalled()
+    expect(auditCreateMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
   })
 
   // Default charges: the

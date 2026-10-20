@@ -17,6 +17,10 @@ const dispatchUnderLockMock = vi.fn()
 const markKnownNotSentMock = vi.fn()
 const markReconciliationRequiredMock = vi.fn()
 const finaliseIssuanceMock = vi.fn()
+const underReviewMock = vi.fn()
+vi.mock("@/lib/collections/client-holds", () => ({
+  clientIdsUnderDebtReview: (...a: unknown[]) => underReviewMock(...a),
+}))
 
 const { settlementFiguresMock } = vi.hoisted(() => ({ settlementFiguresMock: vi.fn() }))
 // No tenant logo: documents print the text letterhead (lib/config/lender-logo.ts).
@@ -128,6 +132,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.MESSAGING_NEW_SEND_S129
   requireApiRoleMock.mockResolvedValue({ user: { id: "u1", email: "officer@x" } })
+  underReviewMock.mockResolvedValue(new Set())
   // No default charges: the notice states the loan's own figures.
   settlementFiguresMock.mockImplementation(async (_db: unknown, l: { arrearsAmount: number; outstandingPrincipal: number }) => ({
     live: false, charges: null, chargeLines: [], chargesOutstanding: 0, interestAndFeesOutstanding: 0,
@@ -165,6 +170,23 @@ afterEach(() => {
 })
 
 describe("POST /api/loans/section129/bulk", () => {
+  // D1: a debt-review notice on ANY loan of the client blocks Section 129 on all of them.
+  it("skips, with the reason, every loan of a client under debt review, and still issues for the others", async () => {
+    const other = { ...sampleLoan, id: "loan_2", reference: "L-002", clientId: "cl_2", client: { ...sampleLoan.client, id: "cl_2" } }
+    loanFindManyMock.mockResolvedValue([sampleLoan, other])
+    underReviewMock.mockResolvedValue(new Set(["cl_1"]))
+    reserveIssuanceMock.mockImplementation(async (args: { loanId: string }) => reservation(args.loanId))
+
+    const response = await POST(request())
+    const body = await response.json() as { results: { loanId: string; outcome: string; error?: string }[]; skipped: number }
+
+    expect(underReviewMock).toHaveBeenCalledWith({ tenantId: "tenant_acme", clientIds: ["cl_1", "cl_2"] })
+    expect(body.results.find((r) => r.loanId === "loan_1")).toMatchObject({ outcome: "SKIPPED", error: expect.stringContaining("under debt review") })
+    expect(body.skipped).toBe(1)
+    expect(reserveIssuanceMock).toHaveBeenCalledTimes(1)
+    expect(reserveIssuanceMock).toHaveBeenCalledWith(expect.objectContaining({ loanId: "loan_2" }))
+  })
+
   // no configured, valid lender identity ⇒ no notice in the batch.
   it("refuses with 409 before reading loans when the lender identity is not configured", async () => {
     lenderIdentityMock.mockResolvedValue({

@@ -149,6 +149,12 @@ model Loan {
   collectionsStage            CollectionsStage @default(NONE)
   collectionsStageUpdatedAt   DateTime?
   collectionsNotes            String?
+  // Debt review (NCA s.86): the date the consumer's debt-counsellor notice was
+  // received, and its reference. Set and cleared only by the audited staff
+  // action (app/api/loans/[id]/debt-review); while set, no automated dunning
+  // reaches the loan (lib/collections/dunning-holds.ts).
+  debtReviewNoticeAt          DateTime?
+  debtReviewNoticeRef         String?
   writeOffReason              String?
   writeOffRequestedById       String?
   writeOffRequestedAt         DateTime?
@@ -223,6 +229,9 @@ model Loan {
   @@index([tenantId, status])
   @@index([agreementDocId])
   @@index([entityId])
+  // The client-level holds look up "any loan of this client" (debt review,
+  // lib/collections/dunning-holds.ts) on every reminder, send and S129 step.
+  @@index([clientId])
 
 }
 

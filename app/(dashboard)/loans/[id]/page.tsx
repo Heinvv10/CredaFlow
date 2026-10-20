@@ -28,6 +28,8 @@ import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
 import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
+import { DebtReviewPanel } from "@/components/collections/DebtReviewPanel"
+import { loadClientHold, siblingNoticeFrom } from "@/lib/collections/client-holds"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
@@ -80,6 +82,7 @@ export default async function LoanDetailPage(
         canCapturePayment={role ? canDo(role, "capture_payment") : false}
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
+        canManageDebtReview={Boolean(role && hasMinRole(role, "COLLECTIONS_OFFICER") && canDo(role, "act_on_collections"))}
       />
     )
   }
@@ -112,6 +115,7 @@ export default async function LoanDetailPage(
   const dunningEligibility = evaluateCollectionsEligibility(loan, "DUNNING")
   const section129Availability = await getSection129IssuanceAvailability(tenantId, loan.id)
   const payout = await loadPayoutView(tenantId, loan.id, loan.status)
+  const clientHold = await loadClientHold(prisma, tenantId, loan.client.id)
 
   return (
     <div className="space-y-6 p-4 lg:p-8">
@@ -316,6 +320,15 @@ export default async function LoanDetailPage(
           )}
 
           <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
+
+          <DebtReviewPanel
+            loanId={loan.id}
+            noticeAt={loan.debtReviewNoticeAt}
+            noticeRef={loan.debtReviewNoticeRef}
+            siblingNotice={siblingNoticeFrom(clientHold, loan.id)}
+            // Affordance only: the route re-checks (debt-review/route.ts).
+            canManage={Boolean(session?.user?.role && hasMinRole(session.user.role, "COLLECTIONS_OFFICER") && canDo(session.user.role, "act_on_collections"))}
+          />
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (

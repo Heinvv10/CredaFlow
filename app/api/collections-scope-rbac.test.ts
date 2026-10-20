@@ -41,6 +41,7 @@ import { POST as arrangement } from "@/app/api/loans/[id]/payment-arrangement/ro
 import { POST as section129 } from "@/app/api/loans/section129/route"
 import { POST as section129Bulk } from "@/app/api/loans/section129/bulk/route"
 import { PATCH as collectionsStage } from "@/app/api/loans/[id]/collections-stage/route"
+import { POST as debtReviewRecord, DELETE as debtReviewClear } from "@/app/api/loans/[id]/debt-review/route"
 import { POST as attorneyReferral } from "@/app/api/loans/[id]/attorney-referral/route"
 import { POST as reminder } from "@/app/api/collections/[loanId]/reminder/route"
 
@@ -53,7 +54,9 @@ const ENDPOINTS: Array<[string, () => Promise<Response>]> = [
   ["POST /api/loans/section129", () => section129(json("http://localhost/api/loans/section129", "POST", { loanId: "loan-1" }))],
   ["POST /api/loans/section129/bulk", () => section129Bulk(json("http://localhost/api/loans/section129/bulk", "POST", { loanIds: ["loan-1"] }))],
   ["PATCH /api/loans/[id]/collections-stage", () => collectionsStage(json("http://localhost/api/loans/loan-1/collections-stage", "PATCH", { stage: "EARLY" }), loan)],
-  ["POST /api/loans/[id]/attorney-referral", () => attorneyReferral(json("http://localhost/api/loans/loan-1/attorney-referral", "POST", {}), loan)],
+  ["POST /api/loans/[id]/debt-review", () => debtReviewRecord(json("http://localhost/api/loans/loan-1/debt-review", "POST", { noticeDate: "2026-10-01" }), loan)],
+  ["DELETE /api/loans/[id]/debt-review", () => debtReviewClear(json("http://localhost/api/loans/loan-1/debt-review", "DELETE", { reason: "withdrawn" }), loan)],
+  ["POST /api/loans/[id]/attorney-referral",() => attorneyReferral(json("http://localhost/api/loans/loan-1/attorney-referral", "POST", {}), loan)],
   ["POST /api/collections/[loanId]/reminder", () => reminder(json("http://localhost/api/collections/loan-1/reminder", "POST", {}), { params: Promise.resolve({ loanId: "loan-1" }) })],
 ]
 

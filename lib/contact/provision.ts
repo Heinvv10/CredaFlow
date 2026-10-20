@@ -17,6 +17,7 @@
 import { Prisma, type Channel, type Contact, type ContactIdentity, type IdentitySource } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
 import { normaliseEmail, normalisePhone, toWaJid } from "./identity"
+import { DECEASED_CONTACT_BLOCK_REASON } from "@/lib/clients/deceased-contacts"
 
 export interface ProvisionInput {
   tenantId: string
@@ -38,7 +39,7 @@ export interface ProvisionInput {
 // from the live prisma client type. Same pattern as `PrismaLike` in
 // lib/messaging/types.ts so we accept either prisma directly or a real
 // `tx` from `prisma.$transaction(async (tx) => ...)`.
-type TxLike = Pick<typeof prisma, "$queryRaw" | "contact" | "contactIdentity">
+type TxLike = Pick<typeof prisma, "$queryRaw" | "client" | "contact" | "contactIdentity">
 
 interface ChannelValue {
   channel: Channel
@@ -84,6 +85,16 @@ export async function provisionContactForClient(
     where: { tenantId: input.tenantId, clientId: input.clientId },
   })
 
+  // A Contact created for a client whose death is already recorded starts
+  // BLOCKED, with the same marker the death itself writes
+  // (lib/clients/deceased-contacts.ts), so a reversed death re-opens it.
+  const deceased = existingContact
+    ? false
+    : (await tx.client.findFirst({
+      where: { id: input.clientId, tenantId: input.tenantId },
+      select: { deceasedAt: true },
+    }))?.deceasedAt != null
+
   const contact =
     existingContact ??
     (await tx.contact.create({
@@ -95,7 +106,9 @@ export async function provisionContactForClient(
         primaryEmail: input.email ? normaliseEmail(input.email) : null,
         primaryPhone: input.phone ? normalisePhone(input.phone) : null,
         primaryWaJid: input.whatsapp ? toWaJid(input.whatsapp) : null,
-        status: "CLIENT",
+        ...(deceased
+          ? { status: "BLOCKED" as const, blockedAt: new Date(), blockedReason: DECEASED_CONTACT_BLOCK_REASON }
+          : { status: "CLIENT" as const }),
         // Required: Contact.firstSeenChannel has no schema default. MANUAL
         // marks "captured via app / staff form" — i.e. not via any inbound
         // messaging surface. Mirrors the Phase 9 backfill convention.

@@ -9,6 +9,7 @@ import {
 
 interface MockTx {
   $queryRaw: ReturnType<typeof vi.fn>
+  client: { findFirst: ReturnType<typeof vi.fn> }
   contact: {
     findFirst: ReturnType<typeof vi.fn>
     create: ReturnType<typeof vi.fn>
@@ -23,6 +24,7 @@ interface MockTx {
 function makeTx(): MockTx {
   return {
     $queryRaw: vi.fn().mockResolvedValue([]),
+    client: { findFirst: vi.fn().mockResolvedValue({ deceasedAt: null }) },
     contact: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     contactIdentity: { findFirst: vi.fn(), create: vi.fn() },
   }
@@ -86,10 +88,36 @@ describe("provisionContactForClient", () => {
     expect(tx.contact.create).toHaveBeenCalledOnce()
     expect(result.createdIdentities).toHaveLength(3)
     expect(result.preExistingIdentities).toHaveLength(0)
+    expect(tx.contact.create.mock.calls[0][0].data.status).toBe("CLIENT")
     // primaryEmail must be normalised
     expect(tx.contact.create.mock.calls[0][0].data.primaryEmail).toBe("x@y.com")
     expect(tx.contact.create.mock.calls[0][0].data.primaryPhone).toBe("27821234567")
     expect(tx.contact.create.mock.calls[0][0].data.primaryWaJid).toBe("27821234567@s.whatsapp.net")
+  })
+
+  it("creates the Contact of an already-deceased client BLOCKED, with the death's marker", async () => {
+    tx.contact.findFirst.mockResolvedValue(null)
+    tx.client.findFirst.mockResolvedValue({ deceasedAt: new Date("2026-09-01T00:00:00Z") })
+    tx.contact.create.mockResolvedValue(makeContact({ status: "BLOCKED" }))
+    tx.contactIdentity.findFirst.mockResolvedValue(null)
+    tx.contactIdentity.create.mockResolvedValue(makeIdentity())
+
+    await provisionContactForClient(tx as never, { tenantId: "tn1", clientId: "cli1", email: "x@y.com" })
+
+    expect(tx.client.findFirst).toHaveBeenCalledWith({ where: { id: "cli1", tenantId: "tn1" }, select: { deceasedAt: true } })
+    expect(tx.contact.create.mock.calls[0][0].data).toMatchObject({
+      status: "BLOCKED", blockedReason: "DECEASED: client death recorded", blockedAt: expect.any(Date),
+    })
+  })
+
+  it("does not look the client up, or change anything, when the Contact already exists", async () => {
+    tx.contact.findFirst.mockResolvedValue(makeContact())
+    tx.contactIdentity.findFirst.mockResolvedValue(makeIdentity())
+
+    await provisionContactForClient(tx as never, { tenantId: "tn1", clientId: "cli1", email: "x@y.com" })
+
+    expect(tx.client.findFirst).not.toHaveBeenCalled()
+    expect(tx.contact.create).not.toHaveBeenCalled()
   })
 
   it("reuses an existing Contact and only creates missing identity rows", async () => {

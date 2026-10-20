@@ -634,6 +634,12 @@ model Message {
   // for inbound webhooks that haven't yet returned a provider id.
   providerMessageId String?
 
+  // A reminder or overdue notice sent to press for payment, set by sendMessage
+  // from its `category` (lib/messaging/dunning-category.ts). The retry sweep
+  // holds only these for a deceased or debt-review client; statements, receipts
+  // and transactional messages are not dunning.
+  dunning Boolean @default(false)
+
   fromValue String? // normalised channel value
   toValue   String?
 

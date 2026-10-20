@@ -5,6 +5,14 @@ const requireApiRoleMock = vi.fn()
 const clientFindFirstMock = vi.fn()
 const clientUpdateMock = vi.fn()
 const logAuditMock = vi.fn()
+const blockMock = vi.fn()
+const releaseMock = vi.fn()
+const tx = { client: { update: (a: unknown) => clientUpdateMock(a) } }
+// The helpers' own behaviour is proved on real Postgres (lib/clients/deceased-contacts.integration.test.ts).
+vi.mock("@/lib/clients/deceased-contacts", () => ({
+  blockContactsForDeceasedClient: (...a: unknown[]) => blockMock(...a),
+  releaseContactsForRevivedClient: (...a: unknown[]) => releaseMock(...a),
+}))
 
 vi.mock("@/lib/auth-guards", () => ({ requireApiRole: (r: string) => requireApiRoleMock(r) }))
 vi.mock("@/lib/tenant", () => ({
@@ -12,15 +20,13 @@ vi.mock("@/lib/tenant", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    client: {
-      findFirst: (a: unknown) => clientFindFirstMock(a),
-      update: (a: unknown) => clientUpdateMock(a),
-    },
+    client: { findFirst: (a: unknown) => clientFindFirstMock(a) },
+    $transaction: (cb: (t: typeof tx) => Promise<unknown>) => cb(tx),
   },
 }))
 vi.mock("@/lib/audit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit")>()),
-  logAudit: (...a: unknown[]) => logAuditMock(...a),
+  logAuditStrict: (...a: unknown[]) => logAuditMock(...a),
 }))
 
 import { PATCH } from "./route"
@@ -43,6 +49,8 @@ beforeEach(() => {
     Promise.resolve({ id: "c1", ...a.data })
   )
   logAuditMock.mockResolvedValue(undefined)
+  blockMock.mockResolvedValue(1)
+  releaseMock.mockResolvedValue(1)
 })
 
 describe("PATCH /api/clients/[id]/status — authorization", () => {
@@ -83,7 +91,8 @@ describe("PATCH /api/clients/[id]/status — recording a death", () => {
     await PATCH(request({ deceased: true, reason: "Death certificate received" }), ctx)
 
     expect(logAuditMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "CLIENT_DECEASED_RECORDED", entity: "Client", entityId: "c1" })
+      expect.objectContaining({ action: "CLIENT_DECEASED_RECORDED", entity: "Client", entityId: "c1" }),
+      tx,
     )
   })
 
@@ -96,6 +105,48 @@ describe("PATCH /api/clients/[id]/status — recording a death", () => {
 
     const arg = clientUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }
     expect(arg.data.deceasedAt).toBeNull()
+  })
+})
+
+describe("PATCH /api/clients/[id]/status — a death silences every messaging channel", () => {
+  it("blocks the client's Contact inside the same transaction, so the inbox cannot message the estate", async () => {
+    await PATCH(request({ deceased: true, reason: "Death certificate received" }), ctx)
+
+    expect(blockMock).toHaveBeenCalledWith(tx, { tenantId: "t1", clientId: "c1" })
+    expect(releaseMock).not.toHaveBeenCalled()
+  })
+
+  it("records how many contacts it blocked in the audit row", async () => {
+    blockMock.mockResolvedValue(2)
+    await PATCH(request({ deceased: true, reason: "Death certificate received" }), ctx)
+
+    expect(logAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({ newValue: expect.objectContaining({ contactsBlocked: 2 }) }),
+      tx,
+    )
+  })
+
+  it("re-opens only what the death blocked when it is reversed, passing the death date it predates", async () => {
+    const deceasedAt = new Date("2026-08-01")
+    clientFindFirstMock.mockResolvedValue({ id: "c1", firstName: "T", lastName: "C", blacklisted: false, deceasedAt })
+    await PATCH(request({ deceased: false, reason: "Recorded against the wrong client" }), ctx)
+
+    expect(releaseMock).toHaveBeenCalledWith(tx, { tenantId: "t1", clientId: "c1", deceasedAt })
+    expect(blockMock).not.toHaveBeenCalled()
+  })
+
+  it("does not touch Contacts when blacklisting", async () => {
+    await PATCH(request({ blacklisted: true, reason: "Confirmed first-party fraud" }), ctx)
+    expect(blockMock).not.toHaveBeenCalled()
+    expect(releaseMock).not.toHaveBeenCalled()
+  })
+
+  it("returns 500 and writes no audit row when the Contact block fails", async () => {
+    blockMock.mockRejectedValue(new Error("db down"))
+    const res = await PATCH(request({ deceased: true, reason: "x" }), ctx)
+
+    expect(res.status).toBe(500)
+    expect(logAuditMock).not.toHaveBeenCalled()
   })
 })
 
@@ -112,7 +163,8 @@ describe("PATCH /api/clients/[id]/status — blacklisting", () => {
   it("writes its own audit action, distinct from a death", async () => {
     await PATCH(request({ blacklisted: true, reason: "Confirmed first-party fraud" }), ctx)
     expect(logAuditMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "CLIENT_BLACKLISTED" })
+      expect.objectContaining({ action: "CLIENT_BLACKLISTED" }),
+      tx,
     )
   })
 })
