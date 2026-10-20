@@ -344,6 +344,8 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | (1) booking gate on every deal | dealer-handover-contact IT, database migrated to `20261019120400` only | 1 failed, 8 passed | "expected [Function] to throw an error" (a staff deal on a dealer-captured borrower with an unverified director was BOOKED) |
 | (2) portal reset to a dealer-typed email | dealer-contact-bypass IT | 1 failed, 1 passed | "expected { status: 200, issued: '1' } to deeply equal { status: 200, issued: '0' }" |
 | (3) selfie link to a dealer-typed contact | selfie send-link route unit | 1 failed, 18 passed | the link was sent (no 409) |
+| (4) servicing messages to an unverified dealer-typed person | dealer-handover-contact IT; `reprice-notice-dispatch.test.ts` | 1 failed each | the dealer-captured director was among the entity's recipients; the rate-notice re-check had no trust filter |
+| (5) a person added after the hand-over | dealer-submit IT | 1 failed, 10 passed | "expected { kind: 'created' } to match object { kind: 'refused', status: 409 }" |
 
 ### Mutations (applied to the migrated database or the source, then restored)
 
@@ -354,5 +356,10 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | 3 | `forgot-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | "issues no code … refuses it cleanly" (`issued: '1'`) |
 | 4 | `reset-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | same test: the reset threw `PrismaClientUnknownRequestError` (the database guard), not a refusal |
 
+| 5 | `entity-contacts.ts` without `TRUSTED_CONTACT_WHERE` | dealer-handover-contact IT | 1 failed, 9 passed | "sends an entity's servicing messages to no dealer-captured person until staff verify them" |
+| 6 | `reprice-notice-dispatch.ts` without `TRUSTED_CONTACT_WHERE` | `reprice-notice-dispatch.test.ts` | 1 failed, 16 passed | "never releases a notice to contact details a dealer typed that staff have not verified" |
+| 7 | `captureDealerPerson`'s hand-over check disabled | dealer-submit IT | 1 failed, 10 passed | "adds no person to the business once its deal is handed over" |
+
 (3)'s mutation is its before run (the route without the check). After
-restoring each: dealer-handover-contact 9/9, dealer-contact-bypass 2/2.
+restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
+dealer-submit 11/11, reprice-notice-dispatch 17/17.

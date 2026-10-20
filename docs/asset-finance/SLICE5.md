@@ -209,8 +209,11 @@ Review rounds 2 and 3 (migrations `20261019120400_dealer_booking_contacts_verifi
     first (`dealer_contact_unverified`). Staff verify from any deal the person
     is on (a "Contacts a dealer captured" panel on a staff deal). The portal
     forgot/reset-password routes and the selfie capture link skip or refuse an
-    unverified dealer-typed contact too. The on-book refusal audit names the
-    dealer user as its row (entity `DealerUser`).
+    unverified dealer-typed contact too, as do an entity's servicing
+    recipients; a dealer adds no person to a business whose deal is past the
+    hand-over (409). A partial index (migration `20261019120600`) serves
+    these checks. The on-book refusal audit names the dealer user as its row
+    (entity `DealerUser`).
 
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
 
@@ -700,9 +703,11 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
   booked while a person on it has unverified dealer-typed contacts
   (deviation 40); a wet-ink contract can still complete before the
   verification (the signing paths would need their own refusal).
-- **A person linked after booking is not re-gated.** Someone a dealer captured
-  who is linked to an entity after its deal is booked is not checked again:
-  servicing messages sent to them later go to the contacts on file.
+- **Servicing messages skip unverified dealer-typed people.** A dealer cannot
+  add a person to a business once a deal on it is handed over, and an
+  entity's servicing messages (reminders, notifications, rate notices) go
+  only to people whose dealer-typed contacts staff verified. A person staff
+  add later is the lender's capture and trusted as such.
 - **A run covers a finished period.** `periodEnd` is a month end not after
   today, so commission earned this month, and a clawback netting it, is paid
   in next month's run at the earliest.
