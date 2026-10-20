@@ -2,7 +2,7 @@ import type { Channel, MessageTemplate, Provider } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "@/lib/whatsapp/send-mode"
 import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
-import { contactMessageRefusal } from "@/lib/collections/client-holds"
+import { contactDunningHold } from "@/lib/collections/client-holds"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
 
@@ -305,6 +305,8 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
   channel: Channel
   template: MessageTemplate
   checkedAt: Date
+  /** Message.dunning: only a reminder or overdue notice is held for a client hold. */
+  dunning: boolean
 }): Promise<RetryEligibilityClaim> {
   return prisma.$transaction(async (eligibilityTx) => {
     const eligibility = await canSendTx(
@@ -314,17 +316,23 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
       args.template,
     )
 
-    // A death or a debt-review notice recorded since the message was queued: the
-    // client's holds (lib/collections/client-holds.ts) apply to a re-send too.
-    const hold = eligibility.ok
-      ? await contactMessageRefusal(eligibilityTx as Parameters<typeof contactMessageRefusal>[0], {
+    // A death or a debt-review notice recorded since the message was queued holds
+    // DUNNING only (Message.dunning): the borrower is still owed statements,
+    // receipts and transactional messages, and a deceased client's other
+    // messages are already stopped by the Contact block inside canSendTx.
+    const hold = eligibility.ok && args.dunning
+      ? await contactDunningHold(eligibilityTx as Parameters<typeof contactDunningHold>[0], {
         tenantId: args.tenantId,
         contactId: args.contactId,
       })
       : null
 
     if (!eligibility.ok || hold) {
-      const reason = eligibility.ok ? `client hold: ${hold}` : eligibility.reason
+      // No MsgStatus says "held": SUPPRESSED_BY_CONSENT is the nearest terminal,
+      // never-retried outcome, so the text and the audit row name the real cause.
+      const reason = eligibility.ok
+        ? `client hold: ${hold!.kind === "DECEASED" ? "deceased" : "debt review"}: ${hold!.reason}`
+        : eligibility.reason
       const errorMessage = `canSendTx rejected on retry: ${reason}`
       const transitioned = await eligibilityTx.message.updateMany({
         where: {
@@ -354,7 +362,7 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
           action: "MESSAGE_SUPPRESSED_BY_CONSENT",
           entity: "Message",
           entityId: args.id,
-          newValue: { reason, retryCount: args.retryCount },
+          newValue: { reason, retryCount: args.retryCount, ...(hold ? { clientHold: hold.kind } : {}) },
         },
       })
       return { kind: "suppressed", reason }
@@ -623,6 +631,7 @@ async function processRetryBatchLocked(opts: {
         contactId: conversation.contactId,
         channel: msg.channel,
         template,
+        dunning: msg.dunning,
       })
       if (claim.kind === "suppressed") {
         suppressed++

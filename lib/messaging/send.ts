@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction } from "@/lib/audit"
 import { evaluateEligibility } from "./eligibility"
 import { renderTemplate } from "./render"
+import { isDunningCategory } from "./dunning-category"
 import { providerFailureOutcome } from "./providers"
 import { classifyError, backoff } from "./retry"
 import { signUnsubToken } from "@/lib/unsubscribe/token"
@@ -556,6 +557,8 @@ export async function sendMessage(opts: SendMessageOpts): Promise<Message> {
         bodyHtml: stored.html,
         toValue: opts.toValue,
         createdById: opts.createdById ?? null,
+        // Read by the retry sweep's client hold (lib/collections/client-holds.ts).
+        dunning: isDunningCategory(opts.category),
         idempotencyKey,
         payloadFingerprint: preparedPayload.payloadFingerprint,
         createdAt: requestPreparedAt,

@@ -100,17 +100,22 @@ export async function staffMessageRefusal(
 }
 
 /**
- * Why a message already queued for this Contact must not be re-sent (the
- * messaging retry sweep): the Contact's client is deceased or under debt review.
- * A Contact with no client (a lead) has no hold.
+ * Why a queued DUNNING message for this Contact must not be re-sent (the
+ * messaging retry sweep, lib/messaging/retry.ts), and which hold it is: the
+ * Contact's client is deceased, or under debt review. A Contact with no client
+ * (a lead) has no hold. Only dunning is held: the caller asks for messages
+ * flagged `Message.dunning` (lib/messaging/dunning-category.ts).
  */
-export async function contactMessageRefusal(
+export async function contactDunningHold(
   db: ClientHoldDb & { contact: { findFirst: (args: Prisma.ContactFindFirstArgs) => PromiseLike<unknown> } },
   args: { tenantId: string; contactId: string },
-): Promise<string | null> {
+): Promise<{ kind: "DECEASED" | "DEBT_REVIEW"; reason: string } | null> {
   const contact = await db.contact.findFirst({ where: { id: args.contactId, tenantId: args.tenantId }, select: { clientId: true } }) as { clientId: string | null } | null
   if (!contact?.clientId) return null
-  return staffMessageRefusal(db, { tenantId: args.tenantId, clientId: contact.clientId })
+  const hold = await loadClientHold(db, args.tenantId, contact.clientId)
+  const reason = staffRefusalFrom(hold)
+  if (!reason) return null
+  return { kind: hold?.deceased ? "DECEASED" : "DEBT_REVIEW", reason }
 }
 
 /** True when automated dunning must not reach this loan (the escalation cron's borrower notification). */

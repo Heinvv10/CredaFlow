@@ -302,6 +302,25 @@ describe("sendMessage", () => {
     expect(createCall.data.bodyText).toBe("Hi Sipho")
   })
 
+  it.each([
+    [undefined, false],
+    ["statement", false],
+    ["collections", true],
+    ["manual_reminder", true],
+    ["loan_overdue", true],
+  ])("stores Message.dunning from the category %s: %s (the retry sweep's client hold reads it)", async (category, dunning) => {
+    const tx = buildTx()
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(tx))
+    vi.mocked(dispatch).mockResolvedValue({ providerMessageId: "em-1", acceptedAt: providerAcceptedAt })
+
+    await sendMessage({
+      contactId: "ct1", channel: "EMAIL", template: fullTemplate,
+      vars: { name: "Sipho" }, toValue: "x@y.com", category,
+    })
+
+    expect(tx.message.create.mock.calls[0]?.[0]?.data.dunning).toBe(dunning)
+  })
+
   it("writes Message with lawfulBasis + basisEvidence + conversationId from eligibility", async () => {
     const tx = buildTx()
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) => cb(tx))

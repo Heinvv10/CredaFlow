@@ -13,6 +13,7 @@ vi.mock("@/lib/collections/client-holds", async (orig) => ({
   loadClientHold: vi.fn(async () => holds.hold),
 }))
 const reminderButton = vi.hoisted(() => ({ rendered: 0 }))
+const whatsAppButton = vi.hoisted(() => ({ rendered: 0 }))
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("next/navigation", () => ({ notFound: vi.fn() }))
@@ -29,7 +30,9 @@ vi.mock("@/components/collections/ManualReminderButton", () => ({
   ManualReminderButton: () => { reminderButton.rendered++; return null },
 }))
 vi.mock("@/components/collections/CollectionDetailTabs", () => ({ CollectionDetailTabs: () => null }))
-vi.mock("@/components/clients/ClientWhatsAppButton", () => ({ ClientWhatsAppButton: () => null }))
+vi.mock("@/components/clients/ClientWhatsAppButton", () => ({
+  ClientWhatsAppButton: () => { whatsAppButton.rendered++; return null },
+}))
 const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string; reminderHoldReason?: string } | undefined }))
 vi.mock("@/components/collections/CollectionsStagePanel", () => ({
   CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string; reminderHoldReason?: string }) => {
@@ -93,15 +96,18 @@ describe("collections loan page", () => {
     }
   })
 
-  it("deceased: says so (not debt review), with no link, and offers no reminder", async () => {
+  it("deceased: says so (not debt review), with no link, and offers no reminder and no WhatsApp composer", async () => {
     holds.hold = { deceased: true, debtReview: null }
     reminderButton.rendered = 0
+    whatsAppButton.rendered = 0
     try {
       const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
       expect(html).toContain("paused: a death is recorded for this client.")
       expect(html).not.toContain("debt review")
       expect(html).not.toContain("Open loan")
       expect(reminderButton.rendered).toBe(0)
+      // The composer refuses a deceased client's blocked Contact, so it is not offered.
+      expect(whatsAppButton.rendered).toBe(0)
     } finally {
       holds.hold = null
     }
@@ -109,8 +115,10 @@ describe("collections loan page", () => {
 
   it("with no hold, offers the reminder button and a writable stage panel", async () => {
     reminderButton.rendered = 0
+    whatsAppButton.rendered = 0
     renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
     expect(reminderButton.rendered).toBe(1)
+    expect(whatsAppButton.rendered).toBe(1)
     expect(stagePanelProps.last?.readOnlyReason).toBeUndefined()
     expect(stagePanelProps.last?.reminderHoldReason).toBeUndefined()
   })

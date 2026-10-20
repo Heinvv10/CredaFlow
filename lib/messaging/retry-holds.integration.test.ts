@@ -1,15 +1,17 @@
 /**
- * Real-Postgres proof that the messaging retry sweep (processRetryBatch) does
- * not re-send a queued message to a client who has since died or gone under
- * debt review (lib/collections/client-holds.ts): the row is SUPPRESSED, not left
- * retrying, and no dispatch is claimed. A clean client's row is not suppressed
- * by the hold.
+ * Real-Postgres proof of what the messaging retry sweep (processRetryBatch)
+ * holds for a client who has died or gone under debt review
+ * (lib/collections/client-holds.ts): only DUNNING (Message.dunning), which is
+ * SUPPRESSED with the cause named and no dispatch claimed. A statement, a
+ * receipt and a transactional message (an OTP, an application decline) are not
+ * held by it and still reach the dispatch step; a clean client's reminder too.
+ * (A deceased client's Contact block, not this hold, stops their other messages.)
  *
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/messaging/retry-holds.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient, type TemplateCategory } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type HoldCase } from "@/lib/collections/dunning-holds.integration-fixture"
@@ -19,60 +21,87 @@ import { processRetryBatch } from "@/lib/messaging/retry"
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
 let tenant: ChargesTenant
-let templateId = ""
+const templates: Partial<Record<TemplateCategory, string>> = {}
 const messages: Record<string, string> = {}
 
-async function queueMessage(contactId: string): Promise<string> {
-  const conversation = await db.conversation.create({ data: { tenantId: tenant.tenantId, contactId, channel: "SMS" } })
-  const message = await db.message.create({
+const KINDS = [
+  { kind: "reminder", category: "SERVICE", dunning: true },
+  { kind: "statement", category: "SERVICE", dunning: false },
+  { kind: "receipt", category: "SERVICE", dunning: false },
+  { kind: "otp", category: "TRANSACTIONAL", dunning: false },
+  { kind: "decline", category: "TRANSACTIONAL", dunning: false },
+] as const
+
+async function queueMessage(contactId: string, category: TemplateCategory, dunning: boolean): Promise<string> {
+  // One conversation per contact: later messages join it.
+  const conversation = await db.conversation.findFirst({ where: { tenantId: tenant.tenantId, contactId } })
+    ?? await db.conversation.create({ data: { tenantId: tenant.tenantId, contactId, channel: "SMS" } })
+  return (await db.message.create({
     data: {
       tenantId: tenant.tenantId, conversationId: conversation.id, channel: "SMS", direction: "OUTBOUND", provider: "BULKSMS",
-      status: "RETRYING", retryCount: 1, nextRetryAt: new Date("2000-01-01T00:00:00Z"), templateId,
-      lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "Synthetic reminder", toValue: "+27820000000",
+      status: "RETRYING", retryCount: 1, nextRetryAt: new Date("2000-01-01T00:00:00Z"), templateId: templates[category]!,
+      lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "Synthetic message", toValue: "+27820000000", dunning,
     },
-  })
-  return message.id
+  })).id
+}
+
+async function template(category: TemplateCategory): Promise<string> {
+  return (await db.messageTemplate.create({
+    data: { tenantId: tenant.tenantId, event: `retry_hold_${category}`, key: `retry_hold_${category}_${randomUUID()}`, channel: "SMS", body: "x", category },
+  })).id
 }
 
 suite.sequential("retry sweep and client holds (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     const second = await createSecondProduct(db, tenant.tenantId)
-    templateId = (await db.messageTemplate.create({
-      data: { tenantId: tenant.tenantId, event: "retry_hold_it", key: `retry_hold_${randomUUID()}`, channel: "SMS", body: "x", category: "SERVICE" },
-    })).id
+    templates.SERVICE = await template("SERVICE")
+    templates.TRANSACTIONAL = await template("TRANSACTIONAL")
     const cases: HoldCase[] = [
       { name: "deceased", deceased: true, held: true },
-      { name: "debt review on the client's other loan", debtReviewOnSibling: true, held: true },
+      { name: "debt review", debtReviewOnSibling: true, held: true },
       { name: "clean", held: false },
     ]
     for (const c of cases) {
       const seeded = await seedHoldLoan(db, tenant, second, c)
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
-      messages[c.name] = await queueMessage(contact.id)
+      for (const k of KINDS) messages[`${c.name}/${k.kind}`] = await queueMessage(contact.id, k.category, k.dunning)
     }
     const lead = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "LEAD" } })
-    messages.lead = await queueMessage(lead.id)
+    messages["lead/reminder"] = await queueMessage(lead.id, "SERVICE", true)
     await processRetryBatch({ limit: 500, now: new Date() })
   })
   afterAll(async () => { await db.$disconnect(); await prisma.$disconnect() })
 
   const row = (name: string) => db.message.findUniqueOrThrow({ where: { id: messages[name] } })
+  const audits = (name: string, action: string) => db.auditLog.count({ where: { entityId: messages[name], action } })
 
-  it.each(["deceased", "debt review on the client's other loan"])("suppresses a queued message to a client who is %s, and claims no dispatch", async (name) => {
-    expect(await row(name)).toMatchObject({
-      status: "SUPPRESSED_BY_CONSENT", errorClass: "CONSENT_REVOKED", dispatchToken: null,
-      errorMessage: expect.stringContaining("client hold"),
+  it.each([
+    ["deceased", "client hold: deceased"],
+    ["debt review", "client hold: debt review"],
+  ])("a %s client's REMINDER retry is suppressed, naming the hold, with no dispatch claimed", async (who, text) => {
+    expect(await row(`${who}/reminder`)).toMatchObject({
+      status: "SUPPRESSED_BY_CONSENT", errorClass: "CONSENT_REVOKED", dispatchToken: null, errorMessage: expect.stringContaining(text),
     })
-    expect(await db.auditLog.count({ where: { entityId: messages[name], action: "MESSAGE_SUPPRESSED_BY_CONSENT" } })).toBe(1)
-    expect(await db.auditLog.count({ where: { entityId: messages[name], action: "MESSAGE_RETRY_DISPATCH_CLAIMED" } })).toBe(0)
+    expect(await audits(`${who}/reminder`, "MESSAGE_SUPPRESSED_BY_CONSENT")).toBe(1)
+    expect(await audits(`${who}/reminder`, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(0)
   })
 
-  it("does not suppress a clean client's message, or a lead's, for a hold", async () => {
-    for (const name of ["clean", "lead"]) {
+  it.each(["deceased", "debt review"])("a %s client's statement, receipt, OTP and decline retries are NOT held: each is claimed for dispatch", async (who) => {
+    for (const kind of ["statement", "receipt", "otp", "decline"]) {
+      const name = `${who}/${kind}`
       const r = await row(name)
       expect(r.errorMessage ?? "", name).not.toContain("client hold")
       expect(r.status, name).not.toBe("SUPPRESSED_BY_CONSENT")
+      expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(1)
+    }
+  })
+
+  it("a clean client's reminder, and a lead's, are not suppressed by a hold", async () => {
+    for (const name of ["clean/reminder", "lead/reminder"]) {
+      const r = await row(name)
+      expect(r.errorMessage ?? "", name).not.toContain("client hold")
+      expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(1)
     }
   })
 })

@@ -193,8 +193,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-const holds = vi.hoisted(() => ({ refusal: null as string | null }))
-vi.mock("@/lib/collections/client-holds", () => ({ contactMessageRefusal: async () => holds.refusal }))
+const holds = vi.hoisted(() => ({ hold: null as null | { kind: "DECEASED" | "DEBT_REVIEW"; reason: string }, asked: 0 }))
+vi.mock("@/lib/collections/client-holds", () => ({ contactDunningHold: async () => { holds.asked++; return holds.hold } }))
 vi.mock("./send", () => ({
   canSendTx: vi.fn(),
   resolveProvider: vi.fn(),
@@ -357,11 +357,14 @@ describe("processRetryBatch", () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
-  it("suppresses, not retries, a message to a client who has since died or gone under debt review", async () => {
+  it.each([
+    ["deceased", { kind: "DECEASED", reason: "a death is recorded for this client" } as const, "client hold: deceased: a death is recorded for this client"],
+    ["under debt review", { kind: "DEBT_REVIEW", reason: "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)" } as const, "client hold: debt review: the client is under debt review"],
+  ])("suppresses, not retries, a DUNNING message to a client who is %s, saying which hold it was", async (_n, hold, text) => {
     txMock.message.updateMany.mockResolvedValueOnce({ count: 0 } as any)
-    txMock.message.findMany.mockResolvedValue([baseMessage])
+    txMock.message.findMany.mockResolvedValue([{ ...baseMessage, dunning: true }])
     vi.mocked(canSendTx).mockResolvedValue({ ok: true, basis: "SERVICE_COMMS_NCA", evidence: "x" } as any)
-    holds.refusal = "a death is recorded for this client"
+    holds.hold = hold
     try {
       const r = await processRetryBatch({ limit: 50, now: new Date() })
 
@@ -370,10 +373,30 @@ describe("processRetryBatch", () => {
       expect(dispatch).not.toHaveBeenCalled()
       expect(globalTxMock.notificationLog.updateMany).toHaveBeenCalledWith({
         where: { tenantId: "tn1", messageId: "msg1" },
-        data: { status: "suppressed_by_consent", error: "canSendTx rejected on retry: client hold: a death is recorded for this client" },
+        data: { status: "suppressed_by_consent", error: expect.stringContaining(`canSendTx rejected on retry: ${text}`) },
+      })
+      expect(globalTxMock.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ action: "MESSAGE_SUPPRESSED_BY_CONSENT", newValue: expect.objectContaining({ clientHold: hold.kind }) }),
       })
     } finally {
-      holds.refusal = null
+      holds.hold = null
+    }
+  })
+
+  it("does not even look for a client hold on a message that is not dunning", async () => {
+    txMock.message.updateMany.mockResolvedValueOnce({ count: 0 } as any)
+    txMock.message.findMany.mockResolvedValue([{ ...baseMessage, dunning: false }])
+    vi.mocked(canSendTx).mockResolvedValue({ ok: true, basis: "SERVICE_COMMS_NCA", evidence: "x" } as any)
+    holds.hold = { kind: "DEBT_REVIEW", reason: "would suppress a statement" }
+    holds.asked = 0
+    try {
+      await processRetryBatch({ limit: 50, now: new Date() })
+      expect(holds.asked).toBe(0)
+      expect(globalTxMock.auditLog.create).not.toHaveBeenCalledWith({
+        data: expect.objectContaining({ action: "MESSAGE_SUPPRESSED_BY_CONSENT" }),
+      })
+    } finally {
+      holds.hold = null
     }
   })
 
