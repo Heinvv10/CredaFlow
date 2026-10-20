@@ -13,6 +13,12 @@ const triggerNotificationMock = vi.fn()
 const loanFindUniqueMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 
+// WhatsApp switches (WA_ENABLED, the tenant's whatsappEnabled): a refusal reason, or null when on.
+const waSwitch = vi.hoisted(() => ({ refusal: null as string | null }))
+vi.mock("@/lib/whatsapp/kill-switch", async (orig) => ({
+  ...(await orig<typeof import("@/lib/whatsapp/kill-switch")>()),
+  whatsappRefusalForTenant: async () => waSwitch.refusal,
+}))
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
@@ -206,6 +212,7 @@ function loanDueIn(days: number) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  waSwitch.refusal = null
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme", name: "Acme" })
   loanFindManyMock.mockResolvedValue([loanDueTomorrow()])
   repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00, totalPaid: 0 })
@@ -274,26 +281,128 @@ describe("processPaymentReminders", () => {
   })
 
   describe("sendMessage path", () => {
-    it("aborts when one or both templates missing", async () => {
+    // A channel that is ON but has no usable template is skipped for the tenant:
+    // one warning each, logged and counted, never an abort and never an error.
+    it("a tenant with no templates is not aborted: every enabled leg is skipped with a warning, no error", async () => {
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined)
       messageTemplateFindFirstMock.mockResolvedValue(null)
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
 
       const r = await processPaymentReminders()
 
-      expect(r.errors).toBe(1)
-      expect(r.details[0]).toMatch(/template missing/i)
+      expect(loanFindManyMock).toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      // The SMS row plus one WhatsApp row per trigger that has a WhatsApp leg.
+      expect(r.warnings).toBe(1 + WA_TEMPLATE_EVENTS.length)
+      expect(r.details).toContainEqual(expect.stringMatching(/^Warning: sms legs skipped: payment_reminder_sms template missing\/inactive/))
+      expect(warned).toHaveBeenCalledWith(expect.stringContaining("payment_reminder_sms template missing/inactive"))
       expect(sendMessageMock).not.toHaveBeenCalled()
-      // Should NOT have fetched loans (early-return)
-      expect(loanFindManyMock).not.toHaveBeenCalled()
+      warned.mockRestore()
     })
 
-    it("aborts when a template has statutoryOverride=true (misconfigured)", async () => {
-      stubTemplates({ payment_reminder_sms: { ...sampleSmsTpl, statutoryOverride: true } })
+    it("a missing SMS template skips only the SMS leg, with ONE warning; WhatsApp still sends", async () => {
+      stubTemplates({ payment_reminder_sms: null })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
 
       const r = await processPaymentReminders()
 
-      expect(r.errors).toBe(1)
-      expect(r.details[0]).toMatch(/statutoryOverride=true/i)
-      expect(sendMessageMock).not.toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      expect(r.warnings).toBe(1)
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
+    })
+
+    it("an SMS template with statutoryOverride=true is not used: the SMS leg is skipped with a warning", async () => {
+      stubTemplates({ payment_reminder_sms: { ...sampleSmsTpl, statutoryOverride: true } })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+      const r = await processPaymentReminders()
+
+      expect(r.errors).toBe(0)
+      expect(r.warnings).toBe(1)
+      expect(r.details).toContainEqual(expect.stringMatching(/statutoryOverride=true/))
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
+    })
+
+    it("SMS off (by policy): no SMS template is looked up, so its absence is no warning", async () => {
+      process.env.BULKSMS_DRY_RUN = "true"
+      stubTemplates({ payment_reminder_sms: null })
+      loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+      const r = await processPaymentReminders()
+
+      const keys = messageTemplateFindFirstMock.mock.calls.map((c) => c[0].where.key)
+      expect(keys).not.toContain("payment_reminder_sms")
+      expect(r.warnings).toBe(0)
+      expect(r.errors).toBe(0)
+      expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["WHATSAPP"])
+    })
+
+    describe("WhatsApp off (WA_ENABLED or the tenant's switch)", () => {
+      const OFF = "WhatsApp disabled: WA_ENABLED is off"
+
+      it("the leg is skipped BEFORE sendMessage: no send, no error, counted and reported once", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates()
+        loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        const r = await processPaymentReminders()
+
+        expect(sendMessageMock.mock.calls.map((c) => c[0].channel)).toEqual(["SMS", "SMS"])
+        expect(r.errors).toBe(0)
+        expect(r.whatsappChannelOff).toBe(2)
+        expect(r.details.filter((d) => d.includes("whatsapp leg(s)"))).toEqual([
+          `Skipped 2 whatsapp leg(s) this run: ${OFF} (reminder_1d x2).`,
+        ])
+        // SMS still reached the borrower, so the note names SMS only.
+        expect(loanNoteCreateMock.mock.calls[0][0].data.note).toContain("sent via sms")
+        expect(loanNoteCreateMock.mock.calls[0][0].data.note).not.toContain("whatsapp")
+      })
+
+      it("no WhatsApp template is looked up, so a tenant without those rows gets no warning", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates({ payment_reminder_1d_whatsapp: null })
+        loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        const r = await processPaymentReminders()
+
+        const keys = messageTemplateFindFirstMock.mock.calls.map((c) => c[0].where.key as string)
+        expect(keys.filter((k) => k.endsWith("_whatsapp"))).toEqual([])
+        expect(r.warnings).toBe(0)
+        expect(r.errors).toBe(0)
+      })
+
+      it("SMS and WhatsApp both off: no template is looked up at all and nothing is sent", async () => {
+        process.env.BULKSMS_DRY_RUN = "true"
+        waSwitch.refusal = OFF
+        loanFindManyMock.mockResolvedValue([loanDueIn(1)])
+
+        const r = await processPaymentReminders()
+
+        expect(messageTemplateFindFirstMock).not.toHaveBeenCalled()
+        expect(sendMessageMock).not.toHaveBeenCalled()
+        expect(loanNoteCreateMock).not.toHaveBeenCalled()
+        expect(r.errors).toBe(0)
+        expect(r.warnings).toBe(0)
+        expect(r.details).toContainEqual(expect.stringContaining("1 borrower reminder(s) had NO leg dispatched this run (reminder_1d x1)"))
+      })
+
+      it("does not suppress loan_overdue's email at an overdue offset", async () => {
+        waSwitch.refusal = OFF
+        stubTemplates()
+        loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+        triggerNotificationMock.mockResolvedValue(undefined)
+        lookupContactMock.mockResolvedValue({ id: "ct_1" })
+
+        await processPaymentReminders()
+
+        expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+      })
     })
 
     it("routes through sendMessage for both channels", async () => {
@@ -372,11 +481,11 @@ describe("processPaymentReminders", () => {
     // never be taken down by a WhatsApp-template problem — e.g. code deployed
     // before the migration that seeds these rows.
     it.each([
-      ["missing/inactive", { payment_reminder_overdue_3d_whatsapp: null }, /payment_reminder_overdue_3d_whatsapp missing\/inactive/],
+      ["missing/inactive", { payment_reminder_overdue_3d_whatsapp: null }, /Warning: whatsapp reminder_overdue_3d legs skipped: template payment_reminder_overdue_3d_whatsapp missing\/inactive/],
       [
         "statutoryOverride=true",
         { payment_reminder_overdue_3d_whatsapp: { ...waTpl("payment_reminder_overdue_3d"), statutoryOverride: true } },
-        /payment_reminder_overdue_3d_whatsapp has statutoryOverride=true/,
+        /Warning: whatsapp reminder_overdue_3d legs skipped: template payment_reminder_overdue_3d_whatsapp has statutoryOverride=true/,
       ],
     ] as const)("%s per-trigger WhatsApp row blocks only that WhatsApp leg; the SMS leg still sends", async (_label, overrides, detail) => {
       loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
@@ -390,7 +499,8 @@ describe("processPaymentReminders", () => {
       const channels = sendMessageMock.mock.calls.map((c) => c[0].channel)
       expect(channels).toEqual(["SMS"])
       expect(r.sent).toBe(1)
-      expect(r.errors).toBe(1) // visible, not silent
+      expect(r.errors).toBe(0) // a setup gap, not a send fault
+      expect(r.warnings).toBe(1) // visible, not silent: one tenant-level warning
       expect(r.details).toContainEqual(expect.stringMatching(detail))
       expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ note: expect.stringContaining("Automated reminder sent via sms") }),

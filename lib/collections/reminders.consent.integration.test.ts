@@ -24,6 +24,8 @@ import {
 } from "@/lib/collections/dunning-holds.integration-fixture"
 import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { sendMessage } from "@/lib/messaging/send"
+import { runWithTenant } from "@/lib/tenant-scope"
 
 // Provider message ids are unique per provider in the database: reuse across runs would leave rows QUEUED.
 const wire = vi.hoisted(() => ({
@@ -145,35 +147,67 @@ suite.sequential("collections reminders go through sendMessage (real Postgres)",
     }
   })
 
-  it.each(["false", "0", "off", ""])("with WA_ENABLED=%j no WhatsApp reminder is sent; the SMS leg is untouched", async (value) => {
+  // WhatsApp off is a SKIP, decided before sendMessage: nothing on the wire, no
+  // Message row (so no FAILED_PERMANENT one), no error. The transport kill switch
+  // is only the backstop (next test).
+  it.each(["false", "0", "off", ""])("with WA_ENABLED=%j the WhatsApp leg is skipped, not failed; the SMS leg is untouched", async (value) => {
     process.env.WA_ENABLED = value
     const loan = await fresh(`wa off ${value}`)
 
-    await processPaymentReminders()
+    const result = await processPaymentReminders()
 
     expect(wire.whatsapp, "no WhatsApp may reach the transport").toEqual([])
     expect(wire.legacyWhatsapp).toEqual([])
     const rows = await messagesOf(loan)
-    const wa = rows.filter((m) => m.channel === "WHATSAPP")
-    // The refusal is recorded against the Message, never as a send.
-    expect(wa, "the refusal must be on the record, not a silent drop").toHaveLength(1)
-    for (const m of wa) {
-      expect(["SENT", "DELIVERED", "READ"], `WhatsApp row ${m.status}`).not.toContain(m.status)
-      expect(m.dunning).toBe(true)
-    }
+    expect(rows.filter((m) => m.channel === "WHATSAPP"), "skipped, so no row at all, least of all a failed one").toEqual([])
+    expect(rows.filter((m) => m.status === "FAILED_PERMANENT" || m.status === "FAILED")).toEqual([])
+    expect(rows.map((m) => m.channel)).toEqual(["SMS"])
+    expect(result.whatsappChannelOff).toBeGreaterThanOrEqual(1)
+    expect(result.details.some((d) => /^Skipped \d+ whatsapp leg\(s\) this run: WhatsApp disabled/.test(d))).toBe(true)
     expect(reached(loan).sms).toBe(true)
   })
 
-  it("with the tenant's own WhatsApp switch off, no WhatsApp reminder is sent", async () => {
+  it("with the tenant's own WhatsApp switch off, the WhatsApp leg is skipped, not failed", async () => {
     await db.commsSettings.update({ where: { tenantId: tenant.tenantId }, data: { whatsappEnabled: false } })
     try {
       const loan = await fresh("tenant wa off")
       await processPaymentReminders()
       expect(wire.whatsapp).toEqual([])
+      expect((await messagesOf(loan)).map((m) => m.channel)).toEqual(["SMS"])
       expect(reached(loan).sms).toBe(true)
     } finally {
       await db.commsSettings.update({ where: { tenantId: tenant.tenantId }, data: { whatsappEnabled: true } })
     }
+  })
+
+  it("the transport backstop holds: a WhatsApp sendMessage with WA_ENABLED=false is refused, nothing reaches the transport", async () => {
+    process.env.WA_ENABLED = "false"
+    const loan = await fresh("backstop")
+    const template = await db.messageTemplate.findFirstOrThrow({ where: { tenantId: tenant.tenantId, key: "payment_reminder_1d_whatsapp" } })
+
+    // Called inside the tenant's frame, as the cron does.
+    const row = await runWithTenant(tenant.tenantId, () => sendMessage({
+      contactId: loan.contactId, channel: "WHATSAPP", template, toValue: waJid(loan), category: "collections", loanId: loan.loanId,
+      vars: { firstName: "Hold", amount: "R 1.00", reference: "LN-BACKSTOP", dueDate: "01 Jan 2030", outstanding: "R 1.00", supportPhone: "0110000000" },
+    }))
+
+    expect(row.status).not.toBe("SENT")
+    expect(wire.whatsapp).toEqual([])
+  })
+
+  it("a tenant with no templates is warned, not aborted; the others are still reminded", async () => {
+    const bare = await createChargesTenant(db, false)
+    const bareLoan = await seedHoldLoan(db, bare, await createSecondProduct(db, bare.tenantId), { name: "no templates", held: false })
+    await db.commsSettings.create({ data: { tenantId: bare.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" } })
+    const ours = await fresh("beside the bare tenant")
+
+    const result = await processPaymentReminders()
+
+    expect(reached(ours)).toEqual({ whatsapp: true, sms: true })
+    expect(reached(bareLoan)).toEqual({ whatsapp: false, sms: false })
+    expect(result.warnings).toBeGreaterThanOrEqual(1)
+    expect(result.details.some((d) => d.startsWith("Warning: sms legs skipped: payment_reminder_sms template missing/inactive"))).toBe(true)
+    expect(result.details.some((d) => d.startsWith("Aborting cron"))).toBe(false)
   })
 
   it("a held loan gets nothing, on any channel, whatever the hold; a normal loan beside it is reminded", async () => {

@@ -23,6 +23,7 @@ import { triggerNotification } from "@/lib/notifications"
 import { formatDate, formatZAR } from "@/lib/utils"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
+import { whatsappRefusalForTenant } from "@/lib/whatsapp/kill-switch"
 import {
   KnownDispatchPersistenceError,
   knownDispatchEvidenceFromError,
@@ -77,6 +78,10 @@ interface ReminderResult {
   reconciliationRequired: number
   /** SMS legs not dispatched because the channel is off. Not an error. */
   smsChannelOff: number
+  /** WhatsApp legs not dispatched because WhatsApp is off (WA_ENABLED or the tenant switch). Not an error. */
+  whatsappChannelOff: number
+  /** Tenant-level setup problems that skipped a leg for the whole run (an enabled channel's template). Not an error. */
+  warnings: number
   errors: number
   details: string[]
 }
@@ -300,12 +305,14 @@ async function remindEntityTrigger(args: {
   charges: number
   arrearsDue: number
   lender: { tradingName: string; collectionsPhone: string }
+  /** WhatsApp is off: the entity's only reminder channel is skipped before sendMessage. */
+  skipWhatsApp: boolean
   result: ReminderResult
 }): Promise<void> {
   const { loan, trigger, result } = args
   const overdue = trigger.daysUntilDue < 0
   let reminderNoted = false
-  if (trigger.channels.includes("whatsapp")) {
+  if (trigger.channels.includes("whatsapp") && !args.skipWhatsApp) {
     const sent = await sendEntityReminder({
       tenantId: args.tenantId,
       loan,
@@ -340,7 +347,7 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
   // where:tenantId): it would throw TenantScopeError on every successful
   // dispatch, leaving rows stuck in QUEUED and ops unable to tell delivered
   // from undelivered.
-  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
+  const total: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, warnings: 0, errors: 0, details: [] }
   const outcomes = await sweepActiveTenants("reminders", (tenant) => processTenantReminders(tenant))
   if (outcomes.length === 0) total.details.push("No active tenant found")
   for (const outcome of outcomes) {
@@ -354,6 +361,8 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
     total.simulated += r.simulated
     total.reconciliationRequired += r.reconciliationRequired
     total.smsChannelOff += r.smsChannelOff
+    total.whatsappChannelOff += r.whatsappChannelOff
+    total.warnings += r.warnings
     total.errors += r.errors
     total.details.push(...r.details)
   }
@@ -361,7 +370,7 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
 }
 
 async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResult> {
-  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] }
+  const result: ReminderResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, warnings: 0, errors: 0, details: [] }
 
   // Counted per trigger and reported ONCE at the end of the run, not as a
   // detail line per loan. An SMS-only trigger writes no LoanNote (there was no
@@ -370,6 +379,12 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   // loan on every run for as long as SMS stays off. The aggregate stays
   // visible without growing the log without bound.
   const smsOffByTrigger = new Map<string, number>()
+  // Same for a WhatsApp leg skipped because WhatsApp is off.
+  const waOffByTrigger = new Map<string, number>()
+  const countWaOff = (noteType: string) => {
+    result.whatsappChannelOff++
+    waOffByTrigger.set(noteType, (waOffByTrigger.get(noteType) ?? 0) + 1)
+  }
 
   // Same bounded-aggregate treatment, for the same reason: neither of these
   // skips writes a LoanNote, so alreadyProcessedToday() cannot suppress them
@@ -392,38 +407,38 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   const noWaNumberByTrigger = new Map<string, number>()
   const noLegDispatchedByTrigger = new Map<string, number>()
 
-  // Hoist template lookups once per run. A missing SMS template aborts the
-  // cron (a missing WhatsApp row blocks only its leg — below) with a clear
-  // surface-level error: a tenant without its templates is a deployment
-  // mistake to surface, never one to send around.
+  // Hoist template lookups once per run, for the channels that are ON only: a
+  // channel that is off (SMS by policy, WhatsApp by WA_ENABLED or the tenant's
+  // switch) is skipped per leg below and needs no template. A missing or unusable
+  // template of an ENABLED channel skips that leg for the whole tenant: one
+  // warning, logged and counted, never an abort and never a per-loan error.
   // active=true: a disabled template is a signal it's under revision; never
   // dispatch against it. statutoryOverride is asserted false post-lookup —
   // collections reminders are SERVICE category and must run through the
   // consent + block-status gate.
-  // One WhatsApp row per trigger, keyed by noteType. A trigger whose row is
-  // unusable is in `waTemplateProblems` instead: that blocks ONLY its WhatsApp
-  // leg (per loan, counted as an error), never the cron or the SMS leg — so
-  // a tenant without its WhatsApp reminder rows degrades WhatsApp alone.
+  const warn = (detail: string) => {
+    result.warnings++
+    result.details.push(`Warning: ${detail}`)
+    console.warn(`[reminders] tenant ${tenant.id}: ${detail}`)
+  }
+  // One WhatsApp row per trigger, keyed by noteType. A trigger without a usable
+  // row has no entry: only its WhatsApp leg is skipped, never the cron or the SMS leg.
   const templatesWa: Record<string, MessageTemplate> = {}
-  const waTemplateProblems: Record<string, string> = {}
-  const templateSms = await prisma.messageTemplate.findFirst({
-    where: { tenantId: tenant.id, key: "payment_reminder_sms", channel: "SMS", active: true },
-  })
-  if (!templateSms) {
-    result.errors++
-    result.details.push(
-      "Aborting cron: payment_reminder_sms template missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)",
-    )
-    return result
+  const waRefusal = await whatsappRefusalForTenant(tenant.id)
+  let templateSms: MessageTemplate | null = null
+  if (isSmsChannelEnabled()) {
+    const row = await prisma.messageTemplate.findFirst({
+      where: { tenantId: tenant.id, key: "payment_reminder_sms", channel: "SMS", active: true },
+    })
+    if (!row) {
+      warn("sms legs skipped: payment_reminder_sms template missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)")
+    } else if (row.statutoryOverride !== false) {
+      warn("sms legs skipped: payment_reminder_sms has statutoryOverride=true — collections reminders are SERVICE category and must NOT bypass eligibility")
+    } else {
+      templateSms = row
+    }
   }
-  if (templateSms.statutoryOverride !== false) {
-    result.errors++
-    result.details.push(
-      "Aborting cron: payment_reminder template has statutoryOverride=true — collections reminders are SERVICE category and must NOT bypass eligibility",
-    )
-    return result
-  }
-  for (const trigger of TRIGGERS) {
+  for (const trigger of waRefusal ? [] : TRIGGERS) {
     if (!trigger.waTemplateEvent) continue
     const successor = trigger.waTemplateSuccessor
       ? await prisma.messageTemplate.findFirst({
@@ -439,11 +454,9 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           where: { tenantId: tenant.id, key, channel: "WHATSAPP", active: true },
         })
     if (!tpl) {
-      waTemplateProblems[trigger.noteType] =
-        `template ${key} missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)`
+      warn(`whatsapp ${trigger.noteType} legs skipped: template ${key} missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)`)
     } else if (tpl.statutoryOverride !== false) {
-      waTemplateProblems[trigger.noteType] =
-        `template ${key} has statutoryOverride=true — collections reminders must NOT bypass eligibility`
+      warn(`whatsapp ${trigger.noteType} legs skipped: template ${key} has statutoryOverride=true — collections reminders must NOT bypass eligibility`)
     } else {
       templatesWa[trigger.noteType] = tpl
     }
@@ -528,11 +541,14 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       // regime is not the reason; NON_NCA loans are reminded like any other.
       if (!loan.client) {
         if (!loan.entityId || !loan.entity) continue
+        const skipWhatsApp = waRefusal !== null && trigger.channels.includes("whatsapp")
+        if (skipWhatsApp) countWaOff(trigger.noteType)
         await remindEntityTrigger({
           tenantId: tenant.id,
           loan: { id: loan.id, reference: loan.reference, entityId: loan.entityId, entityName: loan.entity.legalName },
           trigger, dueDate, today, paymentAmount, charges, arrearsDue,
           lender: { tradingName: lenderName, collectionsPhone: companyPhone },
+          skipWhatsApp,
           result,
         })
         continue
@@ -574,6 +590,14 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           continue
         }
 
+        // WhatsApp off (WA_ENABLED or the tenant's switch): skipped the same
+        // way, before sendMessage, so no Message row is written and nothing is
+        // counted as an error. The transport kill switches stay as the backstop.
+        if (channel === "whatsapp" && waRefusal !== null) {
+          countWaOff(trigger.noteType)
+          continue
+        }
+
         // WhatsApp policy: opportunistic. If the client doesn't have a
         // dedicated whatsapp number on file we DON'T fall back to their SMS
         // number — most clients with `whatsapp=null` simply aren't on
@@ -593,13 +617,10 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
         // New path: route through sendMessage(). Channel-keyed Contact
         // lookup, eligibility check (consent + block-status), Message
         // row + Conversation thread + audit trail.
-        if (channel === "whatsapp" && waTemplateProblems[trigger.noteType]) {
-          result.errors++
-          result.details.push(
-            `Blocked ${trigger.noteType} for ${loan.reference} via whatsapp: ${waTemplateProblems[trigger.noteType]}`,
-          )
-          continue
-        }
+        // No usable template for this ENABLED channel: already warned once for
+        // the tenant at the top of the run, so the leg is skipped here, quietly.
+        if (channel === "sms" && !templateSms) continue
+        if (channel === "whatsapp" && !templatesWa[trigger.noteType]) continue
         const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : loan.client.phone
         if (!rawPhone) {
           result.errors++
@@ -626,7 +647,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           result.details.push(`Error ${loan.reference} ${channel}: no Contact row for ${value}`)
           continue
         }
-        const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : templateSms
+        const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : templateSms!
         // WhatsApp: the discrete named vars its WABA body declares, from the
         // same ctx the SMS copy interpolates, so both quote one set of figures.
         const vars = channel === "whatsapp"
@@ -791,6 +812,12 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       : `Every blocked trigger also has a WhatsApp leg; whether that leg reached anyone is the lines below, not this one.`
     result.details.push(
       `Blocked ${result.smsChannelOff} sms leg(s) this run: ${SMS_CHANNEL_OFF_REASON} (${breakdown}). ${consequence}`,
+    )
+  }
+
+  if (result.whatsappChannelOff > 0) {
+    result.details.push(
+      `Skipped ${result.whatsappChannelOff} whatsapp leg(s) this run: ${waRefusal} (${tally(waOffByTrigger)}).`,
     )
   }
 

@@ -10,7 +10,7 @@ import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/reminders"))
 
-const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, errors: 0, details: [] as string[] }
+const emptyResult = { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, warnings: 0, errors: 0, details: [] as string[] }
 
 describe("GET /api/cron/reminders", () => {
   beforeEach(() => {

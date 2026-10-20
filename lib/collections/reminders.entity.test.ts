@@ -130,6 +130,22 @@ describe("processPaymentReminders — entity borrower", () => {
     expect(opts.suppressWhatsAppReason).toContain("reminder_overdue_3d")
   })
 
+  it("WhatsApp off: the entity leg is skipped before sendMessage, counted, not an error; loan_overdue still goes", async () => {
+    process.env.WA_ENABLED = "false"
+    try {
+      m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+      const r = await processPaymentReminders()
+
+      expect(m.sendMessage).not.toHaveBeenCalled()
+      expect(m.relationshipFindMany).not.toHaveBeenCalled()
+      expect(r.errors).toBe(0)
+      expect(r.whatsappChannelOff).toBe(1)
+      expect(m.triggerNotification).toHaveBeenCalledTimes(1)
+    } finally {
+      delete process.env.WA_ENABLED
+    }
+  })
+
   it("a person without WhatsApp is skipped and reported; no LoanNote when nobody was reached", async () => {
     m.relationshipFindMany.mockResolvedValue([person("cl_jane", "Jane", null)])
     m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
