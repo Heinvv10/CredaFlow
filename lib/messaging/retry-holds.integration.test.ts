@@ -11,7 +11,9 @@
  *     npx vitest run lib/messaging/retry-holds.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import { PrismaClient, type TemplateCategory } from "@prisma/client"
+import { readFileSync } from "node:fs"
+import path from "node:path"
+import { PrismaClient, type MsgStatus, type TemplateCategory } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createSecondProduct, seedHoldLoan, type HoldCase } from "@/lib/collections/dunning-holds.integration-fixture"
@@ -67,6 +69,19 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
       for (const k of KINDS) messages[`${c.name}/${k.kind}`] = await queueMessage(contact.id, k.category, k.dunning)
     }
+    // Directors of a borrowing entity: held for a death, but a director's own s.86 notice is not the entity's.
+    const entity = await db.businessEntity.create({
+      data: { tenantId: tenant.tenantId, type: "COMPANY", legalName: "Hold Test (Pty) Ltd", registrationNumber: `2026/${randomUUID().slice(0, 6)}/07` },
+    })
+    for (const c of [
+      { name: "director under debt review", debtReviewOnSibling: true, held: true },
+      { name: "director deceased", deceased: true, held: true },
+    ] as HoldCase[]) {
+      const seeded = await seedHoldLoan(db, tenant, second, c)
+      await db.entityRelationship.create({ data: { tenantId: tenant.tenantId, entityId: entity.id, clientId: seeded.clientId, role: "DIRECTOR" } })
+      const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
+      messages[`${c.name}/reminder`] = await queueMessage(contact.id, "SERVICE", true)
+    }
     const lead = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "LEAD" } })
     messages["lead/reminder"] = await queueMessage(lead.id, "SERVICE", true)
     await processRetryBatch({ limit: 500, now: new Date() })
@@ -97,11 +112,72 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     }
   })
 
+  it("a director's reminder is NOT held for the director's own debt review, but is held for a death", async () => {
+    const underReview = await row("director under debt review/reminder")
+    expect(underReview.errorMessage ?? "").not.toContain("client hold")
+    expect(await audits("director under debt review/reminder", "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(1)
+
+    expect(await row("director deceased/reminder")).toMatchObject({
+      status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("client hold: deceased"),
+    })
+  })
+
   it("a clean client's reminder, and a lead's, are not suppressed by a hold", async () => {
     for (const name of ["clean/reminder", "lead/reminder"]) {
       const r = await row(name)
       expect(r.errorMessage ?? "", name).not.toContain("client hold")
       expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(1)
     }
+  })
+
+  // The one-off backfill in the Message.dunning migration: a reminder already queued when it ships.
+  it("the backfill flags RETRYING and QUEUED reminders by their template event, nothing else, and is idempotent", async () => {
+    const sql = readFileSync(path.join(process.cwd(), "prisma/migrations/20261020042833_message_dunning_flag/migration.sql"), "utf8")
+    const statements = sql.split("\n").filter((line) => !line.startsWith("--")).join("\n").split(";").map((t) => t.trim()).filter(Boolean)
+    const backfill = statements.slice(1) // the ALTER already ran with the migrations
+    expect(backfill.map((t) => t.split(/\s/)[0])).toEqual(["SELECT", "UPDATE", "SELECT"])
+    expect(backfill[0]).toContain("app.rls_bypass")
+
+    const eventTemplate = async (event: string) => (await db.messageTemplate.create({
+      data: { tenantId: tenant.tenantId, event, key: `${event}_${randomUUID()}`, channel: "SMS", body: "x", category: "SERVICE" },
+    })).id
+    const reminderTemplate = await eventTemplate("payment_reminder_7d")
+    const overdueTemplate = await eventTemplate("loan_overdue")
+    const statementTemplate = await eventTemplate("statement_issued")
+    const contact = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "CLIENT" } })
+    const conversation = await db.conversation.create({ data: { tenantId: tenant.tenantId, contactId: contact.id, channel: "SMS" } })
+    const make = async (templateId: string, status: MsgStatus) => (await db.message.create({
+      data: {
+        tenantId: tenant.tenantId, conversationId: conversation.id, channel: "SMS", direction: "OUTBOUND", provider: "BULKSMS", status,
+        nextRetryAt: status === "RETRYING" ? new Date("2100-01-01T00:00:00Z") : null, templateId, lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "x", toValue: "+27820000000",
+      },
+    })).id
+    const ids = {
+      retryingReminder: await make(reminderTemplate, "RETRYING"),
+      queuedOverdue: await make(overdueTemplate, "QUEUED"),
+      sentReminder: await make(reminderTemplate, "SENT"),
+      retryingStatement: await make(statementTemplate, "RETRYING"),
+    }
+    const rolledBack = new Error("roll back: the backfill must not touch other suites' rows")
+    const seen: { first: number; second: number; flags: Record<string, boolean> } = { first: 0, second: 0, flags: {} }
+    const run = async (tx: Pick<PrismaClient, "$executeRawUnsafe">) => {
+      let updated = 0
+      for (const statement of backfill) {
+        const result = await tx.$executeRawUnsafe(statement)
+        if (statement.startsWith("UPDATE")) updated = result
+      }
+      return updated
+    }
+
+    await db.$transaction(async (tx) => {
+      seen.first = await run(tx)
+      seen.second = await run(tx)
+      for (const [name, id] of Object.entries(ids)) seen.flags[name] = (await tx.message.findUniqueOrThrow({ where: { id } })).dunning
+      throw rolledBack
+    }).catch((e) => { if (e !== rolledBack) throw e })
+
+    expect(seen.flags).toEqual({ retryingReminder: true, queuedOverdue: true, sentReminder: false, retryingStatement: false })
+    expect(seen.first).toBeGreaterThanOrEqual(2)
+    expect(seen.second, "a second run changes nothing").toBe(0)
   })
 })

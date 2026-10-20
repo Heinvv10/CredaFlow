@@ -75,9 +75,10 @@ vi.mock("@/lib/prisma", () => ({
 describe("collections loan page", () => {
   const underReview = { deceased: false, debtReview: { loanId: "l2", loanReference: "LN-2", noticeAt: new Date("2026-10-15T00:00:00+02:00"), noticeRef: "DC-1" } }
 
-  it("debt review: banner in design tokens linking to the loan that carries the notice, no reminder button, stage panel read-only, S.129 blocked", async () => {
+  it("debt review: banner in design tokens linking to the loan that carries the notice, no reminder button, no WhatsApp composer, only the reminder moves held, S.129 blocked", async () => {
     holds.hold = underReview
     reminderButton.rendered = 0
+    whatsAppButton.rendered = 0
     try {
       const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
       expect(html).toContain("Automated reminders and staff messages are paused: the client is under debt review")
@@ -87,6 +88,8 @@ describe("collections loan page", () => {
       expect(html.slice(at - 250, at + 350)).toContain("var(--cf-warning)")
       expect(html.slice(at - 250, at + 350)).not.toContain("amber")
       expect(reminderButton.rendered).toBe(0)
+      // Free-text WhatsApp from the collections page is dunning in effect.
+      expect(whatsAppButton.rendered).toBe(0)
       // Only the reminder moves are held; the panel as a whole stays writable (arrangement, attorney).
       expect(stagePanelProps.last).toMatchObject({ reminderHoldReason: expect.stringContaining("the client is under debt review") })
       expect(stagePanelProps.last?.readOnlyReason).toBeUndefined()

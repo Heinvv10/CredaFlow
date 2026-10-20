@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { formatDate } from "@/lib/utils"
 import { notHeldLoanWhere } from "@/lib/collections/dunning-holds"
+import { PORTAL_AUTHORITY_ROLES } from "@/lib/asset-finance/portal-access"
 
 /**
  * The holds that are decided per client or loan at the moment of a staff action
@@ -105,17 +106,31 @@ export async function staffMessageRefusal(
  * Contact's client is deceased, or under debt review. A Contact with no client
  * (a lead) has no hold. Only dunning is held: the caller asks for messages
  * flagged `Message.dunning` (lib/messaging/dunning-category.ts).
+ *
+ * An entity contact (an active director, trustee or authorised signatory of a
+ * borrowing entity, the people an entity's overdue notices go to) is held for a
+ * death only. A director's s.86 notice is about their OWN credit, not the
+ * entity's, and the first send does not consult it either. Known edge: a
+ * director who is also a consumer borrower under debt review is not held on a
+ * retry of a consumer reminder; the first send (and every cron) still holds it.
  */
 export async function contactDunningHold(
-  db: ClientHoldDb & { contact: { findFirst: (args: Prisma.ContactFindFirstArgs) => PromiseLike<unknown> } },
+  db: ClientHoldDb & {
+    contact: { findFirst: (args: Prisma.ContactFindFirstArgs) => PromiseLike<unknown> }
+    entityRelationship: { count: (args: Prisma.EntityRelationshipCountArgs) => PromiseLike<number> }
+  },
   args: { tenantId: string; contactId: string },
 ): Promise<{ kind: "DECEASED" | "DEBT_REVIEW"; reason: string } | null> {
   const contact = await db.contact.findFirst({ where: { id: args.contactId, tenantId: args.tenantId }, select: { clientId: true } }) as { clientId: string | null } | null
   if (!contact?.clientId) return null
   const hold = await loadClientHold(db, args.tenantId, contact.clientId)
-  const reason = staffRefusalFrom(hold)
-  if (!reason) return null
-  return { kind: hold?.deceased ? "DECEASED" : "DEBT_REVIEW", reason }
+  if (!hold) return null
+  if (hold.deceased) return { kind: "DECEASED", reason: staffRefusalFrom(hold)! }
+  if (!hold.debtReview) return null
+  const actsForAnEntity = await db.entityRelationship.count({
+    where: { tenantId: args.tenantId, clientId: contact.clientId, active: true, role: { in: [...PORTAL_AUTHORITY_ROLES] } },
+  })
+  return actsForAnEntity > 0 ? null : { kind: "DEBT_REVIEW", reason: staffRefusalFrom(hold)! }
 }
 
 /** True when automated dunning must not reach this loan (the escalation cron's borrower notification). */

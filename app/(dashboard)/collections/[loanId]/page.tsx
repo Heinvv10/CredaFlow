@@ -200,8 +200,9 @@ export default async function CollectionDetailPage({ params }: { params: Promise
               )}
             </>
           )}
-          {/* The composer refuses a deceased client's Contact (blocked), so do not offer it. */}
-          {dunningEligibility.eligible && !clientHold?.deceased && (
+          {/* Free-text WhatsApp from the collections page to a client under any hold is
+              dunning in effect (and a deceased client's Contact is blocked): do not offer it. */}
+          {dunningEligibility.eligible && !messageRefusal && (
             <ClientWhatsAppButton
               clientId={loan.client.id}
               clientName={clientName}
