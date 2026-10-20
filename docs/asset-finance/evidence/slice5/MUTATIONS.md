@@ -370,6 +370,8 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 | 11 | agreement send-link guard off | dealer-contact-routes + PASQ + notifications units | 1 failed, 83 passed | "agreement link › refuses 409 and sends nothing …" |
 | 12 | PASQ send-link guard off | same | 1 failed, 83 passed | "refuses with 409 to send the link to contact details a dealer typed …" |
 | 13 | `triggerNotification` guard off | same | 1 failed, 83 passed | "sends nothing to a client whose dealer-typed contacts staff have not verified, and records why" |
+| 14 | `entityContactRecipients` client filter without `TRUSTED_CONTACT_WHERE` | `lib/asset-finance/reprice-notice.test.ts` (pins the exact where clause) | 1 failed, 4 passed | "are the entity's servicing contacts: … no unverified dealer-typed contact, once each" |
+| 15 | the booking refusal back to "(the Dealer panel)" | `lib/asset-finance/booking.test.ts` | 1 failed, 17 passed | "dealer_contact_unverified while a person on the deal …" (the message must name "Contacts a dealer captured") |
 
 (3)'s mutation is its before run (the route without the check). After
 restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
