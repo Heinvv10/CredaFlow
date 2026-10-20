@@ -16,7 +16,7 @@ const loanFindUniqueMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 
 const holds = vi.hoisted(() => ({ held: false }))
-vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held, isLoanRemindable: async () => !holds.held }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanRemindable: async () => !holds.held }))
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
 const releaseReservationMock = vi.fn()
@@ -86,9 +86,18 @@ import { Prisma } from "@prisma/client"
 import { WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { extractPlaceholders } from "@/lib/whatsapp/template-components"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { REMINDER_DAYS_UNTIL_DUE } from "@/lib/collections/reminder-offsets"
 import { kabeloScheduleAsAudited } from "@/lib/loan/__fixtures__/fairscore-audit-schedules"
 
 const sastDayOffset = (days: number) => new Date(sastStartOfDay(new Date()).getTime() + days * 86_400_000)
+
+// The retry sweep holds a queued pre-due reminder by these offsets (lib/collections/reminder-offsets.ts):
+// a trigger written with its own number would be retried on the wrong day.
+describe("TRIGGERS: the days-until-due is the one the retry sweep holds by", () => {
+  it("has an offset for every trigger, and a trigger for every offset", () => {
+    expect(TRIGGERS.map((t) => [t.noteType, t.daysUntilDue]).sort()).toEqual(Object.entries(REMINDER_DAYS_UNTIL_DUE).sort())
+  })
+})
 
 // Every payment-reminder message must quote the loan reference so the client
 // puts it on their EFT deposit and the bank-sync reconciler makes an EXACT

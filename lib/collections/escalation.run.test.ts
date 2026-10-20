@@ -193,6 +193,22 @@ describe("processEscalations", () => {
       expect(r).toMatchObject({ errors: 0, failedTenants: 0 })
     })
 
+    // The 90-DPD legal rule reads the loan as it was at the start of the run; a loan the flip found settled is not eligible.
+    it("a loan the flip found settled gets no later rule either: no 90-DPD Section 129 legal review flag", async () => {
+      loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 95 }])
+      loanNoteFindFirstMock.mockImplementation((args: { where: { type: string } }) =>
+        Promise.resolve(["escalation_default", "escalation_legal"].includes(args.where.type) ? null : { id: "existing-note" }),
+      )
+      loanUpdateManyMock.mockResolvedValue({ count: 0 })
+      const r = await processEscalations()
+      const types = loanNoteCreateMock.mock.calls.map(([a]) => (a as { data: { type: string } }).data.type)
+      expect(types).toEqual([])
+      expect(reserveOnceMock.mock.calls.map(([, key]) => key)).toEqual(["escalation:loan_1:escalation_default"])
+      expect(r.details.join(" ")).toContain("L-100: not defaulted")
+      expect(r.details.join(" ")).not.toContain("Section 129")
+      expect(r).toMatchObject({ processed: 0, errors: 0, failedTenants: 0 })
+    })
+
     // Between the flip and the send the loan can still be settled or put on a hold.
     it("re-checks the loan against the statuses a notice reaches just before it sends, and does not send to one that is no longer dunnable", async () => {
       loanDunningHoldMock.mockResolvedValue("the loan is COMPLETED")

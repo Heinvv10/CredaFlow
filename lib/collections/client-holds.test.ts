@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 const chargesOutstandingAt = vi.hoisted(() => vi.fn(async () => 0))
@@ -108,36 +108,87 @@ describe("loanDunningHold", () => {
 
 // An automated REMINDER that is retried after the borrower paid says something that is no longer true.
 describe("loanDunningHold for a retried reminder", () => {
-  const loan = (arrearsAmount: number) => ({ id: "loan_r", tenantId: "t_a", status: "ACTIVE", arrearsAmount })
-  const withSchedule = (arrearsAmount: number, instalment: { totalDue: number; totalPaid: number } | null) =>
+  const loan = (arrearsAmount: number, nextPaymentDate: Date | null) => ({ id: "loan_r", tenantId: "t_a", status: "ACTIVE", arrearsAmount, nextPaymentDate })
+  const withSchedule = (arrearsAmount: number, instalment: { totalDue: number; totalPaid: number } | null, nextPaymentDate: Date | null = DUE_TODAY) =>
     ({
       loan: {
-        findFirst: async () => loan(arrearsAmount),
+        findFirst: async () => loan(arrearsAmount, nextPaymentDate),
         count: async () => 1,
       },
       repaymentSchedule: { findFirst: async () => instalment },
     }) as unknown as Parameters<typeof loanDunningHold>[0]
-  const args = (reminder?: { overdue: boolean; asOf: Date }) => ({ tenantId: "t_a", loanId: "loan_r", statuses: ["ACTIVE"] as const, reminder })
   const asOf = new Date("2026-11-03T09:00:00Z")
+  // The date a reminder_0d queued below is about: still the next instalment unless a test moves it.
+  const DUE_TODAY = new Date("2026-11-03T00:00:00Z")
+  // Queued by the 07:30 SAST run on 3 November.
+  const createdAt = new Date("2026-11-03T05:30:00Z")
+  const args = (reminder?: { overdue: boolean; occurrence?: string }) => ({
+    tenantId: "t_a", loanId: "loan_r", statuses: ["ACTIVE"] as const,
+    reminder: reminder && { occurrence: reminder.overdue ? "reminder_overdue_1d" : "reminder_0d", ...reminder, asOf, createdAt },
+  })
+  const unpaid = { totalDue: 100, totalPaid: 0 }
 
   it("holds an overdue reminder once the arrears are cleared and nothing is owed", async () => {
     chargesOutstandingAt.mockResolvedValue(0)
-    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: true, asOf }))).toMatch(/nothing is owed/)
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: true }))).toMatch(/nothing is owed/)
+  })
+
+  // The next instalment is unpaid, so only the arrears test can stop an overdue reminder here.
+  it("holds an overdue reminder whose arrears are cleared even though the next instalment is unpaid", async () => {
+    chargesOutstandingAt.mockResolvedValue(0)
+    expect(await loanDunningHold(withSchedule(0, unpaid), args({ overdue: true, occurrence: "reminder_overdue_1d" }))).toMatch(/nothing is owed/)
   })
 
   it("holds a pre-due reminder once the instalment is paid", async () => {
-    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: false, asOf }))).toMatch(/nothing is owed/)
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: false }))).toMatch(/nothing is owed/)
   })
 
   it("lets a reminder go while something is owed: arrears, an instalment, or default charges", async () => {
     chargesOutstandingAt.mockResolvedValue(0)
-    expect(await loanDunningHold(withSchedule(40_000, { totalDue: 100, totalPaid: 0 }), args({ overdue: true, asOf }))).toBeNull()
-    expect(await loanDunningHold(withSchedule(0, { totalDue: 100, totalPaid: 0 }), args({ overdue: false, asOf }))).toBeNull()
+    expect(await loanDunningHold(withSchedule(40_000, unpaid), args({ overdue: true, occurrence: "reminder_overdue_1d" }))).toBeNull()
     chargesOutstandingAt.mockResolvedValue(5_000)
-    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: false, asOf }))).toBeNull()
+    expect(await loanDunningHold(withSchedule(0, null), args({ overdue: true, occurrence: "reminder_overdue_1d" }))).toBeNull()
   })
 
   it("does not look at what is owed unless asked: a notice is not a reminder", async () => {
     expect(await loanDunningHold(withSchedule(0, null), args())).toBeNull()
+  })
+
+  // Instalment 1 paid, instalment 2 pending: something IS owed (instalment 2), but the reminder was about instalment 1.
+  describe("a pre-due reminder is about the instalment that was next when it was queued", () => {
+    beforeEach(() => chargesOutstandingAt.mockResolvedValue(0))
+    const due = (iso: string) => new Date(iso)
+
+    it("is held once nextPaymentDate has moved on to the following instalment", async () => {
+      const hold = await loanDunningHold(withSchedule(0, unpaid, due("2026-12-03T00:00:00Z")), args({ overdue: false, occurrence: "reminder_0d" }))
+      expect(hold).toMatch(/no longer the next instalment due/)
+    })
+
+    it("is held when the loan has no next payment date at all", async () => {
+      expect(await loanDunningHold(withSchedule(0, unpaid, null), args({ overdue: false, occurrence: "reminder_1d" }))).toMatch(/no longer the next instalment due/)
+    })
+
+    it.each([
+      ["reminder_7d", "2026-11-10T00:00:00Z"],
+      ["reminder_1d", "2026-11-04T00:00:00Z"],
+      ["reminder_0d", "2026-11-03T00:00:00Z"],
+    ])("lets %s go while the instalment it named is still the next one (%s)", async (occurrence, nextPaymentDate) => {
+      expect(await loanDunningHold(withSchedule(0, unpaid, due(nextPaymentDate)), args({ overdue: false, occurrence }))).toBeNull()
+    })
+
+    it("holds a 7d reminder whose date is the 1d offset: the offset comes from the trigger", async () => {
+      expect(await loanDunningHold(withSchedule(0, unpaid, due("2026-11-04T00:00:00Z")), args({ overdue: false, occurrence: "reminder_7d" }))).toMatch(/no longer the next instalment due/)
+    })
+
+    // The due date is a SAST calendar day; 22:30Z is 00:30 SAST the next day, as in the cron.
+    it("reads both dates as SAST calendar days", async () => {
+      const lateUtc = args({ overdue: false, occurrence: "reminder_1d" })
+      lateUtc.reminder = { ...lateUtc.reminder!, createdAt: new Date("2026-11-02T22:30:00Z") }
+      expect(await loanDunningHold(withSchedule(0, unpaid, due("2026-11-03T22:30:00Z")), lateUtc)).toBeNull()
+    })
+
+    it("does not apply to an overdue reminder, which is about the arrears", async () => {
+      expect(await loanDunningHold(withSchedule(40_000, unpaid, due("2026-12-03T00:00:00Z")), args({ overdue: true, occurrence: "reminder_overdue_1d" }))).toBeNull()
+    })
   })
 })

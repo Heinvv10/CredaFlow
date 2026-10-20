@@ -4,7 +4,7 @@ import { WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "@/lib/whatsapp/send-mode"
 import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
 import { contactDunningHold, loanDunningHold } from "@/lib/collections/client-holds"
 import { NOTICE_LOAN_STATUSES, REMINDABLE_LOAN_STATUS } from "@/lib/collections/dunning-holds"
-import { automatedDunningLoan } from "@/lib/messaging/dunning-category"
+import { automatedDunningLoan, type AutomatedDunningLoan } from "@/lib/messaging/dunning-category"
 import { dunningRetryVerdict, nextDunningWindowStart } from "@/lib/messaging/dunning-window"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
@@ -311,7 +311,9 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
   /** Message.dunning: only a reminder or overdue notice is held for a client hold. */
   dunning: boolean
   /** The loan an automated dunning message is about (lib/messaging/dunning-category.ts), checked inside this transaction. */
-  dunningLoan: { loanId: string; notice: boolean; overdue: boolean } | null
+  dunningLoan: AutomatedDunningLoan | null
+  /** When the message was queued: a pre-due reminder is judged against the day it was queued for. */
+  createdAt: Date
 }): Promise<RetryEligibilityClaim> {
   return prisma.$transaction(async (eligibilityTx) => {
     const eligibility = await canSendTx(
@@ -340,7 +342,7 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
         loanId: args.dunningLoan.loanId,
         statuses: args.dunningLoan.notice ? NOTICE_LOAN_STATUSES : [REMINDABLE_LOAN_STATUS],
         // A reminder (not a notice) also stops when the borrower has since paid.
-        ...(args.dunningLoan.notice ? {} : { reminder: { overdue: args.dunningLoan.overdue, asOf: new Date() } }),
+        ...(args.dunningLoan.notice ? {} : { reminder: { overdue: args.dunningLoan.overdue, asOf: new Date(), occurrence: args.dunningLoan.occurrence, createdAt: args.createdAt } }),
       })
       : null
 
@@ -465,7 +467,7 @@ async function processRetryBatchLocked(opts: {
     },
     data: {
       status: "expired",
-      error: "Message retry window expired after 24 hours",
+      error: "Message retry window expired",
     },
   })
 
@@ -703,6 +705,7 @@ async function processRetryBatchLocked(opts: {
         template,
         dunning: msg.dunning,
         dunningLoan,
+        createdAt: msg.createdAt,
       })
       if (claim.kind === "suppressed") {
         suppressed++

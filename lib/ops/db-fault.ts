@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client"
+import { sqlStateOf } from "@/lib/db-guard-refusal"
 
 /**
  * Prisma error codes that mean the DATABASE (or the way to it) is at fault, not the
@@ -10,6 +11,11 @@ import { Prisma } from "@prisma/client"
  */
 const INFRASTRUCTURE_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024", "P2028", "P2034", "P2037"])
 
+/** A statement Postgres refused for this row's data: an integrity violation (class 23) or a trigger's RAISE. */
+function isRowRefusal(sqlState: string | undefined): boolean {
+  return sqlState !== undefined && (sqlState.startsWith("23") || sqlState === "P0001")
+}
+
 /**
  * True for a fault that is the database's: a restart or a network drop mid-run.
  * The nightly crons isolate one loan's failure from the rest of the tenant, but a
@@ -19,7 +25,8 @@ const INFRASTRUCTURE_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024
 export function isDatabaseInfrastructureError(error: unknown): boolean {
   if (error instanceof Prisma.PrismaClientInitializationError) return true
   if (error instanceof Prisma.PrismaClientRustPanicError) return true
-  // The engine reports a connection that closed under a query as an unknown request error.
-  if (error instanceof Prisma.PrismaClientUnknownRequestError) return true
+  // The engine reports a connection that closed under a query as an unknown request error. So it does a trigger's
+  // RAISE (P0001) and a CHECK or other integrity violation (SQLSTATE class 23), which are about the row, not the database.
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) return !isRowRefusal(sqlStateOf(error)?.code)
   return error instanceof Prisma.PrismaClientKnownRequestError && INFRASTRUCTURE_CODES.has(error.code)
 }

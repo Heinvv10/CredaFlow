@@ -51,6 +51,7 @@ import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } fro
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
 import { nextInstalmentOwed, nothingOwed } from "@/lib/collections/amount-owed"
 import { isLoanRemindable } from "@/lib/collections/client-holds"
+import { REMINDER_DAYS_UNTIL_DUE, sastDaysBetween } from "@/lib/collections/reminder-offsets"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -133,7 +134,7 @@ const EMAIL_LEG_TEMPLATE_KEYS = ["payment_reminder_email", "entity_reminder_emai
 
 export const TRIGGERS: ReminderTrigger[] = [
   {
-    daysUntilDue: 7,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_7d,
     noteType: "reminder_7d",
     channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_7d",
@@ -144,7 +145,7 @@ export const TRIGGERS: ReminderTrigger[] = [
       `Hi ${ctx.firstName}, your loan payment of ${ctx.amount} is due on ${ctx.date}. Ref: ${ctx.loanRef}. Reply STOP to opt out.`,
   },
   {
-    daysUntilDue: 1,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_1d,
     noteType: "reminder_1d",
     channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_1d",
@@ -153,7 +154,7 @@ export const TRIGGERS: ReminderTrigger[] = [
       `Reminder: ${ctx.amount} due TOMORROW (${ctx.date}) on loan ${ctx.loanRef}. Please ensure funds are available. ${ctx.lenderName}`,
   },
   {
-    daysUntilDue: 0,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_0d,
     noteType: "reminder_0d",
     channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_0d",
@@ -163,7 +164,7 @@ export const TRIGGERS: ReminderTrigger[] = [
       `Your loan payment of ${ctx.amount} is due today. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
   },
   {
-    daysUntilDue: -1,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_overdue_1d,
     noteType: "reminder_overdue_1d",
     channels: ["sms", "whatsapp"],
     waTemplateEvent: "payment_reminder_overdue_1d",
@@ -171,7 +172,7 @@ export const TRIGGERS: ReminderTrigger[] = [
       `URGENT: Your payment of ${ctx.amount} on loan ${ctx.loanRef} was due yesterday. Please pay immediately to avoid additional charges.`,
   },
   {
-    daysUntilDue: -3,
+    daysUntilDue: REMINDER_DAYS_UNTIL_DUE.reminder_overdue_3d,
     noteType: "reminder_overdue_3d",
     channels: ["sms", "whatsapp"],
     waTemplateEvent: "payment_reminder_overdue_3d",
@@ -231,11 +232,6 @@ function startOfDay(d: Date): Date {
  */
 function localDayKey(d: Date): string {
   return sastCalendarDate(d)
-}
-
-function daysBetween(a: Date, b: Date): number {
-  const msPerDay = 86_400_000
-  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / msPerDay)
 }
 
 async function alreadyProcessedToday(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -529,7 +525,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   const remindLoan = async (loan: (typeof loans)[number]): Promise<void> => {
     const today = new Date()
     const dueDate = loan.nextPaymentDate!
-    const daysUntil = daysBetween(today, dueDate)
+    const daysUntil = sastDaysBetween(today, dueDate)
 
     // What is left of the next unpaid instalment (lib/collections/amount-owed.ts, shared with the retry sweep).
     const paymentAmount = await nextInstalmentOwed(prisma, { tenantId: tenant.id, loanId: loan.id })

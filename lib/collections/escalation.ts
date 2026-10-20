@@ -29,7 +29,8 @@ interface EscalationRule {
   noteType: string
   /** Absent: every loan. A rule outside a loan's regime is skipped, not counted as an error. */
   appliesTo?: (ctx: EscalationContext) => boolean
-  action: (ctx: EscalationContext) => Promise<string>
+  /** The detail line, or `{ settled }` when the loan no longer needs this rule or any later one (nothing was done). */
+  action: (ctx: EscalationContext) => Promise<string | { settled: string }>
 }
 
 interface EscalationContext {
@@ -103,7 +104,7 @@ const RULES: EscalationRule[] = [
         data: { status: "DEFAULTED" },
       })
       if (flipped.count === 0) {
-        return `${ctx.loanRef}: not defaulted, the loan is no longer ACTIVE, ${DEFAULT_AT_DPD}+ days in arrears and in arrears (settled or cleared since it was read)`
+        return { settled: `${ctx.loanRef}: not defaulted, the loan is no longer ACTIVE, ${DEFAULT_AT_DPD}+ days in arrears and in arrears (settled or cleared since it was read)` }
       }
       await reverseReferralCommissionForLoan(prisma, { tenantId: ctx.tenantId, loanId: ctx.loanId })
       await createNote(
@@ -261,10 +262,16 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
           continue
         }
         reserved = { key: reservation, at: reservedAt }
-        const detail = await rule.action(ctx)
+        const outcome = await rule.action(ctx)
+        if (typeof outcome !== "string") {
+          // The later rules (the 90-DPD Section 129 flag) read the loan as it was at the start of the run, and this
+          // loan is not that loan any more.
+          result.details.push(outcome.settled)
+          break
+        }
         result.processed++
         loanAdvanced = true
-        result.details.push(detail)
+        result.details.push(outcome)
       } catch (err) {
         if (reserved) {
           try {

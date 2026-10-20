@@ -37,6 +37,8 @@ const KINDS = [
 // A fixed morning, so the dunning send window (07:00-20:00 SAST, the day it was created) does not depend on when the suite runs.
 const CREATED = new Date("2026-11-03T08:00:00Z") // 10:00 SAST
 const SWEEP_AT = new Date("2026-11-03T09:00:00Z") // 11:00 SAST
+// What the reminders cron matched on the day CREATED: a 7-day reminder queued then is about the instalment due on 10 November.
+const DUE_IN_7_DAYS = new Date("2026-11-10T00:00:00Z")
 
 async function queueMessage(contactId: string, category: TemplateCategory, dunning: boolean, idempotencyKey?: string, createdAt: Date = CREATED): Promise<string> {
   // One conversation per contact: later messages join it.
@@ -99,9 +101,10 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       { name: "defaulted", status: "DEFAULTED", held: true },
     ] as HoldCase[]) {
       const seeded = await seedHoldLoan(db, tenant, second, c)
+      await db.loan.update({ where: { id: seeded.loanId }, data: { nextPaymentDate: DUE_IN_7_DAYS } })
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
       messages[`${c.name}/collections reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_7d:SMS:${day}`)
-      messages[`${c.name}/entity reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_1d:${day}:${seeded.clientId}:SMS`)
+      messages[`${c.name}/entity reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_7d:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/manual reminder`] = await queueMessage(contact.id, "SERVICE", true, `manual-reminder:${seeded.loanId}:op1:SMS`)
       messages[`${c.name}/entity loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:loan_overdue:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/loan_overdue notice`] = await queueMessage(contact.id, "SERVICE", true, `notification:loan_overdue:${seeded.loanId}:${day}:SMS`)
@@ -110,6 +113,7 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     // A reminder queued for retry, then the borrower pays: what it says is no longer true.
     for (const c of [{ name: "owing" }, { name: "paid" }]) {
       const seeded = await seedHoldLoan(db, tenant, second, { name: c.name, held: false }, { inArrears: true })
+      await db.loan.update({ where: { id: seeded.loanId }, data: { nextPaymentDate: DUE_IN_7_DAYS } })
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
       if (c.name === "paid") {
         await db.loan.update({ where: { id: seeded.loanId }, data: { arrearsAmount: 0, daysInArrears: 0 } })
@@ -119,6 +123,25 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       messages[`${c.name}/pre-due reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_7d:SMS:${day}`)
       messages[`${c.name}/entity overdue reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_overdue_1d:${day}:${seeded.clientId}:SMS`)
       messages[`${c.name}/notice`] = await queueMessage(contact.id, "SERVICE", true, `notification:loan_overdue:${seeded.loanId}:${day}:SMS`)
+    }
+    // Instalment 1 falls due on CREATED's day and the 0-day reminder is queued. Then the borrower pays it: the next
+    // instalment (2) is pending, so something IS owed, but the reminder was about instalment 1.
+    for (const c of [{ name: "due today" }, { name: "instalment paid" }]) {
+      const seeded = await seedHoldLoan(db, tenant, second, { name: c.name, held: false })
+      const dueToday = new Date("2026-11-03T00:00:00Z")
+      await db.loan.update({ where: { id: seeded.loanId }, data: { nextPaymentDate: dueToday } })
+      await db.repaymentSchedule.updateMany({ where: { loanId: seeded.loanId }, data: { dueDate: dueToday } })
+      const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
+      messages[`${c.name}/0d reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_0d:SMS:${day}`)
+      messages[`${c.name}/entity 0d reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_0d:${day}:${seeded.clientId}:SMS`)
+      if (c.name === "instalment paid") {
+        const nextDue = new Date("2026-12-03T00:00:00Z")
+        await db.repaymentSchedule.updateMany({ where: { loanId: seeded.loanId }, data: { totalPaid: SCHEDULE_TOTAL, status: "PAID" } })
+        await db.repaymentSchedule.create({
+          data: { tenantId: tenant.tenantId, loanId: seeded.loanId, installmentNo: 2, dueDate: nextDue, principalDue: 200_000, interestDue: 10_000, feesDue: 6_900, totalDue: SCHEDULE_TOTAL },
+        })
+        await db.loan.update({ where: { id: seeded.loanId }, data: { nextPaymentDate: nextDue } })
+      }
     }
     const lead = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "LEAD" } })
     messages["lead/reminder"] = await queueMessage(lead.id, "SERVICE", true)
@@ -244,6 +267,19 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
   it.each(["overdue reminder", "pre-due reminder", "entity overdue reminder"])("a retried %s after the borrower paid is suppressed: nothing is owed", async (kind) => {
     expect(await row(`paid/${kind}`)).toMatchObject({ status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("nothing is owed") })
     expect(await audits(`paid/${kind}`, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(0)
+  })
+
+  // The cron avoids this only because nextPaymentDate moves on; a retry has no such luck.
+  it.each(["0d reminder", "entity 0d reminder"])("a retried %s is suppressed once its instalment was paid, though the next instalment is unpaid", async (kind) => {
+    expect(await row(`instalment paid/${kind}`)).toMatchObject({
+      status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("no longer the next instalment due"),
+    })
+    expect(await audits(`instalment paid/${kind}`, "MESSAGE_RETRY_DISPATCH_CLAIMED")).toBe(0)
+  })
+
+  it.each(["0d reminder", "entity 0d reminder"])("a retried %s goes while its instalment is still the next one due", async (kind) => {
+    expect((await row(`due today/${kind}`)).errorMessage ?? "", kind).not.toContain("instalment")
+    expect(await audits(`due today/${kind}`, "MESSAGE_RETRY_DISPATCH_CLAIMED"), kind).toBe(1)
   })
 
   // A 60-DPD notice is a statement of the default, not a demand for an amount: it is not held for being paid.

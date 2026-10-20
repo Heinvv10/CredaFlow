@@ -57,9 +57,13 @@ promise-to-pay tracking, and arrangement monitoring.
   reminder and a 60-DPD notice (consumer or entity `loan_overdue`) wait, and
   expire once the next day's window is over. A queued reminder is also dropped when
   the borrower has since paid (`nothingOwed`, one definition shared with the
-  reminders cron: `amount-owed.ts`). The 60-DPD flip is conditional (still
-  ACTIVE/DEFAULTED, 60+ DPD, in arrears) and the notice is re-checked against the
-  statuses a notice reaches just before it sends.
+  reminders cron: `amount-owed.ts`); a PRE-DUE one (7d, 1d, 0d) is also dropped
+  once `nextPaymentDate` is no longer the day it was queued for plus its offset,
+  which is the cron's own trigger match (`reminder-offsets.ts`; it matters when
+  that instalment is paid and the next is unpaid, so something is still owed). The
+  60-DPD flip is conditional (still ACTIVE/DEFAULTED, 60+ DPD, in arrears): a loan
+  it finds settled gets no later escalation rule (no 90-DPD flag) either, and the
+  notice is re-checked against the statuses a notice reaches just before it sends.
 - **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
   through `sendMessage`** (template `payment_reminder_email`; entities via
   `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`
@@ -95,7 +99,7 @@ promise-to-pay tracking, and arrangement monitoring.
     client (consumer-wide). PAYMENT_ARRANGEMENT is not a hold by itself: the
     stage never moves back, the ACTIVE arrangement decides. A new reminder path
     uses it; never re-write the filter.
-  - The reminders cron rechecks `isLoanHeld` immediately before EACH send (the loans are
+  - The reminders cron rechecks `isLoanRemindable` (ACTIVE and not held) immediately before EACH send (the loans are
     selected once at the start of a run, which can be long), and so do the staff
     routes before each leg. The messaging retry sweep suppresses (not retries) a
     queued DUNNING message (`Message.dunning`, set by `sendMessage` from its
@@ -105,7 +109,7 @@ promise-to-pay tracking, and arrangement monitoring.
     "client hold: deceased|debt review"). Statements, receipts and transactional
     messages are not held.
   - *Escalation* still flips DEFAULTED at 60 DPD, but skips the borrower's
-    `loan_overdue` notice for a held loan (`isLoanHeld`) and reports it; it writes
+    `loan_overdue` notice for a held or no longer dunnable loan (`loanDunningHold`) and reports it; it writes
     no 90-DPD `escalation_legal` flag, and the "S129 Due" count leaves the client out,
     while debt review stands.
   - *Staff messages* (manual reminder, collections-stage WhatsApp) refuse with
