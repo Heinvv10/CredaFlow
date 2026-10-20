@@ -202,6 +202,16 @@ export default async function CollectionDetailPage({ params }: { params: Promise
         </div>
       )}
 
+      {loan.debtReviewNoticeAt && (
+        <div role="status" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-[13px] text-amber-800">
+          <p className="font-semibold">Under debt review (notice received {formatDate(loan.debtReviewNoticeAt)})</p>
+          <p className="mt-1">
+            {loan.debtReviewNoticeRef ? `Counsellor reference ${loan.debtReviewNoticeRef}. ` : ""}
+            Automated reminders to this borrower are paused. Record or clear the notice on the loan page.
+          </p>
+        </div>
+      )}
+
       {section129Failure && loan.status !== "WRITTEN_OFF" && (
         <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-[13px] text-red-800">
           <p className="font-semibold">The last Section 129 notice was not sent ({formatDate(section129Failure.failedAt)})</p>

@@ -28,6 +28,7 @@ import { ChargesPanel } from "@/components/loans/ChargesPanel"
 import { StaffAssetLoanView } from "@/components/asset-finance/StaffAssetLoanView"
 import { hasClientBorrower } from "@/lib/borrower"
 import { LoanCollectionsPanel } from "@/components/collections-engine/LoanCollectionsPanel"
+import { DebtReviewPanel } from "@/components/collections/DebtReviewPanel"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 import { AssetLoanRecoveryPanels, hasRecoveryPanels } from "@/components/asset-finance/recovery/AssetLoanRecoveryPanels"
 import { PayoutStatusPanel } from "@/components/payouts/PayoutStatusPanel"
@@ -316,6 +317,14 @@ export default async function LoanDetailPage(
           )}
 
           <LoanCollectionsPanel tenantId={tenantId} loan={loan} canManage={canManageCharges} />
+
+          <DebtReviewPanel
+            loanId={loan.id}
+            noticeAt={loan.debtReviewNoticeAt}
+            noticeRef={loan.debtReviewNoticeRef}
+            // Affordance only: the route re-checks (debt-review/route.ts).
+            canManage={Boolean(session?.user?.role && hasMinRole(session.user.role, "COLLECTIONS_OFFICER") && canDo(session.user.role, "act_on_collections"))}
+          />
 
           <DataPanel title="Payment history" description="Latest receipts posted to this account" variant="default" density="loose">
             {loan.payments.length === 0 ? (

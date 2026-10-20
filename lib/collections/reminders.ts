@@ -39,6 +39,7 @@ import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
 import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
+import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -398,7 +399,8 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
   const loans = await prisma.loan.findMany({
     where: {
       tenantId: tenant.id,
-      status: "ACTIVE",
+      // Status ACTIVE and every dunning hold (lib/collections/dunning-holds.ts).
+      ...remindableLoanWhere(),
       nextPaymentDate: { not: null },
     },
     include: {

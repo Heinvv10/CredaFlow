@@ -17,6 +17,7 @@ import { getLenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { recordEntityReminder, sendEntityReminder } from "@/lib/asset-finance/entity-reminders"
+import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
 
 /**
  * Payment reminder cron — one courtesy reminder per loan, REMINDER_LEAD_DAYS
@@ -123,9 +124,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       tenantId,
       dueDate: { gte: startOfDay(now), lte: windowEnd },
       status: { in: ["PENDING", "PARTIAL"] },
-      // A reversed disbursement (lib/payouts/reversal.ts) leaves its rows
-      // PENDING on a CANCELLED loan that owes nothing.
-      loan: { status: { not: "CANCELLED" } },
+      // Only a loan that may be reminded (lib/collections/dunning-holds.ts):
+      // ACTIVE, so the CANCELLED loan of a reversed disbursement
+      // (lib/payouts/reversal.ts) and a written-off or defaulted one are out,
+      // as is one under an arrangement, referral, debt review or a deceased borrower.
+      loan: remindableLoanWhere(),
     },
     include: {
       loan: {

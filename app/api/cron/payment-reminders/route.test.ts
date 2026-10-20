@@ -63,6 +63,7 @@ vi.mock("@/lib/messaging/channel-availability", () => ({
 import { GET } from "./route"
 import { SendBlockedError } from "@/lib/messaging/send"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
 
 const CONTACT = {
   id: "c1",
@@ -110,10 +111,13 @@ beforeEach(() => {
 })
 
 describe("payment-reminders — one send per instalment", () => {
-  it("never reminds a loan whose disbursement was reversed (CANCELLED)", async () => {
+  // The query is the control, not a post-filter: the real-Postgres proof that
+  // each held loan is unreached is lib/collections/dunning-holds.integration.test.ts.
+  it("selects only remindable loans: the shared dunning-hold predicate, not just 'not CANCELLED'", async () => {
     h.findMany.mockResolvedValue([])
     await run()
-    expect(h.findMany.mock.calls[0][0].where.loan).toEqual({ status: { not: "CANCELLED" } })
+    expect(h.findMany.mock.calls[0][0].where.loan).toEqual(remindableLoanWhere())
+    expect(h.findMany.mock.calls[0][0].where.loan.status).toBe("ACTIVE")
   })
 
   it("sends for a schedule due in 3 days", async () => {
