@@ -11,7 +11,9 @@
  *    but does not run the borrower's account, so a reminder to them would be
  *    a demand on the guarantee, which is a different (legal) step;
  *  - an inactive relationship (the person has resigned or been removed);
- *  - a client with a recorded death (Client.deceasedAt, lib/clients/status.ts).
+ *  - a client with a recorded death (Client.deceasedAt, lib/clients/status.ts);
+ *  - a person a dealer captured whose contact details staff have not verified
+ *    (lib/clients/dealer-contact.ts): they may be the dealer's own.
  * A person holding several qualifying roles is one recipient.
  *
  * This only decides WHO. Whether a channel may carry the message to them
@@ -19,6 +21,7 @@
  * recipient (./entity-dispatch.ts). SMS is never used (lib/messaging/.claude.md).
  */
 import type { prisma } from "@/lib/prisma"
+import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { PORTAL_AUTHORITY_ROLES } from "./portal-access"
 
 export type EntityContactsDb = Pick<typeof prisma, "entityRelationship">
@@ -42,7 +45,7 @@ export async function entityContactRecipients(
       entityId,
       active: true,
       role: { in: [...PORTAL_AUTHORITY_ROLES] },
-      client: { deceasedAt: null },
+      client: { deceasedAt: null, ...TRUSTED_CONTACT_WHERE },
     },
     select: { client: { select: { id: true, firstName: true, lastName: true, email: true, whatsapp: true } } },
     orderBy: [{ clientId: "asc" }, { role: "asc" }],

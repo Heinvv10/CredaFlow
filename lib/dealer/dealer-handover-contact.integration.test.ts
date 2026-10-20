@@ -28,6 +28,7 @@ import { loadBookingDeal } from "@/lib/asset-finance/booking-load"
 import { approve, book, captureForDealer, dealerDeal } from "./dealer-booking.integration-fixture"
 import { inTenant, staffOf } from "./dealer-origination.integration-fixture"
 import { verifyDealerContact } from "./contact-verification"
+import { entityContactRecipients } from "@/lib/asset-finance/entity-contacts"
 
 // The deal fixture imports the staff routes (next-auth); no route runs in this suite.
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -156,6 +157,20 @@ suite.sequential("dealer hand-over and dealer-captured contact details (real DB)
       const loanId = sql(`SELECT l."id" FROM "Loan" l JOIN "AssetFinanceDeal" d ON d."applicationId" = l."applicationId" WHERE d."id" = ${lit(dealId)}`)
       sql(`UPDATE "AssetFinanceDeal" SET "status" = 'BOOKED', "loanId" = ${lit(loanId)} WHERE "id" = ${lit(dealId)}`)
       expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}`)).toBe("BOOKED")
+    })
+
+    it("sends an entity's servicing messages to no dealer-captured person until staff verify them", async () => {
+      const captured = captureForDealer(fx, fx.dealerA)
+      const relate = (clientId: string) => sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
+        VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(captured.entityId)}, ${lit(clientId)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
+      const dealers = client(fx.dealerA)
+      const lenders = client(null)
+      relate(dealers)
+      relate(lenders)
+      const recipients = () => inTenant(fx, async () => (await entityContactRecipients(prisma, fx.tenantId, captured.entityId)).map((r) => r.clientId).sort())
+      expect(await recipients()).toEqual([lenders])
+      sql(verify(dealers))
+      expect(await recipients()).toEqual([dealers, lenders].sort())
     })
 
     it("leaves a staff-captured client's portal password alone", () => {
