@@ -1,7 +1,8 @@
 /**
  * Reads the asset-finance contracts for the accounting export: instalment
  * sales, finance leases, operating and full-maintenance leases, with their
- * tax invoices, lease rentals, maintenance funds and recoveries.
+ * tax invoices, lease rentals, maintenance funds, recoveries and dealer
+ * commission lines.
  *
  * Like the consumer loader, tenant-scoped models need the caller inside the
  * tenant's context and every query names its tenant by hand. A contract the
@@ -75,6 +76,14 @@ const LOAN_SELECT = {
       vatEvents: { where: { kind: "REPOSSESSION_DEEMED_SUPPLY" }, orderBy: { id: "asc" }, select: { id: true, eventDate: true, inputTaxClaimCents: true } },
       sales: { where: { status: "COMPLETED" }, select: { id: true, priceInclVatCents: true, completedAt: true, taxInvoice: { select: { ...INVOICE, creditNotes: { orderBy: { number: "asc" }, select: CREDIT_NOTE } } } } },
       refund: { where: { status: "RELEASED" }, select: { id: true, amountCents: true, releasedAt: true } },
+    },
+  },
+  // A line is paid by the released run that holds it; a cancelled run's links are voided (guardDealerPayableRun).
+  dealerCommissionLines: {
+    orderBy: { id: "asc" },
+    select: {
+      id: true, kind: true, effectiveOn: true, netCents: true, vatCents: true, grossCents: true,
+      runLinks: { where: { voided: false, run: { status: "RELEASED" } }, select: { run: { select: { releasedAt: true } } } },
     },
   },
 } satisfies Prisma.LoanSelect
@@ -186,6 +195,10 @@ function assetFinanceOf(loan: LoanRow, unsupported: Unsupported[]): SourceAssetF
       ? { riskModel: loan.maintenanceFund.riskModel, movements: loan.maintenanceFund.movements.map((m) => ({ ...m, occurredOn: dayOf(m.occurredOn) })) }
       : null,
     recoveries: recoveriesOf(loan, unsupported),
+    dealerCommission: loan.dealerCommissionLines.map((l) => ({
+      id: l.id, kind: l.kind, effectiveOn: dayOf(l.effectiveOn), netCents: l.netCents, vatCents: l.vatCents, grossCents: l.grossCents,
+      releasedAt: l.runLinks[0]?.run.releasedAt ?? null,
+    })),
   }
 }
 

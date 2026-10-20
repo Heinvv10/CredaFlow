@@ -12,6 +12,7 @@ import { escapeHtml } from "@/lib/utils"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         agreementGeneratedAt: true,
         agreementSignedAt: true,
         client: {
-          select: { firstName: true, lastName: true, email: true, phone: true, whatsapp: true },
+          select: { firstName: true, lastName: true, email: true, phone: true, whatsapp: true, createdByDealerId: true, dealerContactVerifiedAt: true },
         },
       },
     })
@@ -74,6 +75,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     // The signing link goes to a consumer; an entity borrower is refused.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
+    // Contact details a dealer typed may be the dealer's own: nothing goes to
+    // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+    if (dealerContactUnverified(application.client)) {
+      return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED }, { status: 409 })
     }
     if (!application.agreementGeneratedAt) {
       return NextResponse.json({

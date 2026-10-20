@@ -113,3 +113,33 @@ export function requireOperatorBaseUrl(env: Readonly<Record<string, string | und
   url.hostname = host
   return url.origin
 }
+
+/**
+ * The dealer portal host (`DEALER_APP_HOST`), or null when not configured.
+ * Dealer users sign in and work only on this host, and nothing else is served
+ * on it (lib/proxy/dealer-host.ts). It runs on the staff container and needs a
+ * `TENANT_HOST_MAP` entry (the subdomain fallback would read the first label
+ * as the lender's slug). Unset: no dealer sign-in anywhere. Throws when it
+ * names the staff or operator host: one host serves one audience.
+ */
+export function dealerAppHost(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const raw = env.DEALER_APP_HOST?.trim()
+  if (!raw) return null
+  const host = normaliseHost(raw)
+  if (host === staffAppHost(env) || host === operatorAppHost(env)) {
+    throw new DeploymentConfigError("DEALER_APP_HOST must differ from STAFF_APP_HOST and OPERATOR_APP_HOST.")
+  }
+  return host
+}
+
+/**
+ * The dealer portal origin: the deployment's own scheme and port
+ * (`NEXTAUTH_URL`) on `DEALER_APP_HOST`. Throws when either is unset.
+ */
+export function requireDealerBaseUrl(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const host = dealerAppHost(env)
+  if (!host) throw new DeploymentConfigError("DEALER_APP_HOST is not set.")
+  const url = new URL(requireAppBaseUrl(env))
+  url.hostname = host
+  return url.origin
+}

@@ -35,7 +35,7 @@ export default async function ClientsPage() {
   // application or income figure (lib/security/client-redaction.ts).
   const role = (await auth())?.user?.role
   const loanBook = !lacksLoanBook(role)
-  const canCreate = !!role && role !== "CLIENT" && hasMinRole(role, "CREDIT_OFFICER")
+  const canCreate = !!role && role !== "CLIENT" && role !== "DEALER" && hasMinRole(role, "CREDIT_OFFICER")
   const loaded = await getClients(tenantId)
 
   const unread = await prisma.conversation.findMany({

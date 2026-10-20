@@ -16,6 +16,7 @@ import { recordedCallerIp } from "@/lib/rate-limit"
 import { maskDestination } from "@/lib/compliance/pasq-link-token.server"
 import { portalContinueUrl } from "@/lib/portal-urls"
 import { EntityBorrowerError, hasClientBorrower } from "@/lib/borrower"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 
 type RouteCtx = { params: Promise<{ id: string }> }
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -41,6 +42,8 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
             email: true,
             firstName: true,
             lastName: true,
+            createdByDealerId: true,
+            dealerContactVerifiedAt: true,
           },
         },
       },
@@ -51,6 +54,11 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
     // The signing packet holds consumer NCA documents; an entity borrower is refused.
     if (!hasClientBorrower(application)) {
       return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+    }
+    // Contact details a dealer typed may be the dealer's own: nothing goes to
+    // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+    if (dealerContactUnverified(application.client)) {
+      return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED }, { status: 409 })
     }
     if (
       application.status !== "APPROVED"

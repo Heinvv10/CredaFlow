@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
-import { AuditAction, logAuditStrict } from "@/lib/audit"
-import { auditRefusal } from "@/lib/audit-refusals"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
-import { sastCalendarDate } from "@/lib/date/sast"
-import { loadRateOn } from "@/lib/vat/vat-rate"
-import { duplicateAssetMessage, parseAssetCreate, vatProblem } from "@/lib/asset-finance/asset-input"
+import { parseAssetCreate } from "@/lib/asset-finance/asset-input"
+import { createFinancedAsset } from "@/lib/asset-finance/asset-create"
 
 /** The tenant's asset register, newest first. */
 export async function GET(req: NextRequest) {
@@ -47,42 +44,12 @@ export async function POST(req: NextRequest) {
 
     const parsed = parseAssetCreate(await req.json().catch(() => null))
     if ("errors" in parsed) return NextResponse.json({ error: "Invalid asset", fields: parsed.errors }, { status: 400 })
-    const data = parsed.data
-    const problem = vatProblem(data.cashPriceExclVatCents, data.vatCents, (await loadRateOn(prisma, sastCalendarDate(new Date()))).rateTenThousandths)
-    if (problem) return NextResponse.json({ error: "Invalid asset", fields: { vatCents: problem } }, { status: 400 })
-
-    try {
-      const asset = await prisma.$transaction(async (tx) => {
-        const row = await tx.financedAsset.create({
-          data: { ...data, tenantId: tenant.id, createdById: guard.user.id },
-        })
-        await logAuditStrict({
-          tenantId: tenant.id,
-          userId: guard.user.id,
-          userEmail: guard.user.email,
-          action: AuditAction.ASSET_CREATED,
-          entity: "FinancedAsset",
-          entityId: row.id,
-          newValue: { ...data },
-        }, tx)
-        return row
-      })
-      return NextResponse.json(asset, { status: 201 })
-    } catch (error) {
-      const duplicate = duplicateAssetMessage(error)
-      if (!duplicate) throw error
-      await auditRefusal({
-        action: AuditAction.ASSET_DUPLICATE_REFUSED,
-        entity: "FinancedAsset",
-        entityId: data.serialNumber,
-        tenantId: tenant.id,
-        userId: guard.user.id,
-        userEmail: guard.user.email,
-        reason: "duplicate_unreleased_asset",
-        status: 409,
-        detail: { serialNumber: data.serialNumber, vin: data.vin },
-      })
-      return NextResponse.json({ error: duplicate }, { status: 409 })
-    }
+    const created = await createFinancedAsset(
+      { kind: "staff", tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email },
+      parsed.data,
+    )
+    if (created.kind === "invalid") return NextResponse.json({ error: "Invalid asset", fields: created.fields }, { status: 400 })
+    if (created.kind === "duplicate") return NextResponse.json({ error: created.message }, { status: 409 })
+    return NextResponse.json(created.asset, { status: 201 })
   })
 }

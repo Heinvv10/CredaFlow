@@ -14,12 +14,15 @@
  *                              instalment sale or finance lease the figure is the inception invoice's VAT, the
  *                              figure the journal posts too: there it checks the DATE (that it posts when the
  *                              payout is released, once) and no supplier-side figure is read. // UNTESTED: tax —
- *                              input VAT on a dealer that is not a VAT vendor (DESIGN.md)
+ *                              input VAT on a dealer that is not a VAT vendor (DESIGN.md). Plus the VAT on its
+ *                              dealer commission lines once effective (nil unless the dealer was a VAT vendor)
  *   RECOVERY_CLEARING          per recovery: nil once its proceeds are applied or it is withdrawn
  *   RECOVERY_RESULT            per recovery: what the clearing held when it was resolved, plus any later
  *                              credit note on the buyer's invoice
  *   RECOVERY_REFUND_PAYABLE    per recovery: the surplus less the refund released
  *   MAINTENANCE_FUND_LIABILITY per fund: a lessee-settled fund's balance; nil for a lender-risk fund
+ *   DEALER_COMMISSION_PAYABLE  per contract: - the gross of its commission lines effective before the period end
+ *                              + the gross of those lines in a payable run released before it (live link)
  */
 import { Prisma } from "@prisma/client"
 import type { prisma } from "@/lib/prisma"
@@ -134,6 +137,9 @@ async function vatBooks(db: Db, tenantId: string, asOf: Date): Promise<{ output:
     SELECT 'IN', rec."loanId", SUM(c."vatCents")::bigint
       FROM "RecoveryCost" c JOIN "Recovery" rec ON rec."id" = c."recoveryId" AND rec."tenantId" = c."tenantId"
       WHERE c."tenantId" = ${tenantId} AND c."status" = 'APPROVED' AND ${incurred} < ${asOf} GROUP BY rec."loanId"
+    UNION ALL
+    SELECT 'IN', l."loanId", SUM(l."vatCents")::bigint
+      FROM "DealerCommissionLine" l WHERE l."tenantId" = ${tenantId} AND ${sast('l."effectiveOn"')} < ${asOf} GROUP BY l."loanId"
   `)
   const output = new Map<string, number>()
   const input = new Map<string, number>()
@@ -180,11 +186,24 @@ async function fundBooks(db: Db, tenantId: string, asOf: Date): Promise<Map<stri
   return new Map(rows.map((r) => [r.loanId, num(r.liability)]))
 }
 
+/** Per contract: the dealer commission still payable (a credit, journal signs), from the lines and runs. */
+async function dealerPayableBooks(db: Db, tenantId: string, asOf: Date): Promise<Map<string, number>> {
+  const rows = await db.$queryRaw<Array<{ loanId: string; payable: bigint }>>(Prisma.sql`
+    SELECT l."loanId", (-SUM(l."grossCents") + COALESCE(SUM(l."grossCents") FILTER (WHERE EXISTS (
+        SELECT 1 FROM "DealerPayableRunLine" k JOIN "DealerPayableRun" r ON r."id" = k."runId" AND r."tenantId" = k."tenantId"
+        WHERE k."lineId" = l."id" AND k."tenantId" = l."tenantId" AND NOT k."voided" AND r."status" = 'RELEASED' AND r."releasedAt" < ${asOf})), 0))::bigint AS "payable"
+    FROM "DealerCommissionLine" l WHERE l."tenantId" = ${tenantId} AND ${sast('l."effectiveOn"')} < ${asOf} GROUP BY l."loanId"
+  `)
+  return new Map(rows.map((r) => [r.loanId, num(r.payable)]))
+}
+
 /** Every asset-finance control for the period ending at `asOf`; an empty list means all tie. */
 export async function assetFinanceControls(
   db: Db, tenantId: string, asOf: Date, journal: ReturnType<typeof journalByKey>,
 ): Promise<ControlMismatch[]> {
-  const [vat, recoveries, funds] = await Promise.all([vatBooks(db, tenantId, asOf), recoveryBooks(db, tenantId, asOf), fundBooks(db, tenantId, asOf)])
+  const [vat, recoveries, funds, dealerPayable] = await Promise.all([
+    vatBooks(db, tenantId, asOf), recoveryBooks(db, tenantId, asOf), fundBooks(db, tenantId, asOf), dealerPayableBooks(db, tenantId, asOf),
+  ])
   const proceeds = new Map(recoveries.flatMap((r) => (r.proceedsPaymentId ? [[r.proceedsPaymentId, r.id] as const] : [])))
   const clearing = perRecovery(journal, "RECOVERY_CLEARING", proceeds)
   const result = perRecovery(journal, "RECOVERY_RESULT", proceeds)
@@ -201,5 +220,6 @@ export async function assetFinanceControls(
     // The refund payable is a credit in the journal.
     ...compare("RECOVERY_REFUND_PAYABLE", refund, new Map(recoveries.map((r) => [r.id, -r.refundPayable]))),
     ...compare("MAINTENANCE_FUND_LIABILITY", perLoan(journal, "MAINTENANCE_FUND_LIABILITY"), funds),
+    ...compare("DEALER_COMMISSION_PAYABLE", perLoan(journal, "DEALER_COMMISSION_PAYABLE"), dealerPayable),
   ]
 }

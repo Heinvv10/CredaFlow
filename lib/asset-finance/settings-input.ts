@@ -1,7 +1,7 @@
 /**
  * Validation of the tenant-level asset-finance set-up written by ADMIN users:
- * the module switch and payout dual-approval threshold
- * (PATCH /api/settings/asset-finance) and the VAT vendor details
+ * the module switch, payout dual-approval threshold, dealer portal switch and
+ * commission clawback window (PATCH /api/settings/asset-finance) and the VAT vendor details
  * (PUT /api/asset-finance/vat-config).
  *
  * TenantConfig.assetFinanceLegalWordingApproved is deliberately NOT writable:
@@ -13,7 +13,13 @@ import { MAX_INT, asRecord } from "./input-fields"
 export interface AssetFinanceSettingsInput {
   featureAssetFinance?: boolean
   assetPayoutDualApprovalCents?: number
+  /** The dealer portal (SLICE5.md part A); the database allows it only on a demo lender. */
+  featureDealerPortal?: boolean
+  /** Months after booking within which an early settlement or write-off reverses dealer commission (0 = off). */
+  dealerCommissionClawbackMonths?: number
 }
+
+export const MAX_CLAWBACK_MONTHS = 60
 
 export type Parsed<T> = { data: T } | { errors: Record<string, string> }
 
@@ -39,9 +45,21 @@ export function parseAssetFinanceSettings(body: unknown): Parsed<AssetFinanceSet
       errors.assetPayoutDualApprovalCents = "must be a whole number of cents from 0 (every payout) upwards"
     }
   }
+  if ("featureDealerPortal" in record) {
+    if (typeof record.featureDealerPortal === "boolean") data.featureDealerPortal = record.featureDealerPortal
+    else errors.featureDealerPortal = "must be true or false"
+  }
+  if ("dealerCommissionClawbackMonths" in record) {
+    const months = record.dealerCommissionClawbackMonths
+    if (typeof months === "number" && Number.isInteger(months) && months >= 0 && months <= MAX_CLAWBACK_MONTHS) {
+      data.dealerCommissionClawbackMonths = months
+    } else {
+      errors.dealerCommissionClawbackMonths = `must be a whole number of months from 0 (off) to ${MAX_CLAWBACK_MONTHS}`
+    }
+  }
   if (Object.keys(errors).length > 0) return { errors }
-  if (data.featureAssetFinance === undefined && data.assetPayoutDualApprovalCents === undefined) {
-    return { errors: { body: "send featureAssetFinance and/or assetPayoutDualApprovalCents" } }
+  if (Object.keys(data).length === 0) {
+    return { errors: { body: "send featureAssetFinance, assetPayoutDualApprovalCents, featureDealerPortal and/or dealerCommissionClawbackMonths" } }
   }
   return { data }
 }

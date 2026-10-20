@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import type { AppRole } from "@/lib/auth"
@@ -153,6 +153,7 @@ export async function requireLoanBookStaff(minRole: UserRole): Promise<StaffUser
 export async function requireLoanBookPage(opts: { home?: boolean } = {}): Promise<void> {
   // The dashboard layout above already refuses a missing or stale session.
   const session = await auth()
+  if (session?.user?.role === "DEALER") notFound()
   if (lacksLoanBook(session?.user?.role)) redirect(opts.home ? NO_LOAN_BOOK_HOME : NO_ACCESS_PAGE)
 }
 
@@ -202,7 +203,7 @@ export const ROLE_HIERARCHY: UserRole[] = [
 ]
 
 export function hasMinRole(userRole: AppRole, minRole: UserRole): boolean {
-  if (userRole === "CLIENT") return false
+  if (userRole === "CLIENT" || userRole === "DEALER") return false
   const userIdx = ROLE_HIERARCHY.indexOf(userRole)
   const minIdx = ROLE_HIERARCHY.indexOf(minRole)
   // Unknown role (not in hierarchy) → deny. Prevents privilege escalation if a
@@ -398,7 +399,7 @@ export type PermissionKey = keyof typeof PERMISSIONS
 
 export function canDo(userRole: AppRole, permission: PermissionKey): boolean {
   const rule: UserRole | readonly UserRole[] = PERMISSIONS[permission]
-  if (typeof rule !== "string") return userRole !== "CLIENT" && rule.includes(userRole)
+  if (typeof rule !== "string") return userRole !== "CLIENT" && userRole !== "DEALER" && rule.includes(userRole)
   return hasMinRole(userRole, rule)
 }
 

@@ -28,6 +28,8 @@ function pageGate(href: string): UserRole {
     ([, role, permission]) => (role ?? PERMISSIONS[permission as keyof typeof PERMISSIONS]) as UserRole,
   )
   if (/requireAssetFinanceStaffPage\(\)/.test(source)) gates.push("READONLY")
+  // lib/dealer/staff-page.ts: the asset-finance gate, then manage_dealers (asserted below).
+  if (/requireDealerStaffPage\(\)/.test(source)) gates.push(PERMISSIONS.manage_dealers as UserRole)
   // The strictest gate on the path is the one that bites.
   return gates.reduce<UserRole>((max, g) => (ROLE_HIERARCHY.indexOf(g) > ROLE_HIERARCHY.indexOf(max) ? g : max), "READONLY")
 }
@@ -38,5 +40,9 @@ describe("staff navigation shows only what the role can open", () => {
   it.each(items.map((i) => [i.href, i] as const))("%s: the sidebar gate equals the page's gate", (href, item) => {
     expect(existsSync(join(DASHBOARD, ...href.split("/").filter(Boolean), "page.tsx"))).toBe(true)
     expect(item.minRole ?? "READONLY").toBe(pageGate(href))
+  })
+
+  it("requireDealerStaffPage gates on manage_dealers", () => {
+    expect(readFileSync(join(__dirname, "..", "dealer", "staff-page.ts"), "utf8")).toMatch(/if \(!canDo\(user\.role, "manage_dealers"\)\) redirect\(/)
   })
 })

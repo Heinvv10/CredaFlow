@@ -25,7 +25,7 @@ import sharp from "sharp"
 
 const ctx = vi.hoisted(() => ({
   tenantId: "", adminId: "", readPaths: [] as string[],
-  session: null as null | { user: { email: string; tenantId: string } },
+  session: null as null | { user: { email: string; tenantId: string; role?: string } },
   comparison: null as unknown,
   compared: [] as Array<{ id: { fileBuffer: Buffer; mimeType: string }; selfie: { fileBuffer: Buffer; mimeType: string } }>,
 }))
@@ -686,7 +686,7 @@ suite("face match v3 through the real pipeline", () => {
       await db.clientDocument.update({ where: { id: fixture.idCopyId }, data: { verified: false, verifiedAt: null } })
       const attempt = await inFlightAttempt(fixture)
       const client = await db.client.findUniqueOrThrow({ where: { id: fixture.clientId }, select: { email: true, tenantId: true } })
-      ctx.session = { user: { email: client.email!, tenantId: client.tenantId } }
+      ctx.session = { user: { email: client.email!, tenantId: client.tenantId, role: "CLIENT" } }
       try {
         const deleted = await documentDELETE(new Request("http://localhost/", { method: "DELETE" }), {
           params: Promise.resolve({ id: attempt.selfieId }),

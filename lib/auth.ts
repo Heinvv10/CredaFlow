@@ -9,9 +9,11 @@ import { getTenantFromRequest } from "@/lib/tenant"
 import { clientCredentialStamp, revalidateClientPrincipal } from "./client-session"
 import { claimTotpCounter } from "./totp-claim"
 import { signInTotpOutcome } from "./auth-totp-step"
-import { normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
+import { dealerAppHost, normaliseHost, operatorAppHost } from "@/lib/config/deployment-urls"
 import { isOperatorRole } from "@/lib/operator/roles"
 import { authorizeOperator } from "@/lib/operator/sign-in"
+import { authorizeDealer } from "@/lib/dealer/sign-in"
+import { dealerTokenAtSignIn, refreshDealerToken } from "@/lib/dealer/session-token"
 import { audienceOf, enrolmentRequired, principalRefusal, revalidatePrincipal } from "./auth-principal"
 import { checkStaffSignIn, staffSessionAllowed } from "@/lib/security/staff-access-enforcement"
 import { staffAccessSignInCode, type StaffAccessRefusal } from "@/lib/security/staff-access-messages"
@@ -79,9 +81,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
         code: { label: "TOTP code", type: "text" },
-        // "staff" (workspace), "client" (portal) or "operator" (the operator
-        // console host). Determines which principals may authenticate — there
-        // is no fallback across audiences.
+        // "staff" (workspace), "client" (portal), "operator" (the operator
+        // console host) or "dealer" (the dealer portal host). Determines which
+        // principals may authenticate — there is no fallback across audiences.
         loginType: { label: "Login type", type: "text" },
       },
       async authorize(credentials, request) {
@@ -90,7 +92,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const loginType =
-          credentials.loginType === "client" ? "client" : credentials.loginType === "operator" ? "operator" : "staff"
+          credentials.loginType === "client" ? "client"
+            : credentials.loginType === "operator" ? "operator"
+              : credentials.loginType === "dealer" ? "dealer" : "staff"
         const email = String(credentials.email).toLowerCase().trim()
         // NextAuth v5 always passes a real Request in App Router; the cast is safe.
         const ip = callerIp(request as Request)
@@ -123,14 +127,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // pages. Same response as an unknown email.
         //
         // The operator console host (OPERATOR_APP_HOST) takes operator sign-ins
-        // only, and no other host takes one (lib/proxy/operator-host.ts).
+        // only, and no other host takes one (lib/proxy/operator-host.ts); the
+        // same for the dealer host and dealer sign-ins (lib/proxy/dealer-host.ts).
         const hostMode = process.env.APP_MODE
+        const requestHost = normaliseHost((request as Request).headers.get("host") ?? "")
         const consoleHost = operatorAppHost()
-        const onConsoleHost = consoleHost !== null && normaliseHost((request as Request).headers.get("host") ?? "") === consoleHost
+        const onConsoleHost = consoleHost !== null && requestHost === consoleHost
+        const portalHost = dealerAppHost()
+        const onDealerHost = portalHost !== null && requestHost === portalHost
         if (
           (hostMode === "client" && loginType !== "client") ||
           (hostMode === "staff" && loginType === "client") ||
-          onConsoleHost !== (loginType === "operator")
+          onConsoleHost !== (loginType === "operator") ||
+          onDealerHost !== (loginType === "dealer")
         ) {
           await equalizeAuthTiming(String(credentials.password))
           await recordFailure("wrong_audience")
@@ -147,6 +156,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (result.error === "totp_required") throw new TotpRequiredError()
           if (result.error === "totp_invalid") throw new TotpInvalidError()
           return null
+        }
+
+        if (loginType === "dealer") {
+          const result = await authorizeDealer({
+            email, password: String(credentials.password), code: credentials.code, request: request as Request,
+            recordFailure, equalizeTiming: equalizeAuthTiming,
+          })
+          return result.ok ? result.user : null
         }
 
         // Staff audience — look up in User table only. Client emails get a
@@ -307,6 +324,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Sign-in: copy claims from the User shape returned by authorize() into the JWT.
       if (user) {
         if (!user.id) return null  // should not happen with credentials auth
+        // A dealer user holds a tenant and a dealer (lib/dealer/sign-in.ts).
+        if (user.role === "DEALER") return dealerTokenAtSignIn(token, user)
         // Operator staff hold an operator and no tenant; everyone else a tenant.
         const operator = isOperatorRole(user.role)
         const binding = operator ? user.operatorId : user.tenantId
@@ -328,6 +347,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // stamp (lib/client-session.ts); staff (any other role) against the User
       // table by tokenVersion.
       const tokenId = token.id
+      // DEALER first: the staff branch below would find no User row and sign
+      // the dealer out (lib/dealer/session-token.ts).
+      if (token.role === "DEALER") return refreshDealerToken(token)
       if (typeof tokenId === "string" && token.role === "CLIENT") {
         if (typeof token.tenantId !== "string") return null
         const fresh = await revalidateClientPrincipal(tokenId, token.tenantId, token.credentialStamp)
@@ -384,6 +406,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // (refuseLockedStaffUserWrite in lib/auth-guards.ts).
         session.user.tokenVersion = typeof token.tokenVersion === "number" ? token.tokenVersion : undefined
         session.user.operatorId = typeof token.operatorId === "string" ? token.operatorId : null
+        session.user.dealerId = typeof token.dealerId === "string" ? token.dealerId : null
+        session.user.dealerRole = token.dealerRole === "DEALER_ADMIN" || token.dealerRole === "DEALER_SALES" ? token.dealerRole : null
       }
       return session
     },

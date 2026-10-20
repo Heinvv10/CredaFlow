@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma"
+import { dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { sendEmail } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
 import { WA_TEMPLATES } from "@/lib/whatsapp"
@@ -133,6 +134,8 @@ interface ClientInfo {
   whatsapp: string | null
   /** The language their messages go out in (lib/i18n/comms.ts). */
   preferredLanguage?: string | null
+  createdByDealerId?: string | null
+  dealerContactVerifiedAt?: Date | null
 }
 
 interface TemplateResult {
@@ -440,7 +443,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
     if (opts.clientId) {
       return await prisma.client.findUnique({
         where: { id: opts.clientId },
-        select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true },
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true },
       })
     }
     if (opts.loanId) {
@@ -448,7 +451,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       const loan = await prisma.loan.findUnique({
         where: { id: opts.loanId },
         include: {
-          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true } },
+          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },
       })
       if (loan?.client) return loan.client
@@ -456,7 +459,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       const app = await prisma.loanApplication.findUnique({
         where: { id: opts.loanId },
         include: {
-          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true } },
+          client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },
       })
       return app?.client ?? null
@@ -860,6 +863,17 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       channel: "all",
       status: "failed",
       error: "Client not found",
+    })
+    return
+  }
+
+  // Contact details a dealer typed may be the dealer's own: nothing goes to
+  // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+  // This also covers loan events such as section129_sent, which is safe: no
+  // loan exists for such a client (Loan_dealer_contact_verified, AF booking).
+  if (dealerContactUnverified({ createdByDealerId: client.createdByDealerId ?? null, dealerContactVerifiedAt: client.dealerContactVerifiedAt ?? null })) {
+    await logNotification(opts.tenantId, {
+      loanId: opts.loanId, clientId: client.id, event: opts.event, channel: "all", status: "blocked", error: "DEALER_CONTACT_UNVERIFIED",
     })
     return
   }

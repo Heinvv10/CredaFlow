@@ -105,6 +105,8 @@ model Tenant {
   crmActivities              CrmActivity[]
   crossSellOpps              CrossSellOpportunity[]
   dataSubjectRequests        DataSubjectRequest[]
+  dealerCommissionRates      DealerCommissionRate[]
+  dealers                    Dealer[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]
   documentTemplates          DocumentTemplate[]
@@ -221,6 +223,12 @@ model TenantConfig {
   featureReports                    Boolean @default(true)
   // Asset finance (docs/asset-finance/DESIGN.md D9). Gate: lib/asset-finance/require-enabled.ts
   featureAssetFinance               Boolean @default(false)
+  // Dealer/broker portal (docs/asset-finance/SLICE5.md part A). Demo lenders
+  // only until dealer 2FA ships (CHECK TenantConfig_dealer_portal_demo_only).
+  featureDealerPortal               Boolean @default(false)
+  // Months after booking in which commission is clawed back when the loan
+  // settles early or is written off; 0 = off (CHECK 0..60).
+  dealerCommissionClawbackMonths    Int     @default(0)
   // Statement AI (lib/statement-ai): advisory summaries, flag explanations and
   // answers from the self-hosted model. Priced per statement; only a
   // SUPER_ADMIN switches it (app/api/settings/statement-ai), audited.

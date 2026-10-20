@@ -40,6 +40,9 @@ export const ACCOUNT_ROLES = [
   "RECOVERY_REFUND_PAYABLE",
   "RECOVERY_RESULT",
   "AF_PRICE_CREDITS",
+  // Dealer commission (slice 5). Appended for the same reason; VAT on commission posts to INPUT_VAT.
+  "DEALER_COMMISSION_EXPENSE",
+  "DEALER_COMMISSION_PAYABLE",
 ] as const
 
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
@@ -56,6 +59,7 @@ export const NOT_CARRIED_AT_OPENING: readonly AccountRole[] = [
   "BAD_DEBT_RECOVERY", "BAD_DEBT_EXPENSE", "WAIVER_EXPENSE",
   "RENTAL_INCOME", "MAINTENANCE_INCOME", "MAINTENANCE_EXPENSE", "RECOVERY_COST_EXPENSE",
   "RECOVERY_COSTS_RECHARGED", "RECOVERY_RESULT", "ASSET_DISPOSAL_PROCEEDS", "AF_PRICE_CREDITS",
+  "DEALER_COMMISSION_EXPENSE",
 ]
 
 /** Fee income roles a lender may mark VAT-inclusive (interest is VAT-exempt). */
@@ -102,7 +106,7 @@ export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
   WAIVER_EXPENSE: { code: "6010", name: "Balances waived", description: "Sub-R1 residues closed by a waiver" },
   AF_INSTALMENT_DEBTORS: { code: "1110", name: "Instalment sale and finance lease debtors", description: "Asset finance: the financed amount plus interest as it falls due, less receipts" },
   LEASE_DEBTORS: { code: "1120", name: "Lease debtors", description: "Asset finance: rentals and end-of-term invoices once invoiced, less receipts" },
-  INPUT_VAT: { code: "1300", name: "VAT input", description: "Asset finance: VAT on the dealer's invoice, on recovery costs and on repossession (s8(10))" },
+  INPUT_VAT: { code: "1300", name: "VAT input", description: "Asset finance: VAT on the dealer's invoice, on recovery costs, on repossession (s8(10)) and on a VAT-vendor dealer's commission" },
   LEASED_ASSETS: { code: "1500", name: "Assets under operating lease", description: "Cost excluding VAT of leased assets; depreciation stays in the fixed-asset register" },
   ASSET_DISPOSAL_PROCEEDS: { code: "4600", name: "Lease asset disposal proceeds", description: "Price excluding VAT of an asset sold to its lessee; derecognise its book value in the fixed-asset register" },
   RENTAL_INCOME: { code: "4100", name: "Rental income", description: "Lease rentals and end-of-term charges excluding VAT, as invoiced" },
@@ -116,6 +120,8 @@ export const DEFAULT_ACCOUNTS: Record<AccountRole, AccountDefault> = {
   RECOVERY_REFUND_PAYABLE: { code: "2520", name: "Recovery surplus refunds payable", description: "Surplus owed back to the debtor after a recovery sale" },
   RECOVERY_RESULT: { code: "6300", name: "Recovery result", description: "Gain or loss left in recovery clearing: output VAT less repossession and cost input VAT" },
   AF_PRICE_CREDITS: { code: "6400", name: "Asset-finance price credits", description: "Price excluding VAT credited to an instalment-sale or finance-lease debtor on the inception invoice; book the dealer's matching credit, if any, against it" },
+  DEALER_COMMISSION_EXPENSE: { code: "6500", name: "Dealer commission", description: "Commission earned by dealers and brokers on booked asset-finance deals, excluding VAT, less clawbacks" },
+  DEALER_COMMISSION_PAYABLE: { code: "2600", name: "Dealer commission payable", description: "Commission owed to dealers including VAT until a payable run is released; a clawback not yet netted is owed by the dealer" },
 }
 
 export function isAccountRole(value: unknown): value is AccountRole {

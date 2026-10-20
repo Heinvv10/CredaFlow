@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { DEALER_CONTACT_UNVERIFIED, dealerContactUnverified } from "@/lib/clients/dealer-contact"
 import { generateReference } from "@/lib/utils"
 import { unusedLoanReference } from "@/lib/loan/loan-reference"
 import { triggerNotification } from "@/lib/notifications"
@@ -308,6 +309,12 @@ export async function POST(
       // Consumer payout path (PASQ, mandate, credit life); asset finance has its own.
       if (!hasClientBorrower(application)) {
         return NextResponse.json({ error: new EntityBorrowerError().message }, { status: 409 })
+      }
+      // A loan's messages go to the client's contact details from payout on:
+      // dealer-typed ones are verified by staff first (lib/clients/dealer-contact.ts;
+      // the database refuses the Loan too, Loan_dealer_contact_verified).
+      if (dealerContactUnverified(application.client)) {
+        return NextResponse.json({ error: DEALER_CONTACT_UNVERIFIED, disbursementPrecondition: "dealer_contact_unverified" }, { status: 409 })
       }
 
       if (application.status !== "APPROVED") {

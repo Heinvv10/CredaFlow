@@ -956,6 +956,23 @@ afterEach(() => {
 })
 
 describe("POST /api/applications/[id]/disburse — payout gates, credit-life bundling and in-transaction invariants", () => {
+  it("refuses to pay out to a client whose dealer-typed contact details staff have not verified", async () => {
+    findUniqueApplication.mockResolvedValue({
+      id: "app-1",
+      tenantId: "tenant-1",
+      status: "APPROVED",
+      clientId: "client-1",
+      client: { createdByDealerId: "dealer-1", dealerContactVerifiedAt: null },
+      product: {},
+    })
+
+    const response = await POST(makeRequest(), ctx)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({ disbursementPrecondition: "dealer_contact_unverified" }))
+    expect(prismaTransaction).not.toHaveBeenCalled()
+  })
+
   it("blocks before the money transaction without provider countersign evidence", async () => {
     findUniqueApplication.mockResolvedValue({
       id: "app-1",

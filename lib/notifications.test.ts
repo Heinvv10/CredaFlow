@@ -197,6 +197,23 @@ function stdMocks() {
   notificationLogCreateMock.mockResolvedValue({})
 }
 
+describe("triggerNotification — dealer-typed contact details", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stdMocks()
+  })
+
+  it("sends nothing to a client whose dealer-typed contacts staff have not verified, and records why", async () => {
+    clientFindUniqueMock.mockResolvedValue({ ...client, createdByDealerId: "dealer-1", dealerContactVerifiedAt: null })
+    await triggerNotification(baseOpts)
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(notificationLogCreateMock).toHaveBeenCalledTimes(1)
+    expect(notificationLogCreateMock.mock.calls[0][0]).toMatchObject({ data: { status: "blocked", error: "DEALER_CONTACT_UNVERIFIED" } })
+  })
+})
+
 describe("triggerNotification — application_submitted cutover", () => {
   beforeEach(() => {
     vi.clearAllMocks()
