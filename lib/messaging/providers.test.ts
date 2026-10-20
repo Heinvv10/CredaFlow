@@ -23,6 +23,12 @@ import { sendSms } from "@/lib/integrations/bulksms"
 import { sendWhatsAppMessage } from "@/lib/whatsapp"
 import { sendWhatsAppCloudMessage } from "@/lib/whatsapp-cloud"
 import { getCommsSettings } from "@/lib/inbox/settings"
+import { classifyError } from "./retry"
+import {
+  WA_ENV_OFF_REASON,
+  WA_SETTINGS_UNAVAILABLE_REASON,
+  WA_TENANT_OFF_REASON,
+} from "@/lib/whatsapp/kill-switch"
 import {
   dispatch,
   ProviderDispatchError,
@@ -391,9 +397,9 @@ describe("dispatch WHATSAPP kill switches", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.unstubAllEnvs()
     vi.mocked(getCommsSettings).mockResolvedValue({ whatsappEnabled: true } as never)
     vi.mocked(sendWhatsAppCloudMessage).mockResolvedValue({ ok: true, messageId: "wamid.ks" })
+    vi.mocked(sendWhatsAppMessage).mockResolvedValue({ ok: true, messageId: "wa-ks" })
   })
   afterEach(() => vi.unstubAllEnvs())
 
@@ -408,13 +414,30 @@ describe("dispatch WHATSAPP kill switches", () => {
     expect(onProviderDispatchStart).not.toHaveBeenCalled()
   })
 
-  it("any WA_ENABLED value other than true/unset also refuses (typo fails safe)", async () => {
-    for (const v of ["False", "0", "off", "ture"]) {
+  it("WA_ENABLED=false refuses WA_UNOFFICIAL (the bridge) too, with no bridge call", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+    const err = await dispatch("WHATSAPP", "WA_UNOFFICIAL", rendered, cloudOpts).catch((e) => e)
+    expect(err).toBeInstanceOf(ProviderDispatchError)
+    expect(err.outcome).toBe("DEFINITELY_REJECTED")
+    expect(sendWhatsAppMessage).not.toHaveBeenCalled()
+    expect(getCommsSettings).not.toHaveBeenCalled()
+  })
+
+  it("empty and whitespace-only WA_ENABLED refuse, case/space variants of false refuse", async () => {
+    for (const v of ["", "  ", "False", " FALSE "]) {
       vi.stubEnv("WA_ENABLED", v)
-      await expect(dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts), `WA_ENABLED=${v}`)
+      await expect(dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts), `WA_ENABLED="${v}"`)
         .rejects.toMatchObject({ outcome: "DEFINITELY_REJECTED" })
     }
     expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
+  })
+
+  it("any other WA_ENABLED value defers to the tenant switch: TRUE, ' true ', 0, ture all send", async () => {
+    for (const v of ["TRUE", " true ", "0", "ture"]) {
+      vi.stubEnv("WA_ENABLED", v)
+      await dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts)
+    }
+    expect(sendWhatsAppCloudMessage).toHaveBeenCalledTimes(4)
   })
 
   it("tenant whatsappEnabled=false refuses WA_CLOUD with no Cloud call, even with WA_ENABLED=true", async () => {
@@ -434,16 +457,27 @@ describe("dispatch WHATSAPP kill switches", () => {
     expect(sendWhatsAppMessage).not.toHaveBeenCalled()
   })
 
-  it("unreadable tenant settings fail closed as DEFINITELY_REJECTED", async () => {
-    vi.mocked(getCommsSettings).mockRejectedValue(new Error("db down"))
-    await expect(dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts))
-      .rejects.toMatchObject({ outcome: "DEFINITELY_REJECTED" })
+  it("unreadable tenant settings still refuse the send, but are TRANSIENT, not 'disabled', and leak no exception text", async () => {
+    vi.mocked(getCommsSettings).mockRejectedValue(new Error("connect ECONNREFUSED 10.0.0.5:5432 password=hunter2"))
+    const err = await dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts).catch((e) => e)
+    expect(err).toBeInstanceOf(ProviderDispatchError)
+    expect(err.outcome).toBe("DEFINITELY_REJECTED")
     expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
+    expect(err.message).not.toMatch(/whatsapp\s+disabled/i)
+    expect(err.message).not.toMatch(/ECONNREFUSED|hunter2|10\.0\.0\.5/)
+    expect(classifyError(err, "WA_CLOUD")).toBe("TRANSIENT")
+  })
+
+  it("retry.ts classifies each deliberate switch-off refusal PERMANENT and the settings blip TRANSIENT", () => {
+    for (const provider of ["WA_CLOUD", "WA_UNOFFICIAL"] as const) {
+      expect(classifyError(new Error(WA_ENV_OFF_REASON), provider), WA_ENV_OFF_REASON).toBe("PERMANENT")
+      expect(classifyError(new Error(WA_TENANT_OFF_REASON), provider), WA_TENANT_OFF_REASON).toBe("PERMANENT")
+      expect(classifyError(new Error(WA_SETTINGS_UNAVAILABLE_REASON), provider), WA_SETTINGS_UNAVAILABLE_REASON).toBe("TRANSIENT")
+    }
   })
 
   it("WA_ENABLED unset + whatsappEnabled=true still sends over Cloud", async () => {
-    vi.stubEnv("WA_ENABLED", "")
-    delete process.env.WA_ENABLED
+    vi.stubEnv("WA_ENABLED", undefined)
     const r = await dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts)
     expect(sendWhatsAppCloudMessage).toHaveBeenCalledOnce()
     expect(r).toMatchObject({ providerMessageId: "wamid.ks" })

@@ -1,5 +1,6 @@
 import { currentConsent } from "./eligibility"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "./sms-channel"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
 export type ChannelAvail = { enabled: boolean; toValue?: string; reason?: string }
 
@@ -76,7 +77,7 @@ export async function getChannelAvailability(opts: {
       continue
     }
 
-    if (key === "WHATSAPP" && !whatsappEnabled) {
+    if (key === "WHATSAPP" && (!whatsappEnabled || isWaEnvOff())) {
       result[key] = { enabled: false, toValue, reason: "WhatsApp channel is off" }
       continue
     }

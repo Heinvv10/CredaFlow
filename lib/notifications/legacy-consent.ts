@@ -29,6 +29,10 @@ export const CONSENT_CHECK_FAILED_REASON = "Consent check unavailable"
  *    already tests the SMS channel, and the WhatsApp sender enforces the
  *    tenant switch (lib/whatsapp/kill-switch.ts).
  *
+ * `blockedOnly` (statutory events, i.e. section129_sent) ignores opt-outs:
+ * the new-send path's statutoryOverride lane bypasses the opt-out but never a
+ * block, and this mirrors it.
+ *
  * No Contact row for the client = no block and no consent record can exist, so
  * nothing is suppressed. A lookup that THROWS fails closed: not knowing
  * whether the client opted out is not permission to message them.
@@ -36,6 +40,7 @@ export const CONSENT_CHECK_FAILED_REASON = "Consent check unavailable"
 export async function legacySuppressedLegs(
   tenantId: string,
   client: { id: string; email: string; phone: string; whatsapp: string | null },
+  options: { blockedOnly?: boolean } = {},
 ): Promise<LegacySuppression> {
   try {
     const contact = await prisma.contact.findFirst({
@@ -65,7 +70,7 @@ export async function legacySuppressedLegs(
     ]
     for (const [leg, channel] of legs) {
       const { reason } = availability[channel]
-      if (reason === CHANNEL_BLOCKED_REASON || reason === CHANNEL_OPTED_OUT_REASON) {
+      if (reason === CHANNEL_BLOCKED_REASON || (reason === CHANNEL_OPTED_OUT_REASON && !options.blockedOnly)) {
         suppression[leg] = reason
       }
     }

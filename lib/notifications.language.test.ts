@@ -46,10 +46,7 @@ vi.mock("@/lib/config/deployment-urls", () => ({
 vi.mock("@/lib/email/service", () => ({ sendEmail: (a: unknown) => m.sendEmail(a) }))
 vi.mock("@/lib/integrations/bulksms", () => ({ sendSms: vi.fn(async () => ({ ok: true, messageId: "sm-1" })) }))
 vi.mock("@/lib/whatsapp/send-for-tenant", () => ({ sendWhatsAppForTenant: (a: unknown) => m.sendWhatsApp(a) }))
-vi.mock("@/lib/whatsapp", async () => ({
-  ...(await vi.importActual<typeof import("@/lib/whatsapp")>("@/lib/whatsapp")),
-  isWaEnabled: () => true,
-}))
+vi.mock("@/lib/whatsapp/env-switch", () => ({ isWaEnvOff: () => false }))
 vi.mock("@/lib/messaging/send", () => ({
   sendMessage: (a: unknown) => m.sendMessage(a),
   SendBlockedError: class extends Error {},

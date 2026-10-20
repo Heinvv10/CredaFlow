@@ -9,6 +9,7 @@
  * refuses an SMS signing challenge as well.
  */
 import { prisma } from "@/lib/prisma"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
 import { deliverViaMessaging, resolveMessagingTarget } from "@/lib/messaging/route-delivery"
 import { ensureOtpMessageTemplate } from "@/lib/messaging/otp-templates"
@@ -22,6 +23,9 @@ export type OtpRecipient = { firstName: string; lastName: string; email: string 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function isWhatsAppCloudConfigured(tenantId: string): Promise<boolean> {
+  // A code is never offered on a channel that will refuse it: the process-level
+  // switch (WA_ENABLED=false/empty) is checked with the tenant's own.
+  if (isWaEnvOff()) return false
   const settings = await prisma.commsSettings.findUnique({
     where: { tenantId },
     select: { whatsappEnabled: true, waProvider: true, wabaPhoneNumberId: true, wabaAccessToken: true },

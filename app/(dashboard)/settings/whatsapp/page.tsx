@@ -1,4 +1,5 @@
 import { requireMinRole } from "@/lib/auth-guards"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { getCommsSettings, WA_PROVIDERS } from "@/lib/inbox/settings"
@@ -12,7 +13,7 @@ export default async function WhatsAppSettingsPage() {
   // Page must match so a LOAN_ADMIN doesn't see config they can't act on.
   await requireMinRole("ADMIN")
 
-  const waEnabled = process.env.WA_ENABLED === "true"
+  const waEnabled = !isWaEnvOff()
   // Deliberately NOT defaulted to lib/whatsapp.ts's fallback host. This value
   // is rendered to staff as a statement of where their messages go; printing a
   // borrowed third-party bridge as "ours" is a false claim, and it hides the

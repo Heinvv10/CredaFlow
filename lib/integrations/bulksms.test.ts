@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from "vitest"
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 
 // Avoid loading the real Prisma client during this dry-run unit test —
 // NODE_ENV=test short-circuits sendBulkSms before any DB call, but the
@@ -10,8 +10,16 @@ const { tenantConfigFindUnique } = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: { tenantConfig: { findUnique: tenantConfigFindUnique } },
 }))
+// sendWhatsApp consults the WhatsApp kill switch, which reads the tenant's
+// CommsSettings.
+const { getCommsSettingsMock } = vi.hoisted(() => ({ getCommsSettingsMock: vi.fn() }))
+vi.mock("@/lib/inbox/settings", () => ({ getCommsSettings: getCommsSettingsMock }))
 
 import { bulkSmsHttpFailureOutcome, sendSms, sendWhatsApp } from "./bulksms"
+
+beforeEach(() => {
+  getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: true })
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -166,5 +174,60 @@ describe("sendSms — transport backstop when the SMS channel is off", () => {
       message: "test",
     })).resolves.toMatchObject({ ok: true, messageId: "777" })
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+})
+
+// BulkSMS WhatsApp is a live channel, switched by WA_ENABLED and the tenant's
+// whatsappEnabled (not by BULKSMS_DRY_RUN, which only simulates). The guard
+// sits in the transport so every caller is covered: the send-link routes and
+// the legacy collections leg.
+describe("sendWhatsApp — WhatsApp kill switches at the transport", () => {
+  const send = () => sendWhatsApp({ tenantId: "tn1", to: "27821234567", message: "test" })
+
+  it("WA_ENABLED=false refuses before the dry-run shim and before credentials load", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const r = await send()
+
+    expect(r).toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(r.simulated).toBeUndefined()
+    expect(r.error).toMatch(/whatsapp\s+disabled/i)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(tenantConfigFindUnique).not.toHaveBeenCalled()
+    expect(getCommsSettingsMock).not.toHaveBeenCalled()
+  })
+
+  it("tenant whatsappEnabled=false refuses with no simulated success and no provider call", async () => {
+    getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: false })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const r = await send()
+
+    expect(r).toMatchObject({ ok: false, providerOutcome: "DEFINITELY_REJECTED" })
+    expect(r.simulated).toBeUndefined()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("an unreadable settings row refuses with the TRANSIENT wording and no exception text", async () => {
+    getCommsSettingsMock.mockRejectedValue(new Error("db down at 10.0.0.5"))
+
+    const r = await send()
+
+    expect(r.ok).toBe(false)
+    expect(r.error).not.toMatch(/whatsapp\s+disabled/i)
+    expect(r.error).not.toMatch(/db down|10\.0\.0\.5/)
+  })
+
+  it("WA_ENABLED unset + whatsappEnabled=true still goes through (here: the NODE_ENV=test dry-run shim)", async () => {
+    vi.stubEnv("WA_ENABLED", undefined)
+    await expect(send()).resolves.toMatchObject({ ok: true, simulated: true })
+  })
+
+  it("BULKSMS_DRY_RUN unset does NOT switch WhatsApp off (it is not the WhatsApp switch; SMS is the fail-closed one)", async () => {
+    vi.stubEnv("BULKSMS_DRY_RUN", undefined)
+    await expect(send()).resolves.toMatchObject({ ok: true, simulated: true })
   })
 })

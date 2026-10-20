@@ -152,7 +152,10 @@ async function requestActivationCode(
     // Read for every request, BEFORE the account lookup, so the matched path
     // awaits nothing the unmatched one does not (see the timing note below).
     const whatsappLeg = channel === "WHATSAPP" && await isWhatsAppCloudConfigured(tenantId)
-    const genericMessage = channel === "WHATSAPP" ? GENERIC_REQUEST_MESSAGE_WHATSAPP : GENERIC_REQUEST_MESSAGE
+    // Keyed on the leg that will actually run, not the requested channel: when
+    // WhatsApp is unavailable (switched off, not Cloud) the code is emailed,
+    // and the text must say so. Lender-wide, so still the same for every caller.
+    const genericMessage = whatsappLeg ? GENERIC_REQUEST_MESSAGE_WHATSAPP : GENERIC_REQUEST_MESSAGE
 
     const client = await prisma.client.findFirst({
       where: { email, idNumber, tenantId, portalPassword: null },

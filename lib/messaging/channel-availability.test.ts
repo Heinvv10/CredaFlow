@@ -2,7 +2,7 @@
 // vi.fn() mock resolved values don't match full Prisma return types — the
 // partial shapes returned here are sufficient for the unit under test and the
 // `as any` boundary keeps the mocks readable without duplicating every column.
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -25,15 +25,15 @@ const baseContact = {
 }
 
 describe("getChannelAvailability", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     // Default: no consent rows found on either the exact-channel or the
     // ALL_CHANNELS fallback query.
     vi.mocked(prisma.contactConsent.findFirst).mockResolvedValue(null as any)
-  })
-
-  afterEach(() => {
-    delete process.env.BULKSMS_DRY_RUN
   })
 
   it("email-only contact: EMAIL enabled, WHATSAPP/SMS disabled with 'No ... on file'", async () => {
@@ -143,6 +143,31 @@ describe("getChannelAvailability", () => {
     expect(r.SMS).toEqual({ enabled: false, toValue: "+27821234567", reason: "SMS not enabled" })
     expect(r.EMAIL).toEqual({ enabled: true, toValue: "a@b.com" })
     expect(r.WHATSAPP).toEqual({ enabled: true, toValue: "27821234567@s.whatsapp.net" })
+  })
+
+  it("WA_ENABLED=false disables WHATSAPP even when the tenant switch is on (a code is never offered on a refusing channel)", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+
+    const r = await getChannelAvailability({
+      tenantId,
+      contact: { ...baseContact, primaryEmail: "a@b.com", primaryPhone: "+27821234567" },
+      whatsappEnabled: true,
+    })
+
+    expect(r.WHATSAPP).toEqual({ enabled: false, toValue: "+27821234567", reason: "WhatsApp channel is off" })
+    expect(r.EMAIL).toEqual({ enabled: true, toValue: "a@b.com" })
+  })
+
+  it("WA_ENABLED unset leaves WHATSAPP to the tenant switch", async () => {
+    vi.stubEnv("WA_ENABLED", undefined)
+
+    const r = await getChannelAvailability({
+      tenantId,
+      contact: { ...baseContact, primaryPhone: "+27821234567" },
+      whatsappEnabled: true,
+    })
+
+    expect(r.WHATSAPP).toEqual({ enabled: true, toValue: "+27821234567" })
   })
 
   it("BULKSMS_DRY_RUN unset disables SMS (fails closed: SMS is off unless explicitly enabled)", async () => {

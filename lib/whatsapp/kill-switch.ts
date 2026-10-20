@@ -1,45 +1,40 @@
 import { getCommsSettings } from "@/lib/inbox/settings"
+import { isWaEnvOff } from "./env-switch"
 
 /**
  * The two WhatsApp send switches that apply to every provider, checked before
  * credentials load or any network call.
  *
- *  - `WA_ENABLED` (env, process level). Explicit "false" - or any value that
- *    is not "true" - is OFF. UNSET is NOT off: Cloud-only deployments never
- *    set it (docs/DEPLOY-ENV.md lists it under the bridge), so unset defers to
- *    the per-tenant switch. The Baileys bridge still needs WA_ENABLED="true"
- *    to send at all (`isWaEnabled()` in lib/whatsapp.ts); it also needs
- *    WA_SENDER_URL, so it is inert unless an operator opted in.
+ *  - `WA_ENABLED` (env, process level): see ./env-switch.ts. Off only when
+ *    exactly "false" or empty; unset defers to the tenant switch.
  *  - `CommsSettings.whatsappEnabled` (tenant). False = OFF.
  *
- * Reasons contain "WhatsApp disabled" so lib/messaging/retry.ts classifies the
- * failure PERMANENT: neither switch changes between cron ticks.
+ * Reasons that mean "off" contain "WhatsApp disabled" so lib/messaging/retry.ts
+ * classifies them PERMANENT: neither switch changes between cron ticks. The
+ * settings-unreadable reason deliberately does NOT: a database blip is
+ * transient, so the message must be retried, not parked as FAILED_PERMANENT.
+ * It also carries no exception text (that can name internals and is stored).
  */
-export function isWaEnvKillSwitchOn(): boolean {
-  const raw = process.env.WA_ENABLED?.trim().toLowerCase()
-  if (!raw) return false
-  return raw !== "true"
-}
-
 export const WA_ENV_OFF_REASON = "WhatsApp disabled: WA_ENABLED is off"
 export const WA_TENANT_OFF_REASON = "WhatsApp disabled: channel is off for this tenant"
+export const WA_SETTINGS_UNAVAILABLE_REASON = "WhatsApp settings temporarily unavailable, will retry"
 
 /** Refusal reason from settings already in hand, or null when sending is allowed. */
 export function whatsappRefusal(settings: { whatsappEnabled: boolean }): string | null {
-  if (isWaEnvKillSwitchOn()) return WA_ENV_OFF_REASON
+  if (isWaEnvOff()) return WA_ENV_OFF_REASON
   return settings.whatsappEnabled ? null : WA_TENANT_OFF_REASON
 }
 
 /**
  * Same check for a caller without settings. An unreadable settings row fails
- * CLOSED: not knowing whether the tenant switched WhatsApp off is not
- * permission to send.
+ * CLOSED (the send is refused): not knowing whether the tenant switched
+ * WhatsApp off is not permission to send.
  */
 export async function whatsappRefusalForTenant(tenantId: string): Promise<string | null> {
-  if (isWaEnvKillSwitchOn()) return WA_ENV_OFF_REASON
+  if (isWaEnvOff()) return WA_ENV_OFF_REASON
   try {
     return whatsappRefusal(await getCommsSettings(tenantId))
-  } catch (e) {
-    return `WhatsApp disabled: comms settings unavailable (${e instanceof Error ? e.message : "unknown error"})`
+  } catch {
+    return WA_SETTINGS_UNAVAILABLE_REASON
   }
 }

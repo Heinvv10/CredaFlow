@@ -72,26 +72,37 @@ describe("payment-due WA templates quote the loan reference", () => {
 
 describe("sendWhatsAppMessage dry-run id uniqueness", () => {
   // NODE_ENV === "test" auto-triggers the dry-run branch in vitest. WA_ENABLED
-  // is not set in test, so isWaEnabled() returns false and the path normally
-  // short-circuits with "WhatsApp disabled" before the dry-run shim. Enable
-  // WA inline for this assertion.
+  // is explicitly "true" here; the unset and veto cases are pinned below.
   it("returns a fresh dry-run id on every call so the Message provider-id unique constraint is not hit", async () => {
-    const prev = process.env.WA_ENABLED
-    process.env.WA_ENABLED = "true"
-    try {
-      const a = await sendWhatsAppMessage({ to: "27821234567", message: "x" })
-      const b = await sendWhatsAppMessage({ to: "27821234567", message: "x" })
-      expect(a.ok).toBe(true)
-      expect(b.ok).toBe(true)
-      expect(a.messageId).toMatch(/^dry-run-/)
-      expect(b.messageId).toMatch(/^dry-run-/)
-      expect(a.messageId).not.toBe(b.messageId)
-      expect(a.simulated).toBe(true)
-      expect(b.simulated).toBe(true)
-    } finally {
-      if (prev === undefined) delete process.env.WA_ENABLED
-      else process.env.WA_ENABLED = prev
-    }
+    vi.stubEnv("WA_ENABLED", "true")
+    const a = await sendWhatsAppMessage({ to: "27821234567", message: "x" })
+    const b = await sendWhatsAppMessage({ to: "27821234567", message: "x" })
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(a.messageId).toMatch(/^dry-run-/)
+    expect(b.messageId).toMatch(/^dry-run-/)
+    expect(a.messageId).not.toBe(b.messageId)
+    expect(a.simulated).toBe(true)
+    expect(b.simulated).toBe(true)
+  })
+})
+
+// The bridge uses the same single WA_ENABLED parser as every other WhatsApp
+// path (lib/whatsapp/env-switch.ts): only "false"/empty vetoes. It still needs
+// WA_SENDER_URL, which the next describe pins.
+describe("sendWhatsAppMessage WA_ENABLED semantics", () => {
+  it.each(["false", " FALSE ", "", "  "])("is disabled before the dry-run shim when WA_ENABLED=%j", async (value) => {
+    vi.stubEnv("WA_ENABLED", value)
+    await expect(sendWhatsAppMessage({ to: "27821234567", message: "x" })).resolves.toEqual({
+      ok: false,
+      error: "WhatsApp disabled",
+      providerOutcome: "DEFINITELY_REJECTED",
+    })
+  })
+
+  it.each([undefined, "true", "TRUE", " true "])("is not vetoed when WA_ENABLED=%j", async (value) => {
+    vi.stubEnv("WA_ENABLED", value)
+    await expect(sendWhatsAppMessage({ to: "27821234567", message: "x" })).resolves.toMatchObject({ ok: true, simulated: true })
   })
 })
 

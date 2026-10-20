@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 
 export interface WaResult {
   ok: boolean
@@ -65,12 +66,9 @@ function getWaSenderUrl(): string | undefined {
   return process.env.WA_SENDER_URL?.trim() || undefined
 }
 
-export function isWaEnabled(): boolean {
-  return process.env.WA_ENABLED === "true"
-}
-
 export async function sendWhatsAppMessage(opts: WaSendOptions): Promise<WaResult> {
-  if (!isWaEnabled()) {
+  // The bridge also needs WA_SENDER_URL (checked below); WA_ENABLED only vetoes.
+  if (isWaEnvOff()) {
     return {
       ok: false,
       error: "WhatsApp disabled",

@@ -6,7 +6,8 @@
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
-import { WA_TEMPLATES, isWaEnabled } from "@/lib/whatsapp"
+import { WA_TEMPLATES } from "@/lib/whatsapp"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
@@ -926,14 +927,14 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // `simulated` NotificationLog row. It is recorded as `blocked` with the
   // reason named, never silently dropped.
   const smsEnabled = isSmsChannelEnabled()
-  // loan_overdue is the dunning event and the default-path one that reaches a
-  // client who may have opted out or been blocked, so it gets the same
-  // blocked / opt-out gate the new-send path applies (lib/notifications/
-  // legacy-consent.ts). A suppressed leg is not dispatched and is logged
-  // `blocked` with the reason, never silently dropped.
-  const suppressedLegs = opts.event === "loan_overdue"
-    ? await legacySuppressedLegs(opts.tenantId, client)
-    : {}
+  // Every event on this path gets the blocked / opt-out gate the new-send path
+  // applies (lib/notifications/legacy-consent.ts). section129_sent is
+  // statutory: only a BLOCKED contact suppresses it, an opt-out never does.
+  // A suppressed leg is not dispatched and is logged `blocked` with the
+  // reason, never silently dropped.
+  const suppressedLegs = await legacySuppressedLegs(opts.tenantId, client, {
+    blockedOnly: opts.event === "section129_sent",
+  })
   const sends: Array<{ name: "email" | "sms" | "whatsapp"; promise: Promise<unknown> }> = []
 
   if (!suppressedLegs.email) {
@@ -973,7 +974,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   } else if (waMessage && suppressedLegs.whatsapp) {
     // Consent suppression: not dispatched; the single `blocked` row is written
     // with the result logs below.
-  } else if (waMessage && isWaEnabled()) {
+  } else if (waMessage && !isWaEnvOff()) {
     // Mirrors the reach of the manual sendWhatsAppMessage() calls this PR
     // removed from decide/route.ts and disburse/route.ts (client.whatsapp
     // ?? client.phone) — using client.phone only would have narrowed WA
