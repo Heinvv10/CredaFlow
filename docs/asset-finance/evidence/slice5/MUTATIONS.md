@@ -316,6 +316,9 @@ Database: throwaway PostgreSQL 16 (`scripts/it-db.sh up cf-it-s5fx-<random>`,
 |---|---|---|---|
 | R2-L1 booking needs verified contacts | dealer-handover-contact IT | 1 failed, 7 passed | "expected [Function] to throw an error" (a dealer deal with an unverified dealer-captured director was BOOKED) |
 | R2-C1 on-book audit row | `capture-limits.test.ts` | 1 failed | the audit named entity `BusinessEntity` with the dealer user's id |
+| S-R2-1 portal reset to a dealer-typed email | dealer-contact-bypass IT | 1 failed, 1 passed | "expected { status: 200, issued: '1' } to deeply equal { status: 200, issued: '0' }" |
+| S-R2-2 selfie link to a dealer-typed contact | selfie send-link route unit | 1 failed | the link was sent (no 409) |
+| Booking gate on staff deals | dealer-handover-contact IT | 1 failed, 8 passed | "expected [Function] to throw an error" (a staff deal on a dealer-captured borrower was BOOKED) |
 
 ### Mutations (applied to the migrated throwaway database or the source, then restored)
 
@@ -330,4 +333,11 @@ Database: throwaway PostgreSQL 16 (`scripts/it-db.sh up cf-it-s5fx-<random>`,
 | 7 | `DROP CONSTRAINT "DealerPayableRun_status_shape"` | dealer-row-shapes IT | 4 failed, 5 passed | pending, approved, released and cancelled shape tests |
 | 8 | `DealerPayableRun_status_shape` without the non-blank `releaseReference` clause | dealer-row-shapes IT | 1 failed, 8 passed | "refuses a released run without its approval, its release, or a non-blank release reference, or with a cancellation" |
 
-After restoring each: dealer-handover-contact 8/8, dealer-row-shapes 9/9.
+| 9 | `forgot-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | "issues no code … refuses it cleanly" (`issued: '1'`) |
+| 10 | `reset-password/route.ts` without `TRUSTED_CONTACT_WHERE` | dealer-contact-bypass IT | 1 failed, 1 passed | same test: the reset threw `PrismaClientUnknownRequestError` (the database guard), not a refusal |
+| 11 | trigger WHEN back to `NEW."dealerId" IS NOT NULL` | dealer-handover-contact IT | 1 failed, 8 passed | "gates a staff deal on a dealer-captured borrower the same way …" |
+| 12 | `booking-load.ts` unverified-contacts check disabled | dealer-handover-contact IT | 2 failed, 7 passed | both booking cases: refused with another reason |
+
+S-R2-2's mutation is its before run (the route without the check). After
+restoring each: dealer-handover-contact 9/9, dealer-row-shapes 9/9,
+dealer-contact-bypass 2/2.

@@ -201,11 +201,14 @@ replacements named in it):
 
 Review round 2 (migration `20261019120400_dealer_booking_contacts_verified`):
 
-40. **Booking needs verified contacts.** A dealer deal moves into BOOKED only
-    when its sole proprietor and every active person of its entity the dealer
-    captured have verified contact details
+40. **Booking needs verified contacts.** No deal, a dealer's or a staff one,
+    moves into BOOKED while its sole proprietor or an active person of its
+    entity was captured by a dealer and has unverified contact details
     (`AssetFinanceDeal_dealer_contacts_verified`); booking's load step refuses
-    first (`dealer_contact_unverified`). The on-book refusal audit names the
+    first (`dealer_contact_unverified`). Staff verify from any deal the person
+    is on (a "Contacts a dealer captured" panel on a staff deal). The portal
+    forgot/reset-password routes and the selfie capture link skip or refuse an
+    unverified dealer-typed contact too. The on-book refusal audit names the
     dealer user as its row (entity `DealerUser`).
 
 ### Data (prisma/schema/asset-finance-dealers.prisma, new file)
@@ -692,11 +695,13 @@ Recorded by review round 1; each is a decision to keep, not an open bug.
 - **A dealer lease keeps the dealer user as classifier.** A lease application
   is written NON_NCA (`LEASE_NOT_CREDIT_AGREEMENT`, fixed by contract type) and
   the database freezes a NON_NCA snapshot, so the accept cannot re-stamp it.
-- **Verification is enforced at booking, not at CONTRACTED.** A dealer deal is
-  not booked while a person on it has unverified dealer-typed contacts
-  (deviation 40), so servicing messages never go to them; a wet-ink contract
-  can still complete before the verification (the signing paths would need
-  their own refusal).
+- **Verification is enforced at booking, not at CONTRACTED.** A deal is not
+  booked while a person on it has unverified dealer-typed contacts
+  (deviation 40); a wet-ink contract can still complete before the
+  verification (the signing paths would need their own refusal).
+- **A person linked after booking is not re-gated.** Someone a dealer captured
+  who is linked to an entity after its deal is booked is not checked again:
+  servicing messages sent to them later go to the contacts on file.
 - **A run covers a finished period.** `periodEnd` is a month end not after
   today, so commission earned this month, and a clawback netting it, is paid
   in next month's run at the earliest.
