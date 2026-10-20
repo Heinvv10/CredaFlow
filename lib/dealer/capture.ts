@@ -190,7 +190,9 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
       if (linked && await tx.assetFinanceDeal.count({
         where: {
           tenantId: actor.tenantId, entityId: linked.entityId, status: { not: "CANCELLED" },
-          NOT: { dealerId: actor.dealerId, dealerSubmittedAt: null },
+          // Any deal but this dealer's own unsubmitted draft; a staff deal (dealerId NULL) is spelled out,
+          // since NOT on a nullable column alone would let SQL NULL semantics skip it.
+          OR: [{ dealerId: null }, { NOT: { dealerId: actor.dealerId } }, { dealerSubmittedAt: { not: null } }],
         },
       }) > 0) {
         return null

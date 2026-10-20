@@ -869,6 +869,8 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
 
   // Contact details a dealer typed may be the dealer's own: nothing goes to
   // them until a staff member verifies them (lib/clients/dealer-contact.ts).
+  // This also covers loan events such as section129_sent, which is safe: no
+  // loan exists for such a client (Loan_dealer_contact_verified, AF booking).
   if (dealerContactUnverified({ createdByDealerId: client.createdByDealerId ?? null, dealerContactVerifiedAt: client.dealerContactVerifiedAt ?? null })) {
     await logNotification(opts.tenantId, {
       loanId: opts.loanId, clientId: client.id, event: opts.event, channel: "all", status: "blocked", error: "DEALER_CONTACT_UNVERIFIED",
