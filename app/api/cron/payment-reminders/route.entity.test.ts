@@ -59,7 +59,7 @@ const run = () => GET({} as NextRequest)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  delete process.env.BULKSMS_DRY_RUN // SMS "on": still never used here
+  process.env.BULKSMS_DRY_RUN = "false" // SMS "on": still never used here
   h.noteFindFirst.mockResolvedValue(null)
   h.noteCreate.mockResolvedValue({})
   h.charges.mockResolvedValue(5_000)

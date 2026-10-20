@@ -1,7 +1,7 @@
 /**
  * The single source of truth for "is the SMS channel usable right now".
  *
- * A deployment may run `BULKSMS_DRY_RUN=true` — a supported operating mode (see
+ * A deployment may run `BULKSMS_DRY_RUN=true` (or leave it unset) - a supported operating mode (see
  * lib/integrations/simulation-guard.ts): nothing is fabricated, sends land as
  * status `SIMULATED`. But a simulated send is not a send, so every dispatch
  * path must skip its SMS leg rather than write a `SIMULATED` Message row and a
@@ -13,12 +13,14 @@
  * switch the channel off for every test and make the guards untestable in the
  * "channel on" direction.
  *
- * Strict `=== "true"` matches getChannelAvailability's original inline test, so
- * the composer UI and the background senders cannot disagree about whether the
- * channel is on.
+ * FAILS CLOSED: SMS is off by policy (lib/messaging/.claude.md), so the channel
+ * is on ONLY when `BULKSMS_DRY_RUN` is exactly "false" - an explicit opt-in.
+ * Unset, empty and every other value (including "true") are off. It used to be
+ * `!== "true"`, which meant a deployment that never set the variable
+ * (provision-lender.sh does not) silently had live SMS.
  */
 export function isSmsChannelEnabled(): boolean {
-  return process.env.BULKSMS_DRY_RUN !== "true"
+  return process.env.BULKSMS_DRY_RUN === "false"
 }
 
 /** Wording for the blocked/skipped accounting when the channel is off. */

@@ -17,6 +17,8 @@ const suite = RUN ? describe : describe.skip
 suite("staff task reminder authoritative delivery", () => {
   const token = randomUUID().replaceAll("-", "")
   const tenantId = `tenant_staff_reminder_${token}`
+  // A second tenant with WhatsApp switched OFF (the CommsSettings default).
+  const offTenantId = `tenant_staff_reminder_off_${token}`
   const taskId = `task_staff_reminder_${token}`
   const leadId = `lead_staff_reminder_${token}`
   const dueAt = new Date("2026-07-22T09:00:00.000Z")
@@ -32,6 +34,22 @@ suite("staff task reminder authoritative delivery", () => {
         slug: `staff-reminder-${token}`,
         name: "Synthetic staff reminder tenant",
       },
+    }))
+    // The WhatsApp send gate (lib/whatsapp/kill-switch.ts) reads the tenant's
+    // CommsSettings; without a row with whatsappEnabled=true the reminder is
+    // refused, which is the intended behaviour for a tenant that has WhatsApp off.
+    await withoutTenantScope(() => prisma.commsSettings.create({
+      data: { tenantId, whatsappEnabled: true },
+    }))
+    await withoutTenantScope(() => prisma.tenant.create({
+      data: {
+        id: offTenantId,
+        slug: `staff-reminder-off-${token}`,
+        name: "Synthetic staff reminder tenant, WhatsApp off",
+      },
+    }))
+    await withoutTenantScope(() => prisma.commsSettings.create({
+      data: { tenantId: offTenantId, whatsappEnabled: false },
     }))
   })
 
@@ -187,5 +205,34 @@ suite("staff task reminder authoritative delivery", () => {
         idempotencyKey: `lead-task-reminder:${secondTaskId}:${dueAt.toISOString()}:WHATSAPP`,
       },
     }))).toBe(0)
+  })
+
+  it("a tenant with WhatsApp switched off gets a refused reminder, not a crash, and no WhatsApp message", async () => {
+    const args = {
+      tenantId: offTenantId,
+      taskId: `task_staff_reminder_off_${token}`,
+      leadId,
+      dueAt,
+      recipientUserId: `user_staff_reminder_off_${token}`,
+      recipientName: "Synthetic Staff Off",
+      recipientEmail: `staff-off-${token}@example.test`,
+      channel: "WHATSAPP" as const,
+      toValue: "0829998888",
+      text: "Synthetic task reminder; no external traffic",
+    }
+
+    const result = await runWithTenant(offTenantId, () => sendStaffTaskReminder(args))
+
+    expect(result).toMatchObject({ outcome: "failed", recorded: true })
+    expect(result.error).toMatch(/whatsapp\s+disabled/i)
+    const messages = await withoutTenantScope(() => prisma.message.findMany({
+      where: { tenantId: offTenantId },
+      select: { status: true, simulationReceiptId: true, providerMessageId: true },
+    }))
+    for (const m of messages) {
+      expect(m.status).not.toBe("SIMULATED")
+      expect(m.simulationReceiptId).toBeNull()
+      expect(m.providerMessageId).toBeNull()
+    }
   })
 })

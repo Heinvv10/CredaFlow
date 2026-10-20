@@ -2,6 +2,7 @@ import { sendEmail, type EmailAttachment } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
 import { sendWhatsAppMessage } from "@/lib/whatsapp"
 import { sendWhatsAppCloudMessage } from "@/lib/whatsapp-cloud"
+import { whatsappRefusalForTenant } from "@/lib/whatsapp/kill-switch"
 import type { Channel, Provider } from "@prisma/client"
 import type { RenderedTemplate } from "./render"
 import type { WaTemplateRef } from "@/lib/whatsapp/template-components"
@@ -194,6 +195,11 @@ export async function dispatch(
       }
     }
     case "WHATSAPP": {
+      // Before onProviderDispatchStart and before either sender, so a refused
+      // send never looks dispatched and never reaches the dry-run branch that
+      // would record a simulated success.
+      const refusal = await whatsappRefusalForTenant(opts.tenantId)
+      if (refusal) throw new ProviderDispatchError(refusal, "DEFINITELY_REJECTED")
       opts.onProviderDispatchStart?.()
       let r
       if (provider === "WA_CLOUD") {

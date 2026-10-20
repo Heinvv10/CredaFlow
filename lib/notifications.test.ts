@@ -10,6 +10,8 @@ const loanApplicationFindUniqueMock = vi.fn()
 const loanFindUniqueMock = vi.fn()
 const clientFindUniqueMock = vi.fn()
 const notificationLogCreateMock = vi.fn()
+const contactFindFirstMock = vi.fn()
+const consentFindFirstMock = vi.fn()
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -19,6 +21,8 @@ vi.mock("@/lib/prisma", () => ({
     loan: { findUnique: (a: unknown) => loanFindUniqueMock(a) },
     client: { findUnique: (a: unknown) => clientFindUniqueMock(a) },
     notificationLog: { create: (a: unknown) => notificationLogCreateMock(a) },
+    contact: { findFirst: (a: unknown) => contactFindFirstMock(a) },
+    contactConsent: { findFirst: (a: unknown) => consentFindFirstMock(a) },
     // unused by these tests but referenced by the SUT's resolveClient
     contactIdentity: { findFirst: vi.fn() },
   },
@@ -54,9 +58,12 @@ vi.mock("@/lib/whatsapp/send-for-tenant", () => ({
   // these guards keep their meaning — only the seam moved.
   sendWhatsAppForTenant: (a: unknown) => sendWhatsAppMessageMock(a),
 }))
+// The legacy WhatsApp leg asks the ONE WA_ENABLED parser. These suites keep the
+// leg opt-in (isWaEnabledMock, default false) so the pre-existing expectations
+// stay meaningful; unset env would now mean "not off".
+vi.mock("@/lib/whatsapp/env-switch", () => ({ isWaEnvOff: () => !isWaEnabledMock() }))
 vi.mock("@/lib/whatsapp", () => ({
   sendWhatsAppMessage: vi.fn(),
-  isWaEnabled: () => isWaEnabledMock(),
   WA_TEMPLATES: {
     application_submitted: (firstName: string, ref: string, amount: string) =>
       `Hi ${firstName}, app ${ref} for *${amount}* received`,
@@ -1223,7 +1230,7 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
     lookupContactMock.mockResolvedValue({ id: "ct-1" })
   })
   afterEach(() => {
-    delete process.env.BULKSMS_DRY_RUN
+    process.env.BULKSMS_DRY_RUN = "false"
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
     isWaEnabledMock.mockReturnValue(false)
   })
@@ -1284,7 +1291,7 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
   })
 
   it("CHANNEL ON: legacy sendSms still fires", async () => {
-    delete process.env.BULKSMS_DRY_RUN
+    process.env.BULKSMS_DRY_RUN = "false"
 
     await triggerNotification(baseOpts)
 
@@ -1293,3 +1300,237 @@ describe("triggerNotification — SMS channel off (BULKSMS_DRY_RUN=true)", () =>
     expect(smsLog?.[0].data.status).toBe("sent")
   })
 })
+
+// F3: the legacy loan_overdue path (the default until
+// MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE=true) emailed and WhatsApped with no
+// blocked / opt-out check at all. It must honour the same rules as the new-send
+// path: a blocked or opted-out client gets nothing on that channel, and the
+// skip is logged.
+describe("triggerNotification — legacy loan_overdue consent gate", () => {
+  const overdue = {
+    tenantId: "tn1",
+    event: "loan_overdue" as const,
+    loanId: "ln1",
+    clientId: "cli1",
+    data: { daysOverdue: 1, amount: 25000 },
+  }
+  const logFor = (channel: string) =>
+    notificationLogCreateMock.mock.calls.filter((c: any[]) => c[0].data.channel === channel).map((c: any[]) => c[0].data)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
+    process.env.BULKSMS_DRY_RUN = "false"
+    isWaEnabledMock.mockReturnValue(true)
+    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0821234567" })
+    tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
+    notificationLogCreateMock.mockResolvedValue({})
+    loanFindUniqueMock.mockResolvedValue({
+      ...loanCommon,
+      arrearsAmount: 25000,
+      nextPaymentDate: new Date("2026-08-01"),
+      client,
+    })
+    sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
+    sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
+    sendWhatsAppMessageMock.mockResolvedValue({ ok: true, messageId: "wa-1" })
+    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: null, status: "CLIENT" })
+    consentFindFirstMock.mockResolvedValue(null)
+  })
+  afterEach(() => {
+    isWaEnabledMock.mockReturnValue(false)
+  })
+
+  it("a BLOCKED contact (blockedAt) gets nothing on any channel, and every skip is logged blocked", async () => {
+    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: new Date("2026-09-01"), status: "CLIENT" })
+
+    await triggerNotification(overdue)
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    for (const channel of ["email", "sms", "whatsapp"]) {
+      const rows = logFor(channel)
+      expect(rows, channel).toHaveLength(1)
+      expect(rows[0].status, channel).toBe("blocked")
+      expect(rows[0].error, channel).toBe("Do not contact")
+    }
+  })
+
+  it("a contact with status BLOCKED is treated the same as blockedAt", async () => {
+    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: null, status: "BLOCKED" })
+
+    await triggerNotification(overdue)
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+  })
+
+  it("a contact opted out (SERVICE_COMMS REVOKED) on every channel gets nothing", async () => {
+    consentFindFirstMock.mockResolvedValue({ status: "REVOKED" })
+
+    await triggerNotification(overdue)
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    for (const channel of ["email", "sms", "whatsapp"]) {
+      const rows = logFor(channel)
+      expect(rows, channel).toHaveLength(1)
+      expect(rows[0].status, channel).toBe("blocked")
+      expect(rows[0].error, channel).toBe("Client opted out")
+    }
+    // The opt-out lane is SERVICE_COMMS, tenant-scoped, per channel.
+    const lanes = consentFindFirstMock.mock.calls.map((c: any[]) => c[0].where)
+    for (const channel of ["EMAIL", "SMS", "WHATSAPP"]) {
+      expect(lanes, channel).toContainEqual(
+        expect.objectContaining({ tenantId: "tn1", contactId: "ct-1", channel, purpose: "SERVICE_COMMS" }),
+      )
+    }
+  })
+
+  it("opt-out is per channel: WhatsApp opted out, email and SMS still go", async () => {
+    consentFindFirstMock.mockImplementation(async (a: any) =>
+      a.where.channel === "WHATSAPP" ? { status: "REVOKED" } : null)
+
+    await triggerNotification(overdue)
+
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    expect(sendEmailMock).toHaveBeenCalledOnce()
+    expect(sendSmsMock).toHaveBeenCalledOnce()
+    const wa = logFor("whatsapp")
+    expect(wa).toHaveLength(1)
+    expect(wa[0].status).toBe("blocked")
+    expect(logFor("email")[0].status).toBe("sent")
+  })
+
+  it("a contact in good standing still receives every leg (the gate is not a blanket block)", async () => {
+    await triggerNotification(overdue)
+
+    expect(sendEmailMock).toHaveBeenCalledOnce()
+    expect(sendSmsMock).toHaveBeenCalledOnce()
+    expect(sendWhatsAppMessageMock).toHaveBeenCalledOnce()
+  })
+
+  it("the consent query is tenant-scoped and keyed by the client", async () => {
+    await triggerNotification(overdue)
+
+    expect(contactFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { clientId: "cli1", tenantId: "tn1" } }),
+    )
+  })
+
+  it("a failing consent lookup fails CLOSED: nothing sent, logged blocked, never thrown", async () => {
+    contactFindFirstMock.mockRejectedValue(new Error("db down"))
+
+    await expect(triggerNotification(overdue)).resolves.toBeUndefined()
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    for (const channel of ["email", "sms", "whatsapp"]) {
+      const rows = logFor(channel)
+      expect(rows, channel).toHaveLength(1)
+      expect(rows[0].status, channel).toBe("blocked")
+      expect(rows[0].error, channel).toBe("Consent check unavailable")
+    }
+  })
+
+  it("SMS env UNSET: no sendSms, sms row blocked 'SMS not enabled' (fails closed)", async () => {
+    delete process.env.BULKSMS_DRY_RUN
+
+    await triggerNotification(overdue)
+
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    const sms = logFor("sms")
+    expect(sms).toHaveLength(1)
+    expect(sms[0].status).toBe("blocked")
+    expect(sms[0].error).toBe("SMS not enabled")
+    expect(sendEmailMock).toHaveBeenCalledOnce()
+  })
+})
+
+// Item F3 widened: the gate covers every event on the legacy path, not only
+// loan_overdue. section129_sent is statutory: only a BLOCKED contact stops it,
+// an opt-out never does (the new-send path's statutoryOverride lane is the
+// same).
+describe.each([
+  { event: "application_submitted", id: "app1" },
+  { event: "application_declined", id: "app1" },
+  { event: "loan_approved", id: "app1" },
+  { event: "loan_disbursed", id: "ln1" },
+  { event: "loan_overdue", id: "ln1" },
+  { event: "payment_received", id: "ln1" },
+  { event: "section129_sent", id: "ln1" },
+] as const)("legacy consent gate — $event", ({ event, id }) => {
+  const statutory = event === "section129_sent"
+  const trigger = () => triggerNotification({
+    tenantId: "tn1",
+    event,
+    loanId: id,
+    clientId: "cli1",
+    data: { amount: 50000, daysOverdue: 1, reference: "LN-0001" },
+  })
+  const logFor = (channel: string) =>
+    notificationLogCreateMock.mock.calls.filter((c: any[]) => c[0].data.channel === channel).map((c: any[]) => c[0].data)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    for (const flag of ALL_FLAGS) delete process.env[flag]
+    delete process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED
+    process.env.BULKSMS_DRY_RUN = "false"
+    isWaEnabledMock.mockReturnValue(true)
+    clientFindUniqueMock.mockResolvedValue({ ...client, whatsapp: "0821234567" })
+    loanApplicationFindUniqueMock.mockResolvedValue({
+      id: "app1", reference: "APP-0001", appliedAmount: 500000, approvedAmount: 500000,
+      decisionReason: "Affordability", product: { name: "Bridging" },
+    })
+    loanFindUniqueMock.mockResolvedValue({ ...loanCommon, arrearsAmount: 25000, nextPaymentDate: new Date("2026-08-01"), client })
+    tenantFindUniqueMock.mockResolvedValue({ id: "tn1" })
+    notificationLogCreateMock.mockResolvedValue({})
+    sendEmailMock.mockResolvedValue({ ok: true, messageId: "em-1" })
+    sendSmsMock.mockResolvedValue({ ok: true, messageId: "sm-1" })
+    sendWhatsAppMessageMock.mockResolvedValue({ ok: true, messageId: "wa-1" })
+    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: null, status: "CLIENT" })
+    consentFindFirstMock.mockResolvedValue(null)
+  })
+  afterEach(() => {
+    isWaEnabledMock.mockReturnValue(false)
+  })
+
+  it("a BLOCKED contact gets nothing and every skip is logged", async () => {
+    contactFindFirstMock.mockResolvedValue({ id: "ct-1", blockedAt: new Date("2026-09-01"), status: "CLIENT" })
+
+    await trigger()
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    expect(sendSmsMock).not.toHaveBeenCalled()
+    expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+    expect(logFor("email")[0]).toMatchObject({ status: "blocked", error: "Do not contact" })
+  })
+
+  it(statutory
+    ? "an opted-out contact STILL gets the statutory notice (opt-out never suppresses it)"
+    : "an opted-out contact gets nothing and every skip is logged", async () => {
+    consentFindFirstMock.mockResolvedValue({ status: "REVOKED" })
+
+    await trigger()
+
+    if (statutory) {
+      expect(sendEmailMock).toHaveBeenCalledOnce()
+      expect(sendWhatsAppMessageMock).toHaveBeenCalledOnce()
+      expect(logFor("email")[0].status).not.toBe("blocked")
+    } else {
+      expect(sendEmailMock).not.toHaveBeenCalled()
+      expect(sendSmsMock).not.toHaveBeenCalled()
+      expect(sendWhatsAppMessageMock).not.toHaveBeenCalled()
+      expect(logFor("email")[0]).toMatchObject({ status: "blocked", error: "Client opted out" })
+    }
+  })
+
+  it("a contact in good standing still receives the email", async () => {
+    await trigger()
+    expect(sendEmailMock).toHaveBeenCalledOnce()
+  })
+})
+

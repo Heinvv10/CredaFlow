@@ -51,8 +51,8 @@ vi.mock("@/lib/prisma", () => ({
     $transaction: async (cb: (tx: typeof txClient) => Promise<unknown>) => cb(txClient),
   },
 }))
-vi.mock("@/lib/whatsapp", () => ({
-  isWaEnabled: () => isWaEnabledMock(),
+vi.mock("@/lib/whatsapp/env-switch", () => ({
+  isWaEnvOff: () => !isWaEnabledMock(),
 }))
 vi.mock("@/lib/messaging/staff-task-reminder", () => ({
   sendStaffTaskReminder: (a: unknown) => sendStaffTaskReminderMock(a),

@@ -13,6 +13,9 @@ export default defineConfig({
     // DEMO_LENDER unset, whatever the shell exports: the demo suites pin the
     // default lender (prisma/demo-lender.ts).
     env: { TZ: "UTC", DEMO_LENDER: "" },
+    // Resets BULKSMS_DRY_RUN="false" before each test (the SMS channel is off
+    // unless explicitly enabled; see vitest.setup.ts).
+    setupFiles: ["./vitest.setup.ts"],
     // Regenerates lib/registry/generated/ (scripts/gen-registries.ts) so a
     // direct `npx vitest run` after adding an entry file sees it.
     globalSetup: ["./vitest.global-setup.ts"],

@@ -207,10 +207,25 @@ describe("POST /api/portal/register — WhatsApp as the code channel", () => {
     expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
   })
 
-  it("falls back to email when the lender has no WhatsApp Cloud (never SMS)", async () => {
+  it("falls back to email when the lender has no WhatsApp Cloud (never SMS), and says so", async () => {
     findFirstClient.mockResolvedValue(withWhatsapp)
-    await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))
+    const data = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
 
+    expect(data.message).not.toMatch(WA_MESSAGE)
+    expect(data.message).toMatch(/emailed a 6-digit activation code/)
+    await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledTimes(1))
+    expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
+  })
+
+  it("WA_ENABLED=false: a WhatsApp request is emailed instead, and the response says email, not WhatsApp", async () => {
+    vi.stubEnv("WA_ENABLED", "false")
+    lenderRows.commsSettings = waCloud
+    findFirstClient.mockResolvedValue(withWhatsapp)
+    const data = await (await POST(makeRequest({ ...requestCodeBody, channel: "WHATSAPP" }))).json()
+    vi.unstubAllEnvs()
+
+    expect(data.message).not.toMatch(WA_MESSAGE)
+    expect(data.message).toMatch(/emailed a 6-digit activation code/)
     await vi.waitFor(() => expect(sendEmail).toHaveBeenCalledTimes(1))
     expect(sendPortalOtpByWhatsApp).not.toHaveBeenCalled()
   })

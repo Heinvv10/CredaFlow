@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { getTenantFromRequest } from "@/lib/tenant"
 import { verifyCronSecret } from "@/lib/cron-auth"
-import { isWaEnabled } from "@/lib/whatsapp"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { getCommsSettings } from "@/lib/inbox/settings"
 import { createNotification } from "@/lib/notifications/bell"
 import { sendStaffTaskReminder } from "@/lib/messaging/staff-task-reminder"
@@ -160,7 +160,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const settings = await getCommsSettings(tenant.id)
-  const waEnabled = settings.whatsappEnabled && isWaEnabled()
+  const waEnabled = settings.whatsappEnabled && !isWaEnvOff()
 
   // `User` is not tenant-scoped by the rewriter — filter manually, and take
   // only active staff: a deactivated account must not receive a push.

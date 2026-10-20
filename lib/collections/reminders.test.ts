@@ -606,7 +606,7 @@ describe("processPaymentReminders", () => {
       // (data drift), so both legs error and nothing is dispatched. An earlier
       // draft required a policy skip before counting, and silently left this
       // borrower out of the count.
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
       const loanWithWa = loanDueTomorrow()
       loanWithWa.client.whatsapp = "0827654321"
       loanFindManyMock.mockResolvedValue([loanWithWa])
@@ -745,7 +745,7 @@ describe("processPaymentReminders", () => {
 
   describe("SMS CHANNEL OFF (BULKSMS_DRY_RUN=true)", () => {
     afterEach(() => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
     })
 
     it("legacy path: no sendSms, WhatsApp leg still runs, note names WhatsApp only", async () => {
@@ -873,7 +873,7 @@ describe("processPaymentReminders", () => {
       [7, "reminder_7d"],
       [-1, "reminder_overdue_1d"],
     ] as const)("SMS on, daysUntilDue %i (%s): BOTH legs run", async (days, _noteType) => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
       process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
       loanFindManyMock.mockResolvedValue([loanDueIn(days)])
       triggerNotificationMock.mockResolvedValue(undefined)
@@ -921,7 +921,7 @@ describe("processPaymentReminders", () => {
     })
 
     it("CHANNEL ON: today's behaviour is unchanged — SMS still dispatched", async () => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
       const loanWithWa = loanDueTomorrow()
       loanWithWa.client.whatsapp = "0821234567"
       loanFindManyMock.mockResolvedValue([loanWithWa])

@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto"
 import { loadTenantCredential, splitCredentialPair } from "@/lib/integrations/tenant-credentials"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
+import { whatsappRefusalForTenant } from "@/lib/whatsapp/kill-switch"
 
 interface SmsOptions {
   tenantId: string
@@ -54,9 +55,12 @@ async function sendBulkSms(
   routingGroup?: string
 ): Promise<SmsResult> {
   if (isDryRun()) {
-    // Must stay the first branch — `lib/integrations/bulksms.test.ts`
-    // mocks `@/lib/prisma` with an empty object, so any DB call before
-    // this point throws TypeError under test.
+    // Must stay the first branch of sendBulkSms — `lib/integrations/
+    // bulksms.test.ts` mocks `@/lib/prisma` with an empty object, so any DB
+    // call before this point throws TypeError under test. (sendWhatsApp's
+    // kill-switch settings read happens BEFORE it, in sendWhatsApp itself, so
+    // a suite that runs the real sendWhatsApp must mock `@/lib/inbox/settings`;
+    // sendSms reads no settings.)
     //
     // Unique per call so multiple dry-run sends don't collide on
     // Message @@unique([provider, providerMessageId]) in the new-send path.
@@ -160,5 +164,17 @@ export async function sendSms(opts: SmsOptions): Promise<SmsResult> {
 }
 
 export async function sendWhatsApp(opts: SmsOptions): Promise<SmsResult> {
+  // Transport-level WhatsApp kill switch (WA_ENABLED, tenant whatsappEnabled),
+  // so every caller is covered: the send-link routes and the legacy
+  // collections leg alike. Above the dry-run short-circuit, which would
+  // otherwise record a simulated success for a send that must not happen.
+  //
+  // BULKSMS_DRY_RUN is deliberately NOT fail-closed here, unlike sendSms():
+  // SMS is off by policy, so unset means off; WhatsApp-over-BulkSMS is a live
+  // channel whose on/off switches are WA_ENABLED and whatsappEnabled. Dry-run
+  // stays an explicit "true" (or NODE_ENV=test) simulation, which callers
+  // record as SIMULATED, never as sent.
+  const refusal = await whatsappRefusalForTenant(opts.tenantId)
+  if (refusal) return { ok: false, error: refusal, providerOutcome: "DEFINITELY_REJECTED" }
   return sendBulkSms(opts, "WHATSAPP")
 }

@@ -152,7 +152,7 @@ describe("POST /api/applications/[id]/pasq/send-link", () => {
   // the consumer never received.
   describe("SMS channel off (BULKSMS_DRY_RUN=true)", () => {
     afterEach(() => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
     })
 
     it("refuses an SMS send with 400 and dispatches nothing", async () => {
@@ -176,7 +176,7 @@ describe("POST /api/applications/[id]/pasq/send-link", () => {
     })
 
     it("CHANNEL ON: SMS still sends", async () => {
-      delete process.env.BULKSMS_DRY_RUN
+      process.env.BULKSMS_DRY_RUN = "false"
 
       const response = await POST(request({ channel: "SMS" }), context)
 

@@ -86,6 +86,7 @@ docker run --rm \
   -e DATABASE_URL \
   -e DEMO_LENDER \
   -e DEMO_MODE=true \
+  -e WA_ENABLED=false \
   -e EXPERIAN_DRY_RUN=true \
   -e EXPERIAN_ENV=UAT \
   ${seed_env[@]+"${seed_env[@]}"} \
