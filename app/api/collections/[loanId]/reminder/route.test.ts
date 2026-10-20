@@ -109,6 +109,25 @@ beforeEach(() => {
 })
 
 describe("POST /api/collections/[loanId]/reminder", () => {
+  // The hold is rechecked right before each leg: a notice recorded after the
+  // request began, between the SMS and the WhatsApp leg, stops the later one.
+  it("stops the WhatsApp leg when a debt-review notice is recorded after the SMS leg was sent", async () => {
+    const reason = "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"
+    process.env.BULKSMS_DRY_RUN = "false"
+    // request-level check, SMS-leg check: clear. WhatsApp-leg check: held.
+    refusalMock.mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(reason)
+    try {
+      const res = await POST(makeReq({ channel: "both", message: "pay up" }), ctx)
+      const json = await res.json() as { deliveries: { channel: string; outcome: string; detail?: string }[] }
+
+      expect(sendMessageMock).toHaveBeenCalledTimes(1)
+      expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({ channel: "SMS" }))
+      expect(json.deliveries).toContainEqual({ channel: "WhatsApp", outcome: "blocked", detail: reason })
+    } finally {
+      delete process.env.BULKSMS_DRY_RUN
+    }
+  })
+
   // D2: a staff message to a deceased client or one under debt review is refused, with the reason.
   it.each([
     ["deceased", "a death is recorded for this client"],

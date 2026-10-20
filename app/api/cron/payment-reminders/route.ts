@@ -18,6 +18,7 @@ import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { recordEntityReminder, sendEntityReminder } from "@/lib/asset-finance/entity-reminders"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { isLoanHeld } from "@/lib/collections/client-holds"
 
 /**
  * Payment reminder cron — one courtesy reminder per loan, REMINDER_LEAD_DAYS
@@ -214,6 +215,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Nothing left to pay on the instalment: no reminder, never "R 0.00".
     if (schedule.totalDue - schedule.totalPaid <= 0) continue
     const { loan } = schedule
+    // The schedules were selected at the start of the run: a debt-review notice,
+    // a death or an arrangement recorded since then stops this send.
+    if (await isLoanHeld({ tenantId, loanId: loan.id })) {
+      skipped++
+      continue
+    }
     // An entity borrower (asset finance) has no Client to message: the
     // reminder goes to the people who act for it, by email and WhatsApp, in
     // copy that names the entity (lib/asset-finance/entity-reminders.ts). Same

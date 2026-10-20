@@ -4,11 +4,15 @@ import { describe, it, expect, vi } from "vitest"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { formatZAR } from "@/lib/utils"
 
-const holds = vi.hoisted(() => ({ message: null as string | null, s129: null as string | null }))
-vi.mock("@/lib/collections/client-holds", () => ({
-  staffMessageRefusal: vi.fn(async () => holds.message),
-  section129DebtReviewReason: vi.fn(async () => holds.s129),
+const holds = vi.hoisted(() => ({
+  hold: null as null | { deceased: boolean; debtReview: { loanId: string; loanReference: string; noticeAt: Date; noticeRef: string | null } | null },
 }))
+// The pure derivations stay real; only the one query is stubbed.
+vi.mock("@/lib/collections/client-holds", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/client-holds")>()),
+  loadClientHold: vi.fn(async () => holds.hold),
+}))
+const reminderButton = vi.hoisted(() => ({ rendered: 0 }))
 vi.mock("@/lib/session-tenant", () => ({ getStaffTenantId: vi.fn(async () => "t1") }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 vi.mock("next/navigation", () => ({ notFound: vi.fn() }))
@@ -21,12 +25,14 @@ vi.mock("@/components/nav/Breadcrumbs", () => ({ Breadcrumbs: () => null }))
 vi.mock("@/components/collections/Section129Button", () => ({ Section129Button: () => null }))
 vi.mock("@/components/collections/LogContactButton", () => ({ LogContactButton: () => null }))
 vi.mock("@/components/collections/PaymentPlanButton", () => ({ PaymentPlanButton: () => null }))
-vi.mock("@/components/collections/ManualReminderButton", () => ({ ManualReminderButton: () => null }))
+vi.mock("@/components/collections/ManualReminderButton", () => ({
+  ManualReminderButton: () => { reminderButton.rendered++; return null },
+}))
 vi.mock("@/components/collections/CollectionDetailTabs", () => ({ CollectionDetailTabs: () => null }))
 vi.mock("@/components/clients/ClientWhatsAppButton", () => ({ ClientWhatsAppButton: () => null }))
-const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean } } | undefined }))
+const stagePanelProps = vi.hoisted(() => ({ last: undefined as { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string } | undefined }))
 vi.mock("@/components/collections/CollectionsStagePanel", () => ({
-  CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean } }) => {
+  CollectionsStagePanel: (props: { section129Unavailable?: { reason: string; temporary: boolean }; readOnlyReason?: string }) => {
     stagePanelProps.last = props
     return null
   },
@@ -64,21 +70,46 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 describe("collections loan page", () => {
-  it("states why reminders and messages are paused, in design tokens, with a link to the loan page", async () => {
-    holds.message = "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"
-    holds.s129 = "the client is under debt review (...)"
+  const underReview = { deceased: false, debtReview: { loanId: "l2", loanReference: "LN-2", noticeAt: new Date("2026-10-15T00:00:00+02:00"), noticeRef: "DC-1" } }
+
+  it("debt review: banner in design tokens linking to the loan that carries the notice, no reminder button, stage panel read-only, S.129 blocked", async () => {
+    holds.hold = underReview
+    reminderButton.rendered = 0
     try {
       const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
       expect(html).toContain("Automated reminders and staff messages are paused: the client is under debt review")
-      expect(html).toContain('href="/loans/l1"')
-      expect(html).toContain("var(--cf-warning)")
+      expect(html).toContain('href="/loans/l2"')
+      expect(html).toContain("Open loan LN-2")
       const at = html.indexOf("are paused")
+      expect(html.slice(at - 250, at + 350)).toContain("var(--cf-warning)")
       expect(html.slice(at - 250, at + 350)).not.toContain("amber")
+      expect(reminderButton.rendered).toBe(0)
+      expect(stagePanelProps.last).toMatchObject({ readOnlyReason: expect.stringContaining("staff messages are paused (the client is under debt review") })
       expect(stagePanelProps.last?.section129Unavailable).toMatchObject({ temporary: false, reason: expect.stringContaining("Cannot issue a Section 129 notice") })
     } finally {
-      holds.message = null
-      holds.s129 = null
+      holds.hold = null
     }
+  })
+
+  it("deceased: says so (not debt review), with no link, and offers no reminder", async () => {
+    holds.hold = { deceased: true, debtReview: null }
+    reminderButton.rendered = 0
+    try {
+      const html = renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+      expect(html).toContain("paused: a death is recorded for this client.")
+      expect(html).not.toContain("debt review")
+      expect(html).not.toContain("Open loan")
+      expect(reminderButton.rendered).toBe(0)
+    } finally {
+      holds.hold = null
+    }
+  })
+
+  it("with no hold, offers the reminder button and a writable stage panel", async () => {
+    reminderButton.rendered = 0
+    renderToStaticMarkup(await CollectionDetailPage({ params: Promise.resolve({ loanId: "l1" }) }))
+    expect(reminderButton.rendered).toBe(1)
+    expect(stagePanelProps.last?.readOnlyReason).toBeUndefined()
   })
 
   it("states Total Paid as cash received, not the share applied to the instalments", async () => {

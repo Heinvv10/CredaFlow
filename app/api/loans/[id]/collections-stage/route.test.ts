@@ -141,6 +141,18 @@ describe("PATCH collections-stage — settled-account guard", () => {
     refusalMock.mockResolvedValue(null)
   })
 
+  it("does not send the WhatsApp when the hold appears after the stage change committed, and audits why", async () => {
+    loanFindUniqueMock.mockResolvedValue(inArrears)
+    const reason = "a death is recorded for this client"
+    refusalMock.mockReset().mockResolvedValueOnce(null).mockResolvedValueOnce(reason)
+
+    const res = await PATCH(makeReq({ stage: "FORMAL_REMINDER" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(JSON.stringify(logAuditMock.mock.calls)).toContain(`blocked:client_hold:${reason}`)
+  })
+
   // D2: the stage change sends the borrower a WhatsApp, so a death or a
   // debt-review notice refuses it with the reason, before any write.
   it.each([

@@ -32,6 +32,30 @@ describe("DebtReviewPanel", () => {
     expect(html).not.toContain("Clear debt-review notice")
   })
 
+  const sibling = { loanId: "l2", loanReference: "LN-2", noticeAt: NOTICE }
+
+  it("on a sibling loan: says where the notice is recorded, links to it, and does not invite a second notice", () => {
+    const html = render({ siblingNotice: sibling })
+    expect(html).toContain("Under debt review")
+    expect(html).toContain("Debt review is recorded on loan")
+    expect(html).toContain('href="/loans/l2"')
+    expect(html).toContain("LN-2")
+    expect(html).toContain("1 Oct 2026")
+    expect(html).not.toContain("Record debt-review notice")
+    expect(html).not.toContain("Clear debt-review notice")
+  })
+
+  it("on a sibling loan, shows a viewer who cannot manage it the same pointer", () => {
+    expect(render({ siblingNotice: sibling, canManage: false })).toContain("Debt review is recorded on loan")
+  })
+
+  it("a loan's own notice wins over a sibling's", () => {
+    const html = render({ noticeAt: NOTICE, noticeRef: "DC-OWN", siblingNotice: sibling })
+    expect(html).toContain("DC-OWN")
+    expect(html).toContain("Clear debt-review notice")
+    expect(html).not.toContain("Debt review is recorded on loan")
+  })
+
   it("renders nothing for a viewer who cannot manage a loan with no notice", () => {
     expect(render({ canManage: false })).toBe("")
   })

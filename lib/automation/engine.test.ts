@@ -12,8 +12,10 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 const debtReviewReasonMock = vi.hoisted(() => vi.fn())
+const underReviewMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/collections/client-holds", () => ({
   section129DebtReviewReason: (...a: unknown[]) => debtReviewReasonMock(...a),
+  clientIdsUnderDebtReview: (...a: unknown[]) => underReviewMock(...a),
 }))
 vi.mock("./built-in-rules", () => ({ ensureBuiltInRules: vi.fn() }))
 vi.mock("./actions", () => ({
@@ -29,6 +31,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(prisma.automationLog.create).mockResolvedValue({} as any)
   debtReviewReasonMock.mockResolvedValue(null)
+  underReviewMock.mockResolvedValue(new Set())
 })
 
 afterEach(() => {
@@ -159,21 +162,24 @@ describe("Section 129 automation: debt review blocks it (D1)", () => {
   }
   const reason = "the client is under debt review (NCA s.86 notice received 15 Oct 2026, recorded on loan LN-2)"
 
-  it("creates no task and logs the skip, with the reason, for a client under debt review", async () => {
+  it("creates no task and logs the skip, with the reason, for a client under debt review: one batched lookup per rule", async () => {
+    const otherLoan = { ...eligibleLoan, id: "loan-91", reference: "LN-91", clientId: "cl-2" }
     vi.mocked(prisma.automationRule.findMany).mockResolvedValue([s129Rule] as any)
-    vi.mocked(prisma.loan.findMany).mockResolvedValue([eligibleLoan] as any)
+    vi.mocked(prisma.loan.findMany).mockResolvedValue([eligibleLoan, otherLoan, { ...eligibleLoan, id: "loan-92", reference: "LN-92" }] as any)
     vi.mocked(prisma.automationLog.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.automationPause.findUnique).mockResolvedValue(null)
-    debtReviewReasonMock.mockResolvedValue(reason)
+    underReviewMock.mockResolvedValue(new Set(["cl-1"]))
 
     const result = await runAutomationEngine("tenant-a")
 
-    expect(debtReviewReasonMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "tenant-a", clientId: "cl-1" })
-    expect(actionCreateTask).not.toHaveBeenCalled()
+    expect(underReviewMock).toHaveBeenCalledTimes(1)
+    expect(underReviewMock).toHaveBeenCalledWith({ tenantId: "tenant-a", clientIds: ["cl-1", "cl-2"] })
+    expect(actionCreateTask).toHaveBeenCalledTimes(1)
+    expect(actionCreateTask).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "loan-91" }), "tenant-a")
     expect(prisma.automationLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ entityId: "loan-90", result: "skipped", error: reason }),
+      data: expect.objectContaining({ entityId: "loan-90", result: "skipped", error: expect.stringContaining("under debt review") }),
     })
-    expect(result).toEqual({ ran: 1, actions: 0, errors: 0 })
+    expect(result).toEqual({ ran: 1, actions: 1, errors: 0 })
   })
 
   it("replay refuses it too: no task, a failed log carrying the reason", async () => {

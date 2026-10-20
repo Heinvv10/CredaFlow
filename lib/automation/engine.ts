@@ -5,7 +5,9 @@ import type { AutomationRule } from "@prisma/client"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { automationCooldownMs } from "./occurrence"
 import { requireClientBorrowerId } from "@/lib/borrower"
-import { section129DebtReviewReason } from "@/lib/collections/client-holds"
+import { clientIdsUnderDebtReview, section129DebtReviewReason } from "@/lib/collections/client-holds"
+
+const DEBT_REVIEW_S129_SKIP = "the client is under debt review (NCA s.86); a Section 129 notice cannot be issued until the notice is cleared"
 
 type AutomationLogResult = "success" | "failed" | "skipped"
 
@@ -132,6 +134,14 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
     },
   })
 
+  // One query per rule, not per loan: the clients among these loans under debt review.
+  const underReview = rule.action === "ISSUE_SECTION_129"
+    ? await clientIdsUnderDebtReview({
+      tenantId: rule.tenantId,
+      clientIds: [...new Set(loans.flatMap((loan) => (loan.clientId ? [loan.clientId] : [])))],
+    })
+    : new Set<string>()
+
   let fired = 0
   for (const loan of loans) {
     if (await alreadyFired(rule.id, loan.id, rule.trigger)) continue
@@ -153,11 +163,8 @@ async function evaluateDpdThreshold(rule: AutomationRule): Promise<number> {
         continue
       }
       // Debt review (NCA s.86) blocks Section 129 on every loan of the client.
-      const debtReview = loan.clientId
-        ? await section129DebtReviewReason(prisma, { tenantId: rule.tenantId, clientId: loan.clientId })
-        : null
-      if (debtReview) {
-        await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: loan.id, result: "skipped", error: debtReview })
+      if (loan.clientId && underReview.has(loan.clientId)) {
+        await writeLog({ ruleId: rule.id, tenantId: rule.tenantId, entityType: "loan", entityId: loan.id, result: "skipped", error: DEBT_REVIEW_S129_SKIP })
         continue
       }
     }

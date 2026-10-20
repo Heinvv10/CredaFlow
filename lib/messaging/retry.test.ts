@@ -193,6 +193,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
+const holds = vi.hoisted(() => ({ refusal: null as string | null }))
+vi.mock("@/lib/collections/client-holds", () => ({ contactMessageRefusal: async () => holds.refusal }))
 vi.mock("./send", () => ({
   canSendTx: vi.fn(),
   resolveProvider: vi.fn(),
@@ -353,6 +355,26 @@ describe("processRetryBatch", () => {
     expect(txMock.messageTemplate.findUniqueOrThrow).not.toHaveBeenCalled()
     expect(resolveProvider).not.toHaveBeenCalled()
     expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it("suppresses, not retries, a message to a client who has since died or gone under debt review", async () => {
+    txMock.message.updateMany.mockResolvedValueOnce({ count: 0 } as any)
+    txMock.message.findMany.mockResolvedValue([baseMessage])
+    vi.mocked(canSendTx).mockResolvedValue({ ok: true, basis: "SERVICE_COMMS_NCA", evidence: "x" } as any)
+    holds.refusal = "a death is recorded for this client"
+    try {
+      const r = await processRetryBatch({ limit: 50, now: new Date() })
+
+      expect(r.suppressed).toBe(1)
+      expect(r.dispatched).toBe(0)
+      expect(dispatch).not.toHaveBeenCalled()
+      expect(globalTxMock.notificationLog.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: "tn1", messageId: "msg1" },
+        data: { status: "suppressed_by_consent", error: "canSendTx rejected on retry: client hold: a death is recorded for this client" },
+      })
+    } finally {
+      holds.refusal = null
+    }
   })
 
   it("transitions to SUPPRESSED_BY_CONSENT when canSendTx now returns ok:false", async () => {

@@ -202,18 +202,26 @@ export async function PATCH(
         } else {
           const template = await getOrCreateAgentMessageTemplate(tenant.id, "WHATSAPP")
           try {
-            const sendResult = await sendMessage({
-              contactId: contact.id,
-              channel: "WHATSAPP",
-              template,
-              vars: { body: msg },
-              toValue,
-              createdById: guard.user.id,
-              category: "collections_stage_reminder",
-              loanId: id,
-              idempotencyKey: `collections-stage:${id}:${body.stage}:WHATSAPP`,
-            })
-            waReminderResult = messageDeliveryOutcome(sendResult.status)
+            // The stage change committed above; a death or notice recorded since
+            // then still stops the message itself.
+            const lateRefusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId: client.id })
+            if (lateRefusal) {
+              waReminderResult = `blocked:client_hold:${lateRefusal}`
+              console.error(`[collections-stage] auto-WA not sent for loan ${id}: ${lateRefusal}`)
+            } else {
+              const sendResult = await sendMessage({
+                contactId: contact.id,
+                channel: "WHATSAPP",
+                template,
+                vars: { body: msg },
+                toValue,
+                createdById: guard.user.id,
+                category: "collections_stage_reminder",
+                loanId: id,
+                idempotencyKey: `collections-stage:${id}:${body.stage}:WHATSAPP`,
+              })
+              waReminderResult = messageDeliveryOutcome(sendResult.status)
+            }
           } catch (err) {
             if (err instanceof SendBlockedError) {
               waReminderResult = `blocked:${err.reason}`

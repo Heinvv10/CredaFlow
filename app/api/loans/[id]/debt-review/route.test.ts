@@ -104,7 +104,11 @@ describe("POST /api/loans/[id]/debt-review — record the s.86 notice", () => {
     const res = await POST(req("POST", { noticeDate: "2026-10-01", reference: " DC-0001 " }), ctx)
 
     expect(res.status).toBe(200)
-    expect(queryRawMock).toHaveBeenCalledOnce() // row lock first
+    // The loan row first, then the Client row (serialises with a Section 129 dispatch on a sibling loan).
+    expect(queryRawMock).toHaveBeenCalledTimes(2)
+    expect((queryRawMock.mock.calls[0][0] as readonly string[]).join("")).toContain('"Loan"')
+    expect((queryRawMock.mock.calls[1][0] as readonly string[]).join("")).toContain('"Client"')
+    expect(queryRawMock.mock.calls[1].slice(1)).toEqual(["c1", "t1"])
     expect(loanUpdateMock).toHaveBeenCalledWith({
       where: { id: "L1", tenantId: "t1" },
       data: { debtReviewNoticeAt: new Date("2026-10-01T00:00:00+02:00"), debtReviewNoticeRef: "DC-0001" },

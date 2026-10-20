@@ -21,6 +21,8 @@ const m = vi.hoisted(() => ({
   chargesOutstandingAt: vi.fn(),
 }))
 
+const holds = vi.hoisted(() => ({ held: false }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenant: { findFirst: m.tenantFindFirst },

@@ -763,6 +763,11 @@ describe("Section 129 private artifact lifecycle", () => {
     expect(result).toMatchObject({ kind: "INELIGIBLE" })
     expect(String((result as { error: Error }).error.message)).toContain("under debt review")
     expect(debtReviewReasonMock).toHaveBeenCalledWith(expect.anything(), { tenantId: "t1", clientId: "client-1" })
+    // The Client row is locked BEFORE the notice is looked for, so a notice being
+    // recorded on a sibling loan serialises with this dispatch.
+    const clientLock = queryRawMock.mock.calls.findIndex((c) => String(c[0]).includes('FROM "Client"') && c[1] === "client-1")
+    expect(clientLock).toBeGreaterThanOrEqual(0)
+    expect(queryRawMock.mock.invocationCallOrder[clientLock]).toBeLessThan(debtReviewReasonMock.mock.invocationCallOrder[0])
     expect(dispatch).not.toHaveBeenCalled()
   })
 

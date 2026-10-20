@@ -23,13 +23,20 @@ export interface ClientHoldDb {
   client: { findFirst: (args: Prisma.ClientFindFirstArgs) => PromiseLike<unknown> }
 }
 
-interface ClientHoldRow {
-  deceasedAt: Date | null
-  loans: { reference: string; debtReviewNoticeAt: Date | null; debtReviewNoticeRef: string | null }[]
+/** What holds a client, read once: a recorded death, and the earliest debt-review notice on any of their loans. */
+export interface ClientHold {
+  deceased: boolean
+  debtReview: { loanId: string; loanReference: string; noticeAt: Date; noticeRef: string | null } | null
 }
 
-async function loadClientHold(db: ClientHoldDb, tenantId: string, clientId: string): Promise<ClientHoldRow | null> {
-  return await db.client.findFirst({
+interface ClientHoldRow {
+  deceasedAt: Date | null
+  loans: { id: string; reference: string; debtReviewNoticeAt: Date | null; debtReviewNoticeRef: string | null }[]
+}
+
+/** One query per call: a caller that needs several answers loads once and uses the `...From` functions. */
+export async function loadClientHold(db: ClientHoldDb, tenantId: string, clientId: string): Promise<ClientHold | null> {
+  const row = await db.client.findFirst({
     where: { id: clientId, tenantId },
     select: {
       deceasedAt: true,
@@ -37,39 +44,73 @@ async function loadClientHold(db: ClientHoldDb, tenantId: string, clientId: stri
         where: { debtReviewNoticeAt: { not: null } },
         orderBy: { debtReviewNoticeAt: "asc" },
         take: 1,
-        select: { reference: true, debtReviewNoticeAt: true, debtReviewNoticeRef: true },
+        select: { id: true, reference: true, debtReviewNoticeAt: true, debtReviewNoticeRef: true },
       },
     },
   }) as ClientHoldRow | null
+  if (!row) return null
+  const notice = row.loans[0]
+  return {
+    deceased: row.deceasedAt !== null,
+    debtReview: notice?.debtReviewNoticeAt
+      ? { loanId: notice.id, loanReference: notice.reference, noticeAt: notice.debtReviewNoticeAt, noticeRef: notice.debtReviewNoticeRef }
+      : null,
+  }
 }
 
-function debtReviewText(row: ClientHoldRow): string | null {
-  const notice = row.loans[0]
-  if (!notice?.debtReviewNoticeAt) return null
-  const ref = notice.debtReviewNoticeRef ? `, reference ${notice.debtReviewNoticeRef}` : ""
-  return `under debt review (NCA s.86 notice received ${formatDate(notice.debtReviewNoticeAt)}${ref}, recorded on loan ${notice.reference})`
+function debtReviewText(hold: ClientHold): string | null {
+  const notice = hold.debtReview
+  if (!notice) return null
+  const ref = notice.noticeRef ? `, reference ${notice.noticeRef}` : ""
+  return `under debt review (NCA s.86 notice received ${formatDate(notice.noticeAt)}${ref}, recorded on loan ${notice.loanReference})`
 }
 
 /** Why a Section 129 notice must not go to this client, or null when debt review does not block it. */
-export async function section129DebtReviewReason(
-  db: ClientHoldDb,
-  args: { tenantId: string; clientId: string },
-): Promise<string | null> {
-  const row = await loadClientHold(db, args.tenantId, args.clientId)
-  const text = row && debtReviewText(row)
+export function section129ReasonFrom(hold: ClientHold | null): string | null {
+  const text = hold && debtReviewText(hold)
   return text ? `the client is ${text}. A Section 129 notice cannot be issued until the notice is cleared` : null
 }
 
 /** Why a staff member may not message this client, or null when nothing blocks it. */
+export function staffRefusalFrom(hold: ClientHold | null): string | null {
+  if (!hold) return null
+  if (hold.deceased) return "a death is recorded for this client"
+  const text = debtReviewText(hold)
+  return text ? `the client is ${text}` : null
+}
+
+/** The client's notice when it sits on a loan other than `loanId` (for the loan page's debt-review panel). */
+export function siblingNoticeFrom(hold: ClientHold | null, loanId: string): { loanId: string; loanReference: string; noticeAt: Date } | null {
+  const notice = hold?.debtReview
+  return notice && notice.loanId !== loanId ? { loanId: notice.loanId, loanReference: notice.loanReference, noticeAt: notice.noticeAt } : null
+}
+
+export async function section129DebtReviewReason(
+  db: ClientHoldDb,
+  args: { tenantId: string; clientId: string },
+): Promise<string | null> {
+  return section129ReasonFrom(await loadClientHold(db, args.tenantId, args.clientId))
+}
+
 export async function staffMessageRefusal(
   db: ClientHoldDb,
   args: { tenantId: string; clientId: string },
 ): Promise<string | null> {
-  const row = await loadClientHold(db, args.tenantId, args.clientId)
-  if (!row) return null
-  if (row.deceasedAt) return "a death is recorded for this client"
-  const text = debtReviewText(row)
-  return text ? `the client is ${text}` : null
+  return staffRefusalFrom(await loadClientHold(db, args.tenantId, args.clientId))
+}
+
+/**
+ * Why a message already queued for this Contact must not be re-sent (the
+ * messaging retry sweep): the Contact's client is deceased or under debt review.
+ * A Contact with no client (a lead) has no hold.
+ */
+export async function contactMessageRefusal(
+  db: ClientHoldDb & { contact: { findFirst: (args: Prisma.ContactFindFirstArgs) => PromiseLike<unknown> } },
+  args: { tenantId: string; contactId: string },
+): Promise<string | null> {
+  const contact = await db.contact.findFirst({ where: { id: args.contactId, tenantId: args.tenantId }, select: { clientId: true } }) as { clientId: string | null } | null
+  if (!contact?.clientId) return null
+  return staffMessageRefusal(db, { tenantId: args.tenantId, clientId: contact.clientId })
 }
 
 /** True when automated dunning must not reach this loan (the escalation cron's borrower notification). */

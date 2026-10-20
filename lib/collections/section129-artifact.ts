@@ -776,6 +776,16 @@ export async function dispatchSection129UnderEligibilityLock<T>(args: {
       if (!loan) {
         throw new Section129EligibilityChangedError("loan no longer exists in this tenant")
       }
+      // Serialise with a debt-review notice being recorded on a SIBLING loan of the
+      // same client (app/api/loans/[id]/debt-review locks the same Client row):
+      // the check below then sees every notice committed before the dispatch.
+      if (loan.clientId) {
+        await tx.$queryRawUnsafe(
+          `SELECT id FROM "Client" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
+          loan.clientId,
+          args.tenantId,
+        )
+      }
       const eligibility = evaluateCollectionsEligibility(loan, "SECTION_129")
       // A debt-review notice recorded after the reservation blocks the dispatch too.
       const debtReview = eligibility.eligible && loan.clientId

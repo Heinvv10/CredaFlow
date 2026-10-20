@@ -2,6 +2,7 @@ import type { Channel, MessageTemplate, Provider } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "@/lib/whatsapp/send-mode"
 import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
+import { contactMessageRefusal } from "@/lib/collections/client-holds"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
 
@@ -313,8 +314,18 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
       args.template,
     )
 
-    if (!eligibility.ok) {
-      const errorMessage = `canSendTx rejected on retry: ${eligibility.reason}`
+    // A death or a debt-review notice recorded since the message was queued: the
+    // client's holds (lib/collections/client-holds.ts) apply to a re-send too.
+    const hold = eligibility.ok
+      ? await contactMessageRefusal(eligibilityTx as Parameters<typeof contactMessageRefusal>[0], {
+        tenantId: args.tenantId,
+        contactId: args.contactId,
+      })
+      : null
+
+    if (!eligibility.ok || hold) {
+      const reason = eligibility.ok ? `client hold: ${hold}` : eligibility.reason
+      const errorMessage = `canSendTx rejected on retry: ${reason}`
       const transitioned = await eligibilityTx.message.updateMany({
         where: {
           id: args.id,
@@ -343,10 +354,10 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
           action: "MESSAGE_SUPPRESSED_BY_CONSENT",
           entity: "Message",
           entityId: args.id,
-          newValue: { reason: eligibility.reason, retryCount: args.retryCount },
+          newValue: { reason, retryCount: args.retryCount },
         },
       })
-      return { kind: "suppressed", reason: eligibility.reason }
+      return { kind: "suppressed", reason }
     }
 
     const dispatchToken = await claimRetryDispatchTx(eligibilityTx, args)

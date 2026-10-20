@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { DebtReviewActions } from "@/components/collections/DebtReviewActions"
@@ -10,14 +11,21 @@ import { sastCalendarDate } from "@/lib/date/sast"
  * and the panel says so. `canManage` shows the record/clear control; the route
  * re-checks the role.
  */
-export function DebtReviewPanel({ loanId, noticeAt, noticeRef, canManage }: {
+export function DebtReviewPanel({ loanId, noticeAt, noticeRef, canManage, siblingNotice = null }: {
   loanId: string
   noticeAt: Date | null
   noticeRef: string | null
   canManage: boolean
+  /**
+   * The client's notice when it is recorded on ANOTHER of their loans. Debt
+   * review is consumer-wide, so this loan is held too, and a second notice is
+   * not invited here.
+   */
+  siblingNotice?: { loanId: string; loanReference: string; noticeAt: Date } | null
 }) {
+  const inherited = noticeAt === null ? siblingNotice : null
   // Nothing to show and nothing the viewer can do.
-  if (!noticeAt && !canManage) return null
+  if (!noticeAt && !inherited && !canManage) return null
 
   return (
     <DataPanel
@@ -25,7 +33,7 @@ export function DebtReviewPanel({ loanId, noticeAt, noticeRef, canManage }: {
       description="NCA s.86 notice from a debt counsellor"
       variant="default"
       density="loose"
-      actions={noticeAt ? <StatusPill tone="warning">Under debt review</StatusPill> : undefined}
+      actions={noticeAt || inherited ? <StatusPill tone="warning">Under debt review</StatusPill> : undefined}
     >
       {noticeAt ? (
         <div className="space-y-2 text-sm">
@@ -41,12 +49,19 @@ export function DebtReviewPanel({ loanId, noticeAt, noticeRef, canManage }: {
             Automated reminders to this borrower are paused. Collections actions remain a staff decision.
           </p>
         </div>
+      ) : inherited ? (
+        <p className="text-sm text-[var(--cf-text-muted)]">
+          Debt review is recorded on loan{" "}
+          <Link href={`/loans/${inherited.loanId}`} className="font-medium underline">{inherited.loanReference}</Link>
+          {" "}(notice received {formatDate(inherited.noticeAt)}). It covers all of this client&apos;s loans, so automated
+          reminders are paused here too. Clear it on that loan.
+        </p>
       ) : (
         <p className="text-sm text-[var(--cf-text-muted)]">
           No debt-review notice recorded. Record one when a debt counsellor notifies you, and automated reminders stop.
         </p>
       )}
-      {canManage && <DebtReviewActions loanId={loanId} recorded={noticeAt !== null} today={sastCalendarDate(new Date())} />}
+      {canManage && !inherited && <DebtReviewActions loanId={loanId} recorded={noticeAt !== null} today={sastCalendarDate(new Date())} />}
     </DataPanel>
   )
 }

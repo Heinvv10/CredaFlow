@@ -92,6 +92,7 @@ export async function POST(
       )
     }
 
+    const clientId = loan.client.id
     const phone = loan.client.phone
     const waNumber = loan.client.whatsapp ?? phone
     const deliveries: ReminderDelivery[] = []
@@ -109,6 +110,13 @@ export async function POST(
         return
       }
       try {
+        // Rechecked right before each leg: a notice or a death recorded since the
+        // request began (or between the SMS and WhatsApp legs) stops this send.
+        const lateRefusal = await staffMessageRefusal(prisma, { tenantId: tenant.id, clientId })
+        if (lateRefusal) {
+          deliveries.push({ channel: label, outcome: "blocked", detail: lateRefusal })
+          return
+        }
         const template = await getOrCreateAgentMessageTemplate(tenant.id, ch)
         const result = await sendMessage({
           contactId: contact.id,

@@ -40,6 +40,7 @@ import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { renderTemplate } from "@/lib/messaging/render"
 import { recordEntityReminder, sendEntityReminder, type EntityReminderLoan } from "@/lib/asset-finance/entity-reminders"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { isLoanHeld } from "@/lib/collections/client-holds"
 
 export type ReminderDeliveryOutcome =
   | "sent"
@@ -446,6 +447,14 @@ async function processPaymentRemindersInner(): Promise<ReminderResult> {
       const processed = await alreadyProcessedToday(loan.id, trigger.noteType, tenant.id)
       if (processed) {
         result.details.push(`Skip ${loan.reference}: ${trigger.noteType} already processed today`)
+        continue
+      }
+
+      // The loans were selected at the start of the run, which can be long: a
+      // debt-review notice, a death or an arrangement recorded since then must
+      // stop this send. Checked per send, immediately before it.
+      if (await isLoanHeld({ tenantId: tenant.id, loanId: loan.id })) {
+        result.details.push(`Skip ${loan.reference}: ${trigger.noteType}, the loan or client was put on a dunning hold during this run`)
         continue
       }
 

@@ -16,6 +16,8 @@ const h = vi.hoisted(() => ({
   waDue3d: vi.fn((..._a: any[]) => "wa body"),
 }))
 
+const holds = vi.hoisted(() => ({ held: false }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     repaymentSchedule: { findMany: (...a: any[]) => h.findMany(...a) },
@@ -111,6 +113,20 @@ beforeEach(() => {
 })
 
 describe("payment-reminders — one send per instalment", () => {
+  // The schedules are selected once at the start of the run; the hold is rechecked per send.
+  it("skips a schedule whose loan was put on a dunning hold after the run started", async () => {
+    h.findMany.mockResolvedValue([scheduleDueIn(3)])
+    holds.held = true
+    try {
+      const res = await run()
+      expect(await res.json()).toMatchObject({ sent: 0, skipped: 1 })
+      expect(h.sendEmail).not.toHaveBeenCalled()
+      expect(h.sendWhatsApp).not.toHaveBeenCalled()
+    } finally {
+      holds.held = false
+    }
+  })
+
   // The query is the control, not a post-filter: the real-Postgres proof that
   // each held loan is unreached is lib/collections/dunning-holds.integration.test.ts.
   it("selects only remindable loans: the shared dunning-hold predicate, not just 'not CANCELLED'", async () => {

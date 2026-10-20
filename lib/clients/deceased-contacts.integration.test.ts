@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { evaluateEligibility } from "@/lib/messaging/eligibility"
+import { provisionContactForClient } from "@/lib/contact/provision"
 import {
   blockContactsForDeceasedClient, DECEASED_CONTACT_BLOCK_REASON, releaseContactsForRevivedClient,
 } from "@/lib/clients/deceased-contacts"
@@ -111,6 +112,18 @@ suite.sequential("deceased client contacts (real Postgres)", () => {
 
   it("the data migration blocks the Contacts of already-deceased clients, only CLIENT ones, and is idempotent", async () => {
     const sql = readFileSync(path.join(process.cwd(), "prisma/migrations/20261020040000_block_contacts_of_deceased_clients/migration.sql"), "utf8")
+    // One statement per call (the driver prepares them); the RLS bypass pair around the UPDATE is part of the file.
+    const statements = sql.split("\n").filter((line) => !line.startsWith("--")).join("\n").split(";").map((t) => t.trim()).filter(Boolean)
+    expect(statements.map((t) => t.split(/\s/)[0])).toEqual(["SELECT", "UPDATE", "SELECT"])
+    expect(statements[0]).toContain("app.rls_bypass")
+    const runMigration = async (tx: Pick<PrismaClient, "$executeRawUnsafe">) => {
+      let updated = 0
+      for (const statement of statements) {
+        const result = await tx.$executeRawUnsafe(statement)
+        if (statement.startsWith("UPDATE")) updated = result
+      }
+      return updated
+    }
     const dead = await client({ deceasedAt: new Date("2026-08-01T00:00:00Z") })
     const deadSuppressed = await client({ deceasedAt: new Date("2026-08-01T00:00:00Z"), blockedAt: new Date("2026-03-01T00:00:00Z") })
     const deadStaff = await client({ deceasedAt: new Date("2026-08-01T00:00:00Z"), status: "STAFF" })
@@ -119,8 +132,8 @@ suite.sequential("deceased client contacts (real Postgres)", () => {
     const seen: Record<string, unknown> = {}
 
     await db.$transaction(async (tx) => {
-      seen.first = await tx.$executeRawUnsafe(sql)
-      seen.second = await tx.$executeRawUnsafe(sql)
+      seen.first = await runMigration(tx)
+      seen.second = await runMigration(tx)
       seen.dead = await tx.contact.findUniqueOrThrow({ where: { id: dead.contactId } })
       seen.suppressed = await tx.contact.findUniqueOrThrow({ where: { id: deadSuppressed.contactId } })
       seen.staff = await tx.contact.findUniqueOrThrow({ where: { id: deadStaff.contactId } })
@@ -134,6 +147,19 @@ suite.sequential("deceased client contacts (real Postgres)", () => {
     expect(seen.suppressed).toMatchObject({ status: "BLOCKED", blockedAt: new Date("2026-03-01T00:00:00Z") })
     expect(seen.staff).toMatchObject({ status: "STAFF" })
     expect(seen.alive).toMatchObject({ status: "CLIENT", blockedReason: null })
+  })
+
+  it("a Contact provisioned for an already-deceased client starts BLOCKED with the marker, and a revived client gets it back", async () => {
+    const id = randomUUID().replaceAll("-", "").slice(0, 12)
+    const deceasedAt = new Date("2026-08-01T00:00:00Z")
+    const c = await db.client.create({
+      data: { tenantId: tenant.tenantId, idNumber: `93${id.slice(0, 11)}`, firstName: "Late", lastName: "Contact", email: `${id}@client.invalid`, phone: "0820000000", deceasedAt, deceasedReason: "synthetic" },
+    })
+    const { contact } = await db.$transaction((tx) => provisionContactForClient(tx as never, { tenantId: tenant.tenantId, clientId: c.id, email: `${id}@client.invalid` }))
+    expect(await contactRow(contact.id)).toMatchObject({ status: "BLOCKED", blockedReason: DECEASED_CONTACT_BLOCK_REASON })
+
+    await releaseContactsForRevivedClient(db as never, { ...scope(c.id), deceasedAt })
+    expect(await contactRow(contact.id)).toMatchObject({ status: "CLIENT", blockedReason: null, blockedAt: null })
   })
 
   it("a failing audit write rolls back the death, the Contact block and the audit row together", async () => {

@@ -7,7 +7,7 @@ import { triggerNotification } from "@/lib/notifications"
 import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commission"
 import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eligibility"
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
-import { isLoanHeld } from "@/lib/collections/client-holds"
+import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
 
 interface EscalationResult {
   processed: number
@@ -108,6 +108,15 @@ const RULES: EscalationRule[] = [
       const eligibility = evaluateCollectionsEligibility(ctx, "SECTION_129")
       if (!eligibility.eligible) {
         throw new Error(`Section 129 legal review not created: ${eligibility.reason}`)
+      }
+      // Debt review (NCA s.86) blocks Section 129 on every loan of the client: no
+      // legal-review flag while it stands. No note is written, so the check runs
+      // again on the next pass and the flag appears once the notice is cleared.
+      const debtReview = ctx.clientId
+        ? await section129DebtReviewReason(prisma, { tenantId: ctx.tenantId, clientId: ctx.clientId })
+        : null
+      if (debtReview) {
+        return `${ctx.loanRef}: Section 129 legal review not flagged at ${ctx.daysInArrears} DPD: ${debtReview}`
       }
       await createNote(
         ctx.loanId,

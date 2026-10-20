@@ -1,4 +1,5 @@
 import { DebtReviewPanel } from "@/components/collections/DebtReviewPanel"
+import { loadClientHold, siblingNoticeFrom } from "@/lib/collections/client-holds"
 import { RateNoticePanel } from "./RateNoticePanel"
 import { RateCorrectionPanel } from "./RateCorrectionPanel"
 import Link from "next/link"
@@ -88,9 +89,11 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
   /** act_on_collections: record/clear a debt-review notice on a consumer lease. The route re-checks. */
   canManageDebtReview?: boolean
 }) {
-  const [figures, invoice] = await Promise.all([
+  const [figures, invoice, clientHold] = await Promise.all([
     staffLoanFigures(prisma, { ...loan, tenantId }, new Date()),
     prisma.taxInvoice.findFirst({ where: { tenantId, loanId: loan.id }, orderBy: { number: "asc" }, select: { id: true, invoiceNumber: true } }),
+    // A consumer lease: the client's debt-review notice may sit on another of their loans.
+    loan.client ? loadClientHold(prisma, tenantId, loan.client.id) : Promise.resolve(null),
   ])
   const { charges, settlementAmount, balance, maturityBalance, arrears, waivable, chargesNotDerived } = figures
   const nextPayment = loan.repaymentSchedule.find((s) => s.totalDue > 0 && (s.status === "PENDING" || s.status === "PARTIAL"))
@@ -247,6 +250,7 @@ export async function StaffAssetLoanView({ loan, tenantId, userId, canManageLeas
           noticeAt={loan.debtReviewNoticeAt ?? null}
           noticeRef={loan.debtReviewNoticeRef ?? null}
           canManage={canManageDebtReview}
+          siblingNotice={siblingNoticeFrom(clientHold, loan.id)}
         />
       )}
 

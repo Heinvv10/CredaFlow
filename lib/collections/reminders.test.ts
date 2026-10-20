@@ -15,6 +15,8 @@ const triggerNotificationMock = vi.fn()
 const loanFindUniqueMock = vi.fn()
 const chargesOutstandingAtMock = vi.fn()
 
+const holds = vi.hoisted(() => ({ held: false }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenant: { findFirst: (a: unknown) => tenantFindFirstMock(a) },

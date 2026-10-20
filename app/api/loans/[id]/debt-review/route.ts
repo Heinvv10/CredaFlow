@@ -89,6 +89,10 @@ export async function POST(req: NextRequest, { params }: Params) {
         })
         if (!loan) return "NOT_FOUND" as const
         if (!loan.clientId) return "ENTITY_BORROWER" as const
+        // Section 129 dispatch locks this Client row before it checks for a notice on
+        // any of the client's loans; taking it here makes a notice on a sibling loan
+        // and an in-flight dispatch serialise instead of passing each other.
+        await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${loan.clientId} AND "tenantId" = ${tenant.id} FOR UPDATE`
         if (CLOSED_STATUSES.includes(loan.status)) return "CLOSED_LOAN" as const
         if (sastCalendarDate(noticeAt) < sastCalendarDate(loan.startDate)) return "BEFORE_START" as const
         if (loan.debtReviewNoticeAt) return "ALREADY_RECORDED" as const

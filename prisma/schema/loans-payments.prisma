@@ -229,6 +229,9 @@ model Loan {
   @@index([tenantId, status])
   @@index([agreementDocId])
   @@index([entityId])
+  // The client-level holds look up "any loan of this client" (debt review,
+  // lib/collections/dunning-holds.ts) on every reminder, send and S129 step.
+  @@index([clientId])
 
 }
 
