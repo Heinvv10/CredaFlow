@@ -88,10 +88,11 @@ describe("sendWhatsAppMessage dry-run id uniqueness", () => {
 })
 
 // The bridge uses the same single WA_ENABLED parser as every other WhatsApp
-// path (lib/whatsapp/env-switch.ts): only "false"/empty vetoes. It still needs
+// path (lib/whatsapp/env-switch.ts): unset or "true" is not vetoed, every other
+// value is (fail closed). It still needs
 // WA_SENDER_URL, which the next describe pins.
 describe("sendWhatsAppMessage WA_ENABLED semantics", () => {
-  it.each(["false", " FALSE ", "", "  "])("is disabled before the dry-run shim when WA_ENABLED=%j", async (value) => {
+  it.each(["false", " FALSE ", "", "  ", "0", "off", "ture"])("is disabled before the dry-run shim when WA_ENABLED=%j", async (value) => {
     vi.stubEnv("WA_ENABLED", value)
     await expect(sendWhatsAppMessage({ to: "27821234567", message: "x" })).resolves.toEqual({
       ok: false,

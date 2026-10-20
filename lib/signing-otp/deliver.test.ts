@@ -9,6 +9,7 @@ const cloud = { whatsappEnabled: true, waProvider: "WA_CLOUD", wabaPhoneNumberId
 const recipient = { firstName: "Thandi", lastName: "Test", email: "thandi@example.test", whatsapp: "0820000001" }
 
 beforeEach(() => {
+  vi.stubEnv("WA_ENABLED", undefined)
   commsSettingsFindUnique.mockResolvedValue(cloud)
 })
 afterEach(() => {

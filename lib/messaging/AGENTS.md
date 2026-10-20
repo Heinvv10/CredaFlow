@@ -33,15 +33,17 @@ gate + audit trail), with provider routing underneath it.
   the control; the per-callsite skips exist on top of it so each run reports
   honest per-leg accounting. Keep both — a documented invariant is not a
   control, and a callsite added later would bypass the skips.
-- **WhatsApp switches, one parser** (`lib/whatsapp/env-switch.ts`,
-  `kill-switch.ts`): `WA_ENABLED` exactly `false` (trimmed, any case) or empty
-  is OFF; unset or any other value defers to `CommsSettings.whatsappEnabled`
-  (Cloud-only deployments never set it); false there is OFF. Checked in
+- **WhatsApp switches, one parser, fail-closed** (`lib/whatsapp/env-switch.ts`,
+  `kill-switch.ts`): `WA_ENABLED` unset or `true` (trimmed, any case) defers to
+  `CommsSettings.whatsappEnabled` (Cloud-only deployments never set it); EVERY
+  other value, empty and typos included, is OFF; false there is OFF.
+  Non-production stacks pin `WA_ENABLED: "false"` in their compose files. Checked in
   `providers.ts` dispatch, `sendWhatsAppForTenant`, and as transport backstops
   in `sendWhatsAppCloudMessage` and BulkSMS `sendWhatsApp`, always before the
   dry-run branch and credentials. Refusals are DEFINITELY_REJECTED and say
   "WhatsApp disabled" (retry.ts: PERMANENT); an unreadable settings row also
-  refuses but with different wording (TRANSIENT) and no exception text. The
+  refuses but with different wording (TRANSIENT; only sendMessage retries) and
+  no exception text. The
   bridge also needs `WA_SENDER_URL`. OTP pickers use the same switch.
 - **A skipped leg must be VISIBLE and must not be an error.** Blocked/skipped
   accounting, never a silent drop, never an aborted cron.

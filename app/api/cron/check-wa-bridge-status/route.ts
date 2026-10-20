@@ -98,7 +98,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // land in the same catch as a real outage and email ADMINs a false CRITICAL
   // wherever WhatsApp simply isn't set up.
   //
-  // "Switched off" is WA_ENABLED=false/empty. WA_ENABLED UNSET with no
+  // "Switched off" is any WA_ENABLED other than true (fail-closed parser,
+  // lib/whatsapp/env-switch.ts). WA_ENABLED UNSET with no
   // WA_SENDER_URL is the same thing for a bridge: nobody opted in, and a
   // CRITICAL about a bridge no one configured is a false alarm. Set explicitly
   // without a URL, it still alerts below.

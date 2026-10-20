@@ -55,9 +55,12 @@ async function sendBulkSms(
   routingGroup?: string
 ): Promise<SmsResult> {
   if (isDryRun()) {
-    // Must stay the first branch — `lib/integrations/bulksms.test.ts`
-    // mocks `@/lib/prisma` with an empty object, so any DB call before
-    // this point throws TypeError under test.
+    // Must stay the first branch of sendBulkSms — `lib/integrations/
+    // bulksms.test.ts` mocks `@/lib/prisma` with an empty object, so any DB
+    // call before this point throws TypeError under test. (sendWhatsApp's
+    // kill-switch settings read happens BEFORE it, in sendWhatsApp itself, so
+    // a suite that runs the real sendWhatsApp must mock `@/lib/inbox/settings`;
+    // sendSms reads no settings.)
     //
     // Unique per call so multiple dry-run sends don't collide on
     // Message @@unique([provider, providerMessageId]) in the new-send path.

@@ -31,6 +31,7 @@ describe("getChannelAvailability", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv("WA_ENABLED", undefined)
     // Default: no consent rows found on either the exact-channel or the
     // ALL_CHANNELS fallback query.
     vi.mocked(prisma.contactConsent.findFirst).mockResolvedValue(null as any)

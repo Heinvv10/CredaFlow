@@ -17,6 +17,7 @@ import { prisma } from "@/lib/prisma"
 import { sendWhatsAppCloudMessage } from "./whatsapp-cloud"
 
 beforeEach(() => {
+  vi.stubEnv("WA_ENABLED", undefined)
   getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: true })
 })
 

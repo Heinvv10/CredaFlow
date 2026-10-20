@@ -18,6 +18,7 @@ vi.mock("@/lib/inbox/settings", () => ({ getCommsSettings: getCommsSettingsMock 
 import { bulkSmsHttpFailureOutcome, sendSms, sendWhatsApp } from "./bulksms"
 
 beforeEach(() => {
+  vi.stubEnv("WA_ENABLED", undefined)
   getCommsSettingsMock.mockResolvedValue({ whatsappEnabled: true })
 })
 

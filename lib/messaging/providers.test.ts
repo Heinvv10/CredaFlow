@@ -397,6 +397,7 @@ describe("dispatch WHATSAPP kill switches", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv("WA_ENABLED", undefined)
     vi.mocked(getCommsSettings).mockResolvedValue({ whatsappEnabled: true } as never)
     vi.mocked(sendWhatsAppCloudMessage).mockResolvedValue({ ok: true, messageId: "wamid.ks" })
     vi.mocked(sendWhatsAppMessage).mockResolvedValue({ ok: true, messageId: "wa-ks" })
@@ -432,12 +433,21 @@ describe("dispatch WHATSAPP kill switches", () => {
     expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
   })
 
-  it("any other WA_ENABLED value defers to the tenant switch: TRUE, ' true ', 0, ture all send", async () => {
-    for (const v of ["TRUE", " true ", "0", "ture"]) {
+  it("true (any case, padded) defers to the tenant switch and sends", async () => {
+    for (const v of ["true", "TRUE", " true "]) {
       vi.stubEnv("WA_ENABLED", v)
       await dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts)
     }
-    expect(sendWhatsAppCloudMessage).toHaveBeenCalledTimes(4)
+    expect(sendWhatsAppCloudMessage).toHaveBeenCalledTimes(3)
+  })
+
+  it("every other WA_ENABLED value is off (fails closed): 0, off, no, ture", async () => {
+    for (const v of ["0", "off", "no", "ture"]) {
+      vi.stubEnv("WA_ENABLED", v)
+      await expect(dispatch("WHATSAPP", "WA_CLOUD", rendered, cloudOpts), `WA_ENABLED=${v}`)
+        .rejects.toMatchObject({ outcome: "DEFINITELY_REJECTED" })
+    }
+    expect(sendWhatsAppCloudMessage).not.toHaveBeenCalled()
   })
 
   it("tenant whatsappEnabled=false refuses WA_CLOUD with no Cloud call, even with WA_ENABLED=true", async () => {
