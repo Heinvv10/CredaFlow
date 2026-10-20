@@ -118,6 +118,10 @@ suite.sequential("telematics last known position: who, why, when, logged (real D
     const startOfNew = (await database().loan.findUniqueOrThrow({ where: { id: ids.loan } })).startDate
     expect((mine as { position: { occurredAt: string } }).position.occurredAt >= startOfNew.toISOString()).toBe(true)
     expect((old as { position: { occurredAt: string } }).position.occurredAt < startOfNew.toISOString()).toBe(true)
+    // A tenure that has not begun shows nothing, though the asset has older positions.
+    await testSetup(database(), [`UPDATE "Loan" SET "startDate" = now() + INTERVAL '1 day' WHERE "id" = $1`, ids.loan])
+    expect(await revealPosition(collector, ids.loan, { context: "RECOVERY" }, meta)).toEqual({ kind: "ok", none: true })
+    await testSetup(database(), [`UPDATE "Loan" SET "startDate" = $2 WHERE "id" = $1`, ids.loan, startOfNew])
     // Retention 1 day: the view filters even before the purge has run.
     await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { telematicsPositionRetentionDays: 1 } })
     await testSetup(database(), [`UPDATE "TelematicsPosition" SET "occurredAt" = "occurredAt" - INTERVAL '2 days' WHERE "deviceId" = $1`, ids.device])
