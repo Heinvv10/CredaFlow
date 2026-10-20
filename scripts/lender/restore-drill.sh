@@ -86,6 +86,10 @@ services:
       HOSTNAME: 0.0.0.0
       APP_MODE: staff
       NEXTAUTH_URL: http://127.0.0.1
+      # A real backup restores whatsappEnabled=true and sealed WABA credentials;
+      # unset WA_ENABLED would defer to that, so pin WhatsApp off here
+      # (lib/whatsapp/env-switch.ts).
+      WA_ENABLED: "false"
     ports: ["127.0.0.1::3300"]
     volumes: [uploads:/app/uploads]
 volumes:

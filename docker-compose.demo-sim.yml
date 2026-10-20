@@ -94,6 +94,11 @@ services:
       # The simulator signs agreements with the code DEMO_MODE reveals for .invalid mailboxes.
       DEMO_MODE: "true"
       DEMO_SIM_MANUAL_CRON: "true"
+      # Non-production: WhatsApp is hard off here. An unset WA_ENABLED defers to
+      # the tenant switch (a baked snapshot can carry whatsappEnabled=true), and
+      # `environment:` wins over .env.demo-sim, so this cannot be undone by an
+      # untracked env file (lib/whatsapp/env-switch.ts).
+      WA_ENABLED: "false"
     entrypoint: ["sh", "/sim/faketime-entrypoint.sh", "docker-entrypoint.sh"]
     command: ["node", "server.js"]
     healthcheck:

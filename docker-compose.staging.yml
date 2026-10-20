@@ -30,6 +30,11 @@ services:
       GIT_SHA: ${GIT_SHA:-unknown}
       BUILD_TIME: ${BUILD_TIME:-unknown}
       NEXTAUTH_URL: ${NEXTAUTH_URL:?set NEXTAUTH_URL to the staging origin}
+      # Non-production: WhatsApp is hard off. Unset would defer to the tenant
+      # switch, and a staging db restored from production carries
+      # whatsappEnabled=true plus sealed credentials. `environment:` wins over
+      # .env.staging (lib/whatsapp/env-switch.ts).
+      WA_ENABLED: "false"
     ports:
       - "127.0.0.1:3301:3300"
     restart: unless-stopped

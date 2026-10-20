@@ -6,7 +6,8 @@
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email/service"
 import { sendSms } from "@/lib/integrations/bulksms"
-import { WA_TEMPLATES, isWaEnabled } from "@/lib/whatsapp"
+import { WA_TEMPLATES } from "@/lib/whatsapp"
+import { isWaEnvOff } from "@/lib/whatsapp/env-switch"
 import { waTemplateVarsFor } from "@/lib/whatsapp/template-vars"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
 import { getLenderIdentity, type LenderIdentity } from "@/lib/config/identity"
@@ -45,6 +46,7 @@ import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 import type { Channel, MessageTemplate } from "@prisma/client"
 import { notifyEntityBorrower } from "@/lib/asset-finance/entity-notifications"
+import { legacySuppressedLegs } from "@/lib/notifications/legacy-consent"
 
 export type NotificationEvent =
   | "application_submitted"
@@ -925,8 +927,18 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // `simulated` NotificationLog row. It is recorded as `blocked` with the
   // reason named, never silently dropped.
   const smsEnabled = isSmsChannelEnabled()
-  const sends: Array<{ name: "email" | "sms" | "whatsapp"; promise: Promise<unknown> }> = [
-    { name: "email", promise: sendEmail({
+  // Every event on this path gets the blocked / opt-out gate the new-send path
+  // applies (lib/notifications/legacy-consent.ts). section129_sent is
+  // statutory: only a BLOCKED contact suppresses it, an opt-out never does.
+  // A suppressed leg is not dispatched and is logged `blocked` with the
+  // reason, never silently dropped.
+  const suppressedLegs = await legacySuppressedLegs(opts.tenantId, client, {
+    blockedOnly: opts.event === "section129_sent",
+  })
+  const sends: Array<{ name: "email" | "sms" | "whatsapp"; promise: Promise<unknown> }> = []
+
+  if (!suppressedLegs.email) {
+    sends.push({ name: "email", promise: sendEmail({
       tenantId: opts.tenantId,
       to: client.email,
       toName: fullName,
@@ -935,10 +947,10 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       text: template.text,
       category: opts.event,
       referenceId: opts.loanId,
-    }) },
-  ]
+    }) })
+  }
 
-  if (smsEnabled) {
+  if (smsEnabled && !suppressedLegs.sms) {
     sends.push({ name: "sms", promise: sendSms({
       tenantId: opts.tenantId,
       to: client.phone,
@@ -959,7 +971,10 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       status: "blocked",
       error: opts.suppressWhatsAppReason,
     })
-  } else if (waMessage && isWaEnabled()) {
+  } else if (waMessage && suppressedLegs.whatsapp) {
+    // Consent suppression: not dispatched; the single `blocked` row is written
+    // with the result logs below.
+  } else if (waMessage && !isWaEnvOff()) {
     // Mirrors the reach of the manual sendWhatsAppMessage() calls this PR
     // removed from decide/route.ts and disburse/route.ts (client.whatsapp
     // ?? client.phone) — using client.phone only would have narrowed WA
@@ -984,7 +999,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // whenever SMS was skipped. An absent key means "not attempted".
   const settled = await Promise.allSettled(sends.map((s) => s.promise))
   const byName = new Map(sends.map((s, i) => [s.name, settled[i]]))
-  const emailResult = byName.get("email")!
+  const emailResult = byName.get("email")
   const waResult = byName.get("whatsapp")
 
   type LegacyProviderResult = {
@@ -999,11 +1014,13 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
     ok: false,
     providerOutcome: "DEFINITELY_REJECTED",
   }
-  const emailValue = emailResult.status === "fulfilled"
+  // Absent only when the email leg was suppressed; that case is logged from
+  // `suppressedLegs` below and these derived values are then unused.
+  const emailValue = emailResult?.status === "fulfilled"
     ? emailResult.value as LegacyProviderResult
     : rejectedResult
   const emailError =
-    emailResult.status === "rejected"
+    emailResult?.status === "rejected"
       ? String(emailResult.reason)
       : !emailValue.ok
         ? emailValue.error
@@ -1027,12 +1044,21 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       clientId: client.id,
       event: opts.event,
       channel: "email",
-      status: notificationLogStatusFromProviderResult(emailValue),
-      error: emailError,
+      status: suppressedLegs.email ? "blocked" : notificationLogStatusFromProviderResult(emailValue),
+      error: suppressedLegs.email ?? emailError,
     }),
   ]
 
-  if (smsEnabled) {
+  if (smsEnabled && suppressedLegs.sms) {
+    logs.push(logNotification(opts.tenantId, {
+      loanId: opts.loanId,
+      clientId: client.id,
+      event: opts.event,
+      channel: "sms",
+      status: "blocked",
+      error: suppressedLegs.sms,
+    }))
+  } else if (smsEnabled) {
     // Computed here rather than above so nothing derives a provider outcome
     // from a leg that was never dispatched.
     const smsResult = byName.get("sms")!
@@ -1074,8 +1100,8 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       clientId: client.id,
       event: opts.event,
       channel: "whatsapp",
-      status: notificationLogStatusFromProviderResult(waValue),
-      error: waError,
+      status: suppressedLegs.whatsapp ? "blocked" : notificationLogStatusFromProviderResult(waValue),
+      error: suppressedLegs.whatsapp ?? waError,
     }))
   }
 

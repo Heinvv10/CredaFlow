@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto"
 import { prisma } from "@/lib/prisma"
 import { normalizePhone, waHttpFailureOutcome, type WaResult } from "./whatsapp"
 import { getWabaCreds } from "./whatsapp-cloud-config"
+import { whatsappRefusalForTenant } from "./whatsapp/kill-switch"
 import { resolveWaSendMode, WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "./whatsapp/send-mode"
 import type { WaTemplateRef } from "./whatsapp/template-components"
 
@@ -51,6 +52,14 @@ async function readWaWindow(tenantId: string, contactId: string | undefined): Pr
 }
 
 export async function sendWhatsAppCloudMessage(opts: CloudSendOptions): Promise<WaResult> {
+  // Transport-level backstop: the WhatsApp kill switches (WA_ENABLED, tenant
+  // whatsappEnabled) apply here too, so a future direct caller cannot bypass
+  // the checks dispatch() and sendWhatsAppForTenant() make. First, so a refused
+  // send never loads credentials, touches the network, or reaches the dry-run
+  // branch below, which would report a simulated success.
+  const refusal = await whatsappRefusalForTenant(opts.tenantId)
+  if (refusal) return { ok: false, error: refusal, providerOutcome: "DEFINITELY_REJECTED" }
+
   if (process.env.NODE_ENV === "test" || process.env.WA_DRY_RUN === "true") {
     return { ok: true, messageId: `dry-run-${randomUUID()}`, simulated: true }
   }

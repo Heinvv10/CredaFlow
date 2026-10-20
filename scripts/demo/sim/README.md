@@ -13,6 +13,7 @@ image and Postgres under one fake clock, on `127.0.0.1:3320` (app) and
 # NEXTAUTH_URL/AUTH_URL=http://localhost:3320,
 # NEXT_PUBLIC_TENANT_SLUG=acme, TENANT_HOST_MAP=localhost=acme,127.0.0.1=acme,
 # the live demo's *_DRY_RUN / SIMULATED_INTEGRATIONS settings, VLM_API_URL,
+# (WA_ENABLED=false is pinned by docker-compose.demo-sim.yml itself),
 # public link origins (PORTAL_PUBLIC_ORIGIN, NEXT_PUBLIC_PORTAL_URL,
 # NEXT_PUBLIC_WEBSITE_URL, NEXT_PUBLIC_APP_URL = https://demo.credaflow.com)
 # and DEBIT_MANDATE_CREDITOR_TENANT_ID (rewritten by fresh-stack.sh).
