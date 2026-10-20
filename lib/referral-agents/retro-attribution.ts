@@ -67,7 +67,7 @@ export const WITHHELD_COMMISSION_STATUSES = new Set(["BLOCKED", "NOT_ELIGIBLE"])
  * rule allows them.
  *
  * RESTRUCTURED is eligible under BACKFILL_ELIGIBLE_LOAN_STATUSES, but NO
- * clawback can reach it: app/api/cron/dpd-update/route.ts:88 and
+ * clawback can reach it: lib/loan/dpd-update.ts (the 90-DPD clawback) and
  * lib/collections/escalation.ts:111 both scope to ACTIVE/DEFAULTED. Accruing
  * here would drop a PENDING row into the LOAN_ADMIN payout queue on a loan no
  * reversal path can ever touch — and dpd-update:83-87 records that this exact

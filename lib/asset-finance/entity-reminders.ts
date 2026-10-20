@@ -1,13 +1,11 @@
 /**
- * Payment reminders for an entity-borrower loan, called by the two reminder
- * crons where they skip a loan with no `Client`:
+ * Payment reminders for an entity-borrower loan, called by the reminder
+ * cron where it skips a loan with no `Client`:
  *  - lib/collections/reminders.ts (the dunning triggers: 7, 1 and 0 days
  *    before due, 1 and 3 days after): the trigger's WhatsApp leg. Its SMS leg
  *    is never sent for an entity (SMS is off by policy, and an entity notice
  *    has no SMS copy). The overdue triggers' `loan_overdue` email goes through
  *    triggerNotification, which routes an entity loan to ./entity-notifications.ts.
- *  - app/api/cron/payment-reminders (the 3-day courtesy reminder): email and
- *    WhatsApp.
  * Recipients, wording and dispatch: ./entity-contacts.ts, ./entity-notices.ts,
  * ./entity-dispatch.ts. Always the sendMessage() pipeline, whatever the
  * crons' legacy/new-send flags say: there is no legacy entity path to keep.
@@ -44,8 +42,12 @@ export interface EntityReminderResult {
   uncertain: boolean
   /** some leg failed for a reason a later run could fix */
   failed: boolean
-  /** "<name> <channel>: <status> (<reason>)" per leg, for notes and cron details */
+  /** A database fault that failed a leg: the cron rethrows it so the tenant fails and is retried. */
+  fault: unknown
+  /** "recipient N <channel>: <status> (<reason>)" per leg: names no one, for the cron's report */
   summary: string
+  /** The same with each recipient's name: for the LoanNote, a staff record */
+  namedSummary: string
 }
 
 export async function sendEntityReminder(args: {
@@ -87,7 +89,9 @@ export async function sendEntityReminder(args: {
     reached: outcomes.some(reachedProvider),
     uncertain: outcomes.some((o) => o.status === "pending" || o.status === "reconciliation"),
     failed: outcomes.some((o) => o.status === "failed"),
-    summary: describeEntityOutcomes(outcomes, names),
+    fault: outcomes.find((o) => o.fault !== undefined)?.fault ?? null,
+    summary: describeEntityOutcomes(outcomes),
+    namedSummary: describeEntityOutcomes(outcomes, names),
   }
 }
 
@@ -103,7 +107,7 @@ export async function recordEntityReminder(
       tenantId,
       loanId: loan.id,
       type,
-      note: `Automated reminder to the directors, trustees and authorised signatories of ${loan.entityName}: ${result.summary}`,
+      note: `Automated reminder to the directors, trustees and authorised signatories of ${loan.entityName}: ${result.namedSummary}`,
       createdBy: "system",
     },
   })

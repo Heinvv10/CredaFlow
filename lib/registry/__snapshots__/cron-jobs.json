@@ -1,11 +1,6 @@
 {
   "scheduled": [
     {
-      "schedule": "0 7 * * *",
-      "route": "payment-reminders",
-      "method": "GET"
-    },
-    {
       "schedule": "0 6 * * *",
       "route": "insurance-renewal",
       "method": "POST"
@@ -103,10 +98,6 @@
   ],
   "freshnessMinutes": [
     [
-      "payment-reminders",
-      1560
-    ],
-    [
       "insurance-renewal",
       1560
     ],
@@ -185,12 +176,9 @@
   ],
   "externallyScheduled": [
     "cleanup-notifications",
-    "dpd-update",
     "email-poll",
-    "escalations",
     "lead-task-reminders",
-    "messaging-retry",
-    "reminders"
+    "messaging-retry"
   ],
   "intentionallyUnwired": [
     "automation-engine",

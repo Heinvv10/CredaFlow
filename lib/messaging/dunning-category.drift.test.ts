@@ -25,8 +25,6 @@ const SENDERS: { file: string; pattern: RegExp }[] = [
   { file: "app/api/collections/[loanId]/reminder/route.ts", pattern: /category:\s*"([a-z_0-9]+)"/g },
   { file: "app/api/loans/[id]/collections-stage/route.ts", pattern: /category:\s*"([a-z_0-9]+)"/g },
   { file: "app/api/notifications/payment/route.ts", pattern: /category:\s*"([a-z_0-9]+)"/g },
-  // The payment-reminders cron passes its NOTE_TYPE as the category.
-  { file: "app/api/cron/payment-reminders/route.ts", pattern: /const NOTE_TYPE\s*=\s*"([a-z_0-9]+)"/g },
   // lib/notifications.ts passes the event name as the category: the overdue events.
   { file: "lib/notifications.ts", pattern: /\|\s*"(loan_overdue[a-z_0-9]*)"/g },
 ]

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { Prisma } from "@prisma/client"
 
 // The collections reminder cron for an ENTITY borrower (asset finance, goal
 // §4.11): no Client, so each trigger's WhatsApp leg goes to the entity's
@@ -19,17 +20,30 @@ const m = vi.hoisted(() => ({
   lookupContact: vi.fn(),
   triggerNotification: vi.fn(),
   chargesOutstandingAt: vi.fn(),
+  emailConfigFindUnique: vi.fn(),
 }))
 
 const holds = vi.hoisted(() => ({ held: false }))
-vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
+vi.mock("@/lib/collections/client-holds", () => ({ isLoanRemindable: async () => !holds.held }))
+const ensureDpdCurrentMock = vi.fn()
+const reserveOnceMock = vi.fn()
+const releaseReservationMock = vi.fn()
+vi.mock("@/lib/ops/send-reservation", () => ({
+  reserveOnce: (...a: unknown[]) => reserveOnceMock(...a),
+  releaseReservation: (...a: unknown[]) => releaseReservationMock(...a),
+}))
+const seedDefaultMessageTemplatesMock = vi.fn()
+vi.mock("@/lib/messaging/default-templates", () => ({ seedDefaultMessageTemplates: (...a: unknown[]) => seedDefaultMessageTemplatesMock(...a) }))
+vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenant: { findFirst: m.tenantFindFirst },
+    tenant: { findMany: async (a: unknown) => { const t = await m.tenantFindFirst(a); return Array.isArray(t) ? t : t ? [t] : [] } },
     loan: { findMany: m.loanFindMany },
     repaymentSchedule: { findFirst: m.scheduleFindFirst },
     loanNote: { findFirst: m.loanNoteFindFirst, create: m.loanNoteCreate },
     messageTemplate: { findFirst: m.templateFindFirst },
+    tenantConfig: { findUnique: async () => ({}) },
+    emailConfig: { findUnique: m.emailConfigFindUnique },
     entityRelationship: { findMany: m.relationshipFindMany },
   },
 }))
@@ -85,6 +99,8 @@ beforeEach(() => {
   m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
   m.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
   m.triggerNotification.mockResolvedValue(undefined)
+  m.emailConfigFindUnique.mockResolvedValue({ active: true })
+  reserveOnceMock.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -101,17 +117,25 @@ describe("processPaymentReminders — entity borrower", () => {
     expect(where.role.in).not.toContain("SURETY")
   })
 
-  it("1 day before due: one WhatsApp per person (never SMS), entity-naming template, a LoanNote", async () => {
+  it("1 day before due: one WhatsApp and one email per person (never SMS), entity-naming templates, a LoanNote", async () => {
     m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
     const r = await processPaymentReminders()
 
     expect(m.sendSms).not.toHaveBeenCalled()
     expect(m.sendWhatsApp).not.toHaveBeenCalled()
     const calls = m.sendMessage.mock.calls.map(([a]) => a as { channel: string; template: { key: string }; vars: Record<string, string>; idempotencyKey: string })
-    expect(calls.map((c) => c.channel)).toEqual(["WHATSAPP", "WHATSAPP"])
-    expect(calls.every((c) => c.template.key === "entity_payment_due_whatsapp")).toBe(true)
-    expect(calls[0].vars).toMatchObject({ firstName: "Jane", entityName: "TEST Earthmoving (Pty) Ltd", reference: "LN-AF-1", amount: "R 3,123.45" })
-    expect(new Set(calls.map((c) => c.idempotencyKey)).size).toBe(2)
+    const whatsapp = calls.filter((c) => c.channel === "WHATSAPP")
+    const email = calls.filter((c) => c.channel === "EMAIL")
+    expect(calls).toHaveLength(4)
+    expect(whatsapp).toHaveLength(2)
+    expect(email).toHaveLength(2)
+    expect(whatsapp.every((c) => c.template.key === "entity_payment_due_whatsapp")).toBe(true)
+    expect(email.every((c) => c.template.key === "entity_reminder_email")).toBe(true)
+    expect(whatsapp[0].vars).toMatchObject({ firstName: "Jane", entityName: "TEST Earthmoving (Pty) Ltd", reference: "LN-AF-1", amount: "R 3,123.45" })
+    expect(new Set(calls.map((c) => c.idempotencyKey)).size).toBe(4)
+    // The report names the loan, not the borrower.
+    expect(r.details.join("\n")).not.toContain("TEST Earthmoving")
+    expect(r.details.join("\n")).toContain("LN-AF-1")
     expect(m.loanNoteCreate).toHaveBeenCalledTimes(1)
     expect(m.loanNoteCreate.mock.calls[0][0].data).toMatchObject({ loanId: "loan_af", type: "reminder_1d" })
     // The amount is the next instalment that asks for money, never a skip period's R0.00 row.
@@ -135,13 +159,118 @@ describe("processPaymentReminders — entity borrower", () => {
     expect(opts.suppressWhatsAppReason).toContain("reminder_overdue_3d")
   })
 
-  it("a person without WhatsApp is skipped and reported; no LoanNote when nobody was reached", async () => {
+  // The consumer email leg is skipped for a tenant that cannot send email (reminders.ts,
+  // emailLegSkipReason); the entity leg is the same pre-due email, so it must be too.
+  it.each([
+    ["has no active email provider", () => m.emailConfigFindUnique.mockResolvedValue({ active: false })],
+    ["has no email provider row", () => m.emailConfigFindUnique.mockResolvedValue(null)],
+    ["has no entity_reminder_email template", () => m.templateFindFirst.mockImplementation(async (a: { where: { key: string; channel: string } }) =>
+      a.where.key === "entity_reminder_email" ? null : {
+        id: `tpl_${a.where.key}`, tenantId: "tenant_acme", key: a.where.key, channel: a.where.channel,
+        statutoryOverride: false, body: "{{body}}", bodyTemplate: null,
+      })],
+  ])("an entity loan, 1 day before due, for a tenant that %s: the WhatsApp goes, the email leg is skipped with one warning", async (_name, arrange) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    arrange()
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+
+    const channels = m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel)
+    expect(channels).toEqual(["WHATSAPP", "WHATSAPP"])
+    expect(r.warnings).toBe(1)
+    expect(r.errors).toBe(0)
+    expect(r.details.filter((d) => d.startsWith("Warning: email reminder leg skipped"))).toHaveLength(1)
+  })
+
+  it("a recipient with no Contact row is reported without the address or number", async () => {
+    m.lookupContact.mockResolvedValue(null)
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+    expect(r.details.join("\n")).toContain("No Contact row")
+    expect(r.details.join("\n")).not.toMatch(/example\.test|0820000|27820000/)
+  })
+
+  it("an unusable consumer email template does not switch off the entity email leg", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    m.templateFindFirst.mockImplementation(async (a: { where: { key: string; channel: string } }) =>
+      a.where.key === "payment_reminder_email" ? null : {
+        id: `tpl_${a.where.key}`, tenantId: "tenant_acme", key: a.where.key, channel: a.where.channel,
+        statutoryOverride: false, body: "{{body}}", bodyTemplate: null,
+      })
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+    expect(m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel).sort()).toEqual(["EMAIL", "EMAIL", "WHATSAPP", "WHATSAPP"])
+    expect(r.warnings).toBe(1)
+  })
+
+  it("a database fault inside an entity send fails the tenant, and the leg that did go out is still recorded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.sendMessage.mockResolvedValueOnce({ id: "msg", status: "SENT" }).mockRejectedValue(new Prisma.PrismaClientInitializationError("can't reach", "5.22.0"))
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
+    const r = await processPaymentReminders()
+    expect(r.failedTenants).toBe(1)
+    expect(m.loanNoteCreate, "the WhatsApp that went out has its note").toHaveBeenCalledTimes(1)
+  })
+
+  it("a database fault in the entity overdue notification fails the tenant; any other error is that loan's", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+    m.triggerNotification.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("closed", { code: "P1017", clientVersion: "5.22.0" }))
+    expect((await processPaymentReminders()).failedTenants).toBe(1)
+    m.triggerNotification.mockRejectedValue(new Error("smtp"))
+    const r = await processPaymentReminders()
+    expect(r.errors).toBeGreaterThan(0)
+    expect(r.details.join("\n")).toContain("loan_overdue: failed")
+  })
+
+  it("one entity loan's failure is counted and the next loan is still reminded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    m.relationshipFindMany.mockRejectedValueOnce(new Error("connection reset"))
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(1), { ...entityLoanDueIn(1), id: "loan_af2", reference: "LN-AF-2" }])
+    const r = await processPaymentReminders()
+    expect(r.failedTenants).toBe(0)
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error LN-AF-1: failed; see the server log")
+    expect(m.sendMessage.mock.calls.length, "the second loan is reminded").toBeGreaterThan(0)
+  })
+
+  it("a person without WhatsApp is skipped and reported, their email still goes; no LoanNote when nobody was reached", async () => {
     m.relationshipFindMany.mockResolvedValue([person("cl_jane", "Jane", null)])
     m.loanFindMany.mockResolvedValue([entityLoanDueIn(1)])
     const r = await processPaymentReminders()
+    expect(m.sendMessage.mock.calls.map(([a]) => (a as { channel: string }).channel)).toEqual(["EMAIL"])
+    expect(m.loanNoteCreate).toHaveBeenCalledTimes(1)
+    // The report names no person; the LoanNote (a staff record) does.
+    expect(r.details.join("\n")).toContain("recipient 1 whatsapp: skipped (No WhatsApp on file)")
+    expect(r.details.join("\n")).not.toContain("Jane")
+    expect(m.loanNoteCreate.mock.calls[0][0].data.note).toContain("Jane Testperson")
+
+    m.sendMessage.mockClear()
+    m.loanNoteCreate.mockClear()
+    m.relationshipFindMany.mockResolvedValue([{ client: { id: "cl_x", firstName: "Xi", lastName: "Testperson", email: null, whatsapp: null } }])
+    await processPaymentReminders()
     expect(m.sendMessage).not.toHaveBeenCalled()
     expect(m.loanNoteCreate).not.toHaveBeenCalled()
-    expect(r.details.join("\n")).toContain("Jane Testperson whatsapp: skipped (No WhatsApp on file)")
+  })
+
+  it("the entity loan_overdue notice is reserved once per loan and day, and given back if it failed", async () => {
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+    reserveOnceMock.mockResolvedValue(false)
+    await processPaymentReminders()
+    expect(m.triggerNotification).not.toHaveBeenCalled()
+
+    reserveOnceMock.mockResolvedValue(true)
+    m.triggerNotification.mockRejectedValue(new Error("smtp"))
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    await processPaymentReminders()
+    expect(reserveOnceMock).toHaveBeenCalledWith("tenant_acme", "send:loan_af:reminder_overdue_3d:loan_overdue", expect.any(Date))
+    expect(releaseReservationMock).toHaveBeenCalledWith("send:loan_af:reminder_overdue_3d:loan_overdue", reserveOnceMock.mock.calls.at(-1)![2])
+  })
+
+  it("an overdue trigger sends the entity WhatsApp only: its email is the loan_overdue notification", async () => {
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(-1)])
+    await processPaymentReminders()
+    expect(m.sendMessage.mock.calls.every(([a]) => (a as { channel: string }).channel === "WHATSAPP")).toBe(true)
   })
 
   it("a missing entity template fails that leg loudly, never falling back to the consumer copy", async () => {

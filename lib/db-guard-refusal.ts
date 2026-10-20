@@ -22,7 +22,8 @@ export const GENERIC_GUARD_REFUSAL = "The change breaks one of the lender's data
 
 type Found = { code: string; message: string | null }
 
-function sqlStateOf(error: unknown): Found | null {
+/** The SQLSTATE (and the server's sentence) a Prisma error carries in its own fields, or null. */
+export function sqlStateOf(error: unknown): Found | null {
   let current: unknown = error
   for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
     const connector = CONNECTOR_ERROR.exec(current.message)

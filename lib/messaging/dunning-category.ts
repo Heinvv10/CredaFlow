@@ -18,7 +18,7 @@ export const DUNNING_MESSAGE_CATEGORIES: ReadonlySet<string> = new Set([
   "collections_stage_reminder",
   // app/api/collections/[loanId]/reminder/route.ts
   "manual_reminder",
-  // app/api/cron/payment-reminders, app/api/notifications/payment, entity reminders
+  // app/api/notifications/payment, entity reminders
   "payment_due_reminder",
   // lib/notifications.ts passes the event name as the category
   "loan_overdue",
@@ -29,3 +29,36 @@ export const DUNNING_MESSAGE_CATEGORIES: ReadonlySet<string> = new Set([
 export function isDunningCategory(category: string | undefined | null): boolean {
   return category != null && DUNNING_MESSAGE_CATEGORIES.has(category)
 }
+
+/**
+ * The loan an AUTOMATED dunning message was sent about, read from its idempotency
+ * key (Message has no loan column), and whether it is a NOTICE rather than a
+ * reminder:
+ *  - `collections:<loanId>:<reminder>:...` from the reminders cron: a reminder.
+ *  - `entity-notice:<loanId>:<occurrence>:...` from an entity borrower's: a reminder,
+ *    except `loan_overdue` (lib/asset-finance/entity-notifications.ts), which is the
+ *    entity's 60-DPD DEFAULTED notice.
+ *  - `notification:loan_overdue:<loanId>:...`, the consumer loan_overdue
+ *    notification, which is also the 60-DPD DEFAULTED notice.
+ * A notice must still reach a DEFAULTED loan (the escalation cron flips the loan
+ * first, then sends it) and its wording is not dated, so it is not expired at the
+ * end of its day. Null for anything else.
+ *
+ * A staff reminder (`manual-reminder:`) and a stage WhatsApp (`collections-stage:`)
+ * are null on purpose: staff chose to write, and keep an arrangement or an
+ * attorney-referred loan open (lib/collections/.claude.md), so the retry sweep
+ * holds only the automated ones for a loan hold (lib/messaging/retry.ts).
+ */
+export function automatedDunningLoan(idempotencyKey: string | null | undefined): AutomatedDunningLoan | null {
+  const key = idempotencyKey ?? ""
+  // `overdue`: a reminder for a missed payment (the `reminder_overdue_*` triggers), whose point is the arrears.
+  const collections = /^collections:([^:]+):([^:]+):/.exec(key)
+  if (collections) return { loanId: collections[1], notice: false, overdue: collections[2].startsWith("reminder_overdue"), occurrence: collections[2] }
+  const entity = /^entity-notice:([^:]+):([^:]+):/.exec(key)
+  if (entity) return { loanId: entity[1], notice: entity[2].startsWith("loan_overdue"), overdue: entity[2].startsWith("reminder_overdue"), occurrence: entity[2] }
+  const notice = /^notification:loan_overdue[a-z0-9_]*:([^:]+):/.exec(key)
+  return notice ? { loanId: notice[1], notice: true, overdue: false, occurrence: "" } : null
+}
+
+/** `occurrence`: the trigger a cron reminder was queued for (`reminder_1d`, ...; the key's third segment), "" for the consumer notification. */
+export type AutomatedDunningLoan = { loanId: string; notice: boolean; overdue: boolean; occurrence: string }

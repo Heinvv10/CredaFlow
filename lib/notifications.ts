@@ -442,14 +442,14 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
   try {
     if (opts.clientId) {
       return await prisma.client.findUnique({
-        where: { id: opts.clientId },
+        where: { id: opts.clientId, tenantId: opts.tenantId },
         select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true },
       })
     }
     if (opts.loanId) {
       // loanId may be a Loan.id or LoanApplication.id depending on the event
       const loan = await prisma.loan.findUnique({
-        where: { id: opts.loanId },
+        where: { id: opts.loanId, tenantId: opts.tenantId },
         include: {
           client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },
@@ -457,7 +457,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       if (loan?.client) return loan.client
 
       const app = await prisma.loanApplication.findUnique({
-        where: { id: opts.loanId },
+        where: { id: opts.loanId, tenantId: opts.tenantId },
         include: {
           client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },

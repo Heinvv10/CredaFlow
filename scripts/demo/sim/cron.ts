@@ -9,11 +9,13 @@
  * Auth: lib/cron-auth.ts compares the `x-cron-secret` header to CRON_SECRET
  * (timing-safe). /api/cron/* is on the proxy's public-operational allowlist.
  *
- * Times come from instrumentation.ts where it schedules the job. The systemd
- * timers (dpd-update, escalations, reminders, lead-task-reminders,
- * messaging-retry, cleanup-notifications) live on a deploy host, not in the
- * repo, so their slots here are chosen to respect data dependencies:
- * charges and DPD settle before escalations and reminders read them.
+ * Times come from lib/registry/cron-jobs/ where instrumentation.ts schedules
+ * the job. The systemd timers (lead-task-reminders, messaging-retry,
+ * cleanup-notifications) live on a deploy host, not in the repo, so their slots
+ * here are chosen to respect data dependencies. dpd-update, escalations and
+ * reminders are in-process (lib/registry/cron-jobs/091-dunning.ts) and these
+ * slots are theirs: charges and DPD settle before escalations and reminders
+ * read them.
  */
 import { parseJsonBody } from "./api"
 import { now, setClock } from "./clock"
@@ -34,7 +36,6 @@ export interface CronJob {
 export const CRON_JOBS: readonly CronJob[] = [
   { name: "default-charges", method: "GET", at: "01:30", cadence: "daily" },
   { name: "dpd-update", method: "GET", at: "02:00", cadence: "daily" },
-  { name: "escalations", method: "GET", at: "02:30", cadence: "daily" },
   { name: "cross-sell", method: "POST", at: "03:00", cadence: "sunday" },
   { name: "dormant-clients", method: "POST", at: "04:00", cadence: "sunday" },
   { name: "bureau-daily", method: "GET", at: "04:30", cadence: "daily", unscheduledInProd: true },
@@ -42,7 +43,8 @@ export const CRON_JOBS: readonly CronJob[] = [
   { name: "licence-expiry", method: "GET", at: "05:15", cadence: "daily" },
   { name: "arrangement-check", method: "GET", at: "06:00", cadence: "daily" },
   { name: "insurance-renewal", method: "POST", at: "06:00", cadence: "daily" },
-  { name: "reminders", method: "GET", at: "07:00", cadence: "daily" },
+  { name: "escalations", method: "GET", at: "07:00", cadence: "daily" },
+  { name: "reminders", method: "GET", at: "07:30", cadence: "daily" },
   { name: "stale-leads-alert", method: "GET", at: "08:30", cadence: "daily" },
   { name: "lead-task-reminders", method: "GET", at: "09:00", cadence: "daily" },
   { name: "messaging-retry", method: "GET", at: "09:05", cadence: "daily" },
@@ -59,7 +61,6 @@ export const SKIPPED_CRONS: Readonly<Record<string, string>> = {
   "automation-engine": "production has no schedule for it; it runs only when its route is called with the cron secret",
   "cleanup-disclosures": "file housekeeping production does not schedule; no effect on demo data",
   "sweep-stuck-selfies": "recovers a selfie whose worker died; the sim's workers do not, and its faked clock would age live attempts past the timeout",
-  "payment-reminders": "duplicate of `reminders` (instrumentation.cron-census.test.ts); running both doubles every reminder",
 }
 
 export interface CronRun {

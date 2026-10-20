@@ -33,7 +33,6 @@ describe("the seeded rows and the module cannot drift", () => {
     application_declined: "application_declined_whatsapp",
     loan_disbursed: "loan_disbursed_whatsapp",
     payment_received: "payment_received_whatsapp",
-    payment_due_3d: "payment_due_3d_whatsapp",
     agent_reengagement: "agent_reengagement_whatsapp",
     payment_reminder_7d: "payment_reminder_7d_whatsapp",
     payment_reminder_1d: "payment_reminder_1d_whatsapp",
