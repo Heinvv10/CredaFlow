@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { sweepTenantCharges } from "@/lib/loan/charges-sweep"
-import { sweepActiveTenants, sweepStatus } from "@/lib/collections/tenant-sweep"
+import { sweepActiveTenants, sweepStatus } from "@/lib/ops/tenant-sweep"
 
 /**
  * Nightly default-charges sync. Default interest accrues by the day and the

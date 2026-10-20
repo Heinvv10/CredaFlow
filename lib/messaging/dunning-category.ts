@@ -29,3 +29,18 @@ export const DUNNING_MESSAGE_CATEGORIES: ReadonlySet<string> = new Set([
 export function isDunningCategory(category: string | undefined | null): boolean {
   return category != null && DUNNING_MESSAGE_CATEGORIES.has(category)
 }
+
+/**
+ * The loan an AUTOMATED dunning message was sent about, read from its idempotency
+ * key (Message has no loan column): `collections:<loanId>:...` from the reminders
+ * cron and `entity-notice:<loanId>:...` from an entity borrower's. Null for
+ * anything else. A staff reminder (`manual-reminder:`), a stage WhatsApp
+ * (`collections-stage:`) and a notification carry no automated key on purpose:
+ * staff keep an arrangement or an attorney-referred loan open
+ * (lib/collections/.claude.md), so the retry sweep holds only the automated ones
+ * for a loan hold (lib/messaging/retry.ts).
+ */
+export function automatedDunningLoanId(idempotencyKey: string | null | undefined): string | null {
+  const match = /^(?:collections|entity-notice):([^:]+):/.exec(idempotencyKey ?? "")
+  return match ? match[1] : null
+}

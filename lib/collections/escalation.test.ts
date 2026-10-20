@@ -13,7 +13,7 @@ const debtReviewReasonMock = vi.fn()
 const ensureDpdCurrentMock = vi.fn()
 const reserveOnceMock = vi.fn()
 const releaseReservationMock = vi.fn()
-vi.mock("@/lib/ops/cron-run-claim", () => ({
+vi.mock("@/lib/ops/send-reservation", () => ({
   reserveOnce: (...a: unknown[]) => reserveOnceMock(...a),
   releaseReservation: (...a: unknown[]) => releaseReservationMock(...a),
 }))
@@ -113,7 +113,7 @@ describe("processEscalations", () => {
   describe("the per-rule reservation (overlapping runs)", () => {
     it("reserves each rule per loan before it acts", async () => {
       await processEscalations()
-      expect(reserveOnceMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default")
+      expect(reserveOnceMock).toHaveBeenCalledWith("tenant_acme", "escalation:loan_1:escalation_default", expect.any(Date))
     })
 
     it("a rule another run has already reserved is skipped: no flip, no note, no notice", async () => {
@@ -130,7 +130,8 @@ describe("processEscalations", () => {
       vi.spyOn(console, "error").mockImplementation(() => undefined)
       triggerNotificationMock.mockRejectedValue(new Error("smtp"))
       await processEscalations()
-      expect(releaseReservationMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default")
+      // Against the day it was taken: the very instant it was reserved at.
+      expect(releaseReservationMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default", reserveOnceMock.mock.calls[0][2])
     })
 
     it("keeps the reservation of a rule that succeeded", async () => {

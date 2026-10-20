@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { recomputeLoanBalances } from "@/lib/loan/balances"
 import { reverseReferralCommissionForLoan } from "@/lib/referral-agents/commission"
 import { sastStartOfDay } from "@/lib/date/sast"
-import { sweepActiveTenants } from "@/lib/collections/tenant-sweep"
+import { sweepActiveTenants } from "@/lib/ops/tenant-sweep"
 import { cronDoneToday, recordCronDone } from "@/lib/ops/cron-run-claim"
 
 export interface DpdUpdateCounts {
@@ -58,8 +58,10 @@ const doneMarker = (tenantId: string) => `dpd-update:${tenantId}`
  * it first if not (it is idempotent and a few seconds a tenant). The
  * alternative, logging and proceeding, would escalate and remind on yesterday's
  * figures: a borrower who paid yesterday could still be defaulted and sent a
- * notice. If it fails here the tenant's run fails (reported, retried by the
- * later firing) rather than send on stale data.
+ * notice. If it fails here the tenant's run fails rather than send on stale
+ * data: that is counted in the response's `failedTenants`, which makes the
+ * scheduler mark the run FAILED, so the +30 and +60 minute firings of escalations
+ * and reminders try the tenant again.
  */
 export async function ensureDpdCurrent(tenantId: string): Promise<void> {
   if (await cronDoneToday(doneMarker(tenantId))) return

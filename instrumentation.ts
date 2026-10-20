@@ -40,10 +40,16 @@ export async function register() {
       return
     }
 
+    // Loaded once, before any job fires: two jobs firing in the same instant would
+    // otherwise both be the first to import them.
+    const claims = await import("@/lib/ops/cron-run-claim")
+    const { callCronRoute } = await import("@/lib/ops/cron-call")
+
     const callCron = async (
       path: string,
       method: "GET" | "POST" = "GET",
       singleRun = false,
+      after: string | null = null,
     ) => {
       // Every replica fires every job, a single-run one also 30 and 60 minutes
       // after its time. It goes to the one replica that wins its SAST-day
@@ -55,10 +61,23 @@ export async function register() {
       const claimKey = path.replace("/api/cron/", "")
       const claimedAt = new Date()
       let ownerToken: string | null = null
+      // A job that reads another's results does not fire until that job has settled
+      // today (DONE, or out of firings), and takes no claim while it waits: a later
+      // firing of its own tries again.
+      if (singleRun && after) {
+        try {
+          if (!(await claims.cronSettledToday(after))) {
+            console.log(`[cron] ${path} waits: ${after} has not settled today`)
+            return
+          }
+        } catch (err) {
+          console.error(`[cron] ${path} not run, could not read whether ${after} settled:`, err)
+          return
+        }
+      }
       if (singleRun) {
         try {
-          const { claimCronRun } = await import("@/lib/ops/cron-run-claim")
-          ownerToken = await claimCronRun(claimKey, claimedAt)
+          ownerToken = await claims.claimCronRun(claimKey, claimedAt)
         } catch (err) {
           console.error(`[cron] ${path} not run, run claim failed:`, err)
           return
@@ -73,25 +92,27 @@ export async function register() {
       let heartbeat: ReturnType<typeof setInterval> | undefined
       if (ownerToken) {
         const token = ownerToken
-        const { renewCronClaim, HEARTBEAT_INTERVAL_MS } = await import("@/lib/ops/cron-run-claim")
         heartbeat = setInterval(() => {
-          renewCronClaim(claimKey, token, claimedAt)
+          claims.renewCronClaim(claimKey, token, claimedAt)
             .then((held) => {
               if (!held) console.error(`[cron] ${path} lost its run claim to another attempt; this run is no longer the owner`)
             })
             .catch((err) => console.error(`[cron] ${path} heartbeat failed:`, err))
-        }, HEARTBEAT_INTERVAL_MS)
+        }, claims.HEARTBEAT_INTERVAL_MS)
       }
       const startedAt = new Date()
       let status: number | null = null
       let error: string | null = null
+      let tenantFailed = false
       try {
-        const headers: Record<string, string> = { "x-cron-secret": CRON_SECRET }
-
-        const res = await fetch(`${BASE_URL}${path}`, { method, headers })
+        // No client timeout: see lib/ops/cron-call.ts.
+        const res = await callCronRoute(`${BASE_URL}${path}`, method, CRON_SECRET)
         status = res.status
-        if (!res.ok) {
-          console.error(`[cron] ${path} failed: ${res.status}`)
+        tenantFailed = claims.reportsFailedTenant(res.body)
+        if (status < 200 || status >= 300) {
+          console.error(`[cron] ${path} failed: ${status}`)
+        } else if (tenantFailed) {
+          console.error(`[cron] ${path} ok, but a tenant's run threw; the claim is marked FAILED so a later firing retries it`)
         } else {
           console.log(`[cron] ${path} ok`)
         }
@@ -103,8 +124,9 @@ export async function register() {
       }
       if (ownerToken) {
         try {
-          const { finishCronRun } = await import("@/lib/ops/cron-run-claim")
-          const closed = await finishCronRun(claimKey, ownerToken, status !== null && status >= 200 && status < 300, claimedAt)
+          // DONE only for a 2xx in which no tenant's run threw; per-item errors
+          // (a send that failed, a reconciliation case) are in the body and do not retry.
+          const closed = await claims.finishCronRun(claimKey, ownerToken, status !== null && status >= 200 && status < 300 && !tenantFailed, claimedAt)
           if (!closed) console.error(`[cron] ${path} run claim was taken over before this run finished; its outcome is not recorded on the claim`)
         } catch (err) {
           console.error(`[cron] ${path} run claim not closed:`, err)
@@ -125,10 +147,9 @@ export async function register() {
     // never scheduled here: both firing would duplicate NCA-mandated borrower
     // comms (Section 129 notices, payment reminders).
     const { CRON_JOBS } = await import("@/lib/registry/generated/cron-jobs")
-    const { cronOccurrences } = await import("@/lib/ops/cron-run-claim")
-    const occurrences = cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
+    const occurrences = claims.cronOccurrences(CRON_JOBS.flatMap((job) => (job.owner === "in-process" ? [job] : [])))
     for (const { job, schedule } of occurrences) {
-      cron.schedule(schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun), {
+      cron.schedule(schedule, () => callCron(`/api/cron/${job.route}`, job.method, job.singleRun, job.after), {
         timezone: SAST,
       })
     }

@@ -9,8 +9,9 @@
 import { PrismaClient } from "@prisma/client"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
+import { sastCalendarDate } from "@/lib/date/sast"
 import {
-  claimCronRun, cronOccurrences, finishCronRun, releaseReservation, renewCronClaim, reserveOnce, STALE_RUNNING_MINUTES,
+  claimCronRun, cronOccurrences, finishCronRun, renewCronClaim, STALE_RUNNING_MINUTES,
 } from "@/lib/ops/cron-run-claim"
 
 const schedule = vi.hoisted(() => vi.fn())
@@ -18,15 +19,24 @@ vi.mock("node-cron", () => ({ schedule }))
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
-const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(null, { status: 200 }))
+const ok = { status: 200, body: { failedTenants: 0 } }
+const fetchMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]): Promise<{ status: number; body: unknown }> => ({ status: 200, body: { failedTenants: 0 } })))
+vi.mock("@/lib/ops/cron-call", () => ({ callCronRoute: fetchMock }))
 const env = { ...process.env }
 
 const occurrences = cronOccurrences(CRON_JOBS.filter((j) => j.owner === "in-process"))
 /** The `attempt`th firing of a job: 0 is its own time, 1 and 2 the +30 and +60 retries. */
-const fire = (route: string, attempt = 0) => {
+/**
+ * Reminders wait for escalations to settle, so unless a test is about that wait, escalations is
+ * recorded DONE for the (fake) day first.
+ */
+const fire = async (route: string, attempt = 0, escalationsSettled = true) => {
   const index = occurrences.findIndex((o) => o.job.route === route && o.attempt === attempt)
   if (index < 0) throw new Error(`${route} has no firing ${attempt}`)
-  return schedule.mock.calls[index][1]() as Promise<void>
+  if (route === "reminders" && escalationsSettled) {
+    await db.cronRunClaim.createMany({ data: [{ job: "escalations", runDay: sastCalendarDate(new Date()), status: "DONE" }], skipDuplicates: true })
+  }
+  return (await schedule.mock.calls[index][1]()) as void
 }
 const callsTo = (route: string) => fetchMock.mock.calls.filter((c) => String(c[0]).endsWith(`/api/cron/${route}`)).length
 const claim = (job: string, runDay: string) => db.cronRunClaim.findUniqueOrThrow({ where: { job_runDay: { job, runDay } } })
@@ -37,7 +47,6 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
     process.env.APP_MODE = "staff"
     process.env.CRON_SECRET = "test-secret"
     process.env.NEXTAUTH_URL = "http://cron.test"
-    vi.stubGlobal("fetch", fetchMock)
     vi.spyOn(console, "log").mockImplementation(() => undefined)
     vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { register } = await import("./instrumentation")
@@ -47,11 +56,10 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
   afterEach(() => {
     vi.useRealTimers()
     fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => new Response(null, { status: 200 }))
+    fetchMock.mockImplementation(async () => ok)
   })
   afterAll(async () => {
     process.env = env
-    vi.unstubAllGlobals()
     vi.restoreAllMocks()
     await db.cronRunClaim.deleteMany()
     await db.$disconnect()
@@ -78,7 +86,7 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
 
   it("a run whose HTTP call failed is marked FAILED and the +30 firing runs it again", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-23T05:00:00Z") })
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }))
+    fetchMock.mockResolvedValueOnce({ status: 503, body: null })
     await fire("reminders")
     expect(await claim("reminders", "2026-10-23")).toMatchObject({ status: "FAILED" })
     vi.setSystemTime(new Date("2026-10-23T05:30:00Z"))
@@ -88,6 +96,62 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
     vi.setSystemTime(new Date("2026-10-23T06:00:00Z"))
     await fire("reminders", 2)
     expect(callsTo("reminders")).toBe(2)
+  })
+
+  it("a tenant that threw (200 partial) makes the run FAILED so the +30 firing retries it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-12T05:00:00Z") })
+    fetchMock.mockResolvedValueOnce({ status: 200, body: { failedTenants: 1, partial: true } })
+    await fire("reminders")
+    expect(await claim("reminders", "2026-11-12")).toMatchObject({ status: "FAILED" })
+    vi.setSystemTime(new Date("2026-11-12T05:30:00Z"))
+    await fire("reminders", 1)
+    expect(callsTo("reminders")).toBe(2)
+    expect(await claim("reminders", "2026-11-12")).toMatchObject({ status: "DONE", attempts: 2 })
+  })
+
+  it("per-item errors (sends that failed, reconciliation cases) leave the run DONE: no retry", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-13T05:00:00Z") })
+    fetchMock.mockResolvedValueOnce({ status: 200, body: { failedTenants: 0, errors: 4, reconciliationRequired: 2 } })
+    await fire("reminders")
+    vi.setSystemTime(new Date("2026-11-13T05:30:00Z"))
+    await fire("reminders", 1)
+    expect(callsTo("reminders")).toBe(1)
+    expect(await claim("reminders", "2026-11-13")).toMatchObject({ status: "DONE" })
+  })
+
+  describe("a job that runs `after` another", () => {
+    const day = "2026-11-14"
+    const setClock = (iso: string) => vi.useFakeTimers({ toFake: ["Date"], now: new Date(iso) })
+    const seedEscalations = (data: { status: "RUNNING" | "DONE" | "FAILED"; attempts: number }) =>
+      db.cronRunClaim.create({ data: { job: "escalations", runDay: day, ...data } })
+
+    it("reminders wait while escalations has not run, is running, or has a retry still to come", async () => {
+      setClock("2026-11-14T05:30:00Z")
+      await fire("reminders", 0, false)
+      expect(callsTo("reminders"), "escalations has no claim yet").toBe(0)
+      await seedEscalations({ status: "RUNNING", attempts: 1 })
+      await fire("reminders", 1, false)
+      expect(callsTo("reminders"), "escalations is running").toBe(0)
+      await db.cronRunClaim.updateMany({ where: { job: "escalations", runDay: day }, data: { status: "FAILED", attempts: 2 } })
+      await fire("reminders", 1, false)
+      expect(callsTo("reminders"), "escalations failed but has a firing left").toBe(0)
+      expect(await db.cronRunClaim.count({ where: { job: "reminders", runDay: day } }), "waiting takes no claim").toBe(0)
+    })
+
+    it("reminders run once escalations is DONE", async () => {
+      setClock("2026-11-14T06:00:00Z")
+      await db.cronRunClaim.updateMany({ where: { job: "escalations", runDay: day }, data: { status: "DONE" } })
+      await fire("reminders", 1, false)
+      expect(callsTo("reminders")).toBe(1)
+    })
+
+    it("reminders run when escalations has failed its last firing: a tenant that always fails cannot hold every lender back", async () => {
+      await db.cronRunClaim.deleteMany({ where: { runDay: day } })
+      setClock("2026-11-14T06:30:00Z")
+      await seedEscalations({ status: "FAILED", attempts: 3 })
+      await fire("reminders", 2, false)
+      expect(callsTo("reminders")).toBe(1)
+    })
   })
 
   it("a call that threw (no response) is FAILED too", async () => {
@@ -100,7 +164,7 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
 
   it("two firings racing over a FAILED claim run it once", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-25T05:00:00Z") })
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }))
+    fetchMock.mockResolvedValueOnce({ status: 500, body: null })
     await fire("reminders")
     await Promise.all([fire("reminders", 1), fire("reminders", 1), fire("reminders", 2)])
     expect(callsTo("reminders")).toBe(2)
@@ -162,24 +226,6 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
     })
   })
 
-  describe("per-message reservations (the backstop)", () => {
-    it("of racing reservations for one message on one day, exactly one wins", async () => {
-      const day = new Date("2026-11-06T05:00:00Z")
-      const wins = await Promise.all([1, 2, 3, 4].map(() => reserveOnce("send:loan_x:reminder_7d:whatsapp", day)))
-      expect(wins.filter(Boolean)).toHaveLength(1)
-      expect(await reserveOnce("send:loan_x:reminder_7d:whatsapp", new Date("2026-11-06T18:00:00Z"))).toBe(false)
-    })
-
-    it("is per message and per SAST day, and a released reservation can be taken again", async () => {
-      const day = new Date("2026-11-07T05:00:00Z")
-      expect(await reserveOnce("send:loan_y:reminder_7d:sms", day)).toBe(true)
-      expect(await reserveOnce("send:loan_y:reminder_7d:whatsapp", day), "another channel").toBe(true)
-      expect(await reserveOnce("send:loan_y:reminder_7d:sms", new Date("2026-11-08T05:00:00Z")), "the next day").toBe(true)
-      await releaseReservation("send:loan_y:reminder_7d:sms", day)
-      expect(await reserveOnce("send:loan_y:reminder_7d:sms", day)).toBe(true)
-    })
-  })
-
   it("keys the day in SAST, not UTC: 22:30 UTC is already tomorrow in Johannesburg", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-27T21:30:00Z") })
     await fire("reminders")
@@ -190,7 +236,8 @@ suite.sequential("single-run in-process jobs (real Postgres)", () => {
 
   it("claims each job on its own", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-30T05:00:00Z") })
-    await Promise.all([fire("escalations"), fire("reminders")])
+    await fire("escalations")
+    await fire("reminders")
     expect([callsTo("escalations"), callsTo("reminders")]).toEqual([1, 1])
   })
 

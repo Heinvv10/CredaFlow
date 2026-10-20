@@ -16,7 +16,7 @@
  * WhatsApp bodies come from WABA_BODY_TEMPLATES, so the stored row and the
  * variables the code supplies cannot drift (template-vars-contract.test.ts).
  */
-import type { Channel, PrismaClient, TemplateCategory } from "@prisma/client"
+import type { Channel, TemplateCategory } from "@prisma/client"
 import { SEED_BRAND_TOKEN, WABA_BODY_TEMPLATES, withSeededBrand } from "@/lib/whatsapp/template-vars"
 import { OTP_MESSAGE_TEMPLATES } from "./otp-templates"
 
@@ -275,10 +275,24 @@ export function defaultTemplateForTenant(t: DefaultMessageTemplate, lenderName: 
  * writes key-less rows, and an operator may re-key one, and either would make
  * the create violate a unique. Existing rows are never updated.
  */
+/**
+ * The two MessageTemplate calls the seed makes. A structural type, not
+ * `Pick<PrismaClient, "messageTemplate">`, so the tenant-scoped client the crons
+ * use fits it as well as a plain PrismaClient, without a cast.
+ */
+export interface TemplateSeedDb {
+  messageTemplate: {
+    findMany(args: { where: { tenantId: string }; select: { key: true; event: true; channel: true } }): PromiseLike<Array<{ key: string | null; event: string; channel: string }>>
+    createMany(args: { data: Array<{ tenantId: string } & Omit<DefaultMessageTemplate, "bodyTemplate"> & { bodyTemplate?: string }>; skipDuplicates: true }): PromiseLike<unknown>
+  }
+}
+
 export async function seedDefaultMessageTemplates(
-  db: Pick<PrismaClient, "messageTemplate">,
+  db: TemplateSeedDb,
   tenantId: string,
   lenderName: string,
+  /** `only` seeds just the defaults it accepts (the reminders cron needs a handful, not the OTP and portal rows). */
+  options: { only?: (template: DefaultMessageTemplate) => boolean } = {},
 ): Promise<void> {
   if (!lenderName.trim() || lenderName.includes(SEED_BRAND_TOKEN)) {
     throw new Error("seedDefaultMessageTemplates: lenderName is required")
@@ -289,7 +303,7 @@ export async function seedDefaultMessageTemplates(
   const existing = await db.messageTemplate.findMany({ where: { tenantId }, select: { key: true, event: true, channel: true } })
   const keys = new Set(existing.map((e) => e.key))
   const pairs = new Set(existing.map((e) => `${e.event}/${e.channel}`))
-  const missing = DEFAULT_MESSAGE_TEMPLATES.filter((t) => !keys.has(t.key) && !pairs.has(`${t.event}/${t.channel}`))
+  const missing = DEFAULT_MESSAGE_TEMPLATES.filter((t) => (options.only?.(t) ?? true) && !keys.has(t.key) && !pairs.has(`${t.event}/${t.channel}`))
   if (missing.length === 0) return
   await db.messageTemplate.createMany({
     data: missing.map((t) => ({ tenantId, ...defaultTemplateForTenant(t, lenderName) })),

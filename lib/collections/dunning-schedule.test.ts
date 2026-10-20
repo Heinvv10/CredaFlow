@@ -2,13 +2,14 @@ import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { CRON_JOBS } from "@/lib/registry/generated/cron-jobs"
+import { cronOccurrences } from "@/lib/ops/cron-run-claim"
 
 /**
  * The nightly dunning jobs are scheduled in-process (docs/DEPLOY.md,
  * "Scheduling"), once a SAST day, in the order their data flows: dpd-update
  * writes the DPD and arrears the other two read; arrangement-check settles
  * which arrangements still hold a loan out of dunning; escalations then
- * reminders send the borrower comms.
+ * reminders send the borrower comms, none of them before 07:00.
  */
 const ROOT = path.join(__dirname, "..", "..")
 
@@ -44,6 +45,26 @@ describe("nightly dunning schedule", () => {
   it("leaves at least 15 minutes between dpd-update, escalations and reminders", () => {
     expect(dailyMinuteOfDay("escalations") - dailyMinuteOfDay("dpd-update")).toBeGreaterThanOrEqual(15)
     expect(dailyMinuteOfDay("reminders") - dailyMinuteOfDay("escalations")).toBeGreaterThanOrEqual(15)
+  })
+
+  it("sends no borrower message before 07:00 SAST: not at their own time, nor at any retry", () => {
+    const occurrences = cronOccurrences(CRON_JOBS.flatMap((j) => (j.owner === "in-process" ? [j] : [])))
+    for (const route of ["escalations", "reminders"]) {
+      const times = occurrences.filter((o) => o.job.route === route).map((o) => {
+        const [minute, hour] = o.schedule.split(" ").map(Number)
+        return hour * 60 + minute
+      })
+      expect(times.length, `${route} is fired at its time and twice more`).toBe(3)
+      for (const minuteOfDay of times) expect(minuteOfDay, `${route} fires before 07:00`).toBeGreaterThanOrEqual(7 * 60)
+    }
+  })
+
+  // Escalations' retries (07:30, 08:00) overlap reminders' own times, so ordering is not left to the clock:
+  // reminders wait until escalations has settled (DONE, or out of firings) and so see its DEFAULTED flips.
+  it("gates reminders on escalations having settled today", () => {
+    expect(inProcess("reminders")).toMatchObject({ after: "escalations" })
+    expect(inProcess("escalations")).toMatchObject({ after: null })
+    expect(inProcess("escalations").schedule).not.toBe(inProcess("reminders").schedule)
   })
 
   it.each(["escalations", "reminders"])("%s sends borrower comms, so it runs on one replica a day", (route) => {

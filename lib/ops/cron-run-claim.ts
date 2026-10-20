@@ -24,7 +24,8 @@ import { sastCalendarDate } from "@/lib/date/sast"
  * (`cronOccurrences`), so a lost run costs at most an hour, not the day. A
  * takeover can still overlap a runner that lost only its heartbeat, so the work
  * is also deduped downstream: reminders by LoanNote, sendMessage's idempotency
- * key and `reserveOnce` below; escalations by noteExists and `reserveOnce`.
+ * key and `reserveOnce` (lib/ops/send-reservation.ts); escalations by noteExists
+ * and `reserveOnce`.
  */
 
 /** A runner renews every minute; this many without a renewal means it died. */
@@ -54,6 +55,19 @@ export function cronOccurrences<T extends { schedule: string; singleRun: boolean
     RETRY_OFFSET_MINUTES.map((offset, i) => ({ job, schedule: shiftDaily(job.schedule, offset), attempt: i + 1 })),
   )
   return [...own, ...retries]
+}
+
+/** The number of times a single-run job is fired a day: its own time and its retries. */
+export const FIRINGS_PER_DAY = 1 + RETRY_OFFSET_MINUTES.length
+
+/**
+ * Whether a run's response says a tenant threw. That, not a per-item error (a send
+ * that failed, a reconciliation case), is what the retry firings are for: a retry
+ * is safe because the work is deduped, and could fix a tenant that threw on a
+ * transient fault, but would fix nothing for one loan with no Contact row.
+ */
+export function reportsFailedTenant(body: unknown): boolean {
+  return typeof body === "object" && body !== null && Number((body as { failedTenants?: unknown }).failedTenants) > 0
 }
 
 /** The attempt's owner token, or null when the job is DONE, running, or claimed elsewhere. */
@@ -90,22 +104,18 @@ export async function finishCronRun(job: string, ownerToken: string, ok: boolean
 }
 
 /**
- * A database-unique reservation for one borrower message (or rule action) per
- * SAST day, taken BEFORE it is sent: of two runs that both passed the
- * "already done today" check only one gets `true`. `release` it if the send
- * failed so a retry can send. Rows are (job, runDay) in CronRunClaim, with
- * `send:` and `escalation:` job prefixes, and are never read as a cron run.
+ * Whether `job` is finished for today and will not run again: DONE, or FAILED on
+ * its last firing. A job that must see another's results (reminders see the
+ * DEFAULTED flips escalations makes) waits for this, so a retry of the first can
+ * never overlap the second, while a tenant that fails every night cannot hold the
+ * other job back for good.
  */
-export async function reserveOnce(key: string, now: Date = new Date()): Promise<boolean> {
-  const { count } = await prisma.cronRunClaim.createMany({
-    data: [{ job: key, runDay: sastCalendarDate(now), claimedAt: now, status: "DONE", finishedAt: now }],
-    skipDuplicates: true,
+export async function cronSettledToday(job: string, now: Date = new Date()): Promise<boolean> {
+  const row = await prisma.cronRunClaim.findUnique({
+    where: { job_runDay: { job, runDay: sastCalendarDate(now) } },
+    select: { status: true, attempts: true },
   })
-  return count === 1
-}
-
-export async function releaseReservation(key: string, now: Date = new Date()): Promise<void> {
-  await prisma.cronRunClaim.deleteMany({ where: { job: key, runDay: sastCalendarDate(now) } })
+  return row?.status === "DONE" || (row?.status === "FAILED" && row.attempts >= FIRINGS_PER_DAY)
 }
 
 /** Marks `job` DONE for today without a claim, e.g. the per-tenant "dpd-update:<tenantId>". */

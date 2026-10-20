@@ -36,7 +36,6 @@ export interface CronJob {
 export const CRON_JOBS: readonly CronJob[] = [
   { name: "default-charges", method: "GET", at: "01:30", cadence: "daily" },
   { name: "dpd-update", method: "GET", at: "02:00", cadence: "daily" },
-  { name: "escalations", method: "GET", at: "02:30", cadence: "daily" },
   { name: "cross-sell", method: "POST", at: "03:00", cadence: "sunday" },
   { name: "dormant-clients", method: "POST", at: "04:00", cadence: "sunday" },
   { name: "bureau-daily", method: "GET", at: "04:30", cadence: "daily", unscheduledInProd: true },
@@ -44,7 +43,8 @@ export const CRON_JOBS: readonly CronJob[] = [
   { name: "licence-expiry", method: "GET", at: "05:15", cadence: "daily" },
   { name: "arrangement-check", method: "GET", at: "06:00", cadence: "daily" },
   { name: "insurance-renewal", method: "POST", at: "06:00", cadence: "daily" },
-  { name: "reminders", method: "GET", at: "07:00", cadence: "daily" },
+  { name: "escalations", method: "GET", at: "07:00", cadence: "daily" },
+  { name: "reminders", method: "GET", at: "07:30", cadence: "daily" },
   { name: "stale-leads-alert", method: "GET", at: "08:30", cadence: "daily" },
   { name: "lead-task-reminders", method: "GET", at: "09:00", cadence: "daily" },
   { name: "messaging-retry", method: "GET", at: "09:05", cadence: "daily" },

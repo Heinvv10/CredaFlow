@@ -22,20 +22,29 @@ promise-to-pay tracking, and arrangement monitoring.
   `collectionsStage` is staff-advanced via `CollectionsStagePanel`, which is
   hard-gated server-side (a direct PATCH to `SECTION_129_SENT` is rejected;
   the stage must follow the real S129 issuance).
-- **The nightly chain is `dpd-update` → `escalations` → `reminders`: in-process,
-  once a SAST day on one replica, each over EVERY ACTIVE tenant in its own
-  frame** (`tenant-sweep.ts`; never `tenant.findFirst`). Times and order:
-  `lib/registry/cron-jobs/091-dunning.ts`, pinned by `dunning-schedule.test.ts`.
-  The old 3-day `payment-reminders` courtesy cron is retired. Escalations and
-  reminders first make sure DPD is current for the tenant (`ensureDpdCurrent`)
-  and run it if not. The 60-DPD "defaulted" notice goes only to a loan at 60-66
-  DPD; an older one is flipped and noted without it.
-  A single-run claim has an owner token and a one-minute heartbeat; a later
-  firing takes over only a FAILED claim or one whose heartbeat is 5 minutes
-  stale. Because a takeover can still overlap a runner that only lost its
+- **The nightly chain is `dpd-update` (02:00) → `escalations` (07:00) →
+  `reminders` (07:30): in-process, each over EVERY ACTIVE tenant in its own frame**
+  (`lib/ops/tenant-sweep.ts`; never `tenant.findFirst`). `escalations` and
+  `reminders` send borrower comms, so they run on one replica a day, never before
+  07:00 SAST, and are fired again 30 and 60 minutes later; `dpd-update` sends
+  nothing, is idempotent and runs on every replica. Times, order and the
+  `after: "escalations"` gate: `lib/registry/cron-jobs/091-dunning.ts`, pinned by
+  `dunning-schedule.test.ts`. The old 3-day `payment-reminders` courtesy cron is
+  retired. Escalations and reminders first make sure DPD is current for the tenant
+  (`ensureDpdCurrent`) and run it if not. The 60-DPD "defaulted" notice goes only to
+  a loan at 60-66 DPD; an older one is flipped and noted without it.
+  A single-run claim has an owner token and a one-minute heartbeat; a later firing
+  takes over only a FAILED claim (a tenant that threw, `failedTenants > 0`, or a
+  non-2xx) or one whose heartbeat is 5 minutes stale. A per-item error (a send that
+  failed, a reconciliation case) is in the body, leaves the claim DONE and the
+  status 200. Because a takeover can still overlap a runner that only lost its
   heartbeat, every direct send (legacy SMS/WhatsApp, `loan_overdue`) and every
-  escalation rule first takes `reserveOnce(key)` (lib/ops/cron-run-claim.ts),
-  unique per loan, message and SAST day, and `releaseReservation` if it failed.
+  escalation rule first takes `reserveOnce(tenantId, key, at)`
+  (`lib/ops/send-reservation.ts`), unique per loan, message and SAST day. It is
+  released, against the day it was taken, only when the send definitely did not
+  happen (`DEFINITELY_REJECTED`); an ambiguous outcome keeps it and is held for
+  reconciliation. The retry sweep holds an automated dunning message for a loan
+  hold too (`automatedDunningLoanId`).
 - **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
   through `sendMessage`** (template `payment_reminder_email`; entities via
   `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`

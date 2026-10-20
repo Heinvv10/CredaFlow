@@ -2,13 +2,15 @@ import { prisma } from "@/lib/prisma"
 import { CASH_RECEIPTS } from "@/lib/payments/waiver"
 import { analyseArrangement } from "@/lib/collections/arrangement-tracker"
 import { logAudit } from "@/lib/audit"
-import { sweepActiveTenants } from "@/lib/collections/tenant-sweep"
+import { sweepActiveTenants } from "@/lib/ops/tenant-sweep"
 
 export interface ArrangementCheckCounts {
   processed: number
   kept: number
   completed: number
   broken: number
+  /** arrangements whose verdict could not be written */
+  failed: number
 }
 
 export interface ArrangementCheckResult extends ArrangementCheckCounts {
@@ -24,7 +26,7 @@ export interface ArrangementCheckResult extends ArrangementCheckCounts {
  */
 export async function runArrangementCheck(): Promise<ArrangementCheckResult> {
   const outcomes = await sweepActiveTenants("arrangement-check", (tenant) => checkTenantArrangements(tenant.id))
-  const total: ArrangementCheckResult = { processed: 0, kept: 0, completed: 0, broken: 0, tenants: outcomes.length, failedTenants: 0 }
+  const total: ArrangementCheckResult = { processed: 0, kept: 0, completed: 0, broken: 0, failed: 0, tenants: outcomes.length, failedTenants: 0 }
   for (const outcome of outcomes) {
     if (!outcome.ok) {
       total.failedTenants++
@@ -34,6 +36,7 @@ export async function runArrangementCheck(): Promise<ArrangementCheckResult> {
     total.kept += outcome.value.kept
     total.completed += outcome.value.completed
     total.broken += outcome.value.broken
+    total.failed += outcome.value.failed
   }
   return total
 }
@@ -50,7 +53,7 @@ async function checkTenantArrangements(tenantId: string): Promise<ArrangementChe
     },
   })
 
-  let kept = 0, broken = 0, completed = 0
+  let kept = 0, broken = 0, completed = 0, failed = 0
 
   await Promise.all(
     arrangements.map(async (arr) => {
@@ -80,10 +83,13 @@ async function checkTenantArrangements(tenantId: string): Promise<ArrangementChe
 
       if (newStatus) {
         try {
-          await prisma.paymentArrangement.updateMany({
-            where: { loanId: arr.loanId, tenantId },
+          const { count } = await prisma.paymentArrangement.updateMany({
+            // Still ACTIVE: a status staff set since the read above is not overwritten.
+            where: { loanId: arr.loanId, tenantId, status: "ACTIVE" },
             data: { status: newStatus },
           })
+          // Staff moved it on since the read: their status stands, and there is nothing to note or count.
+          if (count === 0) return
 
           if (newStatus === "BROKEN") {
             await prisma.loanNote.create({
@@ -105,10 +111,11 @@ async function checkTenantArrangements(tenantId: string): Promise<ArrangementChe
           else completed++
         } catch (e: unknown) {
           console.error(`[arrangement-check] Update failed for ${arr.loanId}:`, e)
+          failed++
         }
       }
     })
   )
 
-  return { processed: arrangements.length, kept, completed, broken }
+  return { processed: arrangements.length, kept, completed, broken, failed }
 }

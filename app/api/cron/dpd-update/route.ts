@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { runDpdUpdate } from "@/lib/loan/dpd-update"
-import { sweepStatus } from "@/lib/collections/tenant-sweep"
+import { sweepStatus } from "@/lib/ops/tenant-sweep"
 
 /**
  * DPD Update Cron — nightly reconcile of daysInArrears + arrearsAmount for the

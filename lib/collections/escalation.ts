@@ -9,8 +9,8 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
-import { releaseReservation, reserveOnce } from "@/lib/ops/cron-run-claim"
-import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
+import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
+import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/ops/tenant-sweep"
 
 interface EscalationResult {
   processed: number
@@ -155,7 +155,7 @@ const RULES: EscalationRule[] = [
   },
 ]
 
-/** Every ACTIVE tenant, each in its own frame (lib/collections/tenant-sweep.ts). */
+/** Every ACTIVE tenant, each in its own frame (lib/ops/tenant-sweep.ts). */
 export async function processEscalations(): Promise<EscalationResult> {
   const total: EscalationResult = { processed: 0, errors: 0, details: [], tenants: 0, failedTenants: 0 }
   const outcomes = await sweepActiveTenants("escalations", (tenant) => processTenantEscalations(tenant))
@@ -226,7 +226,8 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
       // reservation per loan, rule and SAST day lets only one act; it is
       // released if the rule fails so the retry can run it.
       const reservation = `escalation:${loan.id}:${rule.noteType}`
-      if (!(await reserveOnce(reservation))) {
+      const reservedAt = new Date()
+      if (!(await reserveOnce(tenant.id, reservation, reservedAt))) {
         result.details.push(`Skip ${loan.reference} ${rule.noteType}: another run is already handling it today`)
         continue
       }
@@ -235,7 +236,7 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
         result.processed++
         result.details.push(detail)
       } catch (err) {
-        await releaseReservation(reservation)
+        await releaseReservation(reservation, reservedAt)
         console.error(`[escalation] ${loan.reference} ${rule.noteType} failed:`, err)
         result.details.push(`Error ${loan.reference} ${rule.noteType}: failed; see the server log`)
         // This is a Section 129 legal notice / DEFAULTED status / commission

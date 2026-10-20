@@ -25,33 +25,26 @@ describe("GET /api/cron/reminders", () => {
     expect(processPaymentReminders).not.toHaveBeenCalled()
   })
 
-  // `errors` is the curated failure counter inside processPaymentReminders —
-  // consent/opt-out skips and reconciliation-required outcomes don't bump it.
-  // A hardcoded 200 would hide a dispatch failure (missing template, bad
-  // phone, unparseable Contact) from the systemd wrapper, which calls this
-  // with `curl -fsS` and never parses the JSON body.
-  it("reports ok:false and 503 when the sweep recorded a dispatch error", async () => {
+  // `errors` and `reconciliationRequired` are per-item outcomes (a send that failed, an
+  // ambiguous provider outcome, a missing Contact row). They are reported in the body and
+  // leave the run DONE: a retry could not fix them and a 503 every day would hide the
+  // one thing that matters, a tenant that threw (failedTenants, below).
+  it("reports a send that failed in the body but is still 200", async () => {
     vi.mocked(processPaymentReminders).mockResolvedValue({
-      ...emptyResult, sent: 2, errors: 1, details: ["Error LN-1 sms: no phone on file"],
+      ...emptyResult, sent: 2, errors: 1, details: ["Error LN-1 sms: failed; see the server log"],
     })
     const res = await GET(req())
-    const json = await res.json()
-    expect(json.ok).toBe(false)
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ errors: 1, partial: false })
   })
 
-  // reconciliationRequired is a row the sweep could NOT resolve on its own
-  // (an ambiguous provider outcome or a known-dispatch persistence gap) and
-  // needs a human to look at the queue — same shape as messaging-retry's
-  // manualReconciliation.
-  it("reports ok:false and 503 when a reminder needs manual reconciliation", async () => {
+  it("reports a reconciliation case in the body but is still 200", async () => {
     vi.mocked(processPaymentReminders).mockResolvedValue({
       ...emptyResult, sent: 3, reconciliationRequired: 1,
     })
     const res = await GET(req())
-    const json = await res.json()
-    expect(json.ok).toBe(false)
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reconciliationRequired: 1 })
   })
 
   it("reports ok:true and 200 when nothing was due (empty sweep)", async () => {
@@ -102,8 +95,10 @@ describe("GET /api/cron/reminders", () => {
     expect(await res.json()).toMatchObject({ ok: false, partial: false })
   })
 
-  it("is 503 when a tenant failed AND a send failed elsewhere", async () => {
+  it("names the tenants that threw so the scheduler can retry them, whatever the status", async () => {
     vi.mocked(processPaymentReminders).mockResolvedValue({ ...emptyResult, errors: 2, tenants: 3, failedTenants: 1 })
-    expect((await GET(req())).status).toBe(503)
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect((await res.json()).failedTenants).toBe(1)
   })
 })

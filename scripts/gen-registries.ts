@@ -106,8 +106,18 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       return (value as CronJob[]).map((job) => ({ file, key: String(job?.route), value: job }))
     }),
   )
-  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes", "singleRun"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
-  return items.map(({ file, value: job }) => {
+  const validateAfter = (jobs: CronJob[]): CronJob[] => {
+    for (const job of jobs) {
+      if (job.owner !== "in-process" || !job.after) continue
+      const target = jobs.find((j) => j.route === job.after)
+      if (!target || target.owner !== "in-process" || !target.singleRun) fail(`${job.route}: after "${job.after}" must name a singleRun in-process job`)
+      const minuteOfDay = (j: { schedule: string }) => { const [m, h] = j.schedule.split(/\s+/).map(Number); return h * 60 + m }
+      if (minuteOfDay(target) >= minuteOfDay(job)) fail(`${job.route}: after "${job.after}" must be scheduled earlier in the day`)
+    }
+    return jobs
+  }
+  const allowed = { "in-process": ["route", "owner", "schedule", "method", "freshnessMinutes", "singleRun", "after"], external: ["route", "owner"], unwired: ["route", "owner", "reason"] }
+  return validateAfter(items.map(({ file, value: job }) => {
     const keys = allowed[job.owner as keyof typeof allowed]
     const extra = keys ? Object.keys(job).filter((k) => !keys.includes(k)) : []
     if (extra.length) fail(`${file}: ${job.route} (${job.owner}) does not take ${extra.join(", ")}`)
@@ -134,7 +144,7 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
           const [minute, hour] = fields.map(Number)
           if (hour * 60 + minute + 60 >= 24 * 60) fail(`${file}: ${job.route} singleRun needs room for a +60 minute retry before midnight`)
         }
-        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes, singleRun: job.singleRun === true }
+        return { route: job.route, owner: job.owner, schedule: job.schedule, method, freshnessMinutes: job.freshnessMinutes, singleRun: job.singleRun === true, after: job.after ?? null }
       }
       case "external":
         return { route: job.route, owner: job.owner }
@@ -144,7 +154,7 @@ function cronJobs(entries: Entry<unknown>[]): CronJob[] {
       default:
         return fail(`${file}: ${(job as { route: string }).route} owner must be in-process, external or unwired`)
     }
-  })
+  }))
 }
 
 function simulatedIntegrations(entries: Entry<unknown>[]): Record<string, SimulationRule> {

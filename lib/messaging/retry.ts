@@ -2,7 +2,8 @@ import type { Channel, MessageTemplate, Provider } from "@prisma/client"
 import { Prisma } from "@prisma/client"
 import { WA_OUTSIDE_WINDOW_NEEDS_TEMPLATE } from "@/lib/whatsapp/send-mode"
 import { SMS_CHANNEL_OFF_REASON } from "./sms-channel"
-import { contactDunningHold } from "@/lib/collections/client-holds"
+import { contactDunningHold, isLoanHeld } from "@/lib/collections/client-holds"
+import { automatedDunningLoanId } from "@/lib/messaging/dunning-category"
 
 export type ErrorClass = "TRANSIENT" | "PERMANENT" | "CONSENT_REVOKED" | "EXPIRED"
 
@@ -307,6 +308,8 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
   checkedAt: Date
   /** Message.dunning: only a reminder or overdue notice is held for a client hold. */
   dunning: boolean
+  /** The loan of an automated dunning message is on a hold: an arrangement, a plan, an attorney referral, a write-off, a death or a debt review. */
+  loanHeld: boolean
 }): Promise<RetryEligibilityClaim> {
   return prisma.$transaction(async (eligibilityTx) => {
     const eligibility = await canSendTx(
@@ -327,12 +330,14 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
       })
       : null
 
-    if (!eligibility.ok || hold) {
+    if (!eligibility.ok || hold || args.loanHeld) {
       // No MsgStatus says "held": SUPPRESSED_BY_CONSENT is the nearest terminal,
       // never-retried outcome, so the text and the audit row name the real cause.
-      const reason = eligibility.ok
-        ? `client hold: ${hold!.kind === "DECEASED" ? "deceased" : "debt review"}: ${hold!.reason}`
-        : eligibility.reason
+      const reason = !eligibility.ok
+        ? eligibility.reason
+        : hold
+          ? `client hold: ${hold.kind === "DECEASED" ? "deceased" : "debt review"}: ${hold.reason}`
+          : "loan hold: the loan is under an arrangement, a payment plan, an attorney referral, a write-off or a debt review"
       const errorMessage = `canSendTx rejected on retry: ${reason}`
       const transitioned = await eligibilityTx.message.updateMany({
         where: {
@@ -362,7 +367,7 @@ async function claimRetryDispatchIfEligible(args: RetryClaimArgs & {
           action: "MESSAGE_SUPPRESSED_BY_CONSENT",
           entity: "Message",
           entityId: args.id,
-          newValue: { reason, retryCount: args.retryCount, ...(hold ? { clientHold: hold.kind } : {}) },
+          newValue: { reason, retryCount: args.retryCount, ...(hold ? { clientHold: hold.kind } : {}), ...(args.loanHeld && !hold ? { loanHold: true } : {}) },
         },
       })
       return { kind: "suppressed", reason }
@@ -621,6 +626,11 @@ async function processRetryBatchLocked(opts: {
         text: msg.bodyText ?? "",
       }
 
+      // Dunning queued by the crons stops when its loan went on hold since (the
+      // client holds above cover a death and a debt review only).
+      const dunningLoanId = msg.dunning ? automatedDunningLoanId(msg.idempotencyKey) : null
+      const loanHeld = dunningLoanId ? await isLoanHeld({ tenantId: msg.tenantId, loanId: dunningLoanId }) : false
+
       const claim = await claimRetryDispatchIfEligible({
         id: msg.id,
         tenantId: msg.tenantId,
@@ -632,6 +642,7 @@ async function processRetryBatchLocked(opts: {
         channel: msg.channel,
         template,
         dunning: msg.dunning,
+        loanHeld,
       })
       if (claim.kind === "suppressed") {
         suppressed++

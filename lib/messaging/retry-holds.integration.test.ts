@@ -34,7 +34,7 @@ const KINDS = [
   { kind: "decline", category: "TRANSACTIONAL", dunning: false },
 ] as const
 
-async function queueMessage(contactId: string, category: TemplateCategory, dunning: boolean): Promise<string> {
+async function queueMessage(contactId: string, category: TemplateCategory, dunning: boolean, idempotencyKey?: string): Promise<string> {
   // One conversation per contact: later messages join it.
   const conversation = await db.conversation.findFirst({ where: { tenantId: tenant.tenantId, contactId } })
     ?? await db.conversation.create({ data: { tenantId: tenant.tenantId, contactId, channel: "SMS" } })
@@ -42,7 +42,7 @@ async function queueMessage(contactId: string, category: TemplateCategory, dunni
     data: {
       tenantId: tenant.tenantId, conversationId: conversation.id, channel: "SMS", direction: "OUTBOUND", provider: "BULKSMS",
       status: "RETRYING", retryCount: 1, nextRetryAt: new Date("2000-01-01T00:00:00Z"), templateId: templates[category]!,
-      lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "Synthetic message", toValue: "+27820000000", dunning,
+      lawfulBasis: "SERVICE_COMMS_NCA", bodyText: "Synthetic message", toValue: "+27820000000", dunning, idempotencyKey,
     },
   })).id
 }
@@ -81,6 +81,22 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
       await db.entityRelationship.create({ data: { tenantId: tenant.tenantId, entityId: entity.id, clientId: seeded.clientId, role: "DIRECTOR" } })
       const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
       messages[`${c.name}/reminder`] = await queueMessage(contact.id, "SERVICE", true)
+    }
+    // A loan hold that is not the client's own (an arrangement, a plan, an attorney referral) stops an
+    // automated dunning message queued for retry before it, and only that one.
+    const day = "2026-11-01"
+    for (const c of [
+      { name: "arrangement", arrangement: "ACTIVE", held: true },
+      { name: "plan", plan: true, held: true },
+      { name: "attorney", stage: "ATTORNEY_REFERRED", held: true },
+      { name: "no hold", held: false },
+    ] as HoldCase[]) {
+      const seeded = await seedHoldLoan(db, tenant, second, c)
+      const contact = await db.contact.findFirstOrThrow({ where: { tenantId: tenant.tenantId, clientId: seeded.clientId } })
+      messages[`${c.name}/collections reminder`] = await queueMessage(contact.id, "SERVICE", true, `collections:${seeded.loanId}:reminder_7d:SMS:${day}`)
+      messages[`${c.name}/entity reminder`] = await queueMessage(contact.id, "SERVICE", true, `entity-notice:${seeded.loanId}:reminder_1d:${day}:${seeded.clientId}:SMS`)
+      messages[`${c.name}/manual reminder`] = await queueMessage(contact.id, "SERVICE", true, `manual-reminder:${seeded.loanId}:op1:SMS`)
+      messages[`${c.name}/collections statement`] = await queueMessage(contact.id, "SERVICE", false, `collections:${seeded.loanId}:statement:SMS:${day}`)
     }
     const lead = await db.contact.create({ data: { tenantId: tenant.tenantId, firstSeenChannel: "SMS", status: "LEAD" } })
     messages["lead/reminder"] = await queueMessage(lead.id, "SERVICE", true)
@@ -121,6 +137,32 @@ suite.sequential("retry sweep and client holds (real Postgres)", () => {
     expect(await row("director deceased/reminder")).toMatchObject({
       status: "SUPPRESSED_BY_CONSENT", errorMessage: expect.stringContaining("client hold: deceased"),
     })
+  })
+
+  it.each(["arrangement", "plan", "attorney"])("a retry of an automated reminder on a loan under %s is suppressed, naming the loan hold, with no dispatch claimed", async (hold) => {
+    for (const kind of ["collections reminder", "entity reminder"]) {
+      const name = `${hold}/${kind}`
+      expect(await row(name), name).toMatchObject({
+        status: "SUPPRESSED_BY_CONSENT", dispatchToken: null, errorMessage: expect.stringContaining("loan hold"),
+      })
+      expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(0)
+    }
+  })
+
+  it.each(["arrangement", "plan", "attorney"])("on a loan under %s, a staff reminder and a non-dunning message are NOT held by the loan: staff keep the loan open, and a statement is owed", async (hold) => {
+    for (const kind of ["manual reminder", "collections statement"]) {
+      const name = `${hold}/${kind}`
+      expect((await row(name)).errorMessage ?? "", name).not.toContain("loan hold")
+      expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(1)
+    }
+  })
+
+  it("a loan with no hold is not suppressed", async () => {
+    for (const kind of ["collections reminder", "entity reminder", "manual reminder"]) {
+      const name = `no hold/${kind}`
+      expect((await row(name)).errorMessage ?? "", name).not.toContain("hold")
+      expect(await audits(name, "MESSAGE_RETRY_DISPATCH_CLAIMED"), name).toBe(1)
+    }
   })
 
   it("a clean client's reminder, and a lead's, are not suppressed by a hold", async () => {

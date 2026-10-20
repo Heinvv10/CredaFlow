@@ -55,6 +55,12 @@ export type CronJob =
        * (lib/ops/cron-run-claim.ts). Once-a-day schedules only.
        */
       singleRun?: boolean
+      /**
+       * The singleRun job whose results this one reads. It is not fired until that
+       * job has settled today (DONE, or FAILED on its last firing), so a retry of the
+       * first never overlaps this one (lib/ops/cron-run-claim.ts, `cronSettledToday`).
+       */
+      after?: string | null
     }
   | { route: string; owner: "external" }
   | { route: string; owner: "unwired"; reason: string }

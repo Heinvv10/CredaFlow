@@ -42,8 +42,10 @@ export interface EntityReminderResult {
   uncertain: boolean
   /** some leg failed for a reason a later run could fix */
   failed: boolean
-  /** "<name> <channel>: <status> (<reason>)" per leg, for notes and cron details */
+  /** "recipient N <channel>: <status> (<reason>)" per leg: names no one, for the cron's report */
   summary: string
+  /** The same with each recipient's name: for the LoanNote, a staff record */
+  namedSummary: string
 }
 
 export async function sendEntityReminder(args: {
@@ -85,7 +87,8 @@ export async function sendEntityReminder(args: {
     reached: outcomes.some(reachedProvider),
     uncertain: outcomes.some((o) => o.status === "pending" || o.status === "reconciliation"),
     failed: outcomes.some((o) => o.status === "failed"),
-    summary: describeEntityOutcomes(outcomes, names),
+    summary: describeEntityOutcomes(outcomes),
+    namedSummary: describeEntityOutcomes(outcomes, names),
   }
 }
 
@@ -101,7 +104,7 @@ export async function recordEntityReminder(
       tenantId,
       loanId: loan.id,
       type,
-      note: `Automated reminder to the directors, trustees and authorised signatories of ${loan.entityName}: ${result.summary}`,
+      note: `Automated reminder to the directors, trustees and authorised signatories of ${loan.entityName}: ${result.namedSummary}`,
       createdBy: "system",
     },
   })

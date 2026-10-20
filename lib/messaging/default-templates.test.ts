@@ -116,6 +116,16 @@ describe("seedDefaultMessageTemplates", () => {
     expect(rows[0]).toEqual(existing[0])
   })
 
+  it("seeds only the defaults `only` selects: the reminders cron does not need the OTP or portal rows", async () => {
+    const { calls, db } = fakeDb()
+    await seedDefaultMessageTemplates(db, "tenant-acme", ACME_LENDER.tradingName, { only: (t) => t.key.startsWith("payment_reminder_") })
+
+    const keys = created(calls).map((r) => r.key)
+    expect(keys).toContain("payment_reminder_email")
+    expect(keys.every((k) => k?.startsWith("payment_reminder_"))).toBe(true)
+    expect(keys.length).toBe(DEFAULT_MESSAGE_TEMPLATES.filter((t) => t.key.startsWith("payment_reminder_")).length)
+  })
+
   it("is two queries when nothing is missing, so the nightly run can afford every tenant", async () => {
     const { calls, db } = fakeDb()
     await seedDefaultMessageTemplates(db, "tenant-acme", ACME_LENDER.tradingName)
