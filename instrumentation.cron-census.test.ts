@@ -146,12 +146,14 @@ describe("scheduler cadence", () => {
 const schedule = vi.hoisted(() => vi.fn())
 vi.mock("node-cron", () => ({ schedule }))
 vi.mock("@/lib/ops/cron-heartbeat", () => ({ recordCronRun: vi.fn() }))
-const claimCronRun = vi.hoisted(() => vi.fn(async (_job: string) => true))
-const finishCronRun = vi.hoisted(() => vi.fn(async (_job: string, _ok: boolean) => undefined))
+const claimCronRun = vi.hoisted(() => vi.fn(async (_job: string): Promise<string | null> => "tok"))
+const finishCronRun = vi.hoisted(() => vi.fn(async (_job: string, _token: string, _ok: boolean) => true))
+const renewCronClaim = vi.hoisted(() => vi.fn(async (_job: string, _token: string) => true))
 vi.mock("@/lib/ops/cron-run-claim", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ops/cron-run-claim")>()),
   claimCronRun,
   finishCronRun,
+  renewCronClaim,
 }))
 
 describe("instrumentation register()", () => {
@@ -208,7 +210,7 @@ describe("instrumentation register()", () => {
   })
 
   it("claims the SAST day before it calls a single-run job, and only then", async () => {
-    claimCronRun.mockResolvedValue(false)
+    claimCronRun.mockResolvedValue(null)
     for (const [i, call] of schedule.mock.calls.entries()) {
       const job = occurrences[i].job
       claimCronRun.mockClear()
@@ -221,17 +223,36 @@ describe("instrumentation register()", () => {
       // A lost claim means another replica runs it: this one makes no call.
       expect(fetchMock.mock.calls.length, job.route).toBe(singleRun ? 0 : 1)
     }
-    claimCronRun.mockResolvedValue(true)
+    claimCronRun.mockResolvedValue("tok")
   })
 
   it("closes a claimed run as DONE on a 2xx and FAILED otherwise", async () => {
     const index = occurrences.findIndex((o) => o.job.route === "reminders")
-    claimCronRun.mockResolvedValue(true)
+    claimCronRun.mockResolvedValue("tok")
     finishCronRun.mockClear()
     await schedule.mock.calls[index][1]()
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }))
     await schedule.mock.calls[index][1]()
-    expect(finishCronRun.mock.calls.map((c) => c[1])).toEqual([true, false])
+    expect(finishCronRun.mock.calls.map((c) => [c[1], c[2]])).toEqual([["tok", true], ["tok", false]])
+  })
+
+  it("renews the claim every minute while the call is in flight, and stops when it returns", async () => {
+    vi.useFakeTimers()
+    try {
+      const index = occurrences.findIndex((o) => o.job.route === "reminders")
+      let finish: (r: Response) => void = () => undefined
+      fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+      renewCronClaim.mockClear()
+      const running = schedule.mock.calls[index][1]() as Promise<void>
+      await vi.advanceTimersByTimeAsync(3 * 60_000)
+      expect(renewCronClaim.mock.calls.map((c) => c[1])).toEqual(["tok", "tok", "tok"])
+      finish(new Response(null, { status: 200 }))
+      await running
+      await vi.advanceTimersByTimeAsync(3 * 60_000)
+      expect(renewCronClaim, "no renewal once the run has returned").toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("skips a single-run job whose claim cannot be made, rather than risk a duplicate", async () => {

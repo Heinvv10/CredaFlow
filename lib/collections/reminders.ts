@@ -33,6 +33,7 @@ import {
 } from "@/lib/messaging/send"
 import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { releaseReservation, reserveOnce } from "@/lib/ops/cron-run-claim"
 import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 import type { MessageTemplate, MsgStatus } from "@prisma/client"
@@ -282,7 +283,8 @@ async function remindEntityTrigger(args: {
     if (sent.failed) result.errors++
     result.details.push(`Entity ${trigger.noteType} for ${loan.reference} (${loan.entityName}): ${sent.summary}`)
   }
-  if (overdue) {
+  const overdueReservation = `send:${loan.id}:${trigger.noteType}:loan_overdue`
+  if (overdue && (await reserveOnce(overdueReservation))) {
     // Awaited, unlike the consumer call, so a failure lands in this run's report.
     try {
       await triggerNotification({
@@ -293,6 +295,7 @@ async function remindEntityTrigger(args: {
         suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
       })
     } catch (err) {
+      await releaseReservation(overdueReservation)
       console.error(`[reminders] ${loan.reference} loan_overdue failed:`, err)
       result.errors++
       result.details.push(`Error ${loan.reference} loan_overdue: failed; see the server log`)
@@ -730,16 +733,34 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           // `loan.client.whatsapp` is non-null here: the shared gate above
           // skipped the leg otherwise. It used to read `?? loan.client.phone`.
           const sendFn = channel === "whatsapp" ? sendWhatsApp : sendSms
+          // This path has no message reservation of its own (sendMessage has its
+          // idempotencyKey), and the LoanNote below is written after the send. A
+          // second run that overlaps this one (a takeover of a runner that only
+          // lost its heartbeat) would pass the "already processed" check and send
+          // again, so the send is reserved first, unique per loan, trigger,
+          // channel and SAST day.
+          const reservation = `send:${loan.id}:${trigger.noteType}:${channel}`
+          if (!(await reserveOnce(reservation))) {
+            result.details.push(`Skip duplicate ${trigger.noteType} for ${loan.reference} via ${channel}: another run already reserved this send today`)
+            continue
+          }
           dispatched = true
-          const sendResult = await sendFn({
-            tenantId: tenant.id,
-            to: channel === "whatsapp" ? loan.client.whatsapp! : loan.client.phone,
-            message,
-          })
+          let sendResult: Awaited<ReturnType<typeof sendFn>>
+          try {
+            sendResult = await sendFn({
+              tenantId: tenant.id,
+              to: channel === "whatsapp" ? loan.client.whatsapp! : loan.client.phone,
+              message,
+            })
+          } catch (err) {
+            await releaseReservation(reservation)
+            throw err
+          }
           if (sendResult.ok) {
             if (sendResult.simulated) channelsSimulated.push(channel)
             else channelsSent.push(channel)
           } else {
+            await releaseReservation(reservation)
             console.error(`[reminders] ${loan.reference} ${channel} failed: ${sendResult.error}`)
             result.errors++
             result.details.push(`Error ${loan.reference} ${channel}: failed; see the server log`)
@@ -817,7 +838,8 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       }
 
       // Trigger overdue notification for overdue triggers
-      if (trigger.daysUntilDue < 0) {
+      const overdueReservation = `send:${loan.id}:${trigger.noteType}:loan_overdue`
+      if (trigger.daysUntilDue < 0 && (await reserveOnce(overdueReservation))) {
         triggerNotification({
           tenantId: tenant.id,
           event: "loan_overdue",
@@ -828,7 +850,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           // unchanged. Only the WhatsApp leg is dropped, and only where this
           // trigger's own stage already carries one.
           suppressWhatsAppReason: overdueWhatsAppSuppressionReason(trigger),
-        }).catch(() => {})
+        }).catch(() => releaseReservation(overdueReservation).catch(() => undefined))
       }
     }
   }

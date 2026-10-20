@@ -18,6 +18,12 @@ const chargesOutstandingAtMock = vi.fn()
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 const ensureDpdCurrentMock = vi.fn()
+const reserveOnceMock = vi.fn()
+const releaseReservationMock = vi.fn()
+vi.mock("@/lib/ops/cron-run-claim", () => ({
+  reserveOnce: (...a: unknown[]) => reserveOnceMock(...a),
+  releaseReservation: (...a: unknown[]) => releaseReservationMock(...a),
+}))
 const emailConfigFindUniqueMock = vi.fn()
 const seedDefaultMessageTemplatesMock = vi.fn()
 vi.mock("@/lib/messaging/default-templates", () => ({ seedDefaultMessageTemplates: (...a: unknown[]) => seedDefaultMessageTemplatesMock(...a) }))
@@ -227,6 +233,7 @@ beforeEach(() => {
   repaymentScheduleFindFirstMock.mockResolvedValue({ totalDue: 1500_00, totalPaid: 0 })
   tenantConfigFindUniqueMock.mockResolvedValue({})
   emailConfigFindUniqueMock.mockResolvedValue({ active: true })
+  reserveOnceMock.mockResolvedValue(true)
   getLenderIdentityMock.mockImplementation(async () => {
     const { parseLenderIdentity } = await vi.importActual<typeof import("@/lib/config/identity")>("@/lib/config/identity")
     const { VALID_LENDER_COLUMNS } = await import("@/lib/config/__fixtures__/lender-identity")
@@ -446,6 +453,48 @@ describe("processPaymentReminders", () => {
     // The legacy branch used to send to `client.whatsapp ?? client.phone`, so
     // a borrower with no WhatsApp got WhatsApped on their plain phone number —
     // a delivery failure at best. Both paths now agree: no number, no leg.
+    describe("send reservation (overlapping runs)", () => {
+      const withWa = () => {
+        const l = loanDueTomorrow()
+        l.client.whatsapp = "0821234567"
+        return l
+      }
+
+      it("reserves each direct send per loan, trigger and channel before it goes", async () => {
+        loanFindManyMock.mockResolvedValue([withWa()])
+        await processPaymentReminders()
+        expect(reserveOnceMock.mock.calls.map((c) => c[0])).toEqual(["send:loan_1:reminder_1d:sms", "send:loan_1:reminder_1d:whatsapp"])
+      })
+
+      it("a send another run has reserved is not sent again", async () => {
+        loanFindManyMock.mockResolvedValue([withWa()])
+        reserveOnceMock.mockResolvedValue(false)
+        const r = await processPaymentReminders()
+        expect(sendSmsMock).not.toHaveBeenCalled()
+        expect(sendWhatsAppMock).not.toHaveBeenCalled()
+        expect(loanNoteCreateMock).not.toHaveBeenCalled()
+        expect(r.details.join("\n")).toContain("another run already reserved this send today")
+        expect(r.errors).toBe(0)
+      })
+
+      it("a send that failed gives its reservation back so the retry can send", async () => {
+        vi.spyOn(console, "error").mockImplementation(() => undefined)
+        loanFindManyMock.mockResolvedValue([withWa()])
+        sendWhatsAppMock.mockResolvedValue({ ok: false, error: "gateway down" })
+        await processPaymentReminders()
+        expect(releaseReservationMock.mock.calls.map((c) => c[0])).toEqual(["send:loan_1:reminder_1d:whatsapp"])
+      })
+
+      it("a send that threw gives its reservation back too", async () => {
+        loanFindManyMock.mockResolvedValue([withWa()])
+        sendSmsMock.mockRejectedValue(new Error("socket hang up"))
+        vi.spyOn(console, "error").mockImplementation(() => undefined)
+        const r = await processPaymentReminders()
+        expect(releaseReservationMock).toHaveBeenCalledWith("send:loan_1:reminder_1d:sms")
+        expect(r.failedTenants).toBe(1)
+      })
+    })
+
     it("does NOT WhatsApp the plain phone number when the client has no WhatsApp on file", async () => {
       // Default fixture: client.whatsapp = null, client.phone = "0821234567".
       const r = await processPaymentReminders()

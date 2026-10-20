@@ -54,17 +54,33 @@ export async function register() {
       // Section 129 notice cannot be taken back.
       const claimKey = path.replace("/api/cron/", "")
       const claimedAt = new Date()
+      let ownerToken: string | null = null
       if (singleRun) {
         try {
           const { claimCronRun } = await import("@/lib/ops/cron-run-claim")
-          if (!(await claimCronRun(claimKey, claimedAt))) {
-            console.log(`[cron] ${path} already claimed for today (done, or running elsewhere), skipping`)
-            return
-          }
+          ownerToken = await claimCronRun(claimKey, claimedAt)
         } catch (err) {
           console.error(`[cron] ${path} not run, run claim failed:`, err)
           return
         }
+        if (!ownerToken) {
+          console.log(`[cron] ${path} already claimed for today (done, or running elsewhere), skipping`)
+          return
+        }
+      }
+      // While the call is in flight, prove this runner is alive: a claim whose
+      // heartbeat goes stale is how a later firing knows the runner died.
+      let heartbeat: ReturnType<typeof setInterval> | undefined
+      if (ownerToken) {
+        const token = ownerToken
+        const { renewCronClaim, HEARTBEAT_INTERVAL_MS } = await import("@/lib/ops/cron-run-claim")
+        heartbeat = setInterval(() => {
+          renewCronClaim(claimKey, token, claimedAt)
+            .then((held) => {
+              if (!held) console.error(`[cron] ${path} lost its run claim to another attempt; this run is no longer the owner`)
+            })
+            .catch((err) => console.error(`[cron] ${path} heartbeat failed:`, err))
+        }, HEARTBEAT_INTERVAL_MS)
       }
       const startedAt = new Date()
       let status: number | null = null
@@ -82,11 +98,14 @@ export async function register() {
       } catch (err) {
         error = err instanceof Error ? err.message : String(err)
         console.error(`[cron] ${path} error:`, err)
+      } finally {
+        if (heartbeat) clearInterval(heartbeat)
       }
-      if (singleRun) {
+      if (ownerToken) {
         try {
           const { finishCronRun } = await import("@/lib/ops/cron-run-claim")
-          await finishCronRun(claimKey, status !== null && status >= 200 && status < 300, claimedAt)
+          const closed = await finishCronRun(claimKey, ownerToken, status !== null && status >= 200 && status < 300, claimedAt)
+          if (!closed) console.error(`[cron] ${path} run claim was taken over before this run finished; its outcome is not recorded on the claim`)
         } catch (err) {
           console.error(`[cron] ${path} run claim not closed:`, err)
         }

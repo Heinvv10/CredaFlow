@@ -9,6 +9,7 @@ import { evaluateCollectionsEligibility } from "@/lib/collections/section129-eli
 import { chargesOutstandingAt } from "@/lib/loan/charges-replay"
 import { isLoanHeld, section129DebtReviewReason } from "@/lib/collections/client-holds"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
+import { releaseReservation, reserveOnce } from "@/lib/ops/cron-run-claim"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 
 interface EscalationResult {
@@ -219,11 +220,22 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
       }
       if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 
+      // noteExists above is checked before the rule writes its note, so two
+      // overlapping runs (a takeover of a runner that only lost its heartbeat)
+      // can both get here and both flip the status and notify the borrower. One
+      // reservation per loan, rule and SAST day lets only one act; it is
+      // released if the rule fails so the retry can run it.
+      const reservation = `escalation:${loan.id}:${rule.noteType}`
+      if (!(await reserveOnce(reservation))) {
+        result.details.push(`Skip ${loan.reference} ${rule.noteType}: another run is already handling it today`)
+        continue
+      }
       try {
         const detail = await rule.action(ctx)
         result.processed++
         result.details.push(detail)
       } catch (err) {
+        await releaseReservation(reservation)
         console.error(`[escalation] ${loan.reference} ${rule.noteType} failed:`, err)
         result.details.push(`Error ${loan.reference} ${rule.noteType}: failed; see the server log`)
         // This is a Section 129 legal notice / DEFAULTED status / commission

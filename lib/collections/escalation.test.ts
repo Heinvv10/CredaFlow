@@ -11,6 +11,12 @@ const chargesOutstandingAtMock = vi.fn()
 const isLoanHeldMock = vi.fn()
 const debtReviewReasonMock = vi.fn()
 const ensureDpdCurrentMock = vi.fn()
+const reserveOnceMock = vi.fn()
+const releaseReservationMock = vi.fn()
+vi.mock("@/lib/ops/cron-run-claim", () => ({
+  reserveOnce: (...a: unknown[]) => reserveOnceMock(...a),
+  releaseReservation: (...a: unknown[]) => releaseReservationMock(...a),
+}))
 vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
 vi.mock("@/lib/collections/client-holds", () => ({
   isLoanHeld: (...a: unknown[]) => isLoanHeldMock(...a),
@@ -69,6 +75,7 @@ beforeEach(() => {
   reverseReferralCommissionMock.mockResolvedValue(undefined)
   chargesOutstandingAtMock.mockResolvedValue(0)
   isLoanHeldMock.mockResolvedValue(false)
+  reserveOnceMock.mockResolvedValue(true)
   debtReviewReasonMock.mockResolvedValue(null)
 })
 
@@ -101,6 +108,35 @@ describe("processEscalations", () => {
     expect(r.details.join(" ")).not.toContain("smtp exploded")
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("DEFAULTED notice failed"), expect.objectContaining({ message: "smtp exploded" }))
     logged.mockRestore()
+  })
+
+  describe("the per-rule reservation (overlapping runs)", () => {
+    it("reserves each rule per loan before it acts", async () => {
+      await processEscalations()
+      expect(reserveOnceMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default")
+    })
+
+    it("a rule another run has already reserved is skipped: no flip, no note, no notice", async () => {
+      reserveOnceMock.mockResolvedValue(false)
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).not.toHaveBeenCalled()
+      expect(loanNoteCreateMock).not.toHaveBeenCalled()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.join(" ")).toContain("another run is already handling it today")
+      expect(r.errors).toBe(0)
+    })
+
+    it("releases the reservation when the rule failed, so the retry can run it", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined)
+      triggerNotificationMock.mockRejectedValue(new Error("smtp"))
+      await processEscalations()
+      expect(releaseReservationMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default")
+    })
+
+    it("keeps the reservation of a rule that succeeded", async () => {
+      await processEscalations()
+      expect(releaseReservationMock).not.toHaveBeenCalled()
+    })
   })
 
   describe("several tenants", () => {

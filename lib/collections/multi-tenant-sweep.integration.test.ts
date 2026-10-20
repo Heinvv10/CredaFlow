@@ -16,12 +16,17 @@ import { createChargesLoan, createChargesTenant, type ChargesTenant } from "@/li
 import { createSecondProduct, seedHoldLoan, type SeededHoldLoan } from "@/lib/collections/dunning-holds.integration-fixture"
 
 interface Sent { to: string; body: string }
-const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[] }))
+const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[], delayMs: 0 }))
 
 vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/bulksms")>()),
   sendSms: vi.fn(async () => ({ ok: true })),
-  sendWhatsApp: vi.fn(async (a: { to: string; message: string }) => (sent.whatsapp.push({ to: a.to, body: a.message }), { ok: true })),
+  sendWhatsApp: vi.fn(async (a: { to: string; message: string }) => {
+    // A slow provider is what lets a second run get past the "already sent today" check.
+    if (sent.delayMs) await new Promise((resolve) => setTimeout(resolve, sent.delayMs))
+    sent.whatsapp.push({ to: a.to, body: a.message })
+    return { ok: true }
+  }),
 }))
 vi.mock("@/lib/email/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email/service")>()),
@@ -128,6 +133,34 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
       expect(got[0].body).toContain(own)
       expect(got[0].body).not.toContain(other)
     }
+  })
+
+  // The backstop under the run claim: a takeover can overlap a runner that only lost its heartbeat,
+  // and both then pass the "already sent today" check before either has written its marker.
+  it("two runs racing on the same day send each message and each notice once", async () => {
+    const [remindFreshA, remindFreshB, defaultFreshA, defaultFreshB] = await Promise.all([
+      seedHoldLoan(db, a, a.productId, { name: "race remind A", held: false }),
+      seedHoldLoan(db, b, b.productId, { name: "race remind B", held: false }),
+      seedHoldLoan(db, a, a.productId, { name: "race default A", held: false }, { inArrears: true }),
+      seedHoldLoan(db, b, b.productId, { name: "race default B", held: false }, { inArrears: true }),
+    ])
+    sent.whatsapp.length = 0
+    sent.email.length = 0
+    sent.delayMs = 150
+    let emailsBeforeEscalations = 0
+    try {
+      await Promise.all([processPaymentReminders(), processPaymentReminders()])
+      emailsBeforeEscalations = sent.email.length
+      await Promise.all([processEscalations(), processEscalations()])
+      await new Promise((resolve) => setTimeout(resolve, 600))
+    } finally {
+      sent.delayMs = 0
+    }
+
+    for (const s of [remindFreshA, remindFreshB]) expect(delivered(sent.whatsapp, s.whatsapp), `${s.name}: reminded once`).toHaveLength(1)
+    // These loans are also pre-due, so they get a reminder email; the escalation phase's emails are the notices.
+    const notices = sent.email.slice(emailsBeforeEscalations)
+    for (const s of [defaultFreshA, defaultFreshB]) expect(delivered(notices, s.email), `${s.name}: one DEFAULTED notice`).toHaveLength(1)
   })
 
   // A lost run is retried the same day (lib/ops/cron-run-claim.ts), so a repeat must be harmless.

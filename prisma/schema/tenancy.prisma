@@ -539,6 +539,8 @@ model CronRunClaim {
   status     CronRunStatus @default(RUNNING)
   finishedAt DateTime?
   attempts   Int           @default(1)
+  /// Random per attempt: only the attempt that holds it may renew or close the claim.
+  ownerToken String?
 
   @@id([job, runDay])
 }

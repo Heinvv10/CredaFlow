@@ -24,6 +24,12 @@ const m = vi.hoisted(() => ({
 const holds = vi.hoisted(() => ({ held: false }))
 vi.mock("@/lib/collections/client-holds", () => ({ isLoanHeld: async () => holds.held }))
 const ensureDpdCurrentMock = vi.fn()
+const reserveOnceMock = vi.fn()
+const releaseReservationMock = vi.fn()
+vi.mock("@/lib/ops/cron-run-claim", () => ({
+  reserveOnce: (...a: unknown[]) => reserveOnceMock(...a),
+  releaseReservation: (...a: unknown[]) => releaseReservationMock(...a),
+}))
 const seedDefaultMessageTemplatesMock = vi.fn()
 vi.mock("@/lib/messaging/default-templates", () => ({ seedDefaultMessageTemplates: (...a: unknown[]) => seedDefaultMessageTemplatesMock(...a) }))
 vi.mock("@/lib/loan/dpd-update", () => ({ ensureDpdCurrent: (...a: unknown[]) => ensureDpdCurrentMock(...a) }))
@@ -91,6 +97,7 @@ beforeEach(() => {
   m.lookupContact.mockImplementation(async (_db: unknown, a: { value: string }) => ({ id: `ct_${a.value}` }))
   m.sendMessage.mockResolvedValue({ id: "msg", status: "SENT" })
   m.triggerNotification.mockResolvedValue(undefined)
+  reserveOnceMock.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -160,6 +167,20 @@ describe("processPaymentReminders — entity borrower", () => {
     await processPaymentReminders()
     expect(m.sendMessage).not.toHaveBeenCalled()
     expect(m.loanNoteCreate).not.toHaveBeenCalled()
+  })
+
+  it("the entity loan_overdue notice is reserved once per loan and day, and given back if it failed", async () => {
+    m.loanFindMany.mockResolvedValue([entityLoanDueIn(-3)])
+    reserveOnceMock.mockResolvedValue(false)
+    await processPaymentReminders()
+    expect(m.triggerNotification).not.toHaveBeenCalled()
+
+    reserveOnceMock.mockResolvedValue(true)
+    m.triggerNotification.mockRejectedValue(new Error("smtp"))
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    await processPaymentReminders()
+    expect(reserveOnceMock).toHaveBeenCalledWith("send:loan_af:reminder_overdue_3d:loan_overdue")
+    expect(releaseReservationMock).toHaveBeenCalledWith("send:loan_af:reminder_overdue_3d:loan_overdue")
   })
 
   it("an overdue trigger sends the entity WhatsApp only: its email is the loan_overdue notification", async () => {

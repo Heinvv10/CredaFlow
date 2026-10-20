@@ -30,6 +30,12 @@ promise-to-pay tracking, and arrangement monitoring.
   reminders first make sure DPD is current for the tenant (`ensureDpdCurrent`)
   and run it if not. The 60-DPD "defaulted" notice goes only to a loan at 60-66
   DPD; an older one is flipped and noted without it.
+  A single-run claim has an owner token and a one-minute heartbeat; a later
+  firing takes over only a FAILED claim or one whose heartbeat is 5 minutes
+  stale. Because a takeover can still overlap a runner that only lost its
+  heartbeat, every direct send (legacy SMS/WhatsApp, `loan_overdue`) and every
+  escalation rule first takes `reserveOnce(key)` (lib/ops/cron-run-claim.ts),
+  unique per loan, message and SAST day, and `releaseReservation` if it failed.
 - **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
   through `sendMessage`** (template `payment_reminder_email`; entities via
   `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`
