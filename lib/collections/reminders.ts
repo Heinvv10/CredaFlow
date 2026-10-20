@@ -20,7 +20,7 @@
 import { prisma } from "@/lib/prisma"
 import { sendSms, sendWhatsApp } from "@/lib/integrations/bulksms"
 import { triggerNotification } from "@/lib/notifications"
-import { formatZAR } from "@/lib/utils"
+import { escapeHtml, formatZAR } from "@/lib/utils"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { isCollectionsNewSendEnabled } from "@/lib/messaging/flags"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
@@ -31,7 +31,7 @@ import {
   sendMessage,
   SendBlockedError,
 } from "@/lib/messaging/send"
-import { lookupContactByChannelValue, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
 import { sweepActiveTenants, tenantFailureDetail, type SweepTenant } from "@/lib/collections/tenant-sweep"
 import type { MessageTemplate, MsgStatus } from "@prisma/client"
 import { sastCalendarDate, sastStartOfDay } from "@/lib/date/sast"
@@ -85,8 +85,12 @@ interface ReminderResult {
 interface ReminderTrigger {
   daysUntilDue: number
   noteType: string
-  channels: Array<"sms" | "whatsapp">
+  /** "email" is sent through sendMessage on every path, whatever the new-send flag says. */
+  channels: Array<"sms" | "whatsapp" | "email">
   getMessage: (ctx: MessageContext) => string
+  /** The email leg's subject and, where the SMS copy does not suit an email, its text. */
+  emailSubject?: (ctx: MessageContext) => string
+  emailText?: (ctx: MessageContext) => string
   /** WABA_BODY_TEMPLATES event the WhatsApp leg sends. Required when
    *  `channels` includes "whatsapp". */
   waTemplateEvent?: string
@@ -109,24 +113,29 @@ export const TRIGGERS: ReminderTrigger[] = [
   {
     daysUntilDue: 7,
     noteType: "reminder_7d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_7d",
+    emailSubject: (ctx) => `Payment reminder: ${ctx.amount} due on ${ctx.date}`,
+    emailText: (ctx) =>
+      `Hi ${ctx.firstName}, your loan payment of ${ctx.amount} is due on ${ctx.date}. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
     getMessage: (ctx) =>
       `Hi ${ctx.firstName}, your loan payment of ${ctx.amount} is due on ${ctx.date}. Ref: ${ctx.loanRef}. Reply STOP to opt out.`,
   },
   {
     daysUntilDue: 1,
     noteType: "reminder_1d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_1d",
+    emailSubject: (ctx) => `Payment due tomorrow: ${ctx.amount} on ${ctx.loanRef}`,
     getMessage: (ctx) =>
       `Reminder: ${ctx.amount} due TOMORROW (${ctx.date}) on loan ${ctx.loanRef}. Please ensure funds are available. ${ctx.lenderName}`,
   },
   {
     daysUntilDue: 0,
     noteType: "reminder_0d",
-    channels: ["sms", "whatsapp"],
+    channels: ["sms", "whatsapp", "email"],
     waTemplateEvent: "payment_reminder_0d",
+    emailSubject: (ctx) => `Payment due today: ${ctx.amount} on ${ctx.loanRef}`,
     waTemplateSuccessor: "payment_reminder_0d_v3",
     getMessage: (ctx) =>
       `Your loan payment of ${ctx.amount} is due today. Ref: ${ctx.loanRef}. Need help? Contact ${ctx.lenderName} on ${ctx.phone}.`,
@@ -252,7 +261,9 @@ async function remindEntityTrigger(args: {
       dueDate: args.dueDate,
       daysOverdue: overdue ? -trigger.daysUntilDue : undefined,
       lender: args.lender,
-      channels: ["WHATSAPP"],
+      // The pre-due triggers also email the people who act for the entity; an
+      // overdue one reaches them by email through loan_overdue below.
+      channels: overdue ? ["WHATSAPP"] : ["WHATSAPP", "EMAIL"],
       occurrence: `${trigger.noteType}:${localDayKey(args.today)}`,
       category: "collections",
     })
@@ -339,6 +350,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   // "everyone was reached" when in fact nobody was. Hence the name, and the
   // wording of the line it prints.
   const noWaNumberByTrigger = new Map<string, number>()
+  const noEmailByTrigger = new Map<string, number>()
   const noLegDispatchedByTrigger = new Map<string, number>()
 
   const newSend = isCollectionsNewSendEnabled()
@@ -404,6 +416,18 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     }
   }
 
+  // The email leg goes through sendMessage whatever the new-send flag says, so
+  // its template is checked on every path. A tenant without the row (seed the
+  // default templates) has that leg reported per loan, never sent without one.
+  const templateEmail = await prisma.messageTemplate.findFirst({
+    where: { tenantId: tenant.id, key: "payment_reminder_email", channel: "EMAIL", active: true },
+  })
+  const emailTemplateProblem = !templateEmail
+    ? "template payment_reminder_email missing/inactive — seed the default templates (seedDefaultMessageTemplates in lib/messaging/default-templates.ts)"
+    : templateEmail.statutoryOverride !== false
+      ? "template payment_reminder_email has statutoryOverride=true — collections reminders must NOT bypass eligibility"
+      : null
+
   const loans = await prisma.loan.findMany({
     where: {
       tenantId: tenant.id,
@@ -419,6 +443,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           lastName: true,
           phone: true,
           whatsapp: true,
+          email: true,
         },
       },
       entity: { select: { legalName: true } },
@@ -504,6 +529,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       }
 
       const message = trigger.getMessage(ctx)
+      const emailText = trigger.emailText ? trigger.emailText(ctx) : message
       const channelsSent: string[] = []
       const channelsSimulated: string[] = []
       const channelsReconciliation: string[] = []
@@ -550,7 +576,12 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           continue
         }
 
-        if (newSend) {
+        if (channel === "email" && !loan.client.email) {
+          noEmailByTrigger.set(trigger.noteType, (noEmailByTrigger.get(trigger.noteType) ?? 0) + 1)
+          continue
+        }
+
+        if (newSend || channel === "email") {
           // New path: route through sendMessage(). Channel-keyed Contact
           // lookup, eligibility check (consent + block-status), Message
           // row + Conversation thread + audit trail.
@@ -561,14 +592,19 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
             )
             continue
           }
-          const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : loan.client.phone
+          if (channel === "email" && emailTemplateProblem) {
+            result.errors++
+            result.details.push(`Blocked ${trigger.noteType} for ${loan.reference} via email: ${emailTemplateProblem}`)
+            continue
+          }
+          const rawPhone = channel === "whatsapp" ? loan.client.whatsapp! : channel === "email" ? loan.client.email! : loan.client.phone
           if (!rawPhone) {
             result.errors++
             result.details.push(`Error ${loan.reference} ${channel}: no phone on file`)
             continue
           }
-          const channelEnum = channel === "whatsapp" ? "WHATSAPP" : "SMS"
-          const value = channel === "whatsapp" ? toWaJid(rawPhone) : normalisePhone(rawPhone)
+          const channelEnum = channel === "whatsapp" ? "WHATSAPP" : channel === "email" ? "EMAIL" : "SMS"
+          const value = channel === "whatsapp" ? toWaJid(rawPhone) : channel === "email" ? normaliseEmail(rawPhone) : normalisePhone(rawPhone)
           if (!value) {
             result.errors++
             result.details.push(`Error ${loan.reference} ${channel}: unparseable phone "${rawPhone}"`)
@@ -587,7 +623,7 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
             result.details.push(`Error ${loan.reference} ${channel}: no Contact row for ${value}`)
             continue
           }
-          const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : templateSms!
+          const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : channel === "email" ? templateEmail! : templateSms!
           // WhatsApp: the discrete named vars its WABA body declares, from the
           // same ctx the SMS copy interpolates, so both quote one set of figures.
           const vars = channel === "whatsapp"
@@ -599,7 +635,9 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
                 dueDate: ctx.date,
                 supportPhone: ctx.phone,
               })
-            : { body: message }
+            : channel === "email"
+              ? { subject: trigger.emailSubject!(ctx), text: emailText, html: `<p>${escapeHtml(emailText)}</p>` }
+              : { body: message }
           try {
             // What this channel actually carries, for the LoanNote: the
             // WhatsApp leg sends its row's body, not the SMS text. Rendered
@@ -776,6 +814,12 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
       : `Every blocked trigger also has a WhatsApp leg; whether that leg reached anyone is the lines below, not this one.`
     result.details.push(
       `Blocked ${result.smsChannelOff} sms leg(s) this run: ${SMS_CHANNEL_OFF_REASON} (${breakdown}). ${consequence}`,
+    )
+  }
+
+  if (total(noEmailByTrigger) > 0) {
+    result.details.push(
+      `Skipped ${total(noEmailByTrigger)} email leg(s) this run: no email address on file (${tally(noEmailByTrigger)}).`,
     )
   }
 

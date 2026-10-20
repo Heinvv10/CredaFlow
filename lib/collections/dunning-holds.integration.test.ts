@@ -13,6 +13,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { createChargesTenant, SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { remindableLoanWhere } from "@/lib/collections/dunning-holds"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import {
   createSecondProduct, HOLD_CASES, seedHoldLoan, type SeededHoldLoan,
 } from "@/lib/collections/dunning-holds.integration-fixture"
@@ -48,14 +49,26 @@ const db = new PrismaClient()
 
 let tenant: ChargesTenant
 const seeded: SeededHoldLoan[] = []
+let optedOut: SeededHoldLoan
 
 suite.sequential("dunning holds on the real reminder queries (real Postgres)", () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
     await db.commsSettings.upsert({ where: { tenantId: tenant.tenantId }, create: { tenantId: tenant.tenantId, whatsappEnabled: true }, update: { whatsappEnabled: true } })
+    // The email leg goes through sendMessage on every path: it needs the tenant's
+    // email provider and the seeded `payment_reminder_email` template.
+    await db.emailConfig.create({
+      data: { tenantId: tenant.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender", fromAddress: "sender@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
+    })
+    await seedDefaultMessageTemplates(db, tenant.tenantId, "Acme Lending")
     const second = await createSecondProduct(db, tenant.tenantId)
     for (const c of HOLD_CASES) seeded.push(await seedHoldLoan(db, tenant, second, c))
+    // Not held, but the borrower has revoked service comms on email.
+    optedOut = await seedHoldLoan(db, tenant, second, { name: "opted out of email", held: false })
+    await db.contactConsent.create({
+      data: { tenantId: tenant.tenantId, contactId: optedOut.contactId, channel: "EMAIL", purpose: "SERVICE_COMMS", status: "REVOKED", source: "EMAIL_LIST_UNSUBSCRIBE" },
+    })
   })
   afterAll(async () => {
     await db.$disconnect()
@@ -66,13 +79,27 @@ suite.sequential("dunning holds on the real reminder queries (real Postgres)", (
     sends.onSend = null
   })
 
-  it("the reminders cron (lib/collections/reminders.ts) sends the WhatsApp reminder to each normal loan and to no held one", async () => {
+  it("the reminders cron (lib/collections/reminders.ts) sends the WhatsApp and email reminders to each normal loan and to no held one", async () => {
     await processPaymentReminders()
 
     expect(sends.whatsapp.length, "the harness must observe the WhatsApp leg").toBeGreaterThan(0)
     for (const s of seeded) {
       expect(sends.whatsapp.includes(s.whatsapp), `${s.name}: ${s.held ? "must be held" : "must be reminded"}`).toBe(!s.held)
     }
+
+    // The 7-day email leg goes through sendMessage (consent, holds, Message.dunning): each
+    // normal loan is emailed once, a held loan never, an opted-out borrower gets nothing.
+    expect(sends.email.length, "the harness must observe the email leg").toBeGreaterThan(0)
+    for (const s of seeded) {
+      expect(sends.email.filter((to) => to === s.email), `${s.name}: ${s.held ? "must be held" : "must be emailed once"}`).toHaveLength(s.held ? 0 : 1)
+    }
+    expect(sends.email.filter((to) => to === optedOut.email), "an opted-out email address is not sent to").toHaveLength(0)
+    // ...while that borrower's other channel is unaffected: consent is per channel.
+    expect(sends.whatsapp).toContain(optedOut.whatsapp)
+
+    const messages = await db.message.findMany({ where: { tenantId: tenant.tenantId, channel: "EMAIL" }, select: { dunning: true, status: true } })
+    expect(messages.length).toBeGreaterThan(0)
+    expect(messages.every((m) => m.dunning), "email reminders are dunning messages").toBe(true)
   })
 
   it("the fragment itself, on the real tables, selects the normal loans and no held one", async () => {

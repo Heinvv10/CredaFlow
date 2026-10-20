@@ -42,7 +42,7 @@ export const HOLD_CASES: HoldCase[] = [
   { name: "RESTRUCTURED", status: "RESTRUCTURED", held: true },
 ]
 
-export interface SeededHoldLoan extends HoldCase { loanId: string; clientId: string; email: string; phone: string; whatsapp: string }
+export interface SeededHoldLoan extends HoldCase { loanId: string; clientId: string; contactId: string; email: string; phone: string; whatsapp: string }
 
 export async function createSecondProduct(db: PrismaClient, tenantId: string): Promise<string> {
   const product = await db.loanProduct.create({
@@ -106,12 +106,14 @@ export async function seedHoldLoan(
       email, phone, whatsapp, deceasedAt: c.deceased ? new Date("2026-09-01T00:00:00Z") : null, deceasedReason: c.deceased ? "synthetic" : null,
     },
   })
-  await db.contact.create({
+  const contact = await db.contact.create({
     data: {
       tenantId: tenant.tenantId, clientId: client.id, status: "CLIENT", firstSeenChannel: "MANUAL",
       primaryEmail: email, primaryPhone: phone, primaryWaJid: `${whatsapp.slice(1)}@s.whatsapp.net`,
     },
   })
+  // What sendMessage resolves an email recipient from.
+  await db.contactIdentity.create({ data: { tenantId: tenant.tenantId, contactId: contact.id, channel: "EMAIL", source: "MANUAL", value: email } })
   const loan = await createLoan(db, tenant, client.id, { productId: tenant.productId, status: c.status, stage: c.stage, debtReview: c.debtReview, inArrears: opts.inArrears })
   if (c.debtReviewOnSibling) {
     await createLoan(db, tenant, client.id, { productId: secondProductId, debtReview: true })
@@ -129,5 +131,5 @@ export async function seedHoldLoan(
       data: { loanId: loan.id, totalArrears: 100_000, installments: 4, installmentAmt: 25_000, startDate: new Date(), createdBy: "synthetic", active: c.plan },
     })
   }
-  return { ...c, loanId: loan.id, clientId: client.id, email, phone, whatsapp }
+  return { ...c, loanId: loan.id, clientId: client.id, contactId: contact.id, email, phone, whatsapp }
 }

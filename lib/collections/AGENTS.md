@@ -27,6 +27,11 @@ promise-to-pay tracking, and arrangement monitoring.
   frame** (`tenant-sweep.ts`; never `tenant.findFirst`). Times and order:
   `lib/registry/cron-jobs/091-dunning.ts`, pinned by `dunning-schedule.test.ts`.
   The old 3-day `payment-reminders` courtesy cron is retired.
+- **The pre-due reminders (7d, 1d, 0d) email as well as SMS/WhatsApp, always
+  through `sendMessage`** (template `payment_reminder_email`; entities via
+  `entity_reminder_email`), so consent, holds, kill switches and `Message.dunning`
+  apply. A tenant without the template has that leg reported per loan until
+  `seedDefaultMessageTemplates` is run for it.
 - **Section 129 issuance triggers a real legal letter.** When an escalation
   marks `SECTION_129_SENT`, a Section 129 PDF MUST be generated via `lib/pdf/section129.ts`
   and the audit log MUST record dispatch. Don't flip the status without

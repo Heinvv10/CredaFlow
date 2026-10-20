@@ -191,8 +191,12 @@ const WA_TEMPLATE_EVENTS = TRIGGERS.filter((t) => t.waTemplateEvent).map((t) => 
 
 // Resolves findFirst by the key it asks for, so the assertion is about WHICH
 // row the cron looked up rather than the order it happened to ask in.
+function emailTpl(overrides: Record<string, unknown> = {}) {
+  return { ...sampleSmsTpl, key: "payment_reminder_email", channel: "EMAIL", subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}", ...overrides }
+}
+
 function stubTemplates(overrides: Record<string, unknown> = {}) {
-  const rows: Record<string, unknown> = { payment_reminder_sms: sampleSmsTpl }
+  const rows: Record<string, unknown> = { payment_reminder_sms: sampleSmsTpl, payment_reminder_email: emailTpl() }
   for (const e of WA_TEMPLATE_EVENTS) rows[`${e}_whatsapp`] = waTpl(e)
   Object.assign(rows, overrides)
   messageTemplateFindFirstMock.mockImplementation(
@@ -286,6 +290,80 @@ describe("processPaymentReminders", () => {
     })
   })
 
+  describe("the pre-due email leg (through sendMessage on every path)", () => {
+    const withEmail = (days: number, email: string | null = "tester@client.invalid") => {
+      const loan = loanDueIn(days)
+      return { ...loan, client: { ...loan.client, email } }
+    }
+    const emailCalls = () => sendMessageMock.mock.calls.map((c) => c[0] as { channel: string; category: string; vars: Record<string, string>; idempotencyKey: string; toValue: string; template: { key: string } })
+      .filter((c) => c.channel === "EMAIL")
+
+    beforeEach(() => {
+      stubTemplates()
+      lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    })
+
+    it.each([7, 1, 0])("%i days before due: one email through sendMessage, as dunning, beside the direct WhatsApp/SMS legs (flag off)", async (days) => {
+      loanFindManyMock.mockResolvedValue([withEmail(days)])
+      const r = await processPaymentReminders()
+
+      expect(emailCalls()).toHaveLength(1)
+      const call = emailCalls()[0]
+      expect(call).toMatchObject({ category: "collections", toValue: "tester@client.invalid", template: { key: "payment_reminder_email" } })
+      expect(call.idempotencyKey).toMatch(/^collections:loan_1:reminder_\d+d:EMAIL:\d{4}-\d{2}-\d{2}$/)
+      expect(call.vars.subject).toContain("R 1,500.00")
+      expect(call.vars.text).toContain("L-001")
+      expect(call.vars.html).toBe(`<p>${call.vars.text}</p>`)
+      expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
+      expect(r.errors).toBe(0)
+    })
+
+    it("the email copy never tells the borrower to reply STOP (an SMS convention)", async () => {
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      await processPaymentReminders()
+      expect(emailCalls()[0].vars.text).not.toContain("STOP")
+    })
+
+    it("an overdue trigger has no email leg: its email is the loan_overdue notification", async () => {
+      loanFindManyMock.mockResolvedValue([withEmail(-1)])
+      await processPaymentReminders()
+      expect(emailCalls()).toHaveLength(0)
+    })
+
+    it("a borrower without an email address is skipped and counted, not an error", async () => {
+      loanFindManyMock.mockResolvedValue([withEmail(7, null)])
+      const r = await processPaymentReminders()
+      expect(emailCalls()).toHaveLength(0)
+      expect(r.errors).toBe(0)
+      expect(r.details.join("\n")).toContain("Skipped 1 email leg(s) this run: no email address on file (reminder_7d x1)")
+    })
+
+    it("a blocked send (opt-out, hold) is a skip, never an error", async () => {
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      sendMessageMock.mockRejectedValue(new SendBlockedError("CHANNEL_OPTED_OUT"))
+      const r = await processPaymentReminders()
+      expect(r.errors).toBe(0)
+      expect(r.details.join("\n")).toContain("L-001 email: blocked")
+    })
+
+    it("a tenant without the email template has the leg reported per loan, and nothing is sent without one", async () => {
+      stubTemplates({ payment_reminder_email: undefined })
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      const r = await processPaymentReminders()
+      expect(emailCalls()).toHaveLength(0)
+      expect(r.errors).toBe(1)
+      expect(r.details.join("\n")).toContain("via email: template payment_reminder_email missing/inactive")
+    })
+
+    it("a template that bypasses consent is refused", async () => {
+      stubTemplates({ payment_reminder_email: emailTpl({ statutoryOverride: true }) })
+      loanFindManyMock.mockResolvedValue([withEmail(7)])
+      const r = await processPaymentReminders()
+      expect(emailCalls()).toHaveLength(0)
+      expect(r.details.join("\n")).toContain("statutoryOverride=true")
+    })
+  })
+
   describe("FLAG OFF (legacy path)", () => {
     it("calls sendSms + sendWhatsApp directly and writes a LoanNote", async () => {
       const loanWithWa = loanDueTomorrow()
@@ -300,7 +378,8 @@ describe("processPaymentReminders", () => {
       expect(sendWhatsAppMock).toHaveBeenCalledTimes(1)
       expect(sendWhatsAppMock.mock.calls[0][0].to).toBe("0821234567")
       expect(sendMessageMock).not.toHaveBeenCalled()
-      expect(messageTemplateFindFirstMock).not.toHaveBeenCalled()
+      // Only the email leg's template: SMS and WhatsApp stay on the direct legacy sends.
+      expect(messageTemplateFindFirstMock.mock.calls.map((c) => (c[0] as { where: { key: string } }).where.key)).toEqual(["payment_reminder_email"])
       expect(loanNoteCreateMock).toHaveBeenCalledTimes(1)
     })
 
@@ -577,7 +656,7 @@ describe("processPaymentReminders", () => {
       // of loan count. Counted from TRIGGERS so adding a WhatsApp leg does not
       // silently turn this into a per-loan-lookup regression test that passes by arithmetic.
       const successors = TRIGGERS.filter((t) => t.waTemplateSuccessor).length
-      expect(messageTemplateFindFirstMock).toHaveBeenCalledTimes(1 + WA_TEMPLATE_EVENTS.length + successors)
+      expect(messageTemplateFindFirstMock).toHaveBeenCalledTimes(2 + WA_TEMPLATE_EVENTS.length + successors)
       expect(sendMessageMock).toHaveBeenCalledTimes(6) // 3 loans × 2 channels
     })
 

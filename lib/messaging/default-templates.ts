@@ -235,6 +235,14 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     wabaTemplateName: "payment_reminder_overdue_3d",
   },
   {
+    // The pre-due reminder email (lib/collections/reminders.ts): the copy is the
+    // trigger's own, rendered into {{subject}}/{{text}}/{{html}} like loan_overdue_email.
+    key: "payment_reminder_email", event: "payment_reminder_sent", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}",
+    body: "{{text}}",
+    bodyTemplate: "{{html}}",
+  },
+  {
     key: "payment_reminder_sms", event: "payment_reminder_sent", channel: "SMS", category: "SERVICE",
     body: "{{body}}",
   },
