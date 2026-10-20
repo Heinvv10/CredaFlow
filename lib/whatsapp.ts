@@ -176,9 +176,6 @@ export const WA_TEMPLATES = {
 
   section129: (name: string, ref: string, phone: string) =>
     `Important notice for ${name} — loan *${ref}*.\n\nA Section 129 notice has been sent to your email address.\n\nPlease contact us urgently on ${phone} to resolve this matter.`,
-
-  loan_paid_in_full: (name: string, ref: string) =>
-    `Congratulations ${name}! 🎉\n\nYour loan *${ref}* has been fully repaid. Thank you for your commitment!\n\nWould you like to explore another loan? Log in to the portal to apply or contact us for more information.`,
 } as const
 
 export type WaTemplateKey = keyof typeof WA_TEMPLATES

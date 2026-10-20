@@ -6,7 +6,7 @@ export default defineCronJobs([
   {
     route: "automation-engine",
     owner: "unwired",
-    reason: "Triggered on demand from Settings → Automation; no time-based schedule is specified.",
+    reason: "No time-based schedule is specified: it runs only when the route is called with the cron secret (there is no run button in Settings → Automation).",
   },
   {
     route: "cleanup-disclosures",
