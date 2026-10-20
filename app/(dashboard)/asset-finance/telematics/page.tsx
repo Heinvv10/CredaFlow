@@ -2,7 +2,7 @@ import Link from "next/link"
 import type { TelematicsAlertQueue, TelematicsAlertStatus } from "@prisma/client"
 import { Header } from "@/components/layout/Header"
 import { DataPanel } from "@/components/app-shell/DataPanel"
-import { canDo } from "@/lib/auth-guards"
+import { canDo, requireMinRole } from "@/lib/auth-guards"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { ALERT_QUEUES, ALERT_STATUSES, listAlerts } from "@/lib/telematics/alerts"
 import { listHeldReadings } from "@/lib/telematics/held-readings"
@@ -19,6 +19,8 @@ const tab = (active: boolean) =>
  * (manage_asset_finance). No position is shown here.
  */
 export default async function TelematicsQueuePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // Both tabs need a collections permission or above, so the page's gate is the sidebar's (READONLY goes to no-access).
+  await requireMinRole("COLLECTIONS_OFFICER")
   const { user, tenantId, canManage } = await requireAssetFinanceStaffPage()
   const canWork = canDo(user.role, "work_telematics_alerts")
   const params = await searchParams
