@@ -58,8 +58,9 @@ export interface AfPerson {
   portalPasswordEnv: "SEED_AF_TRUSTEE_PASSWORD" | "SEED_AF_DIRECTOR_PASSWORD" | "SEED_AF_SURETY_PASSWORD" | null
 }
 
-// References sort after the consumer demo clients (CLI-SEED-0001…), which
-// prisma/seed-staging.ts takes by position.
+// References sort after the consumer demo clients (CLI-SEED-0001…).
+// prisma/seed-staging.ts selects the consumer clients by the CLI-SEED- prefix
+// and excludes CLI-SEED-AF-, so these are never given staging rows.
 export const PEOPLE: AfPerson[] = [
   { key: "trusteeOne", reference: "CLI-SEED-AF-0001", firstName: "Johan", lastName: "Botha", idNumber: "7001015000087", dob: "1970-01-01", gender: "MALE", phone: "+27700000101", portalPasswordEnv: "SEED_AF_TRUSTEE_PASSWORD" },
   { key: "trusteeTwo", reference: "CLI-SEED-AF-0002", firstName: "Willem", lastName: "Botha", idNumber: "7102025000081", dob: "1971-02-02", gender: "MALE", phone: "+27700000102", portalPasswordEnv: null },
