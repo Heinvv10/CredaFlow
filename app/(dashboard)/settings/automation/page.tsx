@@ -34,7 +34,6 @@ const TRIGGER_LABELS: Record<string, string> = {
 }
 
 const ACTION_LABELS: Record<string, string> = {
-  SEND_WA: "Send WhatsApp",
   CREATE_ACTIVITY: "Log Activity",
   CHANGE_COLLECTIONS_STAGE: "Change Stage",
   NOTIFY_AGENT: "Notify Agent",
@@ -160,7 +159,9 @@ export default function AutomationPage() {
                           <Badge className="bg-blue-100 text-blue-800">{TRIGGER_LABELS[rule.trigger] ?? rule.trigger}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className="bg-purple-100 text-purple-800">{ACTION_LABELS[rule.action] ?? rule.action}</Badge>
+                          {rule.action === "SEND_WA"
+                            ? <Badge className="bg-gray-100 text-gray-600" title="WhatsApp reminders are sent by the reminders cron; this rule never runs">Send WhatsApp (retired)</Badge>
+                            : <Badge className="bg-purple-100 text-purple-800">{ACTION_LABELS[rule.action] ?? rule.action}</Badge>}
                         </TableCell>
                         <TableCell>
                           {rule.isBuiltIn
@@ -169,8 +170,8 @@ export default function AutomationPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Switch
-                            checked={rule.enabled}
-                            disabled={toggling === rule.id}
+                            checked={rule.enabled && rule.action !== "SEND_WA"}
+                            disabled={toggling === rule.id || rule.action === "SEND_WA"}
                             onCheckedChange={(v: boolean) => toggleRule(rule.id, v)}
                           />
                         </TableCell>
@@ -181,7 +182,7 @@ export default function AutomationPage() {
               )}
             </div>
             <p className="text-xs text-gray-400 mt-3">
-              Built-in rules are seeded automatically. Disable to pause; the engine runs hourly via cron.
+              Built-in rules are seeded automatically. Disable to pause. The engine has no schedule: it runs only when the automation-engine cron endpoint is called. WhatsApp reminders are sent by the borrower reminder crons, not by rules.
             </p>
           </TabsContent>
 
@@ -237,7 +238,7 @@ export default function AutomationPage() {
                                   {replaying === log.id ? "…" : "Replay"}
                                 </Button>
                               )}
-                              {existingPause ? (
+                              {log.entityType === "rule" ? null : existingPause ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
