@@ -17,7 +17,7 @@
  */
 import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { approvedDealerAccount, cleanupDealerFixtureIfCreated, createDealerFixture, lit, newId, TODAY_SQL, type DealerFixture } from "./dealer.integration-fixture"
 import { bookedDealerDeal } from "./dealer-booking.integration-fixture"
