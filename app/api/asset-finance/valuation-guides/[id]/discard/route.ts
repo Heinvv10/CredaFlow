@@ -5,7 +5,7 @@ import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { discardGuide } from "@/lib/valuation-guides/guide-store"
 import { guideView } from "@/lib/valuation-guides/guide-view"
 
-/** Discards a DRAFT valuation guide (its uploader may). Needs manage_valuation_guides; not a DRAFT is 409. */
+/** Discards a DRAFT valuation guide: any guide manager may, its uploader included. Needs manage_valuation_guides; not a DRAFT is 409. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireApiRole("READONLY")
   if (guard.error) return guard.error

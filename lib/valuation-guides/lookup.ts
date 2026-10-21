@@ -12,6 +12,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"
+import { isDbRefusal } from "./db-refusal"
 import type { GuideActor } from "./guide-store"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -81,9 +82,11 @@ export async function latestGuideValuation(db: Db, tenantId: string, assetId: st
 export type RecordGuideValuationResult =
   | { kind: "not_found"; what: "asset" | "row" }
   | { kind: "simulation_refused" }
+  /** SAST midnight passed between reading the row and writing the valuation (guardAssetValuationGuide's own today). */
+  | { kind: "day_changed" }
   | { kind: "recorded"; valuation: AssetValuation }
 
-/** Records the chosen current guide row as the asset's GUIDE valuation, today, at its trade value. */
+/** Records the chosen current guide row as the asset's GUIDE valuation, today (read once), at its trade value. */
 export async function recordGuideValuation(actor: GuideActor, assetId: string, guideRowId: string): Promise<RecordGuideValuationResult> {
   const today = sastCalendarDate(new Date())
   return prisma.$transaction(async (tx): Promise<RecordGuideValuationResult> => {
@@ -105,5 +108,8 @@ export async function recordGuideValuation(actor: GuideActor, assetId: string, g
       newValue: { assetId, guideId: row.guideId, guideRowId, guideName: row.guideName, effectiveOn: row.effectiveOn, variant: row.variant, tradeCents: row.tradeCents, retailCents: row.retailCents },
     }, tx)
     return { kind: "recorded", valuation }
+  }).catch((error: unknown): RecordGuideValuationResult => {
+    if (isDbRefusal(error, "A guide valuation is dated the day it is read")) return { kind: "day_changed" }
+    throw error
   })
 }

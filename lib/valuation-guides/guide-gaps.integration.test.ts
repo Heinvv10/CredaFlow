@@ -58,7 +58,10 @@ suite("PR #229 part C: guard clauses no suite killed", () => {
     await refuses(clauseOff(G, `AND g."id" <> NEW."id"`), /same name dated on or after it/, async (tx) => {
       const { id } = await publishedGuide(tx, fx.tenantId, fx.adminA, fx.adminB, { name: `TEST Self ${randomUUID().slice(0, 8)}`, effectiveOn: day(-2) })
       await tx.valuationGuide.update({ where: { id }, data: { status: "SUPERSEDED", supersededById: id, supersededAt: new Date() } })
-    })
+    }, [
+      // A guide is also refused as its own successor because it is not a DRAFT, and at commit: both out, so this clause shows alone.
+      clauseOff(G, `AND g."status" = 'DRAFT'`), { table: "ValuationGuide", trigger: "ValuationGuide_successor_published" },
+    ])
   })
 
   it("lets a move change only its own columns: publishing cannot rewrite who loaded it, the source or the simulated flag", async () => {

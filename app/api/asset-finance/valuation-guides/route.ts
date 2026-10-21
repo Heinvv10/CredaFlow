@@ -5,6 +5,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { MAX_GUIDE_BYTES } from "@/lib/valuation-guides/csv"
 import { parseGuideUploadFields } from "@/lib/valuation-guides/guide-input"
+import { formOf, readCappedBody, UPLOAD_TOO_LARGE } from "@/lib/valuation-guides/upload-body"
 import { createDraftGuide } from "@/lib/valuation-guides/guide-store"
 import { guideView } from "@/lib/valuation-guides/guide-view"
 import { getValuationProvider } from "@/lib/valuation-guides/registry"
@@ -26,7 +27,8 @@ export async function GET(req: NextRequest) {
 /**
  * Loads a valuation guide as a DRAFT (docs/asset-finance/SLICE5.md part C).
  * Multipart: `name`, `effectiveOn` (YYYY-MM-DD), `provider` (default `csv`)
- * and, for csv, `file` (at most 5 MB). A malformed file is 422 with a reason
+ * and, for csv, `file` (at most 5 MB; the body is counted as it arrives and
+ * refused once over, never buffered whole). A malformed file is 422 with a reason
  * per line and nothing stored (audited, counts only); the same file while a
  * draft or a published guide carries it is 409. Needs manage_valuation_guides;
  * a second person publishes it (./[id]/publish).
@@ -41,16 +43,17 @@ export async function POST(req: NextRequest) {
     if (!canDo(guard.user.role, "manage_valuation_guides")) {
       return NextResponse.json({ error: "Loading a valuation guide needs the manage_valuation_guides permission" }, { status: 403 })
     }
-    const form = await req.formData().catch(() => null)
+    const tooLarge = () => NextResponse.json({ error: "The guide was refused", problems: [{ line: 1, reason: UPLOAD_TOO_LARGE }], total: 1 }, { status: 422 })
+    const body = await readCappedBody(req)
+    if (!body) return tooLarge()
+    const form = await formOf(req, body)
     if (!form) return NextResponse.json({ error: "Send the guide as multipart form data" }, { status: 400 })
     const fields = parseGuideUploadFields(form)
     if ("errors" in fields) return NextResponse.json({ error: "Invalid guide", fields: fields.errors }, { status: 400 })
     const provider = getValuationProvider(fields.data.provider)
     if (!provider) return NextResponse.json({ error: "Invalid guide", fields: { provider: "is not a valuation provider" } }, { status: 400 })
     const file = form.get("file")
-    if (file instanceof File && file.size > MAX_GUIDE_BYTES) {
-      return NextResponse.json({ error: "The guide was refused", problems: [{ line: 1, reason: "The file is larger than 5 MB" }], total: 1 }, { status: 422 })
-    }
+    if (file instanceof File && file.size > MAX_GUIDE_BYTES) return tooLarge()
     const bytes = file instanceof File && file.size > 0 ? new Uint8Array(await file.arrayBuffer()) : undefined
 
     try {

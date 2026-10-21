@@ -84,9 +84,11 @@ stacks only, never for a real lender.
    - a goods advance of R1 552 500;
    - LTV 129.38% against trade and 110.89% against retail.
 5. Open the lease's asset (TEST EX-2) and record its guide value
-   (R1 100 000 trade). Open the lease's loan page. Under End of term, elect a
-   purchase on that guide valuation. It is refused with "A purchase rests on
-   an assessor's or a dealer's valuation".
+   (R1 100 000 trade). Open the lease's loan page. Under End of term, choose
+   Purchase: the valuation list offers only assessors' and dealers' valuations,
+   so it is empty, and the form says a guide value does not count (review
+   round 1). A direct POST to the election route naming the guide valuation is
+   refused with "A purchase rests on an assessor's or a dealer's valuation".
 6. Open Valuation guides → Book revaluation. The lease's loan shows the EX-2
    row, with no LTV (a lease).
 7. As `readonly`, the guide pages and the panels are visible, but there is no

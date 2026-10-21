@@ -87,7 +87,8 @@ suite("valuation guide database rules", () => {
   it("never changes once published: no rename, re-date, re-count or re-publish", async () => {
     const moves = clauseOff(G, "IF allowed IS NULL THEN", "IF FALSE THEN")
     for (const data of [{ name: "TEST Renamed" }, { effectiveOn: dbDate(day(-11)) }, { rowCount: 9 }, { fileSha256: freshSha() }, { publishedAt: new Date(0) }]) {
-      await refuses(moves, MOVES, (tx) => tx.valuationGuide.update({ where: { id: guides.current }, data }))
+      // (A publish time before the upload is also refused by ValuationGuide_times: out too, so the move rule shows alone.)
+      await refuses(moves, MOVES, (tx) => tx.valuationGuide.update({ where: { id: guides.current }, data }), [{ table: "ValuationGuide", constraint: "ValuationGuide_times" }])
     }
     // Nor may a move carry another change with it.
     await refuses(raiseOff(G, FIXED), /changes only its status/,
@@ -130,7 +131,7 @@ suite("valuation guide database rules", () => {
       const next = await draftGuide(tx, fx.tenantId, fx.adminA, { effectiveOn: day(-1) })
       await supersedeGuideRow(tx, guides.current, next.id) // the successor is never put live
     })
-    const successor = raiseOff(G, "A guide is superseded by another guide of the same name dated on or after it")
+    const successor = raiseOff(G, "A guide is superseded by another guide of the same name dated on or after it, a draft put live in the same transaction")
     for (const o of [{ effectiveOn: day(-20) }, { name: "TEST Another Name", effectiveOn: day(-1) }]) {
       await refuses(successor, /same name dated on or after it/, async (tx) => {
         const next = await draftGuide(tx, fx.tenantId, fx.adminA, o)

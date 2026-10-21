@@ -49,6 +49,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     switch (result.kind) {
       case "not_found":
         return NextResponse.json({ error: result.what === "asset" ? "Asset not found" : "Not a current guide row for this asset" }, { status: 404 })
+      case "day_changed":
+        return NextResponse.json({ error: "The day changed while the guide value was being recorded: record it again" }, { status: 409 })
       case "simulation_refused":
         return NextResponse.json({ error: "A simulated guide's value cannot be recorded on this deployment" }, { status: 409 })
       case "recorded":

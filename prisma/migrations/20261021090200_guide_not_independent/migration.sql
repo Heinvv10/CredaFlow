@@ -3,9 +3,14 @@
 -- sale relies on, is measured against, and is self-valued by current
 -- valuations that are neither INTERNAL nor GUIDE. guardRemarketingSale as
 -- 20261015400000_asset_finance_recovery wrote it, the three source clauses
--- changed and nothing else. (A lease purchase already admits only ASSESSOR and
--- DEALER valuations: purchaseValuationOk is unchanged.)
--- Tests: lib/valuation-guides/not-independent.integration.test.ts.
+-- changed, and its refusal says guide values do not count either. (A lease
+-- purchase already admits only ASSESSOR and DEALER valuations:
+-- purchaseValuationOk is unchanged.) Then guardSurrenderRequest and
+-- guardRecovery are patched in place (DO blocks, as
+-- 20261018110000_cpa_lessor_cancellation_assessment does) to refuse a GUIDE
+-- valuation as a statutory valuation.
+-- Tests: lib/valuation-guides/not-independent.integration.test.ts,
+-- guide-statutory.integration.test.ts.
 
 CREATE OR REPLACE FUNCTION public."guardRemarketingSale"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
@@ -54,7 +59,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM "AssetValuation" v WHERE v."id" = NEW."valuationId" AND v."tenantId" = NEW."tenantId" AND v."assetId" = rec."assetId"
       AND v."source" NOT IN ('INTERNAL', 'GUIDE') AND v."valuedOn" >= today - max_age) THEN
     RAISE EXCEPTION USING ERRCODE = '23514',
-      MESSAGE = format('A sale relies on an independent (not internal) valuation of this asset dated within %s days', max_age);
+      MESSAGE = format('A sale relies on an independent valuation (not internal, not a guide value) of this asset dated within %s days', max_age);
   END IF;
   SELECT COALESCE(max(v."amountCents"), 0) INTO highest FROM "AssetValuation" v
     WHERE v."tenantId" = NEW."tenantId" AND v."assetId" = rec."assetId" AND v."source" NOT IN ('INTERNAL', 'GUIDE') AND v."valuedOn" >= today - max_age;
@@ -95,3 +100,40 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+-- Whether a published guide value may stand as the NCA s127(3) / s131
+-- estimate is an open legal item (SLICE5.md Part C, deviation 6): until counsel
+-- decides, the database refuses one as an s127 surrender's valuation and as
+-- any recovery's own valuation. The app never writes one there (its valuation
+-- routes take VALUATION_SOURCES only); this is the database's own refusal.
+DO $patch$
+DECLARE
+  definition TEXT := pg_get_functiondef('public."guardSurrenderRequest"()'::regprocedure);
+  anchor TEXT := $anchor$MESSAGE='The s127 valuation must be for this asset within the recorded statutory window';
+    END IF;$anchor$;
+BEGIN
+  IF length(definition) - length(replace(definition, anchor, '')) <> length(anchor) THEN
+    RAISE EXCEPTION 'guardSurrenderRequest guide patch requires its anchor exactly once';
+  END IF;
+  EXECUTE replace(definition, anchor, anchor || $guide$
+    IF valuation."source" = 'GUIDE' THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An s127 valuation is never a guide value: whether one may stand as the estimate is an open legal item';
+    END IF;$guide$);
+END;
+$patch$;
+
+DO $patch$
+DECLARE
+  definition TEXT := pg_get_functiondef('public."guardRecovery"()'::regprocedure);
+  anchor TEXT := $anchor$MESSAGE = 'A recovery is valued by a valuation of its own asset';
+    END IF;$anchor$;
+BEGIN
+  IF length(definition) - length(replace(definition, anchor, '')) <> length(anchor) THEN
+    RAISE EXCEPTION 'guardRecovery guide patch requires its anchor exactly once';
+  END IF;
+  EXECUTE replace(definition, anchor, anchor || $guide$
+    IF EXISTS (SELECT 1 FROM "AssetValuation" v WHERE v."id" = NEW."valuationId" AND v."tenantId" = NEW."tenantId" AND v."source" = 'GUIDE') THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A recovery is never valued on a guide value: whether one may stand as the estimate is an open legal item';
+    END IF;$guide$);
+END;
+$patch$;

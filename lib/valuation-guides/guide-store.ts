@@ -14,6 +14,8 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"
+import { caseFoldClashes } from "./case-fold"
+import { isDbRefusal } from "./db-refusal"
 import type { GuideProblem, ValuationProvider } from "./types"
 
 export interface GuideActor { tenantId: string; userId: string; userEmail: string }
@@ -43,8 +45,10 @@ const isUniqueViolation = (error: unknown) => error instanceof Error && (error a
 
 /**
  * Reads the guide with its provider and stores it as a DRAFT. A refused file
- * stores nothing and is audited with its counts, never its cell values. The
- * provider's NOT_CONFIGURED (a simulated provider on a deployed build) throws.
+ * (the reader's reasons, or rows that differ only by letter case as the
+ * database folds it: ./case-fold.ts) stores nothing and is audited with its
+ * counts, never its cell values. The provider's NOT_CONFIGURED (a simulated
+ * provider on a deployed build) throws.
  */
 export async function createDraftGuide(
   actor: GuideActor,
@@ -52,15 +56,18 @@ export async function createDraftGuide(
 ): Promise<CreateGuideResult> {
   const { provider } = input
   provider.assertUsable()
-  const read = await provider.readGuide({ bytes: input.bytes, effectiveOn: input.effectiveOn })
-  if (!read.ok) {
+  const refuse = async (problems: GuideProblem[], total: number): Promise<CreateGuideResult> => {
     await auditRefusal({
       action: AuditAction.VALUATION_GUIDE_UPLOAD_REFUSED, entity: "ValuationGuide", entityId: "-", tenantId: actor.tenantId,
       userId: actor.userId, userEmail: actor.userEmail, reason: "malformed_guide", status: 422,
-      detail: { name: input.name, provider: provider.id, problems: read.total, lines: read.problems.slice(0, 20).map((p) => p.line) },
+      detail: { name: input.name, provider: provider.id, problems: total, lines: problems.slice(0, 20).map((p) => p.line) },
     })
-    return { kind: "refused", problems: read.problems, total: read.total }
+    return { kind: "refused", problems, total }
   }
+  const read = await provider.readGuide({ bytes: input.bytes, effectiveOn: input.effectiveOn })
+  if (!read.ok) return refuse(read.problems, read.total)
+  const clashes = await caseFoldClashes(read.rows)
+  if (clashes.total > 0) return refuse(clashes.problems, clashes.total)
   const live = await prisma.valuationGuide.findFirst({
     where: { tenantId: actor.tenantId, fileSha256: read.sha256, status: { in: [...LIVE] } }, select: { id: true },
   })
@@ -100,12 +107,13 @@ async function lockGuide(tx: Tx, tenantId: string, id: string): Promise<Valuatio
 
 /** Publishes a DRAFT on a second person's word, superseding the current guide of that name. */
 export async function publishGuide(actor: GuideActor, id: string): Promise<PublishGuideResult> {
+  let effectiveOn = ""
   const result = await prisma.$transaction(async (tx): Promise<PublishGuideResult> => {
     const guide = await lockGuide(tx, actor.tenantId, id)
     if (!guide) return { kind: "not_found" }
     if (guide.status !== "DRAFT") return { kind: "not_draft", status: guide.status }
     if (guide.uploadedById === actor.userId) return { kind: "self_publish" }
-    const effectiveOn = isoOfDbDate(guide.effectiveOn)
+    effectiveOn = isoOfDbDate(guide.effectiveOn)
     if (effectiveOn > sastCalendarDate(new Date())) return { kind: "not_yet_effective", effectiveOn }
     if (guide.simulated && !isSimulationPermitted("simulated-valuation-guide")) return { kind: "simulation_refused" }
     // The current guide of that name, as ValuationGuide_one_current_per_name compares names.
@@ -114,9 +122,10 @@ export async function publishGuide(actor: GuideActor, id: string): Promise<Publi
     const locked = current ? await tx.valuationGuide.findFirst({ where: { id: current.id, tenantId: actor.tenantId } }) : null
     if (locked && locked.status === "PUBLISHED") {
       if (locked.effectiveOn > guide.effectiveOn) return { kind: "older_than_current", currentEffectiveOn: isoOfDbDate(locked.effectiveOn) }
-      await tx.valuationGuide.update({ where: { id: locked.id }, data: { status: "SUPERSEDED", supersededById: guide.id, supersededAt: new Date() } })
+      // The database dates both moves (guardValuationGuide).
+      await tx.valuationGuide.update({ where: { id: locked.id }, data: { status: "SUPERSEDED", supersededById: guide.id } })
     }
-    const published = await tx.valuationGuide.update({ where: { id: guide.id }, data: { status: "PUBLISHED", publishedById: actor.userId, publishedAt: new Date() } })
+    const published = await tx.valuationGuide.update({ where: { id: guide.id }, data: { status: "PUBLISHED", publishedById: actor.userId } })
     const superseded = locked?.status === "PUBLISHED" ? locked.id : null
     await logAuditStrict({
       tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.VALUATION_GUIDE_PUBLISHED,
@@ -126,6 +135,8 @@ export async function publishGuide(actor: GuideActor, id: string): Promise<Publi
     return { kind: "published", guide: published, superseded }
   }).catch((error: unknown): PublishGuideResult => {
     if (isUniqueViolation(error)) return { kind: "concurrent_publish" }
+    // The day turned between the check above and the database's own (SAST midnight).
+    if (isDbRefusal(error, "A guide is published on or after its effective date")) return { kind: "not_yet_effective", effectiveOn }
     throw error
   })
   if (result.kind === "self_publish") {
@@ -137,13 +148,13 @@ export async function publishGuide(actor: GuideActor, id: string): Promise<Publi
   return result
 }
 
-/** Discards a DRAFT (its uploader may): it never goes live, and its file may be loaded again. */
+/** Discards a DRAFT (any guide manager, its uploader included): it never goes live, and its file may be loaded again. */
 export async function discardGuide(actor: GuideActor, id: string): Promise<DiscardGuideResult> {
   return prisma.$transaction(async (tx): Promise<DiscardGuideResult> => {
     const guide = await lockGuide(tx, actor.tenantId, id)
     if (!guide) return { kind: "not_found" }
     if (guide.status !== "DRAFT") return { kind: "not_draft", status: guide.status }
-    const discarded = await tx.valuationGuide.update({ where: { id }, data: { status: "DISCARDED", discardedById: actor.userId, discardedAt: new Date() } })
+    const discarded = await tx.valuationGuide.update({ where: { id }, data: { status: "DISCARDED", discardedById: actor.userId } })
     await logAuditStrict({
       tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.VALUATION_GUIDE_DISCARDED,
       entity: "ValuationGuide", entityId: id, oldValue: { status: "DRAFT" }, newValue: { status: "DISCARDED", name: guide.name },

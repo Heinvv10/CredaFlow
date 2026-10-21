@@ -20,3 +20,10 @@ export const guideView = (row: ValuationGuide) => ({
   discardedById: row.discardedById,
   discardedAt: row.discardedAt,
 })
+
+/** A rows page's ?offset: a whole number from 0 to the guide's row count, else 0 (or the count when past it). */
+export function clampOffset(raw: string | string[] | undefined, rowCount: number): number {
+  const n = Number(Array.isArray(raw) ? raw[0] : raw ?? 0)
+  if (!Number.isInteger(n) || n < 0) return 0
+  return Math.min(n, rowCount)
+}

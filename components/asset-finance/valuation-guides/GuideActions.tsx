@@ -9,7 +9,7 @@ import { FormError, sendJson } from "@/components/asset-finance/register-form-co
 /**
  * Publish or discard a DRAFT guide. Publish is offered only to a guide manager
  * who did not load it (the API and CHECK ValuationGuide_four_eyes enforce it
- * again); the uploader may discard.
+ * again). Any guide manager may discard a draft, its uploader included.
  */
 export function GuideActions({ guideId, canPublish }: { guideId: string; canPublish: boolean }) {
   const router = useRouter()

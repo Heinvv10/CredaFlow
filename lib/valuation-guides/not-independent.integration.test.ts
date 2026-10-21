@@ -111,7 +111,7 @@ suite("a GUIDE valuation is never an independent valuation", () => {
     it("refuses a sale that relies on a GUIDE valuation", async () => {
       await refuses(
         clauseOff(SALE, `AND v."source" ${NOT_INDEPENDENT} AND v."valuedOn" >= today - max_age) THEN`, `AND v."valuedOn" >= today - max_age) THEN`),
-        /relies on an independent \(not internal\) valuation/,
+        /relies on an independent valuation \(not internal, not a guide value\)/,
         (tx) => saleIn(tx, { valuationId: v.sale }),
       )
     })

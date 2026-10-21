@@ -11,13 +11,9 @@ import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { GUIDE_STATUS_LABELS, GUIDE_STATUS_TONE } from "@/lib/valuation-guides/labels"
+import { clampOffset } from "@/lib/valuation-guides/guide-view"
 
 const PAGE_SIZE = 200
-
-function offsetOf(raw: string | string[] | undefined): number {
-  const n = Number(Array.isArray(raw) ? raw[0] : raw ?? 0)
-  return Number.isInteger(n) && n >= 0 ? n : 0
-}
 
 /** One guide's rows in file order, so the publisher sees exactly what goes live. */
 export default async function ValuationGuidePage({ params, searchParams }: {
@@ -26,9 +22,9 @@ export default async function ValuationGuidePage({ params, searchParams }: {
 }) {
   const { user, tenantId } = await requireAssetFinanceStaffPage()
   const { id } = await params
-  const offset = offsetOf((await searchParams).offset)
   const guide = await prisma.valuationGuide.findFirst({ where: { id, tenantId } })
   if (!guide) notFound()
+  const offset = clampOffset((await searchParams).offset, guide.rowCount)
   const rows = await prisma.valuationGuideRow.findMany({ where: { tenantId, guideId: id }, orderBy: { lineNumber: "asc" }, skip: offset, take: PAGE_SIZE + 1 })
   const page = rows.slice(0, PAGE_SIZE)
   const canManageGuides = canDo(user.role, "manage_valuation_guides")

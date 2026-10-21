@@ -57,8 +57,8 @@ export function ElectForm({ url, valuations, maxAgeDays }: { url: string; valuat
       {outcome === "PURCHASE" && (
         <p className="text-xs text-[var(--cf-text-muted)]">
           {valuations.length === 0
-            ? `No valuation of the asset is dated within ${maxAgeDays} days: record one on the asset page first.`
-            : `Only valuations dated within ${maxAgeDays} days are offered; the price may not be below the valuation.`}
+            ? `No assessor's or dealer's valuation of the asset is dated within ${maxAgeDays} days (a guide value does not count): record one on the asset page first.`
+            : `Only assessors' and dealers' valuations dated within ${maxAgeDays} days are offered; the price may not be below the valuation.`}
         </p>
       )}
       <FormError message={error} />

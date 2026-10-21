@@ -52,6 +52,13 @@ describe("LeaseEndOfTermPanel", () => {
     }))
   })
 
+  it("says a guide value does not count when no assessor's or dealer's valuation is on file", async () => {
+    const renderer = await panel(data(null), true, true)
+    const outcome = renderer.root.findAll((n) => n.type === "select" && n.props.id === "eotOutcome")[0]
+    await act(async () => { outcome.props.onChange({ target: { value: "PURCHASE" } }) })
+    expect(text(renderer)).toContain("No assessor's or dealer's valuation of the asset is dated within 30 days (a guide value does not count)")
+  })
+
   it("offers no election before the window opens, and names the date", async () => {
     const renderer = await panel(data(null, { electionOpensOn: "2030-12-01" }), true, true)
     expect(buttons(renderer)).toEqual([])

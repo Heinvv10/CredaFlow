@@ -2,13 +2,16 @@
  * The book revaluation (docs/asset-finance/SLICE5.md part C, deviation 5):
  * each live asset-finance loan's asset against the current guides. It reads
  * and never writes; a dated GUIDE valuation is recorded on the deal or asset
- * page. The loader is ./revaluation-store.ts.
+ * page. The loader is ./revaluation-store.ts, whose SQL does the matching
+ * with PostgreSQL lower() (one fold everywhere: ./case-fold.ts); this picks
+ * the row per loan and computes the figures.
  */
 import type { ContractType } from "@prisma/client"
-import { guideRowKey } from "./csv"
 import { ltvBps } from "./ltv"
 
+/** A current guide row matching a loan's asset, as the loader's SQL matched it (PostgreSQL lower(), as the lookups do). */
 export interface CurrentGuideRow {
+  assetId: string
   guideId: string
   guideName: string
   effectiveOn: string
@@ -20,16 +23,19 @@ export interface CurrentGuideRow {
   variant: string
   tradeCents: number
   retailCents: number
+  /** The guide name and variant of the asset's newest GUIDE valuation are this row's. */
+  recordedVariant: boolean
+  /** The trade value of the asset's newest GUIDE valuation, or null without one. */
+  lastTradeCents: number | null
 }
 
 export interface RevaluationLoan {
   loanId: string
   reference: string
   contractType: ContractType
+  /** Loan.outstandingPrincipal: principal only, no interest, fees or arrears. */
   outstandingCents: number
   asset: { id: string; make: string; model: string; year: number; serialNumber: string }
-  /** The asset's latest GUIDE valuation: the guide it read and the variant chosen then. */
-  lastGuide: { guideName: string; variant: string; tradeCents: number } | null
 }
 
 export type RevaluationMatch =
@@ -38,7 +44,7 @@ export type RevaluationMatch =
       /** recorded_variant: the variant of the last GUIDE valuation, in the guide of that name; only_row: the one row that matches. */
       basis: "recorded_variant" | "only_row"
       row: CurrentGuideRow
-      /** Outstanding ÷ trade; null for a lease (its balance is rentals, not capital). */
+      /** Outstanding principal ÷ trade; null for a lease (its balance is rentals, not capital). */
       ltvBps: number | null
       /** Trade now less trade at the last GUIDE valuation. */
       changeCents: number | null
@@ -49,15 +55,10 @@ export type RevaluationMatch =
 export type RevaluationRow = RevaluationLoan & { match: RevaluationMatch }
 
 const LEASES: readonly ContractType[] = ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"]
-const norm = (s: string) => s.trim().toLowerCase()
 
 function matchLoan(loan: RevaluationLoan, rows: CurrentGuideRow[]): RevaluationMatch {
-  const assetKey = guideRowKey({ make: norm(loan.asset.make), model: norm(loan.asset.model), year: loan.asset.year, variant: "" })
-  const candidates = rows.filter((r) => guideRowKey({ make: norm(r.make), model: norm(r.model), year: r.year, variant: "" }) === assetKey)
-  const last = loan.lastGuide
-  const recorded = last
-    ? candidates.find((r) => norm(r.guideName) === norm(last.guideName) && norm(r.variant) === norm(last.variant))
-    : undefined
+  const candidates = rows.filter((r) => r.assetId === loan.asset.id)
+  const recorded = candidates.find((r) => r.recordedVariant)
   const row = recorded ?? (candidates.length === 1 ? candidates[0] : undefined)
   if (!row) return candidates.length > 1 ? { kind: "ambiguous", count: candidates.length } : { kind: "none" }
   return {
@@ -65,7 +66,7 @@ function matchLoan(loan: RevaluationLoan, rows: CurrentGuideRow[]): RevaluationM
     basis: recorded ? "recorded_variant" : "only_row",
     row,
     ltvBps: LEASES.includes(loan.contractType) ? null : ltvBps(loan.outstandingCents, row.tradeCents),
-    changeCents: last ? row.tradeCents - last.tradeCents : null,
+    changeCents: row.lastTradeCents === null ? null : row.tradeCents - row.lastTradeCents,
   }
 }
 

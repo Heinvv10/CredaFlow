@@ -42,8 +42,9 @@ function MatchCells({ match, assetId }: { match: RevaluationMatch; assetId: stri
  * The book revaluation (docs/asset-finance/SLICE5.md part C): each live
  * asset-finance loan's asset against the current guides. It reads only; a
  * dated guide value is recorded on the asset or deal page. LTV is the
- * outstanding balance over the trade value, for instalment sales only (a
- * lease's balance is its remaining rentals, not capital).
+ * outstanding principal (no interest, fees or arrears) over the trade value,
+ * for instalment sales only (a lease's balance is its remaining rentals, not
+ * capital). Unbounded: every live loan on one page.
  */
 export default async function RevaluationPage() {
   const { tenantId } = await requireAssetFinanceStaffPage()
@@ -57,7 +58,7 @@ export default async function RevaluationPage() {
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Valuation guides", href: "/asset-finance/valuation-guides" }, { label: "Book revaluation" }]}
       />
       <div className="space-y-6 p-4 lg:p-8">
-        <DataPanel title="Loans" description="Change: trade value now less trade value at the asset's last recorded guide value" density="compact">
+        <DataPanel title="Loans" description="Change: trade value now less trade value at the asset's last recorded guide value. LTV (trade): outstanding principal over trade, instalment sales only" density="compact">
           {rows.length === 0 ? (
             <p className="text-sm text-[var(--cf-text-muted)]">No live asset-finance loans.</p>
           ) : (
@@ -66,7 +67,7 @@ export default async function RevaluationPage() {
                 <TableRow>
                   <TableHead>Loan</TableHead>
                   <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead className="text-right">Outstanding principal</TableHead>
                   <TableHead>Guide row</TableHead>
                   <TableHead className="text-right">Trade</TableHead>
                   <TableHead className="text-right">Retail</TableHead>
