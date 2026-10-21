@@ -716,3 +716,22 @@ Notes:
 | W10 | 22001 and 22P05 no longer intrinsic | `lib/telematics/event-insert.ts` | event-insert unit: 2 failed, 8 passed | "treats 22P05 as the event's own, a permanent rejection with the database's message" | `AssertionError: expected false to be true // Object.is equality` |
 | W11 | the view ends the tenure at the next loan's instant, not its SAST day start | `lib/telematics/position-view.ts` | position-view IT: 1 failed, 4 passed | "never shows a position from outside this loan's tenure or older than retention, and logs a 'none' too" | `AssertionError: expected { kind: 'ok', position: { …(5) } } to deeply equal { kind: 'ok', none: true }` |
 | W12 | a lost connection at initialisation counts strikes | `lib/telematics/poll.ts` | poll unit: 1 failed, 17 passed | "retries a closed connection for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
+
+### Review round 4 (PR #222)
+
+The round-4 rules (the inspection ends the tenure whatever the outcome, in the
+database and the view; the view's total-loss arm; an unmapped ORM failure's
+driver SQLSTATE; client initialisation errors and P1002/P2028 as passing
+faults). Same method, own throwaway PostgreSQL 16 (`cf-it-s5bf4-<random>`);
+catalog compared after the database restore (identical), files equal to HEAD.
+The retention floor's late-event drop is accepted and pinned
+(`breaker-r4.integration.test.ts`), not mutated.
+
+| # | Mutation | File | Suite: result | Test that went red | Output line |
+|---|---|---|---|---|---|
+| X1 | `telematicsLoanAt`: only an inspected RETURN ends the tenure (the round-3 clause) | migration `…160100` | extended-return IT: 1 failed, 1 passed | "an inspected EXTEND end of term ends the tenure" | `AssertionError: expected 'cmvi65nq300d0w4eol18fugqn' to be null` |
+| Y1 | the view ends the tenure only at an inspected RETURN | `lib/telematics/position-view.ts` | extended-return IT: 1 failed, 1 passed | "an inspected EXTEND end of term ends the tenure" | `AssertionError: expected { kind: 'ok', position: { …(5) } } to deeply equal { kind: 'ok', none: true }` |
+| Y2 | the view ignores a total loss | `lib/telematics/position-view.ts` | review-r4 IT: 1 failed, 0 passed | "shows no position dated after the total loss" | `AssertionError: expected 1792576800000 to be less than or equal to 1792417809148` |
+| Y3 | an unmapped failure's driver SQLSTATE is not read (an ORM deadlock strikes) | `lib/telematics/poll.ts` | poll unit, breaker-r4 IT: 2 failed, 22 passed | "a real deadlock in an ORM statement is a passing fault: polls running never skip the TAMPER, and it is raised once the fault passes" | `AssertionError: expected [ [ 1, +0 ], [ 1, +0 ], …(3) ] to deeply equal [ [ 1, +0 ], [ 1, +0 ], …(3) ]` |
+| Y4 | an initialisation error without a listed code strikes | `lib/telematics/poll.ts` | poll unit: 1 failed, 21 passed | "retries a client that cannot connect for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
+| Y5 | P1002 and P2028 strike | `lib/telematics/poll.ts` | poll unit: 2 failed, 20 passed | "retries a timed-out connection for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
