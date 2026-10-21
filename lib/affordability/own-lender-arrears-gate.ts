@@ -5,7 +5,7 @@ import { loadOwnLenderDebts } from "@/lib/affordability/own-lender-debt-load"
 type Db = Parameters<typeof loadOwnLenderDebts>[0]
 
 /** Audit reason and portal error code for a refusal on own-lender arrears. */
-export const OWN_LENDER_ARREARS_REASON = "own_lender_arrears"
+export const OWN_LENDER_ARREARS_REASON = "own_lender_arrears" as const
 export const OWN_LENDER_ARREARS_CODE = "OWN_LENDER_ARREARS"
 
 /**

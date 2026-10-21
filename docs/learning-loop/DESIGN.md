@@ -1,6 +1,6 @@
 # Learning loop: design
 
-Status: PR A (decision log) implemented on `feat/learning-loop-a-decision-log`;
+Status: PR A (decision log, including the automated-refusal records) implemented on `feat/learning-loop-a-decision-log`;
 PR B (outcome job) and PR C (dashboard) are designed here, not built. Part 4
 (cross-lender benchmarks) is design only. Every legal point is marked
 **needs lender legal sign-off**; a citation I could not confirm is marked
@@ -80,8 +80,10 @@ visibility); learning claims wait for a real book.
 ### 2.1 Schema
 
 `prisma/schema/learning-loop.prisma` (a new domain file, as
-`docs/ARCHITECTURE.md` "The Prisma schema" allows), migration
-`prisma/migrations/20261021090000_credit_decision_record`.
+`docs/ARCHITECTURE.md` "The Prisma schema" allows), migrations
+`prisma/migrations/20261021090000_credit_decision_record` and
+`prisma/migrations/20261021100000_decision_record_automated_refusal` (`leadId`,
+`s71ReviewRequired`, the widened subject CHECK; decision 5).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -94,7 +96,7 @@ visibility); learning claims wait for a real book.
 | `overrideReason` | text? | CHECK: present (≥10 chars trimmed) exactly when `overridden` |
 | `actorType` | enum `DecisionActorType` {`STAFF`, `SYSTEM`, `CLIENT`} | CHECK: STAFF names `actorUserId`, SYSTEM names nobody |
 | `actorUserId`, `actorRole` | text? | ids only, no FK |
-| `applicationId`, `loanId`, `clientId` | text? | subject ids, no FK; CHECK at least one set |
+| `applicationId`, `loanId`, `clientId`, `leadId` | text? | subject ids, no FK; CHECK `_has_subject_or_lead`: at least one set. `leadId` is for a website refusal that confirms no client (§2.5) |
 | `sourceEntityType`, `sourceEntityId` | text | the row of record changed: `LoanApplication`, `ApplicationCheckFlag`, `AssetFinanceDeal` |
 | `ruleVersion` | text | `decision-log-v1+<code rule version>`, e.g. `+approval-ndi-v3` (`APPROVAL_AFFORDABILITY_POLICY_VERSION`, `lib/affordability/snapshot.ts:20`), `+pasq-v3`, `+af-deal-decision-v1`, `+credit-checks-unversioned` |
 | `policyHash` | char(64), CHECK hex | sha256 of canonical JSON of the tenant's effective thresholds: `TenantConfig.bureauMinScore`, `bureauBlockAdverse`, `ndiBufferPct`, `bureauMaxAgeDays` (effective value via `bureauMaxAgeDays()`, `lib/compliance/bureau.ts:17`) |
@@ -103,6 +105,7 @@ visibility); learning claims wait for a real book.
 | `inputsSnapshot` | jsonb object | minimised, banded inputs (§2.3) |
 | `evidenceRefs` | jsonb object | ids and fingerprints of the evidence of record |
 | `inputsHash` | char(64), CHECK hex | sha256 of `canonicalJson({ exactInputs, evidenceRefs, policy })` (`lib/canonical-json.ts`) |
+| `s71ReviewRequired` | bool, default false | an automated decision awaiting the lender's POPIA s71 legal review (decision 5); CHECK `_s71_review_automated`: only on `SYSTEM` rows |
 | `decidedAt` | timestamp | the decision's own timestamp (same value the route writes on the row of record) |
 | `createdAt` | timestamp | |
 
@@ -141,7 +144,9 @@ legal record of the state change; the decision record is the analytical one.
   that (no `REVOKE`, no ownership change); it is a deployment requirement,
   and the RLS integration suites already assume an app role that is neither.
 - **CHECKs**: `_hashes_sha256`, `_decision_code`, `_probability_range`,
-  `_override_reason`, `_actor`, `_has_subject`, `_json_objects`.
+  `_override_reason`, `_actor`, `_has_subject_or_lead` (replaced
+  `_has_subject` in `20261021100000`), `_s71_review_automated`,
+  `_json_objects`.
 - **Tenancy**: registered in `lib/registry/tenant-scoped-models/250-learning-loop.ts`
   (the extension in `lib/tenant-scope.ts` scopes it); RLS
   ENABLE + FORCE + `tenant_isolation` policy as every tenant table
@@ -157,6 +162,24 @@ DROP TYPE "DecisionRecordKind";
 DROP TYPE "DecisionRecommendation";
 DROP TYPE "DecisionActorType";
 DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261021090000_credit_decision_record';
+COMMIT;
+```
+
+  Rollback of `20261021100000_decision_record_automated_refusal` (first; in
+  its header too). The restored `_has_subject` fails while a record names
+  only a lead (append-only, so it cannot be deleted): export those first and
+  run this only on a database that holds none. Proven on a throwaway
+  database (down, then `migrate deploy` again).
+
+```sql
+BEGIN;
+ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_s71_review_automated";
+ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_has_subject_or_lead";
+ALTER TABLE "CreditDecisionRecord" ADD CONSTRAINT "CreditDecisionRecord_has_subject"
+  CHECK ("applicationId" IS NOT NULL OR "loanId" IS NOT NULL OR "clientId" IS NOT NULL);
+ALTER TABLE "CreditDecisionRecord" DROP COLUMN "s71ReviewRequired";
+ALTER TABLE "CreditDecisionRecord" DROP COLUMN "leadId";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261021100000_decision_record_automated_refusal';
 COMMIT;
 ```
 
@@ -248,6 +271,7 @@ they exist a DSAR for a client must include this table's
 | AF approve past exceptions | `REFER` | yes, the exception reason |
 | AF decline / refer | `NONE` | no |
 | Offer rows | `NONE` | no |
+| Automated portal / website refusal (`SYSTEM`) | `BLOCK` | no (the rule decided; nobody overrode it) |
 
 The other approval gates (affordability, open checks, screening, KYC,
 deceased, simulated bureau, rate cap) cannot be overridden: an approval
@@ -269,7 +293,7 @@ function; the 422 is unchanged) so the log records what it said.
 | `app/api/applications/[id]/bureau-override/route.ts` | dead (always 400/409); overrides go through `/decide` | n/a | not needed | |
 | `app/api/applications/[id]/affordability/route.ts` | CREDIT_OFFICER assessment snapshot | assessment, not a decision | deferred: input to the decision, already fingerprinted | |
 | `app/api/asset-finance/nca-overrides/[overrideId]/decide/` | NCA→NON_NCA regime override decide (four-eyes) | a regulatory classification, not credit | deferred (follow-up: log as `REFER`/`APPROVE` of a regime) | |
-| `app/api/portal/applications/route.ts:219`, `:238`, `:819`, `:857`; `app/api/website/apply/route.ts:545`, `:677`, `:707`, `:786`, `:1261`, `:1285`, `:1321` | automated `APPLICATION_SUBMISSION_BLOCKED` refusals (blacklist, deceased, own-lender arrears, income/expense evidence) | CREDIT_DECISION `DECLINE`, `actorType SYSTEM` | **deferred** | best-effort: log error, never change the refusal |
+| `app/api/portal/applications/route.ts:219`, `:238`, `:819`, `:857`; `app/api/website/apply/route.ts:545`, `:677`, `:707`, `:786`, `:1261`, `:1285`, `:1321` | automated `APPLICATION_SUBMISSION_BLOCKED` refusals (blacklist, deceased, own-lender arrears, expense evidence; and process refusals: open application, identity conflict, unauthenticated profile change, contact conflict) | CREDIT_DECISION `DECLINE`, `actorType SYSTEM`, `s71ReviewRequired` | **hooked** (`recordSubmissionRefusal`, `lib/learning-loop/submission-refusal.ts`) | audit + record in one transaction; the refusal never changes (below) |
 | `lib/collections-engine/instructions.ts:97` | `planMandate`, instruction create + `COLLECTION_INSTRUCTION_PLANNED` | COLLECTION_ACTION | **deferred** | best-effort |
 | `lib/collections/reminders.ts:706` (`sendMessage`), `:820` (`loanNote.create`) | pre-due and overdue reminders | COLLECTION_ACTION | **deferred** | best-effort |
 | `lib/collections/escalation.ts:57` (`loanNote.create`), rules at `:72`-`:100` | soft reminder, auto s129, 60-DPD DEFAULTED status flip (decision 1: an escalation step, not default), legal flag | COLLECTION_ACTION | **deferred** | best-effort |
@@ -277,12 +301,36 @@ function; the 422 is unchanged) so the log records what it said.
 | `components/collections/LogContactButton.tsx:63` → `LoanNote` type `promise_to_pay` (read by `lib/collections/promiseToPay.ts:30`) | promise to pay | COLLECTION_ACTION | **deferred** | best-effort |
 | `app/api/loans/[id]/payment-arrangement/route.ts:71`, `app/api/loans/[id]/payment-plan/route.ts:69` | arrangement / plan upsert (one row per loan, history overwritten) | COLLECTION_ACTION | **deferred** | best-effort |
 
-Why the automated refusals are deferred: eleven call sites in two routes,
-outside any transaction, written with the non-strict `logAudit`, some before
-a client is confirmed. The right change is one helper that writes the
-`APPLICATION_SUBMISSION_BLOCKED` audit and its `SYSTEM` record together and
-replaces all eleven; that is a refactor beyond PR A. Until then, the s71
-finding in §9 stands on the audit rows alone.
+Automated refusals (decision 5): the eleven call sites (line numbers as
+before this change) wrote their `APPLICATION_SUBMISSION_BLOCKED` audit row
+outside any transaction; none has a refusal transaction to join (the portal's
+in-lock refusal returns from its transaction, which commits nothing, and is
+logged after it). One helper, `recordSubmissionRefusal`, now writes the
+unchanged audit row and a `SYSTEM` record together in one transaction and
+replaces every call:
+- record: CREDIT_DECISION `DECLINE`, recommendation `BLOCK`, not overridden,
+  `ruleVersion = decision-log-v1+submission-refusal-v1`, `s71ReviewRequired`;
+  snapshot by allow-list only: `channel` (`PORTAL`/`WEBSITE`),
+  `refusalReason`, `refusalClass` (`CREDIT`: blacklisted, deceased,
+  own-lender arrears, Regulation 23A justification missing, expense evidence
+  invalid; `PROCESS`: open application, identity conflict, unauthenticated
+  financial-profile change, contact conflict), `automated: true`. No amount,
+  income, identity value or free text.
+- subject: the confirmed client; else the website lead (an identity
+  conflict confirms no client, and a contact conflict for a new client rolls
+  the client back), never a client the request merely matched. A duplicate's
+  open application is evidence (`existingApplicationId`), not the subject,
+  so no outcome or decision history attaches to it.
+- failure: the client is refused whatever happens. At the ten sites that
+  used the best-effort `logAudit`, a failed transaction is logged
+  (`console.error`, tagged `[learning-loop]`, as `logAudit` does) and the
+  audit row is written alone, so the log never costs the trail a row; the
+  contact-conflict site used `logAuditStrict` and still fails closed (500).
+- tests: `submission-refusal.test.ts` (builder, transaction, fallback,
+  strict); each site in `app/api/portal/applications/route.test.ts` and
+  `app/api/website/apply/route.test.ts`; `RUN_DECISION_LOG_IT`
+  `app/api/portal/applications/submission-refusal.integration.test.ts`
+  (a real portal refusal under the RLS-bound role).
 
 Why collection actions are deferred: (a) the dunning code was reworked this
 week (#220, R3 merged 2026-10-20) and R4 is in flight, so hooks there now

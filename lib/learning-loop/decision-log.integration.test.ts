@@ -18,6 +18,7 @@ import { createAppPrismaClient } from "@/lib/prisma"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { recordData, recordDecisions, type DecisionLogDb } from "./decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord } from "./records"
+import { submissionRefusalRecord } from "./submission-refusal"
 
 const RUN = process.env.RUN_DECISION_LOG_IT === "1"
 const suite = RUN ? describe.sequential : describe.skip
@@ -126,7 +127,8 @@ suite("decision log (real Postgres)", () => {
     ["an automated decision naming a person", { actorType: "SYSTEM" as const, actorUserId: "user-1" }, "CreditDecisionRecord_actor"],
     ["a hash that is not sha256 hex", { inputsHash: "Z".repeat(64) }, "CreditDecisionRecord_hashes_sha256"],
     ["a probability above 1", { predictedProbability: 1.5 }, "CreditDecisionRecord_probability_range"],
-    ["a decision about no one", { applicationId: null, loanId: null, clientId: null }, "CreditDecisionRecord_has_subject"],
+    ["a decision about no one", { applicationId: null, loanId: null, clientId: null, leadId: null }, "CreditDecisionRecord_has_subject_or_lead"],
+    ["an s71 review flag on a staff decision", { s71ReviewRequired: true }, "CreditDecisionRecord_s71_review_automated"],
     ["a lower-case decision code", { decision: "approve" }, "CreditDecisionRecord_decision_code"],
     ["a snapshot that is not an object", { inputsSnapshot: [] }, "CreditDecisionRecord_json_objects"],
   ])("refuses %s", async (_name, change, constraint) => {
@@ -135,6 +137,16 @@ suite("decision log (real Postgres)", () => {
 
   it("accepts a probability in [0, 1] and an automated decision naming nobody", async () => {
     await db.creditDecisionRecord.create({ data: { ...valid(), predictedProbability: 0.12345, actorType: "SYSTEM", actorUserId: null, actorRole: null } })
+  })
+
+  it("accepts an automated refusal that names only a lead, flagged for the s71 review (20261021100000)", async () => {
+    const row = recordData(submissionRefusalRecord({
+      tenantId: tenantA, channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: `lead-${t}` }, decidedAt,
+    }))
+    await db.$transaction((tx) => plain(tx).creditDecisionRecord.create({ data: row }))
+    expect(await db.creditDecisionRecord.findFirstOrThrow({ where: { leadId: `lead-${t}` } })).toMatchObject({
+      actorType: "SYSTEM", clientId: null, applicationId: null, s71ReviewRequired: true,
+    })
   })
 
   it("connects the isolation checks as a role RLS binds (otherwise they prove nothing)", async () => {

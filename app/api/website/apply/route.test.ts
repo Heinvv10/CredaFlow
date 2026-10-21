@@ -66,6 +66,21 @@ vi.mock("@/lib/affordability/own-lender-debt-load", async (importOriginal) => ({
   ownAwareSubmissionSnapshot: async (_db: unknown, _tenantId: string, _clientId: string, args: Parameters<typeof import("@/lib/affordability/snapshot").createSubmissionAffordabilitySnapshot>[0]) =>
     (await import("@/lib/affordability/snapshot")).createSubmissionAffordabilitySnapshot(args),
 }))
+// The helper's transaction and fallback are proven in
+// lib/learning-loop/submission-refusal.test.ts; here it forwards the audit row
+// to the app client's auditLog mock (rethrowing only when strict, as the real
+// one does) and records which refusal each site logged.
+const { recordRefusal } = vi.hoisted(() => ({ recordRefusal: vi.fn() }))
+vi.mock("@/lib/learning-loop/submission-refusal", () => ({
+  recordSubmissionRefusal: async (audit: unknown, refusal: unknown, options?: { strict?: boolean }) => {
+    recordRefusal(refusal, options)
+    try {
+      await createAuditLogMock({ data: audit })
+    } catch (error) {
+      if (options?.strict) throw error
+    }
+  },
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     $transaction: (cb: (client: typeof tx) => Promise<unknown>) => transactionMock(cb),
@@ -575,6 +590,10 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(createClientMock).not.toHaveBeenCalled()
     expect(createAuditLogMock).toHaveBeenCalledTimes(1)
     expect(createAuditLogMock.mock.calls[0][0].data.newValue.reason).toBe("identity_conflict")
+    // No client is confirmed, so the automated refusal names the lead, never the matched client.
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "tenant_acme", channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: "lead_1" } }, undefined,
+    )
   })
 
   it("a partial identity match (only idNumber matches a real client) does NOT create or update a client", async () => {
@@ -637,6 +656,10 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
         }),
       }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith({
+      tenantId: "tenant_acme", channel: "WEBSITE", reason: "financial_profile_update_requires_authentication",
+      subject: { clientId: snapshotReadyClient.id },
+    }, undefined)
   })
 
   it("no existing match, consent NOT affirmed: creates the client and application atomically without a ConsentRecord", async () => {
@@ -819,6 +842,9 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
     expect(findFirstLoanProductMock).toHaveBeenCalledTimes(1)
     const auditActions = createAuditLogMock.mock.calls.map((c) => c[0].data.action)
     expect(auditActions).toContain("APPLICATION_SUBMISSION_BLOCKED")
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "tenant_acme", channel: "WEBSITE", reason: "client_blacklisted", subject: { clientId: blacklistedClient.id } }, undefined,
+    )
   })
 
   it("a client overdue on a loan with this lender does NOT get a new LoanApplication, and the block is audited", async () => {
@@ -844,6 +870,9 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
       tenantId: "tenant_acme",
       newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "client_arr", source: "website_apply" }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "tenant_acme", channel: "WEBSITE", reason: "own_lender_arrears", subject: { clientId: "client_arr" } }, undefined,
+    )
   })
 
   // PO funding is business credit tied to a confirmed order the website form
@@ -1222,6 +1251,9 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
         newValue: expect.objectContaining({ reason: "open_application_exists" }),
       }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: "tenant_acme", channel: "WEBSITE", reason: "open_application_exists", existingApplicationId: expect.any(String),
+    }), undefined)
   })
 
   it("maps a database-enforced concurrent open-application collision to 409", async () => {
@@ -1292,6 +1324,33 @@ describe("POST /api/website/apply — client linking & compliance safety", () =>
         newValue: expect.objectContaining({ reason: "expense_evidence_invalid" }),
       }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "tenant_acme", channel: "WEBSITE", reason: "expense_evidence_invalid", subject: { clientId: inconsistentClient.id } }, undefined,
+    )
+  })
+
+  it("does not create an application when the matched client's expenses are below the Regulation 23A minimum with no justification", async () => {
+    const belowMleClient = {
+      ...snapshotReadyClient,
+      monthlyExpenses: 10_000,
+      expenseBreakdown: {
+        ...snapshotReadyClient.expenseBreakdown,
+        housing: 10_000, transport: 0, food: 0, insurance: 0, clothing: 0, medical: 0, other: 0,
+      },
+    }
+    findUniqueClientMock.mockResolvedValue(belowMleClient)
+    updateClientMock.mockResolvedValue(belowMleClient)
+    findFirstLoanProductMock.mockResolvedValue(personalProduct)
+
+    const res = await POST(buildReq(withIdentity))
+    const body = await res.json()
+
+    expect(res.status).toBe(422)
+    expect(body.error).toMatch(/Regulation 23A/)
+    expect(createLoanApplicationMock).not.toHaveBeenCalled()
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "tenant_acme", channel: "WEBSITE", reason: "mle_justification_missing", subject: { clientId: belowMleClient.id } }, undefined,
+    )
   })
 })
 
@@ -1406,6 +1465,9 @@ describe("POST /api/website/apply — confirmation email reroute (item 7)", () =
         }),
       }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "tenant_acme", channel: "WEBSITE", reason: "contact_promotion_conflict" }), { strict: true },
+    )
     expect(sendEmailMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
   })

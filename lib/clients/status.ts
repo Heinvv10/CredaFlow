@@ -88,7 +88,7 @@ export type CreditBlockReason = "BLACKLISTED" | "DECEASED"
 
 export type CreditBlock =
   | { blocked: false }
-  | { blocked: true; reason: CreditBlockReason; auditReason: string }
+  | { blocked: true; reason: CreditBlockReason; auditReason: "client_deceased" | "client_blacklisted" }
 
 const NOT_BLOCKED: CreditBlock = { blocked: false }
 

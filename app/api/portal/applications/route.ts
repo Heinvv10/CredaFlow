@@ -7,7 +7,8 @@ import { withTenantContext } from "@/lib/tenant"
 import { generateReference } from "@/lib/utils"
 import { triggerNotification } from "@/lib/notifications"
 import { screenOnSubmit } from "@/lib/screening/on-submit"
-import { logAudit, AuditAction } from "@/lib/audit"
+import { AuditAction } from "@/lib/audit"
+import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { resolveReferralCodeById, recordReferralEvent } from "@/lib/referral-agents/referrals"
 import {
@@ -213,14 +214,14 @@ export async function POST(req: NextRequest) {
       // them; ops follows up via the audit trail. The same reasoning covers a
       // recorded death — whoever is at the keyboard is not the person whose
       // status this is, so the reason stays in the audit row only.
-      await logAudit({
+      await recordSubmissionRefusal({
         tenantId: tenant.id,
         userEmail: session.user.email ?? undefined,
         action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
         entity: "LoanApplication",
         newValue: { reason: block.auditReason, clientId: client.id },
         ipAddress: callerIp(req),
-      })
+      }, { tenantId: tenant.id, channel: "PORTAL", reason: block.auditReason, subject: { clientId: client.id } })
       return NextResponse.json(
         { error: "We cannot accept a new application at this time. Please contact us." },
         { status: 422 },
@@ -232,14 +233,14 @@ export async function POST(req: NextRequest) {
     // (unreadable approved application) gives null and does not block.
     const ownLenderArrears = await loadOwnLenderArrears(prisma, tenant.id, client.id)
     if (ownLenderArrears) {
-      await logAudit({
+      await recordSubmissionRefusal({
         tenantId: tenant.id,
         userEmail: session.user.email ?? undefined,
         action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
         entity: "LoanApplication",
         newValue: { reason: OWN_LENDER_ARREARS_REASON, clientId: client.id, days: ownLenderArrears.days },
         ipAddress: callerIp(req),
-      })
+      }, { tenantId: tenant.id, channel: "PORTAL", reason: OWN_LENDER_ARREARS_REASON, subject: { clientId: client.id } })
       return NextResponse.json(
         {
           error: "New applications open once your account is up to date. Please make a payment on your overdue loan.",
@@ -813,14 +814,14 @@ export async function POST(req: NextRequest) {
         // reason to exist (client_deceased) would have returned 422 with no
         // audit row at all — a submission refused and no record of why.
         if (creation.auditReason) {
-          await logAudit({
+          await recordSubmissionRefusal({
             tenantId: tenant.id,
             userEmail: session.user.email ?? undefined,
             action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
             entity: "LoanApplication",
             newValue: { reason: creation.auditReason, clientId: client.id },
             ipAddress: callerIp(req),
-          })
+          }, { tenantId: tenant.id, channel: "PORTAL", reason: creation.auditReason, subject: { clientId: client.id } })
         }
         return NextResponse.json(
           creation.body,
@@ -851,7 +852,7 @@ export async function POST(req: NextRequest) {
           select: { id: true, reference: true, status: true },
         })
         if (concurrentApplication) {
-          await logAudit({
+          await recordSubmissionRefusal({
             tenantId: tenant.id,
             userEmail: session.user.email ?? undefined,
             action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -867,6 +868,12 @@ export async function POST(req: NextRequest) {
               requestedTermDays: appliedTermDays,
             },
             ipAddress: callerIp(req),
+          }, {
+            tenantId: tenant.id,
+            channel: "PORTAL",
+            reason: "open_application_exists",
+            subject: { clientId: client.id },
+            existingApplicationId: concurrentApplication.id,
           })
           return NextResponse.json(
             {
