@@ -14,12 +14,13 @@ import { prisma } from "@/lib/prisma"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { getTenantConfig } from "@/lib/tenant"
 import { cn } from "@/lib/utils"
-import { ArrangementLine, CohortTable, DeclineTable, OverrideTable, percent, Rate, StageTable, TakeUpTable } from "./tables"
+import { ArrangementLine, AutomatedRefusalList, CohortTable, DeclineTable, OverrideTable, percent, Rate, StageTable, TakeUpTable } from "./tables"
 
 type Props = { searchParams: Promise<{ window?: string }> }
 
 export default async function DecisionPerformancePage({ searchParams }: Props) {
-  // Default-deny: the permission (lib/registry/permissions/070-learning-loop.ts) and the lender's reports feature.
+  // Default-deny: the permission (lib/registry/permissions/070-learning-loop.ts: ADMIN and above) and the lender's
+  // reports feature. Read-only: the page has no form, action or write of any kind (DESIGN.md decision 2).
   const user = await requireMinRole("READONLY")
   if (!canDo(user.role, "view_decision_performance")) redirect(NO_ACCESS_PAGE)
   const tenantId = await getStaffTenantId()
@@ -43,6 +44,12 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
           Months on book count from the first instalment due date.
         </p>
       </div>
+
+      {data.demoData && (
+        <div role="note" data-demo-data="true" className="rounded-md border-2 border-[var(--cf-warning)] px-4 py-3 text-sm font-semibold text-[var(--cf-text)]">
+          Simulated / demo data. This is a synthetic demo lender: every figure below comes from demo or simulated records, never from a real lender&apos;s book.
+        </div>
+      )}
 
       <div className="rounded-md border border-[var(--cf-warning)] px-4 py-3 text-sm text-[var(--cf-text)]">
         Until a lender has 6 to 12 months of loans on book, these figures can only be checked on demo or simulator data; on a newer book most windows are still pending and the rates rest on few loans.
@@ -72,7 +79,7 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
       </div>
 
       <DataPanel title="Approvals by cohort"
-        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it, or the loan was cancelled in cooling-off. Cured counts loans that reached 30+ DPD. Rows under ${SMALL_CELL_LOANS} loans are greyed.`}>
+        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it, or the loan was cancelled in cooling-off. Cured counts loans that reached 30+ DPD and came back to 0 DPD while still open; settling after 30+ DPD is shown separately and is not a cure. Bad is ever 90+ DPD, the default. Rows under ${SMALL_CELL_LOANS} loans are greyed.`}>
         {data.cohorts.length === 0
           ? <EmptyState icon={Scale} title="No approval has outcomes yet" description="Outcomes are derived nightly from approvals recorded since the decision log shipped." />
           : <CohortTable cells={data.cohorts} />}
@@ -88,13 +95,20 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
 
       <DataPanel title="Declines by category" description="Declined applicants have no observable repayment, so every rate above describes approved loans only: it says nothing about how a declined applicant would have repaid.">
         {data.declines.total === 0 ? <EmptyState icon={Scale} title="No declines recorded" description="Declines are recorded with their category." /> : <DeclineTable summary={data.declines} />}
-        <p className="mt-3 text-sm text-[var(--cf-text)]">
-          Automated refusals recorded (no staff member decided): <span className="font-semibold">{data.declines.automated}</span>, for lender legal review (POPIA s71).
-          Portal and website submission refusals are not recorded in this log yet, so they are not counted here.
-        </p>
       </DataPanel>
 
-      <DataPanel title="Collections" description={`Descriptive, not causal. There is no holdout, so a difference between stages reflects which loans reached them as much as what the stage did. An episode starts when a past-due loan enters a stage; within ${HORIZON_DAYS} days it cures (0 DPD or settled), rolls (a later arrears band or written off) or stays.`}>
+      <DataPanel title="Automated refusals" description="Portal and website submissions the system refused with no staff member deciding (for example a recorded death, the blacklist, arrears with this lender, or incomplete expense evidence). They are not in the declines above.">
+        <p className="mb-3 text-sm font-semibold text-[var(--cf-warning)]" data-s71="true">
+          POPIA s71: lender legal review required before go-live.
+        </p>
+        <p className="text-sm text-[var(--cf-text)]">
+          Automated refusals recorded: <span className="font-semibold">{data.declines.automated.total}</span>
+          {" "}({data.declines.automated.s71ReviewRequired} flagged for the lender&apos;s legal review).
+        </p>
+        {data.declines.automated.total > 0 && <AutomatedRefusalList a={data.declines.automated} />}
+      </DataPanel>
+
+      <DataPanel title="Collections" description={`Descriptive, not causal. There is no holdout, so a difference between stages reflects which loans reached them as much as what the stage did. An episode starts when a past-due loan enters a stage; within ${HORIZON_DAYS} days it cures (back to 0 DPD while open), is settled (paid off, not a cure), rolls (a later arrears band or written off) or stays.`}>
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--cf-warning)]">Descriptive, not causal</p>
         {data.stages.length === 0
           ? <EmptyState icon={Scale} title="No arrears episodes in the history" description="The daily arrears history starts at its first nightly run and is not backfilled." />

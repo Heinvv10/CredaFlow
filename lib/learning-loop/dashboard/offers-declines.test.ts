@@ -27,23 +27,29 @@ describe("offerTakeUp", () => {
 describe("declineVolume", () => {
   it("counts declines by month and category, an uncategorised decline included", () => {
     const s = declineVolume([
-      { month: "2026-05", category: "AFFORDABILITY", actorType: "STAFF" },
-      { month: "2026-05", category: "AFFORDABILITY", actorType: "STAFF" },
-      { month: "2026-05", category: null, actorType: "STAFF" },
-      { month: "2026-04", category: "BUREAU_SCORE", actorType: "STAFF" },
+      { month: "2026-05", category: "AFFORDABILITY", actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
+      { month: "2026-05", category: "AFFORDABILITY", actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
+      { month: "2026-05", category: null, actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
+      { month: "2026-04", category: "BUREAU_SCORE", actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
     ])
     expect(s.cells).toEqual([
       { month: "2026-05", category: "AFFORDABILITY", declines: 2 },
       { month: "2026-05", category: UNCATEGORISED, declines: 1 },
       { month: "2026-04", category: "BUREAU_SCORE", declines: 1 },
     ])
-    expect(s).toMatchObject({ total: 4, byCategory: { AFFORDABILITY: 2, UNCATEGORISED: 1, BUREAU_SCORE: 1 }, automated: 0 })
+    expect(s).toMatchObject({ total: 4, byCategory: { AFFORDABILITY: 2, UNCATEGORISED: 1, BUREAU_SCORE: 1 }, automated: { total: 0, s71ReviewRequired: 0, byReason: {} } })
   })
 
-  it("counts refusals the code made alone (actorType SYSTEM) for legal review", () => {
-    expect(declineVolume([
-      { month: "2026-05", category: "POLICY", actorType: "SYSTEM" },
-      { month: "2026-05", category: "POLICY", actorType: "STAFF" },
-    ]).automated).toBe(1)
+  it("counts refusals the code made alone (actorType SYSTEM) apart from staff declines, by reason, with the s71 review flag", () => {
+    const s = declineVolume([
+      { month: "2026-05", category: null, actorType: "SYSTEM", refusalReason: "client_blacklisted", s71ReviewRequired: true },
+      { month: "2026-05", category: null, actorType: "SYSTEM", refusalReason: "client_blacklisted", s71ReviewRequired: true },
+      { month: "2026-05", category: null, actorType: "SYSTEM", refusalReason: "identity_conflict", s71ReviewRequired: true },
+      { month: "2026-05", category: "POLICY", actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
+    ])
+    expect(s.automated).toEqual({ total: 3, s71ReviewRequired: 3, byReason: { client_blacklisted: 2, identity_conflict: 1 } })
+    // An automated refusal is not a staff decline.
+    expect(s).toMatchObject({ total: 1, byCategory: { POLICY: 1 } })
+    expect(s.cells).toEqual([{ month: "2026-05", category: "POLICY", declines: 1 }])
   })
 })

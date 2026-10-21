@@ -78,10 +78,10 @@ describe("approvalCohorts", () => {
 
   it("reports every metric for the chosen window", () => {
     const rows = [obs("EVER_30_DPD", true), obs("EVER_60_DPD", true), obs("EVER_90_DPD", false), obs("CURED", true),
-      obs("SETTLED", true), obs("WRITTEN_OFF", false)]
+      obs("SETTLED_AFTER_DELINQUENCY", false), obs("SETTLED", true), obs("WRITTEN_OFF", false)]
     const [cell] = approvalCohorts([approval(rows)], "12M")
     expect(Object.fromEntries(Object.entries(cell.metrics).map(([k, t]) => [k, t?.ratePct]))).toEqual({
-      ever30: 100, ever60: 100, ever90: 0, cured: 100, settled: 100, writtenOff: 0,
+      ever30: 100, ever60: 100, ever90: 0, cured: 100, settledAfterDelinquency: 0, settled: 100, writtenOff: 0,
     })
     expect(approvalCohorts([approval(rows)], "6M")[0].metrics.ever30).toMatchObject({ notComputed: 1, ratePct: null })
   })

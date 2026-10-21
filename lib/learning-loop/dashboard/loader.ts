@@ -23,6 +23,12 @@ export type DashboardDb = Pick<typeof prisma,
   "creditDecisionRecord" | "loanApplication" | "loan" | "loanArrearsSnapshot" | "paymentArrangement" | "tenantConfig">
 
 export interface DecisionPerformance {
+  /**
+   * A synthetic demo lender (TenantConfig.isDemoLender): every figure is demo
+   * data and the page labels it so. A real lender's figures read no row
+   * marked demoData (DESIGN.md decision 4).
+   */
+  demoData: boolean
   window: CohortWindow
   approvals: number
   totals: CohortMetrics
@@ -57,22 +63,24 @@ function snapshotField(snapshot: unknown, ...path: string[]): string | null {
 export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf: Date, window: CohortWindow): Promise<DecisionPerformance> {
   return runWithTenant(tenantId, async () => {
     const today = sastCalendarDate(asOf)
+    // Outcome rows are read only where demoData matches the lender: never demo and real in one figure.
+    const demoData = (await db.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } }))?.isDemoLender === true
     const [approvalRows, offerRows, declineRows, snapshots, arrangements, book] = await Promise.all([
       // Final approvals the outcome job attached loan outcomes to (an approval undone by a return gets none).
       db.creditDecisionRecord.findMany({
-        where: { tenantId, kind: "CREDIT_DECISION", decision: "APPROVE", outcomes: { some: {} } },
+        where: { tenantId, kind: "CREDIT_DECISION", decision: "APPROVE", outcomes: { some: { demoData } } },
         select: {
           id: true, applicationId: true, decidedAt: true, ruleVersion: true, policyHash: true, overridden: true, inputsSnapshot: true,
-          outcomes: { where: { window }, select: OUTCOME_SELECT },
+          outcomes: { where: { window, demoData }, select: OUTCOME_SELECT },
         },
       }),
       db.creditDecisionRecord.findMany({
         where: { tenantId, kind: "OFFER" },
-        select: { decision: true, decidedAt: true, outcomes: { where: { outcomeKind: "TAKEN_UP" }, select: OUTCOME_SELECT } },
+        select: { decision: true, decidedAt: true, outcomes: { where: { outcomeKind: "TAKEN_UP", demoData }, select: OUTCOME_SELECT } },
       }),
       db.creditDecisionRecord.findMany({
         where: { tenantId, kind: "CREDIT_DECISION", decision: "DECLINE" },
-        select: { decidedAt: true, actorType: true, inputsSnapshot: true },
+        select: { decidedAt: true, actorType: true, s71ReviewRequired: true, inputsSnapshot: true },
       }),
       db.loanArrearsSnapshot.findMany({
         where: { tenantId, snapshotDate: { gte: new Date(`${addDays(today, -HISTORY_DAYS)}T00:00:00.000Z`) } },
@@ -126,6 +134,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
     }))
 
     return {
+      demoData,
       window,
       approvals: approvals.length,
       totals: cohortTotals(approvals, window),
@@ -134,6 +143,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
       takeUp: offerTakeUp(offerRows.map((o) => ({ month: month(o.decidedAt), decision: o.decision, outcomes: o.outcomes }))),
       declines: declineVolume(declineRows.map((d) => ({
         month: month(d.decidedAt), category: snapshotField(d.inputsSnapshot, "declineCategory"), actorType: d.actorType,
+        refusalReason: snapshotField(d.inputsSnapshot, "refusalReason"), s71ReviewRequired: d.s71ReviewRequired,
       }))),
       stages: cureRollByStage(histories, today),
       arrangements: arrangementOutcomes(Object.fromEntries(arrangements.map((a) => [a.status, a._count._all]))),

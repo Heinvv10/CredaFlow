@@ -47,9 +47,10 @@ describe("stageEpisodes", () => {
     expect(stageEpisodes(loan(days), LATE)[0].result).toBe("CURED")
   })
 
-  it("settling inside the horizon cures; a write-off rolls; rows are not needed after the close day", () => {
+  // Decision 3 (21 Oct 2026): settling is never a cure.
+  it("settling inside the horizon is SETTLED, not cured; a write-off rolls; rows are not needed after the close day", () => {
     const days = history(run(3, 40, "ATTORNEY_REFERRED", 0))
-    expect(stageEpisodes(loan(days, { kind: "SETTLED", day: addDays(START, 3) }), LATE)[0].result).toBe("CURED")
+    expect(stageEpisodes(loan(days, { kind: "SETTLED", day: addDays(START, 3) }), LATE)[0].result).toBe("SETTLED")
     expect(stageEpisodes(loan(days, { kind: "WRITTEN_OFF", day: addDays(START, 3) }), LATE)[0].result).toBe("ROLLED")
     // A close with no date cannot be placed: the missing days make it unobservable.
     expect(stageEpisodes(loan(days, { kind: "SETTLED", day: null }), LATE)[0].result).toBe("UNOBSERVABLE")
@@ -89,6 +90,15 @@ describe("cureRollByStage", () => {
     const [cell] = cureRollByStage(loans, addDays(START, 20))
     // a cured, b rolled (20 → 31 crosses into 31-60), c pending: 1 of 2 resolved each way.
     expect(cell).toMatchObject({ stage: "SOFT_REMINDER", loans: 3, episodes: 3, cured: 1, rolled: 1, pending: 1, cureRatePct: 50, rollRatePct: 50, small: true })
+  })
+
+  it("counts a settled episode apart: resolved, but never a cure", () => {
+    const loans = [
+      loan(history([[10, "SOFT_REMINDER"], [0, "SOFT_REMINDER"]]), undefined, "a"),
+      loan(history(run(3, 40, "SOFT_REMINDER", 0)), { kind: "SETTLED", day: addDays(START, 3) }, "b"),
+    ]
+    const [cell] = cureRollByStage(loans, addDays(START, 40))
+    expect(cell).toMatchObject({ episodes: 2, cured: 1, settled: 1, cureRatePct: 50, rollRatePct: 0 })
   })
 })
 

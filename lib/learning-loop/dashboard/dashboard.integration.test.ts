@@ -20,6 +20,7 @@ import { getBookArrears } from "@/lib/reports/book-arrears"
 import { recordDecisions, type DecisionLogDb } from "../decision-log"
 import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
 import { consumerApprovalRecords, consumerDeclineRecord } from "../records"
+import { submissionRefusalRecord } from "../submission-refusal"
 import { loadDecisionPerformance, type DashboardDb, type DecisionPerformance } from "./loader"
 
 const suite = process.env.RUN_DECISION_DASHBOARD_IT === "1" ? describe.sequential : describe.skip
@@ -34,12 +35,15 @@ let app: ReturnType<typeof createAppPrismaClient>
 const days = (from: string, n: number) => Array.from({ length: n }, (_, i) => new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000))
 
 /**
- * A: one bad approval (ever 90+ observed), a cured soft-reminder episode, a kept arrangement, 95 DPD now.
+ * A: one bad approval (ever 90+ observed; settled after 30+ DPD, not cured), a cured soft-reminder episode,
+ * a kept arrangement, 95 DPD now.
  * B: pending, never 30 DPD (CURED false NEVER_30_DPD), no EVER_60 row yet, a stayed s129 episode, a broken
- * arrangement, and a second decline taken by the system (an automated refusal).
+ * arrangement, and an automated portal refusal (a SYSTEM record flagged for the s71 review).
+ * `demo`: the lender is a synthetic demo lender (TenantConfig.isDemoLender) and its outcome rows are demoData.
  */
-async function lender(bad: boolean): Promise<Lender> {
+async function lender(bad: boolean, demo = false): Promise<Lender> {
   const tenant = await createChargesTenant(db, false)
+  if (demo) await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { isDemoLender: true } })
   const { loanId, clientId } = await createChargesLoan(db, tenant)
   const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { applicationId: true, createdAt: true } })
   const actor = { userId: tenant.userId, role: "LOAN_ADMIN" }
@@ -55,24 +59,27 @@ async function lender(bad: boolean): Promise<Lender> {
       affordability: { ndiCents: 600_000, requiredNdiCents: 300_000 }, screeningState: "CLEAR", creditCheckFlags: [],
       affordabilitySnapshot: { policyVersion: "approval-ndi-v3", inputFingerprint: "a".repeat(64), decisionFingerprint: "b".repeat(64) },
     }))
-    const decline = (system: boolean) => ({
-      ...consumerDeclineRecord({
-        tenantId: tenant.tenantId, applicationId: `app-declined-${randomUUID()}`, clientId: null, actor,
-        decidedAt: new Date("2026-10-02T09:00:00+02:00"), declineCategory: bad ? "AFFORDABILITY" : "BUREAU_SCORE",
-      }),
-      ...(system ? { actor: { type: "SYSTEM" as const } } : {}),
+    const decline = consumerDeclineRecord({
+      tenantId: tenant.tenantId, applicationId: `app-declined-${randomUUID()}`, clientId: null, actor,
+      decidedAt: new Date("2026-10-02T09:00:00+02:00"), declineCategory: bad ? "AFFORDABILITY" : "BUREAU_SCORE",
     })
-    await recordDecisions(tx as unknown as DecisionLogDb, bad ? [decline(false)] : [decline(false), decline(true)])
+    const refusal = submissionRefusalRecord({
+      tenantId: tenant.tenantId, channel: "PORTAL", reason: "client_blacklisted", subject: { clientId }, decidedAt: new Date("2026-10-02T09:00:00+02:00"),
+    })
+    await recordDecisions(tx as unknown as DecisionLogDb, bad ? [decline] : [decline, refusal])
   })
   const records = await db.creditDecisionRecord.findMany({ where: { tenantId: tenant.tenantId, applicationId: loan.applicationId }, select: { id: true, kind: true } })
-  const base = { tenantId: tenant.tenantId, sourceSystem: "credaflow", sourceRef: loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt: NOW }
+  const base = { tenantId: tenant.tenantId, sourceSystem: "credaflow", sourceRef: loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt: NOW, demoData: demo }
   const approvalId = records.find((r) => r.kind === "CREDIT_DECISION")!.id
   await db.decisionOutcome.createMany({ data: [
     bad
       ? { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_90_DPD", window: "12M", state: "OBSERVED", value: true, observedAt: NOW }
       : { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_90_DPD", window: "12M", state: "PENDING" },
     { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_30_DPD", window: "3M", state: "UNOBSERVABLE", reasonCode: "HISTORY_GAP" },
-    ...(bad ? [] : [
+    ...(bad ? [
+      { ...base, decisionRecordId: approvalId, outcomeKind: "CURED" as const, window: "12M", state: "OBSERVED" as const, value: false, observedAt: NOW },
+      { ...base, decisionRecordId: approvalId, outcomeKind: "SETTLED_AFTER_DELINQUENCY" as const, window: "12M", state: "OBSERVED" as const, value: true, observedAt: NOW },
+    ] : [
       { ...base, decisionRecordId: approvalId, outcomeKind: "CURED" as const, window: "12M", state: "OBSERVED" as const, value: false, observedAt: NOW, reasonCode: "NEVER_30_DPD" },
     ]),
     { ...base, decisionRecordId: records.find((r) => r.kind === "OFFER")!.id, outcomeKind: "TAKEN_UP", window: "OFFER", state: "OBSERVED", value: true, observedAt: NOW, sourceRef: loan.applicationId },
@@ -107,7 +114,8 @@ async function createAppRole(): Promise<string> {
   return url.toString()
 }
 
-function expectLender(d: DecisionPerformance, bad: boolean) {
+function expectLender(d: DecisionPerformance, bad: boolean, demo = false) {
+  expect(d.demoData).toBe(demo)
   expect(d.approvals).toBe(1)
   expect(d.cohorts).toHaveLength(1)
   expect(d.cohorts[0]).toMatchObject({ loans: 1, small: true, scoreBand: "630-679", overridden: false, product: "MICRO" })
@@ -115,9 +123,15 @@ function expectLender(d: DecisionPerformance, bad: boolean) {
     ? { n: 1, yes: 1, no: 0, pending: 0, ratePct: 100, coveragePct: 100 }
     : { n: 1, yes: 0, no: 0, pending: 1, ratePct: null, coveragePct: null })
   expect(d.takeUp).toMatchObject([{ decision: "APPROVED_TERMS", offers: 1, takeUp: { yes: 1, ratePct: 100 } }])
+  // An automated refusal is counted apart from staff declines, flagged for the s71 review.
   expect(d.declines).toMatchObject(bad
-    ? { total: 1, automated: 0, byCategory: { AFFORDABILITY: 1 } }
-    : { total: 2, automated: 1, byCategory: { BUREAU_SCORE: 2 } })
+    ? { total: 1, automated: { total: 0, s71ReviewRequired: 0 }, byCategory: { AFFORDABILITY: 1 } }
+    : { total: 1, automated: { total: 1, s71ReviewRequired: 1, byReason: { client_blacklisted: 1 } }, byCategory: { BUREAU_SCORE: 1 } })
+  // A: settled after 30+ DPD is its own outcome, never a cure (decision 3).
+  if (bad) {
+    expect(d.totals.cured).toMatchObject({ yes: 0, no: 1, ratePct: 0 })
+    expect(d.totals.settledAfterDelinquency).toMatchObject({ yes: 1, no: 0, ratePct: 100 })
+  }
   // B: a loan never 30 DPD is outside the cure rate; a metric with no row yet counts against coverage, never as good.
   if (!bad) {
     expect(d.totals.cured).toMatchObject({ notDelinquent: 1, yes: 0, no: 0, ratePct: null })
@@ -132,7 +146,7 @@ function expectLender(d: DecisionPerformance, bad: boolean) {
 
 suite("decision-performance dashboard (real Postgres)", () => {
   beforeAll(async () => {
-    lenders.push(await lender(true), await lender(false))
+    lenders.push(await lender(true), await lender(false), await lender(true, true))
   }, 120_000)
 
   afterAll(async () => {
@@ -175,6 +189,20 @@ suite("decision-performance dashboard (real Postgres)", () => {
     for (const rows of seen) expect(rows).toEqual([{ tenantId: a.tenantId }])
     // B's rows exist; only the policy hid them.
     expect(await db.creditDecisionRecord.count({ where: { tenantId: b.tenantId } })).toBeGreaterThan(0)
+  })
+
+  it("labels a demo lender's figures as demo data, and never reads a demo row into a real lender's figures (decision 4)", async () => {
+    const [a, , demo] = lenders
+    expectLender(await loadDecisionPerformance(app as unknown as DashboardDb, demo.tenantId, NOW, "12M"), true, true)
+    // A stray demo-marked row on a real lender (e.g. one whose flag was cleared) is not read.
+    const [approval] = await db.creditDecisionRecord.findMany({ where: { tenantId: a.tenantId, kind: "CREDIT_DECISION", decision: "APPROVE" } })
+    const stray = await db.decisionOutcome.create({ data: {
+      tenantId: a.tenantId, decisionRecordId: approval.id, outcomeKind: "EVER_60_DPD", window: "12M", state: "OBSERVED", value: true,
+      observedAt: NOW, sourceSystem: "credaflow", sourceRef: a.loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt: NOW, demoData: true,
+    } })
+    const d = await loadDecisionPerformance(app as unknown as DashboardDb, a.tenantId, NOW, "12M")
+    expect(d.totals.ever60).toMatchObject({ n: 1, yes: 0, notComputed: 1 })
+    await db.decisionOutcome.delete({ where: { id: stray.id } })
   })
 
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {

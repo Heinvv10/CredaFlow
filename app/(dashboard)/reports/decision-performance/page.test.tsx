@@ -5,6 +5,8 @@ import { tally } from "@/lib/learning-loop/dashboard/cells"
 import { approvalCohorts, cohortTotals, overrideComparison } from "@/lib/learning-loop/dashboard/cohorts"
 import { arrangementOutcomes } from "@/lib/learning-loop/dashboard/collections"
 import { declineVolume } from "@/lib/learning-loop/dashboard/offers-declines"
+import { canDo } from "@/lib/permissions"
+import { UserRole } from "@prisma/client"
 
 const { state } = vi.hoisted(() => ({
   state: { role: "ADMIN", tenantId: "tenant-a", featureReports: true as boolean | undefined, load: vi.fn() },
@@ -32,11 +34,15 @@ const approvals = Array.from({ length: 3 }, (_, i) => ({
   decisionRecordId: `d${i}`, cohortMonth: "2026-03", ruleVersion: "decision-log-v1+approval-ndi-v3", policyHash: "c".repeat(64),
   scoreBand: "630-679", overridden: false, product: "MICRO", outcomes: row(i === 0),
 }))
-const data = (): DecisionPerformance => ({
-  window: "12M", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
+const data = (demoData = false): DecisionPerformance => ({
+  demoData, window: "12M", approvals: approvals.length, totals: cohortTotals(approvals, "12M"),
   cohorts: approvalCohorts(approvals, "12M"), overrides: overrideComparison(approvals, "12M"),
   takeUp: [{ month: "2026-03", decision: "APPROVED_TERMS", offers: 3, small: true, takeUp: tally([[], [], []], "TAKEN_UP", "OFFER") }],
-  declines: declineVolume([{ month: "2026-03", category: "AFFORDABILITY", actorType: "STAFF" }]),
+  declines: declineVolume([
+    { month: "2026-03", category: "AFFORDABILITY", actorType: "STAFF", refusalReason: null, s71ReviewRequired: false },
+    { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "client_blacklisted", s71ReviewRequired: true },
+    { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "own_lender_arrears", s71ReviewRequired: true },
+  ]),
   stages: [], arrangements: arrangementOutcomes({ KEPT: 1 }),
   book: { scope: "ALL", chargesLive: false, book: { count: 0, value: 0 }, arrears: { count: 0, amount: 0, outstandingPrincipal: 0 },
     chargesOnly: { count: 0, amount: 0 }, ageing: [], par30: { count: 0, value: 0, pct: 0 }, par60: { count: 0, value: 0, pct: 0 },
@@ -52,7 +58,13 @@ describe("Decision performance page", () => {
     state.load.mockReset().mockResolvedValue(data())
   })
 
-  it.each(["LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "COLLECTIONS_OFFICER", "READONLY", "CLIENT"])(
+  // Decision 2 (21 Oct 2026): ADMIN (the compliance role; there is no COMPLIANCE role) and SUPER_ADMIN only.
+  it("grants view_decision_performance to ADMIN and SUPER_ADMIN and to no other role", () => {
+    expect(Object.values(UserRole).filter((role) => canDo(role, "view_decision_performance")).sort()).toEqual(["ADMIN", "SUPER_ADMIN"])
+  })
+
+  it.each(["LOAN_ADMIN", "BRANCH_MANAGER", "CREDIT_OFFICER", "COLLECTIONS_OFFICER", "COLLECTIONS_AGENT", "INSURANCE_OFFICER",
+    "READONLY", "CLIENT", "OPERATOR_ADMIN", "OPERATOR_SUPPORT"])(
     "sends %s to the no-access page and reads nothing", async (role) => {
       state.role = role
       await expect(render()).rejects.toThrow("REDIRECT:/no-access")
@@ -89,11 +101,28 @@ describe("Decision performance page", () => {
     expect(t).toContain("Until a lender has 6 to 12 months of loans on book, these figures can only be checked on demo or simulator data")
     expect(t).toContain("Descriptive, not causal")
     expect(t).toContain("Declined applicants have no observable repayment")
-    expect(t).toContain("for lender legal review (POPIA s71)")
+    expect(t).toContain("POPIA s71: lender legal review required before go-live")
+    expect(t).toMatch(/Automated refusals recorded: 2 \(2 flagged for the lender(&#x27;|')s legal review\)/)
+    expect(t).toContain("Blacklisted 1")
+    expect(t).toContain("Settled after 30+ DPD")
+    expect(t).toContain("settling after 30+ DPD is shown separately and is not a cure")
     expect(t).toContain("90+ DPD in the book now 4")
     expect(t).not.toMatch(/\blearn|\bAI\b|machine|predict/i)
     // 3 loans < 20: greyed, counts still shown.
     expect(html).toContain('data-small="true"')
     expect(t).toContain("33.3% 1/3")
+  })
+
+  it("is read-only: no form, button or input on the page", async () => {
+    const html = await render()
+    expect(html).not.toMatch(/<form|<button|<input|<textarea|<select/i)
+  })
+
+  it("labels a demo lender's figures as simulated / demo data, and a real lender's not", async () => {
+    expect(text(await render())).not.toContain("Simulated / demo data")
+    state.load.mockResolvedValue(data(true))
+    const html = await render()
+    expect(html).toContain('data-demo-data="true"')
+    expect(text(html)).toContain("Simulated / demo data. This is a synthetic demo lender")
   })
 })

@@ -4,8 +4,10 @@
  * Take-up: an offer's TAKEN_UP row (window OFFER); false is NOT_TAKEN_UP.
  * Declines carry no outcome (nothing is repaid), so they are counted by
  * category only, beside the cohorts, to show who the outcome rates leave out.
- * Refusals the code made alone (actorType SYSTEM) are counted separately for
- * the lender's legal review (POPIA s71, DESIGN.md §9.1).
+ * Refusals the code made alone (actorType SYSTEM: the portal and website
+ * submission refusals, lib/learning-loop/submission-refusal.ts) are not staff
+ * declines: they are counted apart, by reason, with how many await the
+ * lender's POPIA s71 legal review, a go-live gate (DESIGN.md decision 5, §7).
  */
 import { SMALL_CELL_LOANS, groupBy, tally, type OutcomeRow, type Tally } from "./cells"
 
@@ -41,6 +43,9 @@ export interface DeclineInput {
   /** inputsSnapshot.declineCategory, or null. */
   category: string | null
   actorType: "STAFF" | "SYSTEM" | "CLIENT"
+  /** inputsSnapshot.refusalReason of an automated refusal, or null. */
+  refusalReason: string | null
+  s71ReviewRequired: boolean
 }
 
 export interface DeclineCell {
@@ -49,25 +54,37 @@ export interface DeclineCell {
   declines: number
 }
 
+export interface AutomatedRefusals {
+  /** Declines recorded with actorType SYSTEM. */
+  total: number
+  /** Of those, flagged for the lender's POPIA s71 legal review. */
+  s71ReviewRequired: number
+  byReason: Record<string, number>
+}
+
 export interface DeclineSummary {
+  /** Staff declines only (an automated refusal is not a staff decline). */
   cells: DeclineCell[]
   total: number
   byCategory: Record<string, number>
-  /** Declines recorded with actorType SYSTEM: for the lender's legal review (POPIA s71). */
-  automated: number
+  automated: AutomatedRefusals
 }
 
-export function declineVolume(declines: readonly DeclineInput[]): DeclineSummary {
+export function declineVolume(all: readonly DeclineInput[]): DeclineSummary {
+  const declines = all.filter((d) => d.actorType !== "SYSTEM")
+  const refusals = all.filter((d) => d.actorType === "SYSTEM")
   const category = (d: DeclineInput) => d.category ?? UNCATEGORISED
   const groups = groupBy(declines, (d) => `${d.month}|${category(d)}`)
   const byCategory: Record<string, number> = {}
   for (const d of declines) byCategory[category(d)] = (byCategory[category(d)] ?? 0) + 1
+  const byReason: Record<string, number> = {}
+  for (const r of refusals) byReason[r.refusalReason ?? UNCATEGORISED] = (byReason[r.refusalReason ?? UNCATEGORISED] ?? 0) + 1
   return {
     cells: [...groups.values()]
       .map((g) => ({ month: g[0].month, category: category(g[0]), declines: g.length }))
       .sort((a, b) => b.month.localeCompare(a.month) || b.declines - a.declines || a.category.localeCompare(b.category)),
     total: declines.length,
     byCategory,
-    automated: declines.filter((d) => d.actorType === "SYSTEM").length,
+    automated: { total: refusals.length, s71ReviewRequired: refusals.filter((r) => r.s71ReviewRequired).length, byReason },
   }
 }

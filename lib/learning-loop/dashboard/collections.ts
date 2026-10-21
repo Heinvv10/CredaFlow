@@ -9,7 +9,8 @@
  *   and either was not the day before or was at another stage. The first
  *   day read starts none (the day before it is unknown), and none starts at
  *   stage WRITTEN_OFF or on or after the day the loan ended. Within the
- *   next HORIZON_DAYS it is CURED (back to 0 DPD, or settled), ROLLED (into a
+ *   next HORIZON_DAYS it is CURED (back to 0 DPD while the loan is open),
+ *   SETTLED (paid off: never a cure, DESIGN.md decision 3), ROLLED (into a
  *   later ARREARS_BANDS band, lib/reports/arrears-buckets.ts, or written off),
  *   whichever comes first; otherwise STAYED once the horizon has elapsed with
  *   every open day recorded, PENDING before that, UNOBSERVABLE when a day is
@@ -42,7 +43,7 @@ export interface LoanHistory {
   end: { kind: "OPEN" | "SETTLED" | "WRITTEN_OFF" | "CANCELLED"; day: string | null }
 }
 
-export type EpisodeResult = "CURED" | "ROLLED" | "STAYED" | "PENDING" | "UNOBSERVABLE"
+export type EpisodeResult = "CURED" | "SETTLED" | "ROLLED" | "STAYED" | "PENDING" | "UNOBSERVABLE"
 
 export interface Episode {
   loanId: string
@@ -77,7 +78,7 @@ function judge(start: HistoryDay, byDay: Map<string, HistoryDay>, end: LoanHisto
   for (let k = 1; k <= HORIZON_DAYS; k++) {
     const day = addDays(start.day, k)
     if (endDay !== null && day >= endDay) {
-      if (end.kind === "SETTLED") return "CURED"
+      if (end.kind === "SETTLED") return "SETTLED"
       if (end.kind === "WRITTEN_OFF") return "ROLLED"
       // CANCELLED: never performed (as DESIGN.md §3 treats it), not stayed.
       return "UNOBSERVABLE"
@@ -97,11 +98,13 @@ export interface StageCell {
   loans: number
   small: boolean
   cured: number
+  /** Settled inside the horizon: resolved, but not a cure (decision 3). */
+  settled: number
   rolled: number
   stayed: number
   pending: number
   unobservable: number
-  /** cured ÷ (cured + rolled + stayed), 0..100; null when none resolved. */
+  /** cured ÷ (cured + settled + rolled + stayed), 0..100; null when none resolved. */
   cureRatePct: number | null
   rollRatePct: number | null
 }
@@ -111,13 +114,14 @@ export function cureRollByStage(loans: readonly LoanHistory[], today: string): S
   for (const loan of loans) {
     for (const e of stageEpisodes(loan, today)) {
       const cell = cells.get(e.stage) ?? {
-        stage: e.stage, episodes: 0, loans: 0, small: true, cured: 0, rolled: 0, stayed: 0, pending: 0, unobservable: 0,
+        stage: e.stage, episodes: 0, loans: 0, small: true, cured: 0, settled: 0, rolled: 0, stayed: 0, pending: 0, unobservable: 0,
         cureRatePct: null, rollRatePct: null, loanIds: new Set<string>(),
       }
       cells.set(e.stage, cell)
       cell.episodes++
       cell.loanIds.add(e.loanId)
       if (e.result === "CURED") cell.cured++
+      else if (e.result === "SETTLED") cell.settled++
       else if (e.result === "ROLLED") cell.rolled++
       else if (e.result === "STAYED") cell.stayed++
       else if (e.result === "PENDING") cell.pending++
@@ -125,7 +129,7 @@ export function cureRollByStage(loans: readonly LoanHistory[], today: string): S
     }
   }
   return [...cells.values()].map(({ loanIds, ...c }) => {
-    const resolved = c.cured + c.rolled + c.stayed
+    const resolved = c.cured + c.settled + c.rolled + c.stayed
     return {
       ...c, loans: loanIds.size, small: loanIds.size < SMALL_CELL_LOANS,
       cureRatePct: pct(c.cured, resolved), rollRatePct: pct(c.rolled, resolved),

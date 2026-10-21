@@ -4,8 +4,9 @@
  * The population is the final approvals that produced a loan (the records the
  * outcome job attaches loan outcomes to, DESIGN.md §3 "Attribution"), grouped
  * by SAST disbursal month × ruleVersion × policyHash × score band × overridden
- * × product. Each cell carries ever 30/60/90+ DPD (90+ is the headline bad),
- * cured, settled and written off in the chosen window, with PENDING and
+ * × product. Each cell carries ever 30/60/90+ DPD (90+ is the headline bad,
+ * the default), cured, settled after delinquency (never a cure, decision 3),
+ * settled and written off in the chosen window, with PENDING and
  * UNOBSERVABLE counted separately and the coverage of the headline. A metric
  * the window does not measure (EVER_90_DPD at 3M, DESIGN.md §3) is null: not
  * a gap, and not shown as one.
@@ -21,6 +22,7 @@ export const COHORT_METRICS = [
   { key: "ever60", outcomeKind: "EVER_60_DPD", label: "Ever 60+ DPD" },
   { key: "ever90", outcomeKind: "EVER_90_DPD", label: "Ever 90+ DPD" },
   { key: "cured", outcomeKind: "CURED", label: "Cured" },
+  { key: "settledAfterDelinquency", outcomeKind: "SETTLED_AFTER_DELINQUENCY", label: "Settled after 30+ DPD" },
   { key: "settled", outcomeKind: "SETTLED", label: "Settled" },
   { key: "writtenOff", outcomeKind: "WRITTEN_OFF", label: "Written off" },
 ] as const

@@ -3,7 +3,7 @@ import { DECLINE_CATEGORY_LABELS } from "@/lib/applications/decline-category"
 import { SMALL_CELL_LOANS, type Tally } from "@/lib/learning-loop/dashboard/cells"
 import { COHORT_METRICS, coverageTally, type CohortCell, type OverrideCell } from "@/lib/learning-loop/dashboard/cohorts"
 import type { ArrangementSummary, StageCell } from "@/lib/learning-loop/dashboard/collections"
-import type { DeclineSummary, TakeUpCell } from "@/lib/learning-loop/dashboard/offers-declines"
+import type { AutomatedRefusals, DeclineSummary, TakeUpCell } from "@/lib/learning-loop/dashboard/offers-declines"
 import { cn } from "@/lib/utils"
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -26,7 +26,7 @@ export function Rate({ t }: { t: Tally | null }) {
 }
 
 function MetricHeads() {
-  return <>{COHORT_METRICS.map((m) => <TableHead key={m.key} className="text-right">{m.key === "ever90" ? "Ever 90+ (bad)" : m.label}</TableHead>)}</>
+  return <>{COHORT_METRICS.map((m) => <TableHead key={m.key} className="text-right">{m.key === "ever90" ? "Ever 90+ (bad, default)" : m.label}</TableHead>)}</>
 }
 
 function MetricCells({ cell }: { cell: { metrics: CohortCell["metrics"] } }) {
@@ -182,6 +182,7 @@ export function StageTable({ cells }: { cells: StageCell[] }) {
           <TableHead className="text-right">Loans</TableHead>
           <TableHead className="text-right">Episodes</TableHead>
           <TableHead className="text-right">Cured</TableHead>
+          <TableHead className="text-right">Settled</TableHead>
           <TableHead className="text-right">Rolled</TableHead>
           <TableHead className="text-right">Stayed</TableHead>
           <TableHead className="text-right">Pending</TableHead>
@@ -197,12 +198,41 @@ export function StageTable({ cells }: { cells: StageCell[] }) {
             <TableCell className={num}>{c.loans}</TableCell>
             <TableCell className={num}>{c.episodes}</TableCell>
             <TableCell className={num}>{c.cured}</TableCell>
+            <TableCell className={num}>{c.settled}</TableCell>
             <TableCell className={num}>{c.rolled}</TableCell>
             <TableCell className={num}>{c.stayed}</TableCell>
             <TableCell className={num}>{c.pending}</TableCell>
             <TableCell className={num}>{c.unobservable}</TableCell>
             <TableCell className={num}>{percent(c.cureRatePct)}</TableCell>
             <TableCell className={num}>{percent(c.rollRatePct)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  )
+}
+
+const REFUSAL_LABELS: Record<string, string> = {
+  client_blacklisted: "Blacklisted", client_deceased: "Recorded death", own_lender_arrears: "In arrears with this lender",
+  mle_justification_missing: "Expenses below the Regulation 23A minimum", expense_evidence_invalid: "Expense evidence inconsistent",
+  open_application_exists: "Application already open", identity_conflict: "Identity details conflict",
+  financial_profile_update_requires_authentication: "Profile change needs sign-in", contact_promotion_conflict: "Contact details conflict",
+}
+
+export function AutomatedRefusalList({ a }: { a: AutomatedRefusals }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Reason</TableHead>
+          <TableHead className="text-right">Refusals</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {Object.entries(a.byReason).sort(([x, m], [y, n]) => n - m || x.localeCompare(y)).map(([reason, count]) => (
+          <TableRow key={reason}>
+            <TableCell>{REFUSAL_LABELS[reason] ?? "Other"}</TableCell>
+            <TableCell className={num}>{count}</TableCell>
           </TableRow>
         ))}
       </TableBody>

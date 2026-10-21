@@ -32,7 +32,7 @@ export interface Tally {
   unobservable: number
   /** No row for this metric yet (counted against coverage). */
   notComputed: number
-  /** CURED only: OBSERVED false because the loan never reached 30 DPD; outside the cure rate. */
+  /** CURED and SETTLED_AFTER_DELINQUENCY only: OBSERVED false because the loan never reached 30 DPD; outside the rate. */
   notDelinquent: number
   /** yes ÷ (yes + no), 0..100; null when nothing is observed. */
   ratePct: number | null
@@ -56,7 +56,7 @@ export function tally(decisions: readonly (readonly OutcomeRow[])[], outcomeKind
     else if (row.state === "PENDING") t.pending++
     else if (row.state === "UNOBSERVABLE") t.unobservable++
     else if (row.value === true) t.yes++
-    else if (outcomeKind === "CURED" && row.reasonCode === NEVER_30_DPD) t.notDelinquent++
+    else if (row.reasonCode === NEVER_30_DPD) t.notDelinquent++
     else t.no++
   }
   const observed = t.yes + t.no + t.notDelinquent
