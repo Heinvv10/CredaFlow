@@ -1801,6 +1801,33 @@ describe("review round 1: reminders cron", () => {
     expect(r.details).toContainEqual("Deferred 1 loan(s): the 07:00-20:00 SAST dunning send window closed during this run")
   })
 
+  // The every-loan-failed rule counts the loans TRIED: loans left untried when the window
+  // closed must not dilute it, or a broken tenant would close DONE.
+  it("the window closing mid-run after every loan tried has failed still fails the tenant", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+    loanNoteFindFirstMock.mockImplementationOnce(async () => {
+      sendWindow.outside = true
+      throw new Error("something systemic")
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(r.failedTenants).toBe(1)
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  // An overlapping run created the row a moment after this leg started and is still
+  // sending it: a duplicate, not this run's retry.
+  it("a still-queued row another run created after this leg started is a duplicate, not 'retry scheduled'", async () => {
+    sendMessageMock.mockImplementation(async () => ({ id: "m", status: "QUEUED", createdAt: new Date(Date.now() + 1_000) }))
+
+    const r = await processPaymentReminders()
+
+    expect(r.retryScheduled).toBe(0)
+    expect(r.details).toContainEqual(expect.stringContaining("Skip duplicate reminder_1d for L-001 via sms+whatsapp"))
+  })
+
   it("every leg held for reconciliation writes the reconciliation-only note, and counts nothing as sent", async () => {
     sendMessageMock.mockImplementation(async () => {
       throw new MessageReconciliationRequiredError({ id: "msg_amb" } as never)

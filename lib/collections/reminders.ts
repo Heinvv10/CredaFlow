@@ -703,9 +703,10 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           else if (deliveryOutcome === "simulated") channelsSimulated.push(channel)
           else if (deliveryOutcome === "pending") {
             // A row this call created and the provider refused for now (RETRYING)
-            // is queued for the retry sweep; only a row an earlier run created is a
-            // duplicate of a send already under way.
-            if (sendResult.createdAt && sendResult.createdAt.getTime() >= legStartedAt.getTime()) channelsRetryScheduled.push(channel)
+            // is queued for the retry sweep. A row another run created is a
+            // duplicate of a send already under way, including a still-QUEUED one an
+            // overlapping run created a moment after this leg started.
+            if (sendResult.status === "RETRYING" && sendResult.createdAt && sendResult.createdAt.getTime() >= legStartedAt.getTime()) channelsRetryScheduled.push(channel)
             else channelsPending.push(channel)
           }
           else if (deliveryOutcome === "suppressed") {
@@ -831,8 +832,10 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   let loansTried = 0
   for (const [index, loan] of loans.entries()) {
     // The window is checked per loan, not only when the run starts: a run that began
-    // at 19:59 must stop messaging at 20:00. The loans left are deferred (tomorrow's
-    // run has them), not errors.
+    // at 19:59 must stop messaging at 20:00. The loans left are deferred, not errors.
+    // They are NOT simply picked up tomorrow: a trigger is date-specific (7, 1 and 0
+    // days before due, 1 and 3 after), so tomorrow they match the next trigger, or
+    // none, and today's reminder for them is not sent.
     if (outsideDunningSendWindow(new Date())) {
       result.deferred = loans.length - index
       result.details.push(`Deferred ${result.deferred} loan(s): the ${DUNNING_SEND_WINDOW_LABEL} dunning send window closed during this run`)

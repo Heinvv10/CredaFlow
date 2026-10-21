@@ -132,6 +132,51 @@ describe("processEscalations", () => {
     expect(triggerNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ event: "loan_overdue", loanId: "loan_1" }))
   })
 
+  // Deferral is for a loan whose borrower WOULD be messaged; anything else has nothing to wait for.
+  describe("outside the window, only a rule that would message is deferred", () => {
+    beforeEach(() => {
+      sendWindow.outside = true
+    })
+
+    it("a loan already DEFAULTED and noted gets no 'Deferred' line", async () => {
+      loanNoteFindFirstMock.mockResolvedValue({ id: "existing-note" })
+      const r = await processEscalations()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+
+    it("a loan past the 66-DPD notice window is flipped and noted at once: no notice is due", async () => {
+      loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 80 }])
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+
+    it("a loan on a dunning hold is flipped at once: its notice is not sent anyway", async () => {
+      loanDunningHoldMock.mockResolvedValue("debt review")
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+  })
+
+  // A run that began at 19:59 must stop messaging at 20:00: the window is checked per loan.
+  it("the window closing mid-run defers the next loan's notice-bearing rule", async () => {
+    loanFindManyMock.mockResolvedValue([loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }])
+    triggerNotificationMock.mockImplementation(async () => {
+      sendWindow.outside = true
+      return { failedLegs: [] }
+    })
+
+    const r = await processEscalations()
+
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect(loanUpdateManyMock).toHaveBeenCalledTimes(1)
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+    expect(r.details).toContainEqual("Deferred L-200 escalation_default: outside the 07:00-20:00 SAST send window; the next in-window run applies it")
+  })
+
   // The notice now always goes through sendMessage; a leg it reports failed (a definite
   // rejection, no Contact, a missing template) is the notice failing, not a notice sent.
   it("a DEFAULTED notice whose leg failed is counted like one that threw, and its reservation is given back", async () => {

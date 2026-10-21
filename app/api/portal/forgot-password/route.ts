@@ -134,14 +134,18 @@ export async function POST(req: NextRequest) {
         value: normalised,
         ownerClientId: client.id,
       })
-      const contact = recipient.ok ? recipient.contact : null
-      if (!contact) {
-        // Data drift: Client exists but no Contact row. Preserves the
-        // enumeration-protection behaviour by 200ing without surfacing the
-        // gap to the caller. Observability: a warning log so the gap is
-        // visible in error tracking + we can backfill the missing
-        // ContactIdentity row out-of-band.
-        console.warn("[portal-forgot] Client without Contact:", { clientId: client.id, tenantId })
+      if (!recipient.ok) {
+        // Data drift: Client exists but no Contact row, or the address resolves to
+        // someone else's Contact. Preserves the enumeration-protection behaviour by
+        // 200ing without surfacing the gap to the caller. Observability: a warning
+        // log (ids only, never the address) so the gap is visible in error tracking
+        // and the ContactIdentity can be repaired out-of-band.
+        console.warn(
+          recipient.reason === "NO_CONTACT"
+            ? "[portal-forgot] Client without Contact:"
+            : "[portal-forgot] Client's email resolves to a Contact owned by someone else:",
+          { clientId: client.id, tenantId },
+        )
         return NextResponse.json({ success: true, ...demoCodeReveal(otp, normalised) })
       }
       const template = await prisma.messageTemplate.findFirst({
@@ -159,7 +163,7 @@ export async function POST(req: NextRequest) {
       // the Message row for ops. Not awaited, so the provider round-trip does
       // not tell a matched email from an unknown one by response time.
       void sendMessage({
-        contactId: contact.id,
+        contactId: recipient.contact.id,
         channel: "EMAIL",
         template,
         vars: { firstName: client.firstName, otp },

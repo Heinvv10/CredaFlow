@@ -21,13 +21,14 @@ import { toWaJid } from "@/lib/contact/identity"
 import { sastStartOfDay } from "@/lib/date/sast"
 
 const wire = vi.hoisted(() => ({
-  whatsapp: [] as string[], email: [] as string[], emailOk: true,
+  whatsapp: [] as string[], email: [] as string[], emailOk: true, waDelayMs: 0,
   /** Runs while a WhatsApp send is in flight: lets a test change the world mid-send. */
   onWhatsApp: null as null | ((to: string) => Promise<void>),
 }))
 vi.mock("@/lib/whatsapp-cloud", async (orig) => ({
   ...(await orig<typeof import("@/lib/whatsapp-cloud")>()),
   sendWhatsAppCloudMessage: vi.fn(async (a: { to: string }) => {
+    if (wire.waDelayMs) await new Promise((resolve) => setTimeout(resolve, wire.waDelayMs))
     if (wire.onWhatsApp) await wire.onWhatsApp(a.to)
     wire.whatsapp.push(a.to)
     return { ok: true, messageId: `wamid-${randomUUID()}` }
@@ -133,6 +134,7 @@ suite.sequential("reminders: identity, loan_overdue and consent (real Postgres)"
     wire.email.length = 0
     wire.emailOk = true
     wire.onWhatsApp = null
+    wire.waDelayMs = 0
   })
 
   // A1 (review round 1, reproduced): the opt-out and the block were checked on the
@@ -220,6 +222,25 @@ suite.sequential("reminders: identity, loan_overdue and consent (real Postgres)"
     expect(wire.whatsapp, "the in-flight WhatsApp itself had already gone").toContain(jid)
     expect(wire.email.filter((e) => e === s.email), "overdue notice emailed to a client under debt review").toHaveLength(0)
     expect(await db.sendReservation.count({ where: { key: `send:${s.loanId}:reminder_overdue_1d:loan_overdue` } }), "given back").toBe(0)
+  })
+
+  // Round 4 (breaker, 7 of 9 runs): two runs reach the same leg together. The one that
+  // waited on the idempotency advisory lock had a snapshot from before it was granted,
+  // missed the row the other committed, hit the unique index and reported the leg as
+  // "Error … failed". It must replay that row: a duplicate, not an error, sent once.
+  it("two overlapping runs: the second reports Skip duplicate, never an error, and each leg goes once", async () => {
+    wire.waDelayMs = 1500
+    const s = await seedHoldLoan(db, tenant, p2, { name: "overlapping runs", held: false })
+    const loan = await db.loan.findUniqueOrThrow({ where: { id: s.loanId }, select: { reference: true } })
+
+    const [a, b] = await Promise.all([processPaymentReminders(), processPaymentReminders()])
+
+    const lines = [...a.details, ...b.details].filter((d) => d.includes(loan.reference))
+    expect(lines.filter((d) => d.startsWith("Error")), "no leg of the overlapping run is an error").toEqual([])
+    expect(lines.some((d) => d.startsWith(`Skip duplicate reminder_7d for ${loan.reference}`)), lines.join(" | ")).toBe(true)
+    expect(lines.some((d) => d.startsWith("Retry scheduled"))).toBe(false)
+    expect(wire.whatsapp.filter((to) => to === toWaJid(s.whatsapp))).toHaveLength(1)
+    expect(wire.email.filter((to) => to === s.email)).toHaveLength(1)
   })
 
   // M8: reserveOnce is mocked in the unit tests; this is the real reservation.
