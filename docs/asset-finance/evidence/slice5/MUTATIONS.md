@@ -468,7 +468,7 @@ Red cases:
 
 After the fixes (migrations `20261021090200` edited in place and
 `20261021090300`; the TS changes):
-- `lib/valuation-guides/` plus the lease panel: 115 passed, 1 skipped.
+- `lib/valuation-guides/` plus the lease panel: 116 passed, 1 skipped (after the restores below too).
 - Every `RUN_ASSET_FINANCE_*_IT` with `TENANT_RLS=on`: `Test Files 323 passed | 9 skipped (332)`, `Tests 2820 passed | 41 skipped`.
 
 ### Review round 1 mutations (database; applied to the migrated database, then restored)
