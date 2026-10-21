@@ -11,6 +11,9 @@ import type { OutcomeSourceAdapter } from "./adapter"
 import { credaflowOutcomeAdapter } from "./credaflow-adapter"
 import { syncOutcomes, type OutcomeWriterDb, type SyncCounts } from "./writer"
 
+/** The writer's client plus the tenant's demo-lender flag. */
+export type OutcomeJobDb = OutcomeWriterDb & Pick<typeof prisma, "tenantConfig">
+
 export interface TenantOutcomeRun {
   sourceSystem: string
   decisions: number
@@ -24,16 +27,19 @@ export async function runTenantDecisionOutcomes(
   tenantId: string,
   asOf: Date,
   adapters: readonly OutcomeSourceAdapter[] = [credaflowOutcomeAdapter(prisma)],
-  db: OutcomeWriterDb = prisma,
+  db: OutcomeJobDb = prisma,
 ): Promise<TenantOutcomeRun[]> {
   const today = sastCalendarDate(asOf)
+  // A demo lender's rows are kept and marked; a real lender's never include simulated rows (decision 4).
+  const demoTenant = (await db.tenantConfig.findUnique({ where: { tenantId }, select: { isDemoLender: true } }))?.isDemoLender === true
   const runs: TenantOutcomeRun[] = []
   for (const adapter of adapters) {
-    const result = await adapter.derive({ tenantId, asOf, today })
+    const result = await adapter.derive({ tenantId, asOf, today, demoTenant })
     // No logger module exists yet; console.error matches lib/ops/tenant-sweep.ts.
     for (const f of result.failures) console.error(`[cron/decision-outcomes] tenant ${tenantId} ${adapter.sourceSystem} loan ${f.ref} failed: ${f.error}`)
     const written = await syncOutcomes(db, {
       tenantId, sourceSystem: adapter.sourceSystem, decisionRecordIds: result.decisionRecordIds, outcomes: result.outcomes, computedAt: asOf,
+      demoData: demoTenant,
       keepDecisionRecordIds: result.failures.map((f) => f.decisionRecordId),
     })
     runs.push({

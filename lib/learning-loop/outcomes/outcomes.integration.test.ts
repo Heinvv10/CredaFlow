@@ -22,9 +22,8 @@ import { recordDecisions, type DecisionLogDb } from "../decision-log"
 import { consumerApprovalRecords } from "../records"
 import { credaflowOutcomeAdapter, type CredaflowOutcomeDb } from "./credaflow-adapter"
 import { OUTCOME_DEFINITION_VERSION } from "./definition"
-import { runTenantDecisionOutcomes } from "./job"
+import { runTenantDecisionOutcomes, type OutcomeJobDb } from "./job"
 import { tenantOutcomeMetrics, type MetricsDb } from "./metrics-db"
-import type { OutcomeWriterDb } from "./writer"
 
 const suite = process.env.RUN_DECISION_OUTCOMES_IT === "1" ? describe.sequential : describe.skip
 const db = new PrismaClient()
@@ -37,8 +36,9 @@ interface Lender { tenantId: string; loanId: string; approvalId: string; offerId
 const lenders: Lender[] = []
 let app: ReturnType<typeof createAppPrismaClient>
 
-async function lender(withHistory: boolean): Promise<Lender> {
+async function lender(withHistory: boolean, demo = false): Promise<Lender> {
   const tenant = await createChargesTenant(db, false)
+  if (demo) await db.tenantConfig.update({ where: { tenantId: tenant.tenantId }, data: { isDemoLender: true } })
   const { loanId, clientId } = await createChargesLoan(db, tenant)
   const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { applicationId: true, createdAt: true } })
   await db.$transaction((tx) => recordDecisions(tx as unknown as DecisionLogDb, consumerApprovalRecords({
@@ -73,8 +73,8 @@ async function lender(withHistory: boolean): Promise<Lender> {
 
 /**
  * One return the job keeps (UNPAID, its reason) and two it must ignore: one
- * reported after payment, and one from the simulated provider (this is not a
- * DEMO_MODE deployment).
+ * reported after payment, and one from the simulated provider, which only a
+ * demo lender (TenantConfig.isDemoLender) counts (DESIGN.md decision 4).
  */
 async function returnedDebitOrders(tenantId: string, userId: string, loanId: string, clientId: string) {
   const schedule = await db.repaymentSchedule.findFirstOrThrow({ where: { loanId }, select: { id: true } })
@@ -91,7 +91,7 @@ async function returnedDebitOrders(tenantId: string, userId: string, loanId: str
       tenantId, mandateId: mandate.id, loanId, repaymentScheduleId: schedule.id, installmentNo: 1, presentmentNo: n,
       amountCents: 216_900, actionDate: new Date(`2026-09-0${n}`), trackingDays: 3, instructionRef: `it-${randomUUID()}`, status: "UNPAID",
     } })
-    // Presentment 1 also carries a simulated result: kept only on a demo deployment.
+    // Presentment 1 also carries a simulated result: kept only for a demo lender.
     for (const simulated of afterPayment ? [false] : [false, true]) {
       await db.collectionResult.create({ data: {
         tenantId, provider: "simulated", instructionId: instruction.id, resultKey: `${instruction.id}:UNPAID${simulated ? ":sim" : ""}`, outcome: "UNPAID",
@@ -125,7 +125,7 @@ suite("decision outcomes (real Postgres)", () => {
 
   beforeAll(async () => {
     process.env.CRON_SECRET = CRON_SECRET
-    lenders.push(await lender(true), await lender(false))
+    lenders.push(await lender(true), await lender(false), await lender(true, true))
   }, 120_000)
 
   afterAll(async () => {
@@ -165,6 +165,18 @@ suite("decision outcomes (real Postgres)", () => {
     expect(find(a, "RETURNED_DEBIT_ORDER", "INSTALMENT:1")).toMatchObject([{ value: true, reasonCode: "INSUFFICIENT_FUNDS", amountCents: 216_900 }])
     expect(find(b, "RETURNED_DEBIT_ORDER", "INSTALMENT:1")).toEqual([])
     expect(find(a, "EVER_90_DPD", "12M")).toMatchObject([{ state: "PENDING", value: null }])
+    // Decision 3: its own outcome beside CURED (the fixture loan is open and never back to 0 DPD).
+    expect(find(a, "SETTLED_AFTER_DELINQUENCY", "TERM_30D")).toMatchObject([{ state: "OBSERVED", value: false, reasonCode: "NEVER_30_DPD" }])
+    expect(find(a, "CURED", "TERM_30D")).toMatchObject([{ state: "OBSERVED", value: false, reasonCode: "NEVER_30_DPD" }])
+  })
+
+  it("keeps simulated results out of a real lender's outcomes, and marks a demo lender's rows demoData (decision 4)", async () => {
+    const [real, , demo] = [await rowsOf(lenders[0].tenantId), null, await rowsOf(lenders[2].tenantId)]
+    expect(real.every((r) => r.demoData === false)).toBe(true)
+    expect(find(real, "RETURNED_DEBIT_ORDER", "INSTALMENT:1").map((r) => r.reasonCode)).toEqual(["INSUFFICIENT_FUNDS"])
+    expect(demo.length).toBeGreaterThan(0)
+    expect(demo.every((r) => r.demoData === true)).toBe(true)
+    expect(find(demo, "RETURNED_DEBIT_ORDER", "INSTALMENT:1").map((r) => r.reasonCode).sort()).toEqual(["ACCOUNT_FROZEN", "INSUFFICIENT_FUNDS"])
   })
 
   it("is idempotent: a second run leaves every row exactly as it was", async () => {
@@ -197,7 +209,7 @@ suite("decision outcomes (real Postgres)", () => {
     const [a, b] = lenders
     await db.decisionOutcome.deleteMany({ where: { tenantId: { in: [a.tenantId, b.tenantId] } } })
     const runs = await runWithTenant(a.tenantId, () => runTenantDecisionOutcomes(a.tenantId, new Date(),
-      [credaflowOutcomeAdapter(app as unknown as CredaflowOutcomeDb)], app as unknown as OutcomeWriterDb))
+      [credaflowOutcomeAdapter(app as unknown as CredaflowOutcomeDb)], app as unknown as OutcomeJobDb))
     expect(runs[0].decisions).toBe(2)
     expect(await db.decisionOutcome.count({ where: { tenantId: b.tenantId } })).toBe(0)
     expect(new Set((await rowsOf(a.tenantId)).map((r) => r.decisionRecordId))).toEqual(new Set([a.approvalId, a.offerId]))
@@ -219,5 +231,21 @@ suite("decision outcomes (real Postgres)", () => {
     expect(term.calibration).toEqual([])
     const headline = await runWithTenant(lenders[0].tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, lenders[0].tenantId))
     expect(headline.coverage).toMatchObject([{ decisions: 1, pending: 1, matured: 0, coveragePct: null }])
+    expect(headline.demoData).toBe(false)
+  })
+
+  it("labels a demo lender's figures as demo, and never counts a demo row in a real lender's figures", async () => {
+    const demo = lenders[2]
+    await runWithTenant(demo.tenantId, () => runTenantDecisionOutcomes(demo.tenantId, new Date(),
+      [credaflowOutcomeAdapter(app as unknown as CredaflowOutcomeDb)], app as unknown as OutcomeJobDb))
+    const asDemo = await runWithTenant(demo.tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, demo.tenantId, { outcomeKind: "EVER_30_DPD", window: "TERM_30D" }))
+    expect(asDemo).toMatchObject({ demoData: true, coverage: [{ decisions: 1, observed: 1 }] })
+    // A stray demo-marked row on a real lender (e.g. a lender whose flag was cleared) is not read into its figures.
+    const real = lenders[0]
+    const [row] = await db.decisionOutcome.findMany({ where: { tenantId: real.tenantId, outcomeKind: "EVER_30_DPD", window: "TERM_30D" } })
+    await db.decisionOutcome.update({ where: { id: row.id }, data: { demoData: true } })
+    const asReal = await runWithTenant(real.tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, real.tenantId, { outcomeKind: "EVER_30_DPD", window: "TERM_30D" }))
+    expect(asReal).toMatchObject({ demoData: false, coverage: [] })
+    await db.decisionOutcome.update({ where: { id: row.id }, data: { demoData: false } })
   })
 })

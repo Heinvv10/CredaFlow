@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { baselineConstraintSql, baselineFunctionSql, baselineTriggerSql } from "@/lib/db-baseline.test-helpers"
 
-// Static pins on migration 20261021090000_credit_decision_record; the rules run
+// Static pins on migrations 20261021090000_credit_decision_record and
+// 20261021100000_decision_record_automated_refusal; the rules run
 // against Postgres in RUN_DECISION_LOG_IT (decision-log.integration.test.ts).
 describe("CreditDecisionRecord hand-written objects", () => {
   it("is append-only: no UPDATE, DELETE or TRUNCATE", () => {
@@ -16,6 +17,13 @@ describe("CreditDecisionRecord hand-written objects", () => {
     expect(flat("CreditDecisionRecord_actor")).toContain(`("actorType" = 'STAFF' AND "actorUserId" IS NOT NULL)`)
     expect(flat("CreditDecisionRecord_probability_range")).toContain(`"predictedProbability" >= 0 AND "predictedProbability" <= 1`)
     expect(flat("CreditDecisionRecord_hashes_sha256")).toContain(`"inputsHash" ~ '^[0-9a-f]{64}$'`)
-    expect(flat("CreditDecisionRecord_has_subject")).toContain(`"applicationId" IS NOT NULL OR "loanId" IS NOT NULL OR "clientId" IS NOT NULL`)
+  })
+
+  // 20261021100000_decision_record_automated_refusal widened the subject to a lead.
+  it("holds a decision to a subject (a lead counts), and the s71 review flag to automated decisions", () => {
+    const flat = (name: string) => baselineConstraintSql(name).replace(/\s+/g, " ")
+    expect(() => baselineConstraintSql("CreditDecisionRecord_has_subject")).toThrow()
+    expect(flat("CreditDecisionRecord_has_subject_or_lead")).toContain(`"applicationId" IS NOT NULL OR "loanId" IS NOT NULL OR "clientId" IS NOT NULL OR "leadId" IS NOT NULL`)
+    expect(flat("CreditDecisionRecord_s71_review_automated")).toContain(`CHECK (NOT "s71ReviewRequired" OR "actorType" = 'SYSTEM')`)
   })
 })

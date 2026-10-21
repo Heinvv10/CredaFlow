@@ -88,6 +88,16 @@ vi.mock("@/lib/notifications", () => ({
 }))
 const { screenOnSubmitMock } = vi.hoisted(() => ({ screenOnSubmitMock: vi.fn() }))
 vi.mock("@/lib/screening/on-submit", () => ({ screenOnSubmit: (a: unknown) => screenOnSubmitMock(a) }))
+// The helper's transaction and fallback are proven in
+// lib/learning-loop/submission-refusal.test.ts; here it forwards the audit row
+// to the logAudit mock and records which refusal each site logged.
+const { recordRefusal } = vi.hoisted(() => ({ recordRefusal: vi.fn() }))
+vi.mock("@/lib/learning-loop/submission-refusal", () => ({
+  recordSubmissionRefusal: async (audit: unknown, refusal: unknown, options?: unknown) => {
+    recordRefusal(refusal, options)
+    await logAudit(audit)
+  },
+}))
 vi.mock("@/lib/audit", () => ({
   logAudit: (...a: unknown[]) => logAudit(...a),
   AuditAction: {
@@ -240,6 +250,9 @@ describe("POST /api/portal/applications", () => {
       action: "APPLICATION_SUBMISSION_BLOCKED",
       newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "c1", days: 60 }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "t1", channel: "PORTAL", reason: "own_lender_arrears", subject: { clientId: "c1" } }, undefined,
+    )
   })
 
   it("refuses, under the lock, a loan that fell overdue after the early check, and writes nothing", async () => {
@@ -253,6 +266,10 @@ describe("POST /api/portal/applications", () => {
       tenantId: "t1",
       newValue: expect.objectContaining({ reason: "own_lender_arrears", clientId: "c1" }),
     }))
+    expect(recordRefusal).toHaveBeenCalledOnce()
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "t1", channel: "PORTAL", reason: "own_lender_arrears", subject: { clientId: "c1" } }, undefined,
+    )
   })
 
   it("does not block when the loader cannot read an approved application (arrears unknown)", async () => {
@@ -416,7 +433,20 @@ describe("POST /api/portal/applications", () => {
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "APPLICATION_SUBMISSION_BLOCKED" }),
     )
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "t1", channel: "PORTAL", reason: "client_blacklisted", subject: { clientId: "c1" } }, undefined,
+    )
     expect(createCapCalls()).toBe(0)
+    expect(createApplication).not.toHaveBeenCalled()
+  })
+
+  it("a recorded death refuses the submission and logs an automated refusal", async () => {
+    findFirstClient.mockResolvedValue({ ...CLIENT, deceasedAt: new Date("2026-01-01T00:00:00.000Z") })
+    const res = await POST(buildReq(validBody))
+    expect(res.status).toBe(422)
+    expect(recordRefusal).toHaveBeenCalledWith(
+      { tenantId: "t1", channel: "PORTAL", reason: "client_deceased", subject: { clientId: "c1" } }, undefined,
+    )
     expect(createApplication).not.toHaveBeenCalled()
   })
 
@@ -451,6 +481,9 @@ describe("POST /api/portal/applications", () => {
         source: "portal_apply_concurrent",
       }),
     }))
+    expect(recordRefusal).toHaveBeenCalledWith({
+      tenantId: "t1", channel: "PORTAL", reason: "open_application_exists", subject: { clientId: "c1" }, existingApplicationId: "winner",
+    }, undefined)
     expect(triggerNotification).not.toHaveBeenCalled()
     expect(screenOnSubmitMock).not.toHaveBeenCalled()
   })

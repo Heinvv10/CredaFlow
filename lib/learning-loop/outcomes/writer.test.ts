@@ -45,8 +45,8 @@ const outcome = (over: Partial<DerivedOutcome> = {}): DerivedOutcome => ({
   decisionRecordId: "dec-1", outcomeKind: "EVER_90_DPD", window: "12M", state: "PENDING", value: null,
   amountCents: null, reasonCode: null, sourceRef: "loan-1", observedAt: null, ...over,
 })
-const run = (db: OutcomeWriterDb, outcomes: DerivedOutcome[], decisionRecordIds = ["dec-1"], computedAt = new Date("2026-10-21T00:30:00+02:00")) =>
-  syncOutcomes(db, { tenantId: "t-1", sourceSystem: "credaflow", decisionRecordIds, outcomes, computedAt })
+const run = (db: OutcomeWriterDb, outcomes: DerivedOutcome[], decisionRecordIds = ["dec-1"], computedAt = new Date("2026-10-21T00:30:00+02:00"), demoData = false) =>
+  syncOutcomes(db, { tenantId: "t-1", sourceSystem: "credaflow", decisionRecordIds, outcomes, computedAt, demoData })
 
 describe("syncOutcomes", () => {
   it("inserts, then a second run with the same facts writes nothing", async () => {
@@ -82,10 +82,18 @@ describe("syncOutcomes", () => {
     await run(db, [outcome(), outcome({ decisionRecordId: "dec-2" }), outcome({ decisionRecordId: "dec-3" })], ["dec-1", "dec-2", "dec-3"])
     const counts = await syncOutcomes(db, {
       tenantId: "t-1", sourceSystem: "credaflow", decisionRecordIds: ["dec-1"], outcomes: [outcome()],
-      computedAt: new Date("2026-10-22T00:30:00+02:00"), keepDecisionRecordIds: ["dec-3"],
+      computedAt: new Date("2026-10-22T00:30:00+02:00"), keepDecisionRecordIds: ["dec-3"], demoData: false,
     })
     expect(counts).toMatchObject({ deleted: 1, unchanged: 1 })
     expect(rows.map((r) => r.decisionRecordId).sort()).toEqual(["dec-1", "dec-3"])
+  })
+
+  it("marks a demo lender's rows demoData, and re-marks a row whose lender's flag changed", async () => {
+    const { db, rows } = memoryDb()
+    await run(db, [outcome()], ["dec-1"], undefined, true)
+    expect(rows.map((r) => r.demoData)).toEqual([true])
+    expect(await run(db, [outcome()], ["dec-1"], undefined, false)).toMatchObject({ updated: 1, unchanged: 0 })
+    expect(rows.map((r) => r.demoData)).toEqual([false])
   })
 
   it("keeps a take-up's first observed time when only the time moved", async () => {

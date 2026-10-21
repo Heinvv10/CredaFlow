@@ -10,7 +10,8 @@
  */
 import type { DecisionOutcomeKind, DecisionOutcomeState } from "@prisma/client"
 
-export const OUTCOME_DEFINITION_VERSION = "outcomes-v1"
+/** v2: CURED needs the loan still open; SETTLED_AFTER_DELINQUENCY added (decision 3, 21 Oct 2026). */
+export const OUTCOME_DEFINITION_VERSION = "outcomes-v2"
 
 export type SourceSystem = "credaflow" | "external_extract"
 
@@ -68,7 +69,7 @@ export const UNOBSERVABLE_REASONS = {
  */
 export const WRITTEN_OFF_BEFORE_THRESHOLD = "WRITTEN_OFF_BEFORE_THRESHOLD"
 
-/** CURED's reasonCode when the loan never reached 30 DPD in the window (value false). */
+/** CURED's and SETTLED_AFTER_DELINQUENCY's reasonCode when the loan never reached 30 DPD in the window (value false). */
 export const NEVER_30_DPD = "NEVER_30_DPD"
 
 /** One derived outcome, before the writer adds the tenant, source system and version. */

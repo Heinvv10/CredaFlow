@@ -44,7 +44,7 @@ export interface DecisionRecordInput {
   /** Set exactly when the person went against a gate. */
   overrideReason: string | null
   actor: DecisionActor
-  subject: { applicationId?: string | null; loanId?: string | null; clientId?: string | null }
+  subject: { applicationId?: string | null; loanId?: string | null; clientId?: string | null; leadId?: string | null }
   source: { entityType: string; entityId: string }
   ruleVersion: string
   /** The tenant's effective thresholds the decision used; stored as a hash. */
@@ -54,6 +54,8 @@ export interface DecisionRecordInput {
   /** The exact (unbanded) inputs: hashed into inputsHash, never stored. */
   exactInputs: { [key: string]: Plain }
   decidedAt: Date
+  /** An automated decision awaiting the lender's POPIA s71 legal review (SYSTEM only; DB CHECK). */
+  s71ReviewRequired?: boolean
 }
 
 /** The app client or its transaction client (as logAuditStrict in lib/audit.ts). */
@@ -87,6 +89,7 @@ export function recordData(input: DecisionRecordInput): Prisma.CreditDecisionRec
     applicationId: input.subject.applicationId ?? null,
     loanId: input.subject.loanId ?? null,
     clientId: input.subject.clientId ?? null,
+    leadId: input.subject.leadId ?? null,
     sourceEntityType: input.source.entityType,
     sourceEntityId: input.source.entityId,
     ruleVersion: input.ruleVersion,
@@ -97,6 +100,7 @@ export function recordData(input: DecisionRecordInput): Prisma.CreditDecisionRec
     evidenceRefs: input.evidenceRefs,
     inputsHash: inputsHash(input),
     decidedAt: input.decidedAt,
+    s71ReviewRequired: input.s71ReviewRequired ?? false,
   }
 }
 

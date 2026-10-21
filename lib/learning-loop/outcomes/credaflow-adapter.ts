@@ -6,11 +6,12 @@
  * book was recorded at all). Runs inside the job's tenant frame, so the
  * tenant-scope extension and RLS confine every read to one lender.
  *
- * A simulated collection result (no bank ever saw it) counts as a returned
- * debit order only on a demo deployment (DEMO_MODE).
+ * A simulated collection result (no bank ever saw it) counts
+ * as a returned debit order only for a demo lender (TenantConfig.isDemoLender,
+ * DESIGN.md decision 4); a real lender's outcomes never include one, whatever
+ * the deployment's DEMO_MODE.
  */
 import type { CollectionReasonCode, LoanStatus } from "@prisma/client"
-import { isDemoMode } from "@/lib/config/demo-mode"
 import { sastCalendarDate } from "@/lib/date/sast"
 import type { prisma } from "@/lib/prisma"
 import type { AdapterContext, AdapterResult, OutcomeSourceAdapter } from "./adapter"
@@ -33,7 +34,7 @@ function loanEnd(status: LoanStatus, closedAt: Date | null, writeOffAt: Date | n
   return { kind: "OPEN" }
 }
 
-async function loadChunk(db: CredaflowOutcomeDb, applicationIds: string[]) {
+async function loadChunk(db: CredaflowOutcomeDb, applicationIds: string[], demoTenant: boolean) {
   const [applications, loans] = await Promise.all([
     db.loanApplication.findMany({ where: { id: { in: applicationIds } }, select: { id: true, status: true, disbursedAt: true, updatedAt: true } }),
     db.loan.findMany({
@@ -61,8 +62,9 @@ async function loadChunk(db: CredaflowOutcomeDb, applicationIds: string[]) {
       : Promise.resolve([]),
     db.collectionResult.findMany({
       where: {
-        outcome: "UNPAID", reportedAfterPayment: false, instruction: { loanId: { in: loanIds } },
-        ...(isDemoMode() ? {} : { simulated: false }),
+        outcome: "UNPAID", reportedAfterPayment: false,
+        instruction: { loanId: { in: loanIds } },
+        ...(demoTenant ? {} : { simulated: false }),
       },
       select: { id: true, reasonCode: true, resolvedAt: true, instruction: { select: { loanId: true, installmentNo: true, amountCents: true } } },
     }),
@@ -110,7 +112,7 @@ function loanFacts(loan: Chunk["loans"][number], chunk: Chunk, sourceRecordedDay
 export function credaflowOutcomeAdapter(db: CredaflowOutcomeDb): OutcomeSourceAdapter {
   return {
     sourceSystem: "credaflow",
-    async derive({ tenantId, today }: AdapterContext): Promise<AdapterResult> {
+    async derive({ tenantId, today, demoTenant }: AdapterContext): Promise<AdapterResult> {
       const runs = await db.arrearsSnapshotRun.findMany({ where: { tenantId }, select: { snapshotDate: true } })
       const recordedDays = new Set(runs.map((r) => r.snapshotDate.toISOString().slice(0, 10)))
       const records = await db.creditDecisionRecord.findMany({
@@ -127,7 +129,7 @@ export function credaflowOutcomeAdapter(db: CredaflowOutcomeDb): OutcomeSourceAd
       const result: AdapterResult = { outcomes: [], decisionRecordIds: [], failures: [] }
       const applicationIds = [...byApplication.keys()].sort()
       for (let i = 0; i < applicationIds.length; i += CHUNK) {
-        const chunk = await loadChunk(db, applicationIds.slice(i, i + CHUNK))
+        const chunk = await loadChunk(db, applicationIds.slice(i, i + CHUNK), demoTenant)
         const loanByApplication = new Map(chunk.loans.map((l) => [l.applicationId, l]))
         for (const app of chunk.applications) {
           const appRecords = byApplication.get(app.id) ?? []

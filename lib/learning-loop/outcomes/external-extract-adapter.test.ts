@@ -18,7 +18,7 @@ const row: ExtractLoanRow = {
     .map((h) => ({ day: h.day, dpd: h.daysInArrears, defaulted: h.defaulted })),
   returns: [{ key: "r1", no: 2, amountCents: 60_000, reasonCode: "PAYMENT_STOPPED", resolvedAt: new Date("2026-04-02T08:00:00+02:00") }],
 }
-const ctx = { tenantId: "analysis-tenant", asOf: new Date("2027-06-01T00:30:00+02:00"), today: "2027-06-01" }
+const ctx = { tenantId: "analysis-tenant", asOf: new Date("2027-06-01T00:30:00+02:00"), today: "2027-06-01", demoTenant: false }
 
 describe("external extract adapter (synthetic fixture, no connection)", () => {
   it("maps an extract into the same definitions, with every ref behind the pseudonymous loan key", async () => {

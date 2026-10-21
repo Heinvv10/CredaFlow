@@ -1,6 +1,6 @@
 # Learning loop: design
 
-Status: PR A (decision log) implemented on `feat/learning-loop-a-decision-log`;
+Status: PR A (decision log, including the automated-refusal records) implemented on `feat/learning-loop-a-decision-log`;
 PR B (outcome job) implemented on `feat/learning-loop-b-outcomes`, stacked on
 PR A; PR C (dashboard) implemented on `feat/learning-loop-c-dashboard`,
 stacked on PR B. Part 4
@@ -12,6 +12,39 @@ The decisions taken in the brainstorm (2026-10-21; notes kept outside the
 repository) are applied throughout: record what the existing gates said, do
 not invent a score; one append-only row per decision event; demo stacks prove
 the plumbing; the first real data is a pseudonymised external extract.
+
+## Decisions (Hein, 21 Oct 2026)
+
+These override anything below that conflicts; the sections cited apply them.
+
+1. **90+ DPD is the default and the headline outcome.** 60 DPD is a
+   collections escalation step only, never "default" (§3). The escalations
+   cron still flips ACTIVE → DEFAULTED at 60 (`lib/collections/escalation.ts`),
+   which conflicts with this decision. These PRs do not change collections
+   behaviour: aligning that flip with 90 is a **decided follow-up that needs
+   its own PR** (§7). Closes former open question 1.
+2. **The dashboard (v1) is read-only, per lender, for ADMIN and compliance
+   roles only.** The repo has no COMPLIANCE role; ADMIN stands in for the
+   lender's compliance officer (as for `manage_fic_compliance`,
+   `lib/registry/permissions/030-fic.ts`), and SUPER_ADMIN ranks above it.
+   No LOAN_ADMIN, no operator console, no write actions (§6). Closes former
+   open question 2.
+3. **Settling after 30+ DPD is not a cure.** `CURED` = back to 0 DPD after
+   30+ DPD while the loan is still open. Settlement after delinquency is its
+   own outcome, `SETTLED_AFTER_DELINQUENCY` (§3).
+4. **Simulated and demo results never reach a real lender's figures**
+   (`CollectionResult.simulated` and the other `simulated` rows, demo or
+   seeded tenants and records). On a demo tenant the figures are shown, and
+   labelled on screen as simulated / demo data (§4, §5, §6).
+5. **The automated portal and website refusals are logged now**: a
+   `CreditDecisionRecord` per refusal, `actorType SYSTEM`, flagged
+   `s71ReviewRequired` for the lender's POPIA s71 legal review (§2.5, §9.1).
+   That legal review is a **go-live gate**: it happens before the first real
+   lender goes live (§7). Closes former open question 4.
+6. **The external-extract field list is approved, but nothing is pulled**
+   until (a) the operator agreement, (b) the bureau data terms and (c) an
+   export run by the source lender itself are all in place (§4.1). No code
+   or document in this repository names the source lender.
 
 ## 1. Goal and thesis
 
@@ -49,8 +82,10 @@ visibility); learning claims wait for a real book.
 ### 2.1 Schema
 
 `prisma/schema/learning-loop.prisma` (a new domain file, as
-`docs/ARCHITECTURE.md` "The Prisma schema" allows), migration
-`prisma/migrations/20261021090000_credit_decision_record`.
+`docs/ARCHITECTURE.md` "The Prisma schema" allows), migrations
+`prisma/migrations/20261021090000_credit_decision_record` and
+`prisma/migrations/20261021100000_decision_record_automated_refusal` (`leadId`,
+`s71ReviewRequired`, the widened subject CHECK; decision 5).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -63,7 +98,7 @@ visibility); learning claims wait for a real book.
 | `overrideReason` | text? | CHECK: present (≥10 chars trimmed) exactly when `overridden` |
 | `actorType` | enum `DecisionActorType` {`STAFF`, `SYSTEM`, `CLIENT`} | CHECK: STAFF names `actorUserId`, SYSTEM names nobody |
 | `actorUserId`, `actorRole` | text? | ids only, no FK |
-| `applicationId`, `loanId`, `clientId` | text? | subject ids, no FK; CHECK at least one set |
+| `applicationId`, `loanId`, `clientId`, `leadId` | text? | subject ids, no FK; CHECK `_has_subject_or_lead`: at least one set. `leadId` is for a website refusal that confirms no client (§2.5) |
 | `sourceEntityType`, `sourceEntityId` | text | the row of record changed: `LoanApplication`, `ApplicationCheckFlag`, `AssetFinanceDeal` |
 | `ruleVersion` | text | `decision-log-v1+<code rule version>`, e.g. `+approval-ndi-v3` (`APPROVAL_AFFORDABILITY_POLICY_VERSION`, `lib/affordability/snapshot.ts:20`), `+pasq-v3`, `+af-deal-decision-v1`, `+credit-checks-unversioned` |
 | `policyHash` | char(64), CHECK hex | sha256 of canonical JSON of the tenant's effective thresholds: `TenantConfig.bureauMinScore`, `bureauBlockAdverse`, `ndiBufferPct`, `bureauMaxAgeDays` (effective value via `bureauMaxAgeDays()`, `lib/compliance/bureau.ts:17`) |
@@ -72,6 +107,7 @@ visibility); learning claims wait for a real book.
 | `inputsSnapshot` | jsonb object | minimised, banded inputs (§2.3) |
 | `evidenceRefs` | jsonb object | ids and fingerprints of the evidence of record |
 | `inputsHash` | char(64), CHECK hex | sha256 of `canonicalJson({ exactInputs, evidenceRefs, policy })` (`lib/canonical-json.ts`) |
+| `s71ReviewRequired` | bool, default false | an automated decision awaiting the lender's POPIA s71 legal review (decision 5); CHECK `_s71_review_automated`: only on `SYSTEM` rows |
 | `decidedAt` | timestamp | the decision's own timestamp (same value the route writes on the row of record) |
 | `createdAt` | timestamp | |
 
@@ -110,7 +146,9 @@ legal record of the state change; the decision record is the analytical one.
   that (no `REVOKE`, no ownership change); it is a deployment requirement,
   and the RLS integration suites already assume an app role that is neither.
 - **CHECKs**: `_hashes_sha256`, `_decision_code`, `_probability_range`,
-  `_override_reason`, `_actor`, `_has_subject`, `_json_objects`.
+  `_override_reason`, `_actor`, `_has_subject_or_lead` (replaced
+  `_has_subject` in `20261021100000`), `_s71_review_automated`,
+  `_json_objects`.
 - **Tenancy**: registered in `lib/registry/tenant-scoped-models/250-learning-loop.ts`
   (the extension in `lib/tenant-scope.ts` scopes it); RLS
   ENABLE + FORCE + `tenant_isolation` policy as every tenant table
@@ -126,6 +164,24 @@ DROP TYPE "DecisionRecordKind";
 DROP TYPE "DecisionRecommendation";
 DROP TYPE "DecisionActorType";
 DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261021090000_credit_decision_record';
+COMMIT;
+```
+
+  Rollback of `20261021100000_decision_record_automated_refusal` (first; in
+  its header too). The restored `_has_subject` fails while a record names
+  only a lead (append-only, so it cannot be deleted): export those first and
+  run this only on a database that holds none. Proven on a throwaway
+  database (down, then `migrate deploy` again).
+
+```sql
+BEGIN;
+ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_s71_review_automated";
+ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_has_subject_or_lead";
+ALTER TABLE "CreditDecisionRecord" ADD CONSTRAINT "CreditDecisionRecord_has_subject"
+  CHECK ("applicationId" IS NOT NULL OR "loanId" IS NOT NULL OR "clientId" IS NOT NULL);
+ALTER TABLE "CreditDecisionRecord" DROP COLUMN "s71ReviewRequired";
+ALTER TABLE "CreditDecisionRecord" DROP COLUMN "leadId";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261021100000_decision_record_automated_refusal';
 COMMIT;
 ```
 
@@ -217,6 +273,7 @@ they exist a DSAR for a client must include this table's
 | AF approve past exceptions | `REFER` | yes, the exception reason |
 | AF decline / refer | `NONE` | no |
 | Offer rows | `NONE` | no |
+| Automated portal / website refusal (`SYSTEM`) | `BLOCK` | no (the rule decided; nobody overrode it) |
 
 The other approval gates (affordability, open checks, screening, KYC,
 deceased, simulated bureau, rate cap) cannot be overridden: an approval
@@ -238,20 +295,44 @@ function; the 422 is unchanged) so the log records what it said.
 | `app/api/applications/[id]/bureau-override/route.ts` | dead (always 400/409); overrides go through `/decide` | n/a | not needed | |
 | `app/api/applications/[id]/affordability/route.ts` | CREDIT_OFFICER assessment snapshot | assessment, not a decision | deferred: input to the decision, already fingerprinted | |
 | `app/api/asset-finance/nca-overrides/[overrideId]/decide/` | NCA→NON_NCA regime override decide (four-eyes) | a regulatory classification, not credit | deferred (follow-up: log as `REFER`/`APPROVE` of a regime) | |
-| `app/api/portal/applications/route.ts:219`, `:238`, `:819`, `:857`; `app/api/website/apply/route.ts:545`, `:677`, `:707`, `:786`, `:1261`, `:1285`, `:1321` | automated `APPLICATION_SUBMISSION_BLOCKED` refusals (blacklist, deceased, own-lender arrears, income/expense evidence) | CREDIT_DECISION `DECLINE`, `actorType SYSTEM` | **deferred** | best-effort: log error, never change the refusal |
+| `app/api/portal/applications/route.ts:219`, `:238`, `:819`, `:857`; `app/api/website/apply/route.ts:545`, `:677`, `:707`, `:786`, `:1261`, `:1285`, `:1321` | automated `APPLICATION_SUBMISSION_BLOCKED` refusals (blacklist, deceased, own-lender arrears, expense evidence; and process refusals: open application, identity conflict, unauthenticated profile change, contact conflict) | CREDIT_DECISION `DECLINE`, `actorType SYSTEM`, `s71ReviewRequired` | **hooked** (`recordSubmissionRefusal`, `lib/learning-loop/submission-refusal.ts`) | audit + record in one transaction; the refusal never changes (below) |
 | `lib/collections-engine/instructions.ts:97` | `planMandate`, instruction create + `COLLECTION_INSTRUCTION_PLANNED` | COLLECTION_ACTION | **deferred** | best-effort |
 | `lib/collections/reminders.ts:706` (`sendMessage`), `:820` (`loanNote.create`) | pre-due and overdue reminders | COLLECTION_ACTION | **deferred** | best-effort |
-| `lib/collections/escalation.ts:57` (`loanNote.create`), rules at `:72`-`:100` | soft reminder, auto s129, 60-DPD default flip, legal flag | COLLECTION_ACTION | **deferred** | best-effort |
+| `lib/collections/escalation.ts:57` (`loanNote.create`), rules at `:72`-`:100` | soft reminder, auto s129, 60-DPD DEFAULTED status flip (decision 1: an escalation step, not default), legal flag | COLLECTION_ACTION | **deferred** | best-effort |
 | `app/api/collections/[loanId]/reminder/route.ts:26` | staff-sent reminder | COLLECTION_ACTION | **deferred** | best-effort |
 | `components/collections/LogContactButton.tsx:63` → `LoanNote` type `promise_to_pay` (read by `lib/collections/promiseToPay.ts:30`) | promise to pay | COLLECTION_ACTION | **deferred** | best-effort |
 | `app/api/loans/[id]/payment-arrangement/route.ts:71`, `app/api/loans/[id]/payment-plan/route.ts:69` | arrangement / plan upsert (one row per loan, history overwritten) | COLLECTION_ACTION | **deferred** | best-effort |
 
-Why the automated refusals are deferred: eleven call sites in two routes,
-outside any transaction, written with the non-strict `logAudit`, some before
-a client is confirmed. The right change is one helper that writes the
-`APPLICATION_SUBMISSION_BLOCKED` audit and its `SYSTEM` record together and
-replaces all eleven; that is a refactor beyond PR A. Until then, the s71
-finding in §9 stands on the audit rows alone.
+Automated refusals (decision 5): the eleven call sites (line numbers as
+before this change) wrote their `APPLICATION_SUBMISSION_BLOCKED` audit row
+outside any transaction; none has a refusal transaction to join (the portal's
+in-lock refusal returns from its transaction, which commits nothing, and is
+logged after it). One helper, `recordSubmissionRefusal`, now writes the
+unchanged audit row and a `SYSTEM` record together in one transaction and
+replaces every call:
+- record: CREDIT_DECISION `DECLINE`, recommendation `BLOCK`, not overridden,
+  `ruleVersion = decision-log-v1+submission-refusal-v1`, `s71ReviewRequired`;
+  snapshot by allow-list only: `channel` (`PORTAL`/`WEBSITE`),
+  `refusalReason`, `refusalClass` (`CREDIT`: blacklisted, deceased,
+  own-lender arrears, Regulation 23A justification missing, expense evidence
+  invalid; `PROCESS`: open application, identity conflict, unauthenticated
+  financial-profile change, contact conflict), `automated: true`. No amount,
+  income, identity value or free text.
+- subject: the confirmed client; else the website lead (an identity
+  conflict confirms no client, and a contact conflict for a new client rolls
+  the client back), never a client the request merely matched. A duplicate's
+  open application is evidence (`existingApplicationId`), not the subject,
+  so no outcome or decision history attaches to it.
+- failure: the client is refused whatever happens. At the ten sites that
+  used the best-effort `logAudit`, a failed transaction is logged
+  (`console.error`, tagged `[learning-loop]`, as `logAudit` does) and the
+  audit row is written alone, so the log never costs the trail a row; the
+  contact-conflict site used `logAuditStrict` and still fails closed (500).
+- tests: `submission-refusal.test.ts` (builder, transaction, fallback,
+  strict); each site in `app/api/portal/applications/route.test.ts` and
+  `app/api/website/apply/route.test.ts`; `RUN_DECISION_LOG_IT`
+  `app/api/portal/applications/submission-refusal.integration.test.ts`
+  (a real portal refusal under the RLS-bound role).
 
 Why collection actions are deferred: (a) the dunning code was reworked this
 week (#220, R3 merged 2026-10-20) and R4 is in flight, so hooks there now
@@ -305,7 +386,7 @@ a deliberate, audited exception and is **not built in PR A**.
 
 All from existing tables; one code-owned definition per outcome
 (`lib/learning-loop/outcomes/`, version `OUTCOME_DEFINITION_VERSION =
-outcomes-v1` in `definition.ts`); measured from the first instalment due
+outcomes-v2` in `definition.ts`; v2 applied decision 3); measured from the first instalment due
 date. Days are SAST calendar days. The definitions are pure functions over
 source-neutral facts (`facts.ts`), so an external extract runs through the
 same code.
@@ -314,11 +395,12 @@ same code.
 |---|---|---|
 | `PAID` | instalment fully paid by its due date; window `INSTALMENT:<n>`, known the day after the due day | `RepaymentSchedule.paidAt`, which the paid-at replay keeps (`lib/loan/schedule-paid-at.ts`; `Payment` has no instalment FK). Paid in full with no `paidAt` → `UNOBSERVABLE` (`PAID_AT_MISSING`) |
 | `LATE` | paid 1–29 days after the due day; known 30 days after it; on time, 30+ days late or unpaid is `false` (30+ is `EVER_30_DPD`'s) | same |
-| `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED; a `simulated` result counts only when `DEMO_MODE=true` | `CollectionResult` → `CollectionInstruction` (`loanId`, `installmentNo`, `amountCents`) |
+| `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED; a `simulated` result counts only for a demo lender (`TenantConfig.isDemoLender`, decision 4) | `CollectionResult` → `CollectionInstruction` (`loanId`, `installmentNo`, `amountCents`) |
 | `EVER_30_DPD` / `EVER_60_DPD` / `EVER_90_DPD` | max DPD in the window ≥ 30/60/90, windows `3M`, `6M`, `12M` from the first due day (calendar months, clamped to month end), and `TERM_30D` (term end + 30 days) for a short loan: one whose term end + 30 days falls inside `3M`. `EVER_90_DPD` is measured over `6M` and `12M` only: a `3M` window is 89–92 days, so whether 90 DPD fits in it depends on the start month and cohorts would not compare (`TERM_30D` is never longer). A loan **written off** inside the window before reaching the threshold has it `OBSERVED true` with `reasonCode = WRITTEN_OFF_BEFORE_THRESHOLD` (a write-off below 90 DPD is a loss, never good). A loan **cancelled** (cooling-off) inside the window is `UNOBSERVABLE` (`LOAN_CANCELLED`): it never performed | `LoanArrearsSnapshot.daysInArrears` (`prisma/schema/arrears-history.prisma`), `Loan` for the write-off/cancel day |
-| headline **bad** | ever 90+ DPD within 12 months (matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`) | same |
-| `DEFAULTED_STATUS` (per window) | the snapshot's `status` was `DEFAULTED` on a day in the window (tracked separately from DPD); a write-off does not make it true, a cancellation makes it `UNOBSERVABLE` | `LoanArrearsSnapshot.status` only (the loan row has no default date) |
-| `CURED` | back to 0 DPD, or settled, after ≥ 30 DPD in the window; a loan that never reached 30 DPD is `false` with `reasonCode = NEVER_30_DPD`, so a cure rate divides by delinquent loans only; cancelled → `UNOBSERVABLE` (`LOAN_CANCELLED`) | `LoanArrearsSnapshot` (there is no cure status transition) |
+| headline **bad** = **default** | ever 90+ DPD within 12 months (decision 1; matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`). 60+ is reported as a collections escalation band, never as default | same |
+| `DEFAULTED_STATUS` (per window) | the snapshot's `status` was `DEFAULTED` on a day in the window (tracked separately from DPD; today it can mean 60+ DPD, see below, so it is never the default figure); a write-off does not make it true, a cancellation makes it `UNOBSERVABLE` | `LoanArrearsSnapshot.status` only (the loan row has no default date) |
+| `CURED` | back to 0 DPD after ≥ 30 DPD in the window **while the loan is still open** (decision 3): a 0-DPD day counts only before the loan's close day, so settling or a write-off is never a cure; a loan that never reached 30 DPD is `false` with `reasonCode = NEVER_30_DPD`, so a cure rate divides by delinquent loans only; cancelled → `UNOBSERVABLE` (`LOAN_CANCELLED`) | `LoanArrearsSnapshot` (there is no cure status transition) |
+| `SETTLED_AFTER_DELINQUENCY` | the loan reached `COMPLETED` inside the window after ≥ 30 DPD in it (decision 3: not a cure; a loan that cured and later settled is both). `false` with `NEVER_30_DPD` when it never reached 30 DPD; cancelled → `UNOBSERVABLE` (`LOAN_CANCELLED`); `COMPLETED` with no `closedAt` → `UNOBSERVABLE` (`CLOSE_DATE_MISSING`) | `LoanArrearsSnapshot` + `Loan` |
 | `SETTLED` / `WRITTEN_OFF` | `LoanStatus.COMPLETED` (`closedAt`) / `WRITTEN_OFF` (`writeOffAt`, else `closedAt`) before the window ends; status without a date → `UNOBSERVABLE` (`CLOSE_DATE_MISSING`) | `Loan` |
 | `RETURNED_DEBIT_ORDER` amount | the instruction's `amountCents`; `reasonCode` null when the provider gave none | `CollectionInstruction` |
 | `TAKEN_UP` (offers) | `true`: the application was disbursed. `false` (= NOT_TAKEN_UP): a later return, decline or a `DECLINED`/`CANCELLED` status ended it first. Otherwise `PENDING` (there is no approval-expiry concept in the code, so an abandoned approval stays `PENDING` until cancelled). One row per offer, window `OFFER`, `sourceRef` the application, so a resolved offer never leaves a stale row. A `false` set by status alone (no decision record ended it, e.g. a staff cancel) is timed by `LoanApplication.updatedAt`, the only timestamp; the writer keeps the first `observedAt` it stored so later edits do not move it | `LoanApplication`, `Loan.applicationId` |
@@ -348,17 +430,20 @@ As built:
   `DecisionOutcome_value_when_observed`), so a `PENDING` or `UNOBSERVABLE`
   row cannot be summed as good.
 - Simulated collection results (`CollectionResult.simulated`) are included
-  only on a demo deployment (`DEMO_MODE=true`), where v1 is proved; on a real
-  lender they are ignored.
+  only for a demo lender (`TenantConfig.isDemoLender`, the repo's marker for
+  a synthetic lender, set only by the demo seed and stack scripts); on a real
+  lender they are ignored whatever the deployment's `DEMO_MODE` (decision 4).
 
-**Documented conflict, not changed here**: the escalations cron flips
-ACTIVE → DEFAULTED at **60** DPD (`DEFAULT_AT_DPD = 60`,
-`lib/collections/escalation.ts:72`, used at `:84`, `:100`), while
-`recomputeLoanBalances` auto-promotes at **90** (`lib/loan/dpd-update.ts:126`).
-`status = DEFAULTED` therefore effectively means 60+. The outcome job uses
-DPD history for "bad" and reports the status separately, so it does not
-inherit the conflict. Which threshold the lender's policy intends is an open
-question (§11).
+**Decided (decision 1), code not changed here**: default is 90+ DPD. The
+escalations cron still flips ACTIVE → DEFAULTED at **60** DPD
+(`DEFAULT_AT_DPD = 60`, `lib/collections/escalation.ts:72`, used at `:84`,
+`:100`), while `recomputeLoanBalances` auto-promotes at **90**
+(`lib/loan/dpd-update.ts:126`), so `status = DEFAULTED` today can mean 60+.
+The outcome job uses DPD history for "bad" (ever 90+) and reports the status
+separately, so it does not inherit the conflict. Moving the escalation flip
+to 90 (60 stays an escalation step, not a status change) is a decided
+follow-up with its own PR (§7): it changes live collections behaviour, so it
+does not ride in a learning-loop PR.
 
 **Attribution**:
 - Credit outcomes attach to the **final `APPROVE` record** of the application
@@ -389,7 +474,8 @@ question (§11).
   off another lender's decision; the migration adds that unique index on
   `CreditDecisionRecord`), `outcomeKind` enum `DecisionOutcomeKind` (§3:
   `PAID`, `LATE`, `RETURNED_DEBIT_ORDER`, `EVER_30/60/90_DPD`,
-  `DEFAULTED_STATUS`, `CURED`, `SETTLED`, `WRITTEN_OFF`, `TAKEN_UP`), `window`
+  `DEFAULTED_STATUS`, `CURED`, `SETTLED_AFTER_DELINQUENCY`, `SETTLED`,
+  `WRITTEN_OFF`, `TAKEN_UP`), `window`
   text (`3M`, `6M`, `12M`, `TERM_30D`, `OFFER`, `INSTALMENT:<n>`; CHECK
   `DecisionOutcome_window`), `state` enum {`OBSERVED`, `PENDING`,
   `UNOBSERVABLE`}, `value` bool? (set exactly when `OBSERVED`), `amountCents`
@@ -398,7 +484,7 @@ question (§11).
   `sourceSystem` text CHECK in (`credaflow`, `external_extract`),
   `sourceRef` text (opaque: a `CollectionResult` id, a schedule row id, or an
   extract row key), `definitionVersion` text, `observedAt` (set exactly when
-  `OBSERVED`), `computedAt` },
+  `OBSERVED`), `computedAt`, `demoData` bool default false (decision 4) },
   unique `(decisionRecordId, outcomeKind, window, sourceSystem, sourceRef)`,
   tenant RLS (ENABLE + FORCE + `tenant_isolation`), registered in
   `lib/registry/tenant-scoped-models/250-learning-loop.ts`. Not append-only:
@@ -461,8 +547,20 @@ COMMIT;
   reads are bounded by the chunk's latest 12M window end. Paging the record
   read and skipping decisions whose rows are all final on the current
   `definitionVersion` wait for a book large enough to need them.
+- **Simulated and demo data** (decision 4), as built: the job reads the
+  tenant's `TenantConfig.isDemoLender` once per run. For a real lender the
+  adapter never reads a simulated `CollectionResult` and every row has
+  `demoData = false`. For a demo lender, simulated results count and every
+  row is written `demoData = true`. `tenantOutcomeMetrics` (`metrics-db.ts`)
+  reads only rows whose `demoData` matches the tenant's flag and returns
+  `demoData` with the figures, so the dashboard labels a demo lender's
+  figures "Simulated / demo data". One figure never mixes the two, even if a
+  lender's flag changed after rows were written (the next run re-marks them).
+  The B migration was amended for this before merge (it was only ever
+  applied to throwaway test databases); its rollback is unchanged and still
+  drops everything it creates.
 - **Tests**: pure outcome functions over synthetic fixtures (paid / late /
-  returned with each reason / ever-30/60/90 / cure / defaulted / settled /
+  returned with each reason / ever-30/60/90 / cure / settled after delinquency / defaulted / settled /
   written off / pending / unobservable gap never good), attribution and
   take-up, coverage, calibration, the writer's convergence, the extract
   adapter, the route's auth; a `RUN_DECISION_OUTCOMES_IT` suite
@@ -473,7 +571,12 @@ COMMIT;
 
 ### 4.1 External extract (generic process)
 
-For the first real data, a pseudonymised extract from another lender's LMS:
+For the first real data, a pseudonymised extract from another lender's LMS.
+The field list is approved (decision 6), but **nothing is pulled** until all
+three are in place: (a) the operator agreement, (b) the bureau data terms
+and (c) an export run by the source lender itself (CredaFlow does not run
+the extraction against the source system). Until then the adapter is tested
+on synthetic rows only. The process, once those exist:
 
 1. A **read-only** connection to the source, by a dedicated role, from a
    job outside the application.
@@ -506,7 +609,9 @@ For the first real data, a pseudonymised extract from another lender's LMS:
   matured row is) and `metrics-db.ts` (one tenant, explicit `tenantId` in
   every query besides the frame and RLS; one kind and window, default the
   headline). Not yet run against the simulator book: that needs
-  the next demo image.
+  the next demo image. Simulated and demo outcomes are
+  excluded from a real lender's metrics and reported, labelled, only on a
+  demo tenant (decision 4).
 - **Calibration** (computed in PR B, expected empty): only records with
   `predictedProbability` (none today) and an `OBSERVED` headline outcome
   enter. Per `modelVersion`, tenant and month: Brier score = mean((p − y)²)
@@ -619,15 +724,24 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
 ## 7. Rollout
 
 1. PR A: migration + hooks ship together (the CHECKs refuse only rows the
-   code never writes). Demo stacks start writing records on the next image.
+   code never writes), including the automated-refusal `SYSTEM` records
+   (decision 5). Demo stacks start writing records on the next image.
 2. PR B: outcome model + job (built); verify coverage on the simulator book
    (pending: needs a demo image with PR A and PR B).
 3. PR C: dashboard (built); show it in the browser on the FairScore demo
    (pending: needs a demo image with PR A–C).
-4. Follow-ups: automated-refusal helper (SYSTEM records), collection-action
-   records after R4 lands, gate version constants, decline-time gate
-   evaluation, retention/pseudonymisation job.
-5. External extract only after §4.1's legal points are signed off.
+4. Follow-ups: collection-action records after R4 lands, gate version
+   constants, decline-time gate evaluation, retention/pseudonymisation job.
+   **Decided follow-up, own PR**: move the escalations cron's DEFAULTED flip
+   from 60 to 90 DPD (decision 1, §3).
+5. External extract only after §4.1's legal points are signed off and its
+   three preconditions (operator agreement, bureau data terms, a
+   source-lender-run export) are in place (decision 6).
+6. **Go-live gate** (decision 5): before the first real lender goes live,
+   that lender's legal team reviews the automated refusals under POPIA s71
+   (§9.1): whether they fall under s71(2), the representation route, and
+   what the generic message says about the logic. No real lender goes live
+   until that review is recorded.
 
 ## 8. Part 4: cross-lender benchmarks (DESIGN ONLY)
 
@@ -683,7 +797,9 @@ reason; the record shows which gates were overridden. **Finding**: the
 portal and website refuse submissions automatically (blacklist, deceased,
 own-lender arrears, income/expense evidence; §2.5) with a generic message.
 That is plausibly a decision based solely on automated processing with legal
-effect. `ConsentPurpose.AUTOMATED_DECISIONING`
+effect. Each refusal is now logged as a `SYSTEM` record flagged
+`s71ReviewRequired` (decision 5, §2.5), and the lender's legal review of them
+is a go-live gate (§7). `ConsentPurpose.AUTOMATED_DECISIONING`
 (`prisma/schema/messaging.prisma:278`) exists and is unused. Legal must say
 whether these refusals fall under s71(2), what representation route the
 client is given, and what the generic message must say about the logic.
@@ -759,7 +875,8 @@ never pricing). **Needs lender legal sign-off.**
   automated in substance (s71). Mitigation: the dashboard shows override
   rates; legal review of the automated refusals.
 - **Simulator calibration**: charts drawn on scripted personas measure the
-  script. The dashboard must label demo data and make no learning claims.
+  script. The dashboard must label demo data, keep it out of a real
+  lender's figures (decision 4) and make no learning claims.
 - **Fail-closed hooks**: an insert failure now fails a decision. The insert
   is a single row with CHECKs the builders satisfy by construction; the unit
   and integration tests cover them.
@@ -773,24 +890,25 @@ never pricing). **Needs lender legal sign-off.**
 
 ## 11. Open questions for Hein
 
-1. Default: is the lender's "default" 60 DPD (escalation flip) or 90 DPD
-   (dpd-update)? The log uses ever-90 as "bad" and tracks status separately.
-2. Who sees the dashboard: ADMIN only, or LOAN_ADMIN too?
-3. Retention: confirm the NCA record-keeping period with legal, and whether
+Answered on 21 Oct 2026 and removed: default threshold (90+, decision 1),
+dashboard audience (ADMIN and compliance only, decision 2), when to take the
+automated refusals to legal (logged now; review before go-live, decision 5),
+whether settling after 30+ DPD is a cure (no: `SETTLED_AFTER_DELINQUENCY`,
+decision 3).
+
+1. Retention: confirm the NCA record-keeping period with legal, and whether
    pseudonymise-after is acceptable.
-4. Automated refusals: take the s71 finding to the lender's legal team now,
-   or after the SYSTEM-record helper ships?
-5. Collection-action records: build after R4 merges, or wait for a strategy
+2. Collection-action records: build after R4 merges, or wait for a strategy
    / variant concept?
-6. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
-7. Should the decline path evaluate the gates so "declined against PASS" is
+3. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
+4. Should the decline path evaluate the gates so "declined against PASS" is
    visible?
-8. Take-up: the code has no approval expiry, so an approved application that
+5. Take-up: the code has no approval expiry, so an approved application that
    is never signed stays `TAKEN_UP` `PENDING` until someone cancels it. Should
    an approval lapse after N days (and count as not taken up)?
-9. Write-off before 90 DPD: the headline counts it as bad (`OBSERVED true`,
+6. Write-off before 90 DPD: the headline counts it as bad (`OBSERVED true`,
    `WRITTEN_OFF_BEFORE_THRESHOLD`), the usual "90+ or written off" bad
    definition. Confirm, or should such loans be `UNOBSERVABLE` instead?
-10. Missed snapshot nights: reconstruct the missing day's DPD from the
-    schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
-    alert on a missed run?
+7. Missed snapshot nights: reconstruct the missing day's DPD from the
+   schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
+   alert on a missed run?
