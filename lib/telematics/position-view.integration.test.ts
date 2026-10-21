@@ -148,6 +148,18 @@ suite.sequential("telematics last known position: who, why, when, logged (real D
       [`INSERT INTO "Loan" SELECT (jsonb_populate_record(NULL::"Loan", to_jsonb(l) || jsonb_build_object('id', $2::text, 'reference', $2::text, 'applicationId', $3::text,
           'status', 'CANCELLED', 'startDate', now() - INTERVAL '3 days'))).* FROM "Loan" l WHERE l."id" = $1`, ids.loan, `cx_${t}`, `cxapp_${t}`])
     expect(await reveal(ids.loan)).toMatchObject({ kind: "ok", position: { occurredAt: only.occurredAt.toISOString() } })
+    // A later loan that ran, started yesterday at 10:00 SAST, ends this tenure at yesterday's SAST day start, as the database does:
+    // a fix from 08:00 SAST yesterday is not this loan's.
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    await testSetup(database(),
+      [`INSERT INTO "LoanApplication" SELECT (jsonb_populate_record(NULL::"LoanApplication", to_jsonb(a) || jsonb_build_object('id', $2::text, 'reference', $2::text))).*
+        FROM "LoanApplication" a WHERE a."id" = (SELECT "applicationId" FROM "Loan" WHERE "id" = $1)`, ids.loan, `nxapp_${t}`],
+      [`INSERT INTO "Loan" SELECT (jsonb_populate_record(NULL::"Loan", to_jsonb(l) || jsonb_build_object('id', $2::text, 'reference', $2::text, 'applicationId', $3::text,
+          'status', 'COMPLETED', 'startDate', $4::timestamp))).* FROM "Loan" l WHERE l."id" = $1`, ids.loan, `nx_${t}`, `nxapp_${t}`, `${yesterday} 08:00:00`],
+      [`UPDATE "TelematicsPosition" SET "occurredAt" = $2::timestamp WHERE "id" = $1`, only.id, `${yesterday} 06:00:00`])
+    expect(await reveal(ids.loan)).toEqual({ kind: "ok", none: true })
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'CANCELLED' WHERE "id" = $1`, `nx_${t}`],
+      [`UPDATE "TelematicsPosition" SET "occurredAt" = $2 WHERE "id" = $1`, only.id, only.occurredAt])
     // A tenure that has not begun shows nothing, though the asset has a position.
     await testSetup(database(), [`UPDATE "Loan" SET "startDate" = now() + INTERVAL '1 day' WHERE "id" = $1`, ids.loan])
     expect(await reveal(ids.loan)).toEqual({ kind: "ok", none: true })

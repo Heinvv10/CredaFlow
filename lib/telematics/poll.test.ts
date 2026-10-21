@@ -21,7 +21,7 @@ vi.mock("@/lib/audit", async (original) => ({ ...(await original<typeof import("
 vi.mock("./ingest", () => ({ ingestEvent: m.ingestEvent }))
 
 import { Prisma } from "@prisma/client"
-import { TelematicsEventNotYet, TelematicsEventRejected, TelematicsEventUnroutable } from "./event-shape"
+import { TelematicsEventNotYet, TelematicsEventRejected } from "./event-shape"
 import { pollTenant, runTelematicsPoll } from "./poll"
 import { registerTelematicsProvider } from "./registry"
 import type { TelematicsProvider } from "./types"
@@ -164,7 +164,9 @@ describe("the telematics poll", () => {
   })
 
   it.each([
-    ["a lost connection", () => new Error("connection reset")],
+    ["a lost connection", () => new Prisma.PrismaClientKnownRequestError("can't reach the database", { code: "P1001", clientVersion: "5" })],
+    ["a closed connection", () => new Prisma.PrismaClientInitializationError("server closed the connection", "5", "P1017")],
+    ["a cancelled statement", () => new Prisma.PrismaClientKnownRequestError("canceling statement", { code: "P2010", clientVersion: "5", meta: { code: "57014" } })],
     ["a deadlock", () => new Prisma.PrismaClientKnownRequestError("deadlock detected", { code: "P2010", clientVersion: "5", meta: { code: "40P01" } })],
     ["a serialisation failure", () => new Prisma.PrismaClientKnownRequestError("could not serialize", { code: "P2010", clientVersion: "5", meta: { code: "40001" } })],
     ["a lock timeout", () => new Prisma.PrismaClientKnownRequestError("lock timeout", { code: "P2010", clientVersion: "5", meta: { code: "55P03" } })],
@@ -175,7 +177,7 @@ describe("the telematics poll", () => {
       id: "test-transient", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
       poll: async () => ({ simulated: false, cursors: { "DEV-5": "c5" }, events: [{ providerEventId: "flaky", externalDeviceId: "DEV-5", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
     })
-    // Two strikes already on this event: a passing fault adds none and never skips it.
+    // Two strikes already on this event: a passing fault adds none and never skips it, however often it repeats.
     m.devices = [{ ...device("d5", "DEV-5", "test-transient"), failingEventId: "flaky", failingEventCount: 2 }]
     m.ingestEvent.mockImplementationOnce(async () => { throw make() })
     expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1, rejected: 0 })
@@ -185,7 +187,7 @@ describe("the telematics poll", () => {
     expect(update.data).not.toHaveProperty("failingEventCount")
   })
 
-  it("counts a strike for a database refusal (a unique key, a raw statement's integrity refusal) and an event no route takes", async () => {
+  it("counts a strike for anything not on the passing-fault list: a unique key, a raw integrity refusal, an unknown error", async () => {
     registerTelematicsProvider({
       id: "test-refused", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
       poll: async () => ({ simulated: false, cursors: {}, events: [{ providerEventId: "r", externalDeviceId: "DEV-6", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
@@ -193,13 +195,37 @@ describe("the telematics poll", () => {
     for (const error of [
       new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5" }),
       new Prisma.PrismaClientKnownRequestError("check", { code: "P2010", clientVersion: "5", meta: { code: "23514" } }),
-      new TelematicsEventUnroutable("Unexpected meter reading result"),
+      new TypeError("Cannot read properties of undefined (reading 'value')"),
     ]) {
       m.devices = [device("d6", "DEV-6", "test-refused")]
       m.ingestEvent.mockImplementationOnce(async () => { throw error })
       expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1 })
       expect(updates().at(-1)).toMatchObject({ data: { failingEventId: "r", failingEventCount: 1 } })
     }
+  })
+
+  it("never skips a deadlock repeated poll after poll; skips a deterministic unknown error after three", async () => {
+    registerTelematicsProvider({
+      id: "test-both", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
+      poll: async () => ({ simulated: false, cursors: { "DEV-3": "c3" }, events: [{ providerEventId: "x", externalDeviceId: "DEV-3", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
+    })
+    const deadlock = () => new Prisma.PrismaClientKnownRequestError("deadlock detected", { code: "P2010", clientVersion: "5", meta: { code: "40P01" } })
+    for (let poll = 0; poll < 5; poll++) {
+      m.devices = [device("d3", "DEV-3", "test-both")]
+      m.ingestEvent.mockImplementationOnce(async () => { throw deadlock() })
+      expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1, rejected: 0 })
+    }
+    let stored = { failingEventId: null as string | null, failingEventCount: 0 }
+    const outcomes = []
+    for (let poll = 0; poll < 3; poll++) {
+      m.devices = [{ ...device("d3", "DEV-3", "test-both"), ...stored }]
+      m.ingestEvent.mockImplementationOnce(async () => { throw new TypeError("Cannot read properties of undefined") })
+      outcomes.push(await pollTenant("t1", NOW))
+      const data = updates().at(-1)!.data as { failingEventId?: string | null; failingEventCount?: number }
+      stored = { failingEventId: data.failingEventId ?? null, failingEventCount: data.failingEventCount ?? 0 }
+    }
+    expect(outcomes.map((o) => [o.failed, o.rejected])).toEqual([[1, 0], [1, 0], [0, 1]])
+    expect(m.logAudit).toHaveBeenLastCalledWith(expect.objectContaining({ newValue: expect.objectContaining({ providerEventId: "x", reason: "failed 3 polls in a row (TypeError)" }) }))
   })
 
   it("defers an event the database's clock has not reached (its \"not yet\"), keeping the cursor", async () => {

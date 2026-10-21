@@ -44,14 +44,6 @@ export class TelematicsEventNotYet extends Error {
   }
 }
 
-/** The event could not be routed for a reason no retry is known to fix: a refusal, counted toward the poll's strike limit. */
-export class TelematicsEventUnroutable extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "TelematicsEventUnroutable"
-  }
-}
-
 /** An event refused for what it is, not for a passing failure: the poll skips it and moves on. */
 export class TelematicsEventRejected extends Error {
   constructor(readonly reason: string) {

@@ -957,12 +957,13 @@ Added by the review round 1 (PR #222):
     `TELEMATICS_EVENT_REJECTED` (provider event id with control characters
     replaced, the reason and the database's message, no payload), and the
     cursor moves past it. Anything later in the event's transaction keeps the
-    cursor and is retried next poll. A passing fault (a lost connection, a
-    deadlock 40P01, a serialisation failure 40001, a lock or pool timeout, a
-    write conflict, any error that is not a database refusal) is retried for
-    as long as it lasts and never counts. A database refusal no rule names (a
-    Prisma request error, a raw statement's class 23 or 22) counts a strike:
-    the same event struck three polls in a row
+    cursor and is retried next poll. A passing fault on an explicit list (the
+    database unreachable or gone, P1001/P1002/P1017; a pool timeout, P2024; a
+    transaction conflict or timeout, P2028/P2034; SQLSTATE 40001, 40P01,
+    55P03 or 57014) is retried for as long as it lasts and never counts.
+    Anything else, an unknown refusal or an unknown error alike (a TypeError
+    on a malformed payload never goes away), counts a strike: the same event
+    struck three polls in a row
     (`TrackerDevice.failingEventId / failingEventCount`) is skipped, audited
     "failed 3 polls in a row (<Prisma code or class>)". An event ahead of the
     poll's clock (within the five minutes), or one the database's clock has
@@ -1570,9 +1571,9 @@ turn a named test red.
   it, the last meter days) is never fetched.
 - **Events older than the retention are refused.** A device offline longer
   than the tenant's retention loses that backlog, meter readings included.
-- **A refusal no rule names, three polls running, skips the event.** Audited
-  with its Prisma code or class; there is no quarantine to re-drive it.
-  Passing faults never count.
+- **A failure off the passing-fault list, three polls running, skips the
+  event.** Audited with its Prisma code or class; there is no quarantine to
+  re-drive it. A passing fault not on the list (a new driver code) counts too.
 - **Evidence for accept and verify is a note.** Neither takes a document
   (for example a dashboard photo); what counts as enough is counsel item 6.
 - **Polling only:** no provider webhook.
@@ -1706,7 +1707,8 @@ and counsel items 2 and 5 updated.
 |---|---|---|---|
 | Tenure ends by the loan's own end of term, not the lessor status | `breaker-r3.integration.test.ts`, `edge-round3.integration.test.ts`, `lessor-status-bounds.integration.test.ts`, `guard-clauses.integration.test.ts`, `breaker-r2.integration.test.ts` | IT | a withdrawn recovery on a re-let asset leaves it covered, an alert raised, the device polled; a status stamp alone (earlier lease, after the event, at the loan's start) ends nothing; a return inspected yesterday ends it from that day's start; a total loss ends it; a return only elected does not |
 | A purged event delivered again is refused | `breaker-r3.integration.test.ts`, `devices.integration.test.ts`, `purge.integration.test.ts`, `event-shape.test.ts` | IT + unit | the repeat after purge refused (no new item); an event older than retention refused by the DB and by `invalidEvent` (a minute's margin) |
-| Passing faults retried, refusals struck | `poll.test.ts`, `poll-transient.test.ts`, `event-insert.test.ts` | unit | connection loss, 40P01, 40001, 55P03, P2034, P2024 → no strike, cursor kept; P2002 and a raw 23514 → a strike; the insert's 23514, 22021, 22P05, 22003, 22001 → rejected; 55000 → deferred |
+| Passing faults retried, everything else struck | `poll.test.ts`, `poll-transient.test.ts`, `event-insert.test.ts` | unit | P1001, P1017 (initialisation), 57014, 40P01, 40001, 55P03, P2034, P2024 → no strike, cursor kept, a deadlock five polls running never skipped; P2002, a raw 23514 and a TypeError → a strike, the TypeError skipped on the third poll; the insert's 23514, 22021, 22P05, 22003, 22001 → rejected; 55000 → deferred |
+| The view's tenure ends at the next loan's SAST day start | `position-view.integration.test.ts` | IT | a later loan started 10:00 SAST yesterday hides a fix from 08:00 SAST yesterday |
 | The database's "not yet" defers | `edge-round3.integration.test.ts`, `edge-cases.integration.test.ts`, `poll.test.ts` | IT + unit | a poll clock ten minutes ahead: the event deferred, cursor kept |
 | The poll's own clock selects devices | `edge-round3.integration.test.ts`, `poll.test.ts` | IT + unit | a poll dated before the lease began does not ask for the device |
 | The retry counter is never negative | `devices.integration.test.ts` | IT | count −1 refused by the shape CHECK |

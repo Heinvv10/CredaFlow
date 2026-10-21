@@ -14,12 +14,12 @@
  * counted and audited, and the cursor moves past it. An event still in the
  * future waits, by the poll's clock or the database's (SQLSTATE 55000). Any
  * other failure keeps the cursor and is retried next time, which the
- * idempotent ingest makes safe. A transient one (a lost connection, a
- * deadlock, a serialisation or lock timeout, anything that is not a database
- * refusal) is retried for as long as it lasts. A refusal no rule names (a
- * constraint or guard later in the event's transaction) counts a strike:
- * three polls in a row on the same event skip it, audited with that reason,
- * so nothing wedges a device for good. Every class is read from structured
+ * idempotent ingest makes safe. A passing fault on an explicit list (a lost
+ * connection, a pool or transaction timeout, a deadlock, a serialisation
+ * failure, a lock timeout) is retried for as long as it lasts. Anything else
+ * (a refusal no rule names, an unknown error) counts a strike: three polls in
+ * a row on the same event skip it, audited with that reason, so nothing
+ * wedges a device for good. Every class is read from structured
  * fields (the error's class, Prisma code, SQLSTATE), never its message.
  * Whether events are simulated is the registered provider's own definition,
  * never the provider's answer.
@@ -30,7 +30,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ingestEvent } from "./ingest"
-import { invalidEvent, TelematicsEventNotYet, TelematicsEventRejected, TelematicsEventUnroutable } from "./event-shape"
+import { invalidEvent, TelematicsEventNotYet, TelematicsEventRejected } from "./event-shape"
 import { getTelematicsProvider } from "./registry"
 import { TelematicsProviderError, type TelematicsPollResult } from "./types"
 
@@ -66,25 +66,26 @@ type PolledDevice = {
   failingEventId: string | null; failingEventCount: number
 }
 
-/** Prisma codes of a passing failure: a pool or interactive-transaction timeout, a write conflict or deadlock. */
-const TRANSIENT_PRISMA = new Set(["P2024", "P2028", "P2034"])
+/** Prisma codes of a passing fault: the database unreachable or gone away, a pool timeout, a transaction conflict or timeout. */
+const TRANSIENT_PRISMA: ReadonlySet<string> = new Set(["P1001", "P1002", "P1017", "P2024", "P2028", "P2034"])
+/** SQLSTATEs of a passing fault in a raw statement: serialisation failure, deadlock, lock not available, statement cancelled. */
+const TRANSIENT_SQLSTATE: ReadonlySet<string> = new Set(["40001", "40P01", "55P03", "57014"])
 
 /**
- * Whether a failure is a database refusal (counts a strike) rather than a
- * passing fault (retried for as long as it lasts): a Prisma request error
- * that is not a timeout or conflict, a raw statement's integrity or data
- * refusal (SQLSTATE class 23 or 22), the refusal Prisma reports without a
- * code (a guard's RAISE through a query), or an event no route takes.
+ * Whether a failure is a passing fault, retried for as long as it lasts and
+ * never a strike: only the explicit allow-list above, read from structured
+ * fields (the Prisma code, the raw statement's SQLSTATE). Everything else,
+ * an unknown refusal or an unknown error alike (a TypeError on a malformed
+ * payload never goes away), counts a strike toward the skip.
  */
-function isRefusal(error: unknown): boolean {
-  if (error instanceof TelematicsEventUnroutable) return true
-  if (error instanceof Prisma.PrismaClientUnknownRequestError) return true
+function isTransient(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientInitializationError) return TRANSIENT_PRISMA.has(error.errorCode ?? "")
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
   if (error.code === "P2010") {
     const sqlState = (error.meta as { code?: unknown } | undefined)?.code
-    return typeof sqlState === "string" && (sqlState.startsWith("23") || sqlState.startsWith("22"))
+    return typeof sqlState === "string" && TRANSIENT_SQLSTATE.has(sqlState)
   }
-  return error.code.startsWith("P2") && !TRANSIENT_PRISMA.has(error.code)
+  return TRANSIENT_PRISMA.has(error.code)
 }
 
 /** A failure's structured kind for the audit: the Prisma code (and SQLSTATE of a raw statement), or the error's class. Never its message. */
@@ -123,7 +124,7 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
     return
   }
   const byExternalId = new Map(devices.map((d) => [d.externalDeviceId, d]))
-  /** Devices whose event failed this poll: with the strike to record for a refusal, null for a passing fault (the count stands). */
+  /** Devices whose event failed this poll: with the strike to record, or null for a passing fault (the count stands). */
   const failedDevices = new Map<string, { eventId: string; count: number } | null>()
   const waitingDevices = new Set<string>()
   const simulated = provider.simulated
@@ -159,7 +160,7 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
         waitingDevices.add(device.id)
         continue
       }
-      if (!isRefusal(error)) {
+      if (isTransient(error)) {
         run.failed++
         failedDevices.set(device.id, null)
         console.error("[telematics-poll] event failed, retried", { tenantId, deviceId: device.id, providerEventId: printable(event.providerEventId), error: failureKind(error) })

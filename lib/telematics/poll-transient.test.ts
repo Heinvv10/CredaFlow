@@ -8,8 +8,9 @@ const m = vi.hoisted(() => ({
   updateMany: vi.fn(async (_args: unknown) => ({ count: 1 })),
   logAudit: vi.fn(async (_entry: unknown) => undefined),
   ingestEvent: vi.fn(async () => {
-    throw new Error("Invalid `tx.telematicsEvent.createManyAndReturn()` invocation: deadlock detected (40P01). " +
-      "Process 23514 waits for ShareLock on transaction 991; blocked by process 118.")
+    const { Prisma } = await import("@prisma/client")
+    throw new Prisma.PrismaClientKnownRequestError("Raw query failed. Code: `40P01`. Message: `ERROR: deadlock detected. " +
+      "Process 23514 waits for ShareLock on transaction 991; blocked by process 118.`", { code: "P2010", clientVersion: "5", meta: { code: "40P01", message: "deadlock detected" } })
   }),
 }))
 vi.mock("@/lib/prisma", () => ({
