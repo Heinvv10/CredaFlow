@@ -832,7 +832,9 @@ never pricing). **Needs lender legal sign-off.**
 
 Answered on 21 Oct 2026 and removed: default threshold (90+, decision 1),
 dashboard audience (ADMIN and compliance only, decision 2), when to take the
-automated refusals to legal (logged now; review before go-live, decision 5).
+automated refusals to legal (logged now; review before go-live, decision 5),
+whether settling after 30+ DPD is a cure (no: `SETTLED_AFTER_DELINQUENCY`,
+decision 3).
 
 1. Retention: confirm the NCA record-keeping period with legal, and whether
    pseudonymise-after is acceptable.
@@ -841,12 +843,12 @@ automated refusals to legal (logged now; review before go-live, decision 5).
 3. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
 4. Should the decline path evaluate the gates so "declined against PASS" is
    visible?
-8. Take-up: the code has no approval expiry, so an approved application that
+5. Take-up: the code has no approval expiry, so an approved application that
    is never signed stays `TAKEN_UP` `PENDING` until someone cancels it. Should
    an approval lapse after N days (and count as not taken up)?
-9. Write-off before 90 DPD: the headline counts it as bad (`OBSERVED true`,
+6. Write-off before 90 DPD: the headline counts it as bad (`OBSERVED true`,
    `WRITTEN_OFF_BEFORE_THRESHOLD`), the usual "90+ or written off" bad
    definition. Confirm, or should such loans be `UNOBSERVABLE` instead?
-10. Missed snapshot nights: reconstruct the missing day's DPD from the
-    schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
-    alert on a missed run?
+7. Missed snapshot nights: reconstruct the missing day's DPD from the
+   schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
+   alert on a missed run?
