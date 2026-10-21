@@ -30,12 +30,13 @@ const database = (): PrismaClient => {
   if (!db) throw new Error("RUN_ASSET_FINANCE_VALUATION_IT=1 is required")
   return db
 }
-/** fx.assets[0] is TEST EX-1 2025. Two rows are its own; the others share only its model. */
+/** fx.assets[0] is TEST EX-1 2025. Two rows are its own; each other row differs in make, year or model. */
 const ROWS: GuideRowSeed[] = [
   { make: "TEST", model: "EX-1", year: 2025, variant: "", tradeCents: 120_000_000, retailCents: 140_000_000 },
   { make: "TEST", model: "EX-1", year: 2025, variant: "Long reach", tradeCents: 125_000_000, retailCents: 150_000_000 },
   { make: "OTHER", model: "EX-1", year: 2025, variant: "", tradeCents: 1, retailCents: 2 },
   { make: "TEST", model: "EX-1", year: 2024, variant: "", tradeCents: 3, retailCents: 4 },
+  { make: "TEST", model: "EX-9", year: 2025, variant: "", tradeCents: 5, retailCents: 6 },
 ]
 const SIMULATED: GuideRowSeed[] = [{ make: "TEST", model: "EX-1", year: 2025, variant: "Sim", tradeCents: 100_000_000, retailCents: 160_000_000 }]
 let fx: DealFixture
@@ -49,6 +50,10 @@ suite("guide loaders (real Postgres)", () => {
     other = await createDealFixture(database(), t2, { templates: false })
     guide = await publishedGuide(database(), fx.tenantId, fx.adminA, fx.adminB, { effectiveOn: day(-3), rows: ROWS })
     simulated = await publishedGuide(database(), fx.tenantId, fx.adminA, fx.adminB, { name: "TEST Simulated Guide", effectiveOn: day(-3), rows: SIMULATED, simulated: true })
+    // Another lender's current guide with a row for the same make, model and year.
+    await publishedGuide(database(), other.tenantId, other.adminA, other.adminB, {
+      effectiveOn: day(-3), rows: [{ make: "TEST", model: "EX-1", year: 2025, variant: "Foreign", tradeCents: 7, retailCents: 8 }],
+    })
     // Two guide values on the asset: "Long reach" first, then the simulated row (the newest).
     await database().assetValuation.create({ data: guideValuationData(fx.tenantId, fx.assets[0], guide.id, guide.rowIds[1], ROWS[1].tradeCents, fx.officer) })
     await database().assetValuation.create({ data: guideValuationData(fx.tenantId, fx.assets[0], simulated.id, simulated.rowIds[0], SIMULATED[0].tradeCents, fx.officer) })
@@ -64,7 +69,7 @@ suite("guide loaders (real Postgres)", () => {
     await db.$disconnect()
   })
 
-  it("offers only rows of the asset's own make, model and year", async () => {
+  it("offers only the lender's own rows of the asset's own make, model and year", async () => {
     const rows = await guideCandidates(prisma, fx.tenantId, { make: " test ", model: "ex-1", year: 2025 }, today())
     expect(rows.map((r) => `${r.make}/${r.year}/${r.variant}`).sort()).toEqual(["TEST/2025/", "TEST/2025/Long reach", "TEST/2025/Sim"])
   })

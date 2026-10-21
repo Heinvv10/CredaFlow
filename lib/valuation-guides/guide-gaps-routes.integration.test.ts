@@ -117,8 +117,11 @@ suite.sequential("publish route refusals (real Postgres, real routes)", () => {
     form.set("file", new File([new Uint8Array(4 * 1024 * 1024)], "guide.csv", { type: "text/csv" }))
     const res = await uploadGuide(request("/api/asset-finance/valuation-guides", form))
     expect(res.status).toBe(422)
-    expect((await res.json()).problems).toEqual([{ line: 1, reason: "The upload is larger than 5 MB" }])
+    // The whole upload is refused, not a line of it: an error, no line problems, audited like a malformed file.
+    expect(await res.json()).toEqual({ error: "The upload is larger than 5 MB" })
     expect(await database().valuationGuide.count({ where: { tenantId: fx.tenantId } })).toBe(before)
+    const refusals = await database().auditLog.findMany({ where: { tenantId: fx.tenantId, action: "VALUATION_GUIDE_UPLOAD_REFUSED" } })
+    expect(refusals.map((r) => r.newValue)).toContainEqual(expect.objectContaining({ refused: true, reason: "upload_too_large", httpStatus: 422 }))
   })
 
   it("refuses to record a simulated guide's value on a deployed build, though the guide went live where it was allowed", async () => {
