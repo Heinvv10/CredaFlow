@@ -52,4 +52,5 @@
 - An issuance's input snapshot is personal data kept as long as its PDF; a
   purge must keep `ASSET_NCA_QUOTE_ISSUED` audit rows (DB-immutable). See
   SPEC.md §4 in docs/asset-finance/evidence/lender-owned-templates/.
+- A GUIDE valuation (`lib/valuation-guides/AGENTS.md`) is a reference: never a sale's or a purchase's independent valuation; exclude it wherever INTERNAL is excluded.
 - Dealer deals (`dealerId`, `lib/dealer/AGENTS.md`): staff submit 409s them (accept only); the borrower-figure graph never imports `lib/dealer/*`; one preview solver, `deal-preview.ts`.

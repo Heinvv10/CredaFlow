@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { GUIDE_CSV_HEADER, MAX_GUIDE_ROWS, MAX_SHOWN_PROBLEMS, parseGuideCsv } from "./csv"
 
@@ -86,5 +88,20 @@ describe("parseGuideCsv", () => {
     expect(result.problems).toHaveLength(MAX_SHOWN_PROBLEMS)
     const many = Array.from({ length: MAX_GUIDE_ROWS + 1 }, (_, i) => `TEST,EX-${i},2025,,1,1`)
     expect(problems(HEADER, ...many).problems).toEqual([{ line: 1, reason: `The file has more than ${MAX_GUIDE_ROWS} rows` }])
+  })
+
+  it("reads the browser-acceptance files as docs/asset-finance/evidence/slice5/browser/C/README.md says", () => {
+    const fixture = (name: string) => parseGuideCsv(readFileSync(path.join(__dirname, "__fixtures__", name)))
+    const valid = fixture("browser-guide-valid.csv")
+    expect(valid.ok && valid.rows.map((r) => `${r.model}/${r.variant}`)).toEqual(["EX-1/", "EX-1/Long reach", "EX-2/", "EX-3/", "Bakkie 2.4/Double cab"])
+    expect(fixture("browser-guide-malformed.csv")).toEqual({
+      ok: false, total: 5, problems: [
+        { line: 2, reason: "trade_cents must be a whole number of cents (digits only, no separators or decimals)" },
+        { line: 4, reason: "duplicates line 3 (same make, model, year and variant)" },
+        { line: 5, reason: "model is required; the trade value is above the retail value" },
+        { line: 6, reason: "make starts with =, +, - or @ (a spreadsheet formula is refused)" },
+        { line: 7, reason: "Expected 6 columns, found 7" },
+      ],
+    })
   })
 })

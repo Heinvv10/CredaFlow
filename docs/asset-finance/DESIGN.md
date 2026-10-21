@@ -161,8 +161,10 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
 5. **Dealer/broker portal, tracker/telematics integration, valuation
    feeds.** Spec `SLICE5.md`, one PR per part. Part A (dealer/broker portal
    and commission) built; legal and tax review items listed there, and the
-   portal is demo-lender-only until dealer 2FA ships. Part B (telematics) and
-   Part C (valuation guides) pending.
+   portal is demo-lender-only until dealer 2FA ships. Part B (telematics)
+   pending. Part C (valuation guides) built: CSV and synthetic providers,
+   four-eyes publish, GUIDE valuations that never count as independent; open
+   legal and credit-policy items listed in SLICE5.md.
 
 ## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
 
@@ -336,7 +338,8 @@ migration `20261015400000_asset_finance_recovery`. Evidence:
 - Costs are recorded by one person and approved or rejected by another;
   only approved costs count. NCA deducts only the tenant's allow-listed
   sale costs; LEGAL_TAXED needs a judgment or settlement step.
-- A sale needs a current non-INTERNAL valuation; below the highest one, or to
+- A sale needs a current valuation that is neither INTERNAL nor GUIDE (a guide
+  value is a reference, slice 5 part C); below the highest one, or to
   a related party (borrower, surety, director, staff, COI), it needs a second
   approver. Proceeds are one real `Payment`; the resale tax invoice and the
   repossession VAT event (s8(10)/s10(10), signed off, see the sign-off record 2026-10-17 below) are immutable.

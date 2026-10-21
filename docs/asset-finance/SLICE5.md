@@ -827,8 +827,8 @@ independent valuation.
    both values, and the deal panel shows the LTV against each.
 4. **Guide values are VAT-inclusive**, as the guide states them. The deal's
    advance is the goods advance: cash price incl. VAT less deposit and
-   trade-in (Part A's commission base). For a lease it is the cash price
-   incl. VAT (no deposit or trade-in). LTV = advance ÷ guide value.
+   trade-in (Part A's commission base), the same formula for a lease. LTV =
+   advance ÷ guide value.
 5. **The book revaluation report reads and never writes.** It values each
    live asset-finance loan's asset against the current guides: on the
    variant of the asset's latest GUIDE valuation if one exists, else on the
