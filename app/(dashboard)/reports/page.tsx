@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, Download, Users } from "lucide-react"
 import Link from "next/link"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
+import { canDo } from "@/lib/permissions"
 import { defaultQuarter, quarterLabel, sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { loadChargesOwingByBand } from "@/lib/reports/charges-owing"
@@ -237,7 +238,7 @@ export default async function ReportsPage() {
   // disbursements). This overview queries Prisma directly; its sibling
   // reports/advisor API gates at LOAN_ADMIN, so match that here — collections
   // and credit roles shouldn't see executive numbers they can't action.
-  await requireMinRole("LOAN_ADMIN")
+  const user = await requireMinRole("LOAN_ADMIN")
   const data = await getReportData()
 
   const bookChangeAbs = data.riskBook - data.prevBook
@@ -270,6 +271,12 @@ export default async function ReportsPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
             Accounting Export
           </Link>
+          {canDo(user.role, "view_decision_performance") && (
+            <Link href="/reports/decision-performance"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
+              Decision Performance
+            </Link>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             <a href="/api/reports/export?type=loans" download
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e6b3f] text-white rounded-lg text-xs font-semibold hover:bg-[#155030] transition-colors">
