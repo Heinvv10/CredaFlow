@@ -128,7 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
-    # (440 gated) it passed 37 min on 2026-10-21 and 45 cancelled it.
+    # (440 gated) it was still running, with no failure, when 45 cancelled it
+    # on 2026-10-21 (run 39611551763).
     timeout-minutes: 75
 
     services:
