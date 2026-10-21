@@ -10,12 +10,25 @@ import { ROOT, sourceFiles } from "./__fixtures__/import-graph"
 // with a page, so a READONLY page load can never materialise one. A client
 // component cannot query: it only shows what that route answered.
 const ALLOWED = ["lib/telematics/ingest.ts", "lib/telematics/purge.ts", "lib/telematics/position-view.ts"]
-const TOUCHES_TABLE = /telematicsPosition\.|(FROM|INTO|JOIN|UPDATE|TRUNCATE)\s+"TelematicsPosition"|\bposition:\s*(true|\{)/
+// `position` / `positions`: the relation from an event or a device (an include or a select of it reads the row).
+const TOUCHES_TABLE = /telematicsPosition\.|(FROM|INTO|JOIN|UPDATE|TRUNCATE)\s+"TelematicsPosition"|\bpositions?:\s*(true|\{)/
 const SELECTS_COORDINATE = /\b(latitude|longitude):\s*true\b|"latitude"|"longitude"/
 
 describe("the last known position has one read path", () => {
   const files = ["lib", "app", "components"].flatMap((dir) => sourceFiles(dir))
   const read = (file: string) => readFileSync(path.join(ROOT, file), "utf8")
+
+  it("catches every way a module could read a position", () => {
+    for (const attempt of [
+      "prisma.trackerDevice.findMany({ include: { positions: true } })",
+      "prisma.trackerDevice.findFirst({ select: { position: { select: { occurredAt: true } } } })",
+      "prisma.telematicsEvent.findMany({ include: { position: true } })",
+      "tx.telematicsPosition.findFirst({ where: { tenantId } })",
+      'SELECT * FROM "TelematicsPosition"',
+    ]) expect(TOUCHES_TABLE.test(attempt), attempt).toBe(true)
+    expect(SELECTS_COORDINATE.test("select: { latitude: true }")).toBe(true)
+    expect(TOUCHES_TABLE.test("position?: { latitude: number }")).toBe(false)
+  })
 
   it("scans the application sources", () => {
     for (const file of ALLOWED) expect(files).toContain(file)

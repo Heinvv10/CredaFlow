@@ -1,8 +1,9 @@
 /**
  * Tracker alerts on real Postgres (docs/asset-finance/SLICE5.md part B): a
- * tamper or power cut raises a collections work item (a recovery one when the
- * loan has an open legal matter or recovery), a repeat folds into the open
- * item, and nothing is sent to anyone. The work item's lifecycle is the
+ * tamper or power cut raises a work item on the loan whose tenure covers it:
+ * servicing for a loan in good standing, collections in default, recovery
+ * when the loan has an open legal matter or recovery. A repeat folds into the
+ * open item (an acknowledged one too), and nothing is sent to anyone. The work item's lifecycle is the
  * database's: a resolve needs a note, a resolved item is final, the queue is
  * fixed, nothing is deleted.
  *
@@ -10,7 +11,7 @@
  *     npx vitest run lib/telematics/alerts.integration.test.ts
  */
 import { randomUUID } from "node:crypto"
-import type { PrismaClient } from "@prisma/client"
+import type { PrismaClient, TelematicsAlertKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
@@ -28,7 +29,7 @@ const suite = RUN ? describe : describe.skip
 const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
 let fx: LeaseFixture
-const ids = { collectionsLoan: "", legalLoan: "", collectionsDevice: "", legalDevice: "" }
+const ids = { collectionsLoan: "", legalLoan: "", collectionsDevice: "", legalDevice: "", queueLoan: "", queueDevice: "" }
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
 
 function database(): PrismaClient {
@@ -41,6 +42,10 @@ const setSession = (user: SessionUser | null) => {
 const officer = () => ({ tenantId: fx.tenantId, userId: fx.officer, userEmail: `${fx.officer}@telematics-it.test` })
 const alertsOf = (deviceId: string) => database().telematicsAlert.findMany({ where: { deviceId }, orderBy: { firstOccurredAt: "asc" } })
 const R = { table: "TelematicsAlert", trigger: "TelematicsAlert_guard" }
+const raise = async (deviceId: string, kind: TelematicsAlertKind, at = new Date()) => {
+  const device = await database().trackerDevice.findUniqueOrThrow({ where: { id: deviceId } })
+  return database().$transaction((tx) => ingestEvent(tx as never, device, alertEvent(device.externalDeviceId, at, kind), { now: new Date(), simulated: true, retentionDays: 90 }))
+}
 
 suite.sequential("telematics alerts: work items, no messages, a guarded lifecycle (real DB)", () => {
   beforeAll(async () => {
@@ -54,6 +59,8 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     ids.collectionsDevice = await installDevice(fx, fx.assets[1], "SIM-TAMPER-1", daysAgo(30))
     ids.legalDevice = await installDevice(fx, fx.assets[2], "SIM-TAMPER-2", daysAgo(30))
     expect(await pollTenant(fx.tenantId, new Date())).toMatchObject({ ok: true, failed: 0 })
+    ids.queueLoan = await bookOperatingLease(database(), fx, setSession, fx.assets[3])
+    ids.queueDevice = await installDevice(fx, fx.assets[3], "SIM-STEADY-3", daysAgo(30))
   }, 600_000)
 
   afterAll(async () => {
@@ -61,13 +68,26 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     await db?.$disconnect()
   }, 60_000)
 
-  it("raises a tamper and a power cut as OPEN work items on the deal: collections, or recovery once legal action is open", async () => {
+  it("raises a tamper and a power cut as OPEN work items on the deal: servicing in good standing, recovery once legal action is open", async () => {
     expect((await alertsOf(ids.collectionsDevice)).map((a) => [a.kind, a.queue, a.status, a.occurrences, a.loanId])).toEqual([
-      ["TAMPER", "COLLECTIONS", "OPEN", 1, ids.collectionsLoan], ["POWER_CUT", "COLLECTIONS", "OPEN", 1, ids.collectionsLoan],
+      ["TAMPER", "SERVICING", "OPEN", 1, ids.collectionsLoan], ["POWER_CUT", "SERVICING", "OPEN", 1, ids.collectionsLoan],
     ])
     expect((await alertsOf(ids.legalDevice)).map((a) => [a.kind, a.queue])).toEqual([["TAMPER", "RECOVERY"], ["POWER_CUT", "RECOVERY"]])
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "TELEMATICS_ALERT_RAISED" } })).toBe(4)
   }, 120_000)
+
+  it("queues a loan in default for collections, and one with only an open recovery for recovery", async () => {
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.queueLoan])
+    const defaulted = await raise(ids.queueDevice, "TAMPER")
+    expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (defaulted as { alertId: string }).alertId } })).toMatchObject({ queue: "COLLECTIONS", loanId: ids.queueLoan })
+    // Recovered today: an exit from yesterday (inside the tenure) is a recovery item; one from today has no tenure, so no item.
+    await testSetup(database(), [`INSERT INTO "Recovery" ("id", "tenantId", "loanId", "assetId", "route", "status", "recoveredOn", "location", "condition", "createdById", "updatedAt")
+      VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'RECOVERED', CURRENT_DATE, 'Synthetic yard', 'Synthetic condition', $5, now())`, `rcq_${t}`, fx.tenantId, ids.queueLoan, fx.assets[3], fx.adminA])
+    const before = await raise(ids.queueDevice, "GEOFENCE_EXIT", new Date(Date.now() - 86_400_000))
+    expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (before as { alertId: string }).alertId } })).toMatchObject({ queue: "RECOVERY" })
+    expect(await raise(ids.queueDevice, "POWER_CUT")).toMatchObject({ stored: true })
+    expect(await database().telematicsAlert.count({ where: { deviceId: ids.queueDevice, kind: "POWER_CUT" } })).toBe(0)
+  }, 300_000)
 
   it("folds a repeat into the open item, and sends nothing to anyone", async () => {
     const device = await database().trackerDevice.findUniqueOrThrow({ where: { id: ids.collectionsDevice } })
@@ -76,7 +96,7 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     const [tamper] = await alertsOf(ids.collectionsDevice)
     expect(tamper).toMatchObject({ kind: "TAMPER", occurrences: 2, status: "OPEN" })
     expect(tamper.lastOccurredAt.getTime()).toBeGreaterThan(tamper.firstOccurredAt.getTime())
-    expect(await database().telematicsAlert.count({ where: { tenantId: fx.tenantId } })).toBe(4)
+    expect(await database().telematicsAlert.count({ where: { deviceId: { in: [ids.collectionsDevice, ids.legalDevice] } } })).toBe(4)
     for (const count of [
       database().message.count({ where: { conversation: { tenantId: fx.tenantId } } }),
       database().notification.count({ where: { tenantId: fx.tenantId } }),
@@ -133,7 +153,7 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     await ruleRefuses(database(), R, /raised by an alert event of its kind/, async (tx) => {
       const heartbeat = await tx.telematicsEvent.findFirstOrThrow({ where: { deviceId: ids.legalDevice, kind: "HEARTBEAT" } })
       await tx.telematicsAlert.create({ data: {
-        tenantId: fx.tenantId, eventId: heartbeat.id, deviceId: ids.legalDevice, assetId: fx.assets[2], kind: "GEOFENCE_EXIT", queue: "COLLECTIONS",
+        tenantId: fx.tenantId, eventId: heartbeat.id, deviceId: ids.legalDevice, assetId: fx.assets[2], loanId: ids.legalLoan, kind: "GEOFENCE_EXIT", queue: "COLLECTIONS",
         firstOccurredAt: heartbeat.occurredAt, lastOccurredAt: heartbeat.occurredAt,
       } })
     })

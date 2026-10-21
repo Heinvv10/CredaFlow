@@ -84,7 +84,7 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
     expect(first.stored).toBeGreaterThan(80)
     const before = await counts(ids.rollbackDevice)
     expect(before.events).toBeGreaterThan(40)
-    expect(before.positions).toBeGreaterThan(20)
+    expect(before.positions).toBe(1) // the latest only: each newer position replaced the one before
 
     // The cursor moved on: re-polling at the same instant finds nothing new.
     expect(await pollTenant(fx.tenantId, now)).toMatchObject({ stored: 0, duplicates: 0, failed: 0 })
@@ -123,7 +123,8 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
 
   it("a lower reading can never be accepted (422); it is rejected with a note", async () => {
     const held = await heldOf(ids.rollbackDevice)
-    expect(await acceptHeldReading(officer(), held.id, {})).toMatchObject({
+    expect(await acceptHeldReading(officer(), held.id, {})).toMatchObject({ kind: "refused", status: 400, fields: { note: "3 to 500 characters" } })
+    expect(await acceptHeldReading(officer(), held.id, { note: "Looks plausible" })).toMatchObject({
       kind: "refused", status: 422, error: expect.stringMatching(/a lower reading cannot be accepted; reject it or record a corrected reading with evidence/i),
     })
     expect(await rejectHeldReading(officer(), held.id, { note: "" })).toMatchObject({ kind: "refused", status: 400 })
@@ -150,7 +151,7 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
         await telematicsReading(tx, ids.spikeLoan, held.eventId, held.readingDate.toISOString().slice(0, 10), held.value)
       })
     // Every later spike-free day was written, so accepting the spike now would break monotonicity: the accept refuses it.
-    expect(await acceptHeldReading(officer(), held.id, {})).toMatchObject({
+    expect(await acceptHeldReading(officer(), held.id, { note: "Checked on site" })).toMatchObject({
       kind: "refused", status: 422, error: expect.stringMatching(/above a later reading cannot be accepted; reject it or record a corrected reading with evidence/i),
     })
   }, 120_000)
@@ -169,6 +170,7 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
     expect(decided).toMatchObject({ status: "ACCEPTED", decidedById: fx.officer })
     expect(decided.meterReading).toMatchObject({ source: "TELEMATICS", recordedById: fx.officer, value: held.value, telematicsEventId: held.eventId })
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "TELEMATICS_HELD_READING_ACCEPTED", entityId: held.id } })).toBe(1)
-    expect(await acceptHeldReading(officer(), held.id, {})).toMatchObject({ kind: "refused", status: 409 })
+    expect(decided.decisionNote).toBe("Checked on site: the hour meter was replaced")
+    expect(await acceptHeldReading(officer(), held.id, { note: "Again" })).toMatchObject({ kind: "refused", status: 409 })
   }, 300_000)
 })

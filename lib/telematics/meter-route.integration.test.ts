@@ -3,8 +3,9 @@
  * SLICE5.md part B): an operating or full-maintenance lease while it runs, at
  * most one a day, bound to its event; an instalment sale or a finance lease
  * keeps it as a device reading only; nothing is written from the end of the
- * term, after an end of term or an accepted termination, so the staff final
- * reading at the inspection is never blocked. Each database clause refuses
+ * term, after a total loss, an early termination or an accepted termination,
+ * so the staff final reading at the inspection is never blocked (a return or
+ * an extension elected before the term ends stops nothing). Each database clause refuses
  * its attack and is what refuses it (removed, the attack goes through).
  *
  *   RUN_ASSET_FINANCE_TELEMATICS_IT=1 DATABASE_URL=postgresql://... \
@@ -71,7 +72,8 @@ const expectOutcome = async (tx: Tx, device: TrackerDevice, value: number, day: 
 const ACCEPTED_QUOTE = `INSERT INTO "LeaseTerminationQuote" ("id", "tenantId", "loanId", "quotedOn", "terminationDate", "validUntil", "cpaCancellation",
   "remainingRentals", "pvCents", "penaltyCents", "arrearsCents", "invoiceExclVatCents", "invoiceVatCents", "totalCents", "basis", "status", "acceptedAt")
   VALUES (gen_random_uuid()::text, $1, $2, CURRENT_DATE, CURRENT_DATE, CURRENT_DATE, false, 0, 0, 0, 0, 0, 0, 0, 'Synthetic accepted quote', 'ACCEPTED', now())`
-const END_OF_TERM = `INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, 'EXPIRY', 'RETURN', now())`
+const END_OF_TERM = (origin: string, outcome: string) =>
+  `INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, '${origin}', '${outcome}', now())`
 const TERM_ENDED = `UPDATE "LeaseRental" SET "dueDate" = ("dueDate" - INTERVAL '10 years')::date WHERE "loanId" = $1`
 
 suite.sequential("telematics meter readings: leases only, while they run, one a day, bound to the event (real DB)", () => {
@@ -117,7 +119,7 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
     expect(await database().assetMeterReading.count({ where: { assetId: sale.device.assetId } })).toBe(0)
     await ruleAdmits(database(), async (tx) => {
       await setup(tx, [`UPDATE "Loan" SET "contractType" = 'FINANCE_LEASE' WHERE "id" = $1`, sale.loanId])
-      await expectOutcome(tx, sale.device, 5_000, today(), "NOT_LEASE")
+      await expectOutcome(tx, sale.device, 5_000, daysAgo(1), "NOT_LEASE")
     })
     for (const contractType of ["INSTALMENT_SALE", "FINANCE_LEASE"]) {
       await ruleRefuses(database(), { fn: G, replace: [` OR loan_row."contractType"::text NOT IN ('OPERATING_LEASE', 'FULL_MAINTENANCE_LEASE')`, ""] },
@@ -129,11 +131,29 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
     }
   }, 120_000)
 
-  it("writes nothing from the end of the term, after an end of term or an accepted termination; the staff final reading still goes in", async () => {
+  it("writes a full-maintenance lease's day too; a meter in another unit than the lease's stays a device reading (NO_USAGE_TERMS)", async () => {
+    const day = daysAgo(27)
+    const free = [`DELETE FROM "AssetMeterReading" WHERE "loanId" = $1 AND "source" = 'TELEMATICS' AND "readingDate" = $2::date`, lease.loanId, day] as [string, ...unknown[]]
+    await ruleAdmits(database(), async (tx) => {
+      await setup(tx, [`UPDATE "Loan" SET "contractType" = 'FULL_MAINTENANCE_LEASE' WHERE "id" = $1`, lease.loanId], free)
+      await expectOutcome(tx, lease.device, 1_000 + 6 * 3, day, "RECORDED")
+    })
+    await ruleAdmits(database(), async (tx) => {
+      await setup(tx, free)
+      const km = { ...meterEvent(lease.device.externalDeviceId, eveningOf(day), 1_000 + 6 * 3), meter: { value: 1_000 + 6 * 3, unit: "KM" as const } }
+      const result = await ingestEvent(tx as never, lease.device, km, ctx())
+      if (!result.stored || result.meterOutcome !== "NO_USAGE_TERMS") throw new Error(`expected NO_USAGE_TERMS, got ${JSON.stringify(result)}`)
+    })
+  }, 120_000)
+
+  it("writes nothing from the end of the term, after a total loss, an early termination or an accepted termination; the staff final reading still goes in", async () => {
+    const ENDED_USE = `
+     OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" x WHERE x."loanId" = NEW."loanId" AND x."tenantId" = NEW."tenantId"
+       AND (x."outcome" = 'TOTAL_LOSS' OR x."origin" = 'EARLY_TERMINATION'))`
     const cases: [string, [string, ...unknown[]], string][] = [
       ["term ended", [TERM_ENDED, lease.loanId], ` OR NEW."readingDate" >= COALESCE(public."leaseTermEnd"(NEW."loanId", NEW."tenantId"), NEW."readingDate")`],
-      ["end of term", [END_OF_TERM, fx.tenantId, lease.loanId], `
-     OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" x WHERE x."loanId" = NEW."loanId" AND x."tenantId" = NEW."tenantId")`],
+      ["total loss", [END_OF_TERM("EXPIRY", "TOTAL_LOSS"), fx.tenantId, lease.loanId], ENDED_USE],
+      ["early termination", [END_OF_TERM("EARLY_TERMINATION", "RETURN"), fx.tenantId, lease.loanId], ENDED_USE],
       ["accepted termination", [ACCEPTED_QUOTE, fx.tenantId, lease.loanId], `
      OR EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId" AND q."status" = 'ACCEPTED')`],
     ]
@@ -154,6 +174,13 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
       await setup(tx, [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, lease.loanId])
       await direct(tx, lease, daysAgo(10), 1_098)
     })
+    // A return or an extension elected at expiry, before the term ends, leaves the asset in use: readings go on until the term end.
+    for (const outcome of ["RETURN", "EXTEND"]) {
+      await ruleAdmits(database(), async (tx) => {
+        await setup(tx, [END_OF_TERM("EXPIRY", outcome), fx.tenantId, lease.loanId])
+        await direct(tx, lease, daysAgo(10), 1_098)
+      })
+    }
   }, 120_000)
 
   it("binds a TELEMATICS reading to its meter event's value, date and asset, with no client, and a staff one to a held reading", async () => {
@@ -175,8 +202,11 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
         tenantId: fx.tenantId, assetId: lease.device.assetId, loanId: lease.loanId, readingDate: dbDate(daysAgo(10)), value: 1_098, unit: "HOURS", source: "TELEMATICS", telematicsEventId: other.id,
       } })
     })
-    await ruleRefuses(database(), { fn: G, replace: [`ELSIF NOT EXISTS (`, "ELSIF FALSE AND NOT EXISTS ("] }, /is the acceptance of a held reading/,
-      (tx) => direct(tx, lease, daysAgo(10), 1_098, { recordedById: fx.officer }))
+    // (The deferred accepted-hold check is off here: guard-clauses.integration.test.ts covers it.)
+    await ruleRefuses(database(), { fn: G, replace: [`ELSIF NOT EXISTS (`, "ELSIF FALSE AND NOT EXISTS ("] }, /is the acceptance of a held reading/, async (tx) => {
+      await tx.$executeRawUnsafe(`ALTER TABLE "AssetMeterReading" DISABLE TRIGGER "AssetMeterReading_telematics_accepted"`)
+      await direct(tx, lease, daysAgo(10), 1_098, { recordedById: fx.officer })
+    })
     const shape = { table: "AssetMeterReading", constraint: "AssetMeterReading_telematics_shape" }
     await ruleRefuses(database(), shape, /AssetMeterReading_telematics_shape/, (tx) => direct(tx, lease, daysAgo(10), 1_098, { recordedByClientId: fx.lessee }))
     await ruleRefuses(database(), shape, /AssetMeterReading_telematics_shape/, (tx) => direct(tx, lease, daysAgo(10), 1_098, { source: "STAFF", recordedById: fx.officer }))

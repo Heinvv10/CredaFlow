@@ -1,8 +1,9 @@
 /**
  * The remaining telematics guard clauses on real Postgres (docs/asset-finance/
  * SLICE5.md part B): an event's immutability and outcome consistency, a
- * position's binding and immutability, a held reading's binding, decision and
- * lifecycle, an alert's raise shape, loan and acknowledgement, the access
+ * position's binding, tenure, one-per-device and immutability, a held
+ * reading's binding, decision, note and one-per-day, an alert's raise shape,
+ * tenure loan and acknowledgement, the access
  * log's binding, the CHECKs no other suite reaches, and TRUNCATE of the tables
  * no other suite truncates. Each refuses its
  * attack and is what refuses it (removed, the attack goes through).
@@ -47,6 +48,12 @@ const event = (tx: Tx, kind: TelematicsEventKind, over: Record<string, unknown> 
   ...(kind === "METER" ? { meterValue: 2_000, meterUnit: "HOURS" as const } : {}), ...over,
 } })
 const held = (id: string) => database().telematicsHeldReading.findUniqueOrThrow({ where: { id } })
+/** A position for `eventId` on device A, its current (latest) one deleted first: one position per device. */
+const position = async (tx: Tx, eventId: string, occurredAt: Date, latitude = -35.01) => {
+  await tx.telematicsPosition.deleteMany({ where: { deviceId: ids.deviceA } })
+  return tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId, deviceId: ids.deviceA, occurredAt, latitude, longitude: 20.01 } })
+}
+const replica = (tx: Tx) => tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
 
 suite.sequential("telematics guards: events, positions, held readings, alerts, access log (real DB)", () => {
   beforeAll(async () => {
@@ -85,17 +92,32 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
       (tx) => event(tx, "HEARTBEAT", { providerEventId: "" }))
   }, 120_000)
 
-  it("binds a position to its position or alert event, within range, and never changes it", async () => {
-    const position = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.deviceA } })
+  it("binds a position to its position or alert event, within range, one per device, while an agreement covers it, and never changes it", async () => {
+    const current = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.deviceA } })
+    expect(await database().telematicsPosition.count({ where: { deviceId: ids.deviceA } })).toBe(1)
     await ruleRefuses(database(), trigger("TelematicsPosition"), /its position or alert event's, on that event's device at its time/, async (tx) => {
       const heartbeat = await event(tx, "HEARTBEAT")
-      await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: heartbeat.id, deviceId: ids.deviceA, occurredAt: heartbeat.occurredAt, latitude: -35.01, longitude: 20.01 } })
+      await position(tx, heartbeat.id, heartbeat.occurredAt)
     })
-    await ruleRefuses(database(), trigger("TelematicsPosition"), /never changed/, (tx) => tx.telematicsPosition.update({ where: { id: position.id }, data: { latitude: -34 } }))
+    await ruleRefuses(database(), trigger("TelematicsPosition"), /never changed/, (tx) => tx.telematicsPosition.update({ where: { id: current.id }, data: { latitude: -34 } }))
     await ruleRefuses(database(), { table: "TelematicsPosition", constraint: "TelematicsPosition_range" }, /TelematicsPosition_range/, async (tx) => {
       const fresh = await event(tx, "POSITION")
-      await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: fresh.id, deviceId: ids.deviceA, occurredAt: fresh.occurredAt, latitude: 91, longitude: 20 } })
+      await position(tx, fresh.id, fresh.occurredAt, 91)
     })
+    // The latest only: a second position for the device is refused while the first stands.
+    await ruleRefuses(database(), { index: "TelematicsPosition_tenantId_deviceId_key" }, /Unique constraint failed/, async (tx) => {
+      const fresh = await event(tx, "POSITION")
+      await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: fresh.id, deviceId: ids.deviceA, occurredAt: fresh.occurredAt, latitude: -35.02, longitude: 20.02 } })
+    })
+    // Collection ends with the agreement: once the lease is closed, a position is not stored.
+    await ruleRefuses(database(), { fn: "guardTelematicsPosition", replace: [`IF public."telematicsLoanAt"(`, `IF FALSE AND public."telematicsLoanAt"(`] },
+      /stored only while a running agreement on its asset covers its time/, async (tx) => {
+        const fresh = await event(tx, "POSITION")
+        await replica(tx)
+        await tx.$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, ids.loanA)
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
+        await position(tx, fresh.id, fresh.occurredAt)
+      })
   }, 120_000)
 
   it("creates a held reading HELD from its meter event, decides it once, with a note to reject and the decider's own reading to accept", async () => {
@@ -117,8 +139,20 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
     await ruleRefuses(database(), H, /event, lease, date, value and reason are fixed/, (tx) => tx.telematicsHeldReading.update({ where: { id: ids.held }, data: { value: base.value + 500 } }))
     const startReading = await database().assetMeterReading.findFirstOrThrow({ where: { loanId: ids.loanA, source: "STAFF" } })
     await ruleRefuses(database(), H, /the reading its decider recorded from its event/, (tx) => tx.telematicsHeldReading.update({ where: { id: ids.held }, data: {
-      status: "ACCEPTED", decidedById: fx.officer, decidedAt: new Date(), meterReadingId: startReading.id,
+      status: "ACCEPTED", decidedById: fx.officer, decidedAt: new Date(), meterReadingId: startReading.id, decisionNote: "Synthetic accept",
     } }))
+    // An accept needs its note too (the guard off: only the CHECK stands in the way).
+    await ruleRefuses(database(), { table: "TelematicsHeldReading", constraint: "TelematicsHeldReading_decision_shape" }, /TelematicsHeldReading_decision_shape/, async (tx) => {
+      await replica(tx)
+      await tx.telematicsHeldReading.update({ where: { id: ids.held }, data: { status: "ACCEPTED", decidedById: fx.officer, decidedAt: new Date(), meterReadingId: startReading.id, decisionNote: "  " } })
+    })
+    // One held reading per lease per day.
+    await ruleRefuses(database(), { index: "TelematicsHeldReading_tenantId_loanId_readingDate_key" }, /Unique constraint failed/, async (tx) => {
+      const fresh = await event(tx, "METER", { meterValue: base.value, occurredAt: new Date(base.readingDate.getTime() + 16 * 3_600_000) })
+      await tx.telematicsHeldReading.create({ data: {
+        tenantId: fx.tenantId, eventId: fresh.id, loanId: ids.loanA, assetId: fx.assets[1], readingDate: base.readingDate, value: base.value, unit: "HOURS", reason: "LOWER",
+      } })
+    })
     await ruleRefuses(database(), H, /never deleted/, (tx) => tx.telematicsHeldReading.delete({ where: { id: ids.held } }))
     await ruleRefuses(database(), { table: "TelematicsHeldReading", constraint: "TelematicsHeldReading_decision_shape" }, /TelematicsHeldReading_decision_shape/,
       (tx) => tx.telematicsHeldReading.update({ where: { id: ids.held }, data: { status: "REJECTED", decidedById: fx.officer, decidedAt: new Date() } }))
@@ -133,7 +167,16 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
         firstOccurredAt: fresh.occurredAt, lastOccurredAt: fresh.occurredAt, ...over,
       } })
     }
-    await ruleRefuses(database(), A, /alert's loan is on its asset/, raise({ loanId: ids.loanB }))
+    const COVERS = /raised on the running agreement whose tenure covers its event/
+    const TENURE = { fn: "guardTelematicsAlert", replace: [`IF NEW."loanId" IS DISTINCT FROM public."telematicsLoanAt"(`, `IF FALSE AND NEW."loanId" IS DISTINCT FROM public."telematicsLoanAt"(`] } as const
+    await ruleRefuses(database(), TENURE, COVERS, raise({ loanId: ids.loanB }))
+    // The asset's own loan, once closed, no longer covers a new event.
+    await ruleRefuses(database(), TENURE, COVERS, async (tx) => {
+      await replica(tx)
+      await tx.$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, ids.loanA)
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
+      await raise({})(tx)
+    })
     await ruleRefuses(database(), A, /raised OPEN, once, at its event's time/, raise({ occurrences: 2 }))
     await ruleRefuses(database(), A, /An acknowledgement is not changed/, (tx) => tx.telematicsAlert.update({ where: { id: ids.alert }, data: { acknowledgedById: fx.adminA } }))
   }, 120_000)

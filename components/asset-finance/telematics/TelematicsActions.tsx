@@ -47,14 +47,24 @@ export function AlertActions({ alertId, status }: { alertId: string; status: str
   )
 }
 
-/** Accept a held reading (you vouch for it) or reject it with a note (manage_asset_finance). */
+/** Accept a held reading (you vouch for it) or reject it, each with a note (manage_asset_finance). */
 export function HeldReadingActions({ heldId }: { heldId: string }) {
   const { busy, error, run } = useAction()
   const base = `/api/asset-finance/telematics/held-readings/${heldId}`
   return (
-    <NoteAndButtons noteLabel="Note (required to reject)" busy={busy} error={error} buttons={[
-      { label: "Accept", requiresNote: false, onClick: (note: string) => run(`${base}/accept`, note.trim() ? { note } : {}) },
+    <NoteAndButtons noteLabel="Note (what it rests on, or why not)" busy={busy} error={error} buttons={[
+      { label: "Accept", requiresNote: true, onClick: (note: string) => run(`${base}/accept`, { note }) },
       { label: "Reject", requiresNote: true, onClick: (note: string) => run(`${base}/reject`, { note }) },
+    ]} />
+  )
+}
+
+/** Record that a real device's meter was compared with the asset's own, with a note (manage_asset_finance; once). */
+export function VerifyMeterAction({ deviceId }: { deviceId: string }) {
+  const { busy, error, run } = useAction()
+  return (
+    <NoteAndButtons noteLabel="How the meters were compared" busy={busy} error={error} buttons={[
+      { label: "Verify meter", requiresNote: true, onClick: (note: string) => run(`/api/asset-finance/tracker-devices/${deviceId}/verify-meter`, { note }) },
     ]} />
   )
 }

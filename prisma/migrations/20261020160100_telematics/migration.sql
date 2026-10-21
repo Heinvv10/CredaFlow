@@ -8,7 +8,7 @@ CREATE TYPE "TelematicsEventKind" AS ENUM ('HEARTBEAT', 'POSITION', 'METER', 'IG
 CREATE TYPE "TelematicsAlertKind" AS ENUM ('TAMPER', 'POWER_CUT', 'GEOFENCE_EXIT');
 
 -- CreateEnum
-CREATE TYPE "TelematicsMeterOutcome" AS ENUM ('RECORDED', 'HELD', 'SAME_DAY', 'NOT_LEASE', 'LEASE_NOT_RUNNING', 'NO_USAGE_TERMS');
+CREATE TYPE "TelematicsMeterOutcome" AS ENUM ('RECORDED', 'HELD', 'SAME_DAY', 'NOT_LEASE', 'LEASE_NOT_RUNNING', 'NO_USAGE_TERMS', 'METER_UNVERIFIED');
 
 -- CreateEnum
 CREATE TYPE "TelematicsHeldReason" AS ENUM ('LOWER', 'ABOVE_LATER', 'IMPLAUSIBLE');
@@ -17,13 +17,13 @@ CREATE TYPE "TelematicsHeldReason" AS ENUM ('LOWER', 'ABOVE_LATER', 'IMPLAUSIBLE
 CREATE TYPE "TelematicsHeldStatus" AS ENUM ('HELD', 'ACCEPTED', 'REJECTED');
 
 -- CreateEnum
-CREATE TYPE "TelematicsAlertQueue" AS ENUM ('COLLECTIONS', 'RECOVERY');
+CREATE TYPE "TelematicsAlertQueue" AS ENUM ('SERVICING', 'COLLECTIONS', 'RECOVERY');
 
 -- CreateEnum
 CREATE TYPE "TelematicsAlertStatus" AS ENUM ('OPEN', 'ACKNOWLEDGED', 'RESOLVED');
 
 -- CreateEnum
-CREATE TYPE "TelematicsPositionContext" AS ENUM ('RECOVERY', 'LEGAL_MATTER');
+CREATE TYPE "TelematicsPositionContext" AS ENUM ('DEFAULT', 'RECOVERY', 'LEGAL_MATTER');
 
 -- AlterTable
 ALTER TABLE "AssetMeterReading" ADD COLUMN     "telematicsEventId" TEXT;
@@ -46,6 +46,9 @@ CREATE TABLE "TrackerDevice" (
     "pollCursor" TEXT,
     "lastPolledAt" TIMESTAMP(3),
     "lastPollError" TEXT,
+    "meterVerifiedAt" TIMESTAMP(3),
+    "meterVerifiedById" TEXT,
+    "meterVerifiedNote" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -114,7 +117,7 @@ CREATE TABLE "TelematicsAlert" (
     "eventId" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
     "assetId" TEXT NOT NULL,
-    "loanId" TEXT,
+    "loanId" TEXT NOT NULL,
     "kind" "TelematicsAlertKind" NOT NULL,
     "queue" "TelematicsAlertQueue" NOT NULL,
     "status" "TelematicsAlertStatus" NOT NULL DEFAULT 'OPEN',
@@ -160,6 +163,9 @@ CREATE UNIQUE INDEX "TrackerDevice_tenantId_id_key" ON "TrackerDevice"("tenantId
 CREATE INDEX "TelematicsEvent_tenantId_deviceId_kind_occurredAt_idx" ON "TelematicsEvent"("tenantId", "deviceId", "kind", "occurredAt");
 
 -- CreateIndex
+CREATE INDEX "TelematicsEvent_tenantId_kind_occurredAt_idx" ON "TelematicsEvent"("tenantId", "kind", "occurredAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "TelematicsEvent_tenantId_id_key" ON "TelematicsEvent"("tenantId", "id");
 
 -- CreateIndex
@@ -169,13 +175,16 @@ CREATE UNIQUE INDEX "TelematicsEvent_tenantId_provider_providerEventId_key" ON "
 CREATE UNIQUE INDEX "TelematicsPosition_eventId_key" ON "TelematicsPosition"("eventId");
 
 -- CreateIndex
-CREATE INDEX "TelematicsPosition_tenantId_deviceId_occurredAt_idx" ON "TelematicsPosition"("tenantId", "deviceId", "occurredAt");
+CREATE INDEX "TelematicsPosition_tenantId_occurredAt_idx" ON "TelematicsPosition"("tenantId", "occurredAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsPosition_tenantId_id_key" ON "TelematicsPosition"("tenantId", "id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsPosition_tenantId_eventId_key" ON "TelematicsPosition"("tenantId", "eventId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TelematicsPosition_tenantId_deviceId_key" ON "TelematicsPosition"("tenantId", "deviceId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsHeldReading_eventId_key" ON "TelematicsHeldReading"("eventId");
@@ -194,6 +203,9 @@ CREATE UNIQUE INDEX "TelematicsHeldReading_tenantId_eventId_key" ON "TelematicsH
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsHeldReading_tenantId_meterReadingId_key" ON "TelematicsHeldReading"("tenantId", "meterReadingId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TelematicsHeldReading_tenantId_loanId_readingDate_key" ON "TelematicsHeldReading"("tenantId", "loanId", "readingDate");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsAlert_eventId_key" ON "TelematicsAlert"("eventId");
@@ -230,6 +242,9 @@ ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_tenantId_assetId_fkey"
 
 -- AddForeignKey
 ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_tenantId_removedById_fkey" FOREIGN KEY ("tenantId", "removedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+-- AddForeignKey
+ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_tenantId_meterVerifiedById_fkey" FOREIGN KEY ("tenantId", "meterVerifiedById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_tenantId_createdById_fkey" FOREIGN KEY ("tenantId", "createdById") REFERENCES "User"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
@@ -303,6 +318,10 @@ ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_external_id" CHECK (le
 ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_status_shape" CHECK (CASE "status"
   WHEN 'ACTIVE' THEN "removedOn" IS NULL AND "removedById" IS NULL
   ELSE "removedOn" IS NOT NULL AND "removedById" IS NOT NULL END);
+-- A meter verification is who, when and a note of 3 to 500 characters, or nothing.
+ALTER TABLE "TrackerDevice" ADD CONSTRAINT "TrackerDevice_meter_verified_shape" CHECK (
+  ("meterVerifiedAt" IS NULL) = ("meterVerifiedById" IS NULL) AND ("meterVerifiedAt" IS NULL) = ("meterVerifiedNote" IS NULL)
+  AND ("meterVerifiedNote" IS NULL OR length(btrim("meterVerifiedNote")) BETWEEN 3 AND 500));
 -- One live device per asset, and a provider's device on one asset at a time.
 CREATE UNIQUE INDEX "TrackerDevice_one_active_per_asset" ON "TrackerDevice" ("tenantId", "assetId") WHERE "status" = 'ACTIVE';
 CREATE UNIQUE INDEX "TrackerDevice_one_active_per_external_id" ON "TrackerDevice" ("tenantId", "provider", "externalDeviceId") WHERE "status" = 'ACTIVE';
@@ -321,7 +340,7 @@ ALTER TABLE "TelematicsPosition" ADD CONSTRAINT "TelematicsPosition_range" CHECK
 ALTER TABLE "TelematicsHeldReading" ADD CONSTRAINT "TelematicsHeldReading_decision_shape" CHECK (CASE "status"
   WHEN 'HELD' THEN "decidedById" IS NULL AND "decidedAt" IS NULL AND "meterReadingId" IS NULL AND "decisionNote" IS NULL
   WHEN 'ACCEPTED' THEN "decidedById" IS NOT NULL AND "decidedAt" IS NOT NULL AND "meterReadingId" IS NOT NULL
-    AND ("decisionNote" IS NULL OR length("decisionNote") <= 500)
+    AND length(btrim(COALESCE("decisionNote", ''))) BETWEEN 3 AND 500
   ELSE "decidedById" IS NOT NULL AND "decidedAt" IS NOT NULL AND "meterReadingId" IS NULL
     AND length(btrim(COALESCE("decisionNote", ''))) BETWEEN 3 AND 500 END);
 
@@ -357,9 +376,28 @@ RETURNS INTEGER LANGUAGE sql STABLE AS $function$
   WHERE d."tenantId" = tenant_id AND d."loanId" = loan_id AND d."usageAllowancePerYear" IS NOT NULL;
 $function$;
 
+-- The agreement whose tenure of the asset covers `at` (POPIA: collection ends
+-- with the agreement): an ACTIVE or DEFAULTED loan on the asset that started
+-- on or before at's SAST day, with no later loan on the asset started by then
+-- and no recovery of the asset under it (a withdrawn one aside: the asset went
+-- back) dated on or before that day. NULL when none: no position is stored and
+-- no alert raised.
+CREATE OR REPLACE FUNCTION public."telematicsLoanAt"(tenant_id TEXT, asset_id TEXT, at TIMESTAMP)
+RETURNS TEXT LANGUAGE sql STABLE AS $function$
+  SELECT l."id" FROM "Loan" l
+  WHERE l."tenantId" = tenant_id AND l."assetId" = asset_id AND l."status" IN ('ACTIVE', 'DEFAULTED')
+    AND (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
+    AND NOT EXISTS (SELECT 1 FROM "Loan" n WHERE n."tenantId" = tenant_id AND n."assetId" = asset_id AND n."id" <> l."id" AND n."startDate" > l."startDate"
+      AND (n."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
+    AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."tenantId" = tenant_id AND r."loanId" = l."id" AND r."status" <> 'WITHDRAWN'
+      AND r."recoveredOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
+  ORDER BY l."startDate" DESC LIMIT 1;
+$function$;
+
 -- Registered ACTIVE, installed no later than today; asset, provider, device
 -- id, installation and creator fixed; ACTIVE -> REMOVED once, dated between
--- installation and today; a removed device is final; never deleted.
+-- installation and today; a removed device is final; never deleted. Its
+-- meter verification is set once, never at registration.
 CREATE OR REPLACE FUNCTION public."guardTrackerDevice"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -369,8 +407,8 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker device is never deleted; it is removed';
   END IF;
   IF TG_OP = 'INSERT' THEN
-    IF NEW."status" <> 'ACTIVE' OR NEW."installedOn" > today THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker device is registered ACTIVE, installed no later than today';
+    IF NEW."status" <> 'ACTIVE' OR NEW."installedOn" > today OR NEW."meterVerifiedAt" IS NOT NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker device is registered ACTIVE and unverified, installed no later than today';
     END IF;
     RETURN NEW;
   END IF;
@@ -380,6 +418,10 @@ BEGIN
   END IF;
   IF OLD."status" = 'REMOVED' THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A removed tracker device is final';
+  END IF;
+  IF OLD."meterVerifiedAt" IS NOT NULL AND (NEW."meterVerifiedAt", NEW."meterVerifiedById", NEW."meterVerifiedNote")
+     IS DISTINCT FROM (OLD."meterVerifiedAt", OLD."meterVerifiedById", OLD."meterVerifiedNote") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker device''s meter verification is set once';
   END IF;
   IF NEW."status" = 'REMOVED' AND NOT (NEW."removedOn" BETWEEN OLD."installedOn" AND today) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker device is removed on a day between its installation and today';
@@ -394,7 +436,8 @@ CREATE TRIGGER "TrackerDevice_no_truncate" BEFORE TRUNCATE ON "TrackerDevice"
 
 -- Stored for an ACTIVE device of the tenant, under its provider, between the
 -- device's installation (SAST) and five minutes from now. Immutable but for
--- a METER event's outcome, set once and consistent with what was written.
+-- a METER event's outcome, set once at ingest and consistent with what was
+-- written then (a held reading accepted later keeps HELD).
 -- Deleted only by the purge: a heartbeat, ignition or position event past the
 -- tenant's retention. METER and ALERT events are business records.
 CREATE OR REPLACE FUNCTION public."guardTelematicsEvent"()
@@ -436,7 +479,7 @@ BEGIN
        SELECT 1 FROM "AssetMeterReading" m WHERE m."telematicsEventId" = NEW."id" AND m."tenantId" = NEW."tenantId")
      OR (NEW."meterOutcome" = 'HELD') <> EXISTS (
        SELECT 1 FROM "TelematicsHeldReading" h WHERE h."eventId" = NEW."id" AND h."tenantId" = NEW."tenantId") THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A meter event is RECORDED exactly when its reading is written, and HELD exactly when it is held';
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A meter event''s outcome at ingest is RECORDED exactly when its reading is written, and HELD exactly when it is held';
   END IF;
   RETURN NEW;
 END;
@@ -447,8 +490,10 @@ CREATE TRIGGER "TelematicsEvent_no_truncate" BEFORE TRUNCATE ON "TelematicsEvent
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardTelematicsEvent"();
 
 -- A position is its POSITION or ALERT event's, on the event's device at its
--- time, and within the tenant's retention when stored (a stale backfill is
--- never kept). Never changed. Deleted by the purge (or a DSAR erasure).
+-- time, while a running agreement on the asset covers that time
+-- (telematicsLoanAt), and within the tenant's retention when stored (a stale
+-- backfill is never kept). One per device (the latest: ingest deletes the
+-- older one). Never changed. Deleted by ingest, the purge (or a DSAR erasure).
 CREATE OR REPLACE FUNCTION public."guardTelematicsPosition"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -468,6 +513,9 @@ BEGIN
       AND e."deviceId" = NEW."deviceId" AND e."occurredAt" = NEW."occurredAt" AND e."kind" IN ('POSITION', 'ALERT')) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics position is its position or alert event''s, on that event''s device at its time';
   END IF;
+  IF public."telematicsLoanAt"(NEW."tenantId", (SELECT d."assetId" FROM "TrackerDevice" d WHERE d."id" = NEW."deviceId" AND d."tenantId" = NEW."tenantId"), NEW."occurredAt") IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics position is stored only while a running agreement on its asset covers its time';
+  END IF;
   SELECT c."telematicsPositionRetentionDays" INTO retention FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId";
   IF NOT COALESCE(NEW."occurredAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => retention), FALSE) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics position older than the tenant''s retention is not stored';
@@ -482,23 +530,27 @@ CREATE TRIGGER "TelematicsPosition_no_truncate" BEFORE TRUNCATE ON "TelematicsPo
 
 -- A TELEMATICS reading (fires after AssetMeterReading_guard, which still owns
 -- the date, immutability and monotonic rules): its METER event's value, unit,
--- SAST date and asset; of an operating or full-maintenance lease of that asset
--- while it runs (ACTIVE or DEFAULTED, before the term ends, no end of term, no
--- accepted termination). Unattended (no recordedById) it is not a held
--- reading and keeps within the pace ceiling; recorded by staff it is the
--- acceptance of a HELD reading of that event.
+-- SAST date and asset, from a simulated event or a device whose meter staff
+-- verified; of an operating or full-maintenance lease of that asset while it
+-- runs (ACTIVE or DEFAULTED, before the term ends, no total loss or early
+-- termination, no accepted termination quote). Unattended (no recordedById)
+-- it is not a held reading and keeps within the pace ceiling; recorded by
+-- staff it is the acceptance of a HELD reading of that event and lease.
 CREATE OR REPLACE FUNCTION public."guardTelematicsMeterReading"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
   ev RECORD;
   loan_row RECORD;
 BEGIN
-  SELECT e."kind", e."meterValue", e."meterUnit", e."occurredAt", d."assetId" INTO ev
+  SELECT e."kind", e."meterValue", e."meterUnit", e."occurredAt", e."simulated", d."assetId", d."meterVerifiedAt" INTO ev
   FROM "TelematicsEvent" e JOIN "TrackerDevice" d ON d."id" = e."deviceId" AND d."tenantId" = e."tenantId"
   WHERE e."id" = NEW."telematicsEventId" AND e."tenantId" = NEW."tenantId";
   IF NOT FOUND OR ev."kind" <> 'METER' OR ev."meterValue" <> NEW."value" OR ev."meterUnit" <> NEW."unit"
      OR (ev."occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <> NEW."readingDate" OR ev."assetId" <> NEW."assetId" THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics reading is its meter event''s value, unit, SAST date and asset';
+  END IF;
+  IF NOT ev."simulated" AND ev."meterVerifiedAt" IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics reading is from a simulated event or a device whose meter staff verified';
   END IF;
   SELECT l."contractType", l."status", l."assetId" INTO loan_row FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId";
   IF NOT FOUND OR loan_row."assetId" IS DISTINCT FROM NEW."assetId"
@@ -507,9 +559,10 @@ BEGIN
   END IF;
   IF loan_row."status"::text NOT IN ('ACTIVE', 'DEFAULTED')
      OR NEW."readingDate" >= COALESCE(public."leaseTermEnd"(NEW."loanId", NEW."tenantId"), NEW."readingDate")
-     OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" x WHERE x."loanId" = NEW."loanId" AND x."tenantId" = NEW."tenantId")
+     OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" x WHERE x."loanId" = NEW."loanId" AND x."tenantId" = NEW."tenantId"
+       AND (x."outcome" = 'TOTAL_LOSS' OR x."origin" = 'EARLY_TERMINATION'))
      OR EXISTS (SELECT 1 FROM "LeaseTerminationQuote" q WHERE q."loanId" = NEW."loanId" AND q."tenantId" = NEW."tenantId" AND q."status" = 'ACCEPTED') THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics reading is written only while the lease runs: before its term ends, with no end of term or accepted termination';
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics reading is written only while the lease runs: before its term ends, with no total loss, early termination or accepted termination';
   END IF;
   IF NEW."recordedById" IS NULL THEN
     IF EXISTS (SELECT 1 FROM "TelematicsHeldReading" h WHERE h."eventId" = NEW."telematicsEventId" AND h."tenantId" = NEW."tenantId") THEN
@@ -519,14 +572,31 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An unattended telematics reading may not run ahead of three times the contracted pace since the lease''s start reading';
     END IF;
   ELSIF NOT EXISTS (
-    SELECT 1 FROM "TelematicsHeldReading" h WHERE h."eventId" = NEW."telematicsEventId" AND h."tenantId" = NEW."tenantId" AND h."status" = 'HELD') THEN
-    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A staff-recorded telematics reading is the acceptance of a held reading';
+    SELECT 1 FROM "TelematicsHeldReading" h WHERE h."eventId" = NEW."telematicsEventId" AND h."tenantId" = NEW."tenantId" AND h."status" = 'HELD'
+      AND h."loanId" = NEW."loanId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A staff-recorded telematics reading is the acceptance of a held reading of its lease';
   END IF;
   RETURN NEW;
 END;
 $function$;
 CREATE TRIGGER "AssetMeterReading_telematics" BEFORE INSERT ON "AssetMeterReading"
   FOR EACH ROW WHEN (NEW."source" = 'TELEMATICS') EXECUTE FUNCTION public."guardTelematicsMeterReading"();
+
+-- A staff-recorded TELEMATICS reading leaves its transaction as the reading of
+-- an ACCEPTED held reading of its event (deferred: the accept writes the
+-- reading first, then decides the hold).
+CREATE OR REPLACE FUNCTION public."guardTelematicsReadingAccepted"()
+RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "TelematicsHeldReading" h WHERE h."meterReadingId" = NEW."id" AND h."tenantId" = NEW."tenantId"
+      AND h."eventId" = NEW."telematicsEventId" AND h."status" = 'ACCEPTED') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A staff-recorded telematics reading is decided as its held reading''s acceptance in the same transaction';
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+CREATE CONSTRAINT TRIGGER "AssetMeterReading_telematics_accepted" AFTER INSERT ON "AssetMeterReading" DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW."source" = 'TELEMATICS' AND NEW."recordedById" IS NOT NULL) EXECUTE FUNCTION public."guardTelematicsReadingAccepted"();
 
 -- Created HELD from its METER event (value, unit, SAST date, asset) for a
 -- lease of that asset. HELD -> ACCEPTED (the reading its decider recorded from
@@ -575,9 +645,10 @@ CREATE TRIGGER "TelematicsHeldReading_no_truncate" BEFORE TRUNCATE ON "Telematic
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardTelematicsHeldReading"();
 
 -- Raised OPEN, once, at its ALERT event's time, of the event's kind, device and
--- asset (its loan, if any, on that asset). A repeat adds one occurrence and
--- never moves the last one back; OPEN -> ACKNOWLEDGED -> RESOLVED (or OPEN ->
--- RESOLVED); resolved is final; the identity and queue are fixed; never deleted.
+-- asset, on the running agreement whose tenure covers that time
+-- (telematicsLoanAt). A repeat adds one occurrence and never moves the last
+-- one back; OPEN -> ACKNOWLEDGED -> RESOLVED (or OPEN -> RESOLVED); resolved
+-- is final; the identity and queue are fixed; never deleted.
 CREATE OR REPLACE FUNCTION public."guardTelematicsAlert"()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 DECLARE
@@ -593,9 +664,8 @@ BEGIN
     IF NOT FOUND OR ev."kind" <> 'ALERT' OR ev."alertKind" <> NEW."kind" OR ev."deviceId" <> NEW."deviceId" OR ev."assetId" <> NEW."assetId" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics alert is raised by an alert event of its kind, on its device and asset';
     END IF;
-    IF NEW."loanId" IS NOT NULL AND NOT EXISTS (
-      SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."assetId" = NEW."assetId") THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics alert''s loan is on its asset';
+    IF NEW."loanId" IS DISTINCT FROM public."telematicsLoanAt"(NEW."tenantId", ev."assetId", ev."occurredAt") THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics alert is raised on the running agreement whose tenure covers its event';
     END IF;
     IF NEW."status" <> 'OPEN' OR NEW."occurrences" <> 1 OR NEW."firstOccurredAt" <> ev."occurredAt" OR NEW."lastOccurredAt" <> ev."occurredAt" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics alert is raised OPEN, once, at its event''s time';

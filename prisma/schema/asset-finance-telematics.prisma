@@ -27,6 +27,8 @@ enum TelematicsMeterOutcome {
   NOT_LEASE
   LEASE_NOT_RUNNING
   NO_USAGE_TERMS
+  // A real (not simulated) device whose meter staff have not verified against the asset's.
+  METER_UNVERIFIED
 }
 
 enum TelematicsHeldReason {
@@ -42,6 +44,8 @@ enum TelematicsHeldStatus {
 }
 
 enum TelematicsAlertQueue {
+  // A running loan in good standing: a neutral servicing item, not collections.
+  SERVICING
   COLLECTIONS
   RECOVERY
 }
@@ -53,6 +57,7 @@ enum TelematicsAlertStatus {
 }
 
 enum TelematicsPositionContext {
+  DEFAULT
   RECOVERY
   LEGAL_MATTER
 }
@@ -60,33 +65,38 @@ enum TelematicsPositionContext {
 // A tracker on a financed asset, polled through a registered provider
 // (lib/telematics/registry.ts). One ACTIVE device per asset; never deleted,
 // only REMOVED (guardTrackerDevice). FinancedAsset.trackerId stays the payout
-// checklist's source.
+// checklist's source. A real provider's meter feeds the lease only once staff
+// verified it against the asset's own meter (meterVerified*, set once).
 model TrackerDevice {
-  id               String              @id @default(cuid())
-  tenantId         String
-  tenant           Tenant              @relation(fields: [tenantId], references: [id])
-  assetId          String
-  asset            FinancedAsset       @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  provider         String
-  externalDeviceId String
-  installedOn      DateTime            @db.Date
-  status           TrackerDeviceStatus @default(ACTIVE)
-  removedOn        DateTime?           @db.Date
-  removedById      String?
-  removedBy        User?               @relation("TrackerDeviceRemovedBy", fields: [tenantId, removedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  createdById      String
-  createdBy        User                @relation("TrackerDeviceCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  pollCursor       String?
-  lastPolledAt     DateTime?
-  lastPollError    String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id                String              @id @default(cuid())
+  tenantId          String
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  assetId           String
+  asset             FinancedAsset       @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  provider          String
+  externalDeviceId  String
+  installedOn       DateTime            @db.Date
+  status            TrackerDeviceStatus @default(ACTIVE)
+  removedOn         DateTime?           @db.Date
+  removedById       String?
+  removedBy         User?               @relation("TrackerDeviceRemovedBy", fields: [tenantId, removedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  createdById       String
+  createdBy         User                @relation("TrackerDeviceCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  pollCursor        String?
+  lastPolledAt      DateTime?
+  lastPollError     String?
+  meterVerifiedAt   DateTime?
+  meterVerifiedById String?
+  meterVerifiedBy   User?               @relation("TrackerDeviceMeterVerifiedBy", fields: [tenantId, meterVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  meterVerifiedNote String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   alerts           TelematicsAlert[]
   events           TelematicsEvent[]
+  position         TelematicsPosition?
   positionAccesses TelematicsPositionAccess[]
-  positions        TelematicsPosition[]
 
   @@unique([tenantId, id])
   @@index([tenantId, assetId])
@@ -120,10 +130,13 @@ model TelematicsEvent {
   @@unique([tenantId, id])
   @@unique([tenantId, provider, providerEventId])
   @@index([tenantId, deviceId, kind, occurredAt])
+  @@index([tenantId, kind, occurredAt])
 }
 
-// The only copy of a coordinate. Purged after TenantConfig.telematicsPositionRetentionDays;
-// read only through lib/telematics/position-view.ts, which logs every view.
+// The only copy of a coordinate, and only the latest per device (POPIA
+// minimality: a newer one replaces it). Purged after
+// TenantConfig.telematicsPositionRetentionDays; read only through
+// lib/telematics/position-view.ts, which logs every view.
 model TelematicsPosition {
   id         String          @id @default(cuid())
   tenantId   String
@@ -138,11 +151,13 @@ model TelematicsPosition {
 
   @@unique([tenantId, id])
   @@unique([tenantId, eventId])
-  @@index([tenantId, deviceId, occurredAt])
+  @@unique([tenantId, deviceId])
+  @@index([tenantId, occurredAt])
 }
 
 // A device meter reading refused by the monotonic or pace rule, held for staff:
-// accepted (written as a TELEMATICS reading the accepter vouches for) or rejected.
+// accepted with a note (written as a TELEMATICS reading the accepter vouches
+// for) or rejected. At most one per lease per day.
 model TelematicsHeldReading {
   id             String               @id @default(cuid())
   tenantId       String
@@ -168,11 +183,13 @@ model TelematicsHeldReading {
   @@unique([tenantId, id])
   @@unique([tenantId, eventId])
   @@unique([tenantId, meterReadingId])
+  @@unique([tenantId, loanId, readingDate])
   @@index([tenantId, status])
 }
 
-// A collections or recovery work item raised by a device alert. Repeats fold
-// into the unresolved item for the same device and kind. Nothing is sent.
+// A servicing, collections or recovery work item raised by a device alert, on
+// the loan whose tenure covers it. Repeats fold into the unresolved item for
+// the same device and kind. Nothing is sent.
 model TelematicsAlert {
   id               String                @id @default(cuid())
   tenantId         String
@@ -182,8 +199,8 @@ model TelematicsAlert {
   device           TrackerDevice         @relation(fields: [tenantId, deviceId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   assetId          String
   asset            FinancedAsset         @relation(fields: [tenantId, assetId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  loanId           String?
-  loan             Loan?                 @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  loanId           String
+  loan             Loan                  @relation(fields: [tenantId, loanId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   kind             TelematicsAlertKind
   queue            TelematicsAlertQueue
   status           TelematicsAlertStatus @default(OPEN)

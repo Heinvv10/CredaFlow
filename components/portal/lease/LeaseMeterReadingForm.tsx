@@ -10,10 +10,12 @@ interface Props {
   /** The SAST calendar day: a lessee reports today's reading only. */
   today: string
   unit: "HOURS" | "KM"
-  latest: { readingDate: string; value: number } | null
+  latest: { readingDate: string; value: number; source: "STAFF" | "PORTAL" | "TELEMATICS" } | null
 }
 
 const UNIT_LABEL = { HOURS: "hours", KM: "km" } as const
+/** Who took the latest reading: a tracker's is never presented as the lessee's own. */
+const SOURCE_LABEL = { TELEMATICS: "from the tracker", STAFF: "recorded by the lessor", PORTAL: "submitted through the portal" } as const
 
 export function LeaseMeterReadingForm({ loanId, today, unit, latest }: Props) {
   const router = useRouter()
@@ -37,7 +39,7 @@ export function LeaseMeterReadingForm({ loanId, today, unit, latest }: Props) {
   return (
     <div className="space-y-3 text-sm">
       <p className="text-[var(--cf-text-muted)]">
-        {latest ? `Last reading: ${latest.value.toLocaleString("en-ZA")} ${UNIT_LABEL[unit]} on ${formatIsoDate(latest.readingDate)}.` : "No reading has been recorded yet."}
+        {latest ? `Last reading: ${latest.value.toLocaleString("en-ZA")} ${UNIT_LABEL[unit]} on ${formatIsoDate(latest.readingDate)}, ${SOURCE_LABEL[latest.source]}.` : "No reading has been recorded yet."}
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="block">

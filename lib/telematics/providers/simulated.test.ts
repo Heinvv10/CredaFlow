@@ -45,7 +45,7 @@ describe("simulated telematics provider", () => {
 
   it("emits a heartbeat at 06:00, a position at 12:00 and a meter at 18:00 SAST each day, deterministically", async () => {
     const { events, cursors } = await poll([device("SIM-STEADY-7")])
-    const day0 = events.filter((e) => e.providerEventId.startsWith("sim:SIM-STEADY-7:0:"))
+    const day0 = events.filter((e) => e.providerEventId.startsWith("sim:SIM-STEADY-7:2026-09-01:0:"))
     expect(day0.map((e) => [e.kind, e.occurredAt.toISOString()])).toEqual([
       ["HEARTBEAT", "2026-09-01T04:00:00.000Z"], ["POSITION", "2026-09-01T10:00:00.000Z"], ["METER", "2026-09-01T16:00:00.000Z"],
     ])
@@ -82,8 +82,8 @@ describe("simulated telematics provider", () => {
     const { events } = await poll(["SIM-TAMPER-1", "SIM-GEOFENCE-1", "SIM-ROLLBACK-1", "SIM-SPIKE-1", "SIM-SILENT-1"].map((id) => device(id)))
     const of = (id: string) => events.filter((e) => e.externalDeviceId === id)
     expect(of("SIM-TAMPER-1").filter((e) => e.kind === "ALERT").map((e) => [e.alert, e.providerEventId, e.occurredAt.toISOString()])).toEqual([
-      ["TAMPER", "sim:SIM-TAMPER-1:25:ALERT:TAMPER", "2026-09-26T17:00:00.000Z"],
-      ["POWER_CUT", "sim:SIM-TAMPER-1:26:ALERT:POWER_CUT", "2026-09-27T17:00:00.000Z"],
+      ["TAMPER", "sim:SIM-TAMPER-1:2026-09-01:25:ALERT:TAMPER", "2026-09-26T17:00:00.000Z"],
+      ["POWER_CUT", "sim:SIM-TAMPER-1:2026-09-01:26:ALERT:POWER_CUT", "2026-09-27T17:00:00.000Z"],
     ])
     const geofence = of("SIM-GEOFENCE-1").filter((e) => e.kind === "ALERT")
     expect(geofence.map((e) => e.alert)).toEqual(["GEOFENCE_EXIT"])

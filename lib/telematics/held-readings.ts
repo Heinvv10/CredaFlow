@@ -1,8 +1,8 @@
 /**
  * Held tracker readings (docs/asset-finance/SLICE5.md part B), decided by staff
- * (manage_asset_finance). Accepting writes the reading as TELEMATICS with the
- * accepter as recordedById, outside the pace ceiling: the accepter vouches for
- * it. A reading below an earlier one, or above a later one, can never be
+ * (manage_asset_finance), each with a note. Accepting writes the reading as
+ * TELEMATICS with the accepter as recordedById, outside the pace ceiling: the
+ * accepter vouches for it, and the note says on what (the DB requires it). A reading below an earlier one, or above a later one, can never be
  * accepted (the monotonic rule); it is rejected, and a corrected STAFF reading
  * with evidence recorded if need be. Both are audited.
  */
@@ -28,9 +28,8 @@ class Refused extends Error {
 
 export async function acceptHeldReading(actor: TelematicsActor, heldId: string, body: unknown): Promise<TelematicsResult<{ readingId: string }>> {
   const { tenantId } = actor
-  const raw = objectBody(body)?.note
-  const note = raw === undefined || raw === null || raw === "" ? null : noteOf(raw)
-  if (raw !== undefined && raw !== null && raw !== "" && !note) return refused(400, "A note is 3 to 500 characters", { note: "3 to 500 characters" })
+  const note = noteOf(objectBody(body)?.note)
+  if (!note) return refused(400, "Say what the accepted reading rests on (3 to 500 characters)", { note: "3 to 500 characters" })
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM "TelematicsHeldReading" WHERE "id" = ${heldId} AND "tenantId" = ${tenantId} FOR UPDATE`

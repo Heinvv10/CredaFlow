@@ -28,8 +28,9 @@ import { LastKnownPosition } from "../telematics/LastKnownPosition"
  * court-order recovery comes from the legal matter's recovered step.
  * `canManage` / `canDecide` are manage_asset_finance / decide_asset_finance.
  * `canViewPosition` (view_asset_position) adds the logged "Show last known
- * position"; the server answers it only for a loan in default, legal action or
- * recovery (lib/telematics/position-view.ts).
+ * position": for a live recovery (context RECOVERY), or before one exists for
+ * a loan in default (context DEFAULT; the server answers 409 otherwise,
+ * lib/telematics/position-view.ts).
  */
 
 const subheading = "mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--cf-text-muted)]"
@@ -62,7 +63,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
     return (
       <DataPanel title="Recovery" description={form ? "The asset is back in the lender's hands: value it, notify, remarket and settle the account." : "Recovery of the asset"} density="loose">
         <div className="space-y-4">
-          {canViewPosition && <LastKnownPosition loanId={loanId} context="RECOVERY" />}
+          {canViewPosition && <LastKnownPosition loanId={loanId} context="DEFAULT" />}
           <WithdrawnHistory withdrawn={data.withdrawn} />
           {form && (
             <RecordRecoveryForm loanId={loanId} lease={data.lease} today={today} surrenders={data.surrenders}

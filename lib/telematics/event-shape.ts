@@ -1,15 +1,40 @@
+import { sastCalendarDate } from "@/lib/date/sast"
 import type { NormalisedTelematicsEvent } from "./types"
 
-/** Why a provider event cannot be stored as it is, or null. */
-export function invalidEvent(event: NormalisedTelematicsEvent): string | null {
-  if (!event.providerEventId || event.providerEventId.length > 200) return "provider event id"
+/** The database's INTEGER (int4) columns: TelematicsEvent.meterValue, TelematicsPosition.accuracyM. */
+const INT4_MAX = 2_147_483_647
+/** How far ahead of the database's clock an event may be stored (guardTelematicsEvent). */
+export const FUTURE_TOLERANCE_MS = 5 * 60_000
+/** True when a provider or device id carries a control character (a NUL the database refuses outright). */
+export const hasControlCharacter = (value: string): boolean => [...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
+
+const int4 = (value: number) => Number.isSafeInteger(value) && value >= 0 && value <= INT4_MAX
+
+/**
+ * Why a provider event cannot be stored as it is, or null. With the device's
+ * installation day and the poll's clock it also refuses an event dated before
+ * the installation (SAST) or more than five minutes ahead: the database would
+ * refuse both, every poll.
+ */
+export function invalidEvent(event: NormalisedTelematicsEvent, at?: { installedOn: string; now: Date }): string | null {
+  if (!event.providerEventId || event.providerEventId.length > 200 || hasControlCharacter(event.providerEventId)) return "provider event id"
   if (!(event.occurredAt instanceof Date) || Number.isNaN(event.occurredAt.getTime())) return "time"
+  if (at && sastCalendarDate(event.occurredAt) < at.installedOn) return "before the installation"
+  if (at && event.occurredAt.getTime() > at.now.getTime() + FUTURE_TOLERANCE_MS) return "more than five minutes ahead"
   if ((event.kind === "METER") !== (event.meter !== undefined)) return "meter"
-  if (event.meter && (!Number.isSafeInteger(event.meter.value) || event.meter.value < 0)) return "meter value"
+  if (event.meter && !int4(event.meter.value)) return "meter value"
   if ((event.kind === "IGNITION") !== (event.ignitionOn !== undefined)) return "ignition"
   if ((event.kind === "ALERT") !== (event.alert !== undefined)) return "alert"
   const p = event.position
   if (p && (event.kind === "HEARTBEAT" || event.kind === "METER" || event.kind === "IGNITION")) return "position on a non-position event"
-  if (p && !(Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && (p.accuracyM === null || p.accuracyM >= 0))) return "position"
+  if (p && !(Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180 && (p.accuracyM === null || int4(p.accuracyM)))) return "position"
   return null
+}
+
+/** An event refused for what it is, not for a passing failure: the poll skips it and moves on. */
+export class TelematicsEventRejected extends Error {
+  constructor(readonly reason: string) {
+    super(reason)
+    this.name = "TelematicsEventRejected"
+  }
 }

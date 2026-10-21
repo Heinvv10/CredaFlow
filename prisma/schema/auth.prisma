@@ -136,6 +136,7 @@ model User {
   telematicsHeldReadingsDecided TelematicsHeldReading[]              @relation("TelematicsHeldReadingDecidedBy")
   telematicsPositionAccesses   TelematicsPositionAccess[]            @relation("TelematicsPositionAccessUser")
   trackerDevicesCreated        TrackerDevice[]                       @relation("TrackerDeviceCreatedBy")
+  trackerDevicesMeterVerified  TrackerDevice[]                       @relation("TrackerDeviceMeterVerifiedBy")
   trackerDevicesRemoved        TrackerDevice[]                       @relation("TrackerDeviceRemovedBy")
   webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
   webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")

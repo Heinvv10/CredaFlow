@@ -5,9 +5,9 @@ import { jsonBody, telematicsResponse, withTelematicsStaff } from "@/lib/telemat
 type Params = { params: Promise<{ id: string; action: string }> }
 
 /**
- * `accept` a held tracker reading (written as TELEMATICS, recorded by the
- * accepter; a lower one is refused 422), or `reject` it with `{ note }`
- * (manage_asset_finance). Audited.
+ * `accept` a held tracker reading with `{ note }` (written as TELEMATICS,
+ * recorded by the accepter; a lower one is refused 422), or `reject` it with
+ * `{ note }` (manage_asset_finance). Audited.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const { id, action } = await params

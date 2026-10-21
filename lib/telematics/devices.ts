@@ -1,7 +1,9 @@
 /**
  * Tracker devices on financed assets (docs/asset-finance/SLICE5.md part B):
  * registered by staff under a registered provider (manage_asset_finance),
- * removed once, never deleted (guardTrackerDevice). The heartbeat is shown
+ * removed once, never deleted (guardTrackerDevice). A real provider's device
+ * feeds meter readings only once staff verified its meter against the
+ * asset's own, with a note (set once, audited). The heartbeat is shown
  * beside the payout checklist's tracker item as information only: the item
  * still needs the staff-uploaded certificate, and FinancedAsset.trackerId
  * stays its source.
@@ -12,7 +14,8 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate, isoOfDbDate, toDayNumber } from "@/lib/asset-finance/dates"
 import { getTelematicsProvider, registeredTelematicsProviderIds } from "./registry"
-import { objectBody, refused, type TelematicsActor, type TelematicsResult } from "./result"
+import { hasControlCharacter } from "./event-shape"
+import { noteOf, objectBody, refused, type TelematicsActor, type TelematicsResult } from "./result"
 
 export interface TrackerHeartbeat {
   deviceId: string
@@ -44,7 +47,8 @@ export async function registerTrackerDevice(actor: TelematicsActor, assetId: str
   const provider = typeof input.provider === "string" ? getTelematicsProvider(input.provider.trim()) : null
   if (!provider) fields.provider = `Choose a registered tracker provider (${registeredTelematicsProviderIds().join(", ")})`
   const externalDeviceId = typeof input.externalDeviceId === "string" ? input.externalDeviceId.trim() : ""
-  const deviceIdError = externalDeviceId.length < 1 || externalDeviceId.length > 100 ? "The device id is 1 to 100 characters" : provider?.deviceIdError(externalDeviceId)
+  const deviceIdError = externalDeviceId.length < 1 || externalDeviceId.length > 100 ? "The device id is 1 to 100 characters"
+    : hasControlCharacter(externalDeviceId) ? "The device id cannot hold control characters" : provider?.deviceIdError(externalDeviceId)
   if (deviceIdError) fields.externalDeviceId = deviceIdError
   const installedOn = calendarDate(input.installedOn)
   if (!installedOn) fields.installedOn = "The installation date is a calendar date YYYY-MM-DD"
@@ -103,6 +107,26 @@ export async function removeTrackerDevice(actor: TelematicsActor, deviceId: stri
   })
 }
 
+/** Records that staff compared the device's meter with the asset's own (once; a note of 3 to 500 characters). */
+export async function verifyTrackerMeter(actor: TelematicsActor, deviceId: string, body: unknown): Promise<TelematicsResult> {
+  const note = noteOf(objectBody(body)?.note)
+  if (!note) return refused(400, "Say how the device's meter was compared with the asset's (3 to 500 characters)", { note: "3 to 500 characters" })
+  const device = await prisma.trackerDevice.findFirst({ where: { id: deviceId, tenantId: actor.tenantId }, select: { id: true } })
+  if (!device) return refused(404, "Tracker device not found")
+  return prisma.$transaction(async (tx) => {
+    const done = await tx.trackerDevice.updateMany({
+      where: { id: deviceId, tenantId: actor.tenantId, status: "ACTIVE", meterVerifiedAt: null },
+      data: { meterVerifiedAt: new Date(), meterVerifiedById: actor.userId, meterVerifiedNote: note },
+    })
+    if (done.count !== 1) return refused(409, "Only a live device whose meter is not yet verified can be verified")
+    await logAuditStrict({
+      tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.TRACKER_METER_VERIFIED,
+      entity: "TrackerDevice", entityId: deviceId, newValue: { note },
+    }, tx)
+    return { kind: "ok" as const }
+  })
+}
+
 async function heartbeatOf(tenantId: string, device: { id: string; provider: string; externalDeviceId: string }, trackerId: string | null): Promise<TrackerHeartbeat> {
   const last = await prisma.telematicsEvent.findFirst({
     where: { tenantId, deviceId: device.id }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true, simulated: true },
@@ -129,6 +153,7 @@ export interface AssetTrackerDevice extends TrackerHeartbeat {
   installedOn: string
   removedOn: string | null
   lastPollError: string | null
+  meterVerifiedAt: Date | null
 }
 
 /** Every device the asset has had, newest first, for the asset page's card. */
@@ -139,7 +164,7 @@ export async function assetTrackerDevices(tenantId: string, assetId: string): Pr
       trackerId: true,
       trackerDevices: {
         orderBy: { createdAt: "desc" },
-        select: { id: true, provider: true, externalDeviceId: true, status: true, installedOn: true, removedOn: true, lastPollError: true },
+        select: { id: true, provider: true, externalDeviceId: true, status: true, installedOn: true, removedOn: true, lastPollError: true, meterVerifiedAt: true },
       },
     },
   })
@@ -147,5 +172,6 @@ export async function assetTrackerDevices(tenantId: string, assetId: string): Pr
   return Promise.all(asset.trackerDevices.map(async (device) => ({
     ...(await heartbeatOf(tenantId, device, asset.trackerId)),
     status: device.status, installedOn: isoOfDbDate(device.installedOn), removedOn: device.removedOn ? isoOfDbDate(device.removedOn) : null, lastPollError: device.lastPollError,
+    meterVerifiedAt: device.meterVerifiedAt,
   })))
 }

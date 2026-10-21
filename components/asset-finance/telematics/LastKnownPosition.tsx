@@ -14,7 +14,7 @@ type Answer = { position: { latitude: number; longitude: number; accuracyM: numb
  * a coordinate: pressing the button asks the server, which logs the view first.
  * Rendered only for view_asset_position. Text only: no map tile, no third-party link.
  */
-export function LastKnownPosition({ loanId, context }: { loanId: string; context: "RECOVERY" | "LEGAL_MATTER" }) {
+export function LastKnownPosition({ loanId, context }: { loanId: string; context: "DEFAULT" | "RECOVERY" | "LEGAL_MATTER" }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [answer, setAnswer] = useState<Answer | null>(null)

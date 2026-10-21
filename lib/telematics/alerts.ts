@@ -1,6 +1,7 @@
 /**
  * The tracker alert work queue (docs/asset-finance/SLICE5.md part B):
- * collections staff (work_telematics_alerts) acknowledge an OPEN item and
+ * servicing, collections or recovery items; collections staff
+ * (work_telematics_alerts) acknowledge an OPEN item and
  * resolve it with a note; a resolved item is final (guardTelematicsAlert).
  * Raising is alerts-raise.ts. Audited.
  */
@@ -54,13 +55,13 @@ export interface AlertRow {
   lastOccurredAt: Date
   assetId: string
   assetLabel: string
-  loanId: string | null
-  loanReference: string | null
+  loanId: string
+  loanReference: string
   simulated: boolean
   resolutionNote: string | null
 }
 
-export const ALERT_QUEUES: readonly TelematicsAlertQueue[] = ["COLLECTIONS", "RECOVERY"]
+export const ALERT_QUEUES: readonly TelematicsAlertQueue[] = ["SERVICING", "COLLECTIONS", "RECOVERY"]
 export const ALERT_STATUSES: readonly TelematicsAlertStatus[] = ["OPEN", "ACKNOWLEDGED", "RESOLVED"]
 
 /** The queue, newest activity first; unresolved by default. Optionally one loan's or one asset's. */
@@ -80,6 +81,6 @@ export async function listAlerts(
     },
   })
   return rows.map(({ asset, loan, event, ...row }) => ({
-    ...row, assetLabel: `${asset.make} ${asset.model} (${asset.serialNumber})`, loanReference: loan?.reference ?? null, simulated: event.simulated,
+    ...row, assetLabel: `${asset.make} ${asset.model} (${asset.serialNumber})`, loanReference: loan.reference, simulated: event.simulated,
   }))
 }

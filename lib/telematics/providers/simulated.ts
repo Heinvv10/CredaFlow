@@ -40,7 +40,8 @@ function position(externalDeviceId: string, day: number, hour: number) {
 
 function dayEvents(externalDeviceId: string, scenario: SimulatedScenario, installedOn: string, day: number): NormalisedTelematicsEvent[] {
   if (!scenarioReports(scenario, day)) return []
-  const id = (suffix: string) => `sim:${externalDeviceId}:${day}:${suffix}`
+  // The installation date is part of the id: a device id re-registered later must not replay the old installation's ids.
+  const id = (suffix: string) => `sim:${externalDeviceId}:${installedOn}:${day}:${suffix}`
   const events: NormalisedTelematicsEvent[] = [
     { providerEventId: id("HEARTBEAT"), externalDeviceId, occurredAt: at(installedOn, day, HOUR_OF.HEARTBEAT), kind: "HEARTBEAT" },
     { providerEventId: id("POSITION"), externalDeviceId, occurredAt: at(installedOn, day, HOUR_OF.POSITION), kind: "POSITION", position: position(externalDeviceId, day, HOUR_OF.POSITION) },

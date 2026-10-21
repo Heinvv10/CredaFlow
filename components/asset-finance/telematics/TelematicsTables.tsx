@@ -42,7 +42,7 @@ export function AlertsTable({ alerts, canWork, showLoan = true }: { alerts: Aler
             <TableCell className="text-xs">{`${formatDateTime(a.firstOccurredAt)} / ${formatDateTime(a.lastOccurredAt)}`}</TableCell>
             {showLoan && (
               <TableCell className="text-xs">
-                {a.loanId ? <Link className={link} href={`/loans/${a.loanId}`}>{a.loanReference}</Link> : "No running loan"}
+                <Link className={link} href={`/loans/${a.loanId}`}>{a.loanReference}</Link>
                 {" · "}
                 <Link className={link} href={`/asset-finance/assets/${a.assetId}`}>{a.assetLabel}</Link>
               </TableCell>

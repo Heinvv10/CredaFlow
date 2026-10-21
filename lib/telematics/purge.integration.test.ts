@@ -1,7 +1,8 @@
 /**
  * Position retention on real Postgres (docs/asset-finance/SLICE5.md part B,
- * POPIA): each tenant's positions older than its own retention are deleted
- * with the heartbeat, ignition and position events, younger ones are kept,
+ * POPIA): each tenant's positions (one per device, its latest) older than its
+ * own retention are deleted with the heartbeat, ignition and position events,
+ * younger ones are kept,
  * METER and ALERT events and the access log survive, one audit row per
  * tenant. The database refuses a stale position, deleting a business event
  * and a retention outside 1 to 365 days.
@@ -28,7 +29,7 @@ const RUN = process.env.RUN_ASSET_FINANCE_TELEMATICS_IT === "1"
 const suite = RUN ? describe : describe.skip
 const db = RUN ? telematicsTestClient() : null
 const t = randomUUID().replaceAll("-", "").slice(0, 16)
-const other = { tenantId: `t_tel_purge_${t}`, user: "", asset: "", device: "" }
+const other = { tenantId: `t_tel_purge_${t}`, user: "", oldDevice: "", youngDevice: "" }
 let fx: LeaseFixture
 const ids = { loan: "", device: "" }
 const DAY = 86_400_000
@@ -41,21 +42,41 @@ const setSession = (user: SessionUser | null) => {
   session.current = user && { user }
 }
 const retention = (tenantId: string, days: number) => database().tenantConfig.update({ where: { tenantId }, data: { telematicsPositionRetentionDays: days } })
-const oldest = async (deviceId: string) => (await database().telematicsPosition.findFirst({ where: { deviceId }, orderBy: { occurredAt: "asc" } }))?.occurredAt
 const before = (days: number) => new Date(Date.now() - days * DAY)
+type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0]
+/** Test setup inside an attack's transaction: the statements run with triggers off. */
+async function testSetupIn(tx: Tx, ...statements: [string, ...unknown[]][]): Promise<void> {
+  await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
+  for (const [statement, ...params] of statements) await tx.$executeRawUnsafe(statement, ...params)
+  await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
+}
 
-/** A second lender with one asset and one device, no lease: its meter events are device readings only. */
+/**
+ * A second lender with two assets and a device on each, each holding one
+ * position (written directly, triggers off: no lease runs here) from `days`
+ * ago with its POSITION event.
+ */
 async function createOtherTenant(): Promise<void> {
   const tenantId = other.tenantId
   await database().tenant.create({ data: { id: tenantId, slug: `tel-purge-${t}`, name: "Telematics purge IT" } })
   await database().tenantConfig.create({ data: { tenantId, featureAssetFinance: true } })
   other.user = (await database().user.create({ data: { tenantId, email: `officer-${t}@purge.invalid`, password: "x", role: "CREDIT_OFFICER" } })).id
-  other.asset = (await database().financedAsset.create({ data: {
-    tenantId, assetClass: "EXCAVATOR", make: "TEST", model: "EX-P", year: 2025, serialNumber: `PURGE${t.toUpperCase()}`, cashPriceExclVatCents: 100_000_00, vatCents: 15_000_00,
-  } })).id
-  other.device = (await database().trackerDevice.create({ data: {
-    tenantId, assetId: other.asset, provider: "simulated", externalDeviceId: "SIM-STEADY-9", installedOn: new Date(`${daysAgo(100)}T00:00:00.000Z`), createdById: other.user,
-  } })).id
+  const device = async (n: number, days: number) => {
+    const asset = await database().financedAsset.create({ data: {
+      tenantId, assetClass: "EXCAVATOR", make: "TEST", model: "EX-P", year: 2025, serialNumber: `PURGE${n}${t.toUpperCase()}`, cashPriceExclVatCents: 100_000_00, vatCents: 15_000_00,
+    } })
+    const id = (await database().trackerDevice.create({ data: {
+      tenantId, assetId: asset.id, provider: "simulated", externalDeviceId: `SIM-STEADY-9${n}`, installedOn: new Date(`${daysAgo(100)}T00:00:00.000Z`), createdById: other.user,
+    } })).id
+    await testSetup(database(),
+      [`INSERT INTO "TelematicsEvent" ("id", "tenantId", "deviceId", "provider", "providerEventId", "kind", "occurredAt", "simulated") VALUES ($1, $2, $3, 'simulated', $1, 'POSITION', $4, true)`,
+        `ev${n}_${t}`, tenantId, id, before(days)],
+      [`INSERT INTO "TelematicsPosition" ("id", "tenantId", "eventId", "deviceId", "occurredAt", "latitude", "longitude") VALUES ($1, $2, $3, $4, $5, -35.01, 20.01)`,
+        `pos${n}_${t}`, tenantId, `ev${n}_${t}`, id, before(days)])
+    return id
+  }
+  other.oldDevice = await device(1, 91)
+  other.youngDevice = await device(2, 89)
 }
 
 suite.sequential("telematics position purge (real DB)", () => {
@@ -68,12 +89,17 @@ suite.sequential("telematics position purge (real DB)", () => {
     await retention(fx.tenantId, 365)
     await retention(other.tenantId, 365)
     expect(await pollTenant(fx.tenantId, new Date())).toMatchObject({ ok: true, failed: 0 })
-    expect(await pollTenant(other.tenantId, new Date())).toMatchObject({ ok: true, failed: 0 })
+    // No agreement on the other lender's assets: nothing to poll.
+    expect(await pollTenant(other.tenantId, new Date())).toMatchObject({ ok: true, devices: 0 })
     // One logged view, before the purge.
     await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.loan])
     const collector = (await database().user.create({ data: { tenantId: fx.tenantId, email: `collector-${t}@staff.invalid`, password: "x", role: "COLLECTIONS_OFFICER" } })).id
-    expect(await revealPosition({ tenantId: fx.tenantId, userId: collector, userEmail: "c@x.invalid", role: "COLLECTIONS_OFFICER" }, ids.loan, { context: "RECOVERY" }, { ipAddress: null, userAgent: null }))
+    expect(await revealPosition({ tenantId: fx.tenantId, userId: collector, userEmail: "c@x.invalid", role: "COLLECTIONS_OFFICER" }, ids.loan, { context: "DEFAULT" }, { ipAddress: null, userAgent: null }))
       .toMatchObject({ kind: "ok" })
+    // The lease's one (latest) position, moved 31 days back with its event.
+    const own = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device } })
+    await testSetup(database(), [`UPDATE "TelematicsPosition" SET "occurredAt" = $2 WHERE "id" = $1`, own.id, before(31)],
+      [`UPDATE "TelematicsEvent" SET "occurredAt" = $2 WHERE "id" = $1`, own.eventId, before(31)])
   }, 600_000)
 
   afterAll(async () => {
@@ -89,18 +115,17 @@ suite.sequential("telematics position purge (real DB)", () => {
   }, 60_000)
 
   it("deletes each tenant's positions past its own days, keeps the younger ones, the business events and the access log", async () => {
-    expect((await oldest(ids.device))!.getTime()).toBeLessThan(before(59).getTime())
-    expect((await oldest(other.device))!.getTime()).toBeLessThan(before(99).getTime())
+    const positions = (deviceId: string) => database().telematicsPosition.count({ where: { deviceId } })
+    expect([await positions(ids.device), await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([1, 1, 1])
     const metersBefore = await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: "METER" } })
     await retention(fx.tenantId, 30)
     await retention(other.tenantId, 90)
 
     const run = await purgeTelematicsPositions()
     expect(run).toMatchObject({ ok: true, failed: 0 })
-    expect((await oldest(ids.device))!.getTime()).toBeGreaterThanOrEqual(before(30).getTime())
-    expect((await oldest(ids.device))!.getTime()).toBeLessThan(before(29).getTime())
-    expect((await oldest(other.device))!.getTime()).toBeGreaterThanOrEqual(before(90).getTime())
-    expect((await oldest(other.device))!.getTime()).toBeLessThan(before(89).getTime())
+    // 31 days past 30, 91 past 90: gone; 89 inside 90: kept.
+    expect([await positions(ids.device), await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([0, 0, 1])
+    expect(await database().telematicsEvent.count({ where: { id: `ev1_${t}` } })).toBe(0)
     expect(await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: { in: ["HEARTBEAT", "POSITION"] }, occurredAt: { lt: before(30) } } })).toBe(0)
     expect(await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: "METER" } })).toBe(metersBefore)
     // The geofence exit (day 20, 40 days ago) keeps its event and work item; its position is gone.
@@ -133,10 +158,14 @@ suite.sequential("telematics position purge (real DB)", () => {
     await ruleRefuses(database(), { fn: "guardTelematicsPosition", replace: [`IF NOT COALESCE(NEW."occurredAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => retention), FALSE) THEN`, "IF FALSE THEN"] },
       /older than the tenant's retention is not stored/,
       (tx) => tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: stale.id, deviceId: ids.device, occurredAt: stale.occurredAt, latitude: -35.02, longitude: 20.02 } }))
-    const meter = await database().telematicsEvent.findFirstOrThrow({ where: { deviceId: other.device, kind: "METER" }, orderBy: { occurredAt: "asc" } })
     const young = await database().telematicsEvent.findFirstOrThrow({ where: { deviceId: ids.device, kind: "HEARTBEAT" }, orderBy: { occurredAt: "desc" } })
     const events = { table: "TelematicsEvent", trigger: "TelematicsEvent_guard" }
-    await ruleRefuses(database(), events, /deleted \(the purge\)/, (tx) => tx.telematicsEvent.delete({ where: { id: meter.id } }))
+    // A METER event past retention that nothing refers to (a device reading only) is still a business record.
+    await ruleRefuses(database(), events, /deleted \(the purge\)/, async (tx) => {
+      await testSetupIn(tx, [`INSERT INTO "TelematicsEvent" ("id", "tenantId", "deviceId", "provider", "providerEventId", "kind", "occurredAt", "meterValue", "meterUnit", "simulated")
+        VALUES ($1, $2, $3, 'simulated', $1, 'METER', $4, 1000, 'HOURS', true)`, `meter_${t}`, fx.tenantId, ids.device, before(60)])
+      await tx.telematicsEvent.delete({ where: { id: `meter_${t}` } })
+    })
     await ruleRefuses(database(), events, /deleted \(the purge\)/, (tx) => tx.telematicsEvent.delete({ where: { id: young.id } }))
     await ruleRefuses(database(), { table: "TelematicsPosition", trigger: "TelematicsPosition_no_truncate" }, /never truncated/,
       (tx) => tx.$executeRawUnsafe(`TRUNCATE "TelematicsPosition"`))
