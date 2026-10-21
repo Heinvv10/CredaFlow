@@ -30,8 +30,11 @@ describe("GuideValuePanel", () => {
     expect(out).not.toContain("Simulated guide")
   })
 
-  it("labels a simulated guide's value", () => {
+  it("labels a simulated guide's value, and a simulated guide's rows among the choices", () => {
     expect(render({ candidates: [], latest: latest(true), advance: null })).toContain("Simulated guide")
+    const choices = render({ candidates: [{ ...candidate("", 1), simulated: true }, candidate("Long reach", 2)], latest: null, advance: null })
+    expect(choices).toContain("TEST Plant Guide (2026-02-01, simulated) · no variant")
+    expect(choices).toContain("TEST Plant Guide (2026-02-01) · Long reach")
   })
 
   it("offers no recording to a role that cannot manage, and says when no guide row matches", () => {

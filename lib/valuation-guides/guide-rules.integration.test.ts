@@ -68,7 +68,8 @@ suite("valuation guide database rules", () => {
         tenantId: fx.tenantId, name: "TEST Born Live", effectiveOn: dbDate(day(-1)), provider: "csv", fileSha256: freshSha(), rowCount: 1,
         uploadedById: fx.adminA, status: "PUBLISHED", publishedById: fx.adminB, publishedAt: new Date(),
       },
-    }))
+    }), [// The guard dates the upload by the clock, after this publish time: the times CHECK out too.
+      { table: "ValuationGuide", constraint: "ValuationGuide_times" }])
   })
 
   it("is published by someone other than its uploader (four-eyes)", async () => {

@@ -531,3 +531,31 @@ simulation gate test in `guide-gaps-routes.integration.test.ts`. The
 known limitations): the database cannot read the deployment's environment.
 The gate is tested at load, publish (R1-T14) and record (R1b-L-sim).
 
+
+### Review round 2 (PR #229)
+
+**Written first.** Against f88afc39, breaker R2-1 was red. The supersede was dated `now()`, the start of its transaction, which fell before a rival publish that had already committed, so `ValuationGuide_times` refused it.
+
+**Fix.** The guard now dates moves with `clock_timestamp()` (`20261021090300`, edited in place before any shared database applied it). A residual times-CHECK refusal is mapped to the 409 `concurrent_publish`.
+
+**The tests reviewer's `lookup-gaps` repro was not committed.** Each of its five cases is already covered on the head it did not review (f88afc39):
+
+| Case | Covered by |
+|---|---|
+| Candidate make and year | `loaders` IT (R1b-L-make, R1b-L-year) |
+| `recordGuideValuation`'s simulation branch | `guide-gaps-routes` IT (R1b-L-sim) |
+| `latestGuideValuation` order | `loaders` IT (R1b-L-order) |
+| `loadGuidePanel` | `loaders` IT (R1b-GP-swap, R1b-GP-tenant) |
+| `loadGuideReference` | `loaders` IT (R1b-RP-sim) |
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| R2-F1 | the guard dates a supersede with `now()` again (database) | breaker-r2 IT | 1 failed, 1 passed | "R2-1: a publish whose transaction began before the current guide was published can still supersede it" |
+| R2-T1 | the times-CHECK refusal not mapped | breaker-r2 IT | 1 failed, 1 passed | "R2-1b: a residual clock race with a rival publish is a 409 …" (500) |
+| R2-T2 | revaluation's newest valuation of any source but INTERNAL | revaluation-store IT | 1 failed, 3 passed | "keeps the recorded guide's name and variant, … a newer non-guide valuation does not hide it" |
+| R2-T3 | `recordedVariant` without the variant comparison | revaluation-store IT | 1 failed, 3 passed | same test |
+| R2-T4 | `recordedVariant` without the guide-name comparison | revaluation-store IT | 1 failed, 3 passed | same test |
+| R2-T5 | CSV year bound 1950 → 1951; 2100 → 2099; the after-close-quote check off | `csv.test.ts` | 1 failed, 11 passed each | the year-range test; "refuses text after a closing quote in the same field" |
+| R2-T6 | record-form choices without "simulated" | GuideValuePanel unit | 1 failed, 2 passed | "labels … a simulated guide's rows among the choices" |
+| R2-T7 | `GUIDE_DAY_REFUSAL` reworded on the TS side only | migration static + midnight IT | 2 failed, 7 passed | "keeps the sentences the store maps to a 409 in the guards that raise them"; the midnight record test (500) |
+| R2-S | a later migration rewrites `guardRecovery` without the GUIDE clause (a temporary `20991231000000_zz_mutation` dir, then removed) | migration static | 1 failed, 6 passed | "refuses GUIDE in the statutory guards, and no later migration rewrites either guard without it" |

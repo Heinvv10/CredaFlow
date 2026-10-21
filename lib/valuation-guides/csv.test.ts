@@ -24,6 +24,10 @@ describe("parseGuideCsv", () => {
     expect(GUIDE_CSV_HEADER).toBe(HEADER)
   })
 
+  it("refuses text after a closing quote in the same field", () => {
+    expect(problems(HEADER, `TEST,"EX"x,2025,,1,1`).problems).toEqual([{ line: 2, reason: "A quote may only open and close a whole field" }])
+  })
+
   it("reads a doubled quote inside a quoted field as one quote", () => {
     const result = parseGuideCsv(file(HEADER, `TEST,"EX ""Pro""",2025,,1,1`))
     expect(result.ok && result.rows[0].model).toBe(`EX "Pro"`)
@@ -66,6 +70,9 @@ describe("parseGuideCsv", () => {
   it("refuses a year out of range, a missing make or model, over-long text and a trade value above retail, all reasons on one line", () => {
     expect(problems(HEADER, "TEST,EX,1949,,1,1").problems[0].reason).toBe("year must be a whole year from 1950 to 2100")
     expect(problems(HEADER, "TEST,EX,20x5,,1,1").problems[0].reason).toBe("year must be a whole year from 1950 to 2100")
+    expect(problems(HEADER, "TEST,EX,2101,,1,1").problems[0].reason).toBe("year must be a whole year from 1950 to 2100")
+    const bounds = parseGuideCsv(file(HEADER, "TEST,EX-A,1950,,1,1", "TEST,EX-B,2100,,1,1"))
+    expect(bounds.ok && bounds.rows.map((r) => r.year)).toEqual([1950, 2100])
     expect(problems(HEADER, ` ,,2025,${"v".repeat(101)},5,4`).problems[0].reason)
       .toBe("make is required; model is required; variant is longer than 100 characters; the trade value is above the retail value")
   })

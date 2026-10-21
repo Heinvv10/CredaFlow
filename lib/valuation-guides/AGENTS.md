@@ -30,4 +30,6 @@
 - **One case fold, PostgreSQL's `lower()`**: matching is SQL (`lookup.ts`,
   `revaluation-store.ts`), and the store re-checks a file's keys with it
   (`case-fold.ts`). Do not add a JS-side match.
-- The database dates guide moves (`now()` in the guard); callers do not pass times.
+- The database dates guide moves (`clock_timestamp()` in the guard); callers do not pass times.
+- The 409s mapped from guard refusals match the sentences in `db-refusal.ts`; `migration.test.ts`
+  pins them to the guards. Reword a guard and its constant together.

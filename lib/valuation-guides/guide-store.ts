@@ -15,7 +15,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"
 import { caseFoldClashes } from "./case-fold"
-import { isDbRefusal } from "./db-refusal"
+import { GUIDE_EFFECTIVE_REFUSAL, GUIDE_TIMES_CHECK, isDbRefusal } from "./db-refusal"
 import type { GuideProblem, ValuationProvider } from "./types"
 
 export interface GuideActor { tenantId: string; userId: string; userEmail: string }
@@ -136,7 +136,9 @@ export async function publishGuide(actor: GuideActor, id: string): Promise<Publi
   }).catch((error: unknown): PublishGuideResult => {
     if (isUniqueViolation(error)) return { kind: "concurrent_publish" }
     // The day turned between the check above and the database's own (SAST midnight).
-    if (isDbRefusal(error, "A guide is published on or after its effective date")) return { kind: "not_yet_effective", effectiveOn }
+    if (isDbRefusal(error, GUIDE_EFFECTIVE_REFUSAL)) return { kind: "not_yet_effective", effectiveOn }
+    // A residual clock race with a rival publish of the same name (the guard dates moves with clock_timestamp()).
+    if (isDbRefusal(error, GUIDE_TIMES_CHECK)) return { kind: "concurrent_publish" }
     throw error
   })
   if (result.kind === "self_publish") {

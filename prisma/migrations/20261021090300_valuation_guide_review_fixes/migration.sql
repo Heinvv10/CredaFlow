@@ -3,8 +3,11 @@
 -- checkValuationGuideSuccessor replaced.
 --
 -- 1. The database dates every move itself: uploadedAt on insert, publishedAt,
---    discardedAt and supersededAt on the move (a caller's value is replaced
---    by now()); ValuationGuide_times keeps them in order behind the trigger.
+--    discardedAt and supersededAt on the move (a caller's value is replaced).
+--    clock_timestamp(), not now(): now() is the transaction's start, so a
+--    publish whose transaction began before a rival publish of that name
+--    committed would date its supersede before the rival's publish.
+--    ValuationGuide_times keeps the times in order behind the trigger.
 -- 2. A guide is superseded only by another guide of the same name, dated on
 --    or after it, that is a DRAFT about to be published in the same
 --    transaction; at commit that successor is PUBLISHED. No self-supersede,
@@ -33,7 +36,7 @@ BEGIN
     IF NEW."status" <> 'DRAFT' THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A valuation guide is loaded as a DRAFT';
     END IF;
-    NEW."uploadedAt" := now();
+    NEW."uploadedAt" := clock_timestamp();
     RETURN NEW;
   END IF;
   allowed := CASE OLD."status"::TEXT || '>' || NEW."status"::TEXT
@@ -49,7 +52,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A valuation guide changes only its status and who moved it, when: its name, date, source, file and rows never change';
   END IF;
   IF OLD."status" = 'DRAFT' AND NEW."status" = 'PUBLISHED' THEN
-    NEW."publishedAt" := now();
+    NEW."publishedAt" := clock_timestamp();
     IF NEW."effectiveOn" > today THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A guide is published on or after its effective date';
     END IF;
@@ -57,9 +60,9 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A guide is published with every row it was loaded with';
     END IF;
   ELSIF OLD."status" = 'DRAFT' AND NEW."status" = 'DISCARDED' THEN
-    NEW."discardedAt" := now();
+    NEW."discardedAt" := clock_timestamp();
   ELSIF OLD."status" = 'PUBLISHED' AND NEW."status" = 'SUPERSEDED' THEN
-    NEW."supersededAt" := now();
+    NEW."supersededAt" := clock_timestamp();
     IF NOT EXISTS (SELECT 1 FROM "ValuationGuide" g WHERE g."tenantId" = NEW."tenantId" AND g."id" = NEW."supersededById" AND g."id" <> NEW."id"
         AND g."status" = 'DRAFT' AND lower(g."name") = lower(NEW."name") AND g."effectiveOn" >= NEW."effectiveOn") THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A guide is superseded by another guide of the same name dated on or after it, a draft put live in the same transaction';

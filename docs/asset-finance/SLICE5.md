@@ -873,7 +873,9 @@ applied it):
     longer accepts a SUPERSEDED successor). No self-supersede, no cycle.
 12. **The database dates every move** (`uploadedAt` on insert, `publishedAt`,
     `discardedAt`, `supersededAt` on the move; a caller's value is replaced
-    by `now()`), with `ValuationGuide_times` behind it. A synthetic-provider
+    by `clock_timestamp()`, not the transaction-start `now()`, review round 2),
+    with `ValuationGuide_times` behind it; a residual clock race with a rival
+    publish is mapped to the 409 `concurrent_publish`. A synthetic-provider
     guide is always stored simulated (`ValuationGuide_synthetic_simulated`).
 13. **One case fold.** The store re-checks a file's rows with `lower()` before
     it writes (`case-fold.ts`): a clash the JS reader missed is a 422 with line
@@ -1054,7 +1056,7 @@ Staff, house pattern (`requireApiRole` → `withTenantContext` →
 | Revaluation loader (SQL): live loans only, current guide only, newest guide value's variant, lower() matching | `lib/valuation-guides/revaluation-store.integration.test.ts`, `not-independent.integration.test.ts` | IT | COMPLETED, WRITTEN_OFF, CANCELLED loans; a superseded guide's rows; an older guide value's variant |
 | GUIDE never a statutory valuation (round 1) | `lib/valuation-guides/guide-statutory.integration.test.ts` | IT | s127 surrender VALUED, NCA s131 and non-NCA recovery VALUED on a GUIDE valuation |
 | Supersede: by a draft put live in the same transaction (round 1) | `guide-gaps.integration.test.ts`, `guide-breaker.integration.test.ts` (B1) | IT | self-supersede; equal-dated mutual supersede (cycle); no current guide left |
-| Move columns and times (round 1) | `guide-gaps.integration.test.ts`, `guide-breaker.integration.test.ts` (B3) | IT | a publish rewriting uploader, upload time, source, simulated flag, file, date; a discard renaming; a supersede rewriting the publisher; a caller's move time (replaced by now(); `ValuationGuide_times` behind it) |
+| Move columns and times (round 1) | `guide-gaps.integration.test.ts`, `guide-breaker.integration.test.ts` (B3) | IT | a publish rewriting uploader, upload time, source, simulated flag, file, date; a discard renaming; a supersede rewriting the publisher; a caller's move time (replaced by the clock; `ValuationGuide_times` behind it) |
 | Guide CHECKs (round 1) | `guide-gaps.integration.test.ts`, `guide-breaker.integration.test.ts` (B2) | IT | name, provider, sha256, row count, status shape, line key, synthetic ⇒ simulated, times |
 | GUIDE trigger: make and year, snapshot simulated flag (round 1) | `guide-gaps.integration.test.ts` | IT | another make, another year |
 | TRUNCATE refused on both guide tables (round 1) | `guide-gaps.integration.test.ts` | IT | TRUNCATE with the FKs into them taken out |
@@ -1064,6 +1066,9 @@ Staff, house pattern (`requireApiRole` → `withTenantContext` →
 | Purchase picker offers market valuations only (round 1) | `components/asset-finance/lease/lease-panel.test.tsx` | unit | GUIDE and INTERNAL never offered |
 | Races and flows (round 1) | `guide-concurrency.integration.test.ts`, `edge-flows.integration.test.ts`, `guide-breaker.integration.test.ts` (B5–B7) | IT | concurrent publish; the same file at once; same-day supersede; older-dated; discard then reload; a 20 000-row guide |
 | Rows page offset | `lib/valuation-guides/guide-view.test.ts` | unit | negative, fractional, `1e21`, past the last row |
+| Move times by the clock; a residual race is a 409 (round 2) | `lib/valuation-guides/guide-breaker-r2.integration.test.ts` | IT | a publish whose transaction began before a rival's publish committed; a rival's publish time after this supersede |
+| Revaluation keeps the recorded guide's name and variant (round 2) | `revaluation-store.integration.test.ts` | IT | another guide with the same variant; another variant of the same guide; a newer DEALER valuation |
+| Statutory guards keep the GUIDE clause; the 409 sentences match the guards (round 2) | `lib/valuation-guides/migration.test.ts` | static | a later migration rewriting `guardRecovery`/`guardSurrenderRequest` without it; a reworded guard sentence |
 | Read side: candidates, newest guide value, panel LTV, recovery reference (round 1) | `lib/valuation-guides/loaders.integration.test.ts` | IT | another make or year with the same model; an older value; another tenant's asset; trade/retail swapped; the simulated label |
 | Simulation gate at record time (round 1) | `guide-gaps-routes.integration.test.ts` | IT | a simulated guide's value recorded on a deployed build |
 | Browser seed shape | `lib/valuation-guides/valuation-browser-seed.test.ts` (`VALUATION_BROWSER_SEED=1`) | seed | — |

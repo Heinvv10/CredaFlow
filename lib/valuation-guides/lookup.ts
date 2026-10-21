@@ -12,7 +12,7 @@ import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { isSimulationPermitted } from "@/lib/integrations/simulation-guard"
 import { dbDate, isoOfDbDate } from "@/lib/asset-finance/dates"
-import { isDbRefusal } from "./db-refusal"
+import { GUIDE_DAY_REFUSAL, isDbRefusal } from "./db-refusal"
 import type { GuideActor } from "./guide-store"
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
@@ -109,7 +109,7 @@ export async function recordGuideValuation(actor: GuideActor, assetId: string, g
     }, tx)
     return { kind: "recorded", valuation }
   }).catch((error: unknown): RecordGuideValuationResult => {
-    if (isDbRefusal(error, "A guide valuation is dated the day it is read")) return { kind: "day_changed" }
+    if (isDbRefusal(error, GUIDE_DAY_REFUSAL)) return { kind: "day_changed" }
     throw error
   })
 }

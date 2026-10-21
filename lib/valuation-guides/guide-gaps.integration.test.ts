@@ -96,7 +96,9 @@ suite("PR #229 part C: guard clauses no suite killed", () => {
     await refuses(on("ValuationGuide_provider"), /ValuationGuide_provider/, (tx) => rawGuide(tx, { provider: "Bad Provider" }))
     await refuses(on("ValuationGuide_sha256"), /ValuationGuide_sha256/, (tx) => rawGuide(tx, { sha: "xyz" }))
     await refuses(on("ValuationGuide_row_count"), /ValuationGuide_row_count/, (tx) => rawGuide(tx, { rowCount: 0 }))
-    await refuses(on("ValuationGuide_status_shape"), /ValuationGuide_status_shape/, (tx) => rawGuide(tx, { publishedById: fx.adminB, publishedAt: new Date() }))
+    // The guard dates the upload by the clock, after this publish time: the times CHECK out too.
+    await refuses(on("ValuationGuide_status_shape"), /ValuationGuide_status_shape/, (tx) => rawGuide(tx, { publishedById: fx.adminB, publishedAt: new Date() }),
+      [on("ValuationGuide_times")])
   })
 
   it("holds a row's line number to one row (ValuationGuideRow_line_key)", async () => {
@@ -142,7 +144,7 @@ suite("PR #229 part C: guard clauses no suite killed", () => {
     })
   })
 
-  it("dates every move itself: a caller's publish, discard or supersede time is replaced by now()", async () => {
+  it("dates every move itself: a caller's publish, discard or supersede time is replaced by the clock", async () => {
     const stamp = new Date("2001-01-01T00:00:00Z")
     // Admitted with the database's time; with that one assignment out, the caller's time stays and the times CHECK refuses it.
     const dated = async (tx: Tx, id: string, column: "publishedAt" | "discardedAt" | "supersededAt") => {
@@ -150,17 +152,17 @@ suite("PR #229 part C: guard clauses no suite killed", () => {
       if (row[column]?.getTime() === stamp.getTime()) throw new Error(`${column} kept the caller's time`)
     }
     const moves: [string, (tx: Tx) => Promise<unknown>][] = [
-      [`NEW."publishedAt" := now();`, async (tx) => {
+      [`NEW."publishedAt" := clock_timestamp();`, async (tx) => {
         const { id } = await draft(tx)
         await tx.valuationGuide.update({ where: { id }, data: { status: "PUBLISHED", publishedById: fx.adminB, publishedAt: stamp } })
         await dated(tx, id, "publishedAt")
       }],
-      [`NEW."discardedAt" := now();`, async (tx) => {
+      [`NEW."discardedAt" := clock_timestamp();`, async (tx) => {
         const { id } = await draft(tx)
         await tx.valuationGuide.update({ where: { id }, data: { status: "DISCARDED", discardedById: fx.adminA, discardedAt: stamp } })
         await dated(tx, id, "discardedAt")
       }],
-      [`NEW."supersededAt" := now();`, async (tx) => {
+      [`NEW."supersededAt" := clock_timestamp();`, async (tx) => {
         const name = `TEST Stamp ${randomUUID().slice(0, 8)}`
         const old = await publishedGuide(tx, fx.tenantId, fx.adminA, fx.adminB, { name, effectiveOn: day(-5) })
         const next = await draft(tx, { name, effectiveOn: day(-1) })

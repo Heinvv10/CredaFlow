@@ -13,7 +13,10 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, type DealFixture } from "@/lib/asset-finance/deal.integration-fixture"
-import { cleanupGuides, day, draftGuide, publishGuideRow, supersedeGuideRow } from "./guide.integration-fixture"
+import { testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
+import { runWithTenant } from "@/lib/tenant-scope"
+import { cleanupGuides, day, draftGuide, publishedGuide, publishGuideRow, supersedeGuideRow } from "./guide.integration-fixture"
+import { publishGuide } from "./guide-store"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 
@@ -57,4 +60,16 @@ suite("valuation guide breaker round 2", () => {
     go()
     expect(await t2).toBe("ok")
   })
+
+  it("R2-1b: a residual clock race with a rival publish is a 409 (concurrent_publish), never a 500", async () => {
+    const name = `TEST Skew ${t}`
+    const current = await publishedGuide(database(), fx.tenantId, fx.adminA, fx.adminB, { name, effectiveOn: day(-3) })
+    // Stands for a rival whose clock ran ahead: its publish time is after this publish's supersede time.
+    await testSetup(database(), [`UPDATE "ValuationGuide" SET "publishedAt" = now() + interval '1 hour' WHERE "id" = $1`, current.id])
+    const next = await draftGuide(database(), fx.tenantId, fx.adminA, { name, effectiveOn: day(-1) })
+    const result = await runWithTenant(fx.tenantId, () => publishGuide({ tenantId: fx.tenantId, userId: fx.adminB, userEmail: "b@staff.invalid" }, next.id))
+    expect(result).toEqual({ kind: "concurrent_publish" })
+    expect(await database().valuationGuide.findUniqueOrThrow({ where: { id: current.id } })).toMatchObject({ status: "PUBLISHED" })
+  })
 })
+
