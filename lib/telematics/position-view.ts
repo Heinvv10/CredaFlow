@@ -44,7 +44,8 @@ const sastDayStart = (day: string) => new Date(Date.parse(`${day}T00:00:00.000Z`
  * When this loan's tenure of the asset ends, as telematicsLoanAt has it: the
  * SAST day the next loan that ran (not CANCELLED) started, the loan's closing,
  * the earliest recovery that was not withdrawn, or this loan's own end of
- * term taking the asset from the lessee (a return inspected, a total loss).
+ * term taking the asset from the lessee (the asset inspected on its return,
+ * whatever the outcome; a total loss).
  * Never the asset's current lessor status (one value,
  * re-stamped by a withdrawn recovery, perhaps an earlier lease's).
  */
@@ -58,7 +59,7 @@ async function tenureEnd(tenantId: string, loan: { id: string; assetId: string; 
     prisma.leaseEndOfTerm.findFirst({ where: { tenantId, loanId: loan.id }, select: { outcome: true, inspectedOn: true, electedAt: true } }),
   ])
   const leftLessee = !endOfTerm ? null
-    : endOfTerm.outcome === "RETURN" ? (endOfTerm.inspectedOn ? sastDayStart(isoOfDbDate(endOfTerm.inspectedOn)) : null)
+    : endOfTerm.inspectedOn ? sastDayStart(isoOfDbDate(endOfTerm.inspectedOn))
       : endOfTerm.outcome === "TOTAL_LOSS" ? endOfTerm.electedAt : null
   const ends = [next ? sastDayStart(sastCalendarDate(next.startDate)) : null, loan.closedAt, recovery ? sastDayStart(isoOfDbDate(recovery.recoveredOn)) : null, leftLessee]
     .filter((d): d is Date => d instanceof Date)

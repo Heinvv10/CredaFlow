@@ -167,6 +167,12 @@ describe("the telematics poll", () => {
     ["a lost connection", () => new Prisma.PrismaClientKnownRequestError("can't reach the database", { code: "P1001", clientVersion: "5" })],
     ["a closed connection", () => new Prisma.PrismaClientInitializationError("server closed the connection", "5", "P1017")],
     ["a cancelled statement", () => new Prisma.PrismaClientKnownRequestError("canceling statement", { code: "P2010", clientVersion: "5", meta: { code: "57014" } })],
+    ["a timed-out connection", () => new Prisma.PrismaClientKnownRequestError("timed out", { code: "P1002", clientVersion: "5" })],
+    ["a transaction timeout", () => new Prisma.PrismaClientKnownRequestError("transaction API error", { code: "P2028", clientVersion: "5" })],
+    ["a client that cannot connect", () => new Prisma.PrismaClientInitializationError("Can't reach database server", "5")],
+    ["an ORM deadlock (the driver's code only)", () => new Prisma.PrismaClientUnknownRequestError(
+      'Error occurred during query execution:\nConnectorError(ConnectorError { user_facing_error: None, kind: QueryError(PostgresError { code: "40P01", message: "deadlock detected", severity: "ERROR", detail: Some("Process 23514 waits for ShareLock") }) })',
+      { clientVersion: "5" })],
     ["a deadlock", () => new Prisma.PrismaClientKnownRequestError("deadlock detected", { code: "P2010", clientVersion: "5", meta: { code: "40P01" } })],
     ["a serialisation failure", () => new Prisma.PrismaClientKnownRequestError("could not serialize", { code: "P2010", clientVersion: "5", meta: { code: "40001" } })],
     ["a lock timeout", () => new Prisma.PrismaClientKnownRequestError("lock timeout", { code: "P2010", clientVersion: "5", meta: { code: "55P03" } })],
@@ -196,6 +202,8 @@ describe("the telematics poll", () => {
       new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5" }),
       new Prisma.PrismaClientKnownRequestError("check", { code: "P2010", clientVersion: "5", meta: { code: "23514" } }),
       new TypeError("Cannot read properties of undefined (reading 'value')"),
+      // An ORM refusal whose driver code is not on the list (a guard's 23514), however the detail reads.
+      new Prisma.PrismaClientUnknownRequestError('PostgresError { code: "23514", message: "A guard refused it", detail: Some("40P01 mentioned") }', { clientVersion: "5" }),
     ]) {
       m.devices = [device("d6", "DEV-6", "test-refused")]
       m.ingestEvent.mockImplementationOnce(async () => { throw error })

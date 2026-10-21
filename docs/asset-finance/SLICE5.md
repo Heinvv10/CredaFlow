@@ -898,9 +898,10 @@ Added by the review round 1 (PR #222):
     is not) that started on or before `at`'s SAST day, with no later loan on
     the asset that ran (not CANCELLED) started by then, no recovery under it
     (a withdrawn one aside) dated on or before that day, and the asset still in
-    the lessee's hands by this loan's own dated end of term: a return
-    inspected on or before that day, or a total loss recorded at or before the
-    event (a completed purchase closes the loan in the same transaction; a
+    the lessee's hands by this loan's own dated end of term: the asset
+    inspected on its return on or before that day, whatever the outcome (an
+    extended lease is inspected on its EXTEND row; review round 4), or a total
+    loss recorded at or before the event (a completed purchase closes the loan in the same transaction; a
     recovery's sale follows its recovery). Never the asset's current lessor
     status (review round 3): that is one value, re-stamped now when a
     recovery is withdrawn on a re-let asset, and possibly an earlier lease's. `guardTelematicsPosition` and
@@ -958,9 +959,12 @@ Added by the review round 1 (PR #222):
     replaced, the reason and the database's message, no payload), and the
     cursor moves past it. Anything later in the event's transaction keeps the
     cursor and is retried next poll. A passing fault on an explicit list (the
-    database unreachable or gone, P1001/P1002/P1017; a pool timeout, P2024; a
-    transaction conflict or timeout, P2028/P2034; SQLSTATE 40001, 40P01,
-    55P03 or 57014) is retried for as long as it lasts and never counts.
+    database unreachable or gone, P1001/P1002/P1017, or any client
+    initialisation error; a pool timeout, P2024; a transaction conflict or
+    timeout, P2028/P2034; SQLSTATE 40001, 40P01, 55P03 or 57014, read from a
+    raw statement's `meta.code` or, for a failure Prisma does not map such as
+    an ORM deadlock, from the driver's PostgresError code field only) is
+    retried for as long as it lasts and never counts.
     Anything else, an unknown refusal or an unknown error alike (a TypeError
     on a malformed payload never goes away), counts a strike: the same event
     struck three polls in a row
@@ -1570,7 +1574,9 @@ turn a named test red.
   the asset's return or recovery, the tail of the tenure (a tamper just before
   it, the last meter days) is never fetched.
 - **Events older than the retention are refused.** A device offline longer
-  than the tenant's retention loses that backlog, meter readings included.
+  than the tenant's retention loses that backlog, meter readings and alerts
+  included (a power cut buffered past a 1-day retention is dropped; accepted
+  in review round 4, pinned by `breaker-r4.integration.test.ts`).
 - **A failure off the passing-fault list, three polls running, skips the
   event.** Audited with its Prisma code or class; there is no quarantine to
   re-drive it. A passing fault not on the list (a new driver code) counts too.
@@ -1712,6 +1718,18 @@ and counsel items 2 and 5 updated.
 | The database's "not yet" defers | `edge-round3.integration.test.ts`, `edge-cases.integration.test.ts`, `poll.test.ts` | IT + unit | a poll clock ten minutes ahead: the event deferred, cursor kept |
 | The poll's own clock selects devices | `edge-round3.integration.test.ts`, `poll.test.ts` | IT + unit | a poll dated before the lease began does not ask for the device |
 | The retry counter is never negative | `devices.integration.test.ts` | IT | count −1 refused by the shape CHECK |
+
+Review round 4 (PR #222): the tenure ends at the end-of-term inspection
+whatever the outcome; an ORM deadlock (unmapped by Prisma) and a client that
+cannot connect are passing faults; the retention floor stays (Known
+limitations), pinned by a test.
+
+| Rule (round 4) | Test file | Kind | Negative cases |
+|---|---|---|---|
+| The inspection ends the tenure, whatever the outcome | `extended-return.integration.test.ts`, `guard-clauses.integration.test.ts` | IT | an inspected RETURN and an inspected EXTEND: no covering loan, and the view shows nothing after the inspection day began |
+| The view's total-loss arm | `review-r4.integration.test.ts` | IT | no position dated after a total loss is shown |
+| An ORM deadlock is a passing fault | `breaker-r4.integration.test.ts`, `poll.test.ts` | IT + unit | a real deadlock between two ORM statements, five polls running: never a strike, never skipped, the alert raised once it passes; P1002, P2028, an initialisation error and an unknown request error carrying the driver's 40P01 are passing; one carrying 23514 strikes |
+| A late event under a short retention is dropped (accepted) | `breaker-r4.integration.test.ts` | IT | pinned: a 30-hour-old POWER_CUT under 1-day retention is rejected, no work item |
 
 
 ## Part C — Valuation guides

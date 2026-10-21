@@ -387,8 +387,9 @@ $function$;
 -- or before at's SAST day, with no later loan on the asset that ran (not
 -- CANCELLED) started by then, no recovery of the asset under it (a withdrawn
 -- one aside: the asset went back) dated on or before that day, and the asset
--- not out of the lessee's hands by this loan's own dated end of term: a
--- return inspected on or before that day, or a total loss recorded at or
+-- not out of the lessee's hands by this loan's own dated end of term: the
+-- asset inspected on its return on or before that day, whatever the outcome
+-- (an extended lease is inspected on its EXTEND row), or a total loss recorded at or
 -- before `at` (a completed purchase closes the loan in the same transaction,
 -- and a recovery's sale follows its recovery). Dated records of this loan, never the
 -- asset's current lessor status: that is one value, re-stamped when a
@@ -404,7 +405,7 @@ RETURNS TEXT LANGUAGE sql STABLE AS $function$
     AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."tenantId" = tenant_id AND r."loanId" = l."id" AND r."status" <> 'WITHDRAWN'
       AND r."recoveredOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
     AND NOT EXISTS (SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."tenantId" = tenant_id AND e."loanId" = l."id" AND (
-      (e."outcome" = 'RETURN' AND e."inspectedOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
+      e."inspectedOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
       OR (e."outcome" = 'TOTAL_LOSS' AND e."electedAt" <= at)))
   ORDER BY l."startDate" DESC LIMIT 1;
 $function$;

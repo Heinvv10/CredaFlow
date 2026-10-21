@@ -116,7 +116,7 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
     const endOfTerm = (tx: Tx, values: string) => withTriggersOff(tx, `INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "inspectedOn",
       "inspectedById", "inspectionCondition", "electedAt", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, ${values}, now())`, fx.tenantId, ids.loanA)
     const RETURNED = `'EXPIRY', 'RETURN', 'INSPECTED', CURRENT_DATE - 1, '${fx.officer}', 'Synthetic: returned', now() - INTERVAL '2 days'`
-    await ruleRefuses(database(), fn(G, `(e."outcome" = 'RETURN' AND e."inspectedOn" <=`, `(FALSE AND e."inspectedOn" <=`), TENURE,
+    await ruleRefuses(database(), fn(G, `e."inspectedOn" <= (at`, `FALSE AND e."inspectedOn" <= (at`), TENURE,
       (tx) => store(tx, () => endOfTerm(tx, RETURNED)))
     await ruleRefuses(database(), fn(G, `OR (e."outcome" = 'TOTAL_LOSS' AND e."electedAt" <= at)`, ""), TENURE,
       (tx) => store(tx, () => endOfTerm(tx, `'EARLY_TERMINATION', 'TOTAL_LOSS', 'ELECTED', NULL, NULL, NULL, now() - INTERVAL '1 hour'`)))

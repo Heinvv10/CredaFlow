@@ -71,21 +71,37 @@ const TRANSIENT_PRISMA: ReadonlySet<string> = new Set(["P1001", "P1002", "P1017"
 /** SQLSTATEs of a passing fault in a raw statement: serialisation failure, deadlock, lock not available, statement cancelled. */
 const TRANSIENT_SQLSTATE: ReadonlySet<string> = new Set(["40001", "40P01", "55P03", "57014"])
 
+/** The driver's PostgresError code field, the only SQLSTATE Prisma gives for a query's failure it does not map (an ORM deadlock). */
+const DRIVER_SQLSTATE = /PostgresError \{ code: "([0-9A-Z]{5})"/
+
+/**
+ * The SQLSTATE behind a failure, where Prisma exposes it: a raw statement's
+ * `meta.code`, or the driver's PostgresError code field in an unmapped
+ * request error's message (that field only, never a number elsewhere in the
+ * text), down the `cause` chain.
+ */
+function sqlStateOf(error: unknown): string | null {
+  for (let current = error, depth = 0; depth < 5 && current instanceof Error; depth++, current = (current as { cause?: unknown }).cause) {
+    const code = (current as { meta?: { code?: unknown } }).meta?.code
+    if (current instanceof Prisma.PrismaClientKnownRequestError && current.code === "P2010" && typeof code === "string") return code
+    if (current instanceof Prisma.PrismaClientUnknownRequestError) return DRIVER_SQLSTATE.exec(current.message)?.[1] ?? null
+  }
+  return null
+}
+
 /**
  * Whether a failure is a passing fault, retried for as long as it lasts and
  * never a strike: only the explicit allow-list above, read from structured
- * fields (the Prisma code, the raw statement's SQLSTATE). Everything else,
- * an unknown refusal or an unknown error alike (a TypeError on a malformed
- * payload never goes away), counts a strike toward the skip.
+ * fields (the Prisma code, the SQLSTATE), and a client that could not reach
+ * or stay connected to the database. Everything else, an unknown refusal or
+ * an unknown error alike (a TypeError on a malformed payload never goes
+ * away), counts a strike toward the skip.
  */
 function isTransient(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientInitializationError) return TRANSIENT_PRISMA.has(error.errorCode ?? "")
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
-  if (error.code === "P2010") {
-    const sqlState = (error.meta as { code?: unknown } | undefined)?.code
-    return typeof sqlState === "string" && TRANSIENT_SQLSTATE.has(sqlState)
-  }
-  return TRANSIENT_PRISMA.has(error.code)
+  if (error instanceof Prisma.PrismaClientInitializationError) return true
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code !== "P2010") return TRANSIENT_PRISMA.has(error.code)
+  const sqlState = sqlStateOf(error)
+  return sqlState !== null && TRANSIENT_SQLSTATE.has(sqlState)
 }
 
 /** A failure's structured kind for the audit: the Prisma code (and SQLSTATE of a raw statement), or the error's class. Never its message. */
