@@ -9,6 +9,7 @@
  *   RUN_DB_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/collections/multi-tenant-sweep.integration.test.ts
  */
+import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
@@ -18,14 +19,19 @@ import { createSecondProduct, seedHoldLoan, type SeededHoldLoan } from "@/lib/co
 interface Sent { to: string; body: string }
 const sent = vi.hoisted(() => ({ whatsapp: [] as { to: string; body: string }[], email: [] as { to: string; body: string }[], delayMs: 0 }))
 
+// The transports under sendMessage, which carries every reminder. Provider message ids are
+// unique per provider in the database, so each call gets its own.
 vi.mock("@/lib/integrations/bulksms", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/bulksms")>()),
-  sendSms: vi.fn(async () => ({ ok: true })),
-  sendWhatsApp: vi.fn(async (a: { to: string; message: string }) => {
+  sendSms: vi.fn(async () => ({ ok: true, messageId: `sms-${randomUUID()}` })),
+}))
+vi.mock("@/lib/whatsapp-cloud", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/whatsapp-cloud")>()),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string; message: string }) => {
     // A slow provider is what lets a second run get past the "already sent today" check.
     if (sent.delayMs) await new Promise((resolve) => setTimeout(resolve, sent.delayMs))
     sent.whatsapp.push({ to: a.to, body: a.message })
-    return { ok: true }
+    return { ok: true, messageId: `wamid-${randomUUID()}` }
   }),
 }))
 vi.mock("@/lib/email/service", async (importOriginal) => ({
@@ -36,6 +42,12 @@ vi.mock("@/lib/email/service", async (importOriginal) => ({
 }))
 vi.mock("@/lib/whatsapp/send-for-tenant", () => ({
   sendWhatsAppForTenant: vi.fn(async (a: { to: string; message?: string }) => (sent.whatsapp.push({ to: a.to, body: a.message ?? "" }), { ok: true })),
+}))
+
+// Inside the dunning send window whatever the clock says (the window has its own pinned-clock test).
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => false,
 }))
 
 import { prisma } from "@/lib/prisma"
@@ -61,7 +73,6 @@ const delivered = (list: Sent[], to: string) => list.filter((s) => s.to.includes
 suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     process.env.CRON_SECRET = "it-secret"
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
     delete process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
     a = await createChargesTenant(db, false)
     b = await createChargesTenant(db, false)
@@ -70,8 +81,13 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
     await db.tenantConfig.update({ where: { tenantId: b.tenantId }, data: { brandName: BRAND.b, legalName: `${BRAND.b} (Pty) Ltd` } })
     // dpd-update's default tenant is A: the sweep must still reach B.
     process.env.NEXT_PUBLIC_TENANT_SLUG = (await db.tenant.findUniqueOrThrow({ where: { id: a.tenantId } })).slug
+    // No templates seeded here: the run seeds the defaults each tenant lacks (asserted below).
     for (const t of [a, b]) {
-      await db.commsSettings.upsert({ where: { tenantId: t.tenantId }, create: { tenantId: t.tenantId, whatsappEnabled: true }, update: { whatsappEnabled: true } })
+      await db.commsSettings.upsert({
+        where: { tenantId: t.tenantId },
+        create: { tenantId: t.tenantId, whatsappEnabled: true, waProvider: "WA_CLOUD" },
+        update: { whatsappEnabled: true, waProvider: "WA_CLOUD" },
+      })
     }
     // A has an email provider, B does not; neither was created with the default templates.
     await db.emailConfig.create({
@@ -116,6 +132,12 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
   })
 
   it("escalations: both tenants' loans are defaulted and both borrowers get the 60-DPD notice, in their own lender's name", async () => {
+    // The notice (loan_overdue) emails through sendMessage, which needs the tenant's own
+    // email provider; there is no SMTP-env fallback on that path. B gets one now (the
+    // test above proved the reminders' email leg skipped without it).
+    await db.emailConfig.create({
+      data: { tenantId: b.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender B", fromAddress: "sender-b@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true },
+    })
     sent.email.length = 0
     const result = await processEscalations()
     const refs = (await db.loan.findMany({ where: { id: { in: [arrearsA.loanId, arrearsB.loanId] } }, select: { reference: true } })).map((l) => l.reference)
@@ -127,7 +149,6 @@ suite.sequential("nightly dunning jobs sweep every ACTIVE tenant (real Postgres)
       const note = await db.loanNote.findFirst({ where: { loanId: seeded.loanId, type: "escalation_default" } })
       expect(note?.tenantId, `${seeded.name}: the note belongs to the loan's own tenant`).toBe(tenant.tenantId)
 
-      // The rule fires the notification without awaiting it (escalation.ts), so it lands just after the run returns.
       await vi.waitFor(() => expect(delivered(sent.email, seeded.email), `${seeded.name}: the DEFAULTED notice must reach the borrower`).toHaveLength(1), { timeout: 5000 })
       const got = delivered(sent.email, seeded.email)
       expect(got[0].body).toContain(own)

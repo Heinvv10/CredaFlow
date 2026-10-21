@@ -39,6 +39,14 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }))
+// The send window is the clock's: pinned open unless a test closes it.
+const sendWindow = vi.hoisted(() => ({ outside: false }))
+vi.mock("@/lib/collections/send-window", async (orig) => ({
+  ...(await orig<typeof import("@/lib/collections/send-window")>()),
+  outsideDunningSendWindow: () => sendWindow.outside,
+}))
+// Template seeding is the reminders suite's to test; here it is a no-op.
+vi.mock("@/lib/collections/dunning-templates", () => ({ ensureDunningTemplates: async () => undefined }))
 vi.mock("@/lib/notifications", () => ({
   triggerNotification: (a: unknown) => triggerNotificationMock(a),
 }))
@@ -76,6 +84,7 @@ const guardedFlip = (loanId: string) => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
+  sendWindow.outside = false
   tenantFindFirstMock.mockResolvedValue({ id: "tenant_acme" })
   loanFindManyMock.mockResolvedValue([loan60d])
   loanNoteFindFirstMock.mockImplementation((args: { where: { type: string } }) =>
@@ -92,6 +101,95 @@ beforeEach(() => {
 })
 
 describe("processEscalations", () => {
+  // A manual call with the cron secret at night must not message a borrower. The rule that
+  // sends (the DEFAULTED flip and its notice) is deferred WHOLE: had it flipped and noted the
+  // loan, the next run would skip it for its note and the notice would be lost for good.
+  it("outside the dunning send window the DEFAULTED rule is deferred: no flip, no note, no reservation, no notice", async () => {
+    sendWindow.outside = true
+    const r = await processEscalations()
+    expect(loanUpdateManyMock).not.toHaveBeenCalled()
+    expect(loanNoteCreateMock).not.toHaveBeenCalled()
+    expect(reserveOnceMock).not.toHaveBeenCalled()
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+    expect(r.details).toContainEqual("Deferred L-100 escalation_default: outside the 07:00-20:00 SAST send window; the next in-window run applies it")
+    expect(r.errors).toBe(0)
+  })
+
+  it("the next in-window run applies the deferred rule whole: flip, note and the notice", async () => {
+    const notes: string[] = []
+    loanNoteFindFirstMock.mockImplementation((args: { where: { type: string } }) =>
+      Promise.resolve(args.where.type === "escalation_default" ? (notes.includes("escalation_default") ? { id: "n" } : null) : { id: "existing-note" }))
+    loanNoteCreateMock.mockImplementation(async (a: { data: { type: string } }) => (notes.push(a.data.type), { id: "note" }))
+
+    sendWindow.outside = true
+    await processEscalations()
+    sendWindow.outside = false
+    await processEscalations()
+
+    expect(loanUpdateManyMock).toHaveBeenCalledTimes(1)
+    expect(notes).toEqual(["escalation_default"])
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect(triggerNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ event: "loan_overdue", loanId: "loan_1" }))
+  })
+
+  // Deferral is for a loan whose borrower WOULD be messaged; anything else has nothing to wait for.
+  describe("outside the window, only a rule that would message is deferred", () => {
+    beforeEach(() => {
+      sendWindow.outside = true
+    })
+
+    it("a loan already DEFAULTED and noted gets no 'Deferred' line", async () => {
+      loanNoteFindFirstMock.mockResolvedValue({ id: "existing-note" })
+      const r = await processEscalations()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+
+    it("a loan past the 66-DPD notice window is flipped and noted at once: no notice is due", async () => {
+      loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 80 }])
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+
+    it("a loan on a dunning hold is flipped at once: its notice is not sent anyway", async () => {
+      loanDunningHoldMock.mockResolvedValue("debt review")
+      const r = await processEscalations()
+      expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(r.details.filter((d) => d.startsWith("Deferred"))).toEqual([])
+    })
+  })
+
+  // A run that began at 19:59 must stop messaging at 20:00: the window is checked per loan.
+  it("the window closing mid-run defers the next loan's notice-bearing rule", async () => {
+    loanFindManyMock.mockResolvedValue([loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }])
+    triggerNotificationMock.mockImplementation(async () => {
+      sendWindow.outside = true
+      return { failedLegs: [] }
+    })
+
+    const r = await processEscalations()
+
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect(loanUpdateManyMock).toHaveBeenCalledTimes(1)
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+    expect(r.details).toContainEqual("Deferred L-200 escalation_default: outside the 07:00-20:00 SAST send window; the next in-window run applies it")
+  })
+
+  // The notice now always goes through sendMessage; a leg it reports failed (a definite
+  // rejection, no Contact, a missing template) is the notice failing, not a notice sent.
+  it("a DEFAULTED notice whose leg failed is counted like one that threw, and its reservation is given back", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    triggerNotificationMock.mockResolvedValueOnce({ failedLegs: ["email"] })
+    loanFindManyMock.mockResolvedValue([loan60d, { ...loan60d, id: "loan_2", reference: "L-200" }])
+    const r = await processEscalations()
+    expect(r.errors).toBe(1)
+    expect(r.details).toContainEqual("Error L-100 escalation_default: failed; see the server log")
+    expect(releaseReservationMock).toHaveBeenCalledWith("escalation:loan_1:escalation_default", expect.any(Date))
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("DEFAULTED notice failed on email"))
+  })
+
   describe("the 60-DPD notice window", () => {
     it("notifies a loan that crossed 60 days recently, up to 66 DPD", async () => {
       loanFindManyMock.mockResolvedValue([{ ...loan60d, daysInArrears: 66 }])
@@ -121,6 +219,9 @@ describe("processEscalations", () => {
     expect(r.details.join(" ")).toContain("Error L-100 escalation_default: failed; see the server log")
     expect(r.details.join(" ")).not.toContain("smtp exploded")
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("DEFAULTED notice failed"), expect.objectContaining({ message: "smtp exploded" }))
+    // Only the notice failed: the flip and its note stand.
+    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
+    expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
     logged.mockRestore()
   })
 

@@ -36,10 +36,6 @@ export function isSection129NewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_S129 === "true"
 }
 
-export function isCollectionsNewSendEnabled(): boolean {
-  return process.env.MESSAGING_NEW_SEND_COLLECTIONS === "true"
-}
-
 export function isAppSubmittedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_APP_SUBMITTED === "true"
 }
@@ -54,10 +50,6 @@ export function isLoanApprovedNewSendEnabled(): boolean {
 
 export function isLoanDisbursedNewSendEnabled(): boolean {
   return process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_DISBURSED === "true"
-}
-
-export function isLoanOverdueNewSendEnabled(): boolean {
-  return process.env.MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE === "true"
 }
 
 export function isPaymentReceivedNewSendEnabled(): boolean {

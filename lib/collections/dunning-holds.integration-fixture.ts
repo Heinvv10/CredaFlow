@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from "node:crypto"
 import type { CollectionsStage, LoanStatus, PrismaClient } from "@prisma/client"
 import { SCHEDULE_TOTAL, type ChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { sastStartOfDay } from "@/lib/date/sast"
+import { normalisePhone, toWaJid } from "@/lib/contact/identity"
 
 // Shared real-Postgres fixture for the dunning-hold integration suites.
 // Synthetic data only: every address is `.invalid` and every number is made up.
@@ -116,8 +117,15 @@ export async function seedHoldLoan(
       primaryEmail: email, primaryPhone: phone, primaryWaJid: `${whatsapp.slice(1)}@s.whatsapp.net`,
     },
   })
-  // What sendMessage resolves an email recipient from.
-  await db.contactIdentity.create({ data: { tenantId: tenant.tenantId, contactId: contact.id, channel: "EMAIL", source: "MANUAL", value: email } })
+  // The identities a reminder resolves its Contact through (lookupRecipientContact),
+  // the email one included: what sendMessage resolves an email recipient from.
+  await db.contactIdentity.createMany({
+    data: [
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "SMS", value: normalisePhone(phone), source: "MANUAL" },
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "WHATSAPP", value: toWaJid(whatsapp), source: "MANUAL" },
+      { tenantId: tenant.tenantId, contactId: contact.id, channel: "EMAIL", value: email, source: "MANUAL" },
+    ],
+  })
   const loan = await createLoan(db, tenant, client.id, { productId: tenant.productId, status: c.status, stage: c.stage, debtReview: c.debtReview, inArrears: opts.inArrears })
   if (c.debtReviewOnSibling) {
     await createLoan(db, tenant, client.id, { productId: secondProductId, debtReview: true })

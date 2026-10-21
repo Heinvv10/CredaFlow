@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach } from "vitest"
 import {
   isPortalForgotNewSendEnabled,
   isSection129NewSendEnabled,
-  isCollectionsNewSendEnabled,
 } from "./flags"
 
 describe("isPortalForgotNewSendEnabled", () => {
@@ -60,29 +59,6 @@ describe("isSection129NewSendEnabled", () => {
     for (const val of ["false", "1", "TRUE", ""]) {
       process.env.MESSAGING_NEW_SEND_S129 = val
       expect(isSection129NewSendEnabled()).toBe(false)
-    }
-  })
-})
-
-describe("isCollectionsNewSendEnabled", () => {
-  afterEach(() => {
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
-  })
-
-  it("returns true only for the exact string 'true'", () => {
-    process.env.MESSAGING_NEW_SEND_COLLECTIONS = "true"
-    expect(isCollectionsNewSendEnabled()).toBe(true)
-  })
-
-  it("returns false when env var is unset", () => {
-    delete process.env.MESSAGING_NEW_SEND_COLLECTIONS
-    expect(isCollectionsNewSendEnabled()).toBe(false)
-  })
-
-  it("returns false for 'false', '1', 'TRUE', empty (strict match)", () => {
-    for (const val of ["false", "1", "TRUE", ""]) {
-      process.env.MESSAGING_NEW_SEND_COLLECTIONS = val
-      expect(isCollectionsNewSendEnabled()).toBe(false)
     }
   })
 })

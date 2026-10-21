@@ -38,11 +38,28 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.getCommsSettings.mockResolvedValue({ whatsappEnabled: false })
   m.findFirst.mockResolvedValue({ id: "template-1", statutoryOverride: false, tenantId: "tenant-1" })
-  m.lookupContact.mockResolvedValue({ id: "contact-1" })
+  m.lookupContact.mockResolvedValue({ id: "contact-1", clientId: "client-1" })
   m.sendMessage.mockResolvedValue({ id: "message-1", status: "SENT" })
 })
 
 describe("sendEntityNotice", () => {
+  // The person's number or address resolves to someone else's Contact (a lead, another
+  // client): their consent is not this person's, and they must not read the entity's loan.
+  it("refuses a leg whose Contact belongs to someone else, naming no number or address", async () => {
+    m.getCommsSettings.mockResolvedValue({ whatsappEnabled: true })
+    m.lookupContact.mockImplementation(async (_db: unknown, a: { channel: string }) =>
+      a.channel === "WHATSAPP" ? { id: "contact-lead", clientId: null } : { id: "contact-1", clientId: "client-1" })
+
+    const outcomes = await sendEntityNotice(request)
+
+    expect(outcomes).toEqual([
+      expect.objectContaining({ channel: "EMAIL", status: "sent" }),
+      { clientId: "client-1", channel: "WHATSAPP", status: "failed", reason: "Contact belongs to someone else" },
+    ])
+    expect(m.sendMessage).toHaveBeenCalledTimes(1)
+    expect(m.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ channel: "EMAIL", contactId: "contact-1" }))
+  })
+
   it("reports WhatsApp as blocked when the tenant disabled it, while email still sends", async () => {
     const outcomes = await sendEntityNotice(request)
 

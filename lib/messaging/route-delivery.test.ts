@@ -28,14 +28,14 @@ const opts = { contactId: "ct1", channel: "EMAIL", template: {}, vars: {}, toVal
 describe("resolveMessagingTarget", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    contactIdentityFindFirst.mockResolvedValue({ contact: { id: "ct1" } })
+    contactIdentityFindFirst.mockResolvedValue({ contact: { id: "ct1", clientId: "cl1" } })
   })
 
   it("only matches an ACTIVE template — a deactivated one must stop sending", async () => {
     templateFindFirst.mockResolvedValue(null)
 
     const r = await resolveMessagingTarget({
-      tenantId: "tn1", channel: "EMAIL", value: "x@y.com", templateKey: "k",
+      tenantId: "tn1", channel: "EMAIL", value: "x@y.com", templateKey: "k", ownerClientId: "cl1",
     })
 
     expect(templateFindFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -48,10 +48,24 @@ describe("resolveMessagingTarget", () => {
     contactIdentityFindFirst.mockResolvedValue(null)
 
     const r = await resolveMessagingTarget({
-      tenantId: "tn1", channel: "EMAIL", value: "x@y.com", templateKey: "k",
+      tenantId: "tn1", channel: "EMAIL", value: "x@y.com", templateKey: "k", ownerClientId: "cl1",
     })
 
     expect(r.ok).toBe(false)
+    expect(templateFindFirst).not.toHaveBeenCalled()
+  })
+
+  // The agreement email, the PASQ link, the portal activation and the signing OTP all
+  // resolve their recipient here: an address that resolves to another person's Contact
+  // would have that person's consent checked and the message filed under them.
+  it("refuses a Contact that belongs to someone else, naming no address", async () => {
+    contactIdentityFindFirst.mockResolvedValue({ contact: { id: "ct-lead", clientId: null } })
+
+    const r = await resolveMessagingTarget({
+      tenantId: "tn1", channel: "EMAIL", value: "x@y.com", templateKey: "k", ownerClientId: "cl1",
+    })
+
+    expect(r).toEqual({ ok: false, reason: "the Contact for this email address belongs to someone else" })
     expect(templateFindFirst).not.toHaveBeenCalled()
   })
 })

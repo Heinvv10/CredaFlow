@@ -148,6 +148,7 @@ export async function requestSigningOtp(args: {
 
   const delivery = await deliverOtp({
     tenantId: subject.tenantId,
+    clientId: subject.clientId,
     channel,
     destination,
     recipient: subject.recipient,

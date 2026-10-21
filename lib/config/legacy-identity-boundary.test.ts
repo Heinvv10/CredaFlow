@@ -35,7 +35,10 @@ describe("forked lender identity boundary", () => {
       if (hits.length) offenders.push(`${f}: ${hits.join(", ")}`)
     }
     expect(offenders).toEqual([])
-  }, 120_000)
+    // Not an import problem: ~5,900 files hashed window by window is ~20-30 s of
+    // single-core CPU spread evenly over the tree (no hot file). A full parallel
+    // run shares the cores with every other worker and took past 120 s.
+  }, 300_000)
 
   it("the old per-topic constant modules are gone", () => {
     expect(git("grep", "--untracked", "-lE", "@/lib/config/(regulatory|company-contact|team)\"", "--", "*.ts", "*.tsx")).toEqual([])
