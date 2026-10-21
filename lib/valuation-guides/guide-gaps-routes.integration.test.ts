@@ -19,6 +19,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
 
 import { POST as uploadGuide } from "@/app/api/asset-finance/valuation-guides/route"
 import { POST as publishRoute } from "@/app/api/asset-finance/valuation-guides/[id]/publish/route"
+import { POST as recordRoute } from "@/app/api/asset-finance/assets/[id]/guide-valuations/route"
 import { cleanupDealFixture, createDealFixture, dealFixtureTenantId, type DealFixture } from "@/lib/asset-finance/deal.integration-fixture"
 import { cleanupGuides, day } from "./guide.integration-fixture"
 
@@ -118,5 +119,22 @@ suite.sequential("publish route refusals (real Postgres, real routes)", () => {
     expect(res.status).toBe(422)
     expect((await res.json()).problems).toEqual([{ line: 1, reason: "The upload is larger than 5 MB" }])
     expect(await database().valuationGuide.count({ where: { tenantId: fx.tenantId } })).toBe(before)
+  })
+
+  it("refuses to record a simulated guide's value on a deployed build, though the guide went live where it was allowed", async () => {
+    as(fx.adminA)
+    const id = await upload({ name: "TEST Synthetic Live Guide", effectiveOn: day(-2), provider: "synthetic" }) // another date: another synthetic file
+    as(fx.adminB)
+    expect((await publish(id)).status).toBe(200)
+    const row = await database().valuationGuideRow.findFirstOrThrow({ where: { guideId: id, model: "EX-1", variant: "" } })
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubEnv("SIMULATED_INTEGRATIONS", "")
+    session.current = { user: { id: fx.officer, email: `${fx.officer}@guide-gaps.test`, role: "CREDIT_OFFICER", tenantId: fx.tenantId } }
+    const res = await recordRoute(new NextRequest(`http://${fx.host}/api/asset-finance/assets/${fx.assets[0]}/guide-valuations`, {
+      method: "POST", headers: { host: fx.host, "content-type": "application/json" }, body: JSON.stringify({ guideRowId: row.id }),
+    }), { params: Promise.resolve({ id: fx.assets[0] }) })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/simulated guide's value cannot be recorded/)
+    expect(await database().assetValuation.count({ where: { tenantId: fx.tenantId, guideId: id } })).toBe(0)
   })
 })

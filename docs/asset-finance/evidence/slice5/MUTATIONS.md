@@ -507,3 +507,27 @@ After the fixes (migrations `20261021090200` edited in place and
 | R1-T21 | purchase picker without the source filter | lease panel unit | 1 failed, 10 passed | "offers only assessors' and dealers' valuations …" |
 | R1-T22 | body cap off while streaming | gaps-routes IT + upload-body unit | 2 failed, 5 passed | "refuses a body over the cap …"; "stops a stream with no length …" |
 | R1-T23 | `?offset` not clamped to the row count | guide-view unit | 1 failed | "reads a whole number within the guide's rows …" |
+
+### Review round 1 addendum (items 6b–6d)
+
+New: `lib/valuation-guides/loaders.integration.test.ts`, which runs the loaders
+that `RecoveryPanel.test.tsx` and the panel test mock out, and a record-time
+simulation gate test in `guide-gaps-routes.integration.test.ts`. The
+`ValuationGuideRow_line_key` refusing test is R1-I above.
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R1b-L-make | `guideCandidates` without the make match | loaders IT | 2 failed, 2 passed | "offers only rows of the asset's own make, model and year"; the panel's candidates |
+| R1b-L-year | `guideCandidates` without the year match | loaders IT | 2 failed, 2 passed | same two |
+| R1b-L-order | `latestGuideValuation` oldest first | loaders IT | 3 failed, 1 passed | the newest value, the panel, the recovery reference |
+| R1b-L-tenant | `latestGuideValuation` without its tenant filter | loaders IT | 3 failed, 1 passed | same three (another lender's asset id answered) |
+| R1b-GP-swap | `loadGuidePanel` trade LTV on the retail value | loaders IT | 1 failed, 3 passed | "gives the panel … LTV against its trade and retail values" |
+| R1b-GP-tenant | `loadGuidePanel` without its tenant filter | loaders IT | 1 failed, 3 passed | same test |
+| R1b-RP-sim | `loadGuideReference` without "(simulated)" | loaders IT | 1 failed, 3 passed | "gives the recovery its newest guide value as a labelled reference" |
+| R1b-A-snapsim | GUIDE trigger snapshots `'simulated', false` (database) | gaps + loaders ITs | 3 failed, 11 passed | "snapshots whether the guide was simulated …"; the newest value; the recovery reference |
+| R1b-L-sim | `recordGuideValuation` without its simulation gate | gaps-routes IT | 1 failed, 4 passed | "refuses to record a simulated guide's value on a deployed build …" (201, a valuation written) |
+
+6d: no database backstop for the simulation gate, by design (SLICE5.md Part C,
+known limitations): the database cannot read the deployment's environment.
+The gate is tested at load, publish (R1-T14) and record (R1b-L-sim).
+

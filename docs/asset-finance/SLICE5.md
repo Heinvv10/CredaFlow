@@ -1064,6 +1064,8 @@ Staff, house pattern (`requireApiRole` → `withTenantContext` →
 | Purchase picker offers market valuations only (round 1) | `components/asset-finance/lease/lease-panel.test.tsx` | unit | GUIDE and INTERNAL never offered |
 | Races and flows (round 1) | `guide-concurrency.integration.test.ts`, `edge-flows.integration.test.ts`, `guide-breaker.integration.test.ts` (B5–B7) | IT | concurrent publish; the same file at once; same-day supersede; older-dated; discard then reload; a 20 000-row guide |
 | Rows page offset | `lib/valuation-guides/guide-view.test.ts` | unit | negative, fractional, `1e21`, past the last row |
+| Read side: candidates, newest guide value, panel LTV, recovery reference (round 1) | `lib/valuation-guides/loaders.integration.test.ts` | IT | another make or year with the same model; an older value; another tenant's asset; trade/retail swapped; the simulated label |
+| Simulation gate at record time (round 1) | `guide-gaps-routes.integration.test.ts` | IT | a simulated guide's value recorded on a deployed build |
 | Browser seed shape | `lib/valuation-guides/valuation-browser-seed.test.ts` (`VALUATION_BROWSER_SEED=1`) | seed | — |
 | RLS on the two models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | — |
 
@@ -1117,6 +1119,16 @@ transaction. TS gates are mutated by hand, and the named test must turn red.
   than current, simulated) write no audit row, as elsewhere in the repo.
 - **The book revaluation is unbounded** (every live loan on one page), and its
   LTV is outstanding principal over trade: no interest, fees or arrears.
+- **The simulation gate is the app's, not the database's.** Whether a
+  deployment may use a simulated integration is a property of the app
+  process's environment (`NODE_ENV`, `SIMULATED_INTEGRATIONS`), which the
+  database cannot read; every simulated integration here (bureau, payouts,
+  collections, telematics) is gated the same way, in TS, at the moment of use.
+  For guides that is load (`providers.test.ts`), publish and record
+  (`guide-gaps-routes.integration.test.ts`). The database keeps the label
+  honest instead: a synthetic guide is always `simulated`, the flag never
+  changes after load, and every GUIDE valuation snapshots it, so the
+  "Simulated" label follows the value wherever it is shown.
 - **A rollback past this part breaks once a GUIDE row exists**: an older
   image's Prisma client cannot read the enum value (handoff note).
 
