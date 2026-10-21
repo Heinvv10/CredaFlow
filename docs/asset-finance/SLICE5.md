@@ -1123,7 +1123,9 @@ transaction. TS gates are mutated by hand, and the named test must turn red.
   for a missing permission and a 409 (not a DRAFT, not yet effective, older
   than current, simulated) write no audit row, as elsewhere in the repo.
 - **The book revaluation is unbounded** (every live loan on one page), and its
-  LTV is outstanding principal over trade: no interest, fees or arrears.
+  LTV is outstanding principal over trade: no interest, fees or arrears. Its
+  Outstanding column says per row what the figure is: an instalment sale's
+  principal, a lease's remaining rentals incl. VAT.
 - **The simulation gate is the app's, not the database's.** Whether a
   deployment may use a simulated integration is a property of the app
   process's environment (`NODE_ENV`, `SIMULATED_INTEGRATIONS`), which the

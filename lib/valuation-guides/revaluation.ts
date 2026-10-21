@@ -33,7 +33,7 @@ export interface RevaluationLoan {
   loanId: string
   reference: string
   contractType: ContractType
-  /** Loan.outstandingPrincipal: principal only, no interest, fees or arrears. */
+  /** Loan.outstandingPrincipal: for an instalment sale its principal (no interest, fees or arrears); for a lease its remaining rentals incl. VAT. */
   outstandingCents: number
   asset: { id: string; make: string; model: string; year: number; serialNumber: string }
 }
@@ -55,6 +55,9 @@ export type RevaluationMatch =
 export type RevaluationRow = RevaluationLoan & { match: RevaluationMatch }
 
 const LEASES: readonly ContractType[] = ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"]
+
+/** What a loan's outstanding figure is: the report labels it per row. */
+export const outstandingBasis = (contractType: ContractType) => (LEASES.includes(contractType) ? "remaining rentals incl. VAT" : "principal")
 
 function matchLoan(loan: RevaluationLoan, rows: CurrentGuideRow[]): RevaluationMatch {
   const candidates = rows.filter((r) => r.assetId === loan.asset.id)

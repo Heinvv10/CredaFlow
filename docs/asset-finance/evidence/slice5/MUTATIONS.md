@@ -559,3 +559,17 @@ The gate is tested at load, publish (R1-T14) and record (R1b-L-sim).
 | R2-T6 | record-form choices without "simulated" | GuideValuePanel unit | 1 failed, 2 passed | "labels … a simulated guide's rows among the choices" |
 | R2-T7 | `GUIDE_DAY_REFUSAL` reworded on the TS side only | migration static + midnight IT | 2 failed, 7 passed | "keeps the sentences the store maps to a 409 in the guards that raise them"; the midnight record test (500) |
 | R2-S | a later migration rewrites `guardRecovery` without the GUIDE clause (a temporary `20991231000000_zz_mutation` dir, then removed) | migration static | 1 failed, 6 passed | "refuses GUIDE in the statutory guards, and no later migration rewrites either guard without it" |
+
+### Review round 2 addendum (items 6–8)
+
+**Written first.** The candidate-model and tenant cases, arch's times-race repro (inverted: the race now succeeds) and the oversized-upload refusal were committed before the fixes. The oversized-upload test was red against fae47b2b: the refusal came back as a line-1 problem and was not audited. Fixes:
+- the oversized upload is a whole-upload 422 `{ error }`, audited as `upload_too_large`;
+- the revaluation's Outstanding column says what each row's figure is.
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R2b-L-model | `guideCandidates` without the model match | loaders IT | 2 failed, 2 passed | "offers only the lender's own rows of the asset's own make, model and year"; the panel's candidates |
+| R2b-L-tenant | `guideCandidates` without `r."tenantId" = …` | loaders IT | 2 failed, 2 passed | same two (the other lender's row offered) |
+| R2b-basis | every row's outstanding labelled "principal" | revaluation unit | 1 failed, 5 passed | "labels a lease's outstanding figure as its remaining rentals incl. VAT …" |
+| R2b-sizeaudit | oversized upload not audited | gaps-routes IT | 1 failed, 4 passed | "refuses a body over the cap with 422 …" |
+| R2b-F1 | the guard dates a supersede with `now()` again (database) | times-race IT | 1 failed | "a publish transaction older than the current guide's publish still supersedes it" |

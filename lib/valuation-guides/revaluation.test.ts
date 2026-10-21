@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { revalue, type CurrentGuideRow, type RevaluationLoan } from "./revaluation"
+import { outstandingBasis, revalue, type CurrentGuideRow, type RevaluationLoan } from "./revaluation"
 
 const row = (over: Partial<CurrentGuideRow>): CurrentGuideRow => ({
   assetId: "a1", guideId: "g1", guideName: "TEST Plant Guide", effectiveOn: "2026-02-01", simulated: false, rowId: "r1",
@@ -39,4 +39,11 @@ describe("book revaluation against the current guides", () => {
     const out = revalue([loan({ contractType: "OPERATING_LEASE" }), loan({ loanId: "l2", contractType: "FULL_MAINTENANCE_LEASE" })], [row({})])
     expect(out.map((r) => r.match)).toEqual([expect.objectContaining({ kind: "matched", ltvBps: null }), expect.objectContaining({ kind: "matched", ltvBps: null })])
   })
+
+  it("labels a lease's outstanding figure as its remaining rentals incl. VAT, any other loan's as principal", () => {
+    expect(outstandingBasis("OPERATING_LEASE")).toBe("remaining rentals incl. VAT")
+    expect(outstandingBasis("FULL_MAINTENANCE_LEASE")).toBe("remaining rentals incl. VAT")
+    expect(outstandingBasis("INSTALMENT_SALE")).toBe("principal")
+  })
 })
+

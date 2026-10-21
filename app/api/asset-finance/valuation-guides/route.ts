@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { AuditAction } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
 import { canDo, requireApiRole } from "@/lib/auth-guards"
 import { withTenantContext } from "@/lib/tenant"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
@@ -28,7 +30,7 @@ export async function GET(req: NextRequest) {
  * Loads a valuation guide as a DRAFT (docs/asset-finance/SLICE5.md part C).
  * Multipart: `name`, `effectiveOn` (YYYY-MM-DD), `provider` (default `csv`)
  * and, for csv, `file` (at most 5 MB; the body is counted as it arrives and
- * refused once over, never buffered whole). A malformed file is 422 with a reason
+ * refused once over, never buffered whole: 422 `{ error }`, audited). A malformed file is 422 with a reason
  * per line and nothing stored (audited, counts only); the same file while a
  * draft or a published guide carries it is 409. Needs manage_valuation_guides;
  * a second person publishes it (./[id]/publish).
@@ -43,7 +45,14 @@ export async function POST(req: NextRequest) {
     if (!canDo(guard.user.role, "manage_valuation_guides")) {
       return NextResponse.json({ error: "Loading a valuation guide needs the manage_valuation_guides permission" }, { status: 403 })
     }
-    const tooLarge = () => NextResponse.json({ error: "The guide was refused", problems: [{ line: 1, reason: UPLOAD_TOO_LARGE }], total: 1 }, { status: 422 })
+    // The whole upload is refused (no line of it is read), audited like a malformed file.
+    const tooLarge = async () => {
+      await auditRefusal({
+        action: AuditAction.VALUATION_GUIDE_UPLOAD_REFUSED, entity: "ValuationGuide", entityId: "-", tenantId: tenant.id,
+        userId: guard.user.id, userEmail: guard.user.email, reason: "upload_too_large", status: 422,
+      })
+      return NextResponse.json({ error: UPLOAD_TOO_LARGE }, { status: 422 })
+    }
     const body = await readCappedBody(req)
     if (!body) return tooLarge()
     const form = await formOf(req, body)

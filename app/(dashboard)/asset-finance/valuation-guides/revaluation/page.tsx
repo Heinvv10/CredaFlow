@@ -8,7 +8,7 @@ import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { requireAssetFinanceStaffPage } from "@/lib/asset-finance/staff-page"
 import { formatLtv } from "@/lib/valuation-guides/ltv"
 import { loadRevaluation } from "@/lib/valuation-guides/revaluation-store"
-import type { RevaluationMatch } from "@/lib/valuation-guides/revaluation"
+import { outstandingBasis, type RevaluationMatch } from "@/lib/valuation-guides/revaluation"
 
 const signed = (cents: number) => `${cents > 0 ? "+" : cents < 0 ? "−" : ""}${formatMoney(Math.abs(cents))}`
 
@@ -58,7 +58,7 @@ export default async function RevaluationPage() {
         breadcrumbs={[{ label: "Asset Finance" }, { label: "Valuation guides", href: "/asset-finance/valuation-guides" }, { label: "Book revaluation" }]}
       />
       <div className="space-y-6 p-4 lg:p-8">
-        <DataPanel title="Loans" description="Change: trade value now less trade value at the asset's last recorded guide value. LTV (trade): outstanding principal over trade, instalment sales only" density="compact">
+        <DataPanel title="Loans" description="Outstanding: an instalment sale's principal, a lease's remaining rentals incl. VAT. Change: trade value now less trade value at the asset's last recorded guide value. LTV (trade): outstanding principal over trade, instalment sales only" density="compact">
           {rows.length === 0 ? (
             <p className="text-sm text-[var(--cf-text-muted)]">No live asset-finance loans.</p>
           ) : (
@@ -67,7 +67,7 @@ export default async function RevaluationPage() {
                 <TableRow>
                   <TableHead>Loan</TableHead>
                   <TableHead>Asset</TableHead>
-                  <TableHead className="text-right">Outstanding principal</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
                   <TableHead>Guide row</TableHead>
                   <TableHead className="text-right">Trade</TableHead>
                   <TableHead className="text-right">Retail</TableHead>
@@ -86,7 +86,10 @@ export default async function RevaluationPage() {
                       <Link href={`/asset-finance/assets/${r.asset.id}`} className="text-[var(--cf-brand)] hover:underline">{r.asset.year} {r.asset.make} {r.asset.model}</Link>
                       <span className="block font-mono text-xs text-[var(--cf-text-muted)]">{r.asset.serialNumber}</span>
                     </TableCell>
-                    <TableCell className="text-right font-mono">{formatMoney(r.outstandingCents)}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      {formatMoney(r.outstandingCents)}
+                      <span className="block font-sans text-xs text-[var(--cf-text-muted)]">{outstandingBasis(r.contractType)}</span>
+                    </TableCell>
                     <MatchCells match={r.match} assetId={r.asset.id} />
                   </TableRow>
                 ))}
