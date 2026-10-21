@@ -72,7 +72,8 @@ const notesOf = (s: SeededHoldLoan) =>
 const fresh = (name: string, hold: Partial<Parameters<typeof seedHoldLoan>[3]> = {}) =>
   seedHoldLoan(db, tenant, secondProductId, { name, held: false, ...hold })
 
-suite.sequential("collections reminders go through sendMessage (real Postgres)", () => {
+// Each run sweeps every ACTIVE tenant in the shared test database, which is slow late in a full gate.
+suite.sequential("collections reminders go through sendMessage (real Postgres)", { timeout: 120_000 }, () => {
   beforeAll(async () => {
     tenant = await createChargesTenant(db, false)
     await seedDefaultMessageTemplates(db, tenant.tenantId, "Acme Lending")
