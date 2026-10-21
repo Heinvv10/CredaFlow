@@ -82,8 +82,11 @@ jobs:
       - name: AGENTS.md mirrors match CLAUDE.md
         run: npm run agents:check
 
+      # The checker builds a full program over the repo; 2 GiB is not enough.
       - name: No local-zone calendar boundaries
         run: npm run dates:check
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # The base Vitest config pins UTC, so explicitly exercise other zones.
       - name: Date helpers are timezone-independent
