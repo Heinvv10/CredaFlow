@@ -385,7 +385,7 @@ a deliberate, audited exception and is **not built in PR A**.
 
 All from existing tables; one code-owned definition per outcome
 (`lib/learning-loop/outcomes/`, version `OUTCOME_DEFINITION_VERSION =
-outcomes-v1` in `definition.ts`); measured from the first instalment due
+outcomes-v2` in `definition.ts`; v2 applied decision 3); measured from the first instalment due
 date. Days are SAST calendar days. The definitions are pure functions over
 source-neutral facts (`facts.ts`), so an external extract runs through the
 same code.
@@ -394,7 +394,7 @@ same code.
 |---|---|---|
 | `PAID` | instalment fully paid by its due date; window `INSTALMENT:<n>`, known the day after the due day | `RepaymentSchedule.paidAt`, which the paid-at replay keeps (`lib/loan/schedule-paid-at.ts`; `Payment` has no instalment FK). Paid in full with no `paidAt` → `UNOBSERVABLE` (`PAID_AT_MISSING`) |
 | `LATE` | paid 1–29 days after the due day; known 30 days after it; on time, 30+ days late or unpaid is `false` (30+ is `EVER_30_DPD`'s) | same |
-| `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED; a `simulated` result counts only when `DEMO_MODE=true` | `CollectionResult` → `CollectionInstruction` (`loanId`, `installmentNo`, `amountCents`) |
+| `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED; a `simulated` result counts only for a demo lender (`TenantConfig.isDemoLender`, decision 4) | `CollectionResult` → `CollectionInstruction` (`loanId`, `installmentNo`, `amountCents`) |
 | `EVER_30_DPD` / `EVER_60_DPD` / `EVER_90_DPD` | max DPD in the window ≥ 30/60/90, windows `3M`, `6M`, `12M` from the first due day (calendar months, clamped to month end), and `TERM_30D` (term end + 30 days) for a short loan: one whose term end + 30 days falls inside `3M`. `EVER_90_DPD` is measured over `6M` and `12M` only: a `3M` window is 89–92 days, so whether 90 DPD fits in it depends on the start month and cohorts would not compare (`TERM_30D` is never longer). A loan **written off** inside the window before reaching the threshold has it `OBSERVED true` with `reasonCode = WRITTEN_OFF_BEFORE_THRESHOLD` (a write-off below 90 DPD is a loss, never good). A loan **cancelled** (cooling-off) inside the window is `UNOBSERVABLE` (`LOAN_CANCELLED`): it never performed | `LoanArrearsSnapshot.daysInArrears` (`prisma/schema/arrears-history.prisma`), `Loan` for the write-off/cancel day |
 | headline **bad** = **default** | ever 90+ DPD within 12 months (decision 1; matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`). 60+ is reported as a collections escalation band, never as default | same |
 | `DEFAULTED_STATUS` (per window) | the snapshot's `status` was `DEFAULTED` on a day in the window (tracked separately from DPD; today it can mean 60+ DPD, see below, so it is never the default figure); a write-off does not make it true, a cancellation makes it `UNOBSERVABLE` | `LoanArrearsSnapshot.status` only (the loan row has no default date) |
@@ -429,8 +429,9 @@ As built:
   `DecisionOutcome_value_when_observed`), so a `PENDING` or `UNOBSERVABLE`
   row cannot be summed as good.
 - Simulated collection results (`CollectionResult.simulated`) are included
-  only on a demo deployment (`DEMO_MODE=true`), where v1 is proved; on a real
-  lender they are ignored.
+  only for a demo lender (`TenantConfig.isDemoLender`, the repo's marker for
+  a synthetic lender, set only by the demo seed and stack scripts); on a real
+  lender they are ignored whatever the deployment's `DEMO_MODE` (decision 4).
 
 **Decided (decision 1), code not changed here**: default is 90+ DPD. The
 escalations cron still flips ACTIVE → DEFAULTED at **60** DPD
@@ -472,7 +473,8 @@ does not ride in a learning-loop PR.
   off another lender's decision; the migration adds that unique index on
   `CreditDecisionRecord`), `outcomeKind` enum `DecisionOutcomeKind` (§3:
   `PAID`, `LATE`, `RETURNED_DEBIT_ORDER`, `EVER_30/60/90_DPD`,
-  `DEFAULTED_STATUS`, `CURED`, `SETTLED`, `WRITTEN_OFF`, `TAKEN_UP`), `window`
+  `DEFAULTED_STATUS`, `CURED`, `SETTLED_AFTER_DELINQUENCY`, `SETTLED`,
+  `WRITTEN_OFF`, `TAKEN_UP`), `window`
   text (`3M`, `6M`, `12M`, `TERM_30D`, `OFFER`, `INSTALMENT:<n>`; CHECK
   `DecisionOutcome_window`), `state` enum {`OBSERVED`, `PENDING`,
   `UNOBSERVABLE`}, `value` bool? (set exactly when `OBSERVED`), `amountCents`
@@ -481,7 +483,7 @@ does not ride in a learning-loop PR.
   `sourceSystem` text CHECK in (`credaflow`, `external_extract`),
   `sourceRef` text (opaque: a `CollectionResult` id, a schedule row id, or an
   extract row key), `definitionVersion` text, `observedAt` (set exactly when
-  `OBSERVED`), `computedAt` },
+  `OBSERVED`), `computedAt`, `demoData` bool default false (decision 4) },
   unique `(decisionRecordId, outcomeKind, window, sourceSystem, sourceRef)`,
   tenant RLS (ENABLE + FORCE + `tenant_isolation`), registered in
   `lib/registry/tenant-scoped-models/250-learning-loop.ts`. Not append-only:
@@ -544,12 +546,18 @@ COMMIT;
   reads are bounded by the chunk's latest 12M window end. Paging the record
   read and skipping decisions whose rows are all final on the current
   `definitionVersion` wait for a book large enough to need them.
-- **Simulated and demo data** (decision 4): an outcome derived from a
-  simulated row (`CollectionResult.simulated`, a simulated collection
-  instruction) or on a demo / seeded tenant is never counted in a real
-  lender's figures. On a demo tenant the rows are kept and marked as demo, so
-  the dashboard can show them under a "Simulated / demo data" label. The two
-  are never silently mixed in one figure.
+- **Simulated and demo data** (decision 4), as built: the job reads the
+  tenant's `TenantConfig.isDemoLender` once per run. For a real lender the
+  adapter never reads a simulated `CollectionResult` and every row has
+  `demoData = false`. For a demo lender, simulated results count and every
+  row is written `demoData = true`. `tenantOutcomeMetrics` (`metrics-db.ts`)
+  reads only rows whose `demoData` matches the tenant's flag and returns
+  `demoData` with the figures, so the dashboard labels a demo lender's
+  figures "Simulated / demo data". One figure never mixes the two, even if a
+  lender's flag changed after rows were written (the next run re-marks them).
+  The B migration was amended for this before merge (it was only ever
+  applied to throwaway test databases); its rollback is unchanged and still
+  drops everything it creates.
 - **Tests**: pure outcome functions over synthetic fixtures (paid / late /
   returned with each reason / ever-30/60/90 / cure / settled after delinquency / defaulted / settled /
   written off / pending / unobservable gap never good), attribution and

@@ -11,6 +11,12 @@ export interface AdapterContext {
   asOf: Date
   /** The SAST day of asOf. */
   today: string
+  /**
+   * The lender is a synthetic demo lender (TenantConfig.isDemoLender). Only
+   * then do simulated source rows count; a real lender's outcomes never
+   * include them (DESIGN.md decision 4).
+   */
+  demoTenant: boolean
 }
 
 export interface AdapterResult {

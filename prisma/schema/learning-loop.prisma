@@ -100,7 +100,10 @@ enum DecisionOutcomeKind {
   EVER_60_DPD
   EVER_90_DPD
   DEFAULTED_STATUS
+  /// Back to 0 DPD after 30+ while the loan is still open (settling is not a cure).
   CURED
+  /// Settled (COMPLETED) after 30+ DPD in the window: its own outcome, never a cure.
+  SETTLED_AFTER_DELINQUENCY
   SETTLED
   WRITTEN_OFF
   TAKEN_UP
@@ -140,6 +143,10 @@ model DecisionOutcome {
   observedAt        DateTime?
   /// When this content was computed; a run that changes nothing leaves it.
   computedAt        DateTime
+  /// Derived on a demo lender (TenantConfig.isDemoLender), where simulated
+  /// collection results count: shown only under a "Simulated / demo data"
+  /// label, never in a real lender's figures (DESIGN.md decision 4).
+  demoData          Boolean              @default(false)
 
   @@unique([decisionRecordId, outcomeKind, window, sourceSystem, sourceRef])
   @@index([tenantId, outcomeKind, window, state])

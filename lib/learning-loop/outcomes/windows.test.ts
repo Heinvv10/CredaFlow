@@ -105,7 +105,7 @@ describe("ever 30/60/90 DPD", () => {
   it("are UNOBSERVABLE without a schedule", () => {
     const rows = windowOutcomes(loan({ instalments: [] }), AFTER_12M)
     expect(rows.every((r) => r.state === "UNOBSERVABLE" && r.reasonCode === "NO_SCHEDULE")).toBe(true)
-    expect(rows).toHaveLength(3 * 7 - 1)
+    expect(rows).toHaveLength(3 * 8 - 1)
   })
 
   it("tell a lender-wide outage (no nightly run that day) from one loan's gap", () => {
@@ -142,9 +142,44 @@ describe("CURED, DEFAULTED_STATUS, SETTLED, WRITTEN_OFF", () => {
     expect(rows.find((r) => r.outcomeKind === "CURED" && r.window === "3M")?.observedAt).toEqual(new Date("2026-04-10T00:00:00+02:00"))
   })
 
-  it("CURED is true when the loan settles after 30+ DPD", () => {
+  // Decision 3 (21 Oct 2026): settling after 30+ DPD is not a cure; it is SETTLED_AFTER_DELINQUENCY.
+  it("CURED is false, and SETTLED_AFTER_DELINQUENCY true, when the loan settles after 30+ DPD", () => {
     const facts = loan({ end: { kind: "SETTLED", day: "2026-04-20" }, arrearsHistory: history(FIRST_DUE, "2026-04-20", climbingFrom("2026-02-28")) })
-    expect(get(windowOutcomes(facts, AFTER_12M), "CURED", "6M")).toEqual(["OBSERVED", true, null])
+    const rows = windowOutcomes(facts, AFTER_12M)
+    for (const w of ["3M", "6M", "12M"]) {
+      expect(get(rows, "CURED", w)).toEqual(["OBSERVED", false, null])
+      expect(get(rows, "SETTLED_AFTER_DELINQUENCY", w)).toEqual(["OBSERVED", true, null])
+    }
+  })
+
+  it("CURED ignores a 0-DPD position recorded on or after the close day: the loan was no longer open", () => {
+    const dpd = (d: string) => (d === "2026-04-20" ? 0 : climbingFrom("2026-02-28")(d))
+    const facts = loan({ end: { kind: "SETTLED", day: "2026-04-20" }, arrearsHistory: history(FIRST_DUE, "2026-04-21", dpd) })
+    expect(get(windowOutcomes(facts, AFTER_12M), "CURED", "6M")).toEqual(["OBSERVED", false, null])
+  })
+
+  it("a loan that cured while open and later settled is both CURED and SETTLED_AFTER_DELINQUENCY", () => {
+    const dpd = (d: string) => (d >= "2026-04-01" ? 0 : climbingFrom("2026-02-28")(d))
+    const facts = loan({ end: { kind: "SETTLED", day: "2026-05-10" }, arrearsHistory: history(FIRST_DUE, "2026-05-10", dpd) })
+    const rows = windowOutcomes(facts, AFTER_12M)
+    expect(get(rows, "CURED", "6M")).toEqual(["OBSERVED", true, null])
+    expect(get(rows, "SETTLED_AFTER_DELINQUENCY", "6M")).toEqual(["OBSERVED", true, null])
+    // Settled on 10 May, after the 3M window closed (30 Apr): cured in 3M, not yet settled.
+    expect(get(rows, "SETTLED_AFTER_DELINQUENCY", "3M")).toEqual(["OBSERVED", false, null])
+  })
+
+  it("SETTLED_AFTER_DELINQUENCY is false for an open delinquent loan, NEVER_30_DPD for a clean one, and never guessed without a close date", () => {
+    const delinquent = windowOutcomes(loan({ arrearsHistory: history(FIRST_DUE, AFTER_12M, climbingFrom("2026-02-28")) }), AFTER_12M)
+    expect(get(delinquent, "SETTLED_AFTER_DELINQUENCY", "12M")).toEqual(["OBSERVED", false, null])
+    const clean = loan({ end: { kind: "SETTLED", day: "2026-06-01" }, arrearsHistory: history(FIRST_DUE, "2026-06-01") })
+    expect(get(windowOutcomes(clean, AFTER_12M), "SETTLED_AFTER_DELINQUENCY", "12M")).toEqual(["OBSERVED", false, "NEVER_30_DPD"])
+    const undated = loan({ end: { kind: "SETTLED", day: null }, arrearsHistory: history(FIRST_DUE, "2026-04-20", climbingFrom("2026-02-28")) })
+    expect(get(windowOutcomes(undated, AFTER_12M), "SETTLED_AFTER_DELINQUENCY", "12M")).toEqual(["UNOBSERVABLE", null, "CLOSE_DATE_MISSING"])
+  })
+
+  it("SETTLED_AFTER_DELINQUENCY is UNOBSERVABLE, never false, when a gap could hide the 30 DPD", () => {
+    const facts = loan({ end: { kind: "SETTLED", day: "2026-06-01" }, arrearsHistory: history(FIRST_DUE, "2026-06-01", () => 0, (d) => d === "2026-03-15") })
+    expect(get(windowOutcomes(facts, AFTER_12M), "SETTLED_AFTER_DELINQUENCY", "6M")).toEqual(["UNOBSERVABLE", null, "HISTORY_GAP"])
   })
 
   it("CURED is false (not cured) while still in arrears, and false NEVER_30_DPD for a loan never delinquent", () => {

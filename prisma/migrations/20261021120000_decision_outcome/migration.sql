@@ -17,9 +17,13 @@
 --   COMMIT;
 -- Every row is derived and the nightly job recomputes it, so dropping the
 -- table loses nothing that cannot be rebuilt.
+--
+-- Amended before merge (21 Oct decisions 3 and 4; applied only to throwaway
+-- test databases): the SETTLED_AFTER_DELINQUENCY kind and the demoData
+-- column. The rollback above already drops both with the table and its enum.
 
 -- CreateEnum
-CREATE TYPE "DecisionOutcomeKind" AS ENUM ('PAID', 'LATE', 'RETURNED_DEBIT_ORDER', 'EVER_30_DPD', 'EVER_60_DPD', 'EVER_90_DPD', 'DEFAULTED_STATUS', 'CURED', 'SETTLED', 'WRITTEN_OFF', 'TAKEN_UP');
+CREATE TYPE "DecisionOutcomeKind" AS ENUM ('PAID', 'LATE', 'RETURNED_DEBIT_ORDER', 'EVER_30_DPD', 'EVER_60_DPD', 'EVER_90_DPD', 'DEFAULTED_STATUS', 'CURED', 'SETTLED_AFTER_DELINQUENCY', 'SETTLED', 'WRITTEN_OFF', 'TAKEN_UP');
 
 -- CreateEnum
 CREATE TYPE "DecisionOutcomeState" AS ENUM ('OBSERVED', 'PENDING', 'UNOBSERVABLE');
@@ -40,6 +44,7 @@ CREATE TABLE "DecisionOutcome" (
     "definitionVersion" TEXT NOT NULL,
     "observedAt" TIMESTAMP(3),
     "computedAt" TIMESTAMP(3) NOT NULL,
+    "demoData" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "DecisionOutcome_pkey" PRIMARY KEY ("id")
 );

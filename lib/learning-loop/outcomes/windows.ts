@@ -1,7 +1,9 @@
 /**
  * Months-on-book outcomes (DESIGN.md §3) from the daily arrears history:
- * EVER_30/60/90_DPD, CURED, DEFAULTED_STATUS, plus SETTLED and WRITTEN_OFF
- * from how the loan ended. Windows 3M, 6M and 12M from the first instalment
+ * EVER_30/60/90_DPD, CURED, DEFAULTED_STATUS, plus SETTLED,
+ * SETTLED_AFTER_DELINQUENCY and WRITTEN_OFF from how the loan ended. Settling
+ * after 30+ DPD is not a cure (decision 3): CURED needs a 0-DPD day while the
+ * loan is still open. Windows 3M, 6M and 12M from the first instalment
  * due day, and TERM_30D (term end + 30 days) for a short loan: one whose
  * term end + 30 days falls inside the 3M window.
  *
@@ -83,19 +85,43 @@ function eventOutcome(kind: DecisionOutcomeKind, facts: LoanFacts, w: OutcomeWin
   return { ...base, ...observed(false, dayInstant(w.end)) }
 }
 
-/** CURED: back to 0 DPD (or settled) after reaching 30+ DPD in the window. */
+/** A recorded day on which the loan was still open: before its close day, if it closed. */
+const whileOpen = (facts: LoanFacts) => (r: ArrearsDayFact) =>
+  facts.end.kind === "OPEN" || (facts.end.day !== null && dayNumber(r.day) < dayNumber(facts.end.day))
+
+/** Before the loan reached 30+ DPD in the window: never delinquent is false (NEVER_30_DPD) once the history proves it. */
+function neverDelinquent(base: Pick<Row, "outcomeKind" | "window" | "sourceRef">, facts: LoanFacts, w: OutcomeWindow, cov: Coverage, delinquent: boolean): Row {
+  if (endedIn(facts, "CANCELLED", w)) return { ...base, ...unobservable(UNOBSERVABLE_REASONS.LOAN_CANCELLED) }
+  if (!cov.complete) return { ...base, ...unobservable(cov.reason) }
+  return { ...base, ...observed(false, dayInstant(w.end), { reasonCode: delinquent ? null : NEVER_30_DPD }) }
+}
+
+/** CURED: back to 0 DPD, while the loan is still open, after reaching 30+ DPD in the window. Settling is not a cure. */
 function curedOutcome(facts: LoanFacts, w: OutcomeWindow, cov: Coverage, rows: ArrearsDayFact[]): Row {
   const base = { outcomeKind: "CURED" as const, window: w.window, sourceRef: facts.ref }
   const delinquentAt = rows.findIndex((r) => r.daysInArrears >= 30)
   if (delinquentAt >= 0) {
-    const back = rows.slice(delinquentAt + 1).find((r) => r.daysInArrears === 0)
+    const back = rows.slice(delinquentAt + 1).filter(whileOpen(facts)).find((r) => r.daysInArrears === 0)
     if (back) return { ...base, ...observed(true, dayInstant(back.day)) }
-    const settled = facts.end.kind === "SETTLED" && facts.end.day !== null && dayNumber(facts.end.day) < dayNumber(w.end) ? facts.end.day : null
-    if (settled) return { ...base, ...observed(true, dayInstant(settled)) }
   }
-  if (endedIn(facts, "CANCELLED", w)) return { ...base, ...unobservable(UNOBSERVABLE_REASONS.LOAN_CANCELLED) }
-  if (!cov.complete) return { ...base, ...unobservable(cov.reason) }
-  return { ...base, ...observed(false, dayInstant(w.end), { reasonCode: delinquentAt >= 0 ? null : NEVER_30_DPD }) }
+  return neverDelinquent(base, facts, w, cov, delinquentAt >= 0)
+}
+
+/**
+ * SETTLED_AFTER_DELINQUENCY: settled (COMPLETED) inside the window after
+ * reaching 30+ DPD in it. Its own outcome, never a cure; a loan that cured
+ * and later settled is both.
+ */
+function settledAfterDelinquencyOutcome(facts: LoanFacts, w: OutcomeWindow, cov: Coverage, rows: ArrearsDayFact[]): Row {
+  const base = { outcomeKind: "SETTLED_AFTER_DELINQUENCY" as const, window: w.window, sourceRef: facts.ref }
+  const delinquent = rows.some((r) => r.daysInArrears >= 30)
+  if (delinquent && facts.end.kind === "SETTLED") {
+    if (facts.end.day === null) return { ...base, ...unobservable(UNOBSERVABLE_REASONS.CLOSE_DATE_MISSING) }
+    if (dayNumber(facts.end.day) < dayNumber(w.end)) return { ...base, ...observed(true, dayInstant(facts.end.day)) }
+  }
+  // Delinquency seen and the loan did not settle in the window: known from the loan row, whatever the gaps.
+  if (delinquent) return { ...base, ...observed(false, dayInstant(w.end)) }
+  return neverDelinquent(base, facts, w, cov, false)
 }
 
 /** SETTLED / WRITTEN_OFF: the loan ended that way before the window closed. */
@@ -109,7 +135,7 @@ function endedOutcome(kind: "SETTLED" | "WRITTEN_OFF", facts: LoanFacts, w: Outc
 }
 
 const windowKinds = (window: string): DecisionOutcomeKind[] =>
-  [...windowThresholds(window).map((t) => t.kind), "CURED", "DEFAULTED_STATUS", "SETTLED", "WRITTEN_OFF"]
+  [...windowThresholds(window).map((t) => t.kind), "CURED", "SETTLED_AFTER_DELINQUENCY", "DEFAULTED_STATUS", "SETTLED", "WRITTEN_OFF"]
 
 export function windowOutcomes(facts: LoanFacts, today: string): Row[] {
   const windows = loanWindows(facts)
@@ -126,6 +152,7 @@ export function windowOutcomes(facts: LoanFacts, today: string): Row[] {
     return [
       ...windowThresholds(w.window).map((t) => eventOutcome(t.kind, facts, w, cov, rows.find((r) => r.daysInArrears >= t.dpd), true)),
       curedOutcome(facts, w, cov, rows),
+      settledAfterDelinquencyOutcome(facts, w, cov, rows),
       eventOutcome("DEFAULTED_STATUS", facts, w, cov, rows.find((r) => r.defaulted)),
       endedOutcome("SETTLED", facts, w),
       endedOutcome("WRITTEN_OFF", facts, w),

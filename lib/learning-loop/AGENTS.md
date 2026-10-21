@@ -44,7 +44,9 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   `OUTCOME_DEFINITION_VERSION`. A window is PENDING until elapsed; a missing
   history day makes "did not happen" UNOBSERVABLE, never false; a write-off
   is bad, a cancellation UNOBSERVABLE. Only OBSERVED rows carry a value (DB
-  CHECK). No learning claims: v1 proves plumbing.
+  CHECK). CURED needs the loan open; settling is SETTLED_AFTER_DELINQUENCY.
+  Simulated rows count only for an `isDemoLender` tenant, written `demoData`;
+  never mix demo and real rows in one figure. No learning claims.
 - `bureauBlockCode` (`lib/learning-loop/bureau-code.ts`) mirrors the order of
   `evaluateBureauGate` (`lib/decision/bureau-gate.ts`); change both together.
   The route's own gate verdict is authoritative.

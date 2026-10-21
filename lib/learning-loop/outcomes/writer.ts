@@ -45,11 +45,13 @@ export async function syncOutcomes(
   db: OutcomeWriterDb,
   args: {
     tenantId: string; sourceSystem: SourceSystem; decisionRecordIds: readonly string[]; outcomes: readonly DerivedOutcome[]; computedAt: Date
+    /** The lender is a demo lender: every row is marked demoData (DESIGN.md decision 4). */
+    demoData: boolean
     /** Decisions whose derivation failed this run: their rows are left as they were. */
     keepDecisionRecordIds?: readonly string[]
   },
 ): Promise<SyncCounts> {
-  const { tenantId, sourceSystem, computedAt } = args
+  const { tenantId, sourceSystem, computedAt, demoData } = args
   const counts: SyncCounts = { created: 0, updated: 0, deleted: 0, unchanged: 0 }
   const wanted = new Map<string, DerivedOutcome[]>()
   for (const o of args.outcomes) {
@@ -71,13 +73,13 @@ export async function syncOutcomes(
       existing.delete(key(derived))
       const want = row ? stableObservedAt(row, derived) : derived
       if (!row) create.push(want)
-      else if (same(row, want)) counts.unchanged++
+      else if (same(row, want) && row.demoData === demoData) counts.unchanged++
       else {
         await db.decisionOutcome.updateMany({
           where: { id: row.id, tenantId },
           data: {
             state: want.state, value: want.value, amountCents: want.amountCents, reasonCode: want.reasonCode,
-            observedAt: want.observedAt, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt,
+            observedAt: want.observedAt, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt, demoData,
           },
         })
         counts.updated++
@@ -85,7 +87,7 @@ export async function syncOutcomes(
     }
     if (create.length > 0) {
       const { count } = await db.decisionOutcome.createMany({
-        data: create.map((o) => ({ ...o, tenantId, sourceSystem, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt })),
+        data: create.map((o) => ({ ...o, tenantId, sourceSystem, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt, demoData })),
         skipDuplicates: true,
       })
       counts.created += count
