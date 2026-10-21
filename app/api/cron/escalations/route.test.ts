@@ -6,6 +6,7 @@ vi.mock("@/lib/collections/escalation", () => ({ processEscalations: vi.fn() }))
 
 import { verifyCronSecret } from "@/lib/cron-auth"
 import { processEscalations } from "@/lib/collections/escalation"
+import { FAILED_TENANTS_HEADER } from "@/lib/ops/cron-call"
 import { GET } from "./route"
 
 const req = () => new NextRequest(new URL("http://localhost/api/cron/escalations"))
@@ -29,19 +30,18 @@ describe("GET /api/cron/escalations", () => {
   // time. That left a loan permanently un-escalated and invisible to the
   // systemd wrapper, which calls this with `curl -fsS` and never parses the
   // JSON body.
-  it("reports ok:false and 503 when an escalation rule threw", async () => {
+  it("reports a rule that threw in the body but is still 200: it is one loan, and a retry would not fix it", async () => {
     vi.mocked(processEscalations).mockResolvedValue({
-      processed: 2, errors: 1, details: ["Error LN-1 section129: PDF render failed"],
+      tenants: 1, failedTenants: 0, processed: 2, errors: 1, details: ["Error LN-1 escalation_default: failed; see the server log"],
     })
     const res = await GET(req())
     const json = await res.json()
-    expect(json.ok).toBe(false)
-    expect(json.errors).toBe(1)
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
+    expect(json).toMatchObject({ errors: 1, failedTenants: 0 })
   })
 
   it("reports ok:true and 200 when nothing was due to escalate (empty sweep)", async () => {
-    vi.mocked(processEscalations).mockResolvedValue({ processed: 0, errors: 0, details: [] })
+    vi.mocked(processEscalations).mockResolvedValue({ tenants: 1, failedTenants: 0, processed: 0, errors: 0, details: [] })
     const res = await GET(req())
     const json = await res.json()
     expect(json.ok).toBe(true)
@@ -50,11 +50,37 @@ describe("GET /api/cron/escalations", () => {
 
   it("reports ok:true and 200 when every rule ran cleanly", async () => {
     vi.mocked(processEscalations).mockResolvedValue({
-      processed: 3, errors: 0, details: ["LN-1: soft reminder logged"],
+      tenants: 1, failedTenants: 0, processed: 3, errors: 0, details: ["LN-1: soft reminder logged"],
     })
     const res = await GET(req())
     const json = await res.json()
     expect(json).toMatchObject({ ok: true, processed: 3, errors: 0 })
     expect(res.status).toBe(200)
+  })
+
+  it("is 200 and partial when one tenant failed and another escalated", async () => {
+    vi.mocked(processEscalations).mockResolvedValue({
+      tenants: 2, failedTenants: 1, processed: 3, errors: 1, details: ["Tenant A (t_a) failed; see the server log"],
+    })
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, partial: true, errors: 1, failedTenants: 1 })
+  })
+
+  it("is 503 when every tenant failed", async () => {
+    vi.mocked(processEscalations).mockResolvedValue({ tenants: 1, failedTenants: 1, processed: 0, errors: 1, details: [] })
+    expect((await GET(req())).status).toBe(503)
+  })
+
+  it.each([
+    ["a clean run", { failedTenants: 0, tenants: 2, errors: 0 }, 200, "0"],
+    ["a run where one of three tenants threw", { failedTenants: 1, tenants: 3, errors: 1 }, 200, "1"],
+    ["a run where every tenant threw", { failedTenants: 2, tenants: 2, errors: 2 }, 503, "2"],
+    ["a run with per-item errors only", { failedTenants: 0, tenants: 1, errors: 5 }, 200, "0"],
+  ])("sets x-cron-failed-tenants to the failed-tenant count for %s", async (_name, counts, status, header) => {
+    vi.mocked(processEscalations).mockResolvedValue({ processed: 0, details: [], ...counts })
+    const res = await GET(req())
+    expect(res.status).toBe(status)
+    expect(res.headers.get(FAILED_TENANTS_HEADER)).toBe(header)
   })
 })

@@ -30,7 +30,6 @@ import {
   isAppDeclinedNewSendEnabled,
   isLoanApprovedNewSendEnabled,
   isLoanDisbursedNewSendEnabled,
-  isLoanOverdueNewSendEnabled,
   isPaymentReceivedNewSendEnabled,
 } from "@/lib/messaging/flags"
 import {
@@ -44,7 +43,8 @@ import {
   notificationLogStatusFromProviderResult,
 } from "@/lib/notifications/status"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
-import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { CONTACT_NOT_RECIPIENTS, lookupRecipientContact } from "@/lib/contact/recipient"
 import type { Channel, MessageTemplate } from "@prisma/client"
 import { notifyEntityBorrower } from "@/lib/asset-finance/entity-notifications"
 import { legacySuppressedLegs } from "@/lib/notifications/legacy-consent"
@@ -91,6 +91,21 @@ export interface NotificationOptions {
    */
   suppressWhatsAppReason?: string
 }
+
+/**
+ * What a triggerNotification() call did, for a caller that must count a leg that
+ * failed (the collections cron's loan_overdue, escalation's 60-DPD notice). Every
+ * NotificationLog row written with status "failed" names its channel here: a
+ * missing template, no Contact row, a Contact that is not this client's, a
+ * provider rejection, a send that threw. A consent block, a skip, a pending retry
+ * and a reconciliation hold are not failures.
+ */
+export interface NotificationOutcome {
+  failedLegs: string[]
+}
+
+type LegLog = Parameters<typeof logNotification>[1]
+type LegLogger = (row: LegLog) => Promise<void>
 
 function sastDayKey(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -442,14 +457,14 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
   try {
     if (opts.clientId) {
       return await prisma.client.findUnique({
-        where: { id: opts.clientId },
+        where: { id: opts.clientId, tenantId: opts.tenantId },
         select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true },
       })
     }
     if (opts.loanId) {
       // loanId may be a Loan.id or LoanApplication.id depending on the event
       const loan = await prisma.loan.findUnique({
-        where: { id: opts.loanId },
+        where: { id: opts.loanId, tenantId: opts.tenantId },
         include: {
           client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },
@@ -457,7 +472,7 @@ async function resolveClient(opts: NotificationOptions): Promise<ClientInfo | nu
       if (loan?.client) return loan.client
 
       const app = await prisma.loanApplication.findUnique({
-        where: { id: opts.loanId },
+        where: { id: opts.loanId, tenantId: opts.tenantId },
         include: {
           client: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, whatsapp: true, preferredLanguage: true, createdByDealerId: true, dealerContactVerifiedAt: true } },
         },
@@ -528,7 +543,8 @@ async function sendEventNewSend(
   waMessage: string | null,
   waTemplateVars: Record<string, string>,
   waTemplateEvent: string,
-  locale: Locale = DEFAULT_LOCALE,
+  locale: Locale,
+  log: LegLogger,
 ): Promise<void> {
   const keyEmail = `${opts.event}_email`
   const keySms = `${opts.event}_sms`
@@ -544,7 +560,7 @@ async function sendEventNewSend(
     select: { id: true },
   })
   if (!t) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -599,7 +615,7 @@ async function sendEventNewSend(
       waProblem = problem
       continue
     }
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -616,6 +632,7 @@ async function sendEventNewSend(
   // sequential is fine and keeps the audit ordering deterministic.
   await dispatchChannel({
     opts,
+    log,
     client,
     template: byKey[keyEmail],
     channel: "EMAIL",
@@ -628,7 +645,7 @@ async function sendEventNewSend(
   // outcomes rather than faults — and dispatch nothing, so no SIMULATED
   // Message row is written. Email and WhatsApp are unaffected.
   if (!isSmsChannelEnabled()) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -640,6 +657,7 @@ async function sendEventNewSend(
     const smsValue = normalisePhone(client.phone)
     await dispatchChannel({
       opts,
+      log,
       client,
       template: byKey[keySms],
       channel: "SMS",
@@ -659,7 +677,7 @@ async function sendEventNewSend(
     // the caller has already decided this leg must not go out, so neither a
     // template fault nor a missing number is worth reporting about a leg
     // nobody was going to send. Recorded, never silently dropped.
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -668,7 +686,7 @@ async function sendEventNewSend(
       error: opts.suppressWhatsAppReason,
     })
   } else if (waMessage && client.whatsapp && waProblem) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -680,6 +698,7 @@ async function sendEventNewSend(
     const waValue = toWaJid(client.whatsapp)
     await dispatchChannel({
       opts,
+      log,
       client,
       template: pickTemplateForLocale(byKey, keyWhatsapp, locale)!,
       channel: "WHATSAPP",
@@ -694,7 +713,7 @@ async function sendEventNewSend(
       vars: { body: waMessage, ...waTemplateVars },
     })
   } else if (waMessage) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -707,6 +726,7 @@ async function sendEventNewSend(
 
 async function dispatchChannel(args: {
   opts: NotificationOptions
+  log: LegLogger
   client: ClientInfo
   template: MessageTemplate
   channel: Channel
@@ -715,7 +735,7 @@ async function dispatchChannel(args: {
 }): Promise<void> {
   const channelLower = args.channel.toLowerCase()
   if (!args.value) {
-    await logNotification(args.opts.tenantId, {
+    await args.log({
       loanId: args.opts.loanId,
       clientId: args.client.id,
       event: args.opts.event,
@@ -726,26 +746,28 @@ async function dispatchChannel(args: {
     return
   }
 
-  const contact = await lookupContactByChannelValue(prisma, {
+  // The client's OWN Contact (lib/contact/recipient.ts). No Contact is data drift
+  // (a Client without a ContactIdentity row for this channel), surfaced loudly. A
+  // Contact that is someone else's (a lead, another client) is refused: sendMessage
+  // would check their consent, not this client's, and show them the message.
+  const recipient = await lookupRecipientContact(prisma, {
     tenantId: args.opts.tenantId,
     channel: args.channel,
     value: args.value,
+    ownerClientId: args.client.id,
   })
-  if (!contact) {
-    // Data drift — Client without a ContactIdentity row for this channel.
-    // Should never happen for clients created since the client-create flow
-    // calls provisionContactForClient; surface the gap loudly for legacy
-    // clients pre-backfill.
-    await logNotification(args.opts.tenantId, {
+  if (!recipient.ok) {
+    await args.log({
       loanId: args.opts.loanId,
       clientId: args.client.id,
       event: args.opts.event,
       channel: channelLower,
       status: "failed",
-      error: `No Contact row for ${args.value}`,
+      error: recipient.reason === "NO_CONTACT" ? `No Contact row for ${args.value}` : CONTACT_NOT_RECIPIENTS,
     })
     return
   }
+  const contact = recipient.contact
 
   try {
     const msg = await sendMessage({
@@ -764,8 +786,9 @@ async function dispatchChannel(args: {
     // projected truthfully without attempting another provider dispatch.
     // Double-write failures throw KnownDispatchPersistenceError below so the
     // known provider-accepted versus simulated outcome remains explicit.
-    const status = notificationLogStatusFromMessage(msg.status)
-    await logNotification(args.opts.tenantId, {
+    // A replayed reservation that consent suppressed is a block, not a fault.
+    const status = msg.status === "SUPPRESSED_BY_CONSENT" ? "blocked" : notificationLogStatusFromMessage(msg.status)
+    await args.log({
       loanId: args.opts.loanId,
       clientId: args.client.id,
       event: args.opts.event,
@@ -776,7 +799,7 @@ async function dispatchChannel(args: {
   } catch (err) {
     if (err instanceof SendBlockedError) {
       // Legitimate suppression — not an error from ops' perspective.
-      await logNotification(args.opts.tenantId, {
+      await args.log({
         loanId: args.opts.loanId,
         clientId: args.client.id,
         event: args.opts.event,
@@ -787,7 +810,7 @@ async function dispatchChannel(args: {
       return
     }
     if (err instanceof KnownDispatchPersistenceError) {
-      await logNotification(args.opts.tenantId, {
+      await args.log({
         loanId: args.opts.loanId,
         clientId: args.client.id,
         event: args.opts.event,
@@ -801,7 +824,7 @@ async function dispatchChannel(args: {
       return
     }
     if (err instanceof MessageReconciliationRequiredError) {
-      await logNotification(args.opts.tenantId, {
+      await args.log({
         loanId: args.opts.loanId,
         clientId: args.client.id,
         event: args.opts.event,
@@ -812,7 +835,7 @@ async function dispatchChannel(args: {
       })
       return
     }
-    await logNotification(args.opts.tenantId, {
+    await args.log({
       loanId: args.opts.loanId,
       clientId: args.client.id,
       event: args.opts.event,
@@ -838,25 +861,33 @@ const APPLICATION_EVENTS: ReadonlySet<NotificationEvent> = new Set([
 // read at call time (test suites rely on mutating process.env between
 // describe blocks). Events absent from this map stay on the legacy path
 // regardless of any env flag — section129_sent does its cutover inside
-// the s.129 route, not here.
+// the s.129 route, not here. loan_overdue has no flag: it is dunning, and only
+// the sendMessage path applies consent, the Contact check, Message.dunning, the
+// holds on retry and the idempotency key (MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE
+// was retired).
 const NEW_SEND_FLAGS: Partial<Record<NotificationEvent, () => boolean>> = {
   application_submitted: isAppSubmittedNewSendEnabled,
   application_declined: isAppDeclinedNewSendEnabled,
   loan_approved: isLoanApprovedNewSendEnabled,
   loan_disbursed: isLoanDisbursedNewSendEnabled,
-  loan_overdue: isLoanOverdueNewSendEnabled,
+  loan_overdue: () => true,
   payment_received: isPaymentReceivedNewSendEnabled,
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function triggerNotification(opts: NotificationOptions): Promise<void> {
+export async function triggerNotification(opts: NotificationOptions): Promise<NotificationOutcome> {
+  const outcome: NotificationOutcome = { failedLegs: [] }
+  const log: LegLogger = async (row) => {
+    if (row.status === "failed") outcome.failedLegs.push(row.channel)
+    await logNotification(opts.tenantId, row)
+  }
   const client = await resolveClient(opts)
   // An entity borrower (asset finance) has no Client: its loan events go to the
   // people who act for it, in copy that names the entity.
-  if (!client && await notifyEntityBorrower(opts, (row) => logNotification(opts.tenantId, row))) return
+  if (!client && await notifyEntityBorrower(opts, log)) return outcome
   if (!client) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: opts.clientId,
       event: opts.event,
@@ -864,7 +895,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       status: "failed",
       error: "Client not found",
     })
-    return
+    return outcome
   }
 
   // Contact details a dealer typed may be the dealer's own: nothing goes to
@@ -872,10 +903,10 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // This also covers loan events such as section129_sent, which is safe: no
   // loan exists for such a client (Loan_dealer_contact_verified, AF booking).
   if (dealerContactUnverified({ createdByDealerId: client.createdByDealerId ?? null, dealerContactVerifiedAt: client.dealerContactVerifiedAt ?? null })) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId, clientId: client.id, event: opts.event, channel: "all", status: "blocked", error: "DEALER_CONTACT_UNVERIFIED",
     })
-    return
+    return outcome
   }
 
   // Fails closed: an unconfigured identity throws out of the notification
@@ -901,7 +932,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // event ("failed" then "blocked") reads as a fault on a leg that was never
   // going to be sent. The suppression row below is the honest single record.
   if (waBuild.missingVars.length > 0 && !opts.suppressWhatsAppReason) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -918,7 +949,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // to NotificationLog (preserved so the staff + portal dashboards keep working).
   const flagFn = NEW_SEND_FLAGS[opts.event]
   if (flagFn?.()) {
-    return sendEventNewSend(
+    await sendEventNewSend(
       opts,
       client,
       template,
@@ -926,7 +957,9 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       waBuild.templateVars,
       waTemplateEventFor(opts.event, template.waVars.days),
       locale,
+      log,
     )
+    return outcome
   }
 
   // SMS channel off (BULKSMS_DRY_RUN): the leg is not dispatched at all, so
@@ -977,7 +1010,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // outcome bookkeeping below already treats it as not attempted. The skip is
   // recorded here rather than left to that default, which would log nothing.
   if (opts.suppressWhatsAppReason) {
-    await logNotification(opts.tenantId, {
+    await log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1053,7 +1086,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
         : undefined
 
   const logs: Promise<void>[] = [
-    logNotification(opts.tenantId, {
+    log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1064,7 +1097,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   ]
 
   if (smsEnabled && suppressedLegs.sms) {
-    logs.push(logNotification(opts.tenantId, {
+    logs.push(log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1085,7 +1118,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
         : !smsValue.ok
           ? smsValue.error
           : undefined
-    logs.push(logNotification(opts.tenantId, {
+    logs.push(log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1094,7 +1127,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
       error: smsError,
     }))
   } else {
-    logs.push(logNotification(opts.tenantId, {
+    logs.push(log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1109,7 +1142,7 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   // row here — `notAttemptedResult` maps to "failed", so the audit trail would
   // show a WhatsApp fault for a leg deliberately not sent.
   if (waMessage && !opts.suppressWhatsAppReason) {
-    logs.push(logNotification(opts.tenantId, {
+    logs.push(log({
       loanId: opts.loanId,
       clientId: client.id,
       event: opts.event,
@@ -1120,4 +1153,5 @@ export async function triggerNotification(opts: NotificationOptions): Promise<vo
   }
 
   await Promise.allSettled(logs)
+  return outcome
 }

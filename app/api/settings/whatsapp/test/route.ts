@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { getLenderBrandName } from "@/lib/config/identity"
 import { requireApiRole } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
-import { lookupContactByChannelValue, toWaJid } from "@/lib/contact/identity"
+import { toWaJid } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { getChannelAvailability } from "@/lib/messaging/channel-availability"
 import { getCommsSettings } from "@/lib/inbox/settings"
 import { sendWhatsAppForTenant } from "@/lib/whatsapp/send-for-tenant"
@@ -56,9 +57,12 @@ export async function POST(req: Request) {
 
   try {
     const waJid = toWaJid(phone)
-    const contact = waJid
-      ? await lookupContactByChannelValue(prisma, { tenantId, channel: "WHATSAPP", value: waJid })
+    // A staff test message to a number they typed has no Client to own it (it may be
+    // a lead's line): whatever Contact holds the number, as before (ownerClientId null).
+    const found = waJid
+      ? await lookupRecipientContact(prisma, { tenantId, channel: "WHATSAPP", value: waJid, ownerClientId: null })
       : null
+    const contact = found?.ok ? found.contact : null
 
     if (!contact) {
       // Not pedantry: without a Contact there is no window to read, so the

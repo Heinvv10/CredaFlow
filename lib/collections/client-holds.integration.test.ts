@@ -13,7 +13,7 @@ import { createChargesTenant, type ChargesTenant } from "@/lib/loan/charges.inte
 import { runWithTenant } from "@/lib/tenant-scope"
 import { createSecondProduct, seedHoldLoan } from "@/lib/collections/dunning-holds.integration-fixture"
 import { prisma } from "@/lib/prisma"
-import { clientIdsUnderDebtReview, isLoanHeld, section129DebtReviewReason, staffMessageRefusal } from "@/lib/collections/client-holds"
+import { clientIdsUnderDebtReview, loanDunningHold, section129DebtReviewReason, staffMessageRefusal } from "@/lib/collections/client-holds"
 
 const suite = process.env.RUN_DB_IT === "1" ? describe : describe.skip
 const db = new PrismaClient()
@@ -65,7 +65,8 @@ suite.sequential("client-level holds (real Postgres)", () => {
       const s = await seed(c)
       expect(await inTenant(() => staffMessageRefusal(prisma, { tenantId: tenant.tenantId, clientId: s.clientId })), c.name).toBeNull()
       // ...while automated dunning is held on both.
-      expect(await inTenant(() => isLoanHeld({ tenantId: tenant.tenantId, loanId: s.loanId })), c.name).toBe(true)
+      expect(await inTenant(() => loanDunningHold(prisma, { tenantId: tenant.tenantId, loanId: s.loanId, statuses: ["ACTIVE"] })), c.name)
+        .toMatch(/arrangement, a payment plan, an attorney referral/)
     }
   })
 

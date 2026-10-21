@@ -71,7 +71,8 @@ async function borrower() {
     data: { tenantId, idNumber: syntheticSaId(), firstName: "Signer", lastName: "Fixture", email, phone: "0820000000" },
   })
   const contact = await db.contact.create({
-    data: { tenantId, status: "CLIENT", firstSeenChannel: "MANUAL", firstSeenContext: "integration-test" },
+    // The client's own Contact: a code goes only to that (lib/contact/recipient.ts).
+    data: { tenantId, clientId: client.id, status: "CLIENT", firstSeenChannel: "MANUAL", firstSeenContext: "integration-test" },
   })
   await db.contactIdentity.create({ data: { tenantId, contactId: contact.id, channel: "EMAIL", value: email, source: "MANUAL" } })
   return client

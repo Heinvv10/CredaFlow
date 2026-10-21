@@ -58,9 +58,9 @@ services:
 
   # One service, APP_MODE=all: staff and portal routes on one origin, so a
   # single cookie jar per actor reaches both. In-process node-cron jobs
-  # (instrumentation.ts) call NEXTAUTH_URL, which is the HOST port and is not
-  # reachable inside the container — they fail closed and the simulator runs
-  # every cron explicitly (scripts/demo/sim/cron.ts).
+  # (instrumentation.ts) would call this server on loopback (lib/ops/cron-call.ts),
+  # but DEMO_SIM_MANUAL_CRON below keeps the scheduler off: the simulator runs
+  # every cron explicitly, in dated order (scripts/demo/sim/cron.ts).
   app:
     extra_hosts:
       - "host.docker.internal:host-gateway"  # VLM on the host (:8100)

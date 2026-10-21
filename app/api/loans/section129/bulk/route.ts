@@ -7,7 +7,8 @@ import { sendMessage } from "@/lib/messaging/send"
 import { providerFailureOutcome } from "@/lib/messaging/providers"
 import { readKnownAcceptedDispatchEvidence } from "@/lib/messaging/known-dispatch-evidence"
 import { isSection129NewSendEnabled } from "@/lib/messaging/flags"
-import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
+import { normaliseEmail } from "@/lib/contact/identity"
+import { CONTACT_NOT_RECIPIENTS, lookupRecipientContact } from "@/lib/contact/recipient"
 import { section129Html, section129Text } from "@/lib/email/templates/section129"
 import { buildSection129Attachments } from "@/lib/email/section129-attachments"
 import { loanSettlementFigures, section129NoticeAmounts } from "@/lib/loan/charges-summary"
@@ -227,14 +228,17 @@ export async function POST(req: NextRequest) {
 
       if (newSend && template) {
         const emailNormalised = normaliseEmail(loan.client.email)
-        const contact = await lookupContactByChannelValue(prisma, {
+        // The client's OWN Contact (lib/contact/recipient.ts).
+        const recipient = await lookupRecipientContact(prisma, {
           tenantId: tenant.id,
           channel: "EMAIL",
           value: emailNormalised,
+          ownerClientId: loan.client.id,
         })
-        if (!contact) {
-          result = { ok: false, error: `no Contact row for ${loan.client.email}` }
+        if (!recipient.ok) {
+          result = { ok: false, error: recipient.reason === "NO_CONTACT" ? `no Contact row for ${loan.client.email}` : CONTACT_NOT_RECIPIENTS }
         } else {
+          const contact = recipient.contact
           try {
             const dispatch = await dispatchSection129UnderEligibilityLock({
               reservation,

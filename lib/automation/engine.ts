@@ -13,7 +13,7 @@ type AutomationLogResult = "success" | "failed" | "skipped"
 
 /**
  * WhatsApp reminders are not an engine action. The borrower reminder crons
- * (app/api/cron/reminders, app/api/cron/payment-reminders) own them; a SEND_WA
+ * (app/api/cron/reminders) owns them; a SEND_WA
  * rule row left over from before is skipped, never run.
  */
 export const WHATSAPP_HANDLED_BY_REMINDERS_CRON = "whatsapp_reminders_handled_by_reminders_cron"

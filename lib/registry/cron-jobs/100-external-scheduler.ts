@@ -10,10 +10,7 @@ import { defineCronJobs } from "../define"
 // comms (Section 129 notices, payment reminders).
 export default defineCronJobs([
   { route: "cleanup-notifications", owner: "external" },
-  { route: "dpd-update", owner: "external" },
   { route: "email-poll", owner: "external" },
-  { route: "escalations", owner: "external" },
   { route: "lead-task-reminders", owner: "external" },
   { route: "messaging-retry", owner: "external" },
-  { route: "reminders", owner: "external" },
 ] as const)

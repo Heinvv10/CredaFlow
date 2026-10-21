@@ -65,6 +65,8 @@ export type OtpDeliveryResult = {
 
 export async function deliverOtp(args: {
   tenantId: string
+  /** The Client the code is for: the code goes only to their own Contact (lib/contact/recipient.ts). */
+  clientId: string
   channel: OtpChannel
   destination: string
   recipient: OtpRecipient
@@ -81,6 +83,7 @@ export async function deliverOtp(args: {
     channel: args.channel,
     value: args.destination,
     templateKey: template.key ?? args.templateKey,
+    ownerClientId: args.clientId,
   })
   if (!target.ok) return { status: "FAILED", error: target.reason }
   const outcome = await deliverViaMessaging({

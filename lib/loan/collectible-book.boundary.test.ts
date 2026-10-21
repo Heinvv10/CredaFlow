@@ -96,7 +96,7 @@ describe("the reporting / behaviour boundary", () => {
   // stay on the narrower population. An earlier version of this file pinned the
   // cron's read to ACTIVE+DEFAULTED, which entrenched exactly that staleness.
   describe("dpd-update maintains the book without transitioning it", () => {
-    const src = () => code("app/api/cron/dpd-update/route.ts")
+    const src = () => code("lib/loan/dpd-update.ts")
 
     it("reads the whole collectible book", () => {
       expect(src()).toMatch(IMPORTS_BOOK)

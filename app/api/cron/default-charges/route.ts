@@ -1,45 +1,51 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyCronSecret } from "@/lib/cron-auth"
-import { runWithTenant } from "@/lib/tenant-scope"
-import { sweepTenantCharges, type SweepResult } from "@/lib/loan/charges-sweep"
+import { sweepTenantCharges } from "@/lib/loan/charges-sweep"
+import { sweepActiveTenants, sweepStatus } from "@/lib/ops/tenant-sweep"
 
 /**
  * Nightly default-charges sync. Default interest accrues by the day and the
  * post-maturity service fee on the 1st, whether or not a receipt arrives, so
- * every collectible loan of every tenant with TenantConfig.defaultChargesEnabled
- * is re-derived here (lib/loan/charges-sync.ts). Tenants with the flag off are
- * not read at all.
+ * every collectible loan of every ACTIVE tenant with
+ * TenantConfig.defaultChargesEnabled is re-derived here
+ * (lib/loan/charges-sync.ts). Tenants with the flag off are not read at all.
  *
- * Any failed loan or tenant makes the response 503: the scheduler treats only
- * a non-2xx as a failure, and never reads the body.
+ * A failed loan makes the response 503, as does every swept tenant failing; one
+ * tenant whose sweep could not start is named in `perTenant` and answered 200
+ * partial (sweepStatus). The scheduler reads only the status of this job (it has
+ * no claim); the body is for an operator, and carries no cause: those are logged.
  */
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
 
   const asOf = new Date()
-  const tenants = await prisma.tenantConfig.findMany({
+  const outcomes = await sweepActiveTenants("default-charges", async (tenant) => {
+    const config = await prisma.tenantConfig.findUnique({
+      where: { tenantId: tenant.id },
+      select: { defaultChargesEnabled: true, defaultChargesStartedAt: true },
+    })
     // Flag on AND go-live recorded: the flag alone posts nothing.
-    where: { defaultChargesEnabled: true, defaultChargesStartedAt: { not: null } },
-    select: { tenantId: true },
-    orderBy: { tenantId: "asc" },
+    if (!config?.defaultChargesEnabled || !config.defaultChargesStartedAt) return null
+    return sweepTenantCharges(prisma, tenant.id, asOf, { source: "cron:default-charges" })
   })
 
-  const perTenant: Array<({ tenantId: string } & SweepResult) | { tenantId: string; error: string }> = []
-  for (const { tenantId } of tenants) {
-    try {
-      const result = await runWithTenant(tenantId, async () =>
-        await sweepTenantCharges(prisma, tenantId, asOf, { source: "cron:default-charges" }))
-      perTenant.push({ tenantId, ...result })
-    } catch (error) {
-      perTenant.push({ tenantId, error: error instanceof Error ? error.message : String(error) })
+  const perTenant: Array<{ tenantId: string; loans: number; changed: number; failures: Array<{ loanId: string }> } | { tenantId: string; error: "failed; see the server log" }> = []
+  let failedLoans = 0
+  let failedTenants = 0
+  for (const outcome of outcomes) {
+    if (!outcome.ok) {
+      failedTenants++
+      perTenant.push({ tenantId: outcome.tenant.id, error: "failed; see the server log" })
+    } else if (outcome.value) {
+      const { loans, changed, failures } = outcome.value
+      for (const f of failures) console.error(`[cron/default-charges] tenant ${outcome.tenant.id} loan ${f.loanId} failed: ${f.error}`)
+      failedLoans += failures.length
+      perTenant.push({ tenantId: outcome.tenant.id, loans, changed, failures: failures.map((f) => ({ loanId: f.loanId })) })
     }
   }
 
-  const ok = perTenant.every((t) => !("error" in t) && t.failures.length === 0)
-  return NextResponse.json(
-    { ok, runAt: asOf.toISOString(), perTenant },
-    { status: ok ? 200 : 503 },
-  )
+  const { status, partial } = sweepStatus({ tenants: perTenant.length, failedTenants, otherErrors: failedLoans })
+  return NextResponse.json({ ok: status === 200, partial, runAt: asOf.toISOString(), perTenant }, { status })
 }

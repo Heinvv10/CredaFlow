@@ -55,7 +55,11 @@ vi.mock("@/lib/messaging/send", () => ({
 }))
 vi.mock("@/lib/contact/identity", async () => ({
   ...(await vi.importActual<typeof import("@/lib/contact/identity")>("@/lib/contact/identity")),
-  lookupContactByChannelValue: (...args: unknown[]) => m.lookupContact(...args),
+  // The client's own Contact unless a stub names another owner.
+  lookupContactByChannelValue: async (...args: unknown[]) => {
+    const contact = (await m.lookupContact(...args)) as Record<string, unknown> | null | undefined
+    return contact && !("clientId" in contact) ? { ...contact, clientId: "cli1" } : contact
+  },
 }))
 
 import { triggerNotification } from "./notifications"
@@ -127,18 +131,32 @@ describe("legacy path: email and WhatsApp free text follow the client's language
     expect(m.sendEmail.mock.calls[0][0].html).toContain("National Credit Act")
     expect(m.sendWhatsApp.mock.calls[0][0].message).toContain("was unsuccessful")
   })
+})
 
-  it.each([[1, "was due yesterday"], [7, "*7 days overdue*"]])(
-    "keeps the overdue notice English, %i day(s) overdue (collections)",
-    async (daysOverdue, waPhrase) => {
+// loan_overdue always goes through sendMessage (it has no flag). Its copy stays
+// English whatever the client's language: collections text is not translated.
+describe("loan_overdue: the overdue notice stays English", () => {
+  const row = (key: string, channel: string) => ({ id: `tpl-${key}`, key, channel, language: "en", active: true, statutoryOverride: false, tenantId: "tn1" })
+  it.each([[1, "was due yesterday", "loan_overdue_1d_whatsapp"], [7, "*7 days overdue*", "loan_overdue_7d_whatsapp"]])(
+    "%i day(s) overdue: English email and WhatsApp, no translated row asked for",
+    async (daysOverdue, waPhrase, waKey) => {
       setup("af", ["en", "af"])
       m.loanFindUnique.mockResolvedValue({ reference: "LN-0001", outstandingPrincipal: 400_000 })
+      m.messageTemplateFindMany.mockResolvedValue([
+        row("loan_overdue_email", "EMAIL"), row("loan_overdue_sms", "SMS"),
+        row("loan_overdue_1d_whatsapp", "WHATSAPP"), row("loan_overdue_7d_whatsapp", "WHATSAPP"),
+      ])
+      m.lookupContact.mockResolvedValue({ id: "ct-1" })
+      m.sendMessage.mockResolvedValue({ id: "msg-1", status: "SENT" })
       await triggerNotification({ tenantId: "tn1", event: "loan_overdue", loanId: "ln1", clientId: "cli1", data: { daysOverdue, amount: 50_000 } })
-      const email = m.sendEmail.mock.calls[0][0]
+      const email = m.sendMessage.mock.calls.find((c: any[]) => c[0].channel === "EMAIL")![0].vars
       expect(email.subject).toBe("Payment Overdue Notice")
       expect(email.html).toContain("Your loan payment is overdue")
       expect(email.text).toMatch(/^Dear Thandi Mthembu, your loan payment is overdue/)
-      expect(m.sendWhatsApp.mock.calls[0][0].message).toContain(waPhrase)
+      const wa = m.sendMessage.mock.calls.find((c: any[]) => c[0].channel === "WHATSAPP")![0]
+      expect(wa.template.key).toBe(waKey)
+      expect(wa.vars.body).toContain(waPhrase)
+      expect(m.messageTemplateFindMany.mock.calls[0][0].where.key.in.some((k: string) => k.includes("__"))).toBe(false)
       expect(m.tenantConfigFindUnique).not.toHaveBeenCalled()
     },
   )

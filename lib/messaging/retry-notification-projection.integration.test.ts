@@ -165,7 +165,7 @@ suite("retry notification projections", () => {
       {
         messageId: messages.expired,
         status: "expired",
-        error: "Message retry window expired after 24 hours",
+        error: "Message retry window expired",
       },
     ])
   })

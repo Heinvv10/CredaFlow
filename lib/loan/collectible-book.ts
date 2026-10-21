@@ -38,7 +38,7 @@
  *                          double-count against that line and inflate arrears
  *                          for ever.
  *
- * ⚠️ KNOWN STALENESS. `app/api/cron/dpd-update/route.ts` refreshes
+ * ⚠️ KNOWN STALENESS. `lib/loan/dpd-update.ts` (the dpd-update cron) refreshes
  * `daysInArrears` / `arrearsAmount` for ACTIVE + DEFAULTED only, so a
  * PENDING_WRITE_OFF loan carries the ageing it had when it entered the queue.
  * Its outstanding principal is still real money at risk — which is why it

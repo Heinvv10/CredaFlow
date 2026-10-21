@@ -8,7 +8,7 @@ function cfg(rule: RuleShape): Record<string, unknown> {
 }
 
 // WhatsApp reminders are NOT an engine action: the borrower reminder crons
-// (app/api/cron/reminders, app/api/cron/payment-reminders) own them.
+// (app/api/cron/reminders) owns them.
 
 // ── CREATE_AGENT_TASK / ISSUE_SECTION_129 / NOTIFY_AGENT ─────────────────────
 

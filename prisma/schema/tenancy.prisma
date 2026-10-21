@@ -531,3 +531,42 @@ model CronHeartbeat {
   lastStatus      Int?
   lastError       String?
 }
+
+// One row per (single-run in-process job, SAST day): the replica that inserts it
+// runs the job, and the row records how the run ended (lib/ops/cron-run-claim.ts).
+// A later firing the same day proceeds only over a FAILED row, or a RUNNING one
+// whose runner stopped renewing it. Also holds the per-tenant "dpd-update:<tenantId>"
+// DONE markers that escalations and reminders read.
+enum CronRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+model CronRunClaim {
+  job        String
+  runDay     String
+  /// Start of the current attempt, renewed by its runner while it works.
+  claimedAt  DateTime      @default(now())
+  status     CronRunStatus @default(RUNNING)
+  finishedAt DateTime?
+  attempts   Int           @default(1)
+  /// Random per attempt: only the attempt that holds it may renew or close the claim.
+  ownerToken String?
+
+  @@id([job, runDay])
+}
+
+// One row per borrower message (or escalation rule action) per SAST day, taken
+// BEFORE it is sent so that two overlapping runs cannot both send it
+// (lib/ops/send-reservation.ts). `tenantId` is a plain column, not a relation: the
+// row is bookkeeping and is never read across tenants.
+model SendReservation {
+  key       String
+  runDay    String
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  @@id([key, runDay])
+  @@index([tenantId])
+}

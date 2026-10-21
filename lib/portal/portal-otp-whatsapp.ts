@@ -36,6 +36,7 @@ export async function sendPortalOtpByWhatsApp(args: {
   const { tenantId, client } = args
   const delivery = await deliverOtp({
     tenantId,
+    clientId: client.id,
     channel: "WHATSAPP",
     destination: otpDestination("WHATSAPP", client),
     recipient: client,
