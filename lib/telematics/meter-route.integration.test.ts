@@ -177,8 +177,9 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
     // A return or an extension elected at expiry, before the term ends, leaves the asset in use: readings go on until the term end.
     for (const outcome of ["RETURN", "EXTEND"]) {
       await ruleAdmits(database(), async (tx) => {
-        await setup(tx, [END_OF_TERM("EXPIRY", outcome), fx.tenantId, lease.loanId])
-        await direct(tx, lease, daysAgo(10), 1_098)
+        await setup(tx, [END_OF_TERM("EXPIRY", outcome), fx.tenantId, lease.loanId],
+          [`DELETE FROM "AssetMeterReading" WHERE "loanId" = $1 AND "source" = 'TELEMATICS' AND "readingDate" = $2::date`, lease.loanId, daysAgo(27)])
+        await expectOutcome(tx, lease.device, 1_000 + 6 * 3, daysAgo(27), "RECORDED")
       })
     }
   }, 120_000)

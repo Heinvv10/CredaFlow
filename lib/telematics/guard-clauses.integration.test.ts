@@ -73,6 +73,34 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
     await db?.$disconnect()
   }, 60_000)
 
+  it("stores a position only inside a running loan's tenure: begun, and not overtaken by a later loan on the asset", async () => {
+    const G = "telematicsLoanAt"
+    const TENURE = /stored only while a running agreement on its asset covers its time/
+    const store = async (tx: Tx) => {
+      const e = await event(tx, "POSITION")
+      await tx.telematicsPosition.deleteMany({ where: { deviceId: ids.deviceA } })
+      await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: e.id, deviceId: ids.deviceA, occurredAt: e.occurredAt, latitude: -35.01, longitude: 20.01 } })
+    }
+    const withTriggersOff = async (tx: Tx, sql: string, ...params: unknown[]) => {
+      await replica(tx, true)
+      await tx.$executeRawUnsafe(sql, ...params)
+      await replica(tx, false)
+    }
+    await ruleRefuses(database(), fn(G, `
+    AND (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date`), TENURE, async (tx) => {
+      await withTriggersOff(tx, `UPDATE "Loan" SET "startDate" = now() + INTERVAL '2 days' WHERE "id" = $1`, ids.loanA)
+      await store(tx)
+    })
+    // A later loan on the asset (a copy, since closed) started yesterday: lease A's tenure ended then.
+    await ruleRefuses(database(), fn(G, `FROM "Loan" n WHERE n."tenantId"`, `FROM "Loan" n WHERE FALSE AND n."tenantId"`), TENURE, async (tx) => {
+      await withTriggersOff(tx, `INSERT INTO "LoanApplication" SELECT (jsonb_populate_record(NULL::"LoanApplication", to_jsonb(a) || jsonb_build_object('id', $2::text, 'reference', $2::text))).*
+        FROM "LoanApplication" a WHERE a."id" = (SELECT "applicationId" FROM "Loan" WHERE "id" = $1)`, ids.loanA, `nextapp_${t}`)
+      await withTriggersOff(tx, `INSERT INTO "Loan" SELECT (jsonb_populate_record(NULL::"Loan", to_jsonb(l) || jsonb_build_object('id', $2::text, 'reference', $2::text, 'applicationId', $3::text,
+          'status', 'COMPLETED', 'startDate', now() - INTERVAL '1 day'))).* FROM "Loan" l WHERE l."id" = $1`, ids.loanA, `next_${t}`, `nextapp_${t}`)
+      await store(tx)
+    })
+  }, 120_000)
+
   it("raises an alert only from its event's device, asset and kind, at its time; a repeat never moves the last occurrence back", async () => {
     const G = "guardTelematicsAlert"
     const BOUND = /raised by an alert event of its kind, on its device and asset/
