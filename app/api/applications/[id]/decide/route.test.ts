@@ -1259,6 +1259,17 @@ it("rejects an unreasoned bureau override before changing the application", asyn
   expect(updateManyMock).not.toHaveBeenCalled()
 })
 
+it("counts an override reason in code points, as the decision log's CHECK does: five emoji are five", async () => {
+  findUniqueMock.mockResolvedValue(underReviewApplication)
+  const fiveEmoji = "😀😀😀😀😀" // ten UTF-16 units
+
+  const res = await POST(makeReq({ action: "approve", reason: "Looks good", bureauOverrideReason: fiveEmoji }), ctx)
+
+  expect(res.status).toBe(400)
+  expect(await res.json()).toMatchObject({ bureauOverrideValidation: "reason_too_short" })
+  expect(updateManyMock).not.toHaveBeenCalled()
+})
+
 it.each([
   ["missing", null, "submission_missing"],
   ["legacy", { schemaVersion: 1 }, "submission_missing"],

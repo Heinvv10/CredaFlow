@@ -100,6 +100,13 @@ legal record of the state change; the decision record is the analytical one.
   (`prisma/migrations/20261018140100_lender_asset_templates/migration.sql`).
   Test teardown that must delete runs under
   `session_replication_role = replica` (as `cleanupDealFixture` does).
+  What this does not stop: the table owner or a superuser can
+  `ALTER TABLE … DISABLE TRIGGER`, or set `session_replication_role =
+  replica` (which needs superuser, or a role granted `SET` on it) and then change or delete rows. The
+  guarantee is only as strong as "the application's database role does not
+  own the table and is not a superuser". Nothing in this migration enforces
+  that (no `REVOKE`, no ownership change); it is a deployment requirement,
+  and the RLS integration suites already assume an app role that is neither.
 - **CHECKs**: `_hashes_sha256`, `_decision_code`, `_probability_range`,
   `_override_reason`, `_actor`, `_has_subject`, `_json_objects`.
 - **Tenancy**: registered in `lib/registry/tenant-scoped-models/250-learning-loop.ts`
@@ -137,7 +144,10 @@ Stored, per consumer approval:
   `UNCALIBRATED`, `UNSCOREABLE`, `BELOW_MIN_SCORE`, `SIMULATED`,
   `BUREAU_MISSING`, `OTHER`; `lib/learning-loop/bureau-code.ts`, tested for
   agreement with `evaluateBureauGate`), `scoreBand` (Sigma 480-710 in 50s),
-  provider, overridden;
+  provider, overridden, `reasonGivenUnneeded` (staff sent a bureau override
+  reason although the gate passed: the application row stores it as an
+  override, the log records `PASS`, not overridden, and says a reason was
+  given);
 - `affordability`: gate, `ndiCoverBand` (NDI ÷ required NDI: <1.00 …
   3.00+);
 - `creditChecks`: count and `check:code` of flags cleared;
@@ -161,16 +171,36 @@ inputs live there (`LoanApplication.affordabilityResult`,
 
 `inputsHash` covers the exact (unbanded) values the decision used plus the
 refs and policy. It lets an auditor re-derive the record from the source of
-record and lets analysis group identical inputs. The exact values are never
-stored. The hash includes 64-hex fingerprints and ids, so it cannot be
-brute-forced back to an income.
+record and lets analysis group identical inputs. The exact values are not
+stored in the record, but the hash is **not** a confidentiality control: it
+is an unkeyed sha256, and the refs and policy it covers are stored on the
+same row (`evidenceRefs`, and the policy behind `policyHash` is a handful of
+known thresholds). What stands between a reader of the log and the exact
+values is therefore only the entropy of the exact inputs within their stored
+bands:
+- decline, return and flag-clear rows hash an enum or a check code that the
+  snapshot already shows; nothing beyond the snapshot is hidden;
+- PASQ and asset-finance rows (a decline with no credit memo hashes the amount
+  in cents, the term, a few flags and the regime) can be recovered by
+  enumerating the amount within its band, about 10⁹–10¹⁰ guesses;
+- consumer approvals hash several independent exact values (income, NDI,
+  required NDI, bureau score, premium), a larger joint space, but not one to
+  rely on.
+The exact values live in the source of record, so this discloses nothing a
+reader of the lender's application tables cannot already see; it matters
+once the log is read by anyone else (an analytics export, §8). **Follow-up**:
+make `inputsHash` an HMAC-SHA256 under a per-deployment secret held outside
+the database, before any such reader exists.
 
 Never stored: ID numbers, names, contact details, bank details, raw bureau
 payloads (`obligations`, accounts), exact amounts, decline/return reason text.
 Stored free text: `overrideReason` only (bureau override, flag clear reason,
 AF exception reason), because POPIA s71(3) representations and an NCR query
-need it. It is staff-written and may contain personal information: it falls
-under the retention rule and DSAR export.
+need it. It is staff-written and may contain personal information. Neither
+a retention rule (§2.7, not built) nor a DSAR export (`app/api/dsar/*` tracks
+requests only) covers this table today; both are **follow-ups**, and until
+they exist a DSAR for a client must include this table's
+`overrideReason`s by hand (query by `clientId` / `applicationId`).
 
 ### 2.4 Recommendation vs decision
 
@@ -196,11 +226,11 @@ function; the 422 is unchanged) so the log records what it said.
 
 | Path | Function / point | Kind / decision | PR A | Failure policy |
 |---|---|---|---|---|
-| `app/api/applications/[id]/decide/route.ts:1429` | `POST` action `approve`, in the approval `$transaction` after `LOAN_APPROVED` | CREDIT_DECISION `APPROVE` + OFFER `APPROVED_TERMS` | **hooked** | same tx, fail closed |
-| `app/api/applications/[id]/decide/route.ts:1593` | action `decline`, after `LOAN_DECLINED` | `DECLINE` | **hooked** | same tx, fail closed |
-| `app/api/applications/[id]/decide/route.ts:457` | action `return_to_review` | `RETURN_TO_REVIEW` | **hooked** | same tx, fail closed |
-| `app/api/applications/[id]/decide/route.ts:669` | action `return_to_draft` | `RETURN_TO_DRAFT` | **hooked** | same tx, fail closed |
-| `app/api/applications/[id]/checks/[flagId]/clear/route.ts:87` | `POST`, after `CREDIT_CHECK_FLAG_CLEARED` | `CLEAR_FLAG` | **hooked** (clientId not held there: null; the application id is the subject) | same tx, fail closed |
+| `app/api/applications/[id]/decide/route.ts:1433` | `POST` action `approve`, in the approval `$transaction` after `LOAN_APPROVED` | CREDIT_DECISION `APPROVE` + OFFER `APPROVED_TERMS` | **hooked** | same tx, fail closed |
+| `app/api/applications/[id]/decide/route.ts:1597` | action `decline`, after `LOAN_DECLINED` | `DECLINE` | **hooked** | same tx, fail closed |
+| `app/api/applications/[id]/decide/route.ts:460` | action `return_to_review` | `RETURN_TO_REVIEW` | **hooked** | same tx, fail closed |
+| `app/api/applications/[id]/decide/route.ts:672` | action `return_to_draft` | `RETURN_TO_DRAFT` | **hooked** | same tx, fail closed |
+| `app/api/applications/[id]/checks/[flagId]/clear/route.ts:87` | `POST`, after `CREDIT_CHECK_FLAG_CLEARED` | `CLEAR_FLAG` | **hooked** (`clientId` read with the row lock) | same tx, fail closed |
 | `app/api/applications/[id]/pasq/route.ts:1090` | `POST`, after `PASQ_GENERATED`, serializable tx | OFFER `QUOTATION_ISSUED` | **hooked** | same tx, fail closed |
 | `lib/asset-finance/deal-decision.ts:224` (`decideDeal`, called by `app/api/asset-finance/deals/[id]/decide/route.ts`) | after `ASSET_DEAL_DECIDED` | `APPROVE`/`DECLINE`/`REFER` (+ OFFER on approve) | **hooked**; `DealActor.role` added (optional) | same tx, fail closed |
 | `app/api/applications/[id]/bureau-override/route.ts` | dead (always 400/409); overrides go through `/decide` | n/a | not needed | |

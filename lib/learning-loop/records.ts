@@ -135,6 +135,9 @@ export function consumerApprovalRecords(f: ConsumerApprovalFacts): DecisionRecor
         scoreBand: bureauScoreBand(f.bureau?.score ?? null),
         provider: f.bureau?.provider ?? null,
         overridden,
+        // The application row stores a reason given past a passing gate as an
+        // override; the log says it was not needed rather than hide it.
+        reasonGivenUnneeded: !overridden && f.bureauOverrideReason !== null,
       },
       affordability: {
         gate: "PASS",

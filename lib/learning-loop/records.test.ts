@@ -163,9 +163,21 @@ describe("consumer approval records", () => {
     })
   })
 
-  it("an override reason given where the gate passed is not an override", () => {
+  it("an override reason given where the gate passed is not an override, but the snapshot says one was given", () => {
     const [decision] = consumerApprovalRecords(approval({ bureauOverrideReason: "Belt and braces note here." }))
-    expect(recordData(decision)).toMatchObject({ recommendation: "PASS", overridden: false, overrideReason: null })
+    expect(recordData(decision)).toMatchObject({
+      recommendation: "PASS",
+      overridden: false,
+      overrideReason: null,
+      inputsSnapshot: { bureau: { gate: "PASS", overridden: false, reasonGivenUnneeded: true } },
+    })
+    const [plain] = consumerApprovalRecords(approval())
+    expect(recordData(plain).inputsSnapshot).toMatchObject({ bureau: { reasonGivenUnneeded: false } })
+  })
+
+  it("an override past a blocking gate is not flagged as an unneeded reason", () => {
+    const [decision] = consumerApprovalRecords(approval({ bureauGateBlocked: true, bureauOverrideReason: "Gate verdict reviewed." }))
+    expect(recordData(decision).inputsSnapshot).toMatchObject({ bureau: { overridden: true, reasonGivenUnneeded: false } })
   })
 
   it("names the gate's block OTHER when the code cannot say why", () => {

@@ -26,13 +26,15 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 - **A person decides.** The record says what the gates said
   (`recommendation`) and what the named staff user decided; going against a
   gate is `overridden` with the reason (DB CHECK: reason exactly when
-  overridden, ≥ 10 characters). A decision the code takes alone is
+  overridden, ≥ 10 code points, which a route counts as `[...s].length`). A decision the code takes alone is
   `actorType: "SYSTEM"` (POPIA s71) and must be flagged, never dressed up
   as a staff decision.
 - **Same transaction, fail closed, for credit decisions and offers**: pass
   the route's `tx` to `recordDecisions`. Collection actions (not hooked yet)
   must never be blocked by the log: write after the action and log a
   failure, never swallow it.
+- `inputsHash` is unkeyed sha256: never treat it as hiding the exact
+  values (DESIGN.md §2.3; HMAC is a follow-up).
 - **No probability is invented.** `predictedProbability` stays null until a
   model produces one; the bureau score is an ordinal band, not a PD.
 - `bureauBlockCode` (`lib/learning-loop/bureau-code.ts`) mirrors the order of
@@ -46,3 +48,4 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 | `lib/learning-loop/records.ts` | consumer decision and offer builders |
 | `lib/learning-loop/records-asset-finance.ts` | asset-finance deal decision builder |
 | `lib/learning-loop/decision-log.integration.test.ts` | `RUN_DECISION_LOG_IT`: trigger, CHECKs, RLS |
+| `app/api/applications/[id]/decide/decision-log.integration.test.ts` | `RUN_DECISION_LOG_IT`: approve/decline through the route under RLS |
