@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Banknote,
   BarChart3,
+  BookOpen,
   Percent,
   Bell,
   BriefcaseBusiness,
@@ -153,6 +154,7 @@ export const staffNavigation: NavGroup[] = [
       { href: "/asset-finance/suppliers", label: "Suppliers", icon: Factory },
       { href: "/asset-finance/dealers", label: "Dealers", icon: Handshake, minRole: "LOAN_ADMIN" },
       { href: "/asset-finance/reference-rates", label: "Reference rates", icon: Percent },
+      { href: "/asset-finance/valuation-guides", label: "Valuation guides", icon: BookOpen },
     ],
   },
   {

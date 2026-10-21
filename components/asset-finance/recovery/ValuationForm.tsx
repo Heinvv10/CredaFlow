@@ -8,6 +8,7 @@ import { FormError, TextField } from "@/components/asset-finance/register-form-c
 import { MoneyField } from "@/components/asset-finance/MoneyField"
 import { ChoiceField } from "./legal-fields"
 import { useLegalAction } from "./legal-matter-client"
+import { VALUATION_SOURCES } from "@/lib/asset-finance/asset-input"
 import { VALUATION_SOURCE_LABELS } from "./recovery-model"
 import { emptyValuationForm, valuationBody, type ValuationForm as Form } from "./recovery-forms"
 
@@ -50,7 +51,7 @@ export function ValuationForm({ recoveryId, today, surrender }: { recoveryId: st
       <div className="grid gap-3 sm:grid-cols-2">
         <TextField id="valuedOn" label="Valuation date" type="date" required max={today} value={form.valuedOn} onChange={(v) => set("valuedOn", v)} />
         <ChoiceField id="valuationSource" label="Source" required value={form.source} onChange={(v) => set("source", v as ValuationSource)}
-          options={(Object.keys(VALUATION_SOURCE_LABELS) as ValuationSource[]).map((s) => ({ value: s, label: VALUATION_SOURCE_LABELS[s] }))} />
+          options={VALUATION_SOURCES.map((s) => ({ value: s, label: VALUATION_SOURCE_LABELS[s] }))} />
         <TextField id="valuerName" label="Valuer" required value={form.valuerName} onChange={(v) => set("valuerName", v)} />
         <MoneyField id="valuationAmount" label="Valuation (R)" required value={form.amount} onChange={(v) => set("amount", v)} />
       </div>

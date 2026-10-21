@@ -7,6 +7,7 @@ import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { isLeaseContract } from "@/lib/asset-finance/lease-input"
 import { NOT_INDEPENDENT_SOURCES } from "@/lib/asset-finance/asset-input"
+import { latestGuideValuation } from "@/lib/valuation-guides/lookup"
 import type { ChoiceOption } from "./legal-fields"
 import { STEP_LABELS } from "./legal-matter-form"
 import { VALUATION_SOURCE_LABELS, type CostAllowLists } from "./recovery-model"
@@ -84,4 +85,12 @@ export async function loadSaleValuations(tenantId: string, assetId: string): Pro
     where: { tenantId, assetId, source: { notIn: [...NOT_INDEPENDENT_SOURCES] } }, orderBy: { valuedOn: "desc" }, take: 10, select: { id: true, valuedOn: true, source: true, amountCents: true },
   })
   return rows.map((v) => ({ value: v.id, amountCents: v.amountCents, label: `${formatMoney(v.amountCents)} · ${VALUATION_SOURCE_LABELS[v.source]}, ${formatIsoDate(isoOfDbDate(v.valuedOn))}` }))
+}
+
+/** The asset's latest guide value: a reference beside the recovery's valuation, never one a sale may rest on. */
+export async function loadGuideReference(tenantId: string, assetId: string): Promise<string | null> {
+  const latest = await latestGuideValuation(prisma, tenantId, assetId)
+  if (!latest) return null
+  const s = latest.snapshot
+  return `${formatMoney(s.tradeCents)} trade, ${formatMoney(s.retailCents)} retail · ${s.guideName}${s.simulated ? " (simulated)" : ""}, effective ${formatIsoDate(s.effectiveOn)}, read ${formatIsoDate(latest.valuedOn)}`
 }

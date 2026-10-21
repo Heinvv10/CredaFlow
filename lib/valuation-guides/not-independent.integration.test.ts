@@ -25,6 +25,7 @@ import {
 } from "@/lib/asset-finance/recovery.integration-fixture"
 import { clauseOff, rules, takeOut, type Tx } from "@/lib/asset-finance/recovery-rules.integration-fixture"
 import { cleanupGuides, guideValuationData, publishedGuide, today, type GuideRowSeed } from "./guide.integration-fixture"
+import { loadRevaluation } from "./revaluation-store"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
 
@@ -144,6 +145,16 @@ suite("a GUIDE valuation is never an independent valuation", () => {
       const offered = await loadSaleValuations(fx.tenantId, listed.loan.assetId)
       expect(offered.map((o) => o.value)).toContain(independent.id)
       expect(offered.map((o) => o.value)).not.toContain(v.sale)
+    })
+  })
+
+  describe("book revaluation", () => {
+    it("values each live loan's asset on the variant of its last guide value, LTV for the instalment sale only", async () => {
+      const rows = await loadRevaluation(fx.tenantId)
+      const leaseRow = rows.find((r) => r.loanId === lease.loanId)
+      const saleRow = rows.find((r) => r.loanId === listed.loan.loanId)
+      expect(leaseRow?.match).toMatchObject({ kind: "matched", basis: "recorded_variant", row: { variant: "", tradeCents: 130_000_000 }, ltvBps: null, changeCents: 0 })
+      expect(saleRow?.match).toMatchObject({ kind: "matched", basis: "recorded_variant", row: { variant: "", tradeCents: 130_000_000 }, ltvBps: 11_538, changeCents: 0 })
     })
   })
 })

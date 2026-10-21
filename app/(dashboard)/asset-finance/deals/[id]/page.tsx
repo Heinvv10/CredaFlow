@@ -30,6 +30,9 @@ import { CANCELLABLE_DEAL_STATUSES } from "@/lib/asset-finance/deal-cancel"
 import { loadDealDealerPanel, loadDealerCapturedPeople } from "@/lib/dealer/staff-deal-panel"
 import { DealerPanel } from "./DealerPanel"
 import { DealerCapturedPeople } from "./DealerCapturedPeople"
+import { GuideValuePanel } from "@/components/asset-finance/valuation-guides/GuideValuePanel"
+import { loadGuidePanel } from "@/lib/valuation-guides/guide-panel"
+import { goodsAdvanceCents } from "@/lib/valuation-guides/ltv"
 
 const DECIDABLE = ["SUBMITTED", "REFERRED"]
 const DECISION_LABELS: Record<string, string> = { APPROVE: "Approved", DECLINE: "Declined", REFER: "Referred" }
@@ -51,6 +54,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const dealer = await loadDealDealerPanel(tenantId, id)
   // A staff deal whose borrower a dealer captured: its contacts are verified here before booking.
   const capturedPeople = dealer ? [] : await loadDealerCapturedPeople(tenantId, id)
+  const guide = await loadGuidePanel(tenantId, deal.asset.id, goodsAdvanceCents({ ...deal.asset, depositCents: deal.terms.depositCents, tradeInCents: deal.terms.tradeInCents }))
 
   // A dealer's draft is submitted by accepting the dealer's handover (the Dealer panel).
   const submit = canManage && deal.status === "DRAFT" && !dealer
@@ -72,6 +76,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       />
       <div className="space-y-5 p-4 lg:p-8">
         <DealSummaryPanel deal={deal} />
+        {guide && <GuideValuePanel assetId={deal.asset.id} data={guide} canManage={canManage} />}
 
         {dealer && <DealerPanel panel={dealer} canManage={canManage} />}
         {capturedPeople.length > 0 && (

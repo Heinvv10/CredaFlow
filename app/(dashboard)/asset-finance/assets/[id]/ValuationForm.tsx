@@ -3,16 +3,15 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
-import type { ValuationSource } from "@prisma/client"
 import { Button } from "@/components/ui/button"
 import { FormError, SelectField, TextField, sendJson } from "@/components/asset-finance/register-form-controls"
-import { VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
+import { MANUAL_VALUATION_SOURCE_LABELS } from "@/lib/asset-finance/asset-labels"
 import { randsToCents } from "@/lib/asset-finance/money-input"
 
 export function ValuationForm({ assetId }: { assetId: string }) {
   const router = useRouter()
   const [valuedOn, setValuedOn] = useState("")
-  const [source, setSource] = useState<ValuationSource>("DEALER")
+  const [source, setSource] = useState<keyof typeof MANUAL_VALUATION_SOURCE_LABELS>("DEALER")
   const [valuerName, setValuerName] = useState("")
   const [amount, setAmount] = useState("")
   const [documentId, setDocumentId] = useState("")
@@ -49,7 +48,7 @@ export function ValuationForm({ assetId }: { assetId: string }) {
       <FormError message={error} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <TextField id="valuedOn" label="Valued on" type="date" required value={valuedOn} onChange={setValuedOn} error={fields.valuedOn} />
-        <SelectField id="source" label="Source" required value={source} onChange={setSource} options={VALUATION_SOURCE_LABELS} error={fields.source} />
+        <SelectField id="source" label="Source" required value={source} onChange={setSource} options={MANUAL_VALUATION_SOURCE_LABELS} error={fields.source} />
         <TextField id="valuerName" label="Valuer" required value={valuerName} onChange={setValuerName} error={fields.valuerName} />
         <TextField id="amount" label="Amount (R)" required inputMode="decimal" value={amount} onChange={setAmount} error={fields.amountCents} />
         <TextField id="documentId" label="Report document ID" value={documentId} onChange={setDocumentId} error={fields.documentId} />

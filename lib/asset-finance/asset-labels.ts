@@ -40,6 +40,14 @@ export const VALUATION_SOURCE_LABELS: Record<ValuationSource, string> = {
   GUIDE: "Guide value",
 }
 
+/** The sources a person records by hand (./asset-input.ts VALUATION_SOURCES): a guide value is read from a guide. */
+export const MANUAL_VALUATION_SOURCE_LABELS: Record<Exclude<ValuationSource, "GUIDE">, string> = {
+  DEALER: "Dealer",
+  AUCTIONEER: "Auctioneer",
+  ASSESSOR: "Assessor",
+  INTERNAL: "Internal",
+}
+
 export const BANK_ACCOUNT_STATUS_LABELS: Record<SupplierBankAccountStatus, string> = {
   PENDING: "Awaiting approval",
   APPROVED: "Approved",
