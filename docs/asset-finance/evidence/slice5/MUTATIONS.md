@@ -677,3 +677,37 @@ Notes:
 | U15 | a cancelled later loan ends the view's tenure | `lib/telematics/position-view.ts` | position-view IT: 1 failed, 4 passed | "never shows a position from outside this loan's tenure or older than retention, and logs a 'none' too" | `AssertionError: expected { kind: 'ok', none: true } to match object { kind: 'ok', position: { …(1) } }` |
 | U16 | the mismatch hint shows on a removed device | `components/asset-finance/telematics/TrackerDevicesPanel.tsx` | TrackerDevicesPanel unit: 1 failed, 1 passed | "flags a tracker id mismatch amber with its next action, and says nothing alarming when it matches" | `AssertionError: expected '<section class="min-w-0 overflow-hidd…' not to contain 'Tracker id mismatch'` |
 | U17 | the verification shows neither who nor the note | `components/asset-finance/telematics/TrackerDevicesPanel.tsx` | TrackerDevicesPanel unit: 1 failed, 1 passed | "offers a manager the meter check for a real provider's unverified device, and shows when one was verified" | `AssertionError: expected '<section class="min-w-0 overflow-hidd…' to contain 'by TEST Officer: Dashboard and device…'` |
+
+### Review round 3 (PR #222)
+
+The round-3 rules and gates (SLICE5.md part B, Deviations 14 and 18 and the
+round-3 matrix), same method (own throwaway PostgreSQL 16,
+`it-db.sh up cf-it-s5bf3-<random>`; catalog compared after every database
+restore, identical each time; files confirmed equal to HEAD). A new kind,
+"recheck", replaces a CHECK with another definition and restores the
+migration's own (V6). V3 puts back the round-2 lessor-status clause.
+
+Notes:
+- The purge index `(tenantId, occurredAt)` has no mutation row: it changes
+  the plan, not a result.
+- Round 2's S3 and U14 (the lessor-status clause and its view twin) are gone
+  with the clause; V1, V2 and W8 replace them.
+
+| # | Mutation | File | Suite: result | Test that went red | Output line |
+|---|---|---|---|---|---|
+| V1 | `telematicsLoanAt`: an inspected return no longer ends the tenure | migration `…160100` | edge-round3 IT, breaker-r2 IT: 2 failed, 5 passed | "an asset returned to the lessor's stock (end-of-term invoice unpaid, loan DEFAULTED) is no longer tracked under the ex-lessee's loan" | `AssertionError: expected { stored: true, …(2) } to deeply equal { stored: false, noAgreement: true }` |
+| V2 | `telematicsLoanAt`: a total loss no longer ends the tenure | migration `…160100` | guard-clauses IT: 1 failed, 5 passed | "stores a position only inside a running loan's tenure: begun, and not overtaken by a later loan on the asset" | `Error: expected a refusal matching /stored only while a running agreement on its asset covers its time/, got: ok` |
+| V3 | `telematicsLoanAt`: the asset's lessor status ends the tenure again (the round-2 clause) | migration `…160100` | breaker-r3 IT, lessor-status-bounds IT, edge-round3 IT: 3 failed, 6 passed | "a re-let asset whose recovery is withdrawn (asset back with the lessee) is still tracked" | `AssertionError: expected null to be 'cmvi4cz75007som6ihl3rbjgy' // Object.is equality` |
+| V4 | `guardTelematicsEvent`: the RAISE "older than the tenant''s retention is not stored…" becomes `NULL;` | migration `…160100` | devices IT, breaker-r3 IT: 2 failed, 7 passed | "a purged repeat alert event, delivered again, is refused as older than retention: no fresh work item" | `Error: promise resolved "{ stored: true, …(3) }" instead of rejecting` |
+| V5 | `guardTelematicsEvent`: the future-event refusal is a plain 23514 (permanent) again | migration `…160100` | edge-round3 IT, edge-cases IT: 2 failed, 14 passed | "future events: 4m50s ahead is stored, 6 minutes ahead is the database's "not yet" (deferred by the poll, never dropped)" | `Error: expected error to be instance of TelematicsEventNotYet` |
+| V6 | `TrackerDevice_failing_event_shape` without `failingEventCount >= 0` | migration `…160100` | devices IT: 1 failed, 6 passed | "keeps the retry counter whole: an event id with a count, or neither" | `Error: expected a refusal matching /TrackerDevice_failing_event_shape/, got: ok` |
+| W1 | an event older than the retention passes the shape check | `lib/telematics/event-shape.ts` | event-shape unit: 1 failed, 3 passed | "rejects an event dated before the installation (SAST) or more than five minutes ahead of the poll" | `AssertionError: expected null to be 'older than the retention' // Object.is equality` |
+| W2 | any non-Prisma failure counts a strike | `lib/telematics/poll.ts` | poll unit, poll-transient unit: 2 failed, 14 passed | "keeps the cursor for a TAMPER alert whose deadlock detail's PID reads 23514" | `AssertionError: expected { …(4) } to not have property "failingEventCount"` |
+| W3 | a pool timeout or write conflict counts a strike | `lib/telematics/poll.ts` | poll unit: 2 failed, 13 passed | "retries a write conflict for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
+| W4 | a raw deadlock, serialisation or lock timeout counts a strike | `lib/telematics/poll.ts` | poll unit: 3 failed, 12 passed | "retries a deadlock for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
+| W5 | the database's not yet is not deferred | `lib/telematics/poll.ts` | poll unit, edge-round3 IT: 2 failed, 18 passed | "an event the database's clock has not reached yet waits (deferred, cursor kept) even when the poll's clock has" | `AssertionError: expected { ok: false, tenants: 1, …(8) } to match object { deferred: 1, rejected: +0, …(1) }` |
+| W6 | 55000 is not mapped to not yet | `lib/telematics/event-insert.ts` | event-insert unit: 1 failed, 9 passed | "defers the database's not yet (55000)" | `Error: expected error to be instance of TelematicsEventNotYet` |
+| W7 | devices selected by the database's clock, not the poll's | `lib/telematics/poll.ts` | poll unit, edge-round3 IT: 2 failed, 18 passed | "the poll selects devices by its own clock: a past poll before the lease began does not ask for the device" | `AssertionError: expected true to be false // Object.is equality` |
+| W8 | the view ignores an inspected return | `lib/telematics/position-view.ts` | breaker-r2 IT: 1 failed, 1 passed | "an asset returned to the lessor's stock (end-of-term invoice unpaid, loan DEFAULTED) is no longer tracked under the ex-lessee's loan" | `AssertionError: expected { kind: 'ok', position: { …(5) } } to deeply equal { kind: 'ok', none: true }` |
+| W9 | an unroutable event is retried for good | `lib/telematics/poll.ts` | poll unit: 1 failed, 14 passed | "counts a strike for a database refusal (a unique key, a raw statement's integrity refusal) and an event no route takes" | `AssertionError: expected { where: { id: 'd6', …(2) }, …(1) } to match object { data: { failingEventId: 'r', …(1) } }` |
+| W10 | 22001 and 22P05 no longer intrinsic | `lib/telematics/event-insert.ts` | event-insert unit: 2 failed, 8 passed | "treats 22P05 as the event's own, a permanent rejection with the database's message" | `AssertionError: expected false to be true // Object.is equality` |
