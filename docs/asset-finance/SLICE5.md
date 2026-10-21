@@ -1017,9 +1017,13 @@ Staff, house pattern (`requireApiRole` → `withTenantContext` →
 | GUIDE is not independent: lease purchase | `lib/valuation-guides/not-independent.integration.test.ts` | IT | purchase election on a GUIDE valuation (DB, and `electEndOfTerm`) |
 | GUIDE is not independent: recovery sale | `not-independent.integration.test.ts` | IT | sale on a GUIDE valuation; a GUIDE above the highest independent one does not raise `highestValuationCents`; `valuationFacts` refuses; `loadSaleValuations` leaves it out |
 | Manual route never records GUIDE | `lib/asset-finance/asset-input.test.ts` | unit | `source: "GUIDE"` |
-| Synthetic provider gated | `lib/valuation-guides/providers/synthetic.test.ts` | unit | deployed build refused; allowed when listed |
+| Synthetic provider gated; registry | `lib/valuation-guides/providers/providers.test.ts` | unit | deployed build refused; allowed when listed |
 | LTV and advance | `lib/valuation-guides/ltv.test.ts` | unit | lease, deposit and trade-in, rounding |
 | Revaluation matching | `lib/valuation-guides/revaluation.test.ts` | unit | several variants; recorded variant; no match; lease LTV hidden |
+| Sale guard's three clauses; TRUNCATE, deferred and index objects present | `lib/valuation-guides/migration.test.ts` | static | — |
+| Panels: LTV, simulated label, no write control for a reader; recovery reference | `components/asset-finance/valuation-guides/GuideValuePanel.test.tsx`, `components/asset-finance/recovery/RecoveryPanel.test.tsx` | unit | — |
+| Revaluation loader (SQL) | `lib/valuation-guides/not-independent.integration.test.ts` | IT | — |
+| Browser seed shape | `lib/valuation-guides/valuation-browser-seed.test.ts` (`VALUATION_BROWSER_SEED=1`) | seed | — |
 | RLS on the two models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | — |
 
 Mutation evidence (`evidence/slice5/MUTATIONS.md`, Part C): the database suites
