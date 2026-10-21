@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto"
 import type { PrismaClient, TelematicsAlertKind } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
+import { ruleAdmits, ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
 import { pollTenant } from "./poll"
@@ -85,7 +85,7 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
       VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'RECOVERED', CURRENT_DATE, 'Synthetic yard', 'Synthetic condition', $5, now())`, `rcq_${t}`, fx.tenantId, ids.queueLoan, fx.assets[3], fx.adminA])
     const before = await raise(ids.queueDevice, "GEOFENCE_EXIT", new Date(Date.now() - 86_400_000))
     expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (before as { alertId: string }).alertId } })).toMatchObject({ queue: "RECOVERY" })
-    expect(await raise(ids.queueDevice, "POWER_CUT")).toMatchObject({ stored: true })
+    expect(await raise(ids.queueDevice, "POWER_CUT")).toEqual({ stored: false, noAgreement: true })
     expect(await database().telematicsAlert.count({ where: { deviceId: ids.queueDevice, kind: "POWER_CUT" } })).toBe(0)
   }, 300_000)
 
@@ -134,6 +134,8 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
       await update(resolved.id, { status: "ACKNOWLEDGED", resolvedById: null, resolvedAt: null, resolutionNote: null, acknowledgedById: fx.officer, acknowledgedAt: new Date() })(tx)
     })
     await ruleRefuses(database(), R, /queue and first occurrence are fixed/, update(powerCut.id, { queue: "RECOVERY" }))
+    // A repeat may move the item to the queue its loan calls for now.
+    await ruleAdmits(database(), update(powerCut.id, { queue: "RECOVERY", occurrences: powerCut.occurrences + 1 }))
     await ruleRefuses(database(), R, /never deleted/, (tx) => tx.telematicsAlert.delete({ where: { id: powerCut.id } }))
     await ruleRefuses(database(), R, /adds one occurrence/, update(powerCut.id, { occurrences: 5 }))
     await ruleRefuses(database(), R, /cannot move from OPEN to OPEN|cannot move from ACKNOWLEDGED to OPEN/, async (tx) => {

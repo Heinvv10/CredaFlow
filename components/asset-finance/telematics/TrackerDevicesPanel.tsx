@@ -33,7 +33,7 @@ export function TrackerDevicesPanel(props: { assetId: string; devices: AssetTrac
                 {` · last seen ${d.lastSeenAt ? formatDateTime(d.lastSeenAt) : "never"}`}
                 {d.matchesTrackerId && " · matches the recorded tracker id"}
               </span>
-              {!d.matchesTrackerId && (
+              {!d.matchesTrackerId && d.status === "ACTIVE" && (
                 <span className="inline-flex flex-wrap items-center gap-2" data-testid="tracker-id-mismatch">
                   <StatusPill tone="warning">Tracker id mismatch</StatusPill>
                   <span className="text-xs text-[var(--cf-text-secondary)]">
@@ -43,7 +43,7 @@ export function TrackerDevicesPanel(props: { assetId: string; devices: AssetTrac
               )}
               {d.lastPollError && d.status === "ACTIVE" && <span className="text-xs text-[var(--cf-danger)]">{d.lastPollError}</span>}
               {d.meterVerifiedAt
-                ? <span className="text-xs text-[var(--cf-text-muted)]">{`Meter verified ${formatDateTime(d.meterVerifiedAt)}`}</span>
+                ? <span className="text-xs text-[var(--cf-text-muted)]">{`Meter verified ${formatDateTime(d.meterVerifiedAt)}${d.meterVerifiedBy ? ` by ${d.meterVerifiedBy}` : ""}${d.meterVerifiedNote ? `: ${d.meterVerifiedNote}` : ""}`}</span>
                 : !d.simulated && d.status === "ACTIVE" && <span className="text-xs text-[var(--cf-text-muted)]">Meter not verified: its readings feed no lease</span>}
               {canManage && d.status === "ACTIVE" && <RemoveTrackerDevice deviceId={d.deviceId} />}
               {canManage && d.status === "ACTIVE" && !d.simulated && !d.meterVerifiedAt && <VerifyMeterAction deviceId={d.deviceId} />}

@@ -2,10 +2,10 @@
  * Position retention (cron asset-finance-telematics-purge, nightly; docs/asset-
  * finance/SLICE5.md part B, POPIA). Per tenant, with that tenant's
  * TenantConfig.telematicsPositionRetentionDays: the TelematicsPosition rows
- * older than it, then the HEARTBEAT, IGNITION and POSITION events older than
- * it that nothing refers to any more. METER and ALERT events stay (readings,
- * held readings and work items refer to them) and so does the access log (it
- * holds no coordinate). Batches of 5 000 like lib/lender-api/retention.ts. The
+ * older than it, then every event older than it that nothing refers to any
+ * more (no position, reading, held reading or alert). A METER or ALERT event
+ * a reading, held reading or work item refers to stays with it, and so does
+ * the access log (it holds no coordinate). Batches of 5 000 like lib/lender-api/retention.ts. The
  * cutoff is the database's clock, the one guardTelematicsEvent checks. One
  * audit row per tenant that lost rows, counts only.
  */
@@ -43,8 +43,11 @@ async function purgeTenant(tenantId: string, days: number): Promise<{ positions:
   const events = await inBatches(() => prisma.$executeRaw(Prisma.sql`
     DELETE FROM "TelematicsEvent" WHERE "id" IN (
       SELECT e."id" FROM "TelematicsEvent" e
-      WHERE e."tenantId" = ${tenantId} AND e."kind" IN ('HEARTBEAT', 'IGNITION', 'POSITION') AND e."occurredAt" < ${cutoff}
+      WHERE e."tenantId" = ${tenantId} AND e."occurredAt" < ${cutoff}
         AND NOT EXISTS (SELECT 1 FROM "TelematicsPosition" p WHERE p."eventId" = e."id")
+        AND NOT EXISTS (SELECT 1 FROM "AssetMeterReading" m WHERE m."telematicsEventId" = e."id")
+        AND NOT EXISTS (SELECT 1 FROM "TelematicsHeldReading" h WHERE h."eventId" = e."id")
+        AND NOT EXISTS (SELECT 1 FROM "TelematicsAlert" a WHERE a."eventId" = e."id")
       LIMIT ${BATCH})`))
   if (positions + events > 0) {
     await logAuditStrict({

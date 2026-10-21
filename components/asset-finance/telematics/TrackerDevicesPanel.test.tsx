@@ -11,7 +11,7 @@ import { TrackerDevicesPanel } from "./TrackerDevicesPanel"
 // real provider's unverified meter says it feeds no lease and offers the check.
 const device = (over: Partial<AssetTrackerDevice> = {}): AssetTrackerDevice => ({
   deviceId: "d-1", provider: "simulated", externalDeviceId: "SIM-TAMPER-0001", simulated: true, lastSeenAt: null, matchesTrackerId: true,
-  status: "ACTIVE", installedOn: "2030-06-01", removedOn: null, lastPollError: null, meterVerifiedAt: null, ...over,
+  status: "ACTIVE", installedOn: "2030-06-01", removedOn: null, lastPollError: null, meterVerifiedAt: null, meterVerifiedBy: null, meterVerifiedNote: null, ...over,
 })
 const html = (devices: AssetTrackerDevice[], canManage = true) => renderToStaticMarkup(<TrackerDevicesPanel assetId="a-1" devices={devices} canManage={canManage} providers={[]} />)
 
@@ -20,6 +20,8 @@ describe("TrackerDevicesPanel", () => {
     const mismatch = html([device({ matchesTrackerId: false })])
     expect(mismatch).toContain("Tracker id mismatch")
     expect(mismatch).toContain("correct the Tracker unit ID under Payout readiness")
+    // A removed device is history: no call to action.
+    expect(html([device({ matchesTrackerId: false, status: "REMOVED", removedOn: "2030-06-05" })])).not.toContain("Tracker id mismatch")
     const match = html([device()])
     expect(match).toContain("matches the recorded tracker id")
     expect(match).not.toContain("Tracker id mismatch")
@@ -31,6 +33,8 @@ describe("TrackerDevicesPanel", () => {
     expect(html([real])).toContain("Verify meter")
     expect(html([real], false)).not.toContain("Verify meter")
     expect(html([device()])).not.toContain("Verify meter")
-    expect(html([{ ...real, meterVerifiedAt: new Date("2030-06-02T10:00:00Z") }])).toContain("Meter verified")
+    const verified = html([{ ...real, meterVerifiedAt: new Date("2030-06-02T10:00:00Z"), meterVerifiedBy: "TEST Officer", meterVerifiedNote: "Dashboard and device both read 1 040 h" }])
+    expect(verified).toContain("Meter verified")
+    expect(verified).toContain("by TEST Officer: Dashboard and device both read 1 040 h")
   })
 })

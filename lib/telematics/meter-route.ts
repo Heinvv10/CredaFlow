@@ -4,8 +4,10 @@
  * asset's own feeds nothing (METER_UNVERIFIED): an offset meter would bill the
  * lessee unattended. Otherwise a running operating or full-maintenance lease
  * of the asset, with usage terms in the meter's unit, gets a TELEMATICS
- * reading through recordMeterReading, one a day (a held reading counts); a
- * reading the monotonic or pace rule refuses is held for staff. Anything else
+ * reading through recordMeterReading, one a day (a live held reading counts:
+ * a rejected one leaves room for a corrected reading); a reading the monotonic
+ * or pace rule refuses is held for staff. The asset row is locked before the
+ * monotonic check, so a staff reading written meanwhile is seen, not raced. Anything else
  * stays a device reading only (the event's meterOutcome says why).
  * guardTelematicsMeterReading repeats every rule in the database.
  */
@@ -16,7 +18,6 @@ import { dbDate } from "@/lib/asset-finance/dates"
 import { leaseTermEnd } from "@/lib/asset-finance/lease-term-end"
 import { recordMeterReading } from "@/lib/asset-finance/meter-readings"
 import type { SigningTx } from "@/lib/asset-finance/signing-prepare"
-import { TelematicsEventRejected } from "./event-shape"
 
 /** The lease types whose contracted usage a meter feeds (recordMeterReading's set). */
 export const USAGE_LEASES = ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const
@@ -64,10 +65,12 @@ export async function routeMeterReading(
   if (await leaseEnded(tx, tenantId, loan.id, readingDate)) return "LEASE_NOT_RUNNING"
   const [written, held] = await Promise.all([
     tx.assetMeterReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate), source: "TELEMATICS" } }),
-    tx.telematicsHeldReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate) } }),
+    tx.telematicsHeldReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate), status: { in: ["HELD", "ACCEPTED"] } } }),
   ])
   if (written + held > 0) return "SAME_DAY"
 
+  // The asset's meter is one sequence: lock it as the meter trigger does, before reading its neighbours.
+  await tx.$queryRaw`SELECT 1 FROM "FinancedAsset" WHERE "id" = ${assetId} AND "tenantId" = ${tenantId} FOR UPDATE`
   const result = await recordMeterReading(tx, { tenantId, telematics: { eventId } }, { loanId: loan.id, readingDate, value: meter.value, evidenceDocumentId: null, today })
   if (result.kind === "recorded") return "RECORDED"
   if (result.kind === "refused" && (result.reason === "not_monotonic" || result.reason === "implausible_reading")) {
@@ -83,5 +86,5 @@ export async function routeMeterReading(
     return "HELD"
   }
   if (result.kind === "refused" && (result.reason === "lease_closed" || result.reason === "reading_date")) return "LEASE_NOT_RUNNING"
-  throw new TelematicsEventRejected(`unexpected meter reading result: ${result.kind === "refused" ? result.reason : result.kind}`)
+  throw new Error(`Unexpected meter reading result for telematics event ${eventId}: ${result.kind === "refused" ? result.reason : result.kind}`)
 }

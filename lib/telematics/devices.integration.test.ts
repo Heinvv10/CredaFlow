@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dbDate } from "@/lib/asset-finance/dates"
-import { ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
+import { ruleAdmits, ruleRefuses } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import { registerTrackerDevice, removeTrackerDevice, trackerHeartbeat } from "./devices"
 import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient, today } from "./telematics.integration-fixture"
@@ -111,6 +111,26 @@ suite.sequential("tracker devices (real DB)", () => {
     await ruleRefuses(database(), E, /between the device's installation and now/, (tx) => event(tx, { deviceId: live.id, occurredAt: new Date(Date.now() + 3_600_000) }))
     await ruleRefuses(database(), E, /outcome is set after the event is stored/, (tx) => event(tx, { deviceId: live.id, kind: "METER", meterValue: 1, meterUnit: "HOURS", meterOutcome: "SAME_DAY" }))
     await ruleRefuses(database(), { table: "TelematicsEvent", constraint: "TelematicsEvent_kind_shape" }, /TelematicsEvent_kind_shape/,
-      (tx) => event(tx, { deviceId: live.id, kind: "METER" }))
+      (tx) => event(tx, { deviceId: live.id, meterValue: 1, meterUnit: "HOURS" }))
+  }, 120_000)
+
+  it("keeps the retry counter whole: an event id with a count, or neither", async () => {
+    const live = await database().trackerDevice.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "ACTIVE" } })
+    const SHAPE = { table: "TrackerDevice", constraint: "TrackerDevice_failing_event_shape" }
+    await ruleAdmits(database(), (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: "e-1", failingEventCount: 2 } }))
+    await ruleRefuses(database(), SHAPE, /TrackerDevice_failing_event_shape/, (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: "e-1", failingEventCount: 0 } }))
+    await ruleRefuses(database(), SHAPE, /TrackerDevice_failing_event_shape/, (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: null, failingEventCount: 1 } }))
+  }, 120_000)
+
+  it("keeps only a heartbeat when no agreement covers the event (this asset has none)", async () => {
+    const live = await database().trackerDevice.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "ACTIVE" } })
+    const event = (tx: Tx, over: Record<string, unknown>) => tx.telematicsEvent.create({ data: {
+      tenantId: fx.tenantId, deviceId: live.id, provider: "simulated", providerEventId: `it:${randomUUID()}`, kind: "HEARTBEAT", occurredAt: new Date(Date.now() - 60_000), simulated: true, ...over,
+    } })
+    await ruleAdmits(database(), (tx) => event(tx, {}))
+    const NO_AGREEMENT = { fn: "guardTelematicsEvent", replace: [`IF NEW."kind" <> 'HEARTBEAT' AND public."telematicsLoanAt"(`, `IF FALSE AND public."telematicsLoanAt"(`] } as const
+    for (const over of [{ kind: "METER", meterValue: 1_000, meterUnit: "HOURS" }, { kind: "ALERT", alertKind: "TAMPER" }, { kind: "IGNITION", ignitionOn: true }, { kind: "POSITION" }]) {
+      await ruleRefuses(database(), NO_AGREEMENT, /With no agreement covering it only a heartbeat event is stored/, (tx) => event(tx, over))
+    }
   }, 120_000)
 })

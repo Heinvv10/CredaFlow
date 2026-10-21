@@ -154,6 +154,9 @@ export interface AssetTrackerDevice extends TrackerHeartbeat {
   removedOn: string | null
   lastPollError: string | null
   meterVerifiedAt: Date | null
+  /** Who verified the meter (name, else email) and what they compared. */
+  meterVerifiedBy: string | null
+  meterVerifiedNote: string | null
 }
 
 /** Every device the asset has had, newest first, for the asset page's card. */
@@ -164,7 +167,9 @@ export async function assetTrackerDevices(tenantId: string, assetId: string): Pr
       trackerId: true,
       trackerDevices: {
         orderBy: { createdAt: "desc" },
-        select: { id: true, provider: true, externalDeviceId: true, status: true, installedOn: true, removedOn: true, lastPollError: true, meterVerifiedAt: true },
+        select: { id: true, provider: true, externalDeviceId: true, status: true, installedOn: true, removedOn: true, lastPollError: true, meterVerifiedAt: true,
+          meterVerifiedNote: true, meterVerifiedBy: { select: { name: true, email: true } },
+        },
       },
     },
   })
@@ -172,6 +177,7 @@ export async function assetTrackerDevices(tenantId: string, assetId: string): Pr
   return Promise.all(asset.trackerDevices.map(async (device) => ({
     ...(await heartbeatOf(tenantId, device, asset.trackerId)),
     status: device.status, installedOn: isoOfDbDate(device.installedOn), removedOn: device.removedOn ? isoOfDbDate(device.removedOn) : null, lastPollError: device.lastPollError,
-    meterVerifiedAt: device.meterVerifiedAt,
+    meterVerifiedAt: device.meterVerifiedAt, meterVerifiedBy: device.meterVerifiedBy ? device.meterVerifiedBy.name ?? device.meterVerifiedBy.email : null,
+    meterVerifiedNote: device.meterVerifiedNote,
   })))
 }

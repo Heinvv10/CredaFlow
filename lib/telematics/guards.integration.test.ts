@@ -147,7 +147,7 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
       await tx.telematicsHeldReading.update({ where: { id: ids.held }, data: { status: "ACCEPTED", decidedById: fx.officer, decidedAt: new Date(), meterReadingId: startReading.id, decisionNote: "  " } })
     })
     // One held reading per lease per day.
-    await ruleRefuses(database(), { index: "TelematicsHeldReading_tenantId_loanId_readingDate_key" }, /Unique constraint failed/, async (tx) => {
+    await ruleRefuses(database(), { index: "TelematicsHeldReading_one_live_per_day" }, /Unique constraint failed/, async (tx) => {
       const fresh = await event(tx, "METER", { meterValue: base.value, occurredAt: new Date(base.readingDate.getTime() + 16 * 3_600_000) })
       await tx.telematicsHeldReading.create({ data: {
         tenantId: fx.tenantId, eventId: fresh.id, loanId: ids.loanA, assetId: fx.assets[1], readingDate: base.readingDate, value: base.value, unit: "HOURS", reason: "LOWER",
@@ -170,12 +170,16 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
     const COVERS = /raised on the running agreement whose tenure covers its event/
     const TENURE = { fn: "guardTelematicsAlert", replace: [`IF NEW."loanId" IS DISTINCT FROM public."telematicsLoanAt"(`, `IF FALSE AND NEW."loanId" IS DISTINCT FROM public."telematicsLoanAt"(`] } as const
     await ruleRefuses(database(), TENURE, COVERS, raise({ loanId: ids.loanB }))
-    // The asset's own loan, once closed, no longer covers a new event.
+    // The asset's own loan, once closed, no longer covers the event (stored while it ran).
     await ruleRefuses(database(), TENURE, COVERS, async (tx) => {
+      const fresh = await event(tx, "ALERT", { alertKind: "POWER_CUT" })
       await replica(tx)
       await tx.$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, ids.loanA)
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
-      await raise({})(tx)
+      await tx.telematicsAlert.create({ data: {
+        tenantId: fx.tenantId, eventId: fresh.id, deviceId: ids.deviceA, assetId: fx.assets[1], loanId: ids.loanA, kind: "POWER_CUT", queue: "COLLECTIONS",
+        firstOccurredAt: fresh.occurredAt, lastOccurredAt: fresh.occurredAt,
+      } })
     })
     await ruleRefuses(database(), A, /raised OPEN, once, at its event's time/, raise({ occurrences: 2 }))
     await ruleRefuses(database(), A, /An acknowledgement is not changed/, (tx) => tx.telematicsAlert.update({ where: { id: ids.alert }, data: { acknowledgedById: fx.adminA } }))

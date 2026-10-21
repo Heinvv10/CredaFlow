@@ -96,8 +96,10 @@ curl -H "x-cron-secret: $CRON_SECRET" http://localhost:3000/api/cron/asset-finan
    in good standing; Collections takes a loan in default). Also at 390 px
    wide: each item is a card with its actions on screen.
 6. As COLLECTIONS_OFFICER on the TAMPER lease before any legal matter: the
-   Recovery panel shows "Last known position: This loan is not in default."
-   instead of the button. As CREDIT_OFFICER, open a legal matter. Then, as
+   Recovery panel shows "Last known position: Position is shown only for a
+   loan in default, legal action or recovery." instead of the button. As
+   CREDIT_OFFICER, open a legal matter. The Recovery panel (context DEFAULT)
+   now says "Last known position: This loan is not in default."; as
    COLLECTIONS_OFFICER, press "Show last known position" in the Legal matter
    panel. Capture the coordinate text with its time.
 7. As READONLY: the button is absent. A

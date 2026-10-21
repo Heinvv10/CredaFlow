@@ -801,10 +801,11 @@ what changed while building.
 
 1. **Coordinates live in their own table, `TelematicsPosition`.** Events
    (`TelematicsEvent`) carry no coordinates and no raw payload. The purge
-   deletes position rows (plus HEARTBEAT/IGNITION/POSITION events) past
-   retention, while METER and ALERT events stay because meter readings,
-   held readings and alerts refer to them. No other copy of a coordinate
-   exists, so retention is one DELETE.
+   deletes position rows past retention, then every event past retention that
+   nothing refers to, whatever its kind (review round 2, POPIA s14: an
+   unreferenced METER or ALERT event used to be kept for ever). A METER or
+   ALERT event that a meter reading, held reading or alert refers to stays
+   with it. No other copy of a coordinate exists, so retention is one DELETE.
 2. **A position is never server-rendered.** The only read path is
    `POST /api/asset-finance/loans/[loanId]/telematics/position`
    (`lib/telematics/position-view.ts`). It writes the access-log row first and
@@ -891,15 +892,22 @@ what changed while building.
 Added by the review round 1 (PR #222):
 
 14. **Collection ends with the agreement (POPIA s10/s11).** A position is
-    stored, and an alert raised, only while a running loan's tenure covers
-    the event: `telematicsLoanAt(tenant, asset, at)` = the ACTIVE or DEFAULTED
-    loan on the asset that started on or before `at`'s SAST day, with no later
-    loan on the asset started by then and no recovery under it (a withdrawn
-    one aside) dated on or before that day. `guardTelematicsPosition` and
+    stored, and an alert raised, only while a loan's tenure covers the event:
+    `telematicsLoanAt(tenant, asset, at)` = the ACTIVE, DEFAULTED or
+    PENDING_WRITE_OFF loan on the asset (a debt still collectable; WRITTEN_OFF
+    is not) that started on or before `at`'s SAST day, with no later loan on
+    the asset that ran (not CANCELLED) started by then, no recovery under it
+    (a withdrawn one aside) dated on or before that day, and the asset still in
+    the lessee's hands: a lessor status set during the loan (RETURNED_TO_STOCK,
+    SOLD_TO_LESSEE, RECOVERED, SOLD_IN_REMARKETING, TOTAL_LOSS) ends the tenure
+    at its `lessorStatusAt`. `guardTelematicsPosition` and
     `guardTelematicsAlert` enforce it; an alert's `loanId` is that loan (NOT
-    NULL). The poll takes only devices on an asset under an agreement: a
-    running loan, or a deal awaiting payout (Deviation 19). After
-    settlement, closure, write-off or recovery nothing is polled or kept.
+    NULL). With no loan covering it, only a heartbeat event is kept
+    (`guardTelematicsEvent`; the ingest does not store anything else). The
+    poll takes only devices whose asset has a loan covering now, or a deal
+    awaiting payout (Deviation 19). After settlement, closure, write-off,
+    recovery or the asset's return nothing is polled; the last in-tenure
+    position stays until the retention purge.
 15. **Only the latest position per device.** `TelematicsPosition` is unique on
     `(tenantId, deviceId)`; the ingest (holding the device row lock) keeps a
     newer position and deletes the older one, and drops an older or equal one.
@@ -914,39 +922,57 @@ Added by the review round 1 (PR #222):
     meter. Until then every METER event of a non-simulated device has outcome
     METER_UNVERIFIED (a device reading only), and `guardTelematicsMeterReading`
     refuses a TELEMATICS reading from a non-simulated event of an unverified
-    device. One held reading per lease per day (unique), and SAME_DAY counts
-    the held rows of that day too. Accepting a held reading needs a note
+    device. One live held reading per lease per day (partial unique on
+    status <> REJECTED), and SAME_DAY counts that day's HELD and ACCEPTED rows
+    too: a rejected hold leaves room for a corrected reading. The ingest locks
+    the asset row before the monotonic check, so a staff reading written
+    meanwhile is seen and the event is held against it, not refused. Accepting a held reading needs a note
     (CHECK on ACCEPTED and the route). The portal shows who took the latest
     reading ("from the tracker", "recorded by the lessor", "submitted through
     the portal").
 17. **Alert queues: SERVICING, COLLECTIONS, RECOVERY.** An alert on a loan in
-    good standing is a neutral SERVICING item; COLLECTIONS only when the loan
-    is DEFAULTED; RECOVERY when it has an open recovery or an OPEN legal
-    matter. Nothing is sent in any of them.
-18. **One bad event never wedges a device.** `invalidEvent` also refuses a
-    meter value or accuracy outside INTEGER, a control character in an id, an
-    event dated before the device's installation (SAST) and one more than five
-    minutes ahead of the poll. An event whose own transaction the database
-    refuses for what it is (23514, 22021, 22003, 22P05, P2000, P2002, P2020,
-    or the driver's INT4 refusal) is skipped and counted as rejected, audited
+    good standing is a neutral SERVICING item; COLLECTIONS when the loan is in
+    default (DEFAULTED or PENDING_WRITE_OFF); RECOVERY when it has an open
+    recovery or an OPEN legal matter. The queue is the loan's now: set on
+    raising and re-evaluated on every repeat (the guard lets the queue change
+    only with a repeat). A repeat folds only into the unresolved item of the
+    same device, kind and loan (the partial unique includes the loan), locked
+    first: a resolve racing the fold wins and the repeat opens a new item.
+    Nothing is sent in any of them.
+18. **One bad event never wedges a device; no good event is dropped.**
+    `invalidEvent` also refuses a meter value or accuracy outside INTEGER, a
+    control character in an id, an event dated before the device's
+    installation (SAST) and one more than five minutes ahead of the poll. The
+    event row is inserted by a raw statement (`event-insert.ts`), so its
+    refusal carries its SQLSTATE in a structured field (`meta.code`), never
+    read out of message text. Only that statement's refusals of the event
+    itself (23514 from its guard or CHECKs, 22021, 22P05, 22003, 22001) are
+    permanent: skipped, counted as rejected, audited
     `TELEMATICS_EVENT_REJECTED` (provider event id with control characters
-    replaced, the reason, no payload), and the cursor moves past it. An event
-    ahead of the poll's clock (within the five minutes) is deferred: the
-    device keeps its cursor and the next poll takes it. A provider or
-    transport failure still keeps the cursor. The device row is locked
+    replaced, the reason and the database's message, no payload), and the
+    cursor moves past it. Anything later in the event's transaction (a race
+    with staff, a deadlock, a serialisation failure, any other refusal) keeps
+    the cursor and is retried next poll. A device failing on the same event
+    three polls in a row (`TrackerDevice.failingEventId / failingEventCount`)
+    skips it, audited "failed 3 polls in a row (<Prisma code or class>)". An
+    event ahead of the poll's clock (within the five minutes) is deferred:
+    the device keeps its cursor and the next poll takes it. A provider or
+    transport failure keeps the cursor. The device row is locked
     (`FOR UPDATE`) at the start of each event's transaction, so overlapping
-    sweeps take turns and fold an alert.
+    sweeps take turns. Whether events are simulated is the registered
+    provider's own definition (`provider.simulated`), never the provider's
+    answer: a real provider cannot switch off meter verification.
 19. **Before payout: a heartbeat, nothing else.** The payout checklist shows a
     tracker's heartbeat beside its TRACKER_CONFIRMED item, before the loan is
     booked. So the poll also takes a device on an asset whose deal is in a
     pre-booking status: APPROVED or CONTRACTED (`PRE_BOOKING_DEAL_STATUSES`
     in `poll.ts`; the enum has no separate SIGNED, a signed deal is
     CONTRACTED). With no booked loan no `telematicsLoanAt` covers its events,
-    so the database stores no position and raises no alert (an ALERT event is
-    kept, its work item is not), and a METER event is a device reading only
-    (LEASE_NOT_RUNNING; no `AssetMeterReading`, since no loan exists). A
-    CANCELLED, DECLINED, REFUSED_NCA, REFERRED, SUBMITTED or DRAFT deal is not
-    polled; neither is an asset with no deal (`pre-payout.integration.test.ts`).
+    so only its heartbeats are kept (review round 2): no position, ignition,
+    meter or alert event is stored, and the database refuses one
+    (`guardTelematicsEvent`). A CANCELLED, DECLINED, REFUSED_NCA, REFERRED,
+    SUBMITTED or DRAFT deal is not polled; neither is an asset with no deal
+    (`pre-payout.integration.test.ts`).
 
 ### Data (prisma/schema/asset-finance-telematics.prisma, new file)
 
@@ -991,7 +1017,7 @@ model TelematicsPosition { // eventId @unique (→ TelematicsEvent), deviceId, o
 }
 model TelematicsHeldReading { // eventId @unique, loanId, assetId, readingDate @db.Date, value, unit UsageUnit, reason, status @default(HELD),
                               // decidedById? (→ User), decidedAt?, decisionNote?, meterReadingId? @unique (→ AssetMeterReading), createdAt;
-                              // @@unique([tenantId, loanId, readingDate]) (one held reading per lease per day)
+                              // partial unique (tenantId, loanId, readingDate) WHERE status <> 'REJECTED' (hand-written)
 }
 model TelematicsAlert {    // eventId @unique (first event), deviceId, assetId, loanId (the tenure's), kind, queue, status @default(OPEN),
                            // firstOccurredAt, lastOccurredAt, occurrences Int @default(1), acknowledgedById?, acknowledgedAt?,
@@ -1031,13 +1057,17 @@ Additive columns:
 - `TelematicsHeldReading_decision_shape`: HELD ⇔ `decidedById`/`decidedAt`
   NULL; ACCEPTED ⇒ `meterReadingId` set; REJECTED ⇒ `meterReadingId` NULL;
   ACCEPTED and REJECTED both ⇒ `length(btrim(decisionNote)) BETWEEN 3 AND 500`.
-  Unique `(tenantId, loanId, readingDate)`: one held reading per lease per day.
+  Partial unique `TelematicsHeldReading_one_live_per_day` on `(tenantId,
+  loanId, readingDate) WHERE status <> 'REJECTED'`: one live held reading per
+  lease per day.
+- `TrackerDevice_failing_event_shape`: `failingEventId` NULL ⇔
+  `failingEventCount` 0; the count never negative (the poll's retry counter).
 - `TelematicsPosition` unique `(tenantId, deviceId)`: the latest position only.
 - `TelematicsAlert_status_shape`: ACKNOWLEDGED ⇒ ack pair set; RESOLVED ⇒
   resolved pair set and the note is 3–500 non-blank characters;
   `occurrences >= 1`; `lastOccurredAt >= firstOccurredAt`. Partial unique
-  `(tenantId, deviceId, kind) WHERE status <> 'RESOLVED'` (repeats fold into
-  the open item).
+  `(tenantId, deviceId, kind, loanId) WHERE status <> 'RESOLVED'` (repeats
+  fold into the open item of the same loan).
 - `AssetMeterReading_telematics_shape`:
   `("source" = 'TELEMATICS') = ("telematicsEventId" IS NOT NULL) AND ("source" <> 'TELEMATICS' OR "recordedByClientId" IS NULL)`.
   Partial unique `AssetMeterReading_telematics_one_per_day` on
@@ -1052,7 +1082,10 @@ Additive columns:
   arithmetic as `meter-readings.ts`. The TS twin `paceCeiling()` is tested
   equal to it.
 - `telematicsLoanAt(tenant text, asset text, at timestamp) → text`: the loan
-  whose tenure of the asset covers `at` (Deviation 14), or NULL.
+  whose tenure of the asset covers `at` (Deviation 14), or NULL. The ingest,
+  the poll's device selection, and the position, alert and event guards all
+  call it; the view's `tenureEnd` follows the same ends (the next loan's start
+  SAST day, the loan's closing, a recovery, the asset's lessor status).
 - `guardTrackerDevice` (BEFORE INSERT OR UPDATE OR DELETE):
   - INSERT: status ACTIVE, unverified (`meterVerifiedAt` NULL),
     `installedOn ≤ today` (the composite FK keeps the asset the tenant's).
@@ -1067,13 +1100,14 @@ Additive columns:
   - INSERT: the device is the tenant's and ACTIVE, and `provider` = the
     device's provider. `occurredAt` is no later than `now() + interval '5 minutes'`
     and its SAST date is no earlier than `installedOn`. `meterOutcome` is NULL.
+    Unless `telematicsLoanAt` covers it, only a HEARTBEAT is stored.
   - UPDATE: only `meterOutcome` may change, NULL → a value, METER only, and
     consistently at ingest: RECORDED exactly when an `AssetMeterReading` names
     the event, HELD exactly when a `TelematicsHeldReading` does. It is the
     outcome at ingest: a held reading accepted later keeps HELD.
-  - DELETE: only kinds HEARTBEAT, IGNITION, POSITION with `occurredAt < now() −
-    retentionDays` (the purge). METER and ALERT events are refused (they are
-    referenced business records).
+  - DELETE: only with `occurredAt < now() − retentionDays`, and only when no
+    meter reading, held reading, alert or position refers to the event (the
+    purge, or a DSAR erasure).
 - `guardTelematicsPosition`: INSERT only for its event's device and
   `occurredAt` (event kind POSITION or ALERT), while `telematicsLoanAt` covers
   it, with `occurredAt ≥ now() − retentionDays`, so a stale backfill is never
@@ -1115,7 +1149,7 @@ Additive columns:
     are the event's. `loanId` is `telematicsLoanAt` of the event.
   - UPDATE: `occurrences` +1 and `lastOccurredAt` forward only while not
     RESOLVED. OPEN → ACKNOWLEDGED, and OPEN or ACKNOWLEDGED → RESOLVED. The
-    identity columns and `queue` are fixed.
+    identity columns are fixed, and `queue` changes only with a repeat.
   - DELETE refused.
 - `guardTelematicsPositionAccess`: INSERT only, by a `User` of the same tenant
   (composite FK), naming a loan on its asset and, if any, a device of that
@@ -1502,7 +1536,8 @@ turn a named test red.
   it can poll more than one lender's devices.
 - **DSAR for telematics data is manual.** Positions, events and the access log
   are not in the DSAR export or erasure flow; an operator answers a request
-  by hand (DELETE of a position is allowed). Counsel item 5.
+  by hand. A position may be deleted; an event only past retention and when
+  nothing refers to it; the access log never. Counsel item 5.
 - **No start reading, no ceiling.** With no meter reading on the lease, neither
   `paceCeiling` nor `telematicsPaceCeiling` applies, so an unattended reading
   is recorded whatever its size. Booking always writes the start reading, so
@@ -1513,8 +1548,15 @@ turn a named test red.
   produced. Counsel item 3.
 - **Meter verification is one-way.** It cannot be undone or redone on the same
   device; a device whose meter is replaced is removed and registered again.
-- **The alert queue is fixed at raise time.** An alert raised before a matter
-  opens stays in its queue.
+- **The alert queue moves only with a repeat.** It is re-evaluated when the
+  device reports the alert again; an item that never repeats keeps the queue
+  it was raised in, even if the loan defaults later.
+- **Only the current lessor status is on file.** The tenure ends at the
+  asset's `lessorStatusAt` when that was set during the loan. A withdrawn
+  recovery that restores an earlier status stamps it now, which ends a running
+  loan's tenure early (collection stops: the safe side).
+- **Evidence for accept and verify is a note.** Neither takes a document
+  (for example a dashboard photo); what counts as enough is counsel item 6.
 - **Polling only:** no provider webhook.
 
 ### Review items
@@ -1535,7 +1577,8 @@ turn a named test red.
      employees: are they data subjects whose location is processed, and what
      notice do they get?
   5. **DSAR for telematics data.** Access, correction and erasure of events,
-     positions and the access log (manual today).
+     positions and the access log (manual today; an event a reading, held
+     reading or alert refers to cannot be erased while that record stands).
   6. **Excess billing from device readings.** Unattended readings feed the
      projected excess and the end-of-term billing; the lessee's right to
      dispute a device reading, and whether staff need a void or supersede
@@ -1605,6 +1648,29 @@ does not end the tenure (the asset went back to the borrower). The browser
 review's findings BR1 to BR8 are in "Pages and components", Deviation 10, the
 matrix and `evidence/slice5/browser/B/README.md` (the seed's second state,
 the auth settings and the in-process scheduler).
+
+Review round 2 (PR #222): Deviations 1, 14, 16, 17, 18 and 19 changed (the
+retry classification and counter, the purge of unreferenced events, heartbeat
+only without an agreement, the tenure ending at the asset's return, a later
+loan counting only if it ran, PENDING_WRITE_OFF still covering, the alert
+queue re-evaluated per repeat and folded per loan, a rejected hold leaving
+room for a corrected reading, the simulated flag from the provider's
+definition), the round-2 rows of the matrix, and Known limitations. The
+migration was again edited in place.
+
+| Rule (round 2) | Test file | Kind | Negative cases |
+|---|---|---|---|
+| Only the event insert's own refusals are permanent; the rest retry | `lib/telematics/poll.test.ts`, `poll-transient.test.ts`, `poll-rejects.integration.test.ts`, `poll-race.integration.test.ts` | unit + IT | a later refusal with code 23514 → failed, cursor kept; a deadlock whose detail names PID 23514 → failed; the event insert's 23514, 22021, 22003 → rejected, cursor past; a resolve racing a fold → a new item, nothing dropped |
+| Three failing polls on one event skip it | `poll.test.ts`, `devices.integration.test.ts` | unit + IT | second failure retried, third skipped and audited with its reason, a different event restarts the count; the counter's shape CHECK |
+| The meter check waits for a staff reading of the asset | `poll-race.integration.test.ts` | IT | a staff reading committed during the ingest → the event HELD (ABOVE_LATER), not refused |
+| Unreferenced events past retention are purged | `orphan-retention.integration.test.ts`, `purge.integration.test.ts` | IT | an unreferenced METER and ALERT event past retention go; one a reading refers to, or inside retention, is refused |
+| Only a heartbeat without an agreement | `devices.integration.test.ts`, `pre-payout.integration.test.ts`, `after-settlement.integration.test.ts`, `breaker-r2.integration.test.ts` | IT | METER, ALERT, IGNITION and POSITION on an asset with no covering loan refused by the DB and not stored by the ingest; before payout only 31 heartbeats |
+| Tenure ends at the asset's return; a later loan counts only if it ran; a withdrawn recovery does not end it | `breaker-r2.integration.test.ts`, `guard-clauses.integration.test.ts` | IT | RETURNED_TO_STOCK during a DEFAULTED loan → no position, no alert, reveal none, not polled; a CANCELLED later loan and a WITHDRAWN recovery admitted; a COMPLETED later loan, a RECOVERED recovery and a return refused |
+| PENDING_WRITE_OFF covers; WRITTEN_OFF does not | `edge-round2.integration.test.ts` | IT | a PENDING_WRITE_OFF loan stores a position; a WRITTEN_OFF one is not polled |
+| Queue re-evaluated per repeat; fold per loan | `edge-round2.integration.test.ts`, `alerts.integration.test.ts` | IT | SERVICING → COLLECTIONS when the loan defaults; an old loan's open item does not absorb a new lease's alert; the queue changes only with a repeat |
+| A rejected hold leaves room | `edge-round2.integration.test.ts`, `guards.integration.test.ts` | IT | a corrected same-day event RECORDED after a reject; a second live hold the same day refused |
+| The deferred accepted-hold check | `guard-clauses.integration.test.ts` | IT | another event's ACCEPTED hold naming the reading; the reading's own hold REJECTED (CHECK off) |
+| The simulated flag is the provider's | `poll.test.ts`, `breaker-r2.integration.test.ts` | unit + IT | a real provider answering `simulated: true` → events not simulated, unverified meter METER_UNVERIFIED |
 
 
 ## Part C — Valuation guides

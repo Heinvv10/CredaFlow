@@ -99,12 +99,16 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
     expect(events.every((e) => e.simulated)).toBe(true)
   }, 120_000)
 
-  it("the provider-event unique index is what refuses a duplicate: without it the same event is stored twice", async () => {
+  it("the provider-event unique index is what refuses a duplicate: a replay is not stored, and without the index it would be", async () => {
     const device = await database().trackerDevice.findUniqueOrThrow({ where: { id: ids.rollbackDevice } })
     const [replayed] = (await getTelematicsProvider("simulated")!.poll({ devices: [{ externalDeviceId: device.externalDeviceId, cursor: null, installedOn: ids.start }], now: new Date() })).events
-    const replay = (tx: Tx) => ingestEvent(tx as never, device, replayed, { now: new Date(), simulated: true, retentionDays: 90 })
-      .then((outcome) => { if (!outcome.stored) throw new Error("duplicate event (ON CONFLICT DO NOTHING)") })
-    await ruleRefuses(database(), { index: "TelematicsEvent_tenantId_provider_providerEventId_key" }, /duplicate event/, replay)
+    expect(await database().$transaction((tx) => ingestEvent(tx as never, device, replayed, { now: new Date(), simulated: true, retentionDays: 90 }))).toEqual({ stored: false })
+    // The ingest's ON CONFLICT names this index; a plain second insert of the same key is what the index alone refuses.
+    const original = await database().telematicsEvent.findFirstOrThrow({ where: { deviceId: device.id, providerEventId: replayed.providerEventId } })
+    await ruleRefuses(database(), { index: "TelematicsEvent_tenantId_provider_providerEventId_key" }, /Unique constraint failed/, (tx) => tx.telematicsEvent.create({ data: {
+      tenantId: original.tenantId, deviceId: original.deviceId, provider: original.provider, providerEventId: original.providerEventId, kind: "HEARTBEAT",
+      occurredAt: original.occurredAt, simulated: true,
+    } }))
   }, 120_000)
 
   it("holds the ROLLBACK reading (below an earlier one) and writes nothing for it; the database refuses it written directly", async () => {

@@ -120,7 +120,7 @@ suite.sequential("telematics policy breaker (real DB)", () => {
     expect(await prisma.$transaction((tx) => ingestEvent(tx, acme, ev("ACME-0001"), ctx))).toEqual({ stored: false })
     // A device cannot ingest under a provider it is not registered with.
     await expect(prisma.$transaction((tx) => ingestEvent(tx, { ...sim, provider: "acme-gps" }, { ...ev("SIM-STEADY-1"), providerEventId: `x-${t}` }, ctx)))
-      .rejects.toThrow(/active device of the tenant, under the device's provider/)
+      .rejects.toThrow(/database refused the event \(23514\): A telematics event is of an active device of the tenant, under the device's provider/)
   }, 120_000)
 
   it("two overlapping sweeps raising different alert events of one kind on one device take turns on the device row: both succeed, one item", async () => {

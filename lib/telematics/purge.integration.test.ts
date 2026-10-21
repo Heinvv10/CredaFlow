@@ -4,8 +4,9 @@
  * own retention are deleted with the heartbeat, ignition and position events,
  * younger ones are kept,
  * METER and ALERT events and the access log survive, one audit row per
- * tenant. The database refuses a stale position, deleting a business event
- * and a retention outside 1 to 365 days.
+ * tenant. The database refuses a stale position, deleting an event something
+ * still refers to or one inside retention, and a retention outside 1 to 365
+ * days.
  *
  *   RUN_ASSET_FINANCE_TELEMATICS_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/telematics/purge.integration.test.ts
@@ -13,7 +14,7 @@
 import { randomUUID } from "node:crypto"
 import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
+import { attempt, ruleAdmits, ruleRefuses, testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixture"
 import type { LeaseFixture } from "@/lib/asset-finance/lease.integration-fixture"
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
 import { pollTenant } from "./poll"
@@ -160,13 +161,16 @@ suite.sequential("telematics position purge (real DB)", () => {
       (tx) => tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: stale.id, deviceId: ids.device, occurredAt: stale.occurredAt, latitude: -35.02, longitude: 20.02 } }))
     const young = await database().telematicsEvent.findFirstOrThrow({ where: { deviceId: ids.device, kind: "HEARTBEAT" }, orderBy: { occurredAt: "desc" } })
     const events = { table: "TelematicsEvent", trigger: "TelematicsEvent_guard" }
-    // A METER event past retention that nothing refers to (a device reading only) is still a business record.
-    await ruleRefuses(database(), events, /deleted \(the purge\)/, async (tx) => {
+    // Past retention, an event nothing refers to may go, whatever its kind (a device reading only, here); one a reading refers to stays.
+    await ruleAdmits(database(), async (tx) => {
       await testSetupIn(tx, [`INSERT INTO "TelematicsEvent" ("id", "tenantId", "deviceId", "provider", "providerEventId", "kind", "occurredAt", "meterValue", "meterUnit", "simulated")
         VALUES ($1, $2, $3, 'simulated', $1, 'METER', $4, 1000, 'HOURS', true)`, `meter_${t}`, fx.tenantId, ids.device, before(60)])
       await tx.telematicsEvent.delete({ where: { id: `meter_${t}` } })
     })
-    await ruleRefuses(database(), events, /deleted \(the purge\)/, (tx) => tx.telematicsEvent.delete({ where: { id: young.id } }))
+    const recorded = await database().telematicsEvent.findFirstOrThrow({ where: { deviceId: ids.device, kind: "METER", meterOutcome: "RECORDED" }, orderBy: { occurredAt: "asc" } })
+    expect(recorded.occurredAt.getTime()).toBeLessThan(before(31).getTime())
+    expect(await attempt(database(), (tx) => tx.telematicsEvent.delete({ where: { id: recorded.id } }))).toMatch(/a reading, held reading, alert or position refers to is not deleted/)
+    await ruleRefuses(database(), events, /Only an event past the tenant's retention is deleted/, (tx) => tx.telematicsEvent.delete({ where: { id: young.id } }))
     await ruleRefuses(database(), { table: "TelematicsPosition", trigger: "TelematicsPosition_no_truncate" }, /never truncated/,
       (tx) => tx.$executeRawUnsafe(`TRUNCATE "TelematicsPosition"`))
     for (const days of [0, 366]) {

@@ -89,6 +89,9 @@ model TrackerDevice {
   meterVerifiedById String?
   meterVerifiedBy   User?               @relation("TrackerDeviceMeterVerifiedBy", fields: [tenantId, meterVerifiedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   meterVerifiedNote String?
+  // The provider event the last polls failed on for a reason worth retrying, and how many polls in a row (lib/telematics/poll.ts).
+  failingEventId    String?
+  failingEventCount Int                 @default(0)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -157,7 +160,8 @@ model TelematicsPosition {
 
 // A device meter reading refused by the monotonic or pace rule, held for staff:
 // accepted with a note (written as a TELEMATICS reading the accepter vouches
-// for) or rejected. At most one per lease per day.
+// for) or rejected. At most one live (not rejected) per lease per day
+// (hand-written partial unique TelematicsHeldReading_one_live_per_day).
 model TelematicsHeldReading {
   id             String               @id @default(cuid())
   tenantId       String
@@ -183,7 +187,6 @@ model TelematicsHeldReading {
   @@unique([tenantId, id])
   @@unique([tenantId, eventId])
   @@unique([tenantId, meterReadingId])
-  @@unique([tenantId, loanId, readingDate])
   @@index([tenantId, status])
 }
 

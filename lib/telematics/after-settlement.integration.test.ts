@@ -1,7 +1,7 @@
 /**
- * POPIA s10/s11 repro (legal review of PR #222): a tracker left ACTIVE on an
- * asset whose finance agreement has closed keeps being polled, and its
- * positions are stored, though no loan on the asset gives a purpose.
+ * POPIA s10/s11 (legal review of PR #222), asserting the fix: a tracker left
+ * ACTIVE on an asset whose finance agreement has closed keeps nothing but a
+ * heartbeat, and no position, though it reports one.
  *
  *   RUN_ASSET_FINANCE_TELEMATICS_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/telematics/after-settlement.integration.test.ts
@@ -49,7 +49,9 @@ suite.sequential("telematics after the agreement closes (real DB)", () => {
       providerEventId: `it:${randomUUID()}`, externalDeviceId: device.externalDeviceId, occurredAt: new Date(now.getTime() - 60_000), kind: "POSITION",
       position: { latitude: -26.1, longitude: 28.0, accuracyM: 10 },
     }, { now, simulated: true, retentionDays: 90 }))
-    expect(outcome).toMatchObject({ stored: true })
+    // Not even the event is kept: with no agreement only a heartbeat is.
+    expect(outcome).toEqual({ stored: false, noAgreement: true })
     expect(await db!.telematicsPosition.count({ where: { deviceId } })).toBe(0)
+    expect(await db!.telematicsEvent.count({ where: { deviceId } })).toBe(0)
   }, 120_000)
 })

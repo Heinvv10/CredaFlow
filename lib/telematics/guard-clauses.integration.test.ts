@@ -76,8 +76,10 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
   it("stores a position only inside a running loan's tenure: begun, and not overtaken by a later loan on the asset", async () => {
     const G = "telematicsLoanAt"
     const TENURE = /stored only while a running agreement on its asset covers its time/
-    const store = async (tx: Tx) => {
+    // The event is stored while the tenure covers it; the change comes after, before its position.
+    const store = async (tx: Tx, change: () => Promise<unknown>) => {
       const e = await event(tx, "POSITION")
+      await change()
       await tx.telematicsPosition.deleteMany({ where: { deviceId: ids.deviceA } })
       await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: e.id, deviceId: ids.deviceA, occurredAt: e.occurredAt, latitude: -35.01, longitude: 20.01 } })
     }
@@ -86,18 +88,33 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
       await tx.$executeRawUnsafe(sql, ...params)
       await replica(tx, false)
     }
-    await ruleRefuses(database(), fn(G, `
-    AND (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date`), TENURE, async (tx) => {
-      await withTriggersOff(tx, `UPDATE "Loan" SET "startDate" = now() + INTERVAL '2 days' WHERE "id" = $1`, ids.loanA)
-      await store(tx)
-    })
-    // A later loan on the asset (a copy, since closed) started yesterday: lease A's tenure ended then.
-    await ruleRefuses(database(), fn(G, `FROM "Loan" n WHERE n."tenantId"`, `FROM "Loan" n WHERE FALSE AND n."tenantId"`), TENURE, async (tx) => {
+    const laterLoan = async (tx: Tx, status: string) => {
       await withTriggersOff(tx, `INSERT INTO "LoanApplication" SELECT (jsonb_populate_record(NULL::"LoanApplication", to_jsonb(a) || jsonb_build_object('id', $2::text, 'reference', $2::text))).*
         FROM "LoanApplication" a WHERE a."id" = (SELECT "applicationId" FROM "Loan" WHERE "id" = $1)`, ids.loanA, `nextapp_${t}`)
       await withTriggersOff(tx, `INSERT INTO "Loan" SELECT (jsonb_populate_record(NULL::"Loan", to_jsonb(l) || jsonb_build_object('id', $2::text, 'reference', $2::text, 'applicationId', $3::text,
-          'status', 'COMPLETED', 'startDate', now() - INTERVAL '1 day'))).* FROM "Loan" l WHERE l."id" = $1`, ids.loanA, `next_${t}`, `nextapp_${t}`)
-      await store(tx)
+          'status', $4::text, 'startDate', now() - INTERVAL '1 day'))).* FROM "Loan" l WHERE l."id" = $1`, ids.loanA, `next_${t}`, `nextapp_${t}`, status)
+    }
+    await ruleRefuses(database(), fn(G, `
+    AND (l."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date`), TENURE, async (tx) => {
+      await store(tx, () => withTriggersOff(tx, `UPDATE "Loan" SET "startDate" = now() + INTERVAL '2 days' WHERE "id" = $1`, ids.loanA))
+    })
+    // A later loan on the asset (a copy, since closed) started yesterday: lease A's tenure ended then.
+    await ruleRefuses(database(), fn(G, `FROM "Loan" n WHERE n."tenantId"`, `FROM "Loan" n WHERE FALSE AND n."tenantId"`), TENURE, async (tx) => {
+      await store(tx, () => laterLoan(tx, "COMPLETED"))
+    })
+    // A later loan that never ran (CANCELLED) does not end it.
+    await ruleAdmits(database(), (tx) => store(tx, () => laterLoan(tx, "CANCELLED")))
+    // A WITHDRAWN recovery (the asset went back to the borrower) does not end it; a live one does.
+    const recovery = (tx: Tx, status: string) => withTriggersOff(tx, `INSERT INTO "Recovery" ("id", "tenantId", "loanId", "assetId", "route", "status", "recoveredOn", "location",
+        "condition", "createdById", "closedAt", "withdrawnReason", "updatedAt")
+      VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', $5::"RecoveryStatus", CURRENT_DATE - 1, 'Synthetic yard', 'Synthetic condition', $6, CASE WHEN $5 = 'WITHDRAWN' THEN now() END,
+        CASE WHEN $5 = 'WITHDRAWN' THEN 'Synthetic withdrawal' END, now())`, `rcg_${randomUUID()}`, fx.tenantId, ids.loanA, fx.assets[1], status, fx.adminA)
+    await ruleAdmits(database(), (tx) => store(tx, () => recovery(tx, "WITHDRAWN")))
+    await ruleRefuses(database(), fn(G, `FROM "Recovery" r WHERE r."tenantId"`, `FROM "Recovery" r WHERE FALSE AND r."tenantId"`), TENURE,
+      (tx) => store(tx, () => recovery(tx, "RECOVERED")))
+    // The asset left the lessee during the loan (returned to stock): the tenure ended then.
+    await ruleRefuses(database(), fn(G, `FROM "FinancedAsset" a WHERE a."tenantId"`, `FROM "FinancedAsset" a WHERE FALSE AND a."tenantId"`), TENURE, async (tx) => {
+      await store(tx, () => withTriggersOff(tx, `UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = now() - INTERVAL '1 hour' WHERE "id" = $1`, fx.assets[1]))
     })
   }, 120_000)
 
@@ -182,6 +199,32 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
     // The reading written, the hold left HELD: refused when the transaction's deferred checks run.
     await ruleRefuses(database(), { table: "AssetMeterReading", trigger: "AssetMeterReading_telematics_accepted" },
       /decided as its held reading's acceptance in the same transaction/, staffReading)
+    // The deferred check names the hold of this reading's own event, and an ACCEPTED one (the held guard and its CHECK off: only it stands).
+    const ACCEPTED_HOLD = /decided as its held reading's acceptance in the same transaction/
+    const offHeldGuard = (tx: Tx) => tx.$executeRawUnsafe(`ALTER TABLE "TelematicsHeldReading" DISABLE TRIGGER "TelematicsHeldReading_guard"`)
+    const accept = (tx: Tx, heldId: string, readingId: string, status: "ACCEPTED" | "REJECTED") => tx.telematicsHeldReading.update({ where: { id: heldId }, data: {
+      status, decidedById: fx.officer, decidedAt: new Date(), decisionNote: "Synthetic decision", meterReadingId: readingId,
+    } })
+    await ruleRefuses(database(), fn("guardTelematicsReadingAccepted", `
+      AND h."eventId" = NEW."telematicsEventId"`, ""), ACCEPTED_HOLD, async (tx) => {
+      // Another event's hold, written with the triggers off.
+      const other = `oth_${randomUUID()}`
+      await replica(tx, true)
+      await tx.$executeRawUnsafe(`INSERT INTO "TelematicsEvent" ("id", "tenantId", "deviceId", "provider", "providerEventId", "kind", "occurredAt", "meterValue", "meterUnit", "simulated")
+        VALUES ($1, $2, $3, 'simulated', $1, 'METER', $4, 1001, 'HOURS', true)`, other, fx.tenantId, ids.deviceA, eveningOf(daysAgo(25)))
+      await tx.$executeRawUnsafe(`INSERT INTO "TelematicsHeldReading" ("id", "tenantId", "eventId", "loanId", "assetId", "readingDate", "value", "unit", "reason")
+        VALUES ($1, $2, $1, $3, $4, $5::date, 1001, 'HOURS', 'LOWER')`, other, fx.tenantId, ids.loanA, fx.assets[1], daysAgo(25))
+      await replica(tx, false)
+      const reading = await staffReading(tx)
+      await offHeldGuard(tx)
+      await accept(tx, other, reading.id, "ACCEPTED")
+    })
+    await ruleRefuses(database(), fn("guardTelematicsReadingAccepted", ` AND h."status" = 'ACCEPTED'`, ""), ACCEPTED_HOLD, async (tx) => {
+      const reading = await staffReading(tx)
+      await offHeldGuard(tx)
+      await tx.$executeRawUnsafe(`ALTER TABLE "TelematicsHeldReading" DROP CONSTRAINT "TelematicsHeldReading_decision_shape"`)
+      await accept(tx, spike.id, reading.id, "REJECTED")
+    })
     // A TELEMATICS reading in another unit than its event's.
     await ruleRefuses(database(), fn(G, ` OR ev."meterUnit" <> NEW."unit"`), /its meter event's value, unit, SAST date and asset/, async (tx) => {
       const e = await event(tx, "METER", { meterValue: 1_010, meterUnit: "KM", occurredAt: eveningOf(daysAgo(20)) })

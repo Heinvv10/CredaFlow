@@ -2,8 +2,8 @@
  * A tracker before payout, on real Postgres (docs/asset-finance/SLICE5.md part
  * B, Deviation 19): a device on an asset whose deal is approved or contracted
  * is polled, so the payout checklist shows its heartbeat, but with no booked
- * loan the database stores no position and raises no alert, and a meter event
- * is a device reading only. A cancelled or declined deal, or an asset with no
+ * loan only the heartbeat is kept: no position, ignition, meter or alert
+ * event (the database refuses any but a heartbeat). A cancelled or declined deal, or an asset with no
  * deal, is not polled at all.
  *
  *   RUN_ASSET_FINANCE_TELEMATICS_IT=1 DATABASE_URL=postgresql://... \
@@ -62,14 +62,12 @@ suite.sequential("telematics before payout: a heartbeat, nothing else (real DB)"
   }, 60_000)
 
   it("polls an approved or contracted deal's device: a heartbeat, but no position, no alert and no meter reading", async () => {
-    expect(await pollTenant(fx.tenantId, new Date())).toMatchObject({ ok: true, devices: 2, failed: 0, rejected: 0 })
+    expect(await pollTenant(fx.tenantId, new Date())).toMatchObject({ ok: true, devices: 2, failed: 0, rejected: 0, notKept: expect.any(Number) })
     const tamper = await counts(ids.tamper)
     expect(tamper).toMatchObject({ positions: 0, alerts: 0, readings: 0 })
-    expect(tamper.events).toBeGreaterThan(90)
-    // The TAMPER and POWER_CUT events themselves are stored; only the work item needs a loan.
-    expect(await database().telematicsEvent.count({ where: { deviceId: ids.tamper, kind: "ALERT" } })).toBe(2)
-    const meters = await database().telematicsEvent.findMany({ where: { deviceId: ids.tamper, kind: "METER" }, select: { meterOutcome: true } })
-    expect(new Set(meters.map((m) => m.meterOutcome))).toEqual(new Set(["LEASE_NOT_RUNNING"]))
+    // Only the heartbeats are kept (31 days of them): no position, ignition, meter or alert event before booking.
+    expect(tamper.events).toBe(31)
+    expect(await database().telematicsEvent.count({ where: { deviceId: ids.tamper, kind: { not: "HEARTBEAT" } } })).toBe(0)
     expect((await trackerHeartbeat(fx.tenantId, fx.assets[1]))?.lastSeenAt).not.toBeNull()
     expect((await counts(ids.steady)).events).toBeGreaterThan(0)
     expect(await counts(ids.bare)).toEqual({ events: 0, positions: 0, alerts: 0, readings: 0 })

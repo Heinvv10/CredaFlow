@@ -19,7 +19,7 @@ import { canDo } from "@/lib/auth-guards"
 import type { AppRole } from "@/lib/auth-config"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
-import { SAST_OFFSET_MS } from "@/lib/date/sast"
+import { SAST_OFFSET_MS, sastCalendarDate } from "@/lib/date/sast"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { positionPurposes, purposeRefusal } from "./position-purpose"
 import { objectBody, refused, type TelematicsActor, type TelematicsRefusal, type TelematicsResult } from "./result"
@@ -37,18 +37,28 @@ export interface RevealedPosition {
 export type PositionAnswer = { position: RevealedPosition } | { none: true }
 
 const DAY_MS = 86_400_000
-/** SAST midnight starting a calendar date, as an instant. */
-const sastDayStart = (day: Date) => new Date(Date.parse(`${isoOfDbDate(day)}T00:00:00.000Z`) - SAST_OFFSET_MS)
+/** SAST midnight starting a calendar date (yyyy-mm-dd), as an instant. */
+const sastDayStart = (day: string) => new Date(Date.parse(`${day}T00:00:00.000Z`) - SAST_OFFSET_MS)
 
-/** When this loan's tenure of the asset ends: the next loan's start, its closing or the earliest recovery that was not withdrawn. */
+/**
+ * When this loan's tenure of the asset ends, as telematicsLoanAt has it: the
+ * SAST day the next loan that ran (not CANCELLED) started, the loan's closing,
+ * the earliest recovery that was not withdrawn, or the asset leaving the
+ * lessee during the loan (its lessor status: returned, sold, recovered, a
+ * total loss).
+ */
 async function tenureEnd(tenantId: string, loan: { id: string; assetId: string; startDate: Date; closedAt: Date | null }): Promise<Date | null> {
-  const [next, recovery] = await Promise.all([
+  const [next, recovery, asset] = await Promise.all([
     prisma.loan.findFirst({
-      where: { tenantId, assetId: loan.assetId, id: { not: loan.id }, startDate: { gt: loan.startDate } }, orderBy: { startDate: "asc" }, select: { startDate: true },
+      where: { tenantId, assetId: loan.assetId, id: { not: loan.id }, status: { not: "CANCELLED" }, startDate: { gt: loan.startDate } },
+      orderBy: { startDate: "asc" }, select: { startDate: true },
     }),
     prisma.recovery.findFirst({ where: { tenantId, loanId: loan.id, status: { not: "WITHDRAWN" } }, orderBy: { recoveredOn: "asc" }, select: { recoveredOn: true } }),
+    prisma.financedAsset.findFirst({ where: { id: loan.assetId, tenantId }, select: { lessorStatus: true, lessorStatusAt: true } }),
   ])
-  const ends = [next?.startDate, loan.closedAt, recovery ? sastDayStart(recovery.recoveredOn) : null].filter((d): d is Date => d instanceof Date)
+  const leftLessee = asset?.lessorStatus && asset.lessorStatusAt && asset.lessorStatusAt >= loan.startDate ? asset.lessorStatusAt : null
+  const ends = [next ? sastDayStart(sastCalendarDate(next.startDate)) : null, loan.closedAt, recovery ? sastDayStart(isoOfDbDate(recovery.recoveredOn)) : null, leftLessee]
+    .filter((d): d is Date => d instanceof Date)
   return ends.length > 0 ? new Date(Math.min(...ends.map((d) => d.getTime()))) : null
 }
 

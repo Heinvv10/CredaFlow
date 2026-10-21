@@ -52,7 +52,7 @@ suite.sequential("telematics poll: an event the database refuses is skipped, nev
   it.each([
     ["dated before the installation day", /\(23514\)/, (ext: string) => heartbeat(ext, new Date(`${daysAgo(40)}T10:00:00.000Z`))],
     ["a provider event id with a NUL character", /\(22021\)/, (ext: string) => ({ ...heartbeat(ext, new Date(Date.now() - 60_000)), providerEventId: `bad\u0000${randomUUID()}` })],
-    ["a meter value above the 32-bit column", /\(out of range\)/, (ext: string) => evening(ext, daysAgo(1), 3_000_000_000)],
+    ["a meter value above the 32-bit column", /\(22003\)/, (ext: string) => evening(ext, daysAgo(1), 3_000_000_000)],
   ])("%s: refused by the database, skipped, audited; the good event behind it is stored", async (_name, code, make) => {
     const good = heartbeat(lease.externalDeviceId, new Date(Date.now() - 3_600_000))
     const poison = make(lease.externalDeviceId) as NormalisedTelematicsEvent

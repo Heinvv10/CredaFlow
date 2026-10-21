@@ -55,11 +55,12 @@ async function setup(tx: Tx, ...statements: [string, ...unknown[]][]): Promise<v
   await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin")
 }
 /** A meter event and its TELEMATICS reading, written straight to the tables. */
-async function direct(tx: Tx, on: { loanId: string; device: TrackerDevice }, day: string, value: number, over: Record<string, unknown> = {}) {
+async function direct(tx: Tx, on: { loanId: string; device: TrackerDevice }, day: string, value: number, over: Record<string, unknown> = {}, between?: () => Promise<unknown>) {
   const event = await tx.telematicsEvent.create({ data: {
     tenantId: fx.tenantId, deviceId: on.device.id, provider: "simulated", providerEventId: `it:${randomUUID()}`, kind: "METER",
     occurredAt: eveningOf(day), meterValue: value, meterUnit: "HOURS", simulated: true,
   } })
+  await between?.()
   return tx.assetMeterReading.create({ data: {
     tenantId: fx.tenantId, assetId: on.device.assetId, loanId: on.loanId, readingDate: dbDate(day), value, unit: "HOURS",
     source: "TELEMATICS", telematicsEventId: event.id, ...over,
@@ -178,10 +179,9 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
         await direct(tx, lease, daysAgo(10), 1_098)
       })
     }
-    await ruleRefuses(database(), { fn: G, replace: [`loan_row."status"::text NOT IN ('ACTIVE', 'DEFAULTED')`, "FALSE"] }, RUNNING, async (tx) => {
-      await setup(tx, [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, lease.loanId])
-      await direct(tx, lease, daysAgo(10), 1_098)
-    })
+    // The event was stored while the lease ran; the lease closed before its reading is written.
+    await ruleRefuses(database(), { fn: G, replace: [`loan_row."status"::text NOT IN ('ACTIVE', 'DEFAULTED')`, "FALSE"] }, RUNNING,
+      (tx) => direct(tx, lease, daysAgo(10), 1_098, {}, () => setup(tx, [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, lease.loanId])))
   }, 120_000)
 
   it("binds a TELEMATICS reading to its meter event's value, date and asset, with no client, and a staff one to a held reading", async () => {
