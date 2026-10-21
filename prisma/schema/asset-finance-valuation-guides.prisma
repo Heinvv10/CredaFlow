@@ -69,5 +69,6 @@ model ValuationGuideRow {
   @@unique([tenantId, id])
   // A valuation names a row of its own guide: FK (tenantId, guideId, guideRowId).
   @@unique([tenantId, guideId, id])
+  @@unique([tenantId, guideId, lineNumber], map: "ValuationGuideRow_line_key")
   @@index([tenantId, guideId])
 }
