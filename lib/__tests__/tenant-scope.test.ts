@@ -180,6 +180,9 @@ describe("tenant-scope — ALS primitives", () => {
       "DealerBankAccount",
       "DealerConsentAttestation",
       "DealerDocumentRequest",
+      // Valuation guides (slice 5 part C) — non-null tenantId.
+      "ValuationGuide",
+      "ValuationGuideRow",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",
