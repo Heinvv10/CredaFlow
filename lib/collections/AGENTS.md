@@ -132,20 +132,25 @@ promise-to-pay tracking, and arrangement monitoring.
   tenant with one counted warning (`warnings`), never an abort; an unreadable
   WhatsApp settings row fails the tenant (retried), it is not "off". Proof on a real database:
   `reminders.consent.integration.test.ts`, `reminders.identity.integration.test.ts`.
-- **A leg goes only to the recipient's OWN Contact.** The Contact is found by the
-  number or address, so a value edited to one a lead or another client holds would
-  check THEIR consent and show them the loan: the reminders cron, entity dispatch
-  and notification dispatch refuse a Contact whose `clientId` is not the recipient's,
-  count it, and never name the value in a report.
+- **A leg goes only to the recipient's OWN Contact** (`lookupRecipientContact`,
+  `lib/contact/recipient.ts`; rule in `lib/messaging/AGENTS.md`). The reminders cron,
+  entity dispatch and notification dispatch count a refused leg and never name the
+  value in a report.
 - **`loan_overdue` always goes through `sendMessage`** (`MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE`
   is retired). `lib/collections/overdue-notice.ts` fires it once per loan per trigger
   per SAST day under a `SendReservation`, also when the trigger was already reminded
-  today. `triggerNotification` returns the legs that failed; a throw or a failed leg is
-  counted in `errors` and gives the reservation back, so the next run tries again (each
-  leg's idempotency key stops a resend). Escalation's 60-DPD notice counts them the same way.
+  today, and rechecks the holds immediately before it. `triggerNotification` returns
+  the legs that failed; a throw or a failed leg is counted in `errors` and gives the
+  reservation back, so ANOTHER run the same SAST day (manual, or the scheduler's retry
+  of a failed tenant) tries again; a run that closes DONE is not retried, so otherwise
+  the failure is only counted (each leg's idempotency key stops a resend). Escalation's
+  60-DPD notice counts them the same way.
 - **No dunning outside 07:00-20:00 SAST** (`lib/collections/send-window.ts`): the
-  reminders run refuses to start (200, `skipped`, the claim closes DONE); escalation
-  still flips statuses but sends no notice, and the skipped notice is not re-sent.
+  reminders run refuses to start (200, `skipped`, the claim closes DONE) and, checked per
+  loan, stops when the window closes mid-run (the rest `deferred`, not errors). An
+  escalation rule that messages the borrower (`sendsNotice`: the 60-DPD DEFAULTED flip and
+  its notice) is not applied at all outside it, no flip, no note, no reservation, so the
+  07:00 run applies it whole; `DEFAULT_NOTICE_MAX_DPD` (66) leaves room for that.
 - **Notifications go through `lib/notifications`** — never call SMS/email
   providers directly from this module; you'd bypass channel preferences,
   quiet-hours, and the audit trail.

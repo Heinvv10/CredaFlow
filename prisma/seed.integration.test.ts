@@ -124,6 +124,18 @@ suite("base demo seed on a fresh migrated database", () => {
     expect(await prisma.documentTemplate.count({ where: { tenantId: tenant.id } })).toBeGreaterThan(0)
   })
 
+  // Every outbound message resolves the client through their own Contact (lib/contact/recipient.ts):
+  // a seeded client without one fails every reminder and overdue notice with "No Contact row".
+  it("gives every seeded client their own Contact with an email, SMS and WhatsApp identity", async () => {
+    const prisma = freshDb()
+    const clients = await prisma.client.findMany({ where: { tenant: { slug: "acme" } }, select: { id: true } })
+    expect(clients.length).toBeGreaterThan(0)
+    for (const c of clients) {
+      const contact = await prisma.contact.findFirstOrThrow({ where: { clientId: c.id }, select: { identities: { select: { channel: true } } } })
+      expect(contact.identities.map((i) => i.channel).sort(), c.id).toEqual(["EMAIL", "SMS", "WHATSAPP"])
+    }
+  })
+
   it("marks the tenant as a demo lender, which provisioning never does", async () => {
     const prisma = freshDb()
     expect(await prisma.tenantConfig.findFirstOrThrow({
@@ -250,6 +262,8 @@ suite("base demo seed on a fresh migrated database", () => {
         prisma.user.count(),
         prisma.loanProduct.count(),
         prisma.client.count(),
+        prisma.contact.count(),
+        prisma.contactIdentity.count(),
         prisma.loanApplication.count(),
         prisma.loan.count(),
         prisma.repaymentSchedule.count(),
