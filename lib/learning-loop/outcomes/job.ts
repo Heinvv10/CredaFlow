@@ -30,9 +30,11 @@ export async function runTenantDecisionOutcomes(
   const runs: TenantOutcomeRun[] = []
   for (const adapter of adapters) {
     const result = await adapter.derive({ tenantId, asOf, today })
+    // No logger module exists yet; console.error matches lib/ops/tenant-sweep.ts.
     for (const f of result.failures) console.error(`[cron/decision-outcomes] tenant ${tenantId} ${adapter.sourceSystem} loan ${f.ref} failed: ${f.error}`)
     const written = await syncOutcomes(db, {
       tenantId, sourceSystem: adapter.sourceSystem, decisionRecordIds: result.decisionRecordIds, outcomes: result.outcomes, computedAt: asOf,
+      keepDecisionRecordIds: result.failures.map((f) => f.decisionRecordId),
     })
     runs.push({
       sourceSystem: adapter.sourceSystem, decisions: new Set(result.decisionRecordIds).size,

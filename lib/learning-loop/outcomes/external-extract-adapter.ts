@@ -59,7 +59,7 @@ export function externalExtractAdapter(reader: ExtractReader): OutcomeSourceAdap
           result.outcomes.push(...deriveLoanOutcomes(row.decisionRecordId, extractLoanFacts(row), today))
           result.decisionRecordIds.push(row.decisionRecordId)
         } catch (error) {
-          result.failures.push({ ref: row.loanKey, error: error instanceof Error ? error.message : String(error) })
+          result.failures.push({ ref: row.loanKey, decisionRecordId: row.decisionRecordId, error: error instanceof Error ? error.message : String(error) })
         }
       }
       return result

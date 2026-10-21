@@ -70,10 +70,30 @@ describe("syncOutcomes", () => {
     expect(rows[0]).toMatchObject({ id, state: "OBSERVED", value: true, observedAt, computedAt: later })
   })
 
-  it("removes rows the definitions no longer produce for an evaluated decision, and leaves other decisions alone", async () => {
+  it("removes rows the definitions no longer produce for an evaluated decision", async () => {
     const { db, rows } = memoryDb()
-    await run(db, [outcome(), outcome({ decisionRecordId: "dec-2" })], ["dec-1", "dec-2"])
-    expect(await run(db, [], ["dec-1"])).toMatchObject({ deleted: 1 })
-    expect(rows.map((r) => r.decisionRecordId)).toEqual(["dec-2"])
+    await run(db, [outcome(), outcome({ outcomeKind: "SETTLED" })])
+    expect(await run(db, [outcome()])).toMatchObject({ deleted: 1, unchanged: 1 })
+    expect(rows.map((r) => r.outcomeKind)).toEqual(["EVER_90_DPD"])
+  })
+
+  it("removes the rows of a decision no longer attributed, but keeps a failed decision's rows", async () => {
+    const { db, rows } = memoryDb()
+    await run(db, [outcome(), outcome({ decisionRecordId: "dec-2" }), outcome({ decisionRecordId: "dec-3" })], ["dec-1", "dec-2", "dec-3"])
+    const counts = await syncOutcomes(db, {
+      tenantId: "t-1", sourceSystem: "credaflow", decisionRecordIds: ["dec-1"], outcomes: [outcome()],
+      computedAt: new Date("2026-10-22T00:30:00+02:00"), keepDecisionRecordIds: ["dec-3"],
+    })
+    expect(counts).toMatchObject({ deleted: 1, unchanged: 1 })
+    expect(rows.map((r) => r.decisionRecordId).sort()).toEqual(["dec-1", "dec-3"])
+  })
+
+  it("keeps a take-up's first observed time when only the time moved", async () => {
+    const { db, rows } = memoryDb()
+    const first = new Date("2026-03-01T10:00:00+02:00")
+    const takeUp = (observedAt: Date) => outcome({ outcomeKind: "TAKEN_UP", window: "OFFER", state: "OBSERVED", value: false, observedAt })
+    await run(db, [takeUp(first)])
+    expect(await run(db, [takeUp(new Date("2026-04-01T10:00:00+02:00"))])).toMatchObject({ unchanged: 1, updated: 0 })
+    expect(rows[0].observedAt).toEqual(first)
   })
 })

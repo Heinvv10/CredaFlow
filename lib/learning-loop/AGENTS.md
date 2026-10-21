@@ -40,8 +40,9 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
 - **Outcomes are derived, never authored** (`lib/learning-loop/outcomes/`):
   pure definitions over source-neutral facts; change one → bump
   `OUTCOME_DEFINITION_VERSION`. A window is PENDING until elapsed; a missing
-  history day makes "did not happen" UNOBSERVABLE, never false. Only OBSERVED
-  rows carry a value (DB CHECK). No learning claims: v1 proves plumbing.
+  history day makes "did not happen" UNOBSERVABLE, never false; a write-off
+  is bad, a cancellation UNOBSERVABLE. Only OBSERVED rows carry a value (DB
+  CHECK). No learning claims: v1 proves plumbing.
 - `bureauBlockCode` (`lib/learning-loop/bureau-code.ts`) mirrors the order of
   `evaluateBureauGate` (`lib/decision/bureau-gate.ts`); change both together.
   The route's own gate verdict is authoritative.
