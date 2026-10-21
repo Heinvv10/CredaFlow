@@ -3,13 +3,14 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/messaging/send", () => ({ sendMessage: vi.fn(), SendBlockedError: class extends Error {} }))
 vi.mock("@/lib/contact/identity", () => ({
   normaliseEmail: (x: string) => x,
-  lookupContactByChannelValue: vi.fn(async () => ({ id: "contact-1" })),
+  lookupContactByChannelValue: vi.fn(async () => ({ id: "contact-1", clientId: "client-1" })),
 }))
 vi.mock("@/lib/audit", () => ({
   AuditAction: { ASSET_FINANCE_RATE_NOTICE_DISPATCH: "RATE_NOTICE" },
   logAuditStrict: vi.fn(),
 }))
 import { MessageReconciliationRequiredError } from "@/lib/messaging/dispatch-control"
+import { lookupContactByChannelValue } from "@/lib/contact/identity"
 import { dispatchRepriceNotices, rateNoticeVars } from "./reprice-notice-dispatch"
 
 const row = {
@@ -83,6 +84,15 @@ describe("written repricing notices", () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ completedAt: expect.any(Date) }) })
     )
+  })
+  // The recipient's email resolves to another person's Contact: their consent would be
+  // checked and the notice filed under them. Not sent, kept pending, reason names no address.
+  it("does not send to a Contact that belongs to someone else", async () => {
+    const { db } = setup()
+    vi.mocked(lookupContactByChannelValue).mockResolvedValueOnce({ id: "contact-other", clientId: "someone-else" } as never)
+    const send = vi.fn()
+    expect(await dispatchRepriceNotices(db, "tenant-1", send as never)).toMatchObject({ completed: 0, pending: 1 })
+    expect(send).not.toHaveBeenCalled()
   })
   it("sends a new written revision when the actual supply creates its pending tax document", async () => {
     const { db, notices } = setup()

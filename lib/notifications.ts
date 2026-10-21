@@ -43,7 +43,8 @@ import {
   notificationLogStatusFromProviderResult,
 } from "@/lib/notifications/status"
 import { isSmsChannelEnabled, SMS_CHANNEL_OFF_REASON } from "@/lib/messaging/sms-channel"
-import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { CONTACT_NOT_RECIPIENTS, lookupRecipientContact } from "@/lib/contact/recipient"
 import type { Channel, MessageTemplate } from "@prisma/client"
 import { notifyEntityBorrower } from "@/lib/asset-finance/entity-notifications"
 import { legacySuppressedLegs } from "@/lib/notifications/legacy-consent"
@@ -745,40 +746,28 @@ async function dispatchChannel(args: {
     return
   }
 
-  const contact = await lookupContactByChannelValue(prisma, {
+  // The client's OWN Contact (lib/contact/recipient.ts). No Contact is data drift
+  // (a Client without a ContactIdentity row for this channel), surfaced loudly. A
+  // Contact that is someone else's (a lead, another client) is refused: sendMessage
+  // would check their consent, not this client's, and show them the message.
+  const recipient = await lookupRecipientContact(prisma, {
     tenantId: args.opts.tenantId,
     channel: args.channel,
     value: args.value,
+    ownerClientId: args.client.id,
   })
-  if (!contact) {
-    // Data drift — Client without a ContactIdentity row for this channel.
-    // Should never happen for clients created since the client-create flow
-    // calls provisionContactForClient; surface the gap loudly for legacy
-    // clients pre-backfill.
+  if (!recipient.ok) {
     await args.log({
       loanId: args.opts.loanId,
       clientId: args.client.id,
       event: args.opts.event,
       channel: channelLower,
       status: "failed",
-      error: `No Contact row for ${args.value}`,
+      error: recipient.reason === "NO_CONTACT" ? `No Contact row for ${args.value}` : CONTACT_NOT_RECIPIENTS,
     })
     return
   }
-  // The number or address on the Client row resolves to SOMEONE ELSE's Contact (a
-  // lead, another client): sending would check that person's consent, not this
-  // client's, and show them this client's loan. Refused, and never named.
-  if (contact.clientId !== args.client.id) {
-    await args.log({
-      loanId: args.opts.loanId,
-      clientId: args.client.id,
-      event: args.opts.event,
-      channel: channelLower,
-      status: "failed",
-      error: CONTACT_NOT_CLIENTS,
-    })
-    return
-  }
+  const contact = recipient.contact
 
   try {
     const msg = await sendMessage({
@@ -856,9 +845,6 @@ async function dispatchChannel(args: {
     })
   }
 }
-
-/** The NotificationLog error for a leg whose Contact belongs to someone else. Names no number or address. */
-export const CONTACT_NOT_CLIENTS = "The Contact for this number or address belongs to someone else; not sent"
 
 // Events whose `opts.loanId` is actually a `LoanApplication.id`. The rest
 // (loan_disbursed, loan_overdue, payment_received) carry a real `Loan.id`.

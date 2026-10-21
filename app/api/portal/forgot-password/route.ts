@@ -7,7 +7,8 @@ import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { withTenantContext } from "@/lib/tenant"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { isPortalForgotNewSendEnabled } from "@/lib/messaging/flags"
-import { lookupContactByChannelValue, normaliseEmail } from "@/lib/contact/identity"
+import { normaliseEmail } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { generateOtp } from "@/lib/otp"
 import { findLenderIdentity } from "@/lib/config/identity"
 import { demoCodeReveal } from "@/lib/config/demo-mode"
@@ -125,11 +126,15 @@ export async function POST(req: NextRequest) {
 
     if (newSend || !legacyIdentity) {
       // New path: sendMessage() via the Phase 9 S2 pipeline.
-      const contact = await lookupContactByChannelValue(prisma, {
+      // The client's OWN Contact (lib/contact/recipient.ts): a code is never filed
+      // under, or gated by the consent of, someone else's Contact.
+      const recipient = await lookupRecipientContact(prisma, {
         tenantId,
         channel: "EMAIL",
         value: normalised,
+        ownerClientId: client.id,
       })
+      const contact = recipient.ok ? recipient.contact : null
       if (!contact) {
         // Data drift: Client exists but no Contact row. Preserves the
         // enumeration-protection behaviour by 200ing without surfacing the

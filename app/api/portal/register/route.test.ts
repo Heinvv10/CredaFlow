@@ -522,6 +522,8 @@ describe("POST /api/portal/register — MESSAGING_NEW_SEND_PORTAL_ACTIVATION", (
       channel: "EMAIL",
       value: "jane@example.com",
       templateKey: "portal_activation_email",
+      // Only the client's own Contact (lib/contact/recipient.ts).
+      ownerClientId: "client-1",
     }))
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       contactId: "contact-1",

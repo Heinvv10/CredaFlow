@@ -142,7 +142,7 @@ beforeEach(() => {
   messageTemplateFindFirstMock.mockResolvedValue(sampleTemplate)
   sendEmailMock.mockResolvedValue({ ok: true, messageId: "mail-1", providerOutcome: "ACCEPTED", acceptedAt: providerAcceptedAt })
   sendMessageMock.mockResolvedValue({ id: "msg-1", providerMessageId: "provider-1", sentAt: providerAcceptedAt })
-  lookupContactMock.mockResolvedValue({ id: "contact-1" })
+  lookupContactMock.mockResolvedValue({ id: "contact-1", clientId: "cl_1" })
   // As the real one: a simulated send is recorded on the reservation.
   reserveIssuanceMock.mockImplementation((args: { loanId: string; simulated?: boolean }) => {
     const reserved = reservation(args.loanId)
@@ -267,6 +267,17 @@ describe("POST /api/loans/section129/bulk", () => {
       reason: "recipient rejected",
     }))
     expect(markReconciliationRequiredMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a Contact that belongs to someone else: nothing sent for that loan", async () => {
+    process.env.MESSAGING_NEW_SEND_S129 = "true"
+    lookupContactMock.mockResolvedValue({ id: "contact-other", clientId: "someone-else" })
+
+    const body = await (await POST(request())).json()
+
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(body).toMatchObject({ ok: false, sent: 0, failed: 1 })
+    expect(body.results[0].error).toBe("The Contact for this number or address belongs to someone else; not sent")
   })
 
   it("reports a non-retryable recovery item when known-not-sent cleanup fails", async () => {

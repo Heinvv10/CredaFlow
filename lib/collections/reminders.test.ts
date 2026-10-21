@@ -1659,6 +1659,28 @@ describe("loan_overdue from an overdue reminder", () => {
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("L-009 loan_overdue failed"), expect.objectContaining({ message: "mail relay down" }))
   })
 
+  // A debt-review notice recorded while the trigger's own legs are in flight (a slow provider)
+  // must stop the loan_overdue notice that follows them.
+  it("a hold recorded while the trigger's legs are in flight stops the loan_overdue, and gives its reservation back", async () => {
+    stubTemplates()
+    lookupContactMock.mockResolvedValue({ id: "ct_1" })
+    loanFindManyMock.mockResolvedValue([loanDueIn(-3)])
+    triggerNotificationMock.mockResolvedValue({ failedLegs: [] })
+    sendMessageMock.mockImplementation(async () => {
+      holds.held = true
+      return { id: "m", status: "SENT" }
+    })
+    try {
+      const r = await processPaymentReminders()
+      expect(sendMessageMock).toHaveBeenCalled()
+      expect(triggerNotificationMock).not.toHaveBeenCalled()
+      expect(releaseReservationMock).toHaveBeenCalledWith("send:loan_1:reminder_overdue_3d:loan_overdue", expect.any(Date))
+      expect(r.details).toContainEqual(expect.stringContaining("Skip L-001: loan_overdue for reminder_overdue_3d, the loan stopped being ACTIVE or was put on a dunning hold"))
+    } finally {
+      holds.held = false
+    }
+  })
+
   // The trigger's LoanNote stops its own legs from going twice; it must not also stop a
   // loan_overdue that failed earlier today (and gave its reservation back) from being retried.
   describe("an overdue trigger already reminded today", () => {
@@ -1762,6 +1784,21 @@ describe("review round 1: reminders cron", () => {
     expect(loanFindManyMock).not.toHaveBeenCalled()
     expect(sendMessageMock).not.toHaveBeenCalled()
     expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  // A run that started at 19:59 must stop messaging at 20:00: the window is checked per loan.
+  it("the window closing mid-run stops the run: the remaining loans are deferred, not errors", async () => {
+    loanFindManyMock.mockResolvedValue([loanDueIn(1), { ...loanDueIn(1), id: "loan_2", reference: "L-002" }])
+    sendMessageMock.mockImplementation(async () => {
+      sendWindow.outside = true
+      return { id: "m", status: "SENT" }
+    })
+
+    const r = await processPaymentReminders()
+
+    expect(new Set(sendMessageMock.mock.calls.map((c) => (c[0] as { loanId: string }).loanId))).toEqual(new Set(["loan_1"]))
+    expect(r).toMatchObject({ deferred: 1, errors: 0, failedTenants: 0, sent: 1 })
+    expect(r.details).toContainEqual("Deferred 1 loan(s): the 07:00-20:00 SAST dunning send window closed during this run")
   })
 
   it("every leg held for reconciliation writes the reconciliation-only note, and counts nothing as sent", async () => {

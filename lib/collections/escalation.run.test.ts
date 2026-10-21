@@ -101,16 +101,35 @@ beforeEach(() => {
 })
 
 describe("processEscalations", () => {
-  // A manual call with the cron secret at night must not message a borrower; the
-  // statuses still move, as they are not borrower communication.
-  it("outside the dunning send window: the DEFAULTED flip and note stand, the notice is skipped and said so", async () => {
+  // A manual call with the cron secret at night must not message a borrower. The rule that
+  // sends (the DEFAULTED flip and its notice) is deferred WHOLE: had it flipped and noted the
+  // loan, the next run would skip it for its note and the notice would be lost for good.
+  it("outside the dunning send window the DEFAULTED rule is deferred: no flip, no note, no reservation, no notice", async () => {
     sendWindow.outside = true
     const r = await processEscalations()
-    expect(loanUpdateManyMock).toHaveBeenCalledWith(guardedFlip("loan_1"))
-    expect(loanNoteCreateMock).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "escalation_default" }) }))
+    expect(loanUpdateManyMock).not.toHaveBeenCalled()
+    expect(loanNoteCreateMock).not.toHaveBeenCalled()
+    expect(reserveOnceMock).not.toHaveBeenCalled()
     expect(triggerNotificationMock).not.toHaveBeenCalled()
-    expect(r.details).toContainEqual("L-100: marked DEFAULTED at 65 DPD; borrower notification skipped (outside the 07:00-20:00 SAST send window)")
+    expect(r.details).toContainEqual("Deferred L-100 escalation_default: outside the 07:00-20:00 SAST send window; the next in-window run applies it")
     expect(r.errors).toBe(0)
+  })
+
+  it("the next in-window run applies the deferred rule whole: flip, note and the notice", async () => {
+    const notes: string[] = []
+    loanNoteFindFirstMock.mockImplementation((args: { where: { type: string } }) =>
+      Promise.resolve(args.where.type === "escalation_default" ? (notes.includes("escalation_default") ? { id: "n" } : null) : { id: "existing-note" }))
+    loanNoteCreateMock.mockImplementation(async (a: { data: { type: string } }) => (notes.push(a.data.type), { id: "note" }))
+
+    sendWindow.outside = true
+    await processEscalations()
+    sendWindow.outside = false
+    await processEscalations()
+
+    expect(loanUpdateManyMock).toHaveBeenCalledTimes(1)
+    expect(notes).toEqual(["escalation_default"])
+    expect(triggerNotificationMock).toHaveBeenCalledTimes(1)
+    expect(triggerNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ event: "loan_overdue", loanId: "loan_1" }))
   })
 
   // The notice now always goes through sendMessage; a leg it reports failed (a definite

@@ -34,7 +34,8 @@ import {
   sendMessage,
   SendBlockedError,
 } from "@/lib/messaging/send"
-import { lookupContactByChannelValue, normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { normaliseEmail, normalisePhone, toWaJid } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { ensureDpdCurrent } from "@/lib/loan/dpd-update"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { ensureDunningTemplates } from "@/lib/collections/dunning-templates"
@@ -104,6 +105,8 @@ interface ReminderResult {
   retryScheduled: number
   /** Set when the run refused to start (outside the dunning send window): nothing was looked at or sent. */
   skipped?: string
+  /** Loans not reached because the dunning send window closed during the run. Not errors. */
+  deferred: number
 }
 
 interface ReminderTrigger {
@@ -273,7 +276,7 @@ async function remindEntityTrigger(args: {
 }
 
 function emptyResult(): ReminderResult {
-  return { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0, retryScheduled: 0 }
+  return { sent: 0, simulated: 0, reconciliationRequired: 0, smsChannelOff: 0, whatsappChannelOff: 0, errors: 0, details: [], tenants: 0, failedTenants: 0, warnings: 0, retryScheduled: 0, deferred: 0 }
 }
 
 export async function processPaymentReminders(): Promise<ReminderResult> {
@@ -314,6 +317,7 @@ export async function processPaymentReminders(): Promise<ReminderResult> {
     total.errors += r.errors
     total.warnings += r.warnings
     total.retryScheduled += r.retryScheduled
+    total.deferred += r.deferred
     total.details.push(...r.details)
   }
   return total
@@ -642,28 +646,25 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
           result.details.push(`Error ${loan.reference} ${channel}: unparseable ${addressKind}`)
           continue
         }
-        const contact = await lookupContactByChannelValue(prisma, {
+        // The borrower's OWN Contact (lib/contact/recipient.ts): a number or address
+        // that resolves to someone else's (a lead, another client) is refused, or
+        // their consent would be checked and they would read this loan.
+        const recipient = await lookupRecipientContact(prisma, {
           tenantId: tenant.id,
           channel: channelEnum,
           value,
+          ownerClientId: loan.client.id,
         })
-        if (!contact) {
-          // Data drift: Client without a ContactIdentity row for this
-          // channel. Surface the gap — don't silently drop. Operator
-          // backfills then re-runs.
+        if (!recipient.ok) {
+          // No Contact: data drift; surface the gap, don't silently drop. Another
+          // person's: refused. Either way the report names no number or address.
           result.errors++
-          result.details.push(`Error ${loan.reference} ${channel}: no Contact row`)
+          result.details.push(recipient.reason === "NO_CONTACT"
+            ? `Error ${loan.reference} ${channel}: no Contact row`
+            : `Error ${loan.reference} ${channel}: the Contact for this ${addressKind} belongs to someone else; not sent`)
           continue
         }
-        // The client's number or address resolves to SOMEONE ELSE's Contact (a lead,
-        // another client, after the client row was edited): sending would check
-        // that person's consent, not the borrower's, and show them this loan. Refused;
-        // the report names no number or address.
-        if (contact.clientId !== loan.client.id) {
-          result.errors++
-          result.details.push(`Error ${loan.reference} ${channel}: the Contact for this ${addressKind} belongs to someone else; not sent`)
-          continue
-        }
+        const contact = recipient.contact
         const template = channel === "whatsapp" ? templatesWa[trigger.noteType] : channel === "email" ? templateEmail! : templateSms!
         // WhatsApp: the discrete named vars its WABA body declares, from the
         // same ctx the SMS copy interpolates, so both quote one set of figures.
@@ -827,7 +828,17 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
   }
 
   let loansFailed = 0
-  for (const loan of loans) {
+  let loansTried = 0
+  for (const [index, loan] of loans.entries()) {
+    // The window is checked per loan, not only when the run starts: a run that began
+    // at 19:59 must stop messaging at 20:00. The loans left are deferred (tomorrow's
+    // run has them), not errors.
+    if (outsideDunningSendWindow(new Date())) {
+      result.deferred = loans.length - index
+      result.details.push(`Deferred ${result.deferred} loan(s): the ${DUNNING_SEND_WINDOW_LABEL} dunning send window closed during this run`)
+      break
+    }
+    loansTried++
     // A throw from any query for one loan (the already-sent check, the hold recheck, the charges
     // replay, the LoanNote write, the entity send) is that loan's error, not the tenant's day.
     try {
@@ -842,8 +853,8 @@ async function processTenantReminders(tenant: SweepTenant): Promise<ReminderResu
     }
   }
   // Every loan failing is not a run of bad luck with loans: the tenant is broken, and the retry is for it.
-  if (loans.length > 0 && loansFailed === loans.length) {
-    throw new Error(`every one of the ${loans.length} loan(s) failed; see the errors logged above`)
+  if (loansTried > 0 && loansFailed === loansTried) {
+    throw new Error(`every one of the ${loansTried} loan(s) tried failed; see the errors logged above`)
   }
 
   const tally = (m: Map<string, number>) =>

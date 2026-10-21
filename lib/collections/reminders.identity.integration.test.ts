@@ -20,10 +20,18 @@ import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { toWaJid } from "@/lib/contact/identity"
 import { sastStartOfDay } from "@/lib/date/sast"
 
-const wire = vi.hoisted(() => ({ whatsapp: [] as string[], email: [] as string[], emailOk: true }))
+const wire = vi.hoisted(() => ({
+  whatsapp: [] as string[], email: [] as string[], emailOk: true,
+  /** Runs while a WhatsApp send is in flight: lets a test change the world mid-send. */
+  onWhatsApp: null as null | ((to: string) => Promise<void>),
+}))
 vi.mock("@/lib/whatsapp-cloud", async (orig) => ({
   ...(await orig<typeof import("@/lib/whatsapp-cloud")>()),
-  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string }) => (wire.whatsapp.push(a.to), { ok: true, messageId: `wamid-${randomUUID()}` })),
+  sendWhatsAppCloudMessage: vi.fn(async (a: { to: string }) => {
+    if (wire.onWhatsApp) await wire.onWhatsApp(a.to)
+    wire.whatsapp.push(a.to)
+    return { ok: true, messageId: `wamid-${randomUUID()}` }
+  }),
 }))
 vi.mock("@/lib/integrations/bulksms", async (orig) => ({
   ...(await orig<typeof import("@/lib/integrations/bulksms")>()),
@@ -124,6 +132,7 @@ suite.sequential("reminders: identity, loan_overdue and consent (real Postgres)"
     wire.whatsapp.length = 0
     wire.email.length = 0
     wire.emailOk = true
+    wire.onWhatsApp = null
   })
 
   // A1 (review round 1, reproduced): the opt-out and the block were checked on the
@@ -176,7 +185,11 @@ suite.sequential("reminders: identity, loan_overdue and consent (real Postgres)"
     expect(rows).toEqual([{ dunning: true, status: "FAILED_PERMANENT" }])
   })
 
-  it("loan_overdue respects the client's opt-out: an email opt-out stops the overdue notice's email", async () => {
+  // The direct (flag-off) path also honoured an opt-out, through its own legacy consent
+  // check, so the opt-out alone does not tell the paths apart. What does: only the
+  // sendMessage path files each leg as a dunning Message row on the client's OWN Contact,
+  // and an opted-out leg leaves no row at all.
+  it("loan_overdue goes through sendMessage on the client's own Contact, and an email opt-out stops its email", async () => {
     const s = await seedHoldLoan(db, tenant, p2, { name: "overdue opted out of email", held: false })
     await revoke(s, ["EMAIL"])
     await makeOverdue1d(s)
@@ -186,8 +199,27 @@ suite.sequential("reminders: identity, loan_overdue and consent (real Postgres)"
     expect(wire.email).not.toContain(s.email)
     const logs = await db.notificationLog.findMany({ where: { loanId: s.loanId, event: "loan_overdue", channel: "email" }, select: { status: true } })
     expect(logs).toEqual([{ status: "blocked" }])
+    const rows = await db.message.findMany({ where: { tenantId: tenant.tenantId, idempotencyKey: { startsWith: `notification:loan_overdue:${s.loanId}:` } }, select: { channel: true, dunning: true, conversation: { select: { contactId: true } } } })
+    expect(rows, "the SMS leg is a dunning Message row on the client's own Contact; the opted-out email has none").toEqual([{ channel: "SMS", dunning: true, conversation: { contactId: s.contactId } }])
     const loan = await db.loan.findUniqueOrThrow({ where: { id: s.loanId }, select: { reference: true } })
     expect(r.details.filter((d) => d.startsWith(`Error ${loan.reference}`))).toEqual([])
+  })
+
+  // A4 (review round 2, reproduced): the hold was checked before the trigger's legs; a
+  // debt-review notice recorded while its WhatsApp was in flight let the overdue email go.
+  it("A4: a debt-review notice recorded while the WhatsApp leg is in flight stops the loan_overdue email", async () => {
+    const s = await seedHoldLoan(db, tenant, p2, { name: "a4 debt review mid-send", held: false })
+    await makeOverdue1d(s)
+    const jid = toWaJid(s.whatsapp)
+    wire.onWhatsApp = async (to) => {
+      if (to === jid) await db.loan.update({ where: { id: s.loanId }, data: { debtReviewNoticeAt: new Date() } })
+    }
+
+    await processPaymentReminders()
+
+    expect(wire.whatsapp, "the in-flight WhatsApp itself had already gone").toContain(jid)
+    expect(wire.email.filter((e) => e === s.email), "overdue notice emailed to a client under debt review").toHaveLength(0)
+    expect(await db.sendReservation.count({ where: { key: `send:${s.loanId}:reminder_overdue_1d:loan_overdue` } }), "given back").toBe(0)
   })
 
   // M8: reserveOnce is mocked in the unit tests; this is the real reservation.

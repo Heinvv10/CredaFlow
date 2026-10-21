@@ -18,7 +18,8 @@
  */
 import type { Channel, MessageTemplate } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { lookupContactByChannelValue, normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { normaliseEmail, toWaJid } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { getCommsSettings } from "@/lib/inbox/settings"
@@ -98,14 +99,11 @@ async function sendLeg(
   if (channel === "WHATSAPP" && !recipient.whatsapp) return { ...leg, status: "skipped", reason: "No WhatsApp on file" }
   const value = channelValue(recipient, channel)
   if (!value) return { ...leg, status: "failed", reason: `Unparseable ${channel} value` }
-  const contact = await lookupContactByChannelValue(prisma, { tenantId: request.tenantId, channel, value })
-  if (!contact) return { ...leg, status: "failed", reason: "No Contact row" }
-  // The value resolves to SOMEONE ELSE's Contact (a lead, another client): their
-  // consent would be checked instead of this person's, and they would read the
-  // entity's loan. Refused; the reason names no number or address.
-  if (contact.clientId !== recipient.clientId) {
-    return { ...leg, status: "failed", reason: "Contact belongs to someone else" }
-  }
+  // This person's OWN Contact (lib/contact/recipient.ts): one that is someone
+  // else's (a lead, another client) is refused; the reason names no value.
+  const found = await lookupRecipientContact(prisma, { tenantId: request.tenantId, channel, value, ownerClientId: recipient.clientId })
+  if (!found.ok) return { ...leg, status: "failed", reason: found.reason === "NO_CONTACT" ? "No Contact row" : "Contact belongs to someone else" }
+  const contact = found.contact
   const vars = channel === "EMAIL"
     ? entityEmailVars(request.facts, request.lender, recipient)
     : entityWhatsAppVars(request.facts, request.lender, recipient)

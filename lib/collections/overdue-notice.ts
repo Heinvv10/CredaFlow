@@ -1,4 +1,5 @@
 import { triggerNotification } from "@/lib/notifications"
+import { isLoanRemindable } from "@/lib/collections/client-holds"
 import { isDatabaseInfrastructureError } from "@/lib/ops/db-fault"
 import { releaseReservation, reserveOnce } from "@/lib/ops/send-reservation"
 
@@ -68,10 +69,17 @@ async function giveBack(key: string, at: Date, loanRef: string): Promise<void> {
  * Awaited, so a failure lands in this run's report: logged and counted, never
  * swallowed. That covers a throw AND a leg the notification reports as failed (a
  * provider's definite rejection, no Contact, another person's Contact, a missing
- * template). Either way the reservation is given back, so the next run tries
- * again: a leg that went out is not resent (each leg has its own once-a-day
+ * template). Either way the reservation is given back, so that ANOTHER run the
+ * same SAST day (a manual run, or the scheduler's retry of a tenant that failed)
+ * tries again: a leg that went out is not resent (each leg has its own once-a-day
  * idempotency key in lib/notifications.ts), and a failed one is re-attempted or,
- * if its rejection is final, reported again rather than left looking done.
+ * if its rejection is final, reported again rather than left looking done. A run
+ * that closes DONE is not retried, so on a tenant that did not fail the failure is
+ * counted in that day's report and nothing more; the next day the trigger's
+ * offset has moved on.
+ *
+ * A dunning hold recorded while the trigger's own legs were in flight stops it:
+ * the loan is rechecked immediately before the notice.
  */
 export async function fireOverdueNotice(args: {
   tenantId: string
@@ -86,6 +94,14 @@ export async function fireOverdueNotice(args: {
   const reservedAt = new Date()
   if (!(await reserveOnce(tenantId, reservation, reservedAt))) {
     report.details.push(`Skip ${loan.reference}: loan_overdue for ${trigger.noteType} already fired today`)
+    return
+  }
+  // Rechecked immediately before the notice: the trigger's own legs can take a
+  // while (a slow provider), and a debt-review notice, a death or an arrangement
+  // recorded meanwhile must stop this notice too.
+  if (!(await isLoanRemindable({ tenantId, loanId: loan.id }))) {
+    await giveBack(reservation, reservedAt, loan.reference)
+    report.details.push(`Skip ${loan.reference}: loan_overdue for ${trigger.noteType}, the loan stopped being ACTIVE or was put on a dunning hold during this run`)
     return
   }
   let failedLegs: string[]

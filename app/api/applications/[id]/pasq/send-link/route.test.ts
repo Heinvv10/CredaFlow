@@ -473,6 +473,8 @@ describe("POST /api/applications/[id]/pasq/send-link — MESSAGING_NEW_SEND_PASQ
       channel: "EMAIL",
       value: "client@example.test",
       templateKey: "pasq_link_email",
+      // Only the applicant's own Contact (lib/contact/recipient.ts).
+      ownerClientId: "client-1",
     }))
     expect(deliverViaMessaging).toHaveBeenCalledWith(expect.objectContaining({
       channel: "EMAIL",

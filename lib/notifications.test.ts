@@ -138,7 +138,8 @@ vi.mock("@/lib/contact/identity", async () => {
   }
 })
 
-import { CONTACT_NOT_CLIENTS, notificationMessageIdempotencyKey, triggerNotification } from "./notifications"
+import { notificationMessageIdempotencyKey, triggerNotification } from "./notifications"
+import { CONTACT_NOT_RECIPIENTS } from "@/lib/contact/recipient"
 import {
   KnownDispatchPersistenceError,
   MessageReconciliationRequiredError,
@@ -733,7 +734,7 @@ describe("triggerNotification — loan_overdue always goes through sendMessage",
     expect(sendMessageMock.mock.calls.map((c: any[]) => c[0].channel)).toEqual(["EMAIL", "SMS"])
     expect(outcome.failedLegs).toEqual(["whatsapp"])
     const waLog = notificationLogCreateMock.mock.calls.find((c: any[]) => c[0].data.channel === "whatsapp")![0].data
-    expect(waLog).toMatchObject({ status: "failed", error: CONTACT_NOT_CLIENTS })
+    expect(waLog).toMatchObject({ status: "failed", error: CONTACT_NOT_RECIPIENTS })
     expect(waLog.error).not.toMatch(/0821234567|27821234567/)
   })
 })

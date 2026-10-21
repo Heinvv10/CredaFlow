@@ -28,6 +28,13 @@ interface EscalationResult {
 
 interface EscalationRule {
   minDays: number
+  /**
+   * The rule messages the borrower. Outside the dunning send window it is not
+   * applied at all (no status change, no note, no reservation), so the next
+   * in-window run applies it whole: a rule that wrote its note and skipped its
+   * notice would never be run again, and the notice would be lost.
+   */
+  sendsNotice?: true
   noteType: string
   /** Absent: every loan. A rule outside a loan's regime is skipped, not counted as an error. */
   appliesTo?: (ctx: EscalationContext) => boolean
@@ -46,8 +53,6 @@ interface EscalationContext {
   outstandingPrincipal: number
   status: string
   ncaRegime: "NCA" | "NON_NCA"
-  /** False outside the dunning send window: statuses still move, no borrower is messaged. */
-  noticesAllowed: boolean
 }
 
 async function noteExists(loanId: string, noteType: string, tenantId: string): Promise<boolean> {
@@ -87,6 +92,7 @@ const RULES: EscalationRule[] = [
   {
     minDays: DEFAULT_AT_DPD,
     noteType: "escalation_default",
+    sendsNotice: true,
     action: async (ctx) => {
       // The borrower is quoted arrears + default charges outstanding (0 while
       // the flag is off). ctx.arrearsAmount itself stays schedule-only: the
@@ -132,9 +138,6 @@ const RULES: EscalationRule[] = [
       // entity (triggerNotification → lib/asset-finance/entity-notifications.ts).
       if (ctx.daysInArrears > DEFAULT_NOTICE_MAX_DPD) {
         return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (past the ${DEFAULT_NOTICE_MAX_DPD} DPD notice window)`
-      }
-      if (!ctx.noticesAllowed) {
-        return `${ctx.loanRef}: marked DEFAULTED at ${ctx.daysInArrears} DPD; borrower notification skipped (outside the ${DUNNING_SEND_WINDOW_LABEL} send window)`
       }
       let failedLegs: string[] = []
       try {
@@ -247,6 +250,10 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
     let loanAdvanced = false
     for (const rule of RULES) {
       if (loan.daysInArrears < rule.minDays) continue
+      if (rule.sendsNotice && !noticesAllowed) {
+        result.details.push(`Deferred ${loan.reference} ${rule.noteType}: outside the ${DUNNING_SEND_WINDOW_LABEL} send window; the next in-window run applies it`)
+        continue
+      }
 
       // The reservation this rule holds, so a failure anywhere below gives it back.
       let reserved: { key: string; at: Date } | null = null
@@ -264,7 +271,6 @@ async function processTenantEscalations(tenant: SweepTenant): Promise<Escalation
           outstandingPrincipal: loan.outstandingPrincipal,
           status: loan.status,
           ncaRegime: loan.ncaRegime,
-          noticesAllowed,
         }
         if (rule.appliesTo && !rule.appliesTo(ctx)) continue
 

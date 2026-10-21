@@ -117,7 +117,7 @@ export async function seedHoldLoan(
       primaryEmail: email, primaryPhone: phone, primaryWaJid: `${whatsapp.slice(1)}@s.whatsapp.net`,
     },
   })
-  // The identities a reminder resolves its Contact through (lookupContactByChannelValue),
+  // The identities a reminder resolves its Contact through (lookupRecipientContact),
   // the email one included: what sendMessage resolves an email recipient from.
   await db.contactIdentity.createMany({
     data: [

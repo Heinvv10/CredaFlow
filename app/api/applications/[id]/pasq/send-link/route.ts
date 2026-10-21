@@ -254,6 +254,7 @@ export async function POST(req: NextRequest, { params }: RouteCtx) {
         channel,
         value: identityValue,
         templateKey,
+        ownerClientId: application.clientId,
       })
       if (!target.ok) {
         // Data drift. Nothing left the system, so this is a definite
