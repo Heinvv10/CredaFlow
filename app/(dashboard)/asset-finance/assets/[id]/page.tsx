@@ -11,6 +11,9 @@ import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ASSET_CLASS_LABELS, VALUATION_SOURCE_LABELS, assetBookStatus } from "@/lib/asset-finance/asset-labels"
 import { ValuationForm } from "./ValuationForm"
 import { AssetReadinessForm } from "./AssetReadinessForm"
+import { TrackerDevicesPanel } from "@/components/asset-finance/telematics/TrackerDevicesPanel"
+import { assetTrackerDevices } from "@/lib/telematics/devices"
+import { getTelematicsProvider, registeredTelematicsProviderIds } from "@/lib/telematics/registry"
 import { GuideValuePanel } from "@/components/asset-finance/valuation-guides/GuideValuePanel"
 import { loadGuidePanel } from "@/lib/valuation-guides/guide-panel"
 
@@ -34,6 +37,8 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
     },
   })
   if (!asset) notFound()
+  const devices = await assetTrackerDevices(tenantId, asset.id)
+  const providers = registeredTelematicsProviderIds().map((key) => ({ id: key, label: getTelematicsProvider(key)?.label ?? key }))
   const guide = await loadGuidePanel(tenantId, asset.id, null)
 
   const title = `${asset.year} ${asset.make} ${asset.model}`
@@ -82,6 +87,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
           }} />
         )}
 
+        <TrackerDevicesPanel assetId={asset.id} devices={devices} canManage={canManage} providers={providers} />
         {guide && <GuideValuePanel assetId={asset.id} data={guide} canManage={canManage} />}
 
         <DataPanel title="Valuations" density="loose">

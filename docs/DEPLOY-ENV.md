@@ -24,6 +24,7 @@ feature off. Provider values are blank in a new `.env` (commented TODO block).
 | `UPLOADS_ENC_REQUIRED` | optional (set `true` for new lenders by `provision-lender.sh`) | Off unless `true`. When on, storage refuses to write without `UPLOADS_ENC_KEY` and refuses to read a plaintext file (so `/api/health` fails). An older lender sets it after `encrypt-uploads.sh` has converted its files |
 | `WEBHOOK_SECRET_KEY` | required for webhooks (generated) | 32 bytes base64; seals the lender API's webhook signing secrets. Unset, endpoints cannot be added and deliveries fail |
 | `API_LOG_RETENTION_DAYS`, `WEBHOOK_LOG_RETENTION_DAYS` | optional | days kept by the nightly `lender-api-retention` cron: API request logs (default 90), finished webhook deliveries and their events (default 30) |
+| (none: crons) | — | Tracker/telematics (`docs/asset-finance/SLICE5.md` part B) adds two in-process crons and no variable: `asset-finance-telematics-poll` (every 15 minutes) and `asset-finance-telematics-purge` (03:40 SAST; each lender's position retention is a setting, 1 to 365 days, default 90). The only provider is the simulator: on a deployed build it runs only when `SIMULATED_INTEGRATIONS` names `simulated-telematics`. Name it on demo stacks only, never on a real lender's |
 | `ADMIN_SECRET` | optional | `x-admin-secret` for `/api/admin/tenants` |
 | `TRUSTED_PROXY` | set behind a proxy | number of proxies in front; default `0` |
 | `APP_MODE` | set by compose | `staff` on the staff container, `client` on the portal (`all` is the app's default when unset) |

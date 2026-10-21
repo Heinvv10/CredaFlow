@@ -131,6 +131,13 @@ model User {
   supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
   supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
   suretyConsentsVerified SuretyConsent[]
+  telematicsAlertsAcknowledged TelematicsAlert[]                     @relation("TelematicsAlertAcknowledgedBy")
+  telematicsAlertsResolved     TelematicsAlert[]                     @relation("TelematicsAlertResolvedBy")
+  telematicsHeldReadingsDecided TelematicsHeldReading[]              @relation("TelematicsHeldReadingDecidedBy")
+  telematicsPositionAccesses   TelematicsPositionAccess[]            @relation("TelematicsPositionAccessUser")
+  trackerDevicesCreated        TrackerDevice[]                       @relation("TrackerDeviceCreatedBy")
+  trackerDevicesMeterVerified  TrackerDevice[]                       @relation("TrackerDeviceMeterVerifiedBy")
+  trackerDevicesRemoved        TrackerDevice[]                       @relation("TrackerDeviceRemovedBy")
   valuationGuidesDiscarded     ValuationGuide[]                      @relation("ValuationGuideDiscardedBy")
   valuationGuidesPublished     ValuationGuide[]                      @relation("ValuationGuidePublishedBy")
   valuationGuidesUploaded      ValuationGuide[]                      @relation("ValuationGuideUploadedBy")

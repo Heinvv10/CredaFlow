@@ -6,6 +6,7 @@ import {
   BarChart3,
   BookOpen,
   Percent,
+  Radio,
   Bell,
   BriefcaseBusiness,
   Building2,
@@ -155,6 +156,7 @@ export const staffNavigation: NavGroup[] = [
       { href: "/asset-finance/dealers", label: "Dealers", icon: Handshake, minRole: "LOAN_ADMIN" },
       { href: "/asset-finance/reference-rates", label: "Reference rates", icon: Percent },
       { href: "/asset-finance/valuation-guides", label: "Valuation guides", icon: BookOpen },
+      { href: "/asset-finance/telematics", label: "Tracker alerts", icon: Radio, minRole: "COLLECTIONS_OFFICER" },
     ],
   },
   {

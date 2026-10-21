@@ -161,10 +161,12 @@ movements, `LeaseRental`, `Repossession`, `RemarketingSale`, `JournalExport`,
 5. **Dealer/broker portal, tracker/telematics integration, valuation
    feeds.** Spec `SLICE5.md`, one PR per part. Part A (dealer/broker portal
    and commission) built; legal and tax review items listed there, and the
-   portal is demo-lender-only until dealer 2FA ships. Part B (telematics)
-   pending. Part C (valuation guides) built: CSV and synthetic providers,
-   four-eyes publish, GUIDE valuations that never count as independent; open
-   legal and credit-policy items listed in SLICE5.md.
+   portal is demo-lender-only until dealer 2FA ships. Part B (tracker/telematics
+   adapter and simulator; `lib/telematics/`) built: simulated provider only, no
+   real tracker vendor; legal (POPIA location data) review items listed there.
+   Part C (valuation guides; `lib/valuation-guides/`) built: CSV and synthetic
+   providers, four-eyes publish, GUIDE valuations that never count as
+   independent; open legal and credit-policy items listed in SLICE5.md.
 
 ## Slice 3: operating and full-maintenance leases (built; legal and tax to confirm)
 

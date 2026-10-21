@@ -19,7 +19,7 @@ const reply = (status: number, body: unknown) => new Response(JSON.stringify(bod
 async function mount() {
   let renderer!: ReturnType<typeof create>
   await act(async () => {
-    renderer = create(<LeaseMeterReadingForm loanId="L1" today="2027-05-10" unit="KM" latest={{ readingDate: "2027-04-10", value: 12_000 }} />)
+    renderer = create(<LeaseMeterReadingForm loanId="L1" today="2027-05-10" unit="KM" latest={{ readingDate: "2027-04-10", value: 12_000, source: "TELEMATICS" }} />)
   })
   return renderer
 }
@@ -27,6 +27,12 @@ const type = (r: ReturnType<typeof create>, value: string) => act(async () => { 
 const submit = (r: ReturnType<typeof create>) => r.root.findByType("button")
 
 describe("LeaseMeterReadingForm", () => {
+  it("says who took the latest reading: the tracker's is never shown as the lessee's own", async () => {
+    const r = await mount()
+    const text = r.root.findByType("p").children.join("")
+    expect(text).toMatch(/^Last reading: 12.000 km on .+, from the tracker\.$/)
+  })
+
   it("cannot submit until the reading is a whole number", async () => {
     const r = await mount()
     expect(submit(r).props.disabled).toBe(true)

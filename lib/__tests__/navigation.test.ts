@@ -117,6 +117,7 @@ describe("asset finance navigation", () => {
     "/asset-finance/dealers",
     "/asset-finance/reference-rates",
     "/asset-finance/valuation-guides",
+    "/asset-finance/telematics",
   ]
 
   it("puts every asset finance page in one group behind the assetFinance flag", () => {
