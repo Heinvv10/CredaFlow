@@ -21,7 +21,7 @@ vi.mock("@/lib/audit", async (original) => ({ ...(await original<typeof import("
 vi.mock("./ingest", () => ({ ingestEvent: m.ingestEvent }))
 
 import { Prisma } from "@prisma/client"
-import { TelematicsEventNotYet, TelematicsEventRejected } from "./event-shape"
+import { TelematicsEventNotYet, TelematicsEventRejected, TelematicsEventUnroutable } from "./event-shape"
 import { pollTenant, runTelematicsPoll } from "./poll"
 import { registerTelematicsProvider } from "./registry"
 import type { TelematicsProvider } from "./types"
@@ -185,7 +185,7 @@ describe("the telematics poll", () => {
     expect(update.data).not.toHaveProperty("failingEventCount")
   })
 
-  it("counts a strike for a database refusal: a unique key, or a raw statement's integrity refusal", async () => {
+  it("counts a strike for a database refusal (a unique key, a raw statement's integrity refusal) and an event no route takes", async () => {
     registerTelematicsProvider({
       id: "test-refused", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
       poll: async () => ({ simulated: false, cursors: {}, events: [{ providerEventId: "r", externalDeviceId: "DEV-6", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
@@ -193,6 +193,7 @@ describe("the telematics poll", () => {
     for (const error of [
       new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5" }),
       new Prisma.PrismaClientKnownRequestError("check", { code: "P2010", clientVersion: "5", meta: { code: "23514" } }),
+      new TelematicsEventUnroutable("Unexpected meter reading result"),
     ]) {
       m.devices = [device("d6", "DEV-6", "test-refused")]
       m.ingestEvent.mockImplementationOnce(async () => { throw error })
