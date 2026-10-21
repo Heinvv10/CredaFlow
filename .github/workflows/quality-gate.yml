@@ -32,7 +32,9 @@ jobs:
     # only the real-DB integration job below.
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Unit + build took 29.5 min on 2026-10-21 (run 39611551763), and 30
+    # cancelled the next run (39633530189) with no failure.
+    timeout-minutes: 45
 
     env:
       TZ: UTC
