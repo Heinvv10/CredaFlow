@@ -7,6 +7,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: { assetValuation: { findMany: vi.fn(asy
 
 import { renderedText } from "./lease-test-helpers"
 import { ClaimActions } from "./ClaimActions"
+import { prisma } from "@/lib/prisma"
 import { LeaseEndOfTermPanel } from "./LeaseEndOfTermPanel"
 import type { EndOfTermView, LeaseStaffData } from "./lease-staff-data"
 
@@ -42,6 +43,13 @@ describe("LeaseEndOfTermPanel", () => {
   it("offers the election, and nothing else, before a choice is made", async () => {
     const renderer = await panel(data(null), true, true)
     expect(buttons(renderer)).toEqual(["Record the choice"])
+  })
+
+  it("offers only assessors' and dealers' valuations for a purchase: never a guide value or an internal one", async () => {
+    await panel(data(null), true, true)
+    expect(vi.mocked(prisma.assetValuation.findMany)).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ tenantId: "t-1", assetId: "asset-1", source: { in: ["ASSESSOR", "DEALER"] } }),
+    }))
   })
 
   it("offers no election before the window opens, and names the date", async () => {
