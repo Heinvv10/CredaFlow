@@ -15,7 +15,8 @@ import { testSetup } from "@/lib/asset-finance/lease-servicing.integration-fixtu
 import {
   cleanupRecoveryFixture, createRecoveryFixture, newLoan, recoveryFixtureTenantId, type RecoveryFixture,
 } from "@/lib/asset-finance/recovery.integration-fixture"
-import { cleanupGuides, day, draftGuide, guideValuationData, publishedGuide, publishGuideRow, supersedeGuideRow, type GuideRowSeed } from "./guide.integration-fixture"
+import { dbDate } from "@/lib/asset-finance/dates"
+import { cleanupGuides, day, draftGuide, guideValuationData, publishedGuide, publishGuideRow, supersedeGuideRow, today, type GuideRowSeed } from "./guide.integration-fixture"
 import { loadRevaluation } from "./revaluation-store"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -34,11 +35,19 @@ const CURRENT: GuideRowSeed[] = [
   { make: "TEST", model: "EX-R", year: 2025, variant: "", tradeCents: 130_000_000, retailCents: 150_000_000 },
   { make: "TEST", model: "EX-R", year: 2025, variant: "Long reach", tradeCents: 140_000_000, retailCents: 160_000_000 },
   { make: "TEST", model: "EX-S", year: 2025, variant: "", tradeCents: 70_000_000, retailCents: 80_000_000 },
+  { make: "TEST", model: "EX-T", year: 2025, variant: "", tradeCents: 50_000_000, retailCents: 60_000_000 },
+  { make: "TEST", model: "EX-T", year: 2025, variant: "Long reach", tradeCents: 55_000_000, retailCents: 65_000_000 },
+]
+/** A second current guide, its name sorting after NAME, with the same EX-T variants at other values. */
+const SECOND_NAME = "TEST Second Guide"
+const SECOND: GuideRowSeed[] = [
+  { make: "TEST", model: "EX-T", year: 2025, variant: "", tradeCents: 58_000_000, retailCents: 68_000_000 },
+  { make: "TEST", model: "EX-T", year: 2025, variant: "Long reach", tradeCents: 61_000_000, retailCents: 71_000_000 },
 ]
 /** The guide it superseded: another EX-S row, which must never be read. */
 const OLD: GuideRowSeed[] = [{ make: "TEST", model: "EX-S", year: 2025, variant: "Old", tradeCents: 50_000_000, retailCents: 60_000_000 }]
 let fx: RecoveryFixture
-const loans = {} as Record<"active" | "defaulted" | "pendingWriteOff" | "restructured" | "completed" | "writtenOff" | "cancelled", string>
+const loans = {} as Record<"active" | "defaulted" | "pendingWriteOff" | "restructured" | "completed" | "writtenOff" | "cancelled" | "second", string>
 
 async function loanOf(status: LoanStatus, model = "EX-R", make = "TEST"): Promise<{ loanId: string; assetId: string }> {
   const asset = await database().financedAsset.create({
@@ -69,6 +78,14 @@ suite("book revaluation loader (real Postgres)", () => {
     for (const row of [1, 0]) {
       await database().assetValuation.create({ data: guideValuationData(fx.tenantId, activeAsset, current.id, current.rowIds[row], CURRENT[row].tradeCents, fx.officer) })
     }
+    // The EX-T asset: its guide value read "Long reach" from the SECOND guide, then a dealer valued it (the newest valuation).
+    const second = await publishedGuide(database(), fx.tenantId, fx.adminA, fx.adminB, { name: SECOND_NAME, effectiveOn: day(-1), rows: SECOND })
+    const ext = await loanOf("ACTIVE", "EX-T")
+    loans.second = ext.loanId
+    await database().assetValuation.create({ data: guideValuationData(fx.tenantId, ext.assetId, second.id, second.rowIds[1], SECOND[1].tradeCents, fx.officer) })
+    await database().assetValuation.create({
+      data: { tenantId: fx.tenantId, assetId: ext.assetId, valuedOn: dbDate(today()), source: "DEALER", valuerName: "TEST Dealer", amountCents: 1, createdById: fx.adminB },
+    })
     loans.defaulted = (await loanOf("DEFAULTED", "EX-S")).loanId
     loans.pendingWriteOff = (await loanOf("PENDING_WRITE_OFF")).loanId
     loans.restructured = (await loanOf("RESTRUCTURED")).loanId
@@ -86,7 +103,7 @@ suite("book revaluation loader (real Postgres)", () => {
 
   it("lists every live loan and no settled, written-off or cancelled one", async () => {
     const ids = (await loadRevaluation(fx.tenantId)).map((r) => r.loanId).sort()
-    expect(ids).toEqual([loans.active, loans.defaulted, loans.pendingWriteOff, loans.restructured].sort())
+    expect(ids).toEqual([loans.active, loans.second, loans.defaulted, loans.pendingWriteOff, loans.restructured].sort())
   })
 
   it("keeps the variant of the asset's newest guide value, matched with lower(btrim()) as on the asset page", async () => {
@@ -99,4 +116,12 @@ suite("book revaluation loader (real Postgres)", () => {
     expect(rows.find((r) => r.loanId === loans.defaulted)?.match).toMatchObject({ kind: "matched", basis: "only_row", row: { tradeCents: 70_000_000 } })
     expect(rows.find((r) => r.loanId === loans.pendingWriteOff)?.match).toEqual({ kind: "ambiguous", count: 2 })
   })
+
+  it("keeps the recorded guide's name and variant, among other guides and variants, and a newer non-guide valuation does not hide it", async () => {
+    const row = (await loadRevaluation(fx.tenantId)).find((r) => r.loanId === loans.second)
+    expect(row?.match).toMatchObject({
+      kind: "matched", basis: "recorded_variant", row: { guideName: SECOND_NAME, variant: "Long reach", tradeCents: 61_000_000 }, changeCents: 0,
+    })
+  })
 })
+
