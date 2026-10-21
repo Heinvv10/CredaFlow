@@ -382,3 +382,69 @@ Security review round 2. Database: throwaway PostgreSQL 16, migrated to
 (3)'s mutation is its before run (the route without the check). After
 restoring each: dealer-handover-contact 10/10, dealer-contact-bypass 2/2,
 dealer-submit 11/11, reprice-notice-dispatch 17/17, dealer-entity-people 5/5.
+
+## Part C
+
+Database: a throwaway PostgreSQL 16 from `scripts/it-db.sh up cf-it-s5c-<random>`,
+`npx prisma migrate deploy`. Suites: `lib/valuation-guides/*.integration.test.ts`, run with
+`RUN_ASSET_FINANCE_VALUATION_IT=1 npx vitest run --no-file-parallelism lib/valuation-guides/`.
+
+### Before (suites written first)
+
+The schema was generated, but none of the three part C migrations had been
+applied (the database stopped at main's `20261020120000`):
+
+```
+ Test Files  9 failed (9)
+      Tests  4 failed | 1 passed | 25 skipped (30)
+The table `public.ValuationGuide` does not exist in the current database.   (x3, each IT's beforeAll)
+Error: Cannot find package '@/app/api/asset-finance/valuation-guides/route'     (routes IT)
+Error: Cannot find module './csv' | './ltv' | './revaluation' | '../registry'  (unit suites)
+Error: trigger ValuationGuide_no_truncate: expected 1 statement in the migrations, found 0  (static test)
+```
+
+### After
+
+With the migrations applied, `lib/valuation-guides/` gave `Tests 64 passed | 1
+skipped (65)`; the skipped test is the browser seed, which needs its own
+switch. Every asset-finance IT on the same database, run with
+`TENANT_RLS=on` and every `RUN_ASSET_FINANCE_*_IT` switch, passed:
+`Test Files 312 passed | 9 skipped (321)`, `Tests 2779 passed | 41 skipped`. That
+run includes the existing recovery-sale and lease end-of-term suites, which now
+read the replaced `guardRemarketingSale`.
+
+Each database suite also proves its rules from inside: `refuses(rule, …)`
+first shows the attack is refused, then takes out that one clause, CHECK,
+index or trigger in a rolled-back transaction and shows the attack goes
+through (`lib/asset-finance/recovery-rules.integration-fixture.ts`).
+
+### Mutations (database: applied to the migrated database, then restored)
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| M1 | `DROP CONSTRAINT "ValuationGuide_four_eyes"` | guide-rules IT | 1 failed, 9 passed | "is published by someone other than its uploader (four-eyes)" |
+| M2 | `DROP INDEX "ValuationGuide_one_current_per_name"` | guide-rules IT | 1 failed, 9 passed | "keeps one current guide per name, …" |
+| M3 | `guardRemarketingSale` back to its `20261015400000` body (`<> 'INTERNAL'`) | not-independent IT | 3 failed, 4 passed | "refuses a sale that relies on a GUIDE valuation"; "never measures a sale against a GUIDE valuation above the independent ones"; "never makes a sale self-valued by its proposer's GUIDE valuation at the highest amount" |
+| M4 | `DROP TRIGGER "AssetValuation_guide_guard"` | guide-valuation IT + routes IT | 8 failed, 10 passed | each GUIDE-valuation rule (snapshot, published guide in force, dated today, make/model/year, trade value, own guide's row, other lender's guide), and the routes IT's record (no snapshot: the CHECK refuses) |
+| M5 | `DROP TRIGGER "ValuationGuideRow_guard"` | guide-rules IT | 1 failed, 9 passed | "writes rows only into a DRAFT and never changes or deletes them" |
+| M6 | `DROP TRIGGER "ValuationGuide_successor_published"` | guide-rules IT | 1 failed, 9 passed | "keeps one current guide per name, superseded only by a newer one put live in the same transaction" |
+| M7 | `guardValuationGuide` with `IF allowed IS NULL THEN` → `IF FALSE THEN` | guide-rules IT | 2 failed, 8 passed | "never changes once published: …"; "moves only DRAFT → PUBLISHED or DISCARDED and PUBLISHED → SUPERSEDED" |
+| M8 | `DROP CONSTRAINT "AssetValuation_guide_shape"` | guide-valuation IT | 1 failed, 8 passed | "is a GUIDE row exactly when it names a guide, a row and a snapshot" |
+
+After the restores, `lib/valuation-guides/` gave 64 passed and 1 skipped again.
+
+### Mutations (source: the file edited, the suite run, the file restored; `git diff` clean after each)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| T1 | `valuationFacts` refuses only `INTERNAL` | not-independent IT | 1 failed, 6 passed | "and the server's own checks agree: valuationFacts refuses it, the sale form never offers it" |
+| T2 | `loadSaleValuations` back to `source: { not: "INTERNAL" }` | not-independent IT | 1 failed, 6 passed | same test (the GUIDE valuation was offered) |
+| T3 | `valuationFacts`'s highest counts GUIDE | not-independent IT | 1 failed, 6 passed | same test (`highestCents` 130 000 000, not 100 000 000) |
+| T4 | `publishGuide` without the self-publish check | routes IT | 4 failed, 5 passed | "refuses the uploader's own publish (audited), …": the CHECK refused it as a 500, unaudited. The later tests depend on that publish. |
+| T5 | `guideCandidates` without `g."status" = 'PUBLISHED'` | routes IT | 1 failed, 8 passed | "offers the current guide's rows …": the superseded guide's rows were offered too |
+| T6 | upload refusal not audited | routes IT | 1 failed, 8 passed | "refuses a malformed file with a reason per line, stores nothing, and audits the refusal …" |
+| T7 | CSV duplicate check off | `csv.test.ts` | 2 failed, 9 passed | "refuses a duplicate key, …"; "reads the browser-acceptance files …" |
+| T8 | `VALUATION_SOURCES` gains `GUIDE` | `asset-input.test.ts` | 1 failed, 58 passed | "rejects {"source":"GUIDE"} on source" |
+| T9 | revaluation LTV for leases | `revaluation.test.ts` | 1 failed, 4 passed | "shows no LTV for a lease: …" |
+| T10 | synthetic provider's read without the simulation guard | `providers.test.ts` | 1 failed, 3 passed | "refuses the synthetic guide on a deployed build …" |
+| T11 | CSV formula check only for `=` | `csv.test.ts` | 1 failed, 10 passed | "refuses a cell a spreadsheet would run as a formula, …" (`@v`) |
