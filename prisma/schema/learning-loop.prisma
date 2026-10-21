@@ -50,6 +50,8 @@ model CreditDecisionRecord {
   applicationId        String?
   loanId               String?
   clientId             String?
+  /// A website Lead: the only subject an identity-conflict refusal can name (no client is confirmed).
+  leadId               String?
   /// The row of record the decision changed (LoanApplication, ApplicationCheckFlag, AssetFinanceDeal).
   sourceEntityType     String
   sourceEntityId       String
@@ -67,6 +69,9 @@ model CreditDecisionRecord {
   evidenceRefs         Json
   /// sha256 of the canonical JSON of the exact inputs (lib/canonical-json.ts).
   inputsHash           String                 @db.Char(64)
+  /// An automated (SYSTEM) decision awaiting the lender's POPIA s71 legal review
+  /// (DESIGN.md decision 5; DB CHECK: only on SYSTEM rows).
+  s71ReviewRequired    Boolean                @default(false)
   decidedAt            DateTime
   createdAt            DateTime               @default(now())
 

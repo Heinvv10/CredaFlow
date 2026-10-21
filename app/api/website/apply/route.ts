@@ -6,7 +6,8 @@ import { getTenantFromRequest } from "@/lib/tenant"
 import { checkRateLimit, callerIp } from "@/lib/rate-limit"
 import { verifyTurnstile } from "@/lib/turnstile"
 import { resolveReferralCode, recordReferralEvent } from "@/lib/referral-agents/referrals"
-import { logAudit, logAuditStrict, AuditAction } from "@/lib/audit"
+import { AuditAction } from "@/lib/audit"
+import { recordSubmissionRefusal } from "@/lib/learning-loop/submission-refusal"
 import { isValidSaIdNumber } from "@/lib/validation/client-wizard"
 import { generateReference, maskEmail, maskIdNumber } from "@/lib/utils"
 import {
@@ -539,7 +540,7 @@ export async function POST(req: NextRequest) {
         productId: string
         requestedTermDays: number
       }) => {
-        await logAudit({
+        await recordSubmissionRefusal({
           tenantId: tenant.id,
           userEmail: email || "website-system",
           action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -556,6 +557,12 @@ export async function POST(req: NextRequest) {
             requestedTermDays: args.requestedTermDays,
           },
           ipAddress: ip,
+        }, {
+          tenantId: tenant.id,
+          channel: "WEBSITE",
+          reason: "open_application_exists",
+          subject: { clientId: args.clientId },
+          existingApplicationId: args.application.id,
         })
         return NextResponse.json(
           {
@@ -671,7 +678,8 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        await logAudit({
+        // No client is confirmed: the record names the lead, never a client the request only matched.
+        await recordSubmissionRefusal({
           tenantId: tenant.id,
           userEmail: email || "website-system",
           action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -687,7 +695,7 @@ export async function POST(req: NextRequest) {
             ...(noticeWithheld ? { noticeWithheld: "dealer_contact_unverified" } : {}),
           },
           ipAddress: ip,
-        })
+        }, { tenantId: tenant.id, channel: "WEBSITE", reason: "identity_conflict", subject: { leadId: lead.id } })
       }
 
       // The public form proves an email+ID pair, not an authenticated portal
@@ -701,7 +709,7 @@ export async function POST(req: NextRequest) {
         ((declaredIncomeProvided && declaredIncomeCents !== confirmedExistingClient.monthlyIncome) ||
           (declaredExpensesProvided && declaredExpensesCents !== confirmedExistingClient.monthlyExpenses))
       ) {
-        await logAudit({
+        await recordSubmissionRefusal({
           tenantId: tenant.id,
           userEmail: email || "website-system",
           action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -719,6 +727,11 @@ export async function POST(req: NextRequest) {
             declaredMonthlyExpenses: declaredExpensesProvided ? declaredExpensesCents : null,
           },
           ipAddress: ip,
+        }, {
+          tenantId: tenant.id,
+          channel: "WEBSITE",
+          reason: "financial_profile_update_requires_authentication",
+          subject: { clientId: confirmedExistingClient.id },
         })
         return NextResponse.json(
           {
@@ -780,18 +793,19 @@ export async function POST(req: NextRequest) {
           // POPIA + treating-customers-fairly: don't reveal the blacklist or
           // deceased status in the response. Same pattern as
           // app/api/portal/applications/route.ts.
-          await logAudit({
+          const reason = websiteBlock.blocked ? websiteBlock.auditReason : OWN_LENDER_ARREARS_REASON
+          await recordSubmissionRefusal({
             tenantId: tenant.id,
             userEmail: email || "website-system",
             action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
             entity: "LoanApplication",
             newValue: {
-              reason: websiteBlock.blocked ? websiteBlock.auditReason : OWN_LENDER_ARREARS_REASON,
+              reason,
               clientId: confirmedExistingClient.id,
               source: "website_apply",
             },
             ipAddress: ip,
-          })
+          }, { tenantId: tenant.id, channel: "WEBSITE", reason, subject: { clientId: confirmedExistingClient.id } })
         } else {
           const product = await prisma.loanProduct.findFirst({
             where: { tenantId: tenant.id, productType: productTypeNormalised, active: true },
@@ -1255,7 +1269,7 @@ export async function POST(req: NextRequest) {
               }
               if (creation.kind === "mle") {
                 const snapshotExpenseEvidence = creation.expenseEvidence
-                await logAudit({
+                await recordSubmissionRefusal({
                   tenantId: tenant.id,
                   userEmail: email || "website-system",
                   action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -1268,6 +1282,11 @@ export async function POST(req: NextRequest) {
                     declaredLivingExpenses: snapshotExpenseEvidence.statedMonthlyExpensesCents,
                   },
                   ipAddress: ip,
+                }, {
+                  tenantId: tenant.id,
+                  channel: "WEBSITE",
+                  reason: "mle_justification_missing",
+                  subject: { clientId: confirmedExistingClient!.id },
                 })
                 return NextResponse.json(
                   {
@@ -1279,7 +1298,7 @@ export async function POST(req: NextRequest) {
                 )
               }
               if (creation.kind === "expense_invalid") {
-                await logAudit({
+                await recordSubmissionRefusal({
                   tenantId: tenant.id,
                   userEmail: email || "website-system",
                   action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -1290,6 +1309,11 @@ export async function POST(req: NextRequest) {
                     source: "website_apply",
                   },
                   ipAddress: ip,
+                }, {
+                  tenantId: tenant.id,
+                  channel: "WEBSITE",
+                  reason: "expense_evidence_invalid",
+                  subject: { clientId: confirmedExistingClient!.id },
                 })
                 return NextResponse.json(
                   {
@@ -1315,7 +1339,7 @@ export async function POST(req: NextRequest) {
                 // not attach the applicant to another person's Contact or
                 // expose which channel value collided. Return a truthful,
                 // actionable conflict and preserve the staff-review trail.
-                await logAuditStrict({
+                await recordSubmissionRefusal({
                   tenantId: tenant.id,
                   userEmail: email || "website-system",
                   action: AuditAction.APPLICATION_SUBMISSION_BLOCKED,
@@ -1328,7 +1352,13 @@ export async function POST(req: NextRequest) {
                     reference: responseReference,
                   },
                   ipAddress: ip,
-                })
+                }, {
+                  tenantId: tenant.id,
+                  channel: "WEBSITE",
+                  reason: "contact_promotion_conflict",
+                  // The client transaction rolled back: a new client was never created.
+                  subject: confirmedExistingClient ? { clientId: confirmedExistingClient.id } : { leadId: lead.id },
+                }, { strict: true })
                 return NextResponse.json(
                   {
                     success: false,
