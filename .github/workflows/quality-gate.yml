@@ -127,8 +127,10 @@ jobs:
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
-    # 2026-10-20; 30 cancelled green runs part-way.
-    timeout-minutes: 45
+    # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
+    # (440 gated) it was still running, with no failure, when 45 cancelled it
+    # on 2026-10-21 (run 39611551763).
+    timeout-minutes: 75
 
     services:
       postgres:
