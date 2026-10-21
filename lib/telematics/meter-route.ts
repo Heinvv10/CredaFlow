@@ -18,6 +18,7 @@ import { dbDate } from "@/lib/asset-finance/dates"
 import { leaseTermEnd } from "@/lib/asset-finance/lease-term-end"
 import { recordMeterReading } from "@/lib/asset-finance/meter-readings"
 import type { SigningTx } from "@/lib/asset-finance/signing-prepare"
+import { TelematicsEventUnroutable } from "./event-shape"
 
 /** The lease types whose contracted usage a meter feeds (recordMeterReading's set). */
 export const USAGE_LEASES = ["OPERATING_LEASE", "FULL_MAINTENANCE_LEASE"] as const
@@ -86,5 +87,5 @@ export async function routeMeterReading(
     return "HELD"
   }
   if (result.kind === "refused" && (result.reason === "lease_closed" || result.reason === "reading_date")) return "LEASE_NOT_RUNNING"
-  throw new Error(`Unexpected meter reading result for telematics event ${eventId}: ${result.kind === "refused" ? result.reason : result.kind}`)
+  throw new TelematicsEventUnroutable(`Unexpected meter reading result for telematics event ${eventId}: ${result.kind === "refused" ? result.reason : result.kind}`)
 }

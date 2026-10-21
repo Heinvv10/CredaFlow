@@ -21,7 +21,7 @@ vi.mock("@/lib/audit", async (original) => ({ ...(await original<typeof import("
 vi.mock("./ingest", () => ({ ingestEvent: m.ingestEvent }))
 
 import { Prisma } from "@prisma/client"
-import { TelematicsEventRejected } from "./event-shape"
+import { TelematicsEventNotYet, TelematicsEventRejected } from "./event-shape"
 import { pollTenant, runTelematicsPoll } from "./poll"
 import { registerTelematicsProvider } from "./registry"
 import type { TelematicsProvider } from "./types"
@@ -90,8 +90,10 @@ describe("the telematics poll", () => {
     expect(await pollTenant("t1", NOW)).toMatchObject({ devices: 0 })
     expect(m.findDevices.mock.calls[0][0]).toMatchObject({ where: { tenantId: "t1", status: "ACTIVE", id: { in: [] } } })
     const sql = (m.underAgreement.mock.calls[0][0] as unknown as string[]).join("?")
-    expect(sql).toContain(`public."telematicsLoanAt"(d."tenantId", d."assetId", (now() AT TIME ZONE 'UTC')) IS NOT NULL`)
-    expect(m.underAgreement.mock.calls[0].slice(1).flatMap((v) => (typeof v === "object" && v !== null && "values" in v ? (v as { values: unknown[] }).values : [v]))).toEqual(["t1", "APPROVED", "CONTRACTED"])
+    // Tenure as of the poll's own clock, not the database's.
+    expect(sql).toContain(`public."telematicsLoanAt"(d."tenantId", d."assetId", (?::timestamptz AT TIME ZONE 'UTC')) IS NOT NULL`)
+    expect(m.underAgreement.mock.calls[0].slice(1).flatMap((v) => (typeof v === "object" && v !== null && "values" in v ? (v as { values: unknown[] }).values : [v])))
+      .toEqual(["t1", NOW.toISOString(), "APPROVED", "CONTRACTED"])
   })
 
   it("skips and audits only a refusal of the event itself (and a malformed event); any other failure keeps the cursor; a future event waits", async () => {
@@ -131,7 +133,7 @@ describe("the telematics poll", () => {
     expect(raced.data).not.toHaveProperty("pollCursor")
   })
 
-  it("skips an event that failed three polls in a row, audited with that reason, and moves on", async () => {
+  it("skips an event a database refusal failed three polls in a row, audited with that reason, and moves on", async () => {
     registerTelematicsProvider({
       id: "test-stuck", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
       poll: async () => ({ simulated: false, cursors: { "DEV-9": "c9" }, events: [
@@ -139,7 +141,8 @@ describe("the telematics poll", () => {
         { providerEventId: "next", externalDeviceId: "DEV-9", occurredAt: NOW, kind: "HEARTBEAT" as const },
       ] }),
     })
-    const failure = async () => { throw new Error("connection reset") }
+    // A refusal no rule names (Prisma reports a guard's RAISE through a query without a code).
+    const failure = async () => { throw new Prisma.PrismaClientUnknownRequestError("A guard refused it", { clientVersion: "5" }) }
     // Second failure on the same event: still retried.
     m.devices = [{ ...device("d9", "DEV-9", "test-stuck"), failingEventId: "stuck", failingEventCount: 1 }]
     m.ingestEvent.mockImplementationOnce(failure)
@@ -150,7 +153,7 @@ describe("the telematics poll", () => {
     m.ingestEvent.mockImplementationOnce(failure)
     expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 0, rejected: 1, stored: 1, ok: true })
     expect(m.logAudit).toHaveBeenLastCalledWith(expect.objectContaining({
-      action: "TELEMATICS_EVENT_REJECTED", entityId: "d9", newValue: expect.objectContaining({ providerEventId: "stuck", reason: "failed 3 polls in a row (Error)" }),
+      action: "TELEMATICS_EVENT_REJECTED", entityId: "d9", newValue: expect.objectContaining({ providerEventId: "stuck", reason: "failed 3 polls in a row (PrismaClientUnknownRequestError)" }),
     }))
     expect(updates().at(-1)).toMatchObject({ data: { pollCursor: "c9", failingEventId: null, failingEventCount: 0 } })
     // A different event failing starts the count again.
@@ -158,6 +161,55 @@ describe("the telematics poll", () => {
     m.ingestEvent.mockImplementationOnce(failure)
     expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1, rejected: 0 })
     expect(updates().at(-1)).toMatchObject({ data: { failingEventId: "stuck", failingEventCount: 1 } })
+  })
+
+  it.each([
+    ["a lost connection", () => new Error("connection reset")],
+    ["a deadlock", () => new Prisma.PrismaClientKnownRequestError("deadlock detected", { code: "P2010", clientVersion: "5", meta: { code: "40P01" } })],
+    ["a serialisation failure", () => new Prisma.PrismaClientKnownRequestError("could not serialize", { code: "P2010", clientVersion: "5", meta: { code: "40001" } })],
+    ["a lock timeout", () => new Prisma.PrismaClientKnownRequestError("lock timeout", { code: "P2010", clientVersion: "5", meta: { code: "55P03" } })],
+    ["a write conflict", () => new Prisma.PrismaClientKnownRequestError("write conflict", { code: "P2034", clientVersion: "5" })],
+    ["a pool timeout", () => new Prisma.PrismaClientKnownRequestError("pool timeout", { code: "P2024", clientVersion: "5" })],
+  ])("retries %s for as long as it lasts: no strike, the cursor kept", async (_name, make) => {
+    registerTelematicsProvider({
+      id: "test-transient", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
+      poll: async () => ({ simulated: false, cursors: { "DEV-5": "c5" }, events: [{ providerEventId: "flaky", externalDeviceId: "DEV-5", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
+    })
+    // Two strikes already on this event: a passing fault adds none and never skips it.
+    m.devices = [{ ...device("d5", "DEV-5", "test-transient"), failingEventId: "flaky", failingEventCount: 2 }]
+    m.ingestEvent.mockImplementationOnce(async () => { throw make() })
+    expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1, rejected: 0 })
+    const update = updates().at(-1)!
+    expect(update.data).toMatchObject({ lastPollError: expect.stringMatching(/retried/) })
+    expect(update.data).not.toHaveProperty("pollCursor")
+    expect(update.data).not.toHaveProperty("failingEventCount")
+  })
+
+  it("counts a strike for a database refusal: a unique key, or a raw statement's integrity refusal", async () => {
+    registerTelematicsProvider({
+      id: "test-refused", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
+      poll: async () => ({ simulated: false, cursors: {}, events: [{ providerEventId: "r", externalDeviceId: "DEV-6", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
+    })
+    for (const error of [
+      new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "5" }),
+      new Prisma.PrismaClientKnownRequestError("check", { code: "P2010", clientVersion: "5", meta: { code: "23514" } }),
+    ]) {
+      m.devices = [device("d6", "DEV-6", "test-refused")]
+      m.ingestEvent.mockImplementationOnce(async () => { throw error })
+      expect(await pollTenant("t1", NOW)).toMatchObject({ failed: 1 })
+      expect(updates().at(-1)).toMatchObject({ data: { failingEventId: "r", failingEventCount: 1 } })
+    }
+  })
+
+  it("defers an event the database's clock has not reached (its \"not yet\"), keeping the cursor", async () => {
+    registerTelematicsProvider({
+      id: "test-not-yet", label: "Test", simulated: false, deviceIdError: () => null, assertUsable: () => undefined,
+      poll: async () => ({ simulated: false, cursors: { "DEV-4": "c4" }, events: [{ providerEventId: "soon", externalDeviceId: "DEV-4", occurredAt: NOW, kind: "HEARTBEAT" as const }] }),
+    })
+    m.devices = [device("d4", "DEV-4", "test-not-yet")]
+    m.ingestEvent.mockImplementationOnce(async () => { throw new TelematicsEventNotYet() })
+    expect(await pollTenant("t1", NOW)).toMatchObject({ deferred: 1, failed: 0, rejected: 0, ok: true })
+    expect(updates().at(-1)!.data).not.toHaveProperty("pollCursor")
   })
 
   it("takes the simulated flag from the registered provider, never from its answer", async () => {

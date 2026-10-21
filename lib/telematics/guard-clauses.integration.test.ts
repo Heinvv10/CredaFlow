@@ -112,10 +112,19 @@ suite.sequential("telematics single guard clauses (real DB)", () => {
     await ruleAdmits(database(), (tx) => store(tx, () => recovery(tx, "WITHDRAWN")))
     await ruleRefuses(database(), fn(G, `FROM "Recovery" r WHERE r."tenantId"`, `FROM "Recovery" r WHERE FALSE AND r."tenantId"`), TENURE,
       (tx) => store(tx, () => recovery(tx, "RECOVERED")))
-    // The asset left the lessee during the loan (returned to stock): the tenure ended then.
-    await ruleRefuses(database(), fn(G, `FROM "FinancedAsset" a WHERE a."tenantId"`, `FROM "FinancedAsset" a WHERE FALSE AND a."tenantId"`), TENURE, async (tx) => {
-      await store(tx, () => withTriggersOff(tx, `UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = now() - INTERVAL '1 hour' WHERE "id" = $1`, fx.assets[1]))
-    })
+    // This loan's own end of term took the asset from the lessee: a return inspected yesterday, or a total loss an hour ago.
+    const endOfTerm = (tx: Tx, values: string) => withTriggersOff(tx, `INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "inspectedOn",
+      "inspectedById", "inspectionCondition", "electedAt", "updatedAt") VALUES (gen_random_uuid()::text, $1, $2, ${values}, now())`, fx.tenantId, ids.loanA)
+    const RETURNED = `'EXPIRY', 'RETURN', 'INSPECTED', CURRENT_DATE - 1, '${fx.officer}', 'Synthetic: returned', now() - INTERVAL '2 days'`
+    await ruleRefuses(database(), fn(G, `(e."outcome" = 'RETURN' AND e."inspectedOn" <=`, `(FALSE AND e."inspectedOn" <=`), TENURE,
+      (tx) => store(tx, () => endOfTerm(tx, RETURNED)))
+    await ruleRefuses(database(), fn(G, `OR (e."outcome" = 'TOTAL_LOSS' AND e."electedAt" <= at)`, ""), TENURE,
+      (tx) => store(tx, () => endOfTerm(tx, `'EARLY_TERMINATION', 'TOTAL_LOSS', 'ELECTED', NULL, NULL, NULL, now() - INTERVAL '1 hour'`)))
+    // An end of term not yet reached (a return elected, not inspected) and the asset's lessor status alone end nothing.
+    await ruleAdmits(database(), (tx) => store(tx, async () => {
+      await endOfTerm(tx, `'EXPIRY', 'RETURN', 'ELECTED', NULL, NULL, NULL, now() - INTERVAL '2 days'`)
+      await withTriggersOff(tx, `UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = now() - INTERVAL '1 hour' WHERE "id" = $1`, fx.assets[1])
+    }))
   }, 120_000)
 
   it("raises an alert only from its event's device, asset and kind, at its time; a repeat never moves the last occurrence back", async () => {

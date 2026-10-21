@@ -165,7 +165,7 @@ CREATE UNIQUE INDEX "TrackerDevice_tenantId_id_key" ON "TrackerDevice"("tenantId
 CREATE INDEX "TelematicsEvent_tenantId_deviceId_kind_occurredAt_idx" ON "TelematicsEvent"("tenantId", "deviceId", "kind", "occurredAt");
 
 -- CreateIndex
-CREATE INDEX "TelematicsEvent_tenantId_kind_occurredAt_idx" ON "TelematicsEvent"("tenantId", "kind", "occurredAt");
+CREATE INDEX "TelematicsEvent_tenantId_occurredAt_idx" ON "TelematicsEvent"("tenantId", "occurredAt");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TelematicsEvent_tenantId_id_key" ON "TelematicsEvent"("tenantId", "id");
@@ -387,8 +387,12 @@ $function$;
 -- or before at's SAST day, with no later loan on the asset that ran (not
 -- CANCELLED) started by then, no recovery of the asset under it (a withdrawn
 -- one aside: the asset went back) dated on or before that day, and the asset
--- not out of the lessee's hands (a lessor status set during the loan, at or
--- before `at`: returned, sold, recovered, a total loss). NULL when none: no
+-- not out of the lessee's hands by this loan's own dated end of term: a
+-- return inspected on or before that day, or a total loss recorded at or
+-- before `at` (a completed purchase closes the loan in the same transaction,
+-- and a recovery's sale follows its recovery). Dated records of this loan, never the
+-- asset's current lessor status: that is one value, re-stamped when a
+-- recovery is withdrawn, and may be an earlier lease's. NULL when none: no
 -- position is stored, no alert raised, and only a heartbeat is kept.
 CREATE OR REPLACE FUNCTION public."telematicsLoanAt"(tenant_id TEXT, asset_id TEXT, at TIMESTAMP)
 RETURNS TEXT LANGUAGE sql STABLE AS $function$
@@ -399,8 +403,9 @@ RETURNS TEXT LANGUAGE sql STABLE AS $function$
       AND (n."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
     AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."tenantId" = tenant_id AND r."loanId" = l."id" AND r."status" <> 'WITHDRAWN'
       AND r."recoveredOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
-    AND NOT EXISTS (SELECT 1 FROM "FinancedAsset" a WHERE a."tenantId" = tenant_id AND a."id" = asset_id AND a."lessorStatus" IS NOT NULL
-      AND a."lessorStatusAt" >= l."startDate" AND a."lessorStatusAt" <= at)
+    AND NOT EXISTS (SELECT 1 FROM "LeaseEndOfTerm" e WHERE e."tenantId" = tenant_id AND e."loanId" = l."id" AND (
+      (e."outcome" = 'RETURN' AND e."inspectedOn" <= (at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date)
+      OR (e."outcome" = 'TOTAL_LOSS' AND e."electedAt" <= at)))
   ORDER BY l."startDate" DESC LIMIT 1;
 $function$;
 
@@ -445,7 +450,10 @@ CREATE TRIGGER "TrackerDevice_no_truncate" BEFORE TRUNCATE ON "TrackerDevice"
   FOR EACH STATEMENT EXECUTE FUNCTION public."guardTrackerDevice"();
 
 -- Stored for an ACTIVE device of the tenant, under its provider, between the
--- device's installation (SAST) and five minutes from now; with no agreement
+-- device's installation (SAST) and five minutes from now (a later one is
+-- refused with SQLSTATE 55000, "not yet": the poll defers it, never drops it),
+-- and within the tenant's retention (a purged event delivered again is not
+-- new); with no agreement
 -- covering it (telematicsLoanAt: before payout, after the agreement), only a
 -- heartbeat. Immutable but for a METER event's outcome, set once at ingest and
 -- consistent with what was written then (a held reading accepted later keeps
@@ -479,9 +487,15 @@ BEGIN
     IF NOT FOUND OR device."status" <> 'ACTIVE' OR device."provider" <> NEW."provider" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics event is of an active device of the tenant, under the device''s provider';
     END IF;
-    IF NEW."occurredAt" > (now() AT TIME ZONE 'UTC') + INTERVAL '5 minutes'
-       OR (NEW."occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date < device."installedOn" THEN
+    IF (NEW."occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date < device."installedOn" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics event occurs between the device''s installation and now';
+    END IF;
+    IF NEW."occurredAt" > (now() AT TIME ZONE 'UTC') + INTERVAL '5 minutes' THEN
+      RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'A telematics event occurs between the device''s installation and now (not yet)';
+    END IF;
+    SELECT c."telematicsPositionRetentionDays" INTO retention FROM "TenantConfig" c WHERE c."tenantId" = NEW."tenantId";
+    IF NOT COALESCE(NEW."occurredAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => retention), FALSE) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics event older than the tenant''s retention is not stored';
     END IF;
     IF NEW."meterOutcome" IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A telematics event''s meter outcome is set after the event is stored';

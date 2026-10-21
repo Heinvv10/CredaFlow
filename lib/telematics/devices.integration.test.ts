@@ -108,7 +108,14 @@ suite.sequential("tracker devices (real DB)", () => {
     const live = await database().trackerDevice.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "ACTIVE" } })
     await ruleRefuses(database(), E, /of an active device of the tenant/, (tx) => event(tx, { deviceId: live.id, provider: "other-provider" }))
     await ruleRefuses(database(), E, /between the device's installation and now/, (tx) => event(tx, { deviceId: live.id, occurredAt: new Date(Date.now() - 3 * 86_400_000) }))
-    await ruleRefuses(database(), E, /between the device's installation and now/, (tx) => event(tx, { deviceId: live.id, occurredAt: new Date(Date.now() + 3_600_000) }))
+    await ruleRefuses(database(), E, /between the device's installation and now \(not yet\)/, (tx) => event(tx, { deviceId: live.id, occurredAt: new Date(Date.now() + 3_600_000) }))
+    // Older than the tenant's retention: a purged event delivered again is not stored as new (retention 1 day here).
+    await ruleRefuses(database(), { fn: "guardTelematicsEvent", replace: [`IF NOT COALESCE(NEW."occurredAt" >= (now() AT TIME ZONE 'UTC') - make_interval(days => retention), FALSE) THEN`, "IF FALSE THEN"] },
+      /older than the tenant's retention is not stored/, async (tx) => {
+        await tx.tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { telematicsPositionRetentionDays: 1 } })
+        const earlier = await device(tx, fx.assets[2], "SIM-STEADY-8", { installedOn: dbDate(daysAgo(5)) })
+        await event(tx, { deviceId: earlier.id, occurredAt: new Date(Date.now() - 2 * 86_400_000) })
+      })
     await ruleRefuses(database(), E, /outcome is set after the event is stored/, (tx) => event(tx, { deviceId: live.id, kind: "METER", meterValue: 1, meterUnit: "HOURS", meterOutcome: "SAME_DAY" }))
     await ruleRefuses(database(), { table: "TelematicsEvent", constraint: "TelematicsEvent_kind_shape" }, /TelematicsEvent_kind_shape/,
       (tx) => event(tx, { deviceId: live.id, meterValue: 1, meterUnit: "HOURS" }))
@@ -120,6 +127,7 @@ suite.sequential("tracker devices (real DB)", () => {
     await ruleAdmits(database(), (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: "e-1", failingEventCount: 2 } }))
     await ruleRefuses(database(), SHAPE, /TrackerDevice_failing_event_shape/, (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: "e-1", failingEventCount: 0 } }))
     await ruleRefuses(database(), SHAPE, /TrackerDevice_failing_event_shape/, (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: null, failingEventCount: 1 } }))
+    await ruleRefuses(database(), SHAPE, /TrackerDevice_failing_event_shape/, (tx) => tx.trackerDevice.update({ where: { id: live.id }, data: { failingEventId: "e-1", failingEventCount: -1 } }))
   }, 120_000)
 
   it("keeps only a heartbeat when no agreement covers the event (this asset has none)", async () => {

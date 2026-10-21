@@ -133,7 +133,7 @@ model TelematicsEvent {
   @@unique([tenantId, id])
   @@unique([tenantId, provider, providerEventId])
   @@index([tenantId, deviceId, kind, occurredAt])
-  @@index([tenantId, kind, occurredAt])
+  @@index([tenantId, occurredAt])
 }
 
 // The only copy of a coordinate, and only the latest per device (POPIA

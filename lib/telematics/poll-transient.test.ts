@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 // Round-2 breaker repro (PR #222), asserting the fix: a transient deadlock
 // whose Postgres detail names a backend PID that happens to read like a rule
 // SQLSTATE is a failure worth retrying (the classification reads structured
-// codes, never the message): counted as failed, the cursor kept.
+// codes, never the message): counted as failed, the cursor kept, no strike.
 const m = vi.hoisted(() => ({
   updateMany: vi.fn(async (_args: unknown) => ({ count: 1 })),
   logAudit: vi.fn(async (_entry: unknown) => undefined),
@@ -46,6 +46,7 @@ describe("a deadlock (40P01) is retried, never skipped", () => {
     expect(m.logAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: "TELEMATICS_EVENT_REJECTED" }))
     const update = m.updateMany.mock.calls.at(-1)?.[0] as { data: Record<string, unknown> }
     expect(update.data).not.toHaveProperty("pollCursor")
-    expect(update.data).toMatchObject({ failingEventId: "e-1", failingEventCount: 1 })
+    // A deadlock is a passing fault: retried for as long as it lasts, never a strike toward the skip.
+    expect(update.data).not.toHaveProperty("failingEventCount")
   })
 })

@@ -12,12 +12,17 @@
  * dropped and counted. An event refused for what it is (event-shape.ts, or
  * the database refusing the event row itself, event-insert.ts) is skipped,
  * counted and audited, and the cursor moves past it. An event still in the
- * future waits. Any other failure (a race, a deadlock, a refusal later in the
- * event's transaction) keeps the cursor and is retried next time, which the
- * idempotent ingest makes safe; a device failing on the same event three
- * polls in a row skips it, audited with that reason, so nothing wedges a
- * device for good. Whether events are simulated is the registered provider's
- * own definition, never the provider's answer.
+ * future waits, by the poll's clock or the database's (SQLSTATE 55000). Any
+ * other failure keeps the cursor and is retried next time, which the
+ * idempotent ingest makes safe. A transient one (a lost connection, a
+ * deadlock, a serialisation or lock timeout, anything that is not a database
+ * refusal) is retried for as long as it lasts. A refusal no rule names (a
+ * constraint or guard later in the event's transaction) counts a strike:
+ * three polls in a row on the same event skip it, audited with that reason,
+ * so nothing wedges a device for good. Every class is read from structured
+ * fields (the error's class, Prisma code, SQLSTATE), never its message.
+ * Whether events are simulated is the registered provider's own definition,
+ * never the provider's answer.
  */
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
@@ -25,7 +30,7 @@ import { runWithTenant } from "@/lib/tenant-scope"
 import { AuditAction, logAudit } from "@/lib/audit"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
 import { ingestEvent } from "./ingest"
-import { invalidEvent, TelematicsEventRejected } from "./event-shape"
+import { invalidEvent, TelematicsEventNotYet, TelematicsEventRejected, TelematicsEventUnroutable } from "./event-shape"
 import { getTelematicsProvider } from "./registry"
 import { TelematicsProviderError, type TelematicsPollResult } from "./types"
 
@@ -59,6 +64,27 @@ export const PRE_BOOKING_DEAL_STATUSES = ["APPROVED", "CONTRACTED"] as const
 type PolledDevice = {
   id: string; tenantId: string; assetId: string; provider: string; externalDeviceId: string; installedOn: Date; pollCursor: string | null; meterVerifiedAt: Date | null
   failingEventId: string | null; failingEventCount: number
+}
+
+/** Prisma codes of a passing failure: a pool or interactive-transaction timeout, a write conflict or deadlock. */
+const TRANSIENT_PRISMA = new Set(["P2024", "P2028", "P2034"])
+
+/**
+ * Whether a failure is a database refusal (counts a strike) rather than a
+ * passing fault (retried for as long as it lasts): a Prisma request error
+ * that is not a timeout or conflict, a raw statement's integrity or data
+ * refusal (SQLSTATE class 23 or 22), the refusal Prisma reports without a
+ * code (a guard's RAISE through a query), or an event no route takes.
+ */
+function isRefusal(error: unknown): boolean {
+  if (error instanceof TelematicsEventUnroutable) return true
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) return true
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  if (error.code === "P2010") {
+    const sqlState = (error.meta as { code?: unknown } | undefined)?.code
+    return typeof sqlState === "string" && (sqlState.startsWith("23") || sqlState.startsWith("22"))
+  }
+  return error.code.startsWith("P2") && !TRANSIENT_PRISMA.has(error.code)
 }
 
 /** A failure's structured kind for the audit: the Prisma code (and SQLSTATE of a raw statement), or the error's class. Never its message. */
@@ -97,7 +123,8 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
     return
   }
   const byExternalId = new Map(devices.map((d) => [d.externalDeviceId, d]))
-  const failedDevices = new Map<string, { eventId: string; count: number }>()
+  /** Devices whose event failed this poll: with the strike to record for a refusal, null for a passing fault (the count stands). */
+  const failedDevices = new Map<string, { eventId: string; count: number } | null>()
   const waitingDevices = new Set<string>()
   const simulated = provider.simulated
   for (const event of result.events) {
@@ -107,7 +134,7 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
       continue
     }
     if (failedDevices.has(device.id) || waitingDevices.has(device.id)) continue
-    const invalid = invalidEvent(event, { installedOn: isoOfDbDate(device.installedOn), now })
+    const invalid = invalidEvent(event, { installedOn: isoOfDbDate(device.installedOn), now, retentionDays })
     if (invalid) {
       await rejectEvent(run, device, event.providerEventId, invalid)
       continue
@@ -127,6 +154,17 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
         await rejectEvent(run, device, event.providerEventId, error.reason)
         continue
       }
+      if (error instanceof TelematicsEventNotYet) {
+        run.deferred++
+        waitingDevices.add(device.id)
+        continue
+      }
+      if (!isRefusal(error)) {
+        run.failed++
+        failedDevices.set(device.id, null)
+        console.error("[telematics-poll] event failed, retried", { tenantId, deviceId: device.id, providerEventId: printable(event.providerEventId), error: failureKind(error) })
+        continue
+      }
       const count = device.failingEventId === event.providerEventId ? device.failingEventCount + 1 : 1
       if (count >= MAX_EVENT_ATTEMPTS) {
         await rejectEvent(run, device, event.providerEventId, `failed ${count} polls in a row (${failureKind(error)})`)
@@ -142,8 +180,8 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
     const failing = failedDevices.get(device.id)
     await prisma.trackerDevice.updateMany({
       where: { id: device.id, tenantId, status: "ACTIVE" },
-      data: failing
-        ? { lastPolledAt: now, lastPollError: FAILED_EVENT, failingEventId: failing.eventId, failingEventCount: failing.count }
+      data: failedDevices.has(device.id)
+        ? { lastPolledAt: now, lastPollError: FAILED_EVENT, ...(failing ? { failingEventId: failing.eventId, failingEventCount: failing.count } : {}) }
         : {
           lastPolledAt: now, lastPollError: null, failingEventId: null, failingEventCount: 0,
           ...(cursor && !waitingDevices.has(device.id) ? { pollCursor: cursor } : {}),
@@ -161,7 +199,7 @@ export async function pollTenant(tenantId: string, now: Date): Promise<Telematic
     const underAgreement = await prisma.$queryRaw<{ id: string }[]>`
       SELECT d."id" FROM "TrackerDevice" d
       WHERE d."tenantId" = ${tenantId} AND d."status" = 'ACTIVE'
-        AND (public."telematicsLoanAt"(d."tenantId", d."assetId", (now() AT TIME ZONE 'UTC')) IS NOT NULL
+        AND (public."telematicsLoanAt"(d."tenantId", d."assetId", (${now.toISOString()}::timestamptz AT TIME ZONE 'UTC')) IS NOT NULL
           OR EXISTS (SELECT 1 FROM "AssetFinanceDeal" x WHERE x."tenantId" = d."tenantId" AND x."assetId" = d."assetId"
             AND x."status"::text IN (${Prisma.join([...PRE_BOOKING_DEAL_STATUSES])})))`
     const devices = await prisma.trackerDevice.findMany({

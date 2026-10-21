@@ -43,20 +43,23 @@ const sastDayStart = (day: string) => new Date(Date.parse(`${day}T00:00:00.000Z`
 /**
  * When this loan's tenure of the asset ends, as telematicsLoanAt has it: the
  * SAST day the next loan that ran (not CANCELLED) started, the loan's closing,
- * the earliest recovery that was not withdrawn, or the asset leaving the
- * lessee during the loan (its lessor status: returned, sold, recovered, a
- * total loss).
+ * the earliest recovery that was not withdrawn, or this loan's own end of
+ * term taking the asset from the lessee (a return inspected, a total loss).
+ * Never the asset's current lessor status (one value,
+ * re-stamped by a withdrawn recovery, perhaps an earlier lease's).
  */
 async function tenureEnd(tenantId: string, loan: { id: string; assetId: string; startDate: Date; closedAt: Date | null }): Promise<Date | null> {
-  const [next, recovery, asset] = await Promise.all([
+  const [next, recovery, endOfTerm] = await Promise.all([
     prisma.loan.findFirst({
       where: { tenantId, assetId: loan.assetId, id: { not: loan.id }, status: { not: "CANCELLED" }, startDate: { gt: loan.startDate } },
       orderBy: { startDate: "asc" }, select: { startDate: true },
     }),
     prisma.recovery.findFirst({ where: { tenantId, loanId: loan.id, status: { not: "WITHDRAWN" } }, orderBy: { recoveredOn: "asc" }, select: { recoveredOn: true } }),
-    prisma.financedAsset.findFirst({ where: { id: loan.assetId, tenantId }, select: { lessorStatus: true, lessorStatusAt: true } }),
+    prisma.leaseEndOfTerm.findFirst({ where: { tenantId, loanId: loan.id }, select: { outcome: true, inspectedOn: true, electedAt: true } }),
   ])
-  const leftLessee = asset?.lessorStatus && asset.lessorStatusAt && asset.lessorStatusAt >= loan.startDate ? asset.lessorStatusAt : null
+  const leftLessee = !endOfTerm ? null
+    : endOfTerm.outcome === "RETURN" ? (endOfTerm.inspectedOn ? sastDayStart(isoOfDbDate(endOfTerm.inspectedOn)) : null)
+      : endOfTerm.outcome === "TOTAL_LOSS" ? endOfTerm.electedAt : null
   const ends = [next ? sastDayStart(sastCalendarDate(next.startDate)) : null, loan.closedAt, recovery ? sastDayStart(isoOfDbDate(recovery.recoveredOn)) : null, leftLessee]
     .filter((d): d is Date => d instanceof Date)
   return ends.length > 0 ? new Date(Math.min(...ends.map((d) => d.getTime()))) : null

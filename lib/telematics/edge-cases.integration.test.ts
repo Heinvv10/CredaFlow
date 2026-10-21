@@ -17,6 +17,7 @@ import { SAST_OFFSET_MS, sastCalendarDate } from "@/lib/date/sast"
 import { pollTenant } from "./poll"
 import { purgeTelematicsPositions } from "./purge"
 import { simulatedTelematics, SIMULATED_PAGE_SIZE } from "./providers/simulated"
+import { TelematicsEventNotYet } from "./event-shape"
 import { ceilingOn, edgeHelpers, evening, heartbeat, positionEvent } from "./edge.integration-fixture"
 import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, meterEvent, telematicsTestClient, today } from "./telematics.integration-fixture"
 
@@ -92,11 +93,11 @@ suite.sequential("telematics edge cases: days, clocks, paging, retention (real D
     expect(await ingest(l.deviceId, evening(l.externalDeviceId, daysAgo(5), 2_000_000_000))).toMatchObject({ stored: true, meterOutcome: "RECORDED" })
   }, 300_000)
 
-  it("future events: 4m50s ahead is stored, 6 minutes ahead is refused by the database", async () => {
+  it("future events: 4m50s ahead is stored, 6 minutes ahead is the database's \"not yet\" (deferred by the poll, never dropped)", async () => {
     const d = await bareDevice(today())
     const soon = new Date(Date.now() + 290_000)
     expect(await ingest(d.deviceId, heartbeat(d.externalDeviceId, soon))).toMatchObject({ stored: true })
-    await expect(ingest(d.deviceId, heartbeat(d.externalDeviceId, new Date(Date.now() + 360_000)))).rejects.toThrow(/between the device's installation and now/)
+    await expect(ingest(d.deviceId, heartbeat(d.externalDeviceId, new Date(Date.now() + 360_000)))).rejects.toThrow(TelematicsEventNotYet)
   }, 300_000)
 
   it("an event ahead of the poll's clock waits (cursor kept) and is recorded by the next poll, never lost as 'lease not running'", async () => {

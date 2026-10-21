@@ -5,7 +5,7 @@ import type { NormalisedTelematicsEvent } from "./types"
 // An event the database would refuse must be refused here: the poll skips it
 // and moves the cursor past it, so one bad event cannot wedge a device.
 const NOW = new Date("2026-09-01T10:00:00Z")
-const at = { installedOn: "2026-08-01", now: NOW }
+const at = { installedOn: "2026-08-01", now: NOW, retentionDays: 90 }
 const meter = (value: number): NormalisedTelematicsEvent =>
   ({ externalDeviceId: "D", providerEventId: "e1", kind: "METER", occurredAt: new Date("2026-09-01T10:00:00Z"), meter: { value, unit: "HOURS" } }) as NormalisedTelematicsEvent
 const heartbeat = (over: Partial<NormalisedTelematicsEvent> = {}): NormalisedTelematicsEvent =>
@@ -40,6 +40,10 @@ describe("invalidEvent vs the text and time rules", () => {
     expect(invalidEvent(heartbeat({ occurredAt: new Date("2026-07-31T22:00:00.000Z") }), at)).toBeNull()
     expect(invalidEvent(heartbeat({ occurredAt: new Date(NOW.getTime() + 5 * 60_000) }), at)).toBeNull()
     expect(invalidEvent(heartbeat({ occurredAt: new Date(NOW.getTime() + 5 * 60_000 + 1) }), at)).toBe("more than five minutes ahead")
+    // Older than the tenant's retention (a purged event delivered again): refused, a minute's margin for the database's clock.
+    const DAY = 86_400_000
+    expect(invalidEvent(heartbeat({ occurredAt: new Date(NOW.getTime() - 10 * DAY + 61_000) }), { ...at, installedOn: "2026-01-01", retentionDays: 10 })).toBeNull()
+    expect(invalidEvent(heartbeat({ occurredAt: new Date(NOW.getTime() - 10 * DAY + 59_000) }), { ...at, installedOn: "2026-01-01", retentionDays: 10 })).toBe("older than the retention")
     // Without the device's context only the shape is checked.
     expect(invalidEvent(heartbeat({ occurredAt: new Date("2020-01-01T00:00:00Z") }))).toBeNull()
   })

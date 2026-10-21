@@ -11,11 +11,13 @@
 import { randomUUID } from "node:crypto"
 import { Prisma } from "@prisma/client"
 import type { SigningTx } from "@/lib/asset-finance/signing-prepare"
-import { TelematicsEventRejected } from "./event-shape"
+import { TelematicsEventNotYet, TelematicsEventRejected } from "./event-shape"
 import type { NormalisedTelematicsEvent } from "./types"
 
 /** SQLSTATEs the event insert raises only for the event itself: its guard or a CHECK (23514), a NUL or untranslatable byte, a number or text too large. */
-const EVENT_INTRINSIC = new Set(["23514", "22021", "22P05", "22003", "22001"])
+export const EVENT_INTRINSIC: ReadonlySet<string> = new Set(["23514", "22021", "22P05", "22003", "22001"])
+/** The event guard's "not yet": the database's clock is behind the event (deferred, never dropped). */
+const NOT_YET = "55000"
 
 /** The SQLSTATE and the database's message of a raw statement's refusal (P2010 `meta`), or null. */
 export function rawSqlState(error: unknown): { code: string; message: string } | null {
@@ -49,6 +51,7 @@ export async function insertEvent(
     return row?.id ?? null
   } catch (error) {
     const refusal = rawSqlState(error)
+    if (refusal?.code === NOT_YET) throw new TelematicsEventNotYet()
     if (refusal && EVENT_INTRINSIC.has(refusal.code)) {
       throw new TelematicsEventRejected(`database refused the event (${refusal.code}): ${refusal.message.replace(/^ERROR: /, "").slice(0, 300)}`)
     }

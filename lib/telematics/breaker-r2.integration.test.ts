@@ -68,8 +68,11 @@ suite.sequential("telematics policy breaker, round 2 (real DB)", () => {
 
   it("an asset returned to the lessor's stock (end-of-term invoice unpaid, loan DEFAULTED) is no longer tracked under the ex-lessee's loan", async () => {
     // The lessee returned the asset 5 days ago (RETURNED_TO_STOCK); the end-of-term invoice is unpaid, so the loan is still open and now in default.
+    // The return is dated by the loan's own end of term (inspected 5 days ago), not by the asset's status stamp.
     await testSetup(database(),
       [`UPDATE "FinancedAsset" SET "lessorStatus" = 'RETURNED_TO_STOCK', "lessorStatusAt" = now() - INTERVAL '5 days' WHERE "id" = $1`, fx.assets[1]],
+      [`INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "inspectedOn", "inspectedById", "inspectionCondition", "updatedAt")
+        VALUES (gen_random_uuid()::text, $1, $2, 'EXPIRY', 'RETURN', 'INSPECTED', CURRENT_DATE - 5, $3, 'Synthetic: returned in fair condition', now())`, fx.tenantId, ids.loan, fx.officer],
       [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.loan])
     const device = { id: ids.device, tenantId: fx.tenantId, assetId: fx.assets[1], provider: "simulated" }
     const ctx = { now: new Date(), simulated: true, retentionDays: 90 }

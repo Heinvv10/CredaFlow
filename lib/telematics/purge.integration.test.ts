@@ -145,13 +145,14 @@ suite.sequential("telematics position purge (real DB)", () => {
     expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: "TELEMATICS_POSITIONS_PURGED" } })).toBe(1)
   }, 120_000)
 
-  it("drops a position already past retention when it arrives, keeping its event", async () => {
+  it("refuses an event (and its position) already past retention when it arrives: nothing is kept", async () => {
     const device = await database().trackerDevice.findUniqueOrThrow({ where: { id: ids.device } })
-    const outcome = await database().$transaction((tx) => ingestEvent(tx as never, device, {
-      providerEventId: `it:${randomUUID()}`, externalDeviceId: device.externalDeviceId, occurredAt: before(40), kind: "POSITION",
+    const providerEventId = `it:${randomUUID()}`
+    await expect(database().$transaction((tx) => ingestEvent(tx as never, device, {
+      providerEventId, externalDeviceId: device.externalDeviceId, occurredAt: before(40), kind: "POSITION",
       position: { latitude: -35.01, longitude: 20.01, accuracyM: 5 },
-    }, { now: new Date(), simulated: true, retentionDays: 30 }))
-    expect(outcome).toMatchObject({ stored: true, positionStored: false })
+    }, { now: new Date(), simulated: true, retentionDays: 30 }))).rejects.toThrow(/older than the tenant's retention is not stored/)
+    expect(await database().telematicsEvent.count({ where: { providerEventId } })).toBe(0)
   }, 120_000)
 
   it("refuses a stale position, deleting a business or a young event, truncating positions, and a retention outside 1 to 365 days", async () => {

@@ -898,14 +898,17 @@ Added by the review round 1 (PR #222):
     is not) that started on or before `at`'s SAST day, with no later loan on
     the asset that ran (not CANCELLED) started by then, no recovery under it
     (a withdrawn one aside) dated on or before that day, and the asset still in
-    the lessee's hands: a lessor status set during the loan (RETURNED_TO_STOCK,
-    SOLD_TO_LESSEE, RECOVERED, SOLD_IN_REMARKETING, TOTAL_LOSS) ends the tenure
-    at its `lessorStatusAt`. `guardTelematicsPosition` and
+    the lessee's hands by this loan's own dated end of term: a return
+    inspected on or before that day, or a total loss recorded at or before the
+    event (a completed purchase closes the loan in the same transaction; a
+    recovery's sale follows its recovery). Never the asset's current lessor
+    status (review round 3): that is one value, re-stamped now when a
+    recovery is withdrawn on a re-let asset, and possibly an earlier lease's. `guardTelematicsPosition` and
     `guardTelematicsAlert` enforce it; an alert's `loanId` is that loan (NOT
     NULL). With no loan covering it, only a heartbeat event is kept
     (`guardTelematicsEvent`; the ingest does not store anything else). The
-    poll takes only devices whose asset has a loan covering now, or a deal
-    awaiting payout (Deviation 19). After settlement, closure, write-off,
+    poll takes only devices whose asset has a loan covering the poll's own
+    clock, or a deal awaiting payout (Deviation 19). After settlement, closure, write-off,
     recovery or the asset's return nothing is polled; the last in-tenure
     position stays until the retention purge.
 15. **Only the latest position per device.** `TelematicsPosition` is unique on
@@ -942,7 +945,10 @@ Added by the review round 1 (PR #222):
 18. **One bad event never wedges a device; no good event is dropped.**
     `invalidEvent` also refuses a meter value or accuracy outside INTEGER, a
     control character in an id, an event dated before the device's
-    installation (SAST) and one more than five minutes ahead of the poll. The
+    installation (SAST), one more than five minutes ahead of the poll, and one
+    older than the tenant's retention: `guardTelematicsEvent` refuses that too,
+    so a purged event the provider delivers again is not stored as new (review
+    round 3: it opened a fresh alert). The
     event row is inserted by a raw statement (`event-insert.ts`), so its
     refusal carries its SQLSTATE in a structured field (`meta.code`), never
     read out of message text. Only that statement's refusals of the event
@@ -950,13 +956,18 @@ Added by the review round 1 (PR #222):
     permanent: skipped, counted as rejected, audited
     `TELEMATICS_EVENT_REJECTED` (provider event id with control characters
     replaced, the reason and the database's message, no payload), and the
-    cursor moves past it. Anything later in the event's transaction (a race
-    with staff, a deadlock, a serialisation failure, any other refusal) keeps
-    the cursor and is retried next poll. A device failing on the same event
-    three polls in a row (`TrackerDevice.failingEventId / failingEventCount`)
-    skips it, audited "failed 3 polls in a row (<Prisma code or class>)". An
-    event ahead of the poll's clock (within the five minutes) is deferred:
-    the device keeps its cursor and the next poll takes it. A provider or
+    cursor moves past it. Anything later in the event's transaction keeps the
+    cursor and is retried next poll. A passing fault (a lost connection, a
+    deadlock 40P01, a serialisation failure 40001, a lock or pool timeout, a
+    write conflict, any error that is not a database refusal) is retried for
+    as long as it lasts and never counts. A database refusal no rule names (a
+    Prisma request error, a raw statement's class 23 or 22) counts a strike:
+    the same event struck three polls in a row
+    (`TrackerDevice.failingEventId / failingEventCount`) is skipped, audited
+    "failed 3 polls in a row (<Prisma code or class>)". An event ahead of the
+    poll's clock (within the five minutes), or one the database's clock has
+    not reached (the guard's own SQLSTATE 55000, clock skew), is deferred: the
+    device keeps its cursor and the next poll takes it. A provider or
     transport failure keeps the cursor. The device row is locked
     (`FOR UPDATE`) at the start of each event's transaction, so overlapping
     sweeps take turns. Whether events are simulated is the registered
@@ -1010,7 +1021,7 @@ model TrackerDevice {      // assetId (→ FinancedAsset), provider String (regi
 model TelematicsEvent {    // deviceId, provider (copied from device), providerEventId, kind, occurredAt, receivedAt @default(now()),
                            // meterValue Int?, meterUnit UsageUnit?, ignitionOn Boolean?, alertKind TelematicsAlertKind?,
                            // simulated Boolean, meterOutcome TelematicsMeterOutcome?; @@unique([tenantId, provider, providerEventId]);
-                           // @@index([tenantId, deviceId, kind, occurredAt]), @@index([tenantId, kind, occurredAt]) (the purge)
+                           // @@index([tenantId, deviceId, kind, occurredAt]), @@index([tenantId, occurredAt]) (the purge)
 }
 model TelematicsPosition { // eventId @unique (→ TelematicsEvent), deviceId, occurredAt, latitude Decimal(9,6), longitude Decimal(9,6),
                            // accuracyM Int?; @@unique([tenantId, deviceId]) (the latest only); @@index([tenantId, occurredAt]) (the purge)
@@ -1099,8 +1110,10 @@ Additive columns:
 - `guardTelematicsEvent`:
   - INSERT: the device is the tenant's and ACTIVE, and `provider` = the
     device's provider. `occurredAt` is no later than `now() + interval '5 minutes'`
-    and its SAST date is no earlier than `installedOn`. `meterOutcome` is NULL.
-    Unless `telematicsLoanAt` covers it, only a HEARTBEAT is stored.
+    and its SAST date is no earlier than `installedOn` (a later event is
+    refused with SQLSTATE 55000, "not yet", which the poll defers). It is no
+    older than the tenant's retention. `meterOutcome` is NULL. Unless
+    `telematicsLoanAt` covers it, only a HEARTBEAT is stored.
   - UPDATE: only `meterOutcome` may change, NULL → a value, METER only, and
     consistently at ingest: RECORDED exactly when an `AssetMeterReading` names
     the event, HELD exactly when a `TelematicsHeldReading` does. It is the
@@ -1551,10 +1564,15 @@ turn a named test red.
 - **The alert queue moves only with a repeat.** It is re-evaluated when the
   device reports the alert again; an item that never repeats keeps the queue
   it was raised in, even if the loan defaults later.
-- **Only the current lessor status is on file.** The tenure ends at the
-  asset's `lessorStatusAt` when that was set during the loan. A withdrawn
-  recovery that restores an earlier status stamps it now, which ends a running
-  loan's tenure early (collection stops: the safe side).
+- **A device stops being polled when its tenure ends.** Devices are chosen by
+  whether an agreement covers the poll's clock. If a provider outage spans
+  the asset's return or recovery, the tail of the tenure (a tamper just before
+  it, the last meter days) is never fetched.
+- **Events older than the retention are refused.** A device offline longer
+  than the tenant's retention loses that backlog, meter readings included.
+- **A refusal no rule names, three polls running, skips the event.** Audited
+  with its Prisma code or class; there is no quarantine to re-drive it.
+  Passing faults never count.
 - **Evidence for accept and verify is a note.** Neither takes a document
   (for example a dashboard photo); what counts as enough is counsel item 6.
 - **Polling only:** no provider webhook.
@@ -1569,7 +1587,9 @@ turn a named test red.
      and the s18 POPIA notice. No template wording is changed here.
   2. **Purpose gate.** The position is shown for default, an open recovery or
      an open legal matter only (Deviation 3). Is that right, and is a THEFT
-     purpose needed (an asset stolen from a borrower in good standing)?
+     purpose needed (an asset stolen from a borrower in good standing)? A loan
+     PENDING_WRITE_OFF counts as covering and as in default (the debt is
+     still collectable, s11(1)(f)); WRITTEN_OFF ends both.
   3. **Retention and the trail.** 90 days by default (1 to 365), and only the
      latest position per device (Deviation 15). Is the latest position
      enough, or does a theft or affidavit trail need a counsel decision?
@@ -1577,8 +1597,11 @@ turn a named test red.
      employees: are they data subjects whose location is processed, and what
      notice do they get?
   5. **DSAR for telematics data.** Access, correction and erasure of events,
-     positions and the access log (manual today; an event a reading, held
-     reading or alert refers to cannot be erased while that record stands).
+     positions and the access log (manual today). A position can be erased
+     at any time; an event row (a heartbeat or ignition timestamp, no
+     location) only once past retention and when nothing refers to it; an
+     event a reading, held reading or alert refers to stays while that record
+     stands.
   6. **Excess billing from device readings.** Unattended readings feed the
      projected excess and the end-of-term billing; the lessee's right to
      dispute a device reading, and whether staff need a void or supersede
@@ -1671,6 +1694,22 @@ migration was again edited in place.
 | A rejected hold leaves room | `edge-round2.integration.test.ts`, `guards.integration.test.ts` | IT | a corrected same-day event RECORDED after a reject; a second live hold the same day refused |
 | The deferred accepted-hold check | `guard-clauses.integration.test.ts` | IT | another event's ACCEPTED hold naming the reading; the reading's own hold REJECTED (CHECK off) |
 | The simulated flag is the provider's | `poll.test.ts`, `breaker-r2.integration.test.ts` | unit + IT | a real provider answering `simulated: true` → events not simulated, unverified meter METER_UNVERIFIED |
+
+Review round 3 (PR #222): the tenure ends by this loan's own dated end of term
+(a return inspected, a total loss), never the asset's lessor status; an event
+older than retention is refused; passing faults never count toward the skip;
+the database's "not yet" defers; the poll's clock selects devices; the purge
+index is `(tenantId, occurredAt)`. Deviations 14 and 18, Known limitations
+and counsel items 2 and 5 updated.
+
+| Rule (round 3) | Test file | Kind | Negative cases |
+|---|---|---|---|
+| Tenure ends by the loan's own end of term, not the lessor status | `breaker-r3.integration.test.ts`, `edge-round3.integration.test.ts`, `lessor-status-bounds.integration.test.ts`, `guard-clauses.integration.test.ts`, `breaker-r2.integration.test.ts` | IT | a withdrawn recovery on a re-let asset leaves it covered, an alert raised, the device polled; a status stamp alone (earlier lease, after the event, at the loan's start) ends nothing; a return inspected yesterday ends it from that day's start; a total loss ends it; a return only elected does not |
+| A purged event delivered again is refused | `breaker-r3.integration.test.ts`, `devices.integration.test.ts`, `purge.integration.test.ts`, `event-shape.test.ts` | IT + unit | the repeat after purge refused (no new item); an event older than retention refused by the DB and by `invalidEvent` (a minute's margin) |
+| Passing faults retried, refusals struck | `poll.test.ts`, `poll-transient.test.ts`, `event-insert.test.ts` | unit | connection loss, 40P01, 40001, 55P03, P2034, P2024 → no strike, cursor kept; P2002 and a raw 23514 → a strike; the insert's 23514, 22021, 22P05, 22003, 22001 → rejected; 55000 → deferred |
+| The database's "not yet" defers | `edge-round3.integration.test.ts`, `edge-cases.integration.test.ts`, `poll.test.ts` | IT + unit | a poll clock ten minutes ahead: the event deferred, cursor kept |
+| The poll's own clock selects devices | `edge-round3.integration.test.ts`, `poll.test.ts` | IT + unit | a poll dated before the lease began does not ask for the device |
+| The retry counter is never negative | `devices.integration.test.ts` | IT | count −1 refused by the shape CHECK |
 
 
 ## Part C — Valuation guides

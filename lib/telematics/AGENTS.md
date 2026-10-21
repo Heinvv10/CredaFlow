@@ -15,8 +15,8 @@
 - The only idempotency key is (tenant, provider, providerEventId): `ingest.ts` locks the device row, inserts
   ON CONFLICT DO NOTHING (`event-insert.ts`, raw: the SQLSTATE is structured) and stops on a duplicate. Only an
   event refused for what it is (`event-shape.ts`, or the event insert's own refusal) is skipped and audited, the
-  cursor past it; anything else retries, and three failing polls on one event skip it. Never classify by
-  message text. `simulated` is the registered provider's flag, never its answer.
+  cursor past it; a passing fault retries for good; a refusal no rule names strikes, three on one event skip
+  it. Never classify by message text. `simulated` is the registered provider's flag, never its answer.
 
 ## Meter readings
 - A tracker reading goes through `recordMeterReading`'s telematics arm (source TELEMATICS), never a raw insert:
@@ -26,8 +26,9 @@
   (`verifyTrackerMeter`, METER_UNVERIFIED). `guardTelematicsMeterReading` repeats it all.
 
 ## Position (POPIA)
-- Collection ends with the agreement: a position is stored, and an alert raised, only while a running loan's
-  tenure covers the event (`telematicsLoanAt`, DB-enforced). One position per device, the latest.
+- Collection ends with the agreement: a position is stored, and an alert raised, only while a loan's tenure
+  covers the event (`telematicsLoanAt`, DB-enforced; ended by the loan's own dated records, never the asset's
+  lessor status). One position per device, the latest. An event older than retention is refused.
 - `position-view.ts` is the only read path for a coordinate (`position-read-path.test.ts`): view_asset_position
   (never READONLY, INSURANCE_OFFICER or a dealer), a purpose the loan has now (DEFAULT, RECOVERY, LEGAL_MATTER),
   its own tenure (ends at the next loan, its closing or a recovery), within retention, and an access row written
