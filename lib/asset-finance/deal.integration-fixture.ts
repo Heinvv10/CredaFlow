@@ -164,6 +164,8 @@ export async function cleanupDealFixture(db: PrismaClient, fx: Pick<DealFixture,
     db.loan.deleteMany({ where: { tenantId } }),
     db.supplierBankAccount.deleteMany({ where: { tenantId } }),
     db.auditLog.deleteMany({ where: { tenantId } }),
+    // Append-only; the replica role above skips its trigger, as for the other guarded rows.
+    db.creditDecisionRecord.deleteMany({ where: { tenantId } }),
     db.complianceRecord.deleteMany({ where: { tenantId } }),
     db.creditBureauCheck.deleteMany({ where: { tenantId } }),
     db.clientDocument.deleteMany({ where: { tenantId } }),

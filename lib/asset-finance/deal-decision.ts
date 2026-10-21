@@ -36,6 +36,8 @@ import type { RegimeTx } from "./classification"
 import { hasPendingNonNcaOverride, lockDeal, type DealActor } from "./deal-submit"
 import { loadDealExceptions } from "./deal-exceptions"
 import type { RecordedException } from "./deal-exception-severity"
+import { recordDecisions } from "@/lib/learning-loop/decision-log"
+import { assetFinanceDecisionRecords } from "@/lib/learning-loop/records-asset-finance"
 
 export const CREDIT_DECISIONS = ["APPROVE", "DECLINE", "REFER"] as const
 export type CreditDecisionValue = (typeof CREDIT_DECISIONS)[number]
@@ -219,5 +221,25 @@ export async function decideDeal(tx: RegimeTx, actor: DealActor, dealId: string,
     },
     tx,
   )
+  await recordDecisions(tx, assetFinanceDecisionRecords({
+    tenantId,
+    dealId: deal.id,
+    applicationId,
+    clientId: app.clientId,
+    actor: { userId: actor.userId, role: actor.role ?? null },
+    decidedAt: now,
+    decision: input.decision,
+    ncaRegime: app.ncaRegime,
+    productType: app.product.productType,
+    appliedAmountCents: app.appliedAmount,
+    appliedTermDays: app.appliedTermDays,
+    dscr: deal.financials?.dscr?.toNumber() ?? null,
+    gearing: deal.financials?.gearing?.toNumber() ?? null,
+    creditMemo: deal.financials !== null,
+    s81Affordable: deal.affordabilityAssessment?.affordable ?? null,
+    exceptionKinds: recorded.map((r) => r.kind),
+    exceptionsFingerprint: exceptions.length > 0 ? input.exceptionsFingerprint ?? null : null,
+    exceptionReason: input.exceptionReason ?? null,
+  }))
   return { kind: "decided", status }
 }

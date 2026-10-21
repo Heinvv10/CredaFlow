@@ -101,6 +101,7 @@ model Tenant {
   contacts                   Contact[]
   conversations              Conversation[]
   creditBureauChecks         CreditBureauCheck[]
+  creditDecisionRecords      CreditDecisionRecord[]
   creditNotes                CreditNote[]
   crmActivities              CrmActivity[]
   crossSellOpps              CrossSellOpportunity[]

@@ -6,8 +6,10 @@ const findFirstMock = vi.fn()
 const updateManyMock = vi.fn()
 const logAuditStrictMock = vi.fn()
 const lockMock = vi.fn()
+const decisionRecordCreateMock = vi.fn()
 const tx = {
   $queryRaw: (...a: unknown[]) => lockMock(...a),
+  creditDecisionRecord: { create: (a: unknown) => decisionRecordCreateMock(a) },
   applicationCheckFlag: {
     findFirst: (a: unknown) => findFirstMock(a),
     updateMany: (a: unknown) => updateManyMock(a),
@@ -60,6 +62,18 @@ describe("POST /api/applications/[id]/checks/[flagId]/clear", () => {
       tenantId: "t1", userId: "u1", action: "CREDIT_CHECK_FLAG_CLEARED", entity: "ApplicationCheckFlag", entityId: "flag-1",
       newValue: expect.objectContaining({ status: "CLEARED", reason: REASON, code: "NO_SALARY_CREDIT", applicationId: "app-1" }),
     }), tx)
+    // The decision log: the check referred, the person cleared it with the reason.
+    expect(decisionRecordCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({
+      tenantId: "t1", kind: "CREDIT_DECISION", decision: "CLEAR_FLAG", recommendation: "REFER", overridden: true, overrideReason: REASON,
+      actorUserId: "u1", actorRole: "LOAN_ADMIN", applicationId: "app-1", sourceEntityType: "ApplicationCheckFlag", sourceEntityId: "flag-1",
+      inputsSnapshot: { check: "SALARY_MATCH", code: "NO_SALARY_CREDIT" },
+    }) })
+    expect(decisionRecordCreateMock.mock.invocationCallOrder[0]).toBeGreaterThan(updateManyMock.mock.invocationCallOrder[0])
+  })
+
+  it("rolls the clearance back when its decision record cannot be written", async () => {
+    decisionRecordCreateMock.mockRejectedValueOnce(new Error("insert refused"))
+    await expect(post({ reason: REASON })).rejects.toThrow("insert refused")
   })
 
   it("passes through a role refusal", async () => {

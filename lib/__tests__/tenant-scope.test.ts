@@ -180,6 +180,8 @@ describe("tenant-scope — ALS primitives", () => {
       "DealerBankAccount",
       "DealerConsentAttestation",
       "DealerDocumentRequest",
+      // Append-only decision log (lib/learning-loop) — non-null tenantId, passed explicitly.
+      "CreditDecisionRecord",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

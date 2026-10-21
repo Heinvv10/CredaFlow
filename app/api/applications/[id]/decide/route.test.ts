@@ -17,6 +17,7 @@ const transactionMock = vi.fn()
 const txUpdateManyMock = vi.fn()
 const txCreditLifeOfferFindFirstMock = vi.fn()
 const txAuditLogCreateMock = vi.fn()
+const txDecisionRecordCreateMock = vi.fn()
 const txExecuteRawUnsafeMock = vi.fn()
 const triggerNotificationMock = vi.fn()
 const evaluateAffordabilityGateMock = vi.fn()
@@ -409,6 +410,7 @@ beforeEach(() => {
   })
   txUpdateManyMock.mockResolvedValue({ count: 1 })
   txAuditLogCreateMock.mockResolvedValue({ id: "audit-1" })
+  txDecisionRecordCreateMock.mockResolvedValue({ id: "decision-1" })
   verifyLockedApprovalCandidateMock.mockResolvedValue({
     ok: true,
     application: {
@@ -460,6 +462,7 @@ beforeEach(() => {
     statementAnalysis: { count: (a: unknown) => txAnalysisCountMock(a) },
     client: { findFirst: (a: unknown) => txClientFindFirstMock(a) },
     auditLog: { create: txAuditLogCreateMock },
+    creditDecisionRecord: { create: txDecisionRecordCreateMock },
     $executeRawUnsafe: (sql: string) => txExecuteRawUnsafeMock(sql),
     // return_to_review re-resolves the current credit-life offer to decide
     // whether the stored election has actually gone stale.
@@ -2195,5 +2198,71 @@ it("clears rather than retains when the resolved product is unpresentable", asyn
   expect(txUpdateManyMock).toHaveBeenCalledTimes(2)
   expect(txAuditLogCreateMock.mock.calls[0][0].data.newValue).toMatchObject({
     creditLifeEvidence: "cleared:offer_changed",
+  })
+})
+
+describe("the decision log (lib/learning-loop)", () => {
+  const logged = () => txDecisionRecordCreateMock.mock.calls.map(([arg]) => (arg as { data: Record<string, unknown> }).data)
+
+  it("writes the approval and its approved-terms offer in the approval transaction, after the audit row", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(200)
+    expect(logged()).toEqual([
+      expect.objectContaining({
+        tenantId: "t1", kind: "CREDIT_DECISION", decision: "APPROVE", recommendation: "PASS", overridden: false,
+        actorType: "STAFF", actorUserId: "u1", applicationId: "app-1", clientId: "client-1",
+        sourceEntityType: "LoanApplication", sourceEntityId: "app-1", ruleVersion: "decision-log-v1+approval-ndi-v3",
+      }),
+      expect.objectContaining({ kind: "OFFER", decision: "APPROVED_TERMS", recommendation: "NONE" }),
+    ])
+    expect(txDecisionRecordCreateMock.mock.invocationCallOrder[0]).toBeGreaterThan(txAuditLogCreateMock.mock.invocationCallOrder[0])
+  })
+
+  it("records a reasoned approval past a blocking bureau gate as an override of what the gate said", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    evaluateBureauGateMock.mockReturnValue({ blocked: true, reason: "Bureau score below the minimum." })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good", bureauOverrideReason: "Settled account dragged the score." }), ctx)
+    expect(res.status).toBe(200)
+    expect(logged()[0]).toMatchObject({
+      decision: "APPROVE", recommendation: "BLOCK", overridden: true, overrideReason: "Settled account dragged the score.",
+      inputsSnapshot: expect.objectContaining({ bureau: expect.objectContaining({ gate: "BLOCK", overridden: true }) }),
+    })
+  })
+
+  it("still refuses an unreasoned approval past a blocking bureau gate, and logs nothing", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    evaluateBureauGateMock.mockReturnValue({ blocked: true, reason: "Bureau score below the minimum." })
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(422)
+    expect(txDecisionRecordCreateMock).not.toHaveBeenCalled()
+  })
+
+  it("fails the approval closed when its decision record cannot be written", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    txDecisionRecordCreateMock.mockRejectedValueOnce(new Error("insert refused"))
+    const res = await POST(makeReq({ action: "approve", reason: "Looks good" }), ctx)
+    expect(res.status).toBe(500)
+    expect(triggerNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it("writes a decline with its category", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    const res = await POST(makeReq({ action: "decline", reason: "Failed affordability", declineCategory: "AFFORDABILITY" }), ctx)
+    expect(res.status).toBe(200)
+    expect(logged()).toEqual([expect.objectContaining({
+      kind: "CREDIT_DECISION", decision: "DECLINE", recommendation: "NONE", inputsSnapshot: { declineCategory: "AFFORDABILITY" },
+    })])
+  })
+
+  it("writes a return to draft and a return to review", async () => {
+    findUniqueMock.mockResolvedValue(underReviewApplication)
+    expect((await POST(makeReq({ action: "return_to_draft", reason: "Submission affordability evidence must be recaptured" }), ctx)).status).toBe(200)
+    findUniqueMock.mockResolvedValue(approvedApplication)
+    expect((await POST(makeReq({ action: "return_to_review", reason: "Customer expenses changed after approval" }), ctx)).status).toBe(200)
+    expect(logged()).toEqual([
+      expect.objectContaining({ decision: "RETURN_TO_DRAFT", inputsSnapshot: { priorStatus: "UNDER_REVIEW" } }),
+      expect.objectContaining({ decision: "RETURN_TO_REVIEW", inputsSnapshot: { priorStatus: "APPROVED" } }),
+    ])
   })
 })

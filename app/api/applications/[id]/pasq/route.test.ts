@@ -31,6 +31,7 @@ const {
   complianceCreateMock,
   complianceUpdateManyMock,
   auditCreateMock,
+  decisionRecordCreateMock,
   applicationUpdateManyMock,
   queryRawMock,
   transactionMock,
@@ -58,6 +59,7 @@ const {
   complianceCreateMock: vi.fn(),
   complianceUpdateManyMock: vi.fn(),
   auditCreateMock: vi.fn(),
+  decisionRecordCreateMock: vi.fn(),
   applicationUpdateManyMock: vi.fn(),
   queryRawMock: vi.fn(),
   transactionMock: vi.fn(),
@@ -435,6 +437,7 @@ beforeEach(() => {
   complianceFindUniqueMock.mockResolvedValue(null)
   complianceUpdateManyMock.mockResolvedValue({ count: 1 })
   auditCreateMock.mockResolvedValue({ id: "audit-1" })
+  decisionRecordCreateMock.mockResolvedValue({ id: "decision-1" })
   applicationUpdateManyMock.mockResolvedValue({ count: 1 })
   queryRawMock.mockResolvedValue([lockedRow()])
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
@@ -446,6 +449,7 @@ beforeEach(() => {
     },
     complianceRecord: { create: complianceCreateMock, updateMany: complianceUpdateManyMock },
     auditLog: { create: auditCreateMock },
+    creditDecisionRecord: { create: decisionRecordCreateMock },
   }))
   generatePdfMock.mockResolvedValue(pdf)
   saveFileMock.mockResolvedValue({ storagePath: "/pasq/generated.pdf", fileSize: pdf.length })
@@ -769,6 +773,20 @@ describe("versioned PASQ artifact route", () => {
     expect(response.status).toBe(200)
     expect(applicationUpdateManyMock.mock.calls[0][0].data)
       .toMatchObject({ approvedPasqDocumentSha256: null })
+  })
+
+  it("logs the issued quotation as the offer, in its transaction (lib/learning-loop)", async () => {
+    const response = await POST(request("POST"), context)
+
+    expect(response.status).toBe(200)
+    const update = applicationUpdateManyMock.mock.calls[0][0].data
+    expect(decisionRecordCreateMock).toHaveBeenCalledWith({ data: expect.objectContaining({
+      kind: "OFFER", decision: "QUOTATION_ISSUED", recommendation: "NONE", ruleVersion: "decision-log-v1+pasq-v3",
+      sourceEntityType: "LoanApplication",
+      evidenceRefs: { pasqDocumentSha256: pdfSha256, pasqEvidenceSha256: update.pasqEvidenceSha256 },
+      inputsSnapshot: expect.objectContaining({ termDays: update.pasqEvidence.termDays, creditLifeElection: "ACCEPTED" }),
+    }) })
+    expect(decisionRecordCreateMock.mock.invocationCallOrder[0]).toBeGreaterThan(auditCreateMock.mock.invocationCallOrder[0])
   })
 
   it("persists an exact total-cost evidence hash and the matching PASQ document", async () => {
