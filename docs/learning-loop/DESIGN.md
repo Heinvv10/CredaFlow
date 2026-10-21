@@ -11,6 +11,39 @@ repository) are applied throughout: record what the existing gates said, do
 not invent a score; one append-only row per decision event; demo stacks prove
 the plumbing; the first real data is a pseudonymised external extract.
 
+## Decisions (Hein, 21 Oct 2026)
+
+These override anything below that conflicts; the sections cited apply them.
+
+1. **90+ DPD is the default and the headline outcome.** 60 DPD is a
+   collections escalation step only, never "default" (§3). The escalations
+   cron still flips ACTIVE → DEFAULTED at 60 (`lib/collections/escalation.ts`),
+   which conflicts with this decision. These PRs do not change collections
+   behaviour: aligning that flip with 90 is a **decided follow-up that needs
+   its own PR** (§7). Closes former open question 1.
+2. **The dashboard (v1) is read-only, per lender, for ADMIN and compliance
+   roles only.** The repo has no COMPLIANCE role; ADMIN stands in for the
+   lender's compliance officer (as for `manage_fic_compliance`,
+   `lib/registry/permissions/030-fic.ts`), and SUPER_ADMIN ranks above it.
+   No LOAN_ADMIN, no operator console, no write actions (§6). Closes former
+   open question 2.
+3. **Settling after 30+ DPD is not a cure.** `CURED` = back to 0 DPD after
+   30+ DPD while the loan is still open. Settlement after delinquency is its
+   own outcome, `SETTLED_AFTER_DELINQUENCY` (§3).
+4. **Simulated and demo results never reach a real lender's figures**
+   (`CollectionResult.simulated` and the other `simulated` rows, demo or
+   seeded tenants and records). On a demo tenant the figures are shown, and
+   labelled on screen as simulated / demo data (§4, §5, §6).
+5. **The automated portal and website refusals are logged now**: a
+   `CreditDecisionRecord` per refusal, `actorType SYSTEM`, flagged
+   `s71ReviewRequired` for the lender's POPIA s71 legal review (§2.5, §9.1).
+   That legal review is a **go-live gate**: it happens before the first real
+   lender goes live (§7). Closes former open question 4.
+6. **The external-extract field list is approved, but nothing is pulled**
+   until (a) the operator agreement, (b) the bureau data terms and (c) an
+   export run by the source lender itself are all in place (§4.1). No code
+   or document in this repository names the source lender.
+
 ## 1. Goal and thesis
 
 For a lender, the only ground truth is whether money arrives. So every credit
@@ -239,7 +272,7 @@ function; the 422 is unchanged) so the log records what it said.
 | `app/api/portal/applications/route.ts:219`, `:238`, `:819`, `:857`; `app/api/website/apply/route.ts:545`, `:677`, `:707`, `:786`, `:1261`, `:1285`, `:1321` | automated `APPLICATION_SUBMISSION_BLOCKED` refusals (blacklist, deceased, own-lender arrears, income/expense evidence) | CREDIT_DECISION `DECLINE`, `actorType SYSTEM` | **deferred** | best-effort: log error, never change the refusal |
 | `lib/collections-engine/instructions.ts:97` | `planMandate`, instruction create + `COLLECTION_INSTRUCTION_PLANNED` | COLLECTION_ACTION | **deferred** | best-effort |
 | `lib/collections/reminders.ts:706` (`sendMessage`), `:820` (`loanNote.create`) | pre-due and overdue reminders | COLLECTION_ACTION | **deferred** | best-effort |
-| `lib/collections/escalation.ts:57` (`loanNote.create`), rules at `:72`-`:100` | soft reminder, auto s129, 60-DPD default flip, legal flag | COLLECTION_ACTION | **deferred** | best-effort |
+| `lib/collections/escalation.ts:57` (`loanNote.create`), rules at `:72`-`:100` | soft reminder, auto s129, 60-DPD DEFAULTED status flip (decision 1: an escalation step, not default), legal flag | COLLECTION_ACTION | **deferred** | best-effort |
 | `app/api/collections/[loanId]/reminder/route.ts:26` | staff-sent reminder | COLLECTION_ACTION | **deferred** | best-effort |
 | `components/collections/LogContactButton.tsx:63` → `LoanNote` type `promise_to_pay` (read by `lib/collections/promiseToPay.ts:30`) | promise to pay | COLLECTION_ACTION | **deferred** | best-effort |
 | `app/api/loans/[id]/payment-arrangement/route.ts:71`, `app/api/loans/[id]/payment-plan/route.ts:69` | arrangement / plan upsert (one row per loan, history overwritten) | COLLECTION_ACTION | **deferred** | best-effort |
@@ -310,9 +343,10 @@ from the first instalment due date.
 | `LATE` | paid after due date, before 30 DPD | same |
 | `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED | `CollectionResult` → `CollectionInstruction.repaymentScheduleId` |
 | `EVER_30_DPD` / `EVER_60_DPD` / `EVER_90_DPD` | max DPD in the window ≥ 30/60/90, windows 3, 6, 12 months on book (and term end + 30 days for short loans) | `LoanArrearsSnapshot.daysInArrears` (`prisma/schema/arrears-history.prisma`) |
-| headline **bad** | ever 90+ DPD within 12 months (matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`) | same |
-| `DEFAULTED_STATUS` | `Loan.status` reached `DEFAULTED` (tracked separately) | `Loan` |
-| `CURED` | back to 0 DPD after ≥ 30 DPD | `LoanArrearsSnapshot` (there is no cure status transition) |
+| headline **bad** = **default** | ever 90+ DPD within 12 months (decision 1; matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`). 60+ is reported as a collections escalation band, never as default | same |
+| `DEFAULTED_STATUS` | `Loan.status` reached `DEFAULTED` (tracked separately; today this can mean 60+, see below) | `Loan` |
+| `CURED` | back to 0 DPD after ≥ 30 DPD **while the loan is still open** (decision 3) | `LoanArrearsSnapshot` (there is no cure status transition) |
+| `SETTLED_AFTER_DELINQUENCY` | the loan reached `COMPLETED` after ≥ 30 DPD; not a cure (decision 3) | `LoanArrearsSnapshot` + `Loan` |
 | `SETTLED` / `WRITTEN_OFF` | `LoanStatus.COMPLETED` / `WRITTEN_OFF` | `Loan` |
 | `TAKEN_UP` / `NOT_TAKEN_UP` (offers) | agreement signed and disbursed / approval returned, declined or expired without a loan | `LoanApplication`, `Loan.applicationId` |
 
@@ -320,14 +354,16 @@ Window states: `PENDING` (window not yet elapsed), `UNOBSERVABLE` (no
 arrears history for part of the window: `LoanArrearsSnapshot` starts at the
 first nightly run and is not backfilled, so a gap is never read as "good").
 
-**Documented conflict, not changed here**: the escalations cron flips
-ACTIVE → DEFAULTED at **60** DPD (`DEFAULT_AT_DPD = 60`,
-`lib/collections/escalation.ts:72`, used at `:84`, `:100`), while
-`recomputeLoanBalances` auto-promotes at **90** (`lib/loan/dpd-update.ts:126`).
-`status = DEFAULTED` therefore effectively means 60+. The outcome job uses
-DPD history for "bad" and reports the status separately, so it does not
-inherit the conflict. Which threshold the lender's policy intends is an open
-question (§11).
+**Decided (decision 1), code not changed here**: default is 90+ DPD. The
+escalations cron still flips ACTIVE → DEFAULTED at **60** DPD
+(`DEFAULT_AT_DPD = 60`, `lib/collections/escalation.ts:72`, used at `:84`,
+`:100`), while `recomputeLoanBalances` auto-promotes at **90**
+(`lib/loan/dpd-update.ts:126`), so `status = DEFAULTED` today can mean 60+.
+The outcome job uses DPD history for "bad" (ever 90+) and reports the status
+separately, so it does not inherit the conflict. Moving the escalation flip
+to 90 (60 stays an escalation step, not a status change) is a decided
+follow-up with its own PR (§7): it changes live collections behaviour, so it
+does not ride in a learning-loop PR.
 
 **Attribution**:
 - Credit outcomes attach to the **final `APPROVE` record** of the application
@@ -375,13 +411,24 @@ question (§11).
   `runWithTenant` frame per tenant; per-loan errors are counted in the body,
   a tenant's failure sets `x-cron-failed-tenants`; 503 only when every tenant
   failed (`sweepStatus`).
+- **Simulated and demo data** (decision 4): an outcome derived from a
+  simulated row (`CollectionResult.simulated`, a simulated collection
+  instruction) or on a demo / seeded tenant is never counted in a real
+  lender's figures. On a demo tenant the rows are kept and marked as demo, so
+  the dashboard can show them under a "Simulated / demo data" label. The two
+  are never silently mixed in one figure.
 - **Tests**: pure outcome functions over fixtures (paid / late / returned /
-  ever-90 / cure / pending / unobservable); a `RUN_DECISION_OUTCOMES_IT`
+  ever-90 / cure / settled after delinquency / pending / unobservable); a `RUN_DECISION_OUTCOMES_IT`
   suite proving idempotency (two runs, same rows) and the unique key.
 
 ### 4.1 External extract (generic process)
 
-For the first real data, a pseudonymised extract from another lender's LMS:
+For the first real data, a pseudonymised extract from another lender's LMS.
+The field list is approved (decision 6), but **nothing is pulled** until all
+three are in place: (a) the operator agreement, (b) the bureau data terms
+and (c) an export run by the source lender itself (CredaFlow does not run
+the extraction against the source system). Until then the adapter is tested
+on synthetic rows only. The process, once those exist:
 
 1. A **read-only** connection to the source, by a dedicated role, from a
    job outside the application.
@@ -408,7 +455,9 @@ For the first real data, a pseudonymised extract from another lender's LMS:
   whose observation window has matured (excludes `PENDING`), per tenant,
   kind and month. `UNOBSERVABLE` counts against coverage and is listed
   separately with its reason (history gap). v1 success test: 100% on the
-  simulator book, every gap explained.
+  simulator book, every gap explained. Simulated and demo outcomes are
+  excluded from a real lender's metrics and reported, labelled, only on a
+  demo tenant (decision 4).
 - **Calibration** (computed in PR B, expected empty): only records with
   `predictedProbability` (none today) enter. Per `modelVersion`, tenant and
   month: Brier score = mean((p − y)²) with y = headline bad; calibration
@@ -429,13 +478,23 @@ For the first real data, a pseudonymised extract from another lender's LMS:
 - **Where**: a tab under `app/(dashboard)/reports/` (beside `arrears-aging`,
   `board-pack`), reading DPD through `lib/reports/arrears-snapshot.ts` and
   `lib/reports/book-arrears.ts` so its numbers match the board pack.
-- **Who**: default-deny. A new permission `view_decision_performance` in
-  `lib/registry/permissions/070-learning-loop.ts` (minimum `ADMIN`; ask
-  whether LOAN_ADMIN should see it), plus `TenantConfig.featureReports`.
-  Operator staff see nothing beyond the console's aggregate counts.
+- **Who** (decision 2): default-deny, read-only, per lender. A new
+  permission `view_decision_performance` in
+  `lib/registry/permissions/070-learning-loop.ts`, minimum `ADMIN` (so ADMIN
+  and SUPER_ADMIN; ADMIN is the compliance role, there is no COMPLIANCE
+  role), plus `TenantConfig.featureReports`. LOAN_ADMIN and every role below
+  it are refused; operator staff and the operator console get nothing. The
+  dashboard has no write actions.
+- **Demo data** (decision 4): a real lender's figures exclude simulated and
+  demo rows; on a demo tenant the figures are shown under a clear
+  "Simulated / demo data" label.
+- **Automated refusals**: the count of `SYSTEM` refusal records (§2.5),
+  labelled "POPIA s71: lender legal review required before go-live".
 - **Views**: approvals by disbursal-month cohort × `ruleVersion` ×
   `policyHash` × `scoreBand` × overridden yes/no × product, with outcome rates
-  (ever 30/60/90, bad, cured, settled, written off) and coverage; overrides
+  (ever 30/60/90, bad = default = ever 90+, cured, settled after
+  delinquency shown separately from cured, settled, written off) and
+  coverage; overrides
   vs non-overrides on the same cohort; take-up of offers; decline volume by
   category.
 - **Collections panel**: cure rate and roll rate by stage and action type,
@@ -451,13 +510,22 @@ For the first real data, a pseudonymised extract from another lender's LMS:
 ## 7. Rollout
 
 1. PR A: migration + hooks ship together (the CHECKs refuse only rows the
-   code never writes). Demo stacks start writing records on the next image.
+   code never writes), including the automated-refusal `SYSTEM` records
+   (decision 5). Demo stacks start writing records on the next image.
 2. PR B: outcome model + job; verify coverage on the simulator book.
 3. PR C: dashboard; show it in the browser on the FairScore demo.
-4. Follow-ups: automated-refusal helper (SYSTEM records), collection-action
-   records after R4 lands, gate version constants, decline-time gate
-   evaluation, retention/pseudonymisation job.
-5. External extract only after §4.1's legal points are signed off.
+4. Follow-ups: collection-action records after R4 lands, gate version
+   constants, decline-time gate evaluation, retention/pseudonymisation job.
+   **Decided follow-up, own PR**: move the escalations cron's DEFAULTED flip
+   from 60 to 90 DPD (decision 1, §3).
+5. External extract only after §4.1's legal points are signed off and its
+   three preconditions (operator agreement, bureau data terms, a
+   source-lender-run export) are in place (decision 6).
+6. **Go-live gate** (decision 5): before the first real lender goes live,
+   that lender's legal team reviews the automated refusals under POPIA s71
+   (§9.1): whether they fall under s71(2), the representation route, and
+   what the generic message says about the logic. No real lender goes live
+   until that review is recorded.
 
 ## 8. Part 4: cross-lender benchmarks (DESIGN ONLY)
 
@@ -513,7 +581,9 @@ reason; the record shows which gates were overridden. **Finding**: the
 portal and website refuse submissions automatically (blacklist, deceased,
 own-lender arrears, income/expense evidence; §2.5) with a generic message.
 That is plausibly a decision based solely on automated processing with legal
-effect. `ConsentPurpose.AUTOMATED_DECISIONING`
+effect. Each refusal is now logged as a `SYSTEM` record flagged
+`s71ReviewRequired` (decision 5, §2.5), and the lender's legal review of them
+is a go-live gate (§7). `ConsentPurpose.AUTOMATED_DECISIONING`
 (`prisma/schema/messaging.prisma:278`) exists and is unused. Legal must say
 whether these refusals fall under s71(2), what representation route the
 client is given, and what the generic message must say about the logic.
@@ -589,7 +659,8 @@ never pricing). **Needs lender legal sign-off.**
   automated in substance (s71). Mitigation: the dashboard shows override
   rates; legal review of the automated refusals.
 - **Simulator calibration**: charts drawn on scripted personas measure the
-  script. The dashboard must label demo data and make no learning claims.
+  script. The dashboard must label demo data, keep it out of a real
+  lender's figures (decision 4) and make no learning claims.
 - **Fail-closed hooks**: an insert failure now fails a decision. The insert
   is a single row with CHECKs the builders satisfy by construction; the unit
   and integration tests cover them.
@@ -603,15 +674,14 @@ never pricing). **Needs lender legal sign-off.**
 
 ## 11. Open questions for Hein
 
-1. Default: is the lender's "default" 60 DPD (escalation flip) or 90 DPD
-   (dpd-update)? The log uses ever-90 as "bad" and tracks status separately.
-2. Who sees the dashboard: ADMIN only, or LOAN_ADMIN too?
-3. Retention: confirm the NCA record-keeping period with legal, and whether
+Answered on 21 Oct 2026 and removed: default threshold (90+, decision 1),
+dashboard audience (ADMIN and compliance only, decision 2), when to take the
+automated refusals to legal (logged now; review before go-live, decision 5).
+
+1. Retention: confirm the NCA record-keeping period with legal, and whether
    pseudonymise-after is acceptable.
-4. Automated refusals: take the s71 finding to the lender's legal team now,
-   or after the SYSTEM-record helper ships?
-5. Collection-action records: build after R4 merges, or wait for a strategy
+2. Collection-action records: build after R4 merges, or wait for a strategy
    / variant concept?
-6. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
-7. Should the decline path evaluate the gates so "declined against PASS" is
+3. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
+4. Should the decline path evaluate the gates so "declined against PASS" is
    visible?
