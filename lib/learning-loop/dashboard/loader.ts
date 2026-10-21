@@ -10,10 +10,9 @@ import type { prisma } from "@/lib/prisma"
 import { getBookArrears, type BookArrears } from "@/lib/reports/book-arrears"
 import { runWithTenant } from "@/lib/tenant-scope"
 import { addDays } from "../outcomes/definition"
-import type { Tally } from "./cells"
 import {
   approvalCohorts, cohortTotals, NO_SCORE_BAND, overrideComparison,
-  type ApprovalInput, type CohortCell, type CohortMetricKey, type CohortWindow, type OverrideCell,
+  type ApprovalInput, type CohortCell, type CohortMetrics, type CohortWindow, type OverrideCell,
 } from "./cohorts"
 import {
   arrangementOutcomes, cureRollByStage, type ArrangementSummary, type HistoryDay, type LoanHistory, type StageCell,
@@ -26,7 +25,7 @@ export type DashboardDb = Pick<typeof prisma,
 export interface DecisionPerformance {
   window: CohortWindow
   approvals: number
-  totals: Record<CohortMetricKey, Tally>
+  totals: CohortMetrics
   cohorts: CohortCell[]
   overrides: OverrideCell[]
   takeUp: TakeUpCell[]

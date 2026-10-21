@@ -6,8 +6,11 @@
  * by SAST disbursal month × ruleVersion × policyHash × score band × overridden
  * × product. Each cell carries ever 30/60/90+ DPD (90+ is the headline bad),
  * cured, settled and written off in the chosen window, with PENDING and
- * UNOBSERVABLE counted separately and the coverage of the headline.
+ * UNOBSERVABLE counted separately and the coverage of the headline. A metric
+ * the window does not measure (EVER_90_DPD at 3M, DESIGN.md §3) is null: not
+ * a gap, and not shown as one.
  */
+import { windowThresholds } from "../outcomes/definition"
 import { SMALL_CELL_LOANS, groupBy, tally, type OutcomeRow, type Tally } from "./cells"
 
 export const COHORT_WINDOWS = ["3M", "6M", "12M"] as const
@@ -22,6 +25,13 @@ export const COHORT_METRICS = [
   { key: "writtenOff", outcomeKind: "WRITTEN_OFF", label: "Written off" },
 ] as const
 export type CohortMetricKey = (typeof COHORT_METRICS)[number]["key"]
+export type CohortMetrics = Record<CohortMetricKey, Tally | null>
+
+const measured = (outcomeKind: string, window: CohortWindow) =>
+  !outcomeKind.startsWith("EVER_") || windowThresholds(window).some((t) => t.kind === outcomeKind)
+
+/** The deepest DPD threshold a window measures: coverage, pending and unobservable are read on it. */
+export const coverageTally = (metrics: CohortMetrics): Tally => (metrics.ever90 ?? metrics.ever60) as Tally
 
 /** Shown where a record carries no bureau band (asset finance, or no score). */
 export const NO_SCORE_BAND = "No band"
@@ -48,7 +58,7 @@ export interface CohortCell {
   loans: number
   /** Fewer than SMALL_CELL_LOANS loans: shown greyed, with counts. */
   small: boolean
-  metrics: Record<CohortMetricKey, Tally>
+  metrics: CohortMetrics
 }
 
 export interface OverrideCell {
@@ -56,12 +66,12 @@ export interface OverrideCell {
   overridden: boolean
   loans: number
   small: boolean
-  metrics: Record<CohortMetricKey, Tally>
+  metrics: CohortMetrics
 }
 
-function metricsOf(group: readonly ApprovalInput[], window: CohortWindow): Record<CohortMetricKey, Tally> {
+function metricsOf(group: readonly ApprovalInput[], window: CohortWindow): CohortMetrics {
   const rows = group.map((a) => a.outcomes)
-  return Object.fromEntries(COHORT_METRICS.map((m) => [m.key, tally(rows, m.outcomeKind, window)])) as Record<CohortMetricKey, Tally>
+  return Object.fromEntries(COHORT_METRICS.map((m) => [m.key, measured(m.outcomeKind, window) ? tally(rows, m.outcomeKind, window) : null])) as CohortMetrics
 }
 
 const newestFirst = (a: { cohortMonth: string }, b: { cohortMonth: string }) => b.cohortMonth.localeCompare(a.cohortMonth)
@@ -90,6 +100,6 @@ export function overrideComparison(approvals: readonly ApprovalInput[], window: 
 }
 
 /** The whole population in one cell: the page's headline figures. */
-export function cohortTotals(approvals: readonly ApprovalInput[], window: CohortWindow): Record<CohortMetricKey, Tally> {
+export function cohortTotals(approvals: readonly ApprovalInput[], window: CohortWindow): CohortMetrics {
   return metricsOf(approvals, window)
 }

@@ -15,10 +15,14 @@ export interface AdapterContext {
 
 export interface AdapterResult {
   outcomes: DerivedOutcome[]
-  /** Every decision the adapter evaluated, including any that now has no rows (its old rows are removed). */
+  /**
+   * Every decision the adapter evaluated, including any that now has no rows.
+   * The adapter's whole result for its source: rows of any other decision
+   * (no longer attributed) are removed.
+   */
   decisionRecordIds: string[]
-  /** Loans whose derivation threw: counted in the job's body, never written. */
-  failures: Array<{ ref: string; error: string }>
+  /** Loans whose derivation threw: counted in the job's body, never written; their decision's existing rows are kept. */
+  failures: Array<{ ref: string; decisionRecordId: string; error: string }>
 }
 
 export interface OutcomeSourceAdapter {

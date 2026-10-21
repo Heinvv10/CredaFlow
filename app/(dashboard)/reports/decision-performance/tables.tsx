@@ -1,7 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DECLINE_CATEGORY_LABELS } from "@/lib/applications/decline-category"
 import { SMALL_CELL_LOANS, type Tally } from "@/lib/learning-loop/dashboard/cells"
-import { COHORT_METRICS, type CohortCell, type OverrideCell } from "@/lib/learning-loop/dashboard/cohorts"
+import { COHORT_METRICS, coverageTally, type CohortCell, type OverrideCell } from "@/lib/learning-loop/dashboard/cohorts"
 import type { ArrangementSummary, StageCell } from "@/lib/learning-loop/dashboard/collections"
 import type { DeclineSummary, TakeUpCell } from "@/lib/learning-loop/dashboard/offers-declines"
 import { cn } from "@/lib/utils"
@@ -14,8 +14,9 @@ const SMALL_TITLE = `Fewer than ${SMALL_CELL_LOANS} loans: too few to read a rat
 const smallRow = (small: boolean) => cn(small && "text-[var(--cf-text-muted)] opacity-60")
 const num = "text-right tabular-nums"
 
-/** A rate with the observed counts it rests on. */
-export function Rate({ t }: { t: Tally }) {
+/** A rate with the observed counts it rests on; null when the window does not measure it. */
+export function Rate({ t }: { t: Tally | null }) {
+  if (!t) return <span title="A 3-month window is too short to measure 90+ DPD">not measured</span>
   return (
     <span>
       {percent(t.ratePct)}
@@ -29,7 +30,7 @@ function MetricHeads() {
 }
 
 function MetricCells({ cell }: { cell: { metrics: CohortCell["metrics"] } }) {
-  const headline = cell.metrics.ever90
+  const headline = coverageTally(cell.metrics)
   return (
     <>
       {COHORT_METRICS.map((m) => <TableCell key={m.key} className={num}><Rate t={cell.metrics[m.key]} /></TableCell>)}

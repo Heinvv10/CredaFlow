@@ -34,8 +34,16 @@ describe("ever 30/60/90 DPD", () => {
   it("are false with a complete clean history once the window has elapsed", () => {
     const rows = windowOutcomes(loan(), AFTER_12M)
     for (const kind of ["EVER_30_DPD", "EVER_60_DPD", "EVER_90_DPD"]) {
-      for (const w of ["3M", "6M", "12M"]) expect(get(rows, kind, w)).toEqual(["OBSERVED", false, null])
+      for (const w of kind === "EVER_90_DPD" ? ["6M", "12M"] : ["3M", "6M", "12M"]) expect(get(rows, kind, w)).toEqual(["OBSERVED", false, null])
     }
+  })
+
+  it("measure EVER_90_DPD only over windows that always reach 90 days (not 3M or TERM_30D)", () => {
+    const rows = windowOutcomes(loan(), AFTER_12M)
+    expect(rows.some((r) => r.outcomeKind === "EVER_90_DPD" && r.window === "3M")).toBe(false)
+    const short = windowOutcomes(loan({ instalments: instalments(1), maturityDay: FIRST_DUE }), AFTER_12M)
+    expect(short.filter((r) => r.window === "TERM_30D").map((r) => r.outcomeKind)).not.toContain("EVER_90_DPD")
+    expect(short.filter((r) => r.window === "TERM_30D").map((r) => r.outcomeKind)).toContain("EVER_60_DPD")
   })
 
   it("are true from the day the threshold was reached, per window", () => {
@@ -44,7 +52,6 @@ describe("ever 30/60/90 DPD", () => {
     const rows = windowOutcomes(facts, AFTER_12M)
     expect(get(rows, "EVER_30_DPD", "3M")).toEqual(["OBSERVED", true, null])
     expect(get(rows, "EVER_60_DPD", "3M")).toEqual(["OBSERVED", true, null])
-    expect(get(rows, "EVER_90_DPD", "3M")).toEqual(["OBSERVED", false, null])
     expect(get(rows, "EVER_90_DPD", "6M")).toEqual(["OBSERVED", true, null])
     expect(get(rows, HEADLINE_BAD.outcomeKind, HEADLINE_BAD.window)).toEqual(["OBSERVED", true, null])
     expect(rows.find((r) => r.outcomeKind === "EVER_90_DPD" && r.window === "12M")?.observedAt)
@@ -54,7 +61,7 @@ describe("ever 30/60/90 DPD", () => {
   it("stay PENDING until the window has elapsed, even when the threshold was already reached", () => {
     const facts = loan({ arrearsHistory: history(FIRST_DUE, "2026-07-01", climbingFrom("2026-02-28")) })
     const rows = windowOutcomes(facts, "2026-07-01")
-    expect(get(rows, "EVER_90_DPD", "3M")).toEqual(["OBSERVED", false, null])
+    expect(get(rows, "EVER_60_DPD", "3M")).toEqual(["OBSERVED", true, null])
     expect(get(rows, "EVER_90_DPD", "6M")).toEqual(["PENDING", null, null])
     expect(get(rows, "EVER_90_DPD", "12M")).toEqual(["PENDING", null, null])
   })
@@ -98,7 +105,32 @@ describe("ever 30/60/90 DPD", () => {
   it("are UNOBSERVABLE without a schedule", () => {
     const rows = windowOutcomes(loan({ instalments: [] }), AFTER_12M)
     expect(rows.every((r) => r.state === "UNOBSERVABLE" && r.reasonCode === "NO_SCHEDULE")).toBe(true)
-    expect(rows).toHaveLength(3 * 7)
+    expect(rows).toHaveLength(3 * 7 - 1)
+  })
+
+  it("tell a lender-wide outage (no nightly run that day) from one loan's gap", () => {
+    const facts = loan({ arrearsHistory: history(FIRST_DUE, AFTER_12M, () => 0, (d) => d === "2026-06-15") })
+    const allDays = new Set(history(FIRST_DUE, AFTER_12M).map((h) => h.day))
+    expect(get(windowOutcomes({ ...facts, sourceRecordedDays: allDays }, AFTER_12M), "EVER_90_DPD", "12M")).toEqual(["UNOBSERVABLE", null, "HISTORY_GAP"])
+    const outage = new Set([...allDays].filter((d) => d !== "2026-06-15"))
+    expect(get(windowOutcomes({ ...facts, sourceRecordedDays: outage }, AFTER_12M), "EVER_90_DPD", "12M")).toEqual(["UNOBSERVABLE", null, "HISTORY_OUTAGE"])
+  })
+
+  it("are true, never good, for a loan written off before reaching the threshold", () => {
+    // Instalment 2 unpaid from 28 Feb; written off on 14 Apr at 45 DPD.
+    const facts = loan({ end: { kind: "WRITTEN_OFF", day: "2026-04-14" }, arrearsHistory: history(FIRST_DUE, "2026-04-14", climbingFrom("2026-02-28")) })
+    const rows = windowOutcomes(facts, AFTER_12M)
+    expect(get(rows, "EVER_30_DPD", "3M")).toEqual(["OBSERVED", true, null])
+    expect(get(rows, "EVER_60_DPD", "3M")).toEqual(["OBSERVED", true, "WRITTEN_OFF_BEFORE_THRESHOLD"])
+    expect(get(rows, HEADLINE_BAD.outcomeKind, HEADLINE_BAD.window)).toEqual(["OBSERVED", true, "WRITTEN_OFF_BEFORE_THRESHOLD"])
+    expect(rows.find((r) => r.outcomeKind === "EVER_90_DPD" && r.window === "12M")?.observedAt).toEqual(new Date("2026-04-14T00:00:00+02:00"))
+  })
+
+  it("are UNOBSERVABLE, never good, for a loan cancelled in cooling-off", () => {
+    const facts = loan({ end: { kind: "CANCELLED", day: "2026-02-03" }, arrearsHistory: history(FIRST_DUE, "2026-02-03") })
+    const rows = windowOutcomes(facts, AFTER_12M)
+    for (const kind of ["EVER_30_DPD", "EVER_60_DPD", "CURED", "DEFAULTED_STATUS"]) expect(get(rows, kind, "3M")).toEqual(["UNOBSERVABLE", null, "LOAN_CANCELLED"])
+    expect(get(rows, HEADLINE_BAD.outcomeKind, HEADLINE_BAD.window)).toEqual(["UNOBSERVABLE", null, "LOAN_CANCELLED"])
   })
 })
 

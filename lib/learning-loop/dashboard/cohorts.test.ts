@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { tally, type OutcomeRow } from "./cells"
-import { approvalCohorts, cohortTotals, overrideComparison, type ApprovalInput } from "./cohorts"
+import { approvalCohorts, cohortTotals, coverageTally, overrideComparison, type ApprovalInput } from "./cohorts"
 
 // Synthetic approvals only: ids, versions and hashes are made up.
 const obs = (outcomeKind: string, value: boolean, reasonCode: string | null = null, window = "12M"): OutcomeRow =>
@@ -80,10 +80,18 @@ describe("approvalCohorts", () => {
     const rows = [obs("EVER_30_DPD", true), obs("EVER_60_DPD", true), obs("EVER_90_DPD", false), obs("CURED", true),
       obs("SETTLED", true), obs("WRITTEN_OFF", false)]
     const [cell] = approvalCohorts([approval(rows)], "12M")
-    expect(Object.fromEntries(Object.entries(cell.metrics).map(([k, t]) => [k, t.ratePct]))).toEqual({
+    expect(Object.fromEntries(Object.entries(cell.metrics).map(([k, t]) => [k, t?.ratePct]))).toEqual({
       ever30: 100, ever60: 100, ever90: 0, cured: 100, settled: 100, writtenOff: 0,
     })
     expect(approvalCohorts([approval(rows)], "6M")[0].metrics.ever30).toMatchObject({ notComputed: 1, ratePct: null })
+  })
+
+  it("does not measure 90+ DPD at 3M (not a gap), and reads coverage on 60+ there", () => {
+    const rows = [obs("EVER_60_DPD", false, null, "3M"), gap("EVER_30_DPD", "3M")]
+    const [cell] = approvalCohorts([approval(rows), approval([pendingRow("EVER_60_DPD", "3M")])], "3M")
+    expect(cell.metrics.ever90).toBeNull()
+    expect(coverageTally(cell.metrics)).toMatchObject({ n: 2, no: 1, pending: 1, notComputed: 0, coveragePct: 100 })
+    expect(coverageTally(approvalCohorts([approval([obs("EVER_90_DPD", true)])], "12M")[0].metrics)).toMatchObject({ yes: 1 })
   })
 })
 
@@ -94,7 +102,7 @@ describe("overrideComparison and totals", () => {
       approval([obs("EVER_90_DPD", false)], { overridden: false, scoreBand: "680-709" }),
       approval([obs("EVER_90_DPD", false)], { overridden: false, product: "PERSONAL" }),
     ], "12M")
-    expect(cells.map((c) => [c.cohortMonth, c.overridden, c.loans, c.metrics.ever90.ratePct])).toEqual([
+    expect(cells.map((c) => [c.cohortMonth, c.overridden, c.loans, c.metrics.ever90?.ratePct])).toEqual([
       ["2026-03", false, 2, 0], ["2026-03", true, 1, 100],
     ])
   })

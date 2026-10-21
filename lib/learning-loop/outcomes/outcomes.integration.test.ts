@@ -61,6 +61,7 @@ async function lender(withHistory: boolean): Promise<Lender> {
       outstandingPrincipalCents: 200_000, chargesOutstandingCents: 0, chargesLive: false,
     }))
     await db.loanArrearsSnapshot.createMany({ data: rows })
+    await db.arrearsSnapshotRun.createMany({ data: rows.map((r) => ({ tenantId: tenant.tenantId, snapshotDate: r.snapshotDate, loanCount: 1 })) })
     await returnedDebitOrders(tenant.tenantId, tenant.userId, loanId, clientId)
   }
   return {
@@ -70,7 +71,11 @@ async function lender(withHistory: boolean): Promise<Lender> {
   }
 }
 
-/** One return the job keeps (UNPAID, its reason) and one it must ignore (reported after payment). */
+/**
+ * One return the job keeps (UNPAID, its reason) and two it must ignore: one
+ * reported after payment, and one from the simulated provider (this is not a
+ * DEMO_MODE deployment).
+ */
 async function returnedDebitOrders(tenantId: string, userId: string, loanId: string, clientId: string) {
   const schedule = await db.repaymentSchedule.findFirstOrThrow({ where: { loanId }, select: { id: true } })
   const mandate = await db.debitMandate.create({ data: {
@@ -86,11 +91,14 @@ async function returnedDebitOrders(tenantId: string, userId: string, loanId: str
       tenantId, mandateId: mandate.id, loanId, repaymentScheduleId: schedule.id, installmentNo: 1, presentmentNo: n,
       amountCents: 216_900, actionDate: new Date(`2026-09-0${n}`), trackingDays: 3, instructionRef: `it-${randomUUID()}`, status: "UNPAID",
     } })
-    await db.collectionResult.create({ data: {
-      tenantId, provider: "simulated", instructionId: instruction.id, resultKey: `${instruction.id}:UNPAID`, outcome: "UNPAID",
-      reasonCode: afterPayment ? "ACCOUNT_CLOSED" : "INSUFFICIENT_FUNDS", rawPayload: {}, resolvedAt: new Date(`2026-09-0${n + 2}T08:00:00Z`),
-      simulated: true, reportedAfterPayment: afterPayment,
-    } })
+    // Presentment 1 also carries a simulated result: kept only on a demo deployment.
+    for (const simulated of afterPayment ? [false] : [false, true]) {
+      await db.collectionResult.create({ data: {
+        tenantId, provider: "simulated", instructionId: instruction.id, resultKey: `${instruction.id}:UNPAID${simulated ? ":sim" : ""}`, outcome: "UNPAID",
+        reasonCode: afterPayment ? "ACCOUNT_CLOSED" : simulated ? "ACCOUNT_FROZEN" : "INSUFFICIENT_FUNDS", rawPayload: {},
+        resolvedAt: new Date(`2026-09-0${n + 2}T08:00:00Z`), simulated, reportedAfterPayment: afterPayment,
+      } })
+    }
   }
 }
 
@@ -151,9 +159,9 @@ suite("decision outcomes (real Postgres)", () => {
       expect(find(rows, "PAID", "INSTALMENT:1")).toMatchObject([{ state: "OBSERVED", value: false }])
       expect(find(rows, "LATE", "INSTALMENT:1")).toMatchObject([{ state: "OBSERVED", value: false }])
     }
-    // Lender A has every day of its term + 30 days recorded; lender B has none, which is never read as good.
+    // Lender A has every day of its term + 30 days recorded; lender B never had a nightly run, which is never read as good.
     expect(find(a, "EVER_30_DPD", "TERM_30D")).toMatchObject([{ state: "OBSERVED", value: false }])
-    expect(find(b, "EVER_30_DPD", "TERM_30D")).toMatchObject([{ state: "UNOBSERVABLE", value: null, reasonCode: "HISTORY_GAP" }])
+    expect(find(b, "EVER_30_DPD", "TERM_30D")).toMatchObject([{ state: "UNOBSERVABLE", value: null, reasonCode: "HISTORY_OUTAGE" }])
     expect(find(a, "RETURNED_DEBIT_ORDER", "INSTALMENT:1")).toMatchObject([{ value: true, reasonCode: "INSUFFICIENT_FUNDS", amountCents: 216_900 }])
     expect(find(b, "RETURNED_DEBIT_ORDER", "INSTALMENT:1")).toEqual([])
     expect(find(a, "EVER_90_DPD", "12M")).toMatchObject([{ state: "PENDING", value: null }])
@@ -206,10 +214,10 @@ suite("decision outcomes (real Postgres)", () => {
   })
 
   it("reports coverage per decision month and an empty calibration (no decision carries a probability)", async () => {
-    const term = await runWithTenant(lenders[0].tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, { outcomeKind: "EVER_30_DPD", window: "TERM_30D" }))
+    const term = await runWithTenant(lenders[0].tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, lenders[0].tenantId, { outcomeKind: "EVER_30_DPD", window: "TERM_30D" }))
     expect(term.coverage).toMatchObject([{ decisionKind: "CREDIT_DECISION", decisions: 1, matured: 1, observed: 1, coveragePct: 100 }])
     expect(term.calibration).toEqual([])
-    const headline = await runWithTenant(lenders[0].tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb))
+    const headline = await runWithTenant(lenders[0].tenantId, () => tenantOutcomeMetrics(app as unknown as MetricsDb, lenders[0].tenantId))
     expect(headline.coverage).toMatchObject([{ decisions: 1, pending: 1, matured: 0, coveragePct: null }])
   })
 })

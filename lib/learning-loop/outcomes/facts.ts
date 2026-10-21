@@ -47,5 +47,11 @@ export interface LoanFacts {
   instalments: InstalmentFact[]
   /** One entry per day the loan's position was recorded; a missing day is a gap. */
   arrearsHistory: ArrearsDayFact[]
+  /**
+   * Days the source recorded positions for the lender at all (its nightly
+   * runs). A loan's missing day outside them is a tenant-wide outage, not a
+   * gap of this loan. Absent when the source cannot tell.
+   */
+  sourceRecordedDays?: ReadonlySet<string>
   returns: ReturnedDebitOrderFact[]
 }

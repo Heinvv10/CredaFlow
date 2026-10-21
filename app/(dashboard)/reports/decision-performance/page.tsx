@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/app-shell/EmptyState"
 import { MetricCard } from "@/components/app-shell/MetricCard"
 import { canDo, NO_ACCESS_PAGE, requireMinRole } from "@/lib/auth-guards"
 import { SMALL_CELL_LOANS } from "@/lib/learning-loop/dashboard/cells"
-import { COHORT_WINDOWS, type CohortWindow } from "@/lib/learning-loop/dashboard/cohorts"
+import { COHORT_WINDOWS, coverageTally, type CohortWindow } from "@/lib/learning-loop/dashboard/cohorts"
 import { HORIZON_DAYS } from "@/lib/learning-loop/dashboard/collections"
 import { loadDecisionPerformance } from "@/lib/learning-loop/dashboard/loader"
 import { prisma } from "@/lib/prisma"
@@ -28,7 +28,9 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
   const asked = (await searchParams).window
   const window: CohortWindow = COHORT_WINDOWS.find((w) => w === asked) ?? "12M"
   const data = await loadDecisionPerformance(prisma, tenantId, new Date(), window)
+  // 3M does not measure 90+ DPD (DESIGN.md §3): coverage is read on 60+ there.
   const bad = data.totals.ever90
+  const covered = coverageTally(data.totals)
 
   return (
     <div className="space-y-6 px-4 py-5 lg:px-8 lg:py-7">
@@ -59,14 +61,18 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Approvals with outcomes" value={data.approvals} detail="Final approvals that produced a loan" />
         <MetricCard label={window === "12M" ? "Bad: ever 90+ DPD in 12 months" : `Ever 90+ DPD in ${window.replace("M", " months")}`}
-          value={<Rate t={bad} />} tone="warning" detail={`Of ${bad.yes + bad.no} loans observed; ${bad.pending} pending, ${bad.unobservable + bad.notComputed} unobservable, neither counted as good`} />
-        <MetricCard label="Outcome coverage" value={percent(bad.coveragePct)} detail="Observed ÷ matured (pending excluded)" />
+          value={<Rate t={bad} />} tone="warning"
+          detail={bad
+            ? `Of ${bad.yes + bad.no} loans observed; ${bad.pending} pending, ${bad.unobservable + bad.notComputed} unobservable, neither counted as good`
+            : "A 3-month window is 89 to 92 days, too short to compare 90+ DPD across months; see 6 or 12 months"} />
+        <MetricCard label="Outcome coverage" value={percent(covered.coveragePct)}
+          detail={`Observed ÷ matured (pending excluded), on ever ${bad ? "90" : "60"}+ DPD`} />
         <MetricCard label="90+ DPD in the book now" value={data.book.par90.count}
           detail={`PAR90 ${data.book.par90.pct.toFixed(1)}%: the board pack's figure, all loans, not only those above`} />
       </div>
 
       <DataPanel title="Approvals by cohort"
-        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it. Cured counts loans that reached 30+ DPD. Rows under ${SMALL_CELL_LOANS} loans are greyed.`}>
+        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it, or the loan was cancelled in cooling-off. Cured counts loans that reached 30+ DPD. Rows under ${SMALL_CELL_LOANS} loans are greyed.`}>
         {data.cohorts.length === 0
           ? <EmptyState icon={Scale} title="No approval has outcomes yet" description="Outcomes are derived nightly from approvals recorded since the decision log shipped." />
           : <CohortTable cells={data.cohorts} />}

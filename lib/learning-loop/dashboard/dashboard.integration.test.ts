@@ -147,6 +147,7 @@ suite("decision-performance dashboard (real Postgres)", () => {
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {
     const d = await loadDecisionPerformance(db as unknown as DashboardDb, lenders[0].tenantId, NOW, "3M")
     expect(d.totals.ever30).toMatchObject({ n: 1, yes: 0, no: 0, unobservable: 1, ratePct: null, coveragePct: 0 })
-    expect(d.totals.ever90).toMatchObject({ notComputed: 1, ratePct: null })
+    // 3M does not measure 90+ DPD (DESIGN.md §3): not a gap, no row expected.
+    expect(d.totals.ever90).toBeNull()
   })
 })
