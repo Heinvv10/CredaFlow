@@ -117,6 +117,16 @@ suite.sequential("telematics round-2 edge cases (real DB)", () => {
     expect(await ingest(d.deviceId, evening(d.externalDeviceId, day, ceilingOn(d.start, day) - 100))).toMatchObject({ meterOutcome: "RECORDED" })
   }, 300_000)
 
+  it("after a rejected hold the day can be held again: one live hold a day, rejected ones aside", async () => {
+    const d = await leaseWithDevice()
+    const day = daysAgo(6)
+    expect(await ingest(d.deviceId, evening(d.externalDeviceId, day, ceilingOn(d.start, day) + 5_000))).toMatchObject({ meterOutcome: "HELD" })
+    const held = await database().telematicsHeldReading.findFirstOrThrow({ where: { loanId: d.loanId } })
+    expect(await rejectHeldReading(officer(), held.id, { note: "Device glitch" })).toMatchObject({ kind: "ok" })
+    expect(await ingest(d.deviceId, meterEvent(d.externalDeviceId, new Date(`${day}T17:00:00.000Z`), ceilingOn(d.start, day) + 6_000))).toMatchObject({ meterOutcome: "HELD" })
+    expect((await database().telematicsHeldReading.findMany({ where: { loanId: d.loanId }, orderBy: { createdAt: "asc" } })).map((h) => h.status)).toEqual(["REJECTED", "HELD"])
+  }, 300_000)
+
   it("accept needs a real note: blank, two characters and 501 characters are 400 and leave the hold HELD", async () => {
     const d = await leaseWithDevice()
     const day = daysAgo(6)
