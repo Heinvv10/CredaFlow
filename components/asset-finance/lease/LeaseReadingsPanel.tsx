@@ -29,8 +29,8 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
         {projection ? (
           <div className="grid gap-4 sm:grid-cols-3">
             <MetricCard label="Used so far" value={metric(`${projection.usedUnits.toLocaleString("en-ZA")} ${unitLabel}`)} detail="Latest reading less the start reading" />
-            <MetricCard label="Projected at term end" value={metric(`${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`)}
-              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term`} />
+            <MetricCard label="Projected usage at term end" value={metric(`${projection.projectedUsedUnits.toLocaleString("en-ZA")} ${unitLabel}`)}
+              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term · projected meter reading ${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`} />
             <MetricCard label="Projected excess ex VAT" value={metric(formatMoney(projection.excessCents))} tone={projection.excessCents > 0 ? "warning" : "neutral"}
               detail="An estimate: extrapolated per day from the readings" />
           </div>

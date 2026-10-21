@@ -873,7 +873,11 @@ what changed while building.
 10. **Position access log = new tenant-scoped `TelematicsPositionAccess`**, not
     `DocumentAccessLog`, which has no `tenantId` and keys on a document id. It
     stores who, when, which loan, which context, and the position row's id and
-    time. It stores no coordinate, so it is kept after the purge.
+    time. It stores no coordinate, so it is kept after the purge. Since the
+    review round 1 (browser finding BR7) every reveal also writes an AuditLog
+    row `TELEMATICS_POSITION_VIEWED` through `lib/audit.ts`, in the same
+    transaction (context, access row id, position id and time; no
+    coordinate), and every refused one `TELEMATICS_POSITION_REFUSED`.
 11. **Retention range 1–365 days** (CHECK). Default 90 days. A longer period
     needs a migration and legal sign-off.
 12. **No "poll now" route.** Acceptance drives
@@ -894,10 +898,8 @@ Added by the review round 1 (PR #222):
     one aside) dated on or before that day. `guardTelematicsPosition` and
     `guardTelematicsAlert` enforce it; an alert's `loanId` is that loan (NOT
     NULL). The poll takes only devices on an asset under an agreement: a
-    running loan, or a signed (CONTRACTED) deal awaiting payout, so the
-    heartbeat still shows beside the payout checklist's tracker item; before
-    the loan is booked no position or alert can be stored. After settlement,
-    closure, write-off or recovery nothing is polled or kept.
+    running loan, or a deal awaiting payout (Deviation 19). After
+    settlement, closure, write-off or recovery nothing is polled or kept.
 15. **Only the latest position per device.** `TelematicsPosition` is unique on
     `(tenantId, deviceId)`; the ingest (holding the device row lock) keeps a
     newer position and deletes the older one, and drops an older or equal one.
@@ -934,6 +936,17 @@ Added by the review round 1 (PR #222):
     transport failure still keeps the cursor. The device row is locked
     (`FOR UPDATE`) at the start of each event's transaction, so overlapping
     sweeps take turns and fold an alert.
+19. **Before payout: a heartbeat, nothing else.** The payout checklist shows a
+    tracker's heartbeat beside its TRACKER_CONFIRMED item, before the loan is
+    booked. So the poll also takes a device on an asset whose deal is in a
+    pre-booking status: APPROVED or CONTRACTED (`PRE_BOOKING_DEAL_STATUSES`
+    in `poll.ts`; the enum has no separate SIGNED, a signed deal is
+    CONTRACTED). With no booked loan no `telematicsLoanAt` covers its events,
+    so the database stores no position and raises no alert (an ALERT event is
+    kept, its work item is not), and a METER event is a device reading only
+    (LEASE_NOT_RUNNING; no `AssetMeterReading`, since no loan exists). A
+    CANCELLED, DECLINED, REFUSED_NCA, REFERRED, SUBMITTED or DRAFT deal is not
+    polled; neither is an asset with no deal (`pre-payout.integration.test.ts`).
 
 ### Data (prisma/schema/asset-finance-telematics.prisma, new file)
 
@@ -1314,8 +1327,19 @@ Pages and components:
   while a recovery is live; context DEFAULT before one exists, which the
   server answers only for a loan in default) and `LegalMatterPanel` (context
   LEGAL_MATTER, while the matter is open). It renders only when the server
-  passes `canDo(role, "view_asset_position")`.
-- Asset page "Tracker devices" card: a real provider's live device shows
+  passes `canDo(role, "view_asset_position")`. Where the reveal would be
+  refused now (the purpose gate, `lib/telematics/position-purpose.ts`, shared
+  with the reveal), the panel shows "Last known position: <reason>." instead
+  of the button.
+- Loan page readings tiles: "Projected usage at term end" is the usage the
+  projected excess is priced on (projected meter reading less the start
+  reading), against the allowance; the projected meter reading is its detail.
+  `projectedExcessUsage` is unchanged.
+- Tracker work queue: below the md breakpoint each alert and held reading is
+  a stacked card with its actions; the table is the md-and-up layout.
+- Asset page "Tracker devices" card: a device that is not the asset's
+  recorded tracker id is flagged amber ("Tracker id mismatch") with the next
+  action. a real provider's live device shows
   "Meter not verified: its readings feed no lease" and, for
   `manage_asset_finance`, a note and "Verify meter".
 - Settings → Asset Finance: the retention field. Navigation: "Tracker alerts"
@@ -1392,6 +1416,10 @@ Added by the review round 1 (each row's mutation is in `evidence/slice5/MUTATION
 | Device ids | `edge-cases-ingest.integration.test.ts` | IT | a control character → 422, never a 500; a removed and re-registered device id gets its own events |
 | The read path catches `positions:` | `lib/telematics/position-read-path.test.ts` | unit | the relation include, a select of it, an event include, a raw query |
 | The portal names the reading's source | `components/portal/lease/LeaseMeterReadingForm.test.tsx` | unit | "…, from the tracker." |
+| Before payout: a heartbeat only (Deviation 19) | `lib/telematics/pre-payout.integration.test.ts`, `poll.test.ts` | IT + unit | an APPROVED and a CONTRACTED deal's devices are polled: heartbeats, 0 positions, 0 alerts, 0 readings, every meter LEASE_NOT_RUNNING; no deal → not polled; CANCELLED and DECLINED → polling stops |
+| A reveal is audited (BR7) | `position-view.integration.test.ts` | IT | one `TELEMATICS_POSITION_VIEWED` row per reveal, with the access row id and the position id, no coordinate |
+| The reveal button follows the purpose gate (BR4) | `lib/telematics/position-purpose.test.ts`, `components/asset-finance/recovery/LegalMatterPanel.test.tsx` | unit | the button only when the gate is open, the reason otherwise |
+| Usage tile (BR1), narrow queue (BR2), tracker id mismatch (BR5) | `components/asset-finance/lease/lease-panels.test.tsx`, `lease-staff-data.test.ts`, `components/asset-finance/telematics/TelematicsTables.test.tsx`, `TrackerDevicesPanel.test.tsx` | unit | projected usage (not the meter) on the tile; cards with actions below md; the amber mismatch with its hint |
 
 Mutation evidence (`evidence/slice5/MUTATIONS.md`, Part B): drop each CHECK,
 partial unique and trigger branch above; drop the `ON CONFLICT` clause; drop
@@ -1570,11 +1598,13 @@ Review round 1 (PR #222, legal, architecture, breaker, code, edge and test
 reviews): Deviations 3 and 7 changed and 14 to 18 added (above), the round-1
 rows of the rule-to-test matrix, Known limitations and the counsel items. The
 migrations were edited in place (never applied to a shared database). One
-choice beyond the review decisions: the poll also takes a device on an asset
-with a signed (CONTRACTED) deal awaiting payout, so the payout panel's
-heartbeat keeps working before booking; without a covering loan the database
-still stores no position and raises no alert. A WITHDRAWN recovery does not
-end the tenure (the asset went back to the borrower).
+choice beyond the review decisions, approved by the team lead: the poll also
+takes a device on an asset whose deal awaits payout (Deviation 19), so the
+payout panel's heartbeat keeps working before booking. A WITHDRAWN recovery
+does not end the tenure (the asset went back to the borrower). The browser
+review's findings BR1 to BR8 are in "Pages and components", Deviation 10, the
+matrix and `evidence/slice5/browser/B/README.md` (the seed's second state,
+the auth settings and the in-process scheduler).
 
 
 ## Part C — Valuation guides

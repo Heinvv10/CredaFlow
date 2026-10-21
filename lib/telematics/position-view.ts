@@ -8,28 +8,23 @@
  * position from this loan's tenure of the asset (from its start until the
  * next loan's start, the loan's closing or the asset's recovery, whichever is
  * first) and within the tenant's retention. The access row is written in the
- * same transaction before the answer leaves, a "none" included; a 403 or 409
- * refusal is audited (no coordinate). Coordinates are text: never a map tile
+ * same transaction before the answer leaves, a "none" included, with an
+ * audit row TELEMATICS_POSITION_VIEWED (no coordinate); a 403 or 409 refusal
+ * is audited too. Coordinates are text: never a map tile
  * or a third-party link.
  */
 import type { TelematicsPositionContext } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { canDo } from "@/lib/auth-guards"
 import type { AppRole } from "@/lib/auth-config"
-import { AuditAction } from "@/lib/audit"
+import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { SAST_OFFSET_MS } from "@/lib/date/sast"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
-import { OPEN_RECOVERY } from "./alerts-raise"
+import { positionPurposes, purposeRefusal } from "./position-purpose"
 import { objectBody, refused, type TelematicsActor, type TelematicsRefusal, type TelematicsResult } from "./result"
 
 export const POSITION_CONTEXTS: readonly TelematicsPositionContext[] = ["DEFAULT", "RECOVERY", "LEGAL_MATTER"]
-export const PURPOSE_REFUSAL = "Position is shown only for a loan in default, legal action or recovery"
-const CONTEXT_REFUSAL: Record<TelematicsPositionContext, string> = {
-  DEFAULT: "This loan is not in default",
-  RECOVERY: "This loan has no open recovery",
-  LEGAL_MATTER: "This loan has no open legal matter",
-}
 
 export interface RevealedPosition {
   latitude: number
@@ -77,13 +72,8 @@ export async function revealPosition(
   const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId }, select: { id: true, assetId: true, status: true, startDate: true, closedAt: true } })
   if (!loan?.assetId) return refused(404, "Loan not found")
   const assetId = loan.assetId
-  const [matters, recoveries] = await Promise.all([
-    prisma.legalMatter.count({ where: { tenantId, loanId, status: "OPEN" } }),
-    prisma.recovery.count({ where: { tenantId, loanId, ...OPEN_RECOVERY } }),
-  ])
-  const holds: Record<TelematicsPositionContext, boolean> = { DEFAULT: loan.status === "DEFAULTED", RECOVERY: recoveries > 0, LEGAL_MATTER: matters > 0 }
-  if (!Object.values(holds).some(Boolean)) return refuse(409, PURPOSE_REFUSAL, "no_purpose")
-  if (!holds[purpose]) return refuse(409, CONTEXT_REFUSAL[purpose], `no_${purpose.toLowerCase()}`)
+  const refusal = purposeRefusal(await positionPurposes(tenantId, loan), purpose)
+  if (refusal) return refuse(409, refusal.error, refusal.reason)
 
   const end = await tenureEnd(tenantId, { ...loan, assetId })
   const config = await prisma.tenantConfig.findUnique({ where: { tenantId }, select: { telematicsPositionRetentionDays: true } })
@@ -97,12 +87,17 @@ export async function revealPosition(
       select: { id: true, deviceId: true, occurredAt: true, latitude: true, longitude: true, accuracyM: true, event: { select: { simulated: true } } },
     })
     const device = position ? null : await tx.trackerDevice.findFirst({ where: { tenantId, assetId }, orderBy: { createdAt: "desc" }, select: { id: true } })
-    await tx.telematicsPositionAccess.create({
+    const access = await tx.telematicsPositionAccess.create({
+      select: { id: true },
       data: {
         tenantId, userId: actor.userId, loanId, assetId, deviceId: position?.deviceId ?? device?.id ?? null, context: purpose,
         positionId: position?.id ?? null, positionOccurredAt: position?.occurredAt ?? null, ipAddress: meta.ipAddress, userAgent: meta.userAgent?.slice(0, 500) ?? null,
       },
     })
+    await logAuditStrict({
+      tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.TELEMATICS_POSITION_VIEWED, entity: "Loan", entityId: loanId,
+      newValue: { context: purpose, accessId: access.id, positionId: position?.id ?? null, positionOccurredAt: position?.occurredAt.toISOString() ?? null },
+    }, tx)
     if (!position) return { kind: "ok" as const, none: true as const }
     return {
       kind: "ok" as const,

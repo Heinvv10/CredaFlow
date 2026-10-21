@@ -16,7 +16,8 @@ export default defineAuditActions({
   TELEMATICS_POLL_FAILED: "TELEMATICS_POLL_FAILED",
   // A provider event refused for what it is (shape or a database rule): skipped, the cursor moves past it.
   TELEMATICS_EVENT_REJECTED: "TELEMATICS_EVENT_REJECTED",
-  // A refused "Show last known position" (403 or 409); no coordinate in it.
+  // A shown "Show last known position" (beside its access row) and a refused one (403 or 409); no coordinate in either.
+  TELEMATICS_POSITION_VIEWED: "TELEMATICS_POSITION_VIEWED",
   TELEMATICS_POSITION_REFUSED: "TELEMATICS_POSITION_REFUSED",
   // Staff compared a real device's meter with the asset's own.
   TRACKER_METER_VERIFIED: "TRACKER_METER_VERIFIED",

@@ -78,13 +78,13 @@ describe("the telematics poll", () => {
     expect(updates().at(-1)!.data).not.toHaveProperty("pollCursor")
   })
 
-  it("polls only devices on an asset under an agreement (a running loan, or a signed deal awaiting payout): collection ends with it", async () => {
+  it("polls only devices on an asset under an agreement (a running loan, or an approved or contracted deal awaiting payout): collection ends with it", async () => {
     vi.stubEnv("SIMULATED_INTEGRATIONS", "simulated-telematics")
     await pollTenant("t1", NOW)
     expect(m.findDevices.mock.calls[0][0]).toMatchObject({
       where: {
         tenantId: "t1", status: "ACTIVE",
-        OR: [{ asset: { loans: { some: { tenantId: "t1", status: { in: ["ACTIVE", "DEFAULTED"] } } } } }, { asset: { deals: { some: { tenantId: "t1", status: "CONTRACTED" } } } }],
+        OR: [{ asset: { loans: { some: { tenantId: "t1", status: { in: ["ACTIVE", "DEFAULTED"] } } } } }, { asset: { deals: { some: { tenantId: "t1", status: { in: ["APPROVED", "CONTRACTED"] } } } } }],
       },
     })
   })

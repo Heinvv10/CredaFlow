@@ -79,8 +79,11 @@ suite.sequential("telematics last known position: who, why, when, logged (real D
     } })
     const [row] = await database().telematicsPositionAccess.findMany({ where: { loanId: ids.loan } })
     expect(row).toMatchObject({ userId: ids.collector, context: "DEFAULT", positionId: latest.id, positionOccurredAt: latest.occurredAt, deviceId: ids.device, ipAddress: meta.ipAddress })
-    // The view itself is the access log, not an audit row.
-    expect(await database().auditLog.count({ where: { tenantId: fx.tenantId, action: { startsWith: "TELEMATICS_POSITION", not: "TELEMATICS_POSITION_REFUSED" } } })).toBe(0)
+    // The audit trail has the view too, in the same transaction as the access row, without a coordinate.
+    const viewed = await database().auditLog.findMany({ where: { tenantId: fx.tenantId, action: "TELEMATICS_POSITION_VIEWED" } })
+    expect(viewed).toHaveLength(1)
+    expect(viewed[0]).toMatchObject({ userId: ids.collector, entityId: ids.loan, newValue: { context: "DEFAULT", accessId: row.id, positionId: latest.id, positionOccurredAt: latest.occurredAt.toISOString() } })
+    expect(JSON.stringify(viewed)).not.toMatch(/latitude|longitude|-3\d\.\d{4}/)
   }, 120_000)
 
   it("answers each purpose only while the loan has it (409, audited, no view logged): default, an open recovery, an open legal matter", async () => {

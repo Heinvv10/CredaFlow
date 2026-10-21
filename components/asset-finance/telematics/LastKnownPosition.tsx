@@ -13,8 +13,10 @@ type Answer = { position: { latitude: number; longitude: number; accuracyM: numb
  * "Show last known position" (SLICE5.md part B, POPIA). The page never carries
  * a coordinate: pressing the button asks the server, which logs the view first.
  * Rendered only for view_asset_position. Text only: no map tile, no third-party link.
+ * `refusal` is the server's reason the reveal would be refused now
+ * (lib/telematics/position-purpose.ts): shown instead of the button.
  */
-export function LastKnownPosition({ loanId, context }: { loanId: string; context: "DEFAULT" | "RECOVERY" | "LEGAL_MATTER" }) {
+export function LastKnownPosition({ loanId, context, refusal = null }: { loanId: string; context: "DEFAULT" | "RECOVERY" | "LEGAL_MATTER"; refusal?: string | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [answer, setAnswer] = useState<Answer | null>(null)
@@ -28,6 +30,9 @@ export function LastKnownPosition({ loanId, context }: { loanId: string; context
     setAnswer(result.body as Answer)
   }
 
+  if (refusal) {
+    return <p className="text-xs text-[var(--cf-text-muted)]" data-testid="last-known-position-refused">{`Last known position: ${refusal}.`}</p>
+  }
   return (
     <div className="space-y-2" data-testid="last-known-position">
       <Button size="sm" variant="outline" onClick={reveal} disabled={busy}>

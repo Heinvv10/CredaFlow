@@ -31,8 +31,16 @@ export function TrackerDevicesPanel(props: { assetId: string; devices: AssetTrac
                 {`Installed ${formatDate(d.installedOn)}`}
                 {d.removedOn && ` · removed ${formatDate(d.removedOn)}`}
                 {` · last seen ${d.lastSeenAt ? formatDateTime(d.lastSeenAt) : "never"}`}
-                {` · ${d.matchesTrackerId ? "matches" : "does not match"} the recorded tracker id`}
+                {d.matchesTrackerId && " · matches the recorded tracker id"}
               </span>
+              {!d.matchesTrackerId && (
+                <span className="inline-flex flex-wrap items-center gap-2" data-testid="tracker-id-mismatch">
+                  <StatusPill tone="warning">Tracker id mismatch</StatusPill>
+                  <span className="text-xs text-[var(--cf-text-secondary)]">
+                    Not the asset&apos;s recorded tracker id: check the device id, or correct the Tracker unit ID under Payout readiness before payout attests it.
+                  </span>
+                </span>
+              )}
               {d.lastPollError && d.status === "ACTIVE" && <span className="text-xs text-[var(--cf-danger)]">{d.lastPollError}</span>}
               {d.meterVerifiedAt
                 ? <span className="text-xs text-[var(--cf-text-muted)]">{`Meter verified ${formatDateTime(d.meterVerifiedAt)}`}</span>

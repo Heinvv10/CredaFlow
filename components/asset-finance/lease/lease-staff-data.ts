@@ -49,7 +49,8 @@ export interface FundView {
   dualApprovalCents: number
 }
 export interface ReadingRow { id: string; readingDate: string; value: number; source: string; simulated?: boolean }
-export interface UsageProjection { usedUnits: number; projectedFinalReading: number; excessCents: number; allowedUnits: number }
+/** `projectedUsedUnits` is the usage the projected excess is priced on (the projected meter reading less the start reading). */
+export interface UsageProjection { usedUnits: number; projectedFinalReading: number; projectedUsedUnits: number; excessCents: number; allowedUnits: number }
 export interface EndOfTermView {
   outcome: LeaseEndOutcome
   status: LeaseEndStatus
@@ -233,5 +234,8 @@ function projectUsage(
     startReading: start.value, allowancePerYear: usage.allowancePerYear, termMonths: term.termMonths, excessRateCents: usage.excessRateCents,
     startDate: term.startDate, latestReading: latest.value, latestDate: latest.readingDate, endDate: term.endDate,
   })
-  return { usedUnits: latest.value - start.value, projectedFinalReading: projected.projectedFinalReading, excessCents: projected.excessCents, allowedUnits: Math.round(projected.allowedTwelfths / 12) }
+  return {
+    usedUnits: latest.value - start.value, projectedFinalReading: projected.projectedFinalReading, projectedUsedUnits: projected.usedUnits,
+    excessCents: projected.excessCents, allowedUnits: Math.round(projected.allowedTwelfths / 12),
+  }
 }

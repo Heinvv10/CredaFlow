@@ -3,9 +3,11 @@
  * docs/asset-finance/SLICE5.md part B). For each asset-finance tenant, in its
  * tenant frame, the ACTIVE devices on an asset under an agreement are polled
  * per provider from their cursors: a running (ACTIVE or DEFAULTED) loan, or a
- * signed deal awaiting payout (the heartbeat beside the payout checklist's
- * tracker item; without a covering loan the database stores no position and
- * raises no alert). Collection ends with the agreement. A provider error
+ * deal awaiting payout (PRE_BOOKING: approved or contracted; the heartbeat
+ * beside the payout checklist's tracker item). Without a covering loan the
+ * database stores no position and raises no alert, and a meter event is a
+ * device reading only. A cancelled, declined or refused deal stops polling;
+ * collection ends with the agreement. A provider error
  * marks those devices (lastPollError,
  * audited) and the sweep goes on. Each event is its own transaction
  * (ingest.ts); an event id the tenant's devices do not have is dropped and
@@ -48,6 +50,9 @@ const FAILED_EVENT = "An event could not be stored; it is retried on the next po
 const RULE_CODES = /\b(23514|22021|22003|22P05|P2000|P2002|P2020)\b/
 /** The driver's own refusal of a number its INT4 column cannot hold (before Postgres sees it). */
 const OUT_OF_RANGE = /Unable to fit integer value/
+
+/** A deal awaiting payout: approved or contracted (signed), not yet booked. Any other status (cancelled, declined, refused, draft) is not polled. */
+export const PRE_BOOKING_DEAL_STATUSES = ["APPROVED", "CONTRACTED"] as const
 
 type PolledDevice = {
   id: string; tenantId: string; assetId: string; provider: string; externalDeviceId: string; installedOn: Date; pollCursor: string | null; meterVerifiedAt: Date | null
@@ -138,7 +143,7 @@ async function pollProvider(tenantId: string, providerId: string, devices: Polle
   }
 }
 
-/** One tenant's ACTIVE devices on an asset under an agreement (a running loan, or a signed deal awaiting payout), in its tenant frame. */
+/** One tenant's ACTIVE devices on an asset under an agreement (a running loan, or a deal awaiting payout), in its tenant frame. */
 export async function pollTenant(tenantId: string, now: Date): Promise<TelematicsPollRun> {
   return runWithTenant(tenantId, async () => {
     const run = emptyRun()
@@ -147,7 +152,7 @@ export async function pollTenant(tenantId: string, now: Date): Promise<Telematic
     const devices = await prisma.trackerDevice.findMany({
       where: {
         tenantId, status: "ACTIVE",
-        OR: [{ asset: { loans: { some: { tenantId, status: { in: ["ACTIVE", "DEFAULTED"] } } } } }, { asset: { deals: { some: { tenantId, status: "CONTRACTED" } } } }],
+        OR: [{ asset: { loans: { some: { tenantId, status: { in: ["ACTIVE", "DEFAULTED"] } } } } }, { asset: { deals: { some: { tenantId, status: { in: [...PRE_BOOKING_DEAL_STATUSES] } } } } }],
       },
       orderBy: { id: "asc" },
       select: { id: true, tenantId: true, assetId: true, provider: true, externalDeviceId: true, installedOn: true, pollCursor: true, meterVerifiedAt: true },

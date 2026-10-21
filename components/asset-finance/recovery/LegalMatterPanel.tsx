@@ -10,6 +10,7 @@ import { hintText, REGIME_LABELS } from "./legal-matter-form"
 import { OpenLegalMatterButton } from "./OpenLegalMatterButton"
 import { RecordStepForm } from "./RecordStepForm"
 import { LastKnownPosition } from "../telematics/LastKnownPosition"
+import { positionRefusalFor } from "@/lib/telematics/position-purpose"
 
 /**
  * The legal matter of an asset-finance loan on the staff loan page: open it,
@@ -75,7 +76,7 @@ export async function LegalMatterPanel({ tenantId, loanId, canManage, canViewPos
         {canViewPosition && open && (
           <section>
             <h3 className={subheading}>Asset</h3>
-            <LastKnownPosition loanId={loanId} context="LEGAL_MATTER" />
+            <LastKnownPosition loanId={loanId} context="LEGAL_MATTER" refusal={await positionRefusalFor(tenantId, loanId, "LEGAL_MATTER")} />
           </section>
         )}
 

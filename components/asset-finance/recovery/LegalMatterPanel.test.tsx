@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 
-const mocks = vi.hoisted(() => ({ view: vi.fn(), suppliers: vi.fn() }))
+const mocks = vi.hoisted(() => ({ view: vi.fn(), suppliers: vi.fn(), refusal: vi.fn() }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/lib/asset-finance/legal-matter-view", () => ({ getLegalMatterView: mocks.view }))
 vi.mock("@/lib/prisma", () => ({ prisma: { supplier: { findMany: mocks.suppliers } } }))
+vi.mock("@/lib/telematics/position-purpose", () => ({ positionRefusalFor: mocks.refusal }))
 
 import { LegalMatterPanel } from "./LegalMatterPanel"
 
@@ -26,6 +27,19 @@ beforeEach(() => {
 })
 
 describe("LegalMatterPanel", () => {
+  it("shows the logged reveal button only when the server's purpose gate is open, the reason otherwise", async () => {
+    mocks.view.mockResolvedValue({ kind: "done", view: matter() })
+    const render = async () => renderToStaticMarkup(await LegalMatterPanel({ tenantId: "t-1", loanId: "l-1", canManage: false, canViewPosition: true }))
+    mocks.refusal.mockResolvedValue(null)
+    expect(await render()).toContain("Show last known position")
+    expect(mocks.refusal).toHaveBeenCalledWith("t-1", "l-1", "LEGAL_MATTER")
+    mocks.refusal.mockResolvedValue("This loan has no open legal matter")
+    const refused = await render()
+    expect(refused).not.toContain("Show last known position")
+    expect(refused).toContain("Last known position: This loan has no open legal matter.")
+    expect(await html(false)).not.toContain("last known position")
+  })
+
   it("offers to open a matter only to a role that manages asset finance", async () => {
     mocks.view.mockResolvedValue({ kind: "done", view: null })
     expect(await html(true)).toContain("Open legal matter")
