@@ -76,6 +76,16 @@ suite("decision log (real Postgres)", () => {
   afterAll(async () => {
     vi.unstubAllEnvs()
     await app?.$disconnect()
+    // Append-only: the replica role skips its trigger, as cleanupDealFixture does.
+    await db.$transaction([
+      db.$executeRawUnsafe("SET LOCAL session_replication_role = replica"),
+      db.creditDecisionRecord.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } }),
+      db.tenant.deleteMany({ where: { id: { in: [tenantA, tenantB] } } }),
+    ])
+    if (app) {
+      await db.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`)
+      await db.$executeRawUnsafe(`DROP ROLE ${ROLE}`)
+    }
     await db.$disconnect()
   })
 

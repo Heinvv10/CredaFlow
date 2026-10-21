@@ -55,8 +55,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const outcome = await prisma.$transaction(async (tx) => {
       // The application row lock a recompute and the approval also take: a
       // clearance cannot interleave with either, nor land after a decision.
-      const locked = await tx.$queryRaw<Array<{ status: AppStatus }>>`
-        SELECT status FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR NO KEY UPDATE`
+      const locked = await tx.$queryRaw<Array<{ status: AppStatus; clientId: string | null }>>`
+        SELECT status, "clientId" FROM "LoanApplication" WHERE id = ${id} AND "tenantId" = ${tenant.id} FOR NO KEY UPDATE`
       const flag = await tx.applicationCheckFlag.findFirst({
         where: { id: flagId, tenantId: tenant.id, applicationId: id },
         select: { id: true, check: true, code: true },
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       await recordDecisions(tx, [creditCheckClearRecord({
         tenantId: tenant.id,
         applicationId: id,
-        clientId: null,
+        clientId: locked[0].clientId,
         actor: { userId: guard.user.id, role: guard.user.role },
         decidedAt: clearedAt,
         flagId: flag.id,

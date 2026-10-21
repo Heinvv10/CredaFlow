@@ -55,6 +55,9 @@ import { auditRefusal } from "@/lib/audit-refusals"
 import { recordDecisions } from "@/lib/learning-loop/decision-log"
 import { consumerApprovalRecords, consumerDeclineRecord, consumerReturnRecord } from "@/lib/learning-loop/records"
 
+// The CreditDecisionRecord_override_reason CHECK (migration
+// 20261021090000_credit_decision_record) holds the same 10-code-point floor:
+// lowering this without a migration fails every such approval closed.
 const MIN_BUREAU_OVERRIDE_REASON_LENGTH = 10
 
 export async function POST(
@@ -732,7 +735,8 @@ export async function POST(
         }
         if (
           bureauOverrideReason &&
-          bureauOverrideReason.length < MIN_BUREAU_OVERRIDE_REASON_LENGTH
+          // Code points, as the database's char_length counts them: an emoji is one, not two.
+          [...bureauOverrideReason].length < MIN_BUREAU_OVERRIDE_REASON_LENGTH
         ) {
           return NextResponse.json(
             {
