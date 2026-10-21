@@ -448,3 +448,62 @@ After the restores, `lib/valuation-guides/` gave 64 passed and 1 skipped again.
 | T9 | revaluation LTV for leases | `revaluation.test.ts` | 1 failed, 4 passed | "shows no LTV for a lease: …" |
 | T10 | synthetic provider's read without the simulation guard | `providers.test.ts` | 1 failed, 3 passed | "refuses the synthetic guide on a deployed build …" |
 | T11 | CSV formula check only for `=` | `csv.test.ts` | 1 failed, 10 passed | "refuses a cell a spreadsheet would run as a formula, …" (`@v`) |
+
+### Review round 1 (PR #229): repros and new rule tests written first
+
+The reviewers' repros (legal, arch, breaker, edge, tests) were inverted where
+they documented a hole, and tests were added for every rule this round adds.
+They were run against 5e251bdb on a migrated throwaway database:
+`Test Files 8 failed | 12 passed | 1 skipped (21)`, `Tests 16 failed | 96 passed`.
+
+Red cases:
+- the s127 surrender and the s131 and non-NCA recovery VALUED on a GUIDE valuation;
+- breaker B1–B4;
+- the synthetic ⇒ simulated, move-time and successor rules;
+- the İsuzu/Isuzu upload (a thrown 23505);
+- the 6 MB body;
+- both midnight cases;
+- the purchase picker;
+- the offset clamp.
+
+After the fixes (migrations `20261021090200` edited in place and
+`20261021090300`; the TS changes):
+- `lib/valuation-guides/` plus the lease panel: 115 passed, 1 skipped.
+- Every `RUN_ASSET_FINANCE_*_IT` with `TENANT_RLS=on`: `Test Files 323 passed | 9 skipped (332)`, `Tests 2820 passed | 41 skipped`.
+
+### Review round 1 mutations (database; applied to the migrated database, then restored)
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R1-F1 | `guardValuationGuide` without `AND g."id" <> NEW."id"` (self-supersede) | gaps, breaker, rules ITs | 1 failed, 26 passed | "never supersedes a guide by itself". Note: a self-supersede is still refused by two other rules (the successor must be a DRAFT; the deferred check). The test proves the clause refuses on its own by taking those two out, and here it failed because the clause it removes was already gone. This clause is defence in depth, not a lone guard. |
+| R1-F2 | GUIDE trigger: the make comparison → `FALSE` | gaps IT | 1 failed, 9 passed | "reads a row of the asset's own make and year, not only its model" |
+| R1-F3 | GUIDE trigger: no year comparison | gaps IT | 1 failed, 9 passed | same test |
+| R1-F4 | DRAFT>PUBLISHED allow-list + `uploadedById`, `simulated` | gaps IT | 1 failed, 9 passed | "lets a move change only its own columns …" |
+| R1-F5 | DRAFT>DISCARDED allow-list + `name` | gaps IT | 1 failed, 9 passed | same test |
+| R1-F6 | PUBLISHED>SUPERSEDED allow-list + `publishedById` | gaps IT | 1 failed, 9 passed | same test |
+| R1-F15 | no `NEW."publishedAt" := now()` | gaps + breaker ITs | 6 failed, 11 passed | "dates every move itself …"; B3. Also every publish now passing no time ("lets a move change …", the cycle and self tests, B5): the status-shape CHECK refuses it. |
+| R1-F16 | successor need not be a DRAFT | gaps + breaker ITs | 2 failed, 15 passed | "supersedes a guide only by a draft put live in the same transaction …"; "never supersedes a guide by itself" |
+| R1-F19 | `guardSurrenderRequest`'s GUIDE refusal off | statutory IT | 1 failed, 2 passed | "refuses a GUIDE valuation as an s127 surrender's valuation …" |
+| R1-F20 | `guardRecovery`'s GUIDE refusal off | statutory IT | 2 failed, 1 passed | NCA s131 and non-NCA recovery VALUED |
+| R1-C | drop each of `ValuationGuide_name`, `_provider`, `_sha256`, `_row_count`, `_status_shape` | gaps + breaker ITs | 1 failed, 16 passed each | "holds a guide to its name, source, hash, row count and status shape (CHECKs)" |
+| R1-C | drop `ValuationGuide_synthetic_simulated` | gaps + breaker ITs | 2 failed, 15 passed | "keeps a synthetic guide simulated …"; B2 |
+| R1-C | drop `ValuationGuide_times` | gaps + breaker ITs | 2 failed, 15 passed | "keeps … the move times in order"; "dates every move itself …" |
+| R1-I | drop `ValuationGuideRow_line_key` | gaps IT | 1 failed, 9 passed | "holds a row's line number to one row" |
+| R1-T | disable both `_no_truncate` triggers | gaps IT | 1 failed, 9 passed | "refuses TRUNCATE on both guide tables …" |
+
+### Review round 1 mutations (source; restored after each, `git diff` clean)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| R1-T12 | `publishGuide` without its not-yet-effective check | gaps-routes IT | **survived** (4 passed) | Equivalent now: the database refuses the publish and `publishGuide` maps that refusal to the same `not_yet_effective` 409 (the midnight mapping, R1-T20). The TS check only spares the database a round trip. |
+| R1-T13 | without the older-than-current check | gaps-routes IT | 1 failed, 3 passed | "refuses a guide dated before the current guide of its name with 409 …" |
+| R1-T14 | without the simulated-guide check | gaps-routes IT | 1 failed, 3 passed | "refuses to take a simulated guide live on a deployed build" |
+| R1-T15 | revaluation reads SUPERSEDED guides too | revaluation-store IT | 1 failed, 2 passed | "values on the current guide only, never the one it superseded" |
+| R1-T16 | newest guide value ordered ascending | revaluation-store IT | 1 failed, 2 passed | "keeps the variant of the asset's newest guide value …" |
+| R1-T17 | live loans = ACTIVE only | revaluation-store IT | 2 failed, 1 passed | "lists every live loan …"; "values on the current guide only …" |
+| R1-T18 | upload without the `lower()` re-check | edge-unicode + breaker ITs | 2 failed, 7 passed | İsuzu/Isuzu; B4 (both now throw 23505) |
+| R1-T19 | record: midnight refusal not mapped | midnight IT | 1 failed, 1 passed | "records nothing, with 409, when the day turns …" (500) |
+| R1-T20 | publish: midnight refusal not mapped | midnight IT | 1 failed, 1 passed | "refuses the publish with 409 when the app's day …" (500) |
+| R1-T21 | purchase picker without the source filter | lease panel unit | 1 failed, 10 passed | "offers only assessors' and dealers' valuations …" |
+| R1-T22 | body cap off while streaming | gaps-routes IT + upload-body unit | 2 failed, 5 passed | "refuses a body over the cap …"; "stops a stream with no length …" |
+| R1-T23 | `?offset` not clamped to the row count | guide-view unit | 1 failed | "reads a whole number within the guide's rows …" |

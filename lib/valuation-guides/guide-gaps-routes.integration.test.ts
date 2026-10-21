@@ -105,13 +105,15 @@ suite.sequential("publish route refusals (real Postgres, real routes)", () => {
     expect(await database().valuationGuide.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "DRAFT" })
   })
 
-  it("refuses an upload over 5 MB with 422 before reading it as a form, and stores nothing", async () => {
+  it("refuses a body over the cap with 422 before reading it as a form, and stores nothing", async () => {
     as(fx.adminA)
     const before = await database().valuationGuide.count({ where: { tenantId: fx.tenantId } })
     const form = new FormData()
     form.set("name", "TEST Huge Guide")
     form.set("effectiveOn", day(-1))
-    form.set("file", new File([new Uint8Array(6 * 1024 * 1024)], "guide.csv", { type: "text/csv" }))
+    // The file alone is under 5 MB; the body is not. Only the body cap can refuse this one.
+    form.set("padding", "x".repeat(2 * 1024 * 1024))
+    form.set("file", new File([new Uint8Array(4 * 1024 * 1024)], "guide.csv", { type: "text/csv" }))
     const res = await uploadGuide(request("/api/asset-finance/valuation-guides", form))
     expect(res.status).toBe(422)
     expect((await res.json()).problems).toEqual([{ line: 1, reason: "The upload is larger than 5 MB" }])
