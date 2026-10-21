@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest"
-import { PURPOSE_REFUSAL, purposeRefusal } from "./position-purpose"
+import { describe, expect, it, vi } from "vitest"
+
+const m = vi.hoisted(() => ({ matters: vi.fn(async () => 0), recoveries: vi.fn(async () => 0) }))
+vi.mock("@/lib/prisma", () => ({ prisma: { legalMatter: { count: m.matters }, recovery: { count: m.recoveries } } }))
+
+import { PURPOSE_REFUSAL, positionPurposes, purposeRefusal } from "./position-purpose"
 
 // The reveal and the panels share one purpose gate (SLICE5.md part B, Deviation 3).
 const none = { DEFAULT: false, RECOVERY: false, LEGAL_MATTER: false }
@@ -18,5 +22,14 @@ describe("the position purpose gate", () => {
     expect(purposeRefusal({ ...none, DEFAULT: true }, "DEFAULT")).toBeNull()
     expect(purposeRefusal({ ...none, RECOVERY: true }, "RECOVERY")).toBeNull()
     expect(purposeRefusal({ ...none, LEGAL_MATTER: true }, "LEGAL_MATTER")).toBeNull()
+  })
+})
+
+describe("the loan's purposes", () => {
+  it("counts a loan pending write-off as in default (still collectable), not one written off", async () => {
+    expect(await positionPurposes("t1", { id: "l1", status: "PENDING_WRITE_OFF" })).toMatchObject({ DEFAULT: true })
+    expect(await positionPurposes("t1", { id: "l1", status: "DEFAULTED" })).toMatchObject({ DEFAULT: true })
+    expect(await positionPurposes("t1", { id: "l1", status: "WRITTEN_OFF" })).toMatchObject({ DEFAULT: false })
+    expect(await positionPurposes("t1", { id: "l1", status: "ACTIVE" })).toEqual({ DEFAULT: false, RECOVERY: false, LEGAL_MATTER: false })
   })
 })

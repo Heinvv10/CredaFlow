@@ -80,6 +80,11 @@ suite.sequential("telematics alerts: work items, no messages, a guarded lifecycl
     await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.queueLoan])
     const defaulted = await raise(ids.queueDevice, "TAMPER")
     expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (defaulted as { alertId: string }).alertId } })).toMatchObject({ queue: "COLLECTIONS", loanId: ids.queueLoan })
+    // Pending write-off is still in default: collections.
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'PENDING_WRITE_OFF' WHERE "id" = $1`, ids.queueLoan])
+    const pending = await raise(ids.queueDevice, "TAMPER")
+    expect(await database().telematicsAlert.findUniqueOrThrow({ where: { id: (pending as { alertId: string }).alertId } })).toMatchObject({ queue: "COLLECTIONS" })
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'DEFAULTED' WHERE "id" = $1`, ids.queueLoan])
     // Recovered today: an exit from yesterday (inside the tenure) is a recovery item; one from today has no tenure, so no item.
     await testSetup(database(), [`INSERT INTO "Recovery" ("id", "tenantId", "loanId", "assetId", "route", "status", "recoveredOn", "location", "condition", "createdById", "updatedAt")
       VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'RECOVERED', CURRENT_DATE, 'Synthetic yard', 'Synthetic condition', $5, now())`, `rcq_${t}`, fx.tenantId, ids.queueLoan, fx.assets[3], fx.adminA])
