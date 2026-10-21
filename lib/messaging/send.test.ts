@@ -476,6 +476,48 @@ describe("sendMessage", () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  // Two runs on one business event: the run that waited on the advisory lock has a
+  // snapshot from before the lock was granted, so it misses the row the other run
+  // committed and its insert hits the (tenantId, idempotencyKey) index. It must then
+  // replay that row in a fresh transaction, never fail the send nor dispatch again.
+  it("a concurrent send that won the idempotency key is replayed, not reported as a failure", async () => {
+    const existing = {
+      id: "msg-concurrent", tenantId: "tn1", conversationId: "cv-existing", channel: "EMAIL", provider: "SMTP",
+      templateId: "tpl1", status: "QUEUED", sentAt: null, dispatchState: "PENDING", dispatchLeaseExpiresAt: null,
+      direction: "OUTBOUND", subject: "Hello", bodyText: "Hi Sipho", bodyHtml: null, toValue: "x@y.com",
+      payloadFingerprint: exactEmailFingerprint(),
+    }
+    const collision = Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target: ["tenantId", "idempotencyKey"] } })
+    const replayTx = buildTx({
+      conversation: { findFirst: vi.fn().mockResolvedValue({ id: "cv-existing" }) },
+      message: { findUnique: vi.fn().mockResolvedValue(existing) },
+    })
+    vi.mocked(prisma.$transaction)
+      .mockImplementationOnce(async () => { throw collision })
+      .mockImplementation(async (cb: any) => cb(replayTx))
+
+    const result = await sendMessage({
+      contactId: "ct1", channel: "EMAIL", template: fullTemplate, vars: { name: "Sipho" }, toValue: "x@y.com",
+      idempotencyKey: "collections:loan_1:reminder_1d:EMAIL:2026-10-21",
+    })
+
+    expect(result).toBe(existing)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    expect(replayTx.message.create).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it("does not retry a unique violation on anything but the idempotency key", async () => {
+    const other = Object.assign(new Error("Unique constraint failed"), { code: "P2002", meta: { target: ["tenantId", "providerMessageId"] } })
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async () => { throw other })
+
+    await expect(sendMessage({
+      contactId: "ct1", channel: "EMAIL", template: fullTemplate, vars: { name: "Sipho" }, toValue: "x@y.com",
+      idempotencyKey: "collections:loan_1:reminder_1d:EMAIL:2026-10-21",
+    })).rejects.toBe(other)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+  })
+
   it("explicitly re-arms the same Message only after a durable definite rejection", async () => {
     const existing = {
       id: "msg-rejected",
