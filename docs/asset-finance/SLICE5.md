@@ -796,4 +796,272 @@ Specified in PR B.
 
 ## Part C — Valuation guides
 
-Specified in PR C.
+A lender loads a dated valuation guide (make, model, year, variant → trade and
+retail value). A second admin publishes it. Deals, the book and recoveries
+then read values from it. A guide value is a reference: it never counts as an
+independent valuation.
+
+### Deviations from the goal's defaults (and why)
+
+1. **A provider is a guide source, not a live lookup.** `ValuationProvider`
+   reads a whole guide (`readGuide`), which is stored as a DRAFT
+   `ValuationGuide` and published by a second admin, as the SARB feed's values
+   wait for a person's approval. Every lookup then reads published guide rows,
+   whatever the provider. A GUIDE valuation therefore always names a guide row
+   that two people put live. Two providers ship: `csv` (the upload) and
+   `synthetic` (fixture rows, for tests and demo stacks). A future feed
+   (an auto or plant guide API) is a third provider that fills a draft the
+   same way. The synthetic provider is a simulated integration
+   (`simulated-valuation-guide`): refused on a deployed build unless
+   `SIMULATED_INTEGRATIONS` names it. Its guides carry `simulated = true` and
+   show a "Simulated" label wherever their values appear.
+2. **`purchaseValuationOk` needs no change.** It already admits only
+   `source IN ('ASSESSOR', 'DEALER')`, and so do the purchase re-base clause and
+   the TS check (`MARKET_VALUATION_SOURCES`). A real-PG test proves that a
+   GUIDE valuation is refused for a lease purchase. Only the recovery-sale rule
+   (`guardRemarketingSale`, three `<> 'INTERNAL'` clauses) and its TS mirror
+   (`valuationFacts`, `loadSaleValuations`) change to
+   `NOT IN ('INTERNAL', 'GUIDE')`.
+3. **A GUIDE valuation's amount is the trade value.** Trade is the
+   conservative figure (what a forced sale realises). The row snapshot keeps
+   both values, and the deal panel shows the LTV against each.
+4. **Guide values are VAT-inclusive**, as the guide states them. The deal's
+   advance is the goods advance: cash price incl. VAT less deposit and
+   trade-in (Part A's commission base). For a lease it is the cash price
+   incl. VAT (no deposit or trade-in). LTV = advance ÷ guide value.
+5. **The book revaluation report reads and never writes.** It values each
+   live asset-finance loan's asset against the current guides: on the
+   variant of the asset's latest GUIDE valuation if one exists, else on the
+   only matching row. With several candidate variants it says how many and
+   links to the asset. LTV (outstanding ÷ trade) is shown only for
+   instalment-sale loans: a lease's outstanding balance is its remaining
+   rentals, not capital. Staff record a dated GUIDE valuation on the deal or
+   asset page.
+6. **Recovery: a reference only.** The recovery panel shows the asset's
+   latest guide value labelled "not an independent valuation". The recovery's
+   own VALUED step and an s127 surrender valuation keep their existing rules
+   (any valuation of the asset, as INTERNAL is today). Whether a guide value
+   may serve as the NCA s127(3)/s131 estimate is an open legal item. The
+   manual valuation route never accepts `GUIDE`, because `VALUATION_SOURCES`
+   leaves it out and the database requires a guide row for it.
+7. **The file itself is not kept.** The rows are the guide. `fileSha256` is
+   recorded, and the same bytes cannot be loaded twice while a DRAFT or
+   PUBLISHED guide carries them. The synthetic provider's sha256 is the hash of
+   its canonical rows plus the effective date.
+8. **Publishing rules.** A guide is published only on or after its effective
+   date, never dated before the guide of the same name it replaces, and it
+   replaces that guide (SUPERSEDED) in the same transaction. A DRAFT may be
+   discarded by any `manage_valuation_guides` user, the uploader included.
+9. **A GUIDE valuation is dated today**, valued on a guide in force (PUBLISHED,
+   effective on or before today), for a row whose make, model and year are the
+   asset's (case-insensitive, trimmed). The variant is the user's choice
+   among the matching rows.
+
+### Data (prisma/schema/asset-finance-valuation-guides.prisma, new file)
+
+Three migrations, hand-written below the generated DDL:
+`20261021090000_valuation_guide_enum_values` (only
+`ALTER TYPE "ValuationSource" ADD VALUE 'GUIDE'`, which must commit before
+use), `20261021090100_valuation_guides` (tables, columns, rules, RLS) and
+`20261021090200_guide_not_independent` (`guardRemarketingSale` replaced; the
+only change is the three source clauses). Tenant-scoped like Part A: `tenantId`,
+`@@unique([tenantId, id])`, composite FKs, listed in
+`lib/registry/tenant-scoped-models/260-valuation-guides.ts`, RLS
+`tenant_isolation`, `_no_truncate` on every guarded table, errors `23514`.
+
+```prisma
+enum ValuationGuideStatus { DRAFT PUBLISHED SUPERSEDED DISCARDED }
+
+model ValuationGuide {     // name, effectiveOn @db.Date, provider, simulated, fileSha256, rowCount, status,
+                           // uploadedById (→ User), uploadedAt, publishedById? (→ User), publishedAt?,
+                           // supersededById? (→ ValuationGuide), supersededAt?, discardedById? (→ User), discardedAt?
+}
+model ValuationGuideRow {  // guideId, lineNumber, make, model, year, variant @default(""), tradeCents, retailCents;
+                           // @@unique([tenantId, guideId, id]) for the valuation's composite FK
+}
+```
+
+`AssetValuation` gains `guideId?`, `guideRowId?`, `guideSnapshot Json?`: FK
+`(tenantId, guideId)` → `ValuationGuide`, FK `(tenantId, guideId, guideRowId)`
+→ `ValuationGuideRow(tenantId, guideId, id)`. A valuation can only name a row of
+its own guide, and only in its own tenant.
+
+#### CHECKs and indexes
+
+- `ValuationGuide_name`: 1–100 characters, trimmed, not blank.
+  `_provider`: `^[a-z0-9-]{1,40}$`. `_sha256`: `^[0-9a-f]{64}$`.
+  `_row_count`: 1–20 000.
+- `ValuationGuide_status_shape`: DRAFT has no publish, supersede or discard
+  fields. PUBLISHED has publish fields only. SUPERSEDED has publish and
+  supersede fields. DISCARDED has discard fields only.
+- `ValuationGuide_four_eyes`: `"publishedById" IS NULL OR "publishedById" <> "uploadedById"`.
+- `ValuationGuide_one_current_per_name`: unique `(tenantId, lower(btrim(name)))`
+  WHERE PUBLISHED. `ValuationGuide_live_file`: unique `(tenantId, fileSha256)`
+  WHERE DRAFT or PUBLISHED.
+- `ValuationGuideRow_text`: make and model 1–100 characters, trimmed, not
+  blank; variant ≤ 100, trimmed. `_year`: 1950–2100 (as `FinancedAsset`).
+  `_amounts`: `0 < tradeCents <= retailCents`. `_line`: `lineNumber >= 2`.
+  `ValuationGuideRow_key`: unique `(tenantId, guideId, lower(make), lower(model), year, lower(variant))`.
+- `AssetValuation_guide_shape`: `("source" = 'GUIDE') = ("guideId" IS NOT NULL)`,
+  and `guideId`, `guideRowId`, `guideSnapshot` all set or all NULL.
+
+#### Triggers
+
+- `guardValuationGuide` (BEFORE INSERT/UPDATE/DELETE, `_no_truncate`):
+  - INSERT: DRAFT only.
+  - UPDATE: name, effective date, provider, simulated, sha256, row count,
+    uploader and upload time never change. The only moves are:
+    - DRAFT → PUBLISHED: the live row count equals `rowCount`, and
+      `effectiveOn` ≤ today.
+    - DRAFT → DISCARDED.
+    - PUBLISHED → SUPERSEDED: the successor is another guide of the same
+      tenant and name, dated on or after this one.
+  - Anything else is refused. A published guide is immutable.
+  - DELETE is refused.
+- `ValuationGuide_successor_published` (DEFERRABLE INITIALLY DEFERRED): at
+  commit, a SUPERSEDED guide's successor is PUBLISHED (or itself SUPERSEDED).
+  No one can take a guide down without putting its replacement live.
+- `guardValuationGuideRow`: INSERT only while the guide is DRAFT;
+  UPDATE/DELETE/TRUNCATE refused.
+- `guardAssetValuationGuide` (BEFORE INSERT ON `AssetValuation`, beside
+  the existing `guardAssetValuation`): a GUIDE row's guide is PUBLISHED and
+  effective by `valuedOn`. `valuedOn` is today. The guide row's make, model and
+  year are the asset's. `amountCents` is the row's trade value. The caller
+  passes no snapshot: the trigger writes `guideSnapshot` (guide id, name,
+  effective date, provider, simulated; row make, model, year, variant, trade,
+  retail, line).
+- `guardRemarketingSale`: `NOT IN ('INTERNAL', 'GUIDE')` in the sale's
+  valuation check, the highest current independent valuation and the
+  self-valued tie check.
+
+### Library (`lib/valuation-guides/`)
+
+- `types.ts`: `ValuationProvider { id, label, simulated, assertUsable(),
+  readGuide({ bytes?, effectiveOn }) → { ok: true, rows, sha256 } | { ok:
+  false, problems: { line, reason }[] } }`.
+- `csv.ts`: a strict RFC 4180 reader plus validation. Header exactly
+  `make,model,year,variant,trade_cents,retail_cents`; UTF-8, an optional BOM;
+  CRLF or LF. Quoted fields are allowed; a stray quote, a short or long row, or
+  an empty file is refused. Money is integer cents (digits only, ≤ 2 147 483 647).
+  Year 1950–2100. Make and model are required, ≤ 100 characters; variant
+  ≤ 100. Trade must be ≤ retail and both > 0. A cell starting with `=`, `+`, `-`
+  or `@` is refused (spreadsheet formula). A duplicate key
+  (case-insensitive make, model, year, variant) is refused with both line
+  numbers. At most 20 000 rows and 5 MB. Every problem is reported (the first
+  200 shown, with the total). Nothing is stored unless the whole file is
+  clean.
+- `providers/csv-guide.ts`, `providers/synthetic.ts`, `registry.ts`
+  (map registry like `lib/telematics/registry.ts`).
+- `guide-store.ts`: `createDraftGuide`, `publishGuide` (locks the guide,
+  refuses self-publish before the CHECK does, supersedes the current guide of
+  that name, then publishes), `discardGuide`. Audited `VALUATION_GUIDE_*`.
+- `lookup.ts`: `guideCandidates(tenantId, asset, today)` and
+  `recordGuideValuation(actor, assetId, guideRowId)`, audited
+  `ASSET_GUIDE_VALUATION_RECORDED`.
+- `ltv.ts`: goods advance and LTV, as basis points rounded half-up.
+- `revaluation.ts`: the report rows.
+
+### Routes and pages
+
+Staff, house pattern (`requireApiRole` → `withTenantContext` →
+`requireAssetFinanceEnabled` → `canDo`); a miss in the tenant is 404:
+
+- `GET/POST /api/asset-finance/valuation-guides`. POST is multipart (`name`,
+  `effectiveOn`, `provider` default `csv`, `file` for csv) and needs
+  `manage_valuation_guides`. A malformed file gets 422
+  `{ problems, total }`, nothing is stored, and the refusal is audited
+  `VALUATION_GUIDE_UPLOAD_REFUSED` (counts, never cell values).
+- `POST …/valuation-guides/[id]/publish | discard` (`manage_valuation_guides`).
+  A self-publish gets 403, audited `VALUATION_GUIDE_PUBLISH_REFUSED`. A guide
+  that is not a DRAFT gets 409.
+- `GET/POST /api/asset-finance/assets/[id]/guide-valuations`: GET is the
+  candidates (READONLY+); POST `{ guideRowId }` (`manage_asset_finance`)
+  records the valuation.
+- Pages:
+  - `(dashboard)/asset-finance/valuation-guides`: list, upload form and
+    publish/discard.
+  - `valuation-guides/[id]`: the rows, so the publisher sees what they put
+    live.
+  - `valuation-guides/revaluation`: the report.
+  - A "Guide value" panel on the deal page and the asset page: candidates,
+    record, and the latest guide valuation with advance and LTV.
+  - A "Guide reference" line on the recovery panel.
+  - Navigation entry "Valuation guides".
+- Permissions (`lib/registry/permissions/080-valuation-guides.ts`):
+  `manage_valuation_guides: "LOAN_ADMIN"`. Audit actions
+  (`lib/registry/audit-actions/440-valuation-guides.ts`):
+  - `VALUATION_GUIDE_UPLOADED`
+  - `VALUATION_GUIDE_UPLOAD_REFUSED`
+  - `VALUATION_GUIDE_PUBLISHED`
+  - `VALUATION_GUIDE_PUBLISH_REFUSED`
+  - `VALUATION_GUIDE_DISCARDED`
+  - `ASSET_GUIDE_VALUATION_RECORDED`
+
+  Simulated integration (`lib/registry/simulated-integrations/060-valuation-guides.ts`):
+  `simulated-valuation-guide`. No cron, no env.
+
+### Rule-to-test matrix (IT = `RUN_ASSET_FINANCE_VALUATION_IT`)
+
+| Rule | Test file | Kind | Negative cases (§3 C) |
+|---|---|---|---|
+| Strict CSV, per-row reasons | `lib/valuation-guides/csv.test.ts` | unit | bad header, stray quote, short row, decimals, separators, year range, trade > retail, formula cell, duplicate key, empty, BOM |
+| Malformed upload stores nothing, audited | `lib/valuation-guides/guide-routes.integration.test.ts` | IT | 422 with line reasons; no guide row; refusal audit |
+| Four-eyes publish | `guide-rules.integration.test.ts` (CHECK), `guide-routes.integration.test.ts` (route) | IT | self-publish (DB and 403 + audit) |
+| Published guide immutable; rows only in DRAFT | `guide-rules.integration.test.ts` | IT | rename, re-date, re-count a PUBLISHED guide; row insert/update/delete on it; DELETE/TRUNCATE |
+| Status matrix and publish conditions | `guide-rules.integration.test.ts` | IT | publish with a missing row; publish before the effective date; DISCARDED → PUBLISHED; SUPERSEDED → PUBLISHED |
+| One current guide per name; successor live at commit | `guide-rules.integration.test.ts` | IT | two PUBLISHED with the same name; superseded by a draft never published; superseded by an older guide |
+| Same file twice while live | `guide-rules.integration.test.ts` | IT | DRAFT with a PUBLISHED guide's sha |
+| Row CHECKs and key | `guide-rules.integration.test.ts` | IT | trade > retail, zero, blank make, duplicate key |
+| GUIDE valuation shape and trigger | `guide-valuation.integration.test.ts` | IT | GUIDE without a guide; a guide on a DEALER row; DRAFT or SUPERSEDED guide; another guide's row; another asset's make; amount ≠ trade; caller snapshot; backdated |
+| Cross-tenant guide use | `guide-valuation.integration.test.ts` (FK), `guide-routes.integration.test.ts` (404) | IT | other tenant's guide or row on a valuation; publish/discard/record across tenants |
+| GUIDE is not independent: lease purchase | `lib/valuation-guides/not-independent.integration.test.ts` | IT | purchase election on a GUIDE valuation (DB, and `electEndOfTerm`) |
+| GUIDE is not independent: recovery sale | `not-independent.integration.test.ts` | IT | sale on a GUIDE valuation; a GUIDE above the highest independent one does not raise `highestValuationCents`; `valuationFacts` refuses; `loadSaleValuations` leaves it out |
+| Manual route never records GUIDE | `lib/asset-finance/asset-input.test.ts` | unit | `source: "GUIDE"` |
+| Synthetic provider gated | `lib/valuation-guides/providers/synthetic.test.ts` | unit | deployed build refused; allowed when listed |
+| LTV and advance | `lib/valuation-guides/ltv.test.ts` | unit | lease, deposit and trade-in, rounding |
+| Revaluation matching | `lib/valuation-guides/revaluation.test.ts` | unit | several variants; recorded variant; no match; lease LTV hidden |
+| RLS on the two models | existing `RUN_TENANT_ISOLATION_IT` catalog test | IT | — |
+
+Mutation evidence (`evidence/slice5/MUTATIONS.md`, Part C): the database suites
+use the slice 4 `refuses(rule, …)` proof. Each refusal is shown again with that
+one clause, CHECK, index or trigger taken out, inside a rolled-back
+transaction. TS gates are mutated by hand, and the named test must turn red.
+
+### Build task DAG (each file ≤ 300 lines)
+
+1. Spec and matrix (this section).
+2. Failing suites: CSV unit tests and the three ITs against a database
+   without the migrations. verify: red for the missing schema.
+3. Schema, the three migrations, registries, `npm run gen:registries`.
+   verify: the ITs are green on `it-db.sh`; tsc.
+4. Library: providers, store, lookup, LTV, revaluation. verify: unit and IT.
+5. Routes and pages. verify: the routes IT, lint.
+6. The TS mirror of "independent" (`recovery-sale.ts`, `recovery-panel-data.ts`).
+   verify: `not-independent` IT, recovery suites.
+7. Browser seed and README (`evidence/slice5/browser/C/`). verify: two seeds
+   on fresh databases give the same shape.
+8. Docs (`lib/valuation-guides/.claude.md`, DESIGN.md slice 5 status) and
+   `agents:mirror`. verify: `claude-md:check`, `agents:check`.
+9. Gates: `ci:full` in a fresh clone, then mutations.
+
+### Known limitations
+
+- **Matching is textual.** A guide row matches an asset on make, model and
+  year as typed (case and outer spaces ignored). "Toyota" and "TOYOTA SA" do
+  not match. There is no make/model code (such as an M&M code) on the asset.
+- **The variant is chosen by staff.** The asset carries no variant, so a
+  wrong choice values the wrong variant. The chosen row is snapshotted and
+  audited.
+- **No staleness rule.** A published guide stays current until a newer guide
+  of the same name replaces it. The panels show its effective date.
+- **The uploaded file is not kept** (deviation 7).
+
+### Review items
+
+- **Legal:** whether a published guide value may stand as the NCA
+  s127(3)/s131 estimated value of goods (today any valuation of the asset
+  may, INTERNAL included). Licensing terms of a commercial guide the lender
+  loads: the system stores the rows in the lender's database.
+- **Credit policy:** the trade-value basis for a guide valuation's amount, and
+  the LTV thresholds the lender applies (none are enforced; the panel only
+  displays).
