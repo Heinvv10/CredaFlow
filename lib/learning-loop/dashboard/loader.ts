@@ -36,8 +36,11 @@ export interface DecisionPerformance {
   book: BookArrears
 }
 
-/** How much arrears history the collections panel reads: a year of episodes plus their horizon. */
-const HISTORY_DAYS = 400
+/**
+ * How much arrears history the collections panel reads: a year of episodes
+ * plus their horizon, and one day more (the first day read starts no episode).
+ */
+const HISTORY_DAYS = 401
 
 const month = (d: Date) => sastCalendarDate(d).slice(0, 7)
 const OUTCOME_SELECT = { outcomeKind: true, window: true, state: true, value: true, reasonCode: true } as const
@@ -75,7 +78,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
         where: { tenantId, snapshotDate: { gte: new Date(`${addDays(today, -HISTORY_DAYS)}T00:00:00.000Z`) } },
         select: { loanId: true, snapshotDate: true, daysInArrears: true, collectionsStage: true },
       }),
-      db.paymentArrangement.findMany({ where: { tenantId }, select: { status: true } }),
+      db.paymentArrangement.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
       getBookArrears(tenantId, "ALL", db),
     ])
 
@@ -133,7 +136,7 @@ export function loadDecisionPerformance(db: DashboardDb, tenantId: string, asOf:
         month: month(d.decidedAt), category: snapshotField(d.inputsSnapshot, "declineCategory"), actorType: d.actorType,
       }))),
       stages: cureRollByStage(histories, today),
-      arrangements: arrangementOutcomes(arrangements.map((a) => a.status)),
+      arrangements: arrangementOutcomes(Object.fromEntries(arrangements.map((a) => [a.status, a._count._all]))),
       book,
     }
   })

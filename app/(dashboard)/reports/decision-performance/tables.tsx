@@ -134,7 +134,7 @@ export function TakeUpTable({ cells }: { cells: TakeUpCell[] }) {
             <TableCell className={num}>{c.offers}</TableCell>
             <TableCell className={num}>{c.takeUp.yes}</TableCell>
             <TableCell className={num}>{c.takeUp.no}</TableCell>
-            <TableCell className={num}>{c.takeUp.pending + c.takeUp.notComputed}</TableCell>
+            <TableCell className={num}>{c.takeUp.pending + c.takeUp.unobservable + c.takeUp.notComputed}</TableCell>
             <TableCell className={num}>{percent(c.takeUp.ratePct)}</TableCell>
           </TableRow>
         ))}

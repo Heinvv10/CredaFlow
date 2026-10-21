@@ -6,12 +6,15 @@
  * Built only from data that exists:
  * - Cure and roll by collections stage, from the daily arrears history
  *   (LoanArrearsSnapshot). An episode starts on a day the loan is past due
- *   and either was not the day before or was at another stage. Within the
+ *   and either was not the day before or was at another stage. The first
+ *   day read starts none (the day before it is unknown), and none starts at
+ *   stage WRITTEN_OFF or on or after the day the loan ended. Within the
  *   next HORIZON_DAYS it is CURED (back to 0 DPD, or settled), ROLLED (into a
  *   later ARREARS_BANDS band, lib/reports/arrears-buckets.ts, or written off),
  *   whichever comes first; otherwise STAYED once the horizon has elapsed with
  *   every open day recorded, PENDING before that, UNOBSERVABLE when a day is
- *   missing (never read as stayed or cured).
+ *   missing or the loan was cancelled inside the horizon (never read as
+ *   stayed or cured).
  * - Arrangement kept / broken, from PaymentArrangement.status as
  *   lib/collections/arrangement-check.ts sets it (one row per loan: an
  *   earlier arrangement's result is overwritten by the next).
@@ -55,10 +58,12 @@ export function stageEpisodes(loan: LoanHistory, today: string): Episode[] {
   const days = [...loan.days].sort((a, b) => a.day.localeCompare(b.day))
   const byDay = new Map(days.map((d) => [d.day, d]))
   const episodes: Episode[] = []
+  const ended = loan.end.kind !== "OPEN" ? loan.end.day : null
   days.forEach((d, i) => {
     const prev = i > 0 ? days[i - 1] : null
-    if (d.daysInArrears <= 0) return
-    if (prev && prev.daysInArrears > 0 && prev.stage === d.stage) return
+    if (!prev || d.daysInArrears <= 0 || d.stage === "WRITTEN_OFF") return
+    if (ended !== null && d.day >= ended) return
+    if (prev.daysInArrears > 0 && prev.stage === d.stage) return
     episodes.push({ loanId: loan.loanId, stage: d.stage, startDay: d.day, result: judge(d, byDay, loan.end, today) })
   })
   return episodes
@@ -74,7 +79,8 @@ function judge(start: HistoryDay, byDay: Map<string, HistoryDay>, end: LoanHisto
     if (endDay !== null && day >= endDay) {
       if (end.kind === "SETTLED") return "CURED"
       if (end.kind === "WRITTEN_OFF") return "ROLLED"
-      return gap ? "UNOBSERVABLE" : "STAYED"
+      // CANCELLED: never performed (as DESIGN.md §3 treats it), not stayed.
+      return "UNOBSERVABLE"
     }
     const row = byDay.get(day)
     if (!row) { gap = true; continue }
@@ -141,13 +147,15 @@ export interface ArrangementSummary {
   brokenRatePct: number | null
 }
 
-export function arrangementOutcomes(statuses: readonly string[]): ArrangementSummary {
-  const count = (s: string) => statuses.filter((x) => x === s).length
+/** From the number of arrangements per status. */
+export function arrangementOutcomes(byStatus: Readonly<Record<string, number>>): ArrangementSummary {
+  const count = (s: string) => byStatus[s] ?? 0
+  const total = Object.values(byStatus).reduce((n, c) => n + c, 0)
   const [active, kept, completedShort, broken] = ["ACTIVE", "KEPT", "COMPLETED", "BROKEN"].map(count)
   const ended = kept + completedShort + broken
   return {
-    total: statuses.length, small: statuses.length < SMALL_CELL_LOANS,
-    active, kept, completedShort, broken, other: statuses.length - active - ended,
+    total, small: total < SMALL_CELL_LOANS,
+    active, kept, completedShort, broken, other: total - active - ended,
     keptRatePct: pct(kept, ended), brokenRatePct: pct(broken, ended),
   }
 }

@@ -45,7 +45,7 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
       </div>
 
       <div className="rounded-md border border-[var(--cf-warning)] px-4 py-3 text-sm text-[var(--cf-text)]">
-        These figures come from demo or simulator data until this lender has 6 to 12 months of loans on book; until then they describe a scripted book, not lending policy.
+        Until a lender has 6 to 12 months of loans on book, these figures can only be checked on demo or simulator data; on a newer book most windows are still pending and the rates rest on few loans.
         No model scores these decisions: the rates count what was recorded.
       </div>
 

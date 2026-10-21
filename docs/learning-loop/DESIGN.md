@@ -531,7 +531,8 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
 
 - **Where**: `/reports/decision-performance`
   (`app/(dashboard)/reports/decision-performance/`), linked from the reports
-  overview only for roles that hold the permission. One server loader,
+  overview only for roles that hold the permission, and only when the
+  lender's `featureReports` is on. One server loader,
   `lib/learning-loop/dashboard/loader.ts`; the aggregation is pure
   (`cells.ts`, `cohorts.ts`, `offers-declines.ts`, `collections.ts` beside it).
   No API route. The "90+ DPD in the book now" card is
@@ -571,13 +572,16 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   0 today because the portal and website refusals are not logged yet (§2.5),
   and the page says so.
 - **Collections panel** (labelled on screen "Descriptive, not causal"):
-  - cure and roll by `collectionsStage`, from `LoanArrearsSnapshot` (last 400
+  - cure and roll by `collectionsStage`, from `LoanArrearsSnapshot` (last 401
     days). An episode starts on a past-due day when the loan was not past due
-    the day before or was at another stage. Within 30 days it is CURED (0 DPD,
-    or settled), ROLLED (a later `ARREARS_BANDS` band, or written off),
+    the day before or was at another stage; the first day read starts none
+    (the day before it is unknown), and none starts at stage `WRITTEN_OFF` or
+    on or after the loan's end day. Within 30 days it is CURED (0 DPD, or
+    settled), ROLLED (a later `ARREARS_BANDS` band, or written off),
     whichever comes first; else STAYED once the 30 days have elapsed with
-    every open day recorded, PENDING before, UNOBSERVABLE if a day is missing.
-    Rates divide by cured + rolled + stayed.
+    every open day recorded, PENDING before, UNOBSERVABLE if a day is missing
+    or the loan was cancelled inside the 30 days. Rates divide by cured +
+    rolled + stayed.
   - arrangement kept / broken from `PaymentArrangement.status`
     (`lib/collections/arrangement-check.ts`: `KEPT`, `BROKEN`, and
     `COMPLETED` = ran to its end under 90% paid, shown separately); kept and
@@ -591,8 +595,9 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   question that interacts with the consent and kill switches from #217).
 - Small cells (< 20 loans; for a collections stage, < 20 distinct loans) are
   greyed with counts shown, not hidden.
-- On screen: figures come from demo or simulator data until the lender has
-  6 to 12 months of book; no model scores the decisions. No "learning" or
+- On screen: until a lender has 6 to 12 months of book the figures can only
+  be checked on demo or simulator data (worded so a real lender's new book
+  is not called a scripted one); no model scores the decisions. No "learning" or
   "AI" claim (the page test asserts the wording).
 - **Tests**: pure functions on synthetic data (`*.test.ts` beside them,
   mutation-checked); the page's default-deny and tenant use
@@ -600,9 +605,16 @@ As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
   (`dashboard.integration.test.ts`): two synthetic lenders, aggregates, the
   board-pack figure, isolation by the explicit filters and as an RLS-bound
   role.
-- **Scale note**: the loader reads a year of daily arrears rows for the
-  collections panel in one query; fine for a demo book, worth an aggregate
-  query before a large lender.
+- **Scale note** (deferred; fine for a demo book, not for a large lender):
+  each request reads, for the tenant and without a limit, every final
+  approval with its outcome rows for the window and its whole
+  `inputsSnapshot` (only `bureau.scoreBand` and `productType` are used),
+  every offer and every decline (whole snapshot for `declineCategory`), the
+  matching applications and loans by unbounded `id IN (…)` lists, and 401
+  days of daily arrears rows (about 400 per loan). Arrangements are counted
+  in the database (`groupBy` status). Before a large lender: select the JSON
+  paths in SQL, aggregate cohorts and episodes in SQL, and bound the decision
+  reads by the cohorts shown.
 
 ## 7. Rollout
 

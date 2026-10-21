@@ -6,6 +6,7 @@ import Link from "next/link"
 import { getStaffTenantId } from "@/lib/session-tenant"
 import { requireMinRole } from "@/lib/auth-guards"
 import { canDo } from "@/lib/permissions"
+import { getTenantConfig } from "@/lib/tenant"
 import { defaultQuarter, quarterLabel, sastMonthBounds, sastQuarterBounds } from "@/lib/compliance/quarters"
 import { COLLECTIBLE_STATUSES } from "@/lib/loan/collectible-book"
 import { loadChargesOwingByBand } from "@/lib/reports/charges-owing"
@@ -240,6 +241,9 @@ export default async function ReportsPage() {
   // and credit roles shouldn't see executive numbers they can't action.
   const user = await requireMinRole("LOAN_ADMIN")
   const data = await getReportData()
+  // The page itself 404s without the reports flag; don't link to it then.
+  const showDecisionPerformance = canDo(user.role, "view_decision_performance")
+    && Boolean((await getTenantConfig(await getStaffTenantId()))?.featureReports)
 
   const bookChangeAbs = data.riskBook - data.prevBook
   const bookChangePct = data.prevBook > 0 ? (bookChangeAbs / data.prevBook) * 100 : 0
@@ -271,7 +275,7 @@ export default async function ReportsPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
             Accounting Export
           </Link>
-          {canDo(user.role, "view_decision_performance") && (
+          {showDecisionPerformance && (
             <Link href="/reports/decision-performance"
               className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4F46E5] text-[#4F46E5] rounded-lg text-xs font-semibold hover:bg-[#eef2ff] transition-colors">
               Decision Performance

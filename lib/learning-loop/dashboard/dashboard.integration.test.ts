@@ -15,6 +15,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createChargesLoan, createChargesTenant } from "@/lib/loan/charges.integration-fixture"
 import { createAppPrismaClient } from "@/lib/prisma"
+import { runWithTenant } from "@/lib/tenant-scope"
 import { getBookArrears } from "@/lib/reports/book-arrears"
 import { recordDecisions, type DecisionLogDb } from "../decision-log"
 import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
@@ -32,7 +33,11 @@ let app: ReturnType<typeof createAppPrismaClient>
 
 const days = (from: string, n: number) => Array.from({ length: n }, (_, i) => new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000))
 
-/** A: one bad approval (ever 90+ observed), a cured soft-reminder episode, a kept arrangement, 95 DPD now. B: pending, a stayed s129 episode, a broken arrangement. */
+/**
+ * A: one bad approval (ever 90+ observed), a cured soft-reminder episode, a kept arrangement, 95 DPD now.
+ * B: pending, never 30 DPD (CURED false NEVER_30_DPD), no EVER_60 row yet, a stayed s129 episode, a broken
+ * arrangement, and a second decline taken by the system (an automated refusal).
+ */
 async function lender(bad: boolean): Promise<Lender> {
   const tenant = await createChargesTenant(db, false)
   const { loanId, clientId } = await createChargesLoan(db, tenant)
@@ -50,10 +55,14 @@ async function lender(bad: boolean): Promise<Lender> {
       affordability: { ndiCents: 600_000, requiredNdiCents: 300_000 }, screeningState: "CLEAR", creditCheckFlags: [],
       affordabilitySnapshot: { policyVersion: "approval-ndi-v3", inputFingerprint: "a".repeat(64), decisionFingerprint: "b".repeat(64) },
     }))
-    await recordDecisions(tx as unknown as DecisionLogDb, [consumerDeclineRecord({
-      tenantId: tenant.tenantId, applicationId: `app-declined-${randomUUID()}`, clientId: null, actor,
-      decidedAt: new Date("2026-10-02T09:00:00+02:00"), declineCategory: bad ? "AFFORDABILITY" : "BUREAU_SCORE",
-    })])
+    const decline = (system: boolean) => ({
+      ...consumerDeclineRecord({
+        tenantId: tenant.tenantId, applicationId: `app-declined-${randomUUID()}`, clientId: null, actor,
+        decidedAt: new Date("2026-10-02T09:00:00+02:00"), declineCategory: bad ? "AFFORDABILITY" : "BUREAU_SCORE",
+      }),
+      ...(system ? { actor: { type: "SYSTEM" as const } } : {}),
+    })
+    await recordDecisions(tx as unknown as DecisionLogDb, bad ? [decline(false)] : [decline(false), decline(true)])
   })
   const records = await db.creditDecisionRecord.findMany({ where: { tenantId: tenant.tenantId, applicationId: loan.applicationId }, select: { id: true, kind: true } })
   const base = { tenantId: tenant.tenantId, sourceSystem: "credaflow", sourceRef: loanId, definitionVersion: OUTCOME_DEFINITION_VERSION, computedAt: NOW }
@@ -63,15 +72,19 @@ async function lender(bad: boolean): Promise<Lender> {
       ? { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_90_DPD", window: "12M", state: "OBSERVED", value: true, observedAt: NOW }
       : { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_90_DPD", window: "12M", state: "PENDING" },
     { ...base, decisionRecordId: approvalId, outcomeKind: "EVER_30_DPD", window: "3M", state: "UNOBSERVABLE", reasonCode: "HISTORY_GAP" },
+    ...(bad ? [] : [
+      { ...base, decisionRecordId: approvalId, outcomeKind: "CURED" as const, window: "12M", state: "OBSERVED" as const, value: false, observedAt: NOW, reasonCode: "NEVER_30_DPD" },
+    ]),
     { ...base, decisionRecordId: records.find((r) => r.kind === "OFFER")!.id, outcomeKind: "TAKEN_UP", window: "OFFER", state: "OBSERVED", value: true, observedAt: NOW, sourceRef: loan.applicationId },
   ] })
-  const snapshot = (snapshotDate: Date, daysInArrears: number, collectionsStage: "SOFT_REMINDER" | "SECTION_129_SENT") => ({
+  const snapshot = (snapshotDate: Date, daysInArrears: number, collectionsStage: "NONE" | "SOFT_REMINDER" | "SECTION_129_SENT") => ({
     tenantId: tenant.tenantId, loanId, snapshotDate, status: "ACTIVE" as const, ncaRegime: "NCA" as const, collectionsStage, daysInArrears,
     arrearsCents: daysInArrears > 0 ? 216_900 : 0, outstandingPrincipalCents: 200_000, chargesOutstandingCents: 0, chargesLive: false,
   })
-  await db.loanArrearsSnapshot.createMany({ data: bad
+  // A clean day first: the first day read starts no episode.
+  await db.loanArrearsSnapshot.createMany({ data: [snapshot(new Date("2026-05-31T00:00:00Z"), 0, "NONE"), ...(bad
     ? days("2026-06-01", 4).map((d, i) => snapshot(d, i < 3 ? 5 : 0, "SOFT_REMINDER"))
-    : days("2026-06-01", 40).map((d) => snapshot(d, 35, "SECTION_129_SENT")) })
+    : days("2026-06-01", 40).map((d) => snapshot(d, 35, "SECTION_129_SENT")))] })
   await db.paymentArrangement.create({ data: {
     tenantId: tenant.tenantId, loanId, arrangementDate: new Date("2026-06-05"), agreedAmount: 50_000, frequency: "MONTHLY",
     startDate: new Date("2026-06-05"), endDate: new Date("2026-08-05"), status: bad ? "KEPT" : "BROKEN",
@@ -102,7 +115,14 @@ function expectLender(d: DecisionPerformance, bad: boolean) {
     ? { n: 1, yes: 1, no: 0, pending: 0, ratePct: 100, coveragePct: 100 }
     : { n: 1, yes: 0, no: 0, pending: 1, ratePct: null, coveragePct: null })
   expect(d.takeUp).toMatchObject([{ decision: "APPROVED_TERMS", offers: 1, takeUp: { yes: 1, ratePct: 100 } }])
-  expect(d.declines).toMatchObject({ total: 1, automated: 0, byCategory: { [bad ? "AFFORDABILITY" : "BUREAU_SCORE"]: 1 } })
+  expect(d.declines).toMatchObject(bad
+    ? { total: 1, automated: 0, byCategory: { AFFORDABILITY: 1 } }
+    : { total: 2, automated: 1, byCategory: { BUREAU_SCORE: 2 } })
+  // B: a loan never 30 DPD is outside the cure rate; a metric with no row yet counts against coverage, never as good.
+  if (!bad) {
+    expect(d.totals.cured).toMatchObject({ notDelinquent: 1, yes: 0, no: 0, ratePct: null })
+    expect(d.totals.ever60).toMatchObject({ n: 1, notComputed: 1, ratePct: null, coveragePct: 0 })
+  }
   expect(d.stages).toMatchObject([bad
     ? { stage: "SOFT_REMINDER", loans: 1, cured: 1, rolled: 0, cureRatePct: 100 }
     : { stage: "SECTION_129_SENT", loans: 1, stayed: 1, cured: 0, cureRatePct: 0 }])
@@ -142,6 +162,19 @@ suite("decision-performance dashboard (real Postgres)", () => {
     const [a, b] = lenders
     expectLender(await loadDecisionPerformance(app as unknown as DashboardDb, a.tenantId, NOW, "12M"), true)
     expectLender(await loadDecisionPerformance(app as unknown as DashboardDb, b.tenantId, NOW, "12M"), false)
+  })
+
+  it("as that role, the policies alone confine every table the loader reads (no tenantId filter)", async () => {
+    const [a, b] = lenders
+    const seen = await runWithTenant(a.tenantId, async () => Promise.all([
+      app.$queryRaw<{ tenantId: string }[]>`SELECT DISTINCT "tenantId" FROM "CreditDecisionRecord"`,
+      app.$queryRaw<{ tenantId: string }[]>`SELECT DISTINCT "tenantId" FROM "DecisionOutcome"`,
+      app.$queryRaw<{ tenantId: string }[]>`SELECT DISTINCT "tenantId" FROM "LoanArrearsSnapshot"`,
+      app.$queryRaw<{ tenantId: string }[]>`SELECT DISTINCT "tenantId" FROM "PaymentArrangement"`,
+    ]))
+    for (const rows of seen) expect(rows).toEqual([{ tenantId: a.tenantId }])
+    // B's rows exist; only the policy hid them.
+    expect(await db.creditDecisionRecord.count({ where: { tenantId: b.tenantId } })).toBeGreaterThan(0)
   })
 
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {

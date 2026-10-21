@@ -4,9 +4,10 @@ import { addDays } from "../outcomes/definition"
 import { arrangementOutcomes, cureRollByStage, stageEpisodes, type HistoryDay, type LoanHistory } from "./collections"
 
 const START = "2026-06-01"
-/** One row per day from START: [dpd, stage] per day, or null for a missing day. */
+const DAY_BEFORE: HistoryDay = { day: addDays(START, -1), daysInArrears: 0, stage: "NONE" }
+/** A clean day before START, then one row per day from START: [dpd, stage] per day, or null for a missing day. */
 function history(days: Array<[number, CollectionsStage] | null>): HistoryDay[] {
-  return days.flatMap((d, i) => (d ? [{ day: addDays(START, i), daysInArrears: d[0], stage: d[1] }] : []))
+  return [DAY_BEFORE, ...days.flatMap((d, i) => (d ? [{ day: addDays(START, i), daysInArrears: d[0], stage: d[1] }] : []))]
 }
 const loan = (days: HistoryDay[], end: LoanHistory["end"] = { kind: "OPEN", day: null }, loanId = "loan-1"): LoanHistory => ({ loanId, days, end })
 const run = (n: number, dpdFrom: number, stage: CollectionsStage, step = 1): Array<[number, CollectionsStage]> =>
@@ -54,6 +55,22 @@ describe("stageEpisodes", () => {
     expect(stageEpisodes(loan(days, { kind: "SETTLED", day: null }), LATE)[0].result).toBe("UNOBSERVABLE")
   })
 
+  it("starts no episode on the first day read: the day before it is unknown", () => {
+    const days = history(run(40, 35, "SECTION_129_SENT", 0)).slice(1)
+    expect(stageEpisodes(loan(days), LATE)).toEqual([])
+  })
+
+  it("starts no episode at stage WRITTEN_OFF, or on or after the day the loan ended", () => {
+    expect(stageEpisodes(loan(history(run(40, 95, "WRITTEN_OFF", 0))), LATE)).toEqual([])
+    const days = history([[0, "NONE"], [0, "NONE"], [40, "ATTORNEY_REFERRED"], [41, "ATTORNEY_REFERRED"]])
+    expect(stageEpisodes(loan(days, { kind: "SETTLED", day: addDays(START, 2) }), LATE)).toEqual([])
+  })
+
+  it("is unobservable, never stayed, when the loan is cancelled inside the horizon", () => {
+    const days = history(run(3, 5, "SOFT_REMINDER", 0))
+    expect(stageEpisodes(loan(days, { kind: "CANCELLED", day: addDays(START, 3) }), LATE)[0].result).toBe("UNOBSERVABLE")
+  })
+
   it("starts no episode on a day not past due, and a new one after a cure on the same stage", () => {
     const days = history([[0, "NONE"], [3, "NONE"], [0, "NONE"], [4, "NONE"], [0, "NONE"]])
     expect(stageEpisodes(loan(days), LATE).map((e) => [e.startDay, e.result])).toEqual([
@@ -77,9 +94,9 @@ describe("cureRollByStage", () => {
 
 describe("arrangementOutcomes", () => {
   it("rates kept and broken over arrangements that ended; active ones are outside the rate", () => {
-    expect(arrangementOutcomes(["KEPT", "KEPT", "BROKEN", "COMPLETED", "ACTIVE", "ACTIVE"])).toEqual({
+    expect(arrangementOutcomes({ KEPT: 2, BROKEN: 1, COMPLETED: 1, ACTIVE: 2 })).toEqual({
       total: 6, small: true, active: 2, kept: 2, completedShort: 1, broken: 1, other: 0, keptRatePct: 50, brokenRatePct: 25,
     })
-    expect(arrangementOutcomes([]).keptRatePct).toBeNull()
+    expect(arrangementOutcomes({}).keptRatePct).toBeNull()
   })
 })

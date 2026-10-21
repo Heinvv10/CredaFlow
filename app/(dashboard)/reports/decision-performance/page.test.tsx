@@ -37,7 +37,7 @@ const data = (): DecisionPerformance => ({
   cohorts: approvalCohorts(approvals, "12M"), overrides: overrideComparison(approvals, "12M"),
   takeUp: [{ month: "2026-03", decision: "APPROVED_TERMS", offers: 3, small: true, takeUp: tally([[], [], []], "TAKEN_UP", "OFFER") }],
   declines: declineVolume([{ month: "2026-03", category: "AFFORDABILITY", actorType: "STAFF" }]),
-  stages: [], arrangements: arrangementOutcomes(["KEPT"]),
+  stages: [], arrangements: arrangementOutcomes({ KEPT: 1 }),
   book: { scope: "ALL", chargesLive: false, book: { count: 0, value: 0 }, arrears: { count: 0, amount: 0, outstandingPrincipal: 0 },
     chargesOnly: { count: 0, amount: 0 }, ageing: [], par30: { count: 0, value: 0, pct: 0 }, par60: { count: 0, value: 0, pct: 0 },
     par90: { count: 4, value: 1, pct: 2.5 } },
@@ -86,7 +86,7 @@ describe("Decision performance page", () => {
   it("labels demo data, the collections panel as descriptive, and makes no learning or AI claim", async () => {
     const html = await render()
     const t = text(html)
-    expect(t).toContain("demo or simulator data until this lender has 6 to 12 months of loans on book")
+    expect(t).toContain("Until a lender has 6 to 12 months of loans on book, these figures can only be checked on demo or simulator data")
     expect(t).toContain("Descriptive, not causal")
     expect(t).toContain("Declined applicants have no observable repayment")
     expect(t).toContain("for lender legal review (POPIA s71)")
