@@ -150,6 +150,14 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
     const ENDED_USE = `
      OR EXISTS (SELECT 1 FROM "LeaseEndOfTerm" x WHERE x."loanId" = NEW."loanId" AND x."tenantId" = NEW."tenantId"
        AND (x."outcome" = 'TOTAL_LOSS' OR x."origin" = 'EARLY_TERMINATION'))`
+    // A return or an extension elected at expiry, before the term ends, leaves the asset in use: readings go on until the term end.
+    for (const outcome of ["RETURN", "EXTEND"]) {
+      await ruleAdmits(database(), async (tx) => {
+        await setup(tx, [END_OF_TERM("EXPIRY", outcome), fx.tenantId, lease.loanId],
+          [`DELETE FROM "AssetMeterReading" WHERE "loanId" = $1 AND "source" = 'TELEMATICS' AND "readingDate" = $2::date`, lease.loanId, daysAgo(27)])
+        await expectOutcome(tx, lease.device, 1_000 + 6 * 3, daysAgo(27), "RECORDED")
+      })
+    }
     const cases: [string, [string, ...unknown[]], string][] = [
       ["term ended", [TERM_ENDED, lease.loanId], ` OR NEW."readingDate" >= COALESCE(public."leaseTermEnd"(NEW."loanId", NEW."tenantId"), NEW."readingDate")`],
       ["total loss", [END_OF_TERM("EXPIRY", "TOTAL_LOSS"), fx.tenantId, lease.loanId], ENDED_USE],
@@ -174,14 +182,6 @@ suite.sequential("telematics meter readings: leases only, while they run, one a 
       await setup(tx, [`UPDATE "Loan" SET "status" = 'COMPLETED' WHERE "id" = $1`, lease.loanId])
       await direct(tx, lease, daysAgo(10), 1_098)
     })
-    // A return or an extension elected at expiry, before the term ends, leaves the asset in use: readings go on until the term end.
-    for (const outcome of ["RETURN", "EXTEND"]) {
-      await ruleAdmits(database(), async (tx) => {
-        await setup(tx, [END_OF_TERM("EXPIRY", outcome), fx.tenantId, lease.loanId],
-          [`DELETE FROM "AssetMeterReading" WHERE "loanId" = $1 AND "source" = 'TELEMATICS' AND "readingDate" = $2::date`, lease.loanId, daysAgo(27)])
-        await expectOutcome(tx, lease.device, 1_000 + 6 * 3, daysAgo(27), "RECORDED")
-      })
-    }
   }, 120_000)
 
   it("binds a TELEMATICS reading to its meter event's value, date and asset, with no client, and a staff one to a held reading", async () => {
