@@ -1,7 +1,8 @@
 # Learning loop: design
 
 Status: PR A (decision log) implemented on `feat/learning-loop-a-decision-log`;
-PR B (outcome job) and PR C (dashboard) are designed here, not built. Part 4
+PR B (outcome job) implemented on `feat/learning-loop-b-outcomes`, stacked on
+PR A; PR C (dashboard) is designed here, not built. Part 4
 (cross-lender benchmarks) is design only. Every legal point is marked
 **needs lender legal sign-off**; a citation I could not confirm is marked
 **to verify**.
@@ -30,7 +31,7 @@ marks it `actorType = SYSTEM` and this document flags it for legal (§9).
 Four parts:
 
 1. **Decision log** (PR A, built): `CreditDecisionRecord`.
-2. **Outcome feedback job** (PR B): a nightly, idempotent, tenant-swept job
+2. **Outcome feedback job** (PR B, built): a nightly, idempotent, tenant-swept job
    deriving `DecisionOutcome` rows from the servicing tables.
 3. **Per-lender dashboard** (PR C): approval-to-outcome by cohort, policy
    version, override; descriptive collection performance.
@@ -271,24 +272,44 @@ a deliberate, audited exception and is **not built in PR A**.
 
 ## 3. Outcome definitions (implemented in PR B)
 
-All from existing tables; one code-owned definition per outcome; measured
-from the first instalment due date.
+All from existing tables; one code-owned definition per outcome
+(`lib/learning-loop/outcomes/`, version `OUTCOME_DEFINITION_VERSION =
+outcomes-v1` in `definition.ts`); measured from the first instalment due
+date. Days are SAST calendar days. The definitions are pure functions over
+source-neutral facts (`facts.ts`), so an external extract runs through the
+same code.
 
 | Outcome | Definition | Source |
 |---|---|---|
-| `PAID` | instalment fully paid by its due date | `RepaymentSchedule` + paid-at replay (`lib/loan/schedule-paid-at.ts`; `Payment` has no instalment FK) |
-| `LATE` | paid after due date, before 30 DPD | same |
+| `PAID` | instalment fully paid by its due date; window `INSTALMENT:<n>`, known the day after the due day | `RepaymentSchedule.paidAt`, which the paid-at replay keeps (`lib/loan/schedule-paid-at.ts`; `Payment` has no instalment FK). Paid in full with no `paidAt` → `UNOBSERVABLE` (`PAID_AT_MISSING`) |
+| `LATE` | paid 1–29 days after the due day; known 30 days after it; on time, 30+ days late or unpaid is `false` (30+ is `EVER_30_DPD`'s) | same |
 | `RETURNED_DEBIT_ORDER` | `CollectionResult.outcome = UNPAID` and not `reportedAfterPayment`; keep `reasonCode` (`INSUFFICIENT_FUNDS`, `ACCOUNT_CLOSED`, `PAYMENT_STOPPED`, `MANDATE_SUSPENDED`, `MANDATE_CANCELLED`, `ACCOUNT_FROZEN`, `NO_DEBIT_FACILITY`, `NOT_FICA`, `UNKNOWN`); never collapse INSUFFICIENT_FUNDS and PAYMENT_STOPPED | `CollectionResult` → `CollectionInstruction.repaymentScheduleId` |
-| `EVER_30_DPD` / `EVER_60_DPD` / `EVER_90_DPD` | max DPD in the window ≥ 30/60/90, windows 3, 6, 12 months on book (and term end + 30 days for short loans) | `LoanArrearsSnapshot.daysInArrears` (`prisma/schema/arrears-history.prisma`) |
+| `EVER_30_DPD` / `EVER_60_DPD` / `EVER_90_DPD` | max DPD in the window ≥ 30/60/90, windows `3M`, `6M`, `12M` from the first due day (calendar months, clamped to month end), and `TERM_30D` (term end + 30 days) for a short loan: one whose term end + 30 days falls inside `3M` | `LoanArrearsSnapshot.daysInArrears` (`prisma/schema/arrears-history.prisma`) |
 | headline **bad** | ever 90+ DPD within 12 months (matches s129 eligibility at 90, `lib/collections/section129-eligibility.ts`, and the 90+ report band, `lib/reports/arrears-buckets.ts`) | same |
 | `DEFAULTED_STATUS` | `Loan.status` reached `DEFAULTED` (tracked separately) | `Loan` |
-| `CURED` | back to 0 DPD after ≥ 30 DPD | `LoanArrearsSnapshot` (there is no cure status transition) |
-| `SETTLED` / `WRITTEN_OFF` | `LoanStatus.COMPLETED` / `WRITTEN_OFF` | `Loan` |
-| `TAKEN_UP` / `NOT_TAKEN_UP` (offers) | agreement signed and disbursed / approval returned, declined or expired without a loan | `LoanApplication`, `Loan.applicationId` |
+| `DEFAULTED_STATUS` (per window) | the snapshot's `status` was `DEFAULTED` on a day in the window | `LoanArrearsSnapshot.status` (the loan row has no default date) |
+| `CURED` | back to 0 DPD, or settled, after ≥ 30 DPD in the window; a loan that never reached 30 DPD is `false` with `reasonCode = NEVER_30_DPD`, so a cure rate divides by delinquent loans only | `LoanArrearsSnapshot` (there is no cure status transition) |
+| `SETTLED` / `WRITTEN_OFF` | `LoanStatus.COMPLETED` (`closedAt`) / `WRITTEN_OFF` (`writeOffAt`, else `closedAt`) before the window ends; status without a date → `UNOBSERVABLE` (`CLOSE_DATE_MISSING`) | `Loan` |
+| `RETURNED_DEBIT_ORDER` amount | the instruction's `amountCents`; `reasonCode` null when the provider gave none | `CollectionInstruction` |
+| `TAKEN_UP` (offers) | `true`: the application was disbursed. `false` (= NOT_TAKEN_UP): a later return, decline or a `DECLINED`/`CANCELLED` status ended it first. Otherwise `PENDING` (there is no approval-expiry concept in the code, so an abandoned approval stays `PENDING` until cancelled). One row per offer, window `OFFER`, `sourceRef` the application, so a resolved offer never leaves a stale row | `LoanApplication`, `Loan.applicationId` |
 
 Window states: `PENDING` (window not yet elapsed), `UNOBSERVABLE` (no
 arrears history for part of the window: `LoanArrearsSnapshot` starts at the
 first nightly run and is not backfilled, so a gap is never read as "good").
+As built:
+- A window stays `PENDING` until it has elapsed **even when the event already
+  happened inside it**; otherwise an immature cohort would show only its bads.
+- Once elapsed, an event seen in the history is `OBSERVED true`, whatever gaps
+  exist elsewhere. "It did not happen" is `OBSERVED false` only when every day
+  the loan was open in the window has a snapshot row; one missing day makes
+  it `UNOBSERVABLE` with `reasonCode` `HISTORY_GAP`. A closed loan needs no
+  rows from its close day on (it leaves the collectible book). A loan with no
+  schedule is `UNOBSERVABLE` (`NO_SCHEDULE`).
+- Only `OBSERVED` rows carry `value` and `observedAt` (DB CHECK
+  `DecisionOutcome_value_when_observed`), so a `PENDING` or `UNOBSERVABLE`
+  row cannot be summed as good.
+- Simulated collection results (`CollectionResult.simulated`) are included:
+  the demo simulator is where v1 is proved.
 
 **Documented conflict, not changed here**: the escalations cron flips
 ACTIVE → DEFAULTED at **60** DPD (`DEFAULT_AT_DPD = 60`,
@@ -310,27 +331,71 @@ question (§11).
   rate" is a join, not a second outcome row.
 - Collection outcomes (follow-up) attach to the most recent
   `COLLECTION_ACTION` on the loan within 14 days before the payment, return
-  or cure (N = 14, configurable constant; observational).
+  or cure (N = 14, configurable constant; observational). **Not built in PR B**:
+  PR A logs no collection actions (§2.5), so there is nothing to attach to.
+  Returned debit orders attach to the loan's approval meanwhile.
 - Declines get no outcome: there is no observable repayment (§5 selection
   bias).
+- Loans disbursed before the decision log shipped have no approval record and
+  get no outcome rows; they are outside coverage, not counted as gaps.
+- Disbursement time is `LoanApplication.disbursedAt`, else `Loan.createdAt`.
 
 ## 4. Part 2: outcome feedback job (PR B)
 
-- **Model** (PR B's migration, shipped with its code): `DecisionOutcome`
-  { `id`, `tenantId`, `decisionRecordId` (FK `CreditDecisionRecord`,
-  RESTRICT), `outcomeKind` enum (as §3), `window` text (`3M`, `6M`, `12M`,
-  `TERM_30D`, `INSTALMENT:<n>`), `state` enum {`OBSERVED`, `PENDING`,
-  `UNOBSERVABLE`}, `value` bool, `amountCents` int?, `reasonCode` text?,
+- **Model** (migration `20261021120000_decision_outcome`, shipped with its
+  code): `DecisionOutcome`
+  { `id`, `tenantId`, `decisionRecordId` (FK `(tenantId, decisionRecordId)` →
+  `CreditDecisionRecord(tenantId, id)`, RESTRICT, so an outcome cannot hang
+  off another lender's decision; the migration adds that unique index on
+  `CreditDecisionRecord`), `outcomeKind` enum `DecisionOutcomeKind` (§3:
+  `PAID`, `LATE`, `RETURNED_DEBIT_ORDER`, `EVER_30/60/90_DPD`,
+  `DEFAULTED_STATUS`, `CURED`, `SETTLED`, `WRITTEN_OFF`, `TAKEN_UP`), `window`
+  text (`3M`, `6M`, `12M`, `TERM_30D`, `OFFER`, `INSTALMENT:<n>`; CHECK
+  `DecisionOutcome_window`), `state` enum {`OBSERVED`, `PENDING`,
+  `UNOBSERVABLE`}, `value` bool? (set exactly when `OBSERVED`), `amountCents`
+  int?, `reasonCode` text? (a return's reason, an `UNOBSERVABLE` reason, or
+  `NEVER_30_DPD`),
   `sourceSystem` text CHECK in (`credaflow`, `external_extract`),
   `sourceRef` text (opaque: a `CollectionResult` id, a schedule row id, or an
-  extract row key), `definitionVersion` text, `observedAt`, `computedAt` },
+  extract row key), `definitionVersion` text, `observedAt` (set exactly when
+  `OBSERVED`), `computedAt` },
   unique `(decisionRecordId, outcomeKind, window, sourceSystem, sourceRef)`,
-  tenant RLS, registered tenant-scoped. Not append-only: it is derived and
-  recomputable; each run upserts on the unique key, and a definition change
-  bumps `definitionVersion` and recomputes (no data migration).
+  tenant RLS (ENABLE + FORCE + `tenant_isolation`), registered in
+  `lib/registry/tenant-scoped-models/250-learning-loop.ts`. Not append-only:
+  it is derived and recomputable. Each run converges per decision and source
+  (`lib/learning-loop/outcomes/writer.ts`): new keys are inserted with
+  `ON CONFLICT DO NOTHING` (replicas may run at once), changed rows updated,
+  rows whose key the definitions no longer produce deleted, unchanged rows
+  left alone (`computedAt` = when the current content was computed). A
+  definition change bumps `definitionVersion` and every row is rewritten on
+  the next run (no data migration). The job writes no `AuditLog` rows: it is
+  derived analytics, not a state change to the book, as
+  `/api/cron/arrears-snapshot` writes none.
+- **Rollback** (in the migration header too):
+
+```sql
+BEGIN;
+DROP TABLE "DecisionOutcome";
+DROP TYPE "DecisionOutcomeKind";
+DROP TYPE "DecisionOutcomeState";
+DROP INDEX "CreditDecisionRecord_tenantId_id_key";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261021120000_decision_outcome';
+COMMIT;
+```
+
+  Nothing is lost: every row is recomputed by the next run after re-apply.
+  The new foreign key means a plain `TRUNCATE "CreditDecisionRecord"` now
+  stops at the reference before the append-only trigger;
+  `decision-log.integration.test.ts` truncates with `CASCADE` so the trigger
+  is still what it proves.
 - **Source-agnostic**: nothing in the model or job names a source lender.
-  CredaFlow rows come from the tables in §3. An external extract is mapped by
-  an adapter into the same shape, with `sourceSystem = 'external_extract'`
+  An adapter (`OutcomeSourceAdapter`, `lib/learning-loop/outcomes/adapter.ts`)
+  maps its rows into the facts of `facts.ts` and runs the same definitions.
+  CredaFlow rows come from the tables in §3 (`credaflow-adapter.ts`, the only
+  adapter the job runs). An external extract is mapped by
+  `external-extract-adapter.ts` (interface plus a synthetic-fixture test; no
+  connection exists, refs are prefixed with the extract's pseudonymous loan
+  key) into the same shape, with `sourceSystem = 'external_extract'`
   and a pseudonymous `sourceRef`; its decisions arrive as
   `CreditDecisionRecord` rows written by the import (actor `SYSTEM`,
   `ruleVersion = external:<extract version>`).
@@ -342,12 +407,20 @@ question (§11).
   and is idempotent if it runs first), `freshnessMinutes: DAY + 2 * HOUR`.
   It sends nothing, so it runs on every replica (no `singleRun`).
   Tenant-swept with `sweepActiveTenants` (`lib/ops/tenant-sweep.ts:24`), one
-  `runWithTenant` frame per tenant; per-loan errors are counted in the body,
-  a tenant's failure sets `x-cron-failed-tenants`; 503 only when every tenant
-  failed (`sweepStatus`).
-- **Tests**: pure outcome functions over fixtures (paid / late / returned /
-  ever-90 / cure / pending / unobservable); a `RUN_DECISION_OUTCOMES_IT`
-  suite proving idempotency (two runs, same rows) and the unique key.
+  `runWithTenant` frame per tenant (`lib/learning-loop/outcomes/job.ts`);
+  per-loan errors are counted in the body (`failedLoans`, logged with the
+  `[cron/decision-outcomes]` prefix) and leave the run 200, a tenant's failure
+  sets `x-cron-failed-tenants`; 503 only when every tenant failed
+  (`sweepStatus`).
+- **Tests**: pure outcome functions over synthetic fixtures (paid / late /
+  returned with each reason / ever-30/60/90 / cure / defaulted / settled /
+  written off / pending / unobservable gap never good), attribution and
+  take-up, coverage, calibration, the writer's convergence, the extract
+  adapter, the route's auth; a `RUN_DECISION_OUTCOMES_IT` suite
+  (`lib/learning-loop/outcomes/outcomes.integration.test.ts`) proving 401
+  without the secret, idempotency (two runs, identical rows), the unique key
+  and CHECKs, the tenant-carrying FK, and tenant isolation as an RLS-bound
+  role.
 
 ### 4.1 External extract (generic process)
 
@@ -378,12 +451,19 @@ For the first real data, a pseudonymised extract from another lender's LMS:
   whose observation window has matured (excludes `PENDING`), per tenant,
   kind and month. `UNOBSERVABLE` counts against coverage and is listed
   separately with its reason (history gap). v1 success test: 100% on the
-  simulator book, every gap explained.
+  simulator book, every gap explained. Built as pure helpers in
+  `lib/learning-loop/outcomes/metrics.ts` (a decision with several rows, one
+  per instalment, is matured when any row is and observed only when every
+  matured row is) and `metrics-db.ts` (one tenant, one kind and window,
+  default the headline). Not yet run against the simulator book: that needs
+  the next demo image.
 - **Calibration** (computed in PR B, expected empty): only records with
-  `predictedProbability` (none today) enter. Per `modelVersion`, tenant and
-  month: Brier score = mean((p − y)²) with y = headline bad; calibration
-  buckets = deciles of p vs observed bad rate, with counts and a Wilson
-  interval per bucket. The bureau score is an ordinal Sigma band, not a
+  `predictedProbability` (none today) and an `OBSERVED` headline outcome
+  enter. Per `modelVersion`, tenant and month: Brier score = mean((p − y)²)
+  with y = headline bad; calibration buckets = ten fixed-width probability
+  buckets ([0, 0.1) … [0.9, 1]; fixed rather than population deciles so a
+  bucket means the same across months) vs observed bad rate, with counts and
+  a 95% Wilson interval per bucket. The bureau score is an ordinal Sigma band, not a
   probability, and is **never** mapped to one silently: rule-based decisions
   are reported as approval-to-outcome rates by `scoreBand`, `ruleVersion`
   and `policyHash` instead. A first "model" could later be an empirical bad
@@ -422,7 +502,8 @@ For the first real data, a pseudonymised extract from another lender's LMS:
 
 1. PR A: migration + hooks ship together (the CHECKs refuse only rows the
    code never writes). Demo stacks start writing records on the next image.
-2. PR B: outcome model + job; verify coverage on the simulator book.
+2. PR B: outcome model + job (built); verify coverage on the simulator book
+   (pending: needs a demo image with PR A and PR B).
 3. PR C: dashboard; show it in the browser on the FairScore demo.
 4. Follow-ups: automated-refusal helper (SYSTEM records), collection-action
    records after R4 lands, gate version constants, decline-time gate
@@ -585,3 +666,6 @@ never pricing). **Needs lender legal sign-off.**
 6. Benchmark floor: 5 lenders (proposed) or 10 (safer)?
 7. Should the decline path evaluate the gates so "declined against PASS" is
    visible?
+8. Take-up: the code has no approval expiry, so an approved application that
+   is never signed stays `TAKEN_UP` `PENDING` until someone cancels it. Should
+   an approval lapse after N days (and count as not taken up)?
