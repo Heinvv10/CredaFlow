@@ -131,6 +131,9 @@ model User {
   supportGrantsHeld            TenantSupportGrant[]                  @relation("SupportGrantOperatorUser")
   supportGrantsRevoked         TenantSupportGrant[]                  @relation("SupportGrantRevokedBy")
   suretyConsentsVerified SuretyConsent[]
+  valuationGuidesDiscarded     ValuationGuide[]                      @relation("ValuationGuideDiscardedBy")
+  valuationGuidesPublished     ValuationGuide[]                      @relation("ValuationGuidePublishedBy")
+  valuationGuidesUploaded      ValuationGuide[]                      @relation("ValuationGuideUploadedBy")
   webhookEndpointsCreated      WebhookEndpoint[]                     @relation("WebhookEndpointsCreatedBy")
   webhookEndpointsDisabled     WebhookEndpoint[]                     @relation("WebhookEndpointsDisabledBy")
 

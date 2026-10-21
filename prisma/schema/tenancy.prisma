@@ -184,6 +184,7 @@ model Tenant {
   taxInvoices                TaxInvoice[]
   tcfOutcomes                TcfOutcome[]
   users                      User[]
+  valuationGuides            ValuationGuide[]
   vatConfig                  VatConfig?
   webhookDeliveries          WebhookDelivery[]
   webhookEndpoints           WebhookEndpoint[]

@@ -21,7 +21,11 @@ export const ASSET_CLASSES = [
   "EXCAVATOR", "GRADER", "FRONT_END_LOADER", "FORKLIFT", "OTHER_YELLOW",
 ] as const satisfies readonly AssetClass[]
 
+/** Sources a person records by hand. GUIDE is never typed in: it is read from a published guide (lib/valuation-guides/lookup.ts). */
 export const VALUATION_SOURCES = ["DEALER", "AUCTIONEER", "ASSESSOR", "INTERNAL"] as const satisfies readonly ValuationSource[]
+
+/** Sources that never count as an independent valuation for a recovery sale (guardRemarketingSale). */
+export const NOT_INDEPENDENT_SOURCES = ["INTERNAL", "GUIDE"] as const satisfies readonly ValuationSource[]
 
 export interface AssetFields {
   assetClass: AssetClass

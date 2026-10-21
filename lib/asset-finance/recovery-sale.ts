@@ -2,6 +2,7 @@ import { requireNcaSaleWindow } from "./surrender-lifecycle"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { prisma } from "@/lib/prisma"
+import { NOT_INDEPENDENT_SOURCES } from "./asset-input"
 import { dbDate, fromDayNumber, toDayNumber } from "./dates"
 import { purchaseMaxAgeDays } from "./lease-term-end"
 import type { RecoveryActor } from "./recovery-create"
@@ -38,7 +39,8 @@ const auditActor = (actor: RecoveryActor) => ({ tenantId: actor.tenantId, userId
  * The highest current independent valuation, and whether the proposer recorded
  * it or the one the sale relies on (SELF_VALUED: nobody sells on a value they
  * set themselves without a second approver). "Independent" is the database's
- * rule: any source but INTERNAL, valued within leasePurchaseValuationMaxAgeDays.
+ * rule: any source but INTERNAL or GUIDE (a guide value is a reference, never
+ * independent), valued within leasePurchaseValuationMaxAgeDays.
  * (A lease purchase counts only assessors and dealers; a forced-sale
  * auctioneer valuation still binds a repossession sale.) A tie for highest
  * counts as the proposer's if any of the tied valuations is.
@@ -49,9 +51,9 @@ export async function valuationFacts(tx: SigningTx, tenantId: string, assetId: s
   const earliest = dbDate(fromDayNumber(toDayNumber(today) - maxAge))
   const valuation = await tx.assetValuation.findFirst({ where: { id: valuationId, tenantId, assetId }, select: { source: true, valuedOn: true, createdById: true } })
   if (!valuation) throw new RecoveryRefusal("The valuation is not of this asset")
-  if (valuation.source === "INTERNAL") throw new RecoveryRefusal("A sale rests on an independent (not internal) valuation")
+  if ((NOT_INDEPENDENT_SOURCES as readonly string[]).includes(valuation.source)) throw new RecoveryRefusal("A sale rests on an independent valuation (not internal, not a guide value)")
   if (valuation.valuedOn < earliest) throw new RecoveryRefusal(`The valuation must be dated within ${maxAge} days`)
-  const current = { tenantId, assetId, source: { not: "INTERNAL" as const }, valuedOn: { gte: earliest } }
+  const current = { tenantId, assetId, source: { notIn: [...NOT_INDEPENDENT_SOURCES] }, valuedOn: { gte: earliest } }
   const highestCents = (await tx.assetValuation.aggregate({ where: current, _max: { amountCents: true } }))._max.amountCents ?? 0
   const highest = await tx.assetValuation.findMany({ where: { ...current, amountCents: highestCents }, select: { createdById: true } })
   return { highestCents, selfValued: valuation.createdById === proposerId || highest.some((v) => v.createdById === proposerId) }

@@ -116,7 +116,7 @@ suite("slice 4a remarketing sale database rules", () => {
     const message = /relies on an independent \(not internal\) valuation of this asset dated within 30 days/
 
     it("is independent: an internal valuation will not do", async () => {
-      await refuses(clauseOff(G, `AND v."source" <> 'INTERNAL' AND v."valuedOn" >= today - max_age) THEN`, `AND v."valuedOn" >= today - max_age) THEN`), message,
+      await refuses(clauseOff(G, `AND v."source" NOT IN ('INTERNAL', 'GUIDE') AND v."valuedOn" >= today - max_age) THEN`, `AND v."valuedOn" >= today - max_age) THEN`), message,
         async (tx) => saleIn(tx, R.non, { valuationId: await internal(tx) }))
     })
 
