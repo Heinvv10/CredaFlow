@@ -4,6 +4,7 @@ import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
 import { DealerPageTitle } from "@/components/dealer/DealerShell"
 import { COMMISSION_KIND_LABELS, DEALER_STATUS_TONE, humanise, missingLabel } from "@/components/dealer/dealer-labels"
+import { DealerCancelDraftForm } from "@/components/dealer/deal/DealerCancelDraftForm"
 import { DealerConsentPanel } from "@/components/dealer/deal/DealerConsentPanel"
 import { DealerSubmitButton } from "@/components/dealer/deal/DealerSubmitButton"
 import { DealerUploadForm } from "@/components/dealer/deal/DealerUploadForm"
@@ -36,6 +37,7 @@ export default async function DealerDealPage({ params }: Params) {
   if (!deal) notFound()
 
   const draft = deal.status === "Draft"
+  const mayCancel = draft && (actor.dealerRole === "DEALER_ADMIN" || deal.createdByDealerUserId === actor.dealerUserId)
   const takesDocuments = deal.status !== "Declined" && deal.status !== "Cancelled"
   const openRequests = deal.documentRequests.filter((r) => !r.fulfilled)
   const consentDocuments = deal.documents.filter((d) => d.docType === "POPIA_CONSENT")
@@ -69,6 +71,7 @@ export default async function DealerDealPage({ params }: Params) {
             </ul>
           )}
           {draft ? <div className="mt-4"><DealerSubmitButton dealId={deal.id} /></div> : null}
+          {mayCancel ? <div className="mt-3"><DealerCancelDraftForm dealId={deal.id} /></div> : null}
         </DataPanel>
         <DataPanel title="People and consent">
           <DealerConsentPanel dealId={deal.id} people={deal.people} consentDocuments={consentDocuments} statement={DEALER_CONSENT_STATEMENT} open={draft} />
@@ -103,9 +106,9 @@ export default async function DealerDealPage({ params }: Params) {
               ))}
             </ul>
           )}
-          {draft ? <DealerUploadForm dealId={deal.id} docTypes={DEALER_UPLOAD_DOC_TYPES} idPrefix="deal-doc" /> : (
+          {draft ? <DealerUploadForm dealId={deal.id} docTypes={DEALER_UPLOAD_DOC_TYPES} idPrefix="deal-doc" /> : takesDocuments ? (
             <p className="text-xs text-[var(--cf-text-muted)]">The deal is with the lender: send a document by answering one of its requests.</p>
-          )}
+          ) : null}
         </DataPanel>
         {deal.signing.length > 0 ? (
           <DataPanel title="Signing">

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import { SELECT_CLASS } from "@/components/asset-finance/form-fields"
 import { formatDate } from "@/lib/utils"
 
@@ -11,8 +12,9 @@ type ConsentDocument = { id: string; fileName: string; uploadedAt: string }
 
 /**
  * POPIA consent: for the people the dealer captured and has not yet attested,
- * the dealer user names the signed consent form it uploaded and confirms the
- * fixed statement. Evidence for the lender, who verifies it before any credit
+ * the dealer user names the signed consent form it uploaded, says how it was
+ * signed (in person, or remotely and how identity was checked) and confirms
+ * the fixed statement. Evidence for the lender, who verifies it before any credit
  * check. A person the lender added gives consent to the lender directly.
  */
 export function DealerConsentPanel({ dealId, people, consentDocuments, statement, open }: {
@@ -26,6 +28,8 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
   const pending = people.filter((p) => !p.consentAttested && !p.consentByLender)
   const [documentId, setDocumentId] = useState(consentDocuments.length === 1 ? consentDocuments[0].id : "")
   const [chosen, setChosen] = useState<string[]>([])
+  const [method, setMethod] = useState<"" | "IN_PERSON" | "REMOTE">("")
+  const [identityCheck, setIdentityCheck] = useState("")
   const [confirmed, setConfirmed] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,17 +37,24 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
   const toggle = (id: string) => setChosen((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
 
   async function attest() {
-    if (!documentId || chosen.length === 0 || !confirmed) return setError("Choose the consent form, the people it covers, and confirm the statement")
+    if (!documentId || chosen.length === 0 || !method || !confirmed) {
+      return setError("Choose the consent form, the people it covers and how it was signed, and confirm the statement")
+    }
     setSaving(true)
     setError(null)
     try {
       const res = await fetch(`/api/dealer/deals/${dealId}/consents`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attested: true, documentId, clientIds: chosen }),
+        body: JSON.stringify({
+          attested: true, documentId, clientIds: chosen, signingMethod: method,
+          remoteIdentityCheck: method === "REMOTE" ? identityCheck : undefined,
+        }),
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) return setError(body.error ?? `The consent could not be recorded (${res.status})`)
       setChosen([])
+      setMethod("")
+      setIdentityCheck("")
       setConfirmed(false)
       router.refresh()
     } catch {
@@ -86,6 +97,24 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
                 </label>
               ))}
             </fieldset>
+            <fieldset className="space-y-1">
+              <legend className="mb-1 text-xs font-semibold text-[var(--cf-text-secondary)]">How the form was signed</legend>
+              <label className="flex items-center gap-2 text-sm text-[var(--cf-text)]">
+                <input type="radio" name="signing-method" checked={method === "IN_PERSON"} onChange={() => setMethod("IN_PERSON")} />
+                In person, with me
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--cf-text)]">
+                <input type="radio" name="signing-method" checked={method === "REMOTE"} onChange={() => setMethod("REMOTE")} />
+                Remotely (electronically, or a signed copy sent back)
+              </label>
+            </fieldset>
+            {method === "REMOTE" ? (
+              <div>
+                <label htmlFor="remote-identity-check" className="mb-1.5 block text-xs font-semibold text-[var(--cf-text-secondary)]">How you checked their identity</label>
+                <Textarea id="remote-identity-check" rows={2} maxLength={500} value={identityCheck} onChange={(e) => setIdentityCheck(e.target.value)}
+                  placeholder="For example: video call with the original ID document held to the camera" />
+              </div>
+            ) : null}
             <blockquote className="border-l-2 border-[var(--cf-border-strong)] pl-3 text-sm text-[var(--cf-text-secondary)]">{statement}</blockquote>
             <label className="flex items-start gap-2 text-sm text-[var(--cf-text)]">
               <input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />

@@ -1,7 +1,9 @@
 /**
  * Dealer consent is evidence, not consent (spec deviation 8). The dealer
  * uploads the signed POPIA consent form (docType POPIA_CONSENT) and attests,
- * per data subject, the fixed statement below; the database checks the
+ * per data subject, the fixed statement below and how the form was signed (in
+ * person, or remotely with how identity was checked: dealer-consent-v2,
+ * CHECK DealerConsentAttestation_signing_method); the database checks the
  * document is that dealer's upload on the deal and the subject is the deal's
  * client or an active person of its entity (guardDealerConsentAttestation).
  *
@@ -18,13 +20,44 @@ import { dealerAuditFields, type DealerActor, type StaffActor } from "./actor"
 import { dealerDealWhere } from "./deals"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
-export const DEALER_CONSENT_VERSION = "dealer-consent-v1"
+export const DEALER_CONSENT_VERSION = "dealer-consent-v2"
 
-// UNTESTED: legal — the lender's legal team confirms this wording (SLICE5.md, Review items).
+export const DEALER_CONSENT_SIGNING_METHODS = ["IN_PERSON", "REMOTE"] as const
+export type DealerConsentSigningMethod = (typeof DEALER_CONSENT_SIGNING_METHODS)[number]
+export const REMOTE_IDENTITY_CHECK_MIN = 10
+export const REMOTE_IDENTITY_CHECK_MAX = 500
+
+// UNTESTED: legal — the lender's legal team confirms this wording (SLICE5-FOLLOWUPS.md part D). It must be true for
+// a form signed in front of the dealer and for one signed remotely, so it says nothing of where the person was.
 export const DEALER_CONSENT_STATEMENT =
-  "I confirm that the person named signed the uploaded consent form in my presence, that I checked their identity " +
-  "document against them, and that the form is unaltered. The consent lets the lender obtain their credit " +
-  "information from credit bureaus and process their personal information to assess this application."
+  "I confirm that the person named signed the uploaded consent form, that before they signed I checked their identity " +
+  "in the way recorded below, and that the form is unaltered since they signed it. The consent lets the lender obtain " +
+  "their credit information from credit bureaus and process their personal information to assess this application."
+
+/** The line the attestation adds for how the form was signed (part of the snapshot). */
+export function dealerConsentMethodLine(method: DealerConsentSigningMethod, remoteIdentityCheck: string | null): string {
+  return method === "IN_PERSON"
+    ? "Signed in person: I checked their identity document against them."
+    : `Signed remotely. How I checked their identity: ${remoteIdentityCheck ?? ""}`
+}
+
+/** The text an attestation snapshots: the statement, then the signing method line. */
+export function dealerConsentSnapshot(method: DealerConsentSigningMethod, remoteIdentityCheck: string | null): string {
+  return `${DEALER_CONSENT_STATEMENT}\n${dealerConsentMethodLine(method, remoteIdentityCheck)}`
+}
+
+/** `{ signingMethod, remoteIdentityCheck }`: REMOTE needs the identity check (10 to 500 characters), IN_PERSON none. */
+export function parseSigningMethod(input: { signingMethod?: unknown; remoteIdentityCheck?: unknown }):
+  { signingMethod: DealerConsentSigningMethod; remoteIdentityCheck: string | null } | string {
+  const method = DEALER_CONSENT_SIGNING_METHODS.find((m) => m === input.signingMethod)
+  if (!method) return "Say how the consent form was signed: in person or remotely"
+  const check = typeof input.remoteIdentityCheck === "string" ? input.remoteIdentityCheck.trim() : ""
+  if (method === "IN_PERSON") return check ? "An identity check is described only for a form signed remotely" : { signingMethod: method, remoteIdentityCheck: null }
+  if (check.length < REMOTE_IDENTITY_CHECK_MIN || check.length > REMOTE_IDENTITY_CHECK_MAX) {
+    return `Describe how you checked the person's identity for a remote signing (${REMOTE_IDENTITY_CHECK_MIN} to ${REMOTE_IDENTITY_CHECK_MAX} characters)`
+  }
+  return { signingMethod: method, remoteIdentityCheck: check }
+}
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
@@ -51,8 +84,10 @@ export async function dealSubjects(
 export async function attestDealerConsent(
   actor: DealerActor,
   dealId: string,
-  input: { documentId: unknown; clientIds: unknown },
+  input: { documentId: unknown; clientIds: unknown; signingMethod?: unknown; remoteIdentityCheck?: unknown },
 ): Promise<{ kind: "attested"; attestationIds: string[] } | DealerRefusal> {
+  const signing = parseSigningMethod(input)
+  if (typeof signing === "string") return dealerRefused(400, signing)
   const clientIds = Array.isArray(input.clientIds) ? [...new Set(input.clientIds.filter((c): c is string => typeof c === "string"))] : []
   if (typeof input.documentId !== "string" || clientIds.length === 0 || clientIds.length !== (input.clientIds as unknown[]).length) {
     return dealerRefused(400, "Name the consent document and at least one person")
@@ -82,7 +117,9 @@ export async function attestDealerConsent(
       const row = await tx.dealerConsentAttestation.create({
         data: {
           tenantId: actor.tenantId, dealId: deal.id, clientId, documentId: document.id, dealerUserId: actor.dealerUserId,
-          statementVersion: DEALER_CONSENT_VERSION, statementText: DEALER_CONSENT_STATEMENT,
+          statementVersion: DEALER_CONSENT_VERSION,
+          statementText: dealerConsentSnapshot(signing.signingMethod, signing.remoteIdentityCheck),
+          signingMethod: signing.signingMethod, remoteIdentityCheck: signing.remoteIdentityCheck,
         },
         select: { id: true },
       })
@@ -90,7 +127,10 @@ export async function attestDealerConsent(
       await logAuditStrict({
         tenantId: actor.tenantId, userId: audit.userId, userEmail: audit.userEmail,
         action: AuditAction.DEALER_CONSENT_ATTESTED, entity: "DealerConsentAttestation", entityId: row.id,
-        newValue: { dealId: deal.id, clientId, documentId: document.id, statementVersion: DEALER_CONSENT_VERSION, actor: audit.actor },
+        newValue: {
+          dealId: deal.id, clientId, documentId: document.id, statementVersion: DEALER_CONSENT_VERSION,
+          signingMethod: signing.signingMethod, remoteIdentityCheck: signing.remoteIdentityCheck, actor: audit.actor,
+        },
       }, tx)
     }
     return { kind: "attested" as const, attestationIds }
