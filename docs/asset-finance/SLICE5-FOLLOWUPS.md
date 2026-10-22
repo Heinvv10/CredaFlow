@@ -268,9 +268,13 @@ architecture, SA legal): the name is a field, not a part of the sentence.
    are gone: they refused real names ("May & Sons", "Price Brothers Plant
    Hire", "Not Just Tractors") and could not stop an injection anyway. The
    rule: 1 to `MAX_DEALER_NAME` (80) characters; no leading, trailing or
-   repeated spaces; only text the document font prints, with no line breaks,
-   tabs, control, no-break-space, soft-hyphen, zero-width or non-Latin
-   characters. Full stops and quotation marks are allowed ("Pty. Ltd."). It
+   repeated spaces; only text the document font (Windows-1252) prints, with no
+   line breaks, tabs, control, no-break-space, soft-hyphen, zero-width,
+   directional or out-of-font characters (so "Š" and "é" print, "Ł" and "Č"
+   are refused, and the refusal says so, not "non-Latin"). Every printable
+   punctuation mark is allowed: full stops ("Pty. Ltd."), "/" ("t/a"), hyphens
+   ("Pay-Less"), the typographic apostrophe ("D’Arcy"), colons, semicolons and
+   quotation marks. It
    runs when staff create or edit a dealer (422 on `name`; the read limit is
    now 80, was 160) and again whenever a document is built, for names written
    before the rule: the Introducer row refuses with `DealDocumentError`
@@ -291,7 +295,22 @@ architecture, SA legal): the name is a field, not a part of the sentence.
     stays dealer-less so its PDF, and so its hash, does not change; one
     `dealer` shape per variant carries the row and paragraph into the
     fingerprint. `SYSTEM_REVISION` stays 2026-10-22.1 (not released yet).
-12. **Registration number not printed.** It is unvalidated free text, and the
+12. **An unbroken name cannot run off the page.** `wrapText` (`pdf-layout.ts`)
+    now cuts a word wider than the line where the line ends, which protects
+    every label row (the edge tester found an 80-character unbroken name
+    overflowing the value column to 899pt on a 545pt line). Existing
+    documents are untouched: every pre-existing preview shape renders
+    byte-identical.
+13. **`DealDocumentError` has its own module** (`deal-document-error.ts`,
+    re-exported by `deal-document-data.ts`), so the wording and the pure NCA
+    renderers do not import the loader's database, identity and rate graph.
+14. **The borrower never sees the staff refusal.** A name that fails the shape
+    check is refused where documents are built (prepare, issue), for staff.
+    The borrower-facing e-sign and the contract step re-render from the
+    pinned introducer, so a bad or renamed live name is unreachable there
+    (proved on real Postgres: renamed to a shape-invalid name, e-sign and
+    contract still succeed).
+15. **Registration number not printed.** It is unvalidated free text, and the
     name with its dealer or broker label identifies the introducer.
 
 ### The wording, per document (`wording/commission-disclosure.ts`)
@@ -335,7 +354,12 @@ contains it.
 | NCA cost-of-credit pinned: the "Total cost of credit" line (R 18,732.50) and the quotation's clause 1.5 sentence are identical | same | unit | cost of credit moved on the quotation or agreement |
 | A name that fails the shape check is never printed: every path throws `DealDocumentError`; names the old word list refused, and full stops, print | same | unit | line break, soft hyphen, zero-width, no-break space, control, CJK, empty, leading space, 81 characters |
 | Staff write refuses a bad name on create and edit; accepts real names | `lib/dealer/staff-input.test.ts` | unit | the same shapes |
-| The shape rule and the refusal text | `wording/dealer-name.test.ts` | unit | 21 refused shapes, 14 accepted; refusal says "document", not "agreement" |
+| The shape rule, one case per refused character class (each control, invisible, bidi and out-of-font character; spacing; length) and per allowed punctuation mark; refusal text says "document", not "agreement" and not "non-Latin" | `wording/dealer-name.test.ts`, `commission-disclosure.edge-w.test.ts` | unit | 40 refused cases and 25 accepted here, 11 and 10 more from the edge tester |
+| An unbroken long name stays inside the page, whole | `pdf-layout-wrap.test.ts`, `commission-disclosure-overflow.edge-w.test.ts`, `commission-disclosure.edge-w.test.ts` | unit | 80 W, MW×40, Wilhelmina×8 |
+| `loadDealDocumentData` selects the dealer's name and kind and returns them, or none | `deal-document-data-dealer.test.ts` | unit | select dropped; kind dropped; dealer null |
+| `pinnedIssuance` returns the retained dealer, none for no dealer, a legacy input and an NCA input; refuses a missing or altered input | `templates/issuance-pinned-dealer.test.ts` | unit | each |
+| The wording and the NCA quotation renderer load without the loader module | `commission-disclosure-pure.test.ts` | unit | wording importing the loader |
+| The dealer changes after issue (rename, deactivation, unprintable name, deal moved to another or no dealer): the signer sees the issued bytes | `templates/commission-lifecycle.edge-w.integration.test.ts` | IT | each |
 | The NCA stores refuse a bad name and hand the dealer (with its kind) to the renderer | `legal-wording-flag-nca-{quote-store,agreement-store,entity-signing}.test.ts` | unit | a deal with no dealer hands `null`; a bad name renders and writes nothing |
 | Lender text cannot carry a commission, or hide the word with an invisible character | `commission-disclosure-templates.test.ts` | unit | three phrasings in each editable variant; six invisible characters; an editable clause |
 | Preview shapes: only the `dealer` shape prints the row, and it differs from the first shape by exactly the disclosure; suretyships and the resolution have no dealer shape | same | unit | the disclosure in a dealer-less shape |
@@ -408,8 +432,10 @@ in `DESIGN.md` as `fingerprint.test.ts` asks.
      supplier's legal name versus the dealer's trading name;
    - the scope of insurance commission, which this paragraph does not cover.
 3. **A name written before the shape rule** that fails it blocks preparation of
-   that dealer's deals until staff edit the name (the refusal says so). Names
-   like "Pty. Ltd." or "Smith "Quick" Motors" now pass.
+   that dealer's deals until staff edit the name (the refusal says so); it
+   never blocks signing of documents already prepared (the introducer is
+   pinned). A dealer renamed after preparation changes nothing already issued;
+   a re-prepare prints the new name.
 4. **Pre-existing documents.** An issuance's retained input from before this
    release has no `dealer`; it reproduces without the clause, as issued. A
    dealer deal prepared before the release carries the clause only once

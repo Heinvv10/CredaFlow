@@ -170,7 +170,9 @@ the named tests red; after the restore the tree was clean. `D` =
 `D/commission-disclosure-templates.test.ts`; `FP` = `D/templates/fingerprint.test.ts`;
 `DN` = `D/wording/dealer-name.test.ts`; `SI` = `lib/dealer/staff-input.test.ts`;
 `RE` = `D/templates/commission-reapproval.integration.test.ts`; `PI` =
-`D/templates/commission-pinned-issuance.integration.test.ts`; `LW` = the three
+`D/templates/commission-pinned-issuance.integration.test.ts`; `WR` = `D/pdf-layout-wrap.test.ts`;
+`OV`, `EW` = the edge tester's `D/commission-disclosure-overflow.edge-w.test.ts` and `D/commission-disclosure.edge-w.test.ts`;
+`LD` = `D/deal-document-data-dealer.test.ts`; `PU` = `D/templates/issuance-pinned-dealer.test.ts`; `PUR` = `D/commission-disclosure-pure.test.ts`; `LW` = the three
 `lib/asset-finance/legal-wording-flag-nca-*.test.ts`.
 
 | # | Mutation | Suite | Result | Rule |
@@ -207,15 +209,35 @@ the named tests red; after the restore the tree was clean. `D` =
 | W12a | `lib/asset-finance/nca-agreement-store.ts`: no name pre-check | LW | 1 failed | NCA agreement refuses to issue |
 | W12b | `lib/asset-finance/nca-quote-store.ts`: no name pre-check | LW | 1 failed | NCA quotation refuses to issue |
 | W12c | `lib/asset-finance/nca-entity-signing.ts`: no name pre-check | LW | 1 failed | NCA entity agreement refuses to prepare |
-| W13a | `D/wording/dealer-name.ts`: hidden characters allowed | DN | 3 failed | control, no-break space, soft hyphen refused |
-| W13b | same: the document-font check dropped | DN | 8 failed | zero-width, bidi, CJK, emoji refused |
-| W13c | same: length not checked | DN | 2 failed | empty and 81 characters refused |
+| W13a | `D/wording/dealer-name.ts`: no-break space and soft hyphen allowed | DN | 3 failed | NBSP and soft hyphen refused |
+| W13b | same: the document-font check dropped | DN | 33 failed | every control, invisible, bidi and out-of-font character refused (one case each) |
+| W13c | same: length not checked at all | DN | 2 failed | empty and over-length refused |
 | W13d | same: leading, trailing and repeated spaces allowed | DN | 4 failed | spacing refused |
+| W13e | same: leading or trailing space allowed | DN | 2 failed | leading and trailing spaces |
+| W13f | same: a repeated space allowed | DN | 1 failed | repeated spaces |
+| W13g | same: no maximum length | DN | 1 failed | over-length |
+| W13h | same: an empty name allowed | DN | 1 failed | empty name |
 | W14a | `lib/asset-finance/signing-esign.ts`: re-renders with the dealer as it is now | PI (real PG) | 2 failed | the introducer is pinned (e-sign) |
 | W14b | `lib/asset-finance/signing-contract.ts`: same | PI (real PG) | 1 failed | the introducer is pinned (contract step) |
 | W14c | `D/templates/issuance.ts`: `pinnedIssuance` returns no dealer | PI (real PG) | 1 failed | the introducer is read from the retained input |
 | W15 | `D/wording/commission-disclosure.ts`: a broker printed as a dealer | CD | 9 failed | the label follows `Dealer.kind` |
 | W16 | `D/nca/quote-pdf.ts`: the section moved after the acknowledgement | CD | 1 failed | NCA placement |
+| X1 | `D/pdf-layout.ts`: `wrapText` leaves an over-long word whole | WR, OV, EW | 4 failed | a long unbroken name stays inside the page, whole, with the clause intact |
+| X2 | `D/deal-document-data.ts`: the loader returns no dealer | LD | 2 failed | the load's pass-through (unit) |
+| X3 | same: the dealer's kind not selected | LD | 2 failed | the load selects name and kind |
+| X4 | `D/templates/issuance.ts`: `pinnedIssuance` returns no dealer | PU | 1 failed | the pinned introducer (unit) |
+| X5 | same: reads the dealer from an NCA input | PU | 1 failed | NCA inputs pin nothing |
+| X6 | same: accepts a missing retained input | PU | 1 failed | a missing retained input is refused |
+| X7 | `D/wording/commission-disclosure.ts`: imports the loader module | PUR | 2 failed | the wording is pure |
+| X8 | `D/wording/dealer-name.ts`: soft hyphen allowed | DN | 2 failed | soft hyphen refused on its own |
+| X9 | same: no-break space allowed | DN | 1 failed | NBSP refused on its own |
+| X10 | same: only ASCII allowed | DN, EW | 55 failed | accented and typographic names accepted |
+| X11 | same: full stops refused | DN | 2 failed | "Pty. Ltd." accepted |
+| X12 | same: oblique strokes refused | DN | 2 failed | "t/a" accepted |
+| X13 | same: the typographic apostrophe refused | DN, EW | 11 failed | "D’Arcy" accepted and printed |
+| X14 | same: hyphens refused | DN | 2 failed | "Pay-Less" accepted |
+| X15 | same: semicolons, colons and quotation marks refused | DN | 3 failed | all accepted: the name is data |
+| X16 | same: the refusal text says "non-Latin" | DN | 1 failed | Latin letters outside Windows-1252 are refused too |
 
 The round-1 test-first record: the unit suites for the redesign were written
 before the code (they named an `Introducer` row, a fixed paragraph and a shape
