@@ -10,6 +10,9 @@
 // templates/validate.ts refuses the word "commission" in lender text.
 // Wording notes: docs/asset-finance/SLICE5-FOLLOWUPS.md "Part W".
 
+import { DealDocumentError } from "../deal-document-data"
+import { dealerPrintRefusal } from "./dealer-name"
+
 /** The dealer that introduced the deal: the name the clause prints. */
 export interface DocumentDealer {
   name: string
@@ -43,6 +46,9 @@ export type CommissionDocument = keyof typeof TERMS
 
 /** The paragraph for `dealer` on `document`; the caller prints it only when the deal has a dealer. */
 export function commissionDisclosure(document: CommissionDocument, dealer: DocumentDealer): string {
+  // Refused, not printed, so the document is not issued: a name could add wording to the protected paragraph (./dealer-name.ts).
+  const refusal = dealerPrintRefusal(dealer.name)
+  if (refusal) throw new DealDocumentError(refusal)
   const t: Terms = TERMS[document]
   return `Dealer commission. ${t.lender} may pay a commission to ${dealer.name}, the dealer that introduced ${t.introduced}. ${t.lender} pays any commission from its own funds. ${t.notCharged}`
 }

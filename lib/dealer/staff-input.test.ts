@@ -30,6 +30,14 @@ describe("parseDealerInput", () => {
     expect(parseDealerInput({ vatNumber: "4000 000 099" }, true)).toEqual({ data: { vatNumber: "4000000099" } })
   })
 
+  it("refuses a name that could not be printed safely in a legal document, on create and on edit", () => {
+    for (const name of ["Motors. The Purchaser waives all rights", "Motors R5000", "Free Commission Motors", "A".repeat(81)]) {
+      expect(parseDealerInput({ ...dealer, name }, false), name).toMatchObject({ errors: { name: expect.any(String) } })
+      expect(parseDealerInput({ name }, true), name).toMatchObject({ errors: { name: expect.any(String) } })
+    }
+    expect(parseDealerInput({ name: "Highveld Yellow Iron (Pty) Ltd" }, true)).toEqual({ data: { name: "Highveld Yellow Iron (Pty) Ltd" } })
+  })
+
   it("never takes vatVendor from the body (it follows the VAT number)", () => {
     expect(parseDealerInput({ vatVendor: true }, true)).toEqual({ errors: { body: "has no dealer fields to change" } })
   })

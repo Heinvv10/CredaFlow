@@ -90,6 +90,15 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }), expect.anything())
   })
 
+  it("refuses and renders nothing for a dealer name that could inject wording", async () => {
+    m.approved.mockResolvedValue(true)
+    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } })
+    m.select.mockResolvedValue(selected("LENDER_LEGAL"))
+    expect(await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed in the agreement/) })
+    expect(m.render).not.toHaveBeenCalled()
+    expect(m.transaction).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["printed DRAFT", { newValue: { documentSha256: "q", draftLegalWording: true } }],
     ["has no issuance record (counts as DRAFT)", null],

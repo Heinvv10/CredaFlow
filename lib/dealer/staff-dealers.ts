@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { asRecord, readEnum, readText, type Errors, type Fields } from "@/lib/asset-finance/input-fields"
 import { SA_VAT_NUMBER } from "@/lib/asset-finance/settings-input"
+import { dealerNameProblem } from "@/lib/asset-finance/documents/wording/dealer-name"
 import type { StaffActor } from "./actor"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
@@ -46,6 +47,11 @@ export function parseDealerInput(body: unknown, partial: boolean): Parsed<Partia
   readText(record, "supplierId", out, errors, { required: false, nullable: true, max: 64 })
   readText(record, "contactEmail", out, errors, { required: !partial, nullable: false, max: 160 })
   readText(record, "contactPhone", out, errors, { required: false, nullable: true, max: 32 })
+  // The name is printed in the agreements' commission disclosure: a trading name only.
+  if (typeof out.name === "string") {
+    const problem = dealerNameProblem(out.name)
+    if (problem) errors.name = problem
+  }
   if (typeof out.vatNumber === "string" && !SA_VAT_NUMBER.test(out.vatNumber)) errors.vatNumber = "must be ten digits starting with 4"
   const email = out.contactEmail
   if (typeof email === "string") {

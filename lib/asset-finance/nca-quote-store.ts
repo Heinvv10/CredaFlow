@@ -10,6 +10,7 @@ import { termsFromDeal, DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { solveNcaDealStructure } from "./nca-structure"
 import { createAssetPasqEvidence, pasqJson } from "./nca-evidence"
 import { renderNcaAssetQuote } from "./documents/nca/quote-pdf"
+import { dealerPrintRefusal } from "./documents/wording/dealer-name"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { ncaTemplateKey } from "./documents/templates/issuance"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
@@ -49,6 +50,8 @@ export async function issueAssetNcaQuote(
     return { kind: "not_ready", reason: "An approved NCA asset deal needs its borrower and authorised representative before quotation" }
   }
   if (deal.application.pasqDocumentId) return { kind: "not_ready", reason: "The quotation was already issued" }
+  const dealerRefusal = deal.dealer && dealerPrintRefusal(deal.dealer.name)
+  if (dealerRefusal) return { kind: "not_ready", reason: dealerRefusal }
   if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE") {
     return { kind: "not_ready", reason: "This agreement type has no NCA asset document" }
   }

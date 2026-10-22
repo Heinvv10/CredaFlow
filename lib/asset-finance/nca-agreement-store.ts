@@ -10,6 +10,7 @@ import { sastCalendarDate } from "@/lib/date/sast"
 import { resolveRate } from "./deal-structure"
 import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
 import type { NcaAssetDocumentData } from "./documents/nca/types"
+import { dealerPrintRefusal } from "./documents/wording/dealer-name"
 import {
   issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, TemplateNotIssuableError,
   type SelectedTemplate,
@@ -46,6 +47,8 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
   if (deal.status !== "APPROVED" || app.status !== "APPROVED" || !deal.client || !deal.clientId) return { kind: "not_ready", reason: "Only an approved natural-person NCA deal can issue this agreement" }
   if (deal.contractType !== "INSTALMENT_SALE" && deal.contractType !== "FINANCE_LEASE") return { kind: "not_ready", reason: "This agreement type has no NCA asset document" }
   if (app.agreementDocumentId) return { kind: "not_ready", reason: "The agreement was already issued" }
+  const dealerRefusal = deal.dealer && dealerPrintRefusal(deal.dealer.name)
+  if (dealerRefusal) return { kind: "not_ready", reason: dealerRefusal }
   if (!app.pasqDocumentSha256 || app.pasqAcknowledgedSha256 !== app.pasqDocumentSha256) return { kind: "not_ready", reason: "The client must review and acknowledge the current quotation first" }
   if (!pasqEvidenceIsIntact(app.pasqEvidence)) return { kind: "not_ready", reason: "The quotation evidence is incomplete" }
   const evidence = app.pasqEvidence

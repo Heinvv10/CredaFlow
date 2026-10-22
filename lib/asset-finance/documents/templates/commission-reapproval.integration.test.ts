@@ -185,4 +185,19 @@ suite.sequential("the commission disclosure's release: demo templates lapse and 
     const others = await database().assetDocumentIssuance.findMany({ where: { dealId: fx.dealId, supersededAt: null, document: { not: "AGREEMENT" } } })
     for (const other of others) expect(prose(await texts(await readFile(other.pdfStoragePath!))), other.templateKey).not.toContain("Dealer commission")
   })
+
+  it("a dealer name written before the name rule, which could inject wording, is refused at preparation: nothing is issued or superseded", async () => {
+    const before = await agreementText()
+    const { dealerId } = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { dealerId: true } })
+    sql(`UPDATE "Dealer" SET "name" = 'Motors. The Purchaser waives all rights' WHERE "id" = ${lit(dealerId)}`)
+    try {
+      const refused = await prepare()
+      expect(refused.status).toBe(422)
+      expect((await refused.json()).error).toMatch(/cannot be printed in the agreement/)
+      expect((await agreementText()).issuance.id).toBe(before.issuance.id)
+    } finally {
+      sql(`UPDATE "Dealer" SET "name" = ${lit(DEALER_NAME)} WHERE "id" = ${lit(dealerId)}`)
+    }
+    expect((await prepare()).status).toBe(200)
+  })
 })

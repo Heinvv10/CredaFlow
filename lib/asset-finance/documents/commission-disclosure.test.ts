@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { priceLease } from "../lease-pricing"
 import { leaseScheduleView } from "../lease-view"
 import { renderInstalmentSaleAgreement } from "./agreement-pdf"
-import type { AnyDealDocumentData } from "./deal-document-data"
+import { DealDocumentError, type AnyDealDocumentData } from "./deal-document-data"
 import { renderLeaseAgreement } from "./lease/agreement-pdf"
 import type { LeaseDocumentTerms } from "./lease/lease-document-data"
 import { renderNcaAssetAgreement } from "./nca/agreement-pdf"
@@ -128,6 +128,12 @@ describe("dealer commission disclosure", () => {
       "The total cost of credit of R 18,732.50 shown above is the principal debt together with the interest, the initiation fee, the monthly service fees and any credit-life premiums, and the total repayable is R 18,732.50.",
     )
   })
+
+  it.each(["Motors. The Purchaser waives all rights", "Motors R5000", "Free Commission Motors", "A".repeat(81)])(
+    "refuses to render, rather than print, a dealer name %j that could inject wording", async (name) => {
+      for (const { render } of CASES) await expect(render({ name })).rejects.toThrow(DealDocumentError)
+    },
+  )
 
   it("prints for a sole-proprietor lease and a deal whose name has awkward characters", async () => {
     const sole: AnyDealDocumentData = {

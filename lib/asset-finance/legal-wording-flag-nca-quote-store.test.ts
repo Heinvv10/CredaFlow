@@ -71,6 +71,15 @@ describe("issueAssetNcaQuote passes the tenant's legal-wording flag through", ()
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }))
   })
 
+  it("refuses, renders and writes nothing for a dealer name that could inject wording", async () => {
+    m.approved.mockResolvedValue(true)
+    const tx = txWith(null)
+    vi.mocked(tx.assetFinanceDeal.findFirst).mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } } as never)
+    expect(await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed in the agreement/) })
+    expect(m.render).not.toHaveBeenCalled()
+    expect(tx.loanApplication.update).not.toHaveBeenCalled()
+  })
+
   it("refuses a DRAFT quotation the lender's legally approved agreement could never follow; a demo agreement is no bar", async () => {
     m.approved.mockResolvedValue(false)
     const refused = await issueAssetNcaQuote(txWith("LENDER_LEGAL"), { tenantId: "t1", userId: "u1" }, "d1")

@@ -72,6 +72,13 @@ describe("prepareEntityNcaDocuments issues the agreement from the lender's templ
     }) }), expect.anything())
   })
 
+  it("refuses and renders nothing for a dealer name that could inject wording", async () => {
+    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } })
+    expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "invalid_start", error: expect.stringMatching(/cannot be printed in the agreement/) })
+    expect(m.render).not.toHaveBeenCalled()
+    expect(m.transaction).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
     ["a deal without a dealer hands it none", undefined, null],
