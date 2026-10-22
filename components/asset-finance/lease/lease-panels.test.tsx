@@ -123,7 +123,7 @@ describe("LeaseTerminationPanel", () => {
 describe("LeaseReadingsPanel", () => {
   const view = {
     loanId: "loan-1", today: "2030-06-15", readings: [{ id: "r-2", readingDate: "2030-06-01", value: 1500, source: "PORTAL" }, { id: "r-1", readingDate: "2030-01-01", value: 1000, source: "STAFF" }],
-    usage: { usedUnits: 500, projectedFinalReading: 2200, excessCents: 30_000, allowedUnits: 1000 },
+    usage: { usedUnits: 500, projectedFinalReading: 2200, projectedUsedUnits: 1200, excessCents: 30_000, allowedUnits: 1000 },
   } as LeaseStaffData
   const usage = { unit: "HOURS", allowancePerYear: 1200, excessRateCents: 4_500 } as const
 
@@ -131,6 +131,9 @@ describe("LeaseReadingsPanel", () => {
     const r = await render(<LeaseReadingsPanel data={view} usage={usage} canRecord />)
     expect(text(r)).toContain("500 hours")
     expect(text(r)).toContain(formatMoney(30_000))
+    // The projection is usage against the allowance; the meter reading it implies is the detail.
+    expect(text(r)).toMatch(/Projected usage at term end1.200 hours/)
+    expect(text(r)).toContain("projected meter reading 2")
     expect(text(r)).toContain("Lessee (portal)")
     expect(buttons(r)).toEqual(["Record reading"])
     expect(buttons(await render(<LeaseReadingsPanel data={view} usage={usage} canRecord={false} />))).toEqual([])

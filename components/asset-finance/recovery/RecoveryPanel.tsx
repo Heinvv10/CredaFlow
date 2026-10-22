@@ -16,6 +16,8 @@ import { WithdrawnHistory } from "./WithdrawnHistory"
 import { FiguresSummary } from "./FiguresSummary"
 import { RefundSection } from "./RefundSection"
 import { SalesSection } from "./SalesSection"
+import { LastKnownPosition } from "../telematics/LastKnownPosition"
+import { positionRefusalFor } from "@/lib/telematics/position-purpose"
 
 /**
  * The recovery of an asset-finance loan on the staff loan page: the route's
@@ -26,6 +28,10 @@ import { SalesSection } from "./SalesSection"
  * can record one (a non-NCA hand-over, or an NCA s127 surrender). An s131 or
  * court-order recovery comes from the legal matter's recovered step.
  * `canManage` / `canDecide` are manage_asset_finance / decide_asset_finance.
+ * `canViewPosition` (view_asset_position) adds the logged "Show last known
+ * position": for a live recovery (context RECOVERY), or before one exists for
+ * a loan in default (context DEFAULT). Where the reveal would be refused the
+ * panel shows the reason instead of the button (lib/telematics/position-purpose.ts).
  */
 
 const subheading = "mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--cf-text-muted)]"
@@ -39,13 +45,14 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDecide, canRecordPayment }: {
+export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDecide, canRecordPayment, canViewPosition = false }: {
   tenantId: string
   loanId: string
   userId: string
   canManage: boolean
   canDecide: boolean
   canRecordPayment: boolean
+  canViewPosition?: boolean
 }) {
   const data = await loadRecoveryPanelData(tenantId, loanId, { bankDetails: canManage })
   if (data.kind === "none") return null
@@ -53,10 +60,11 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
 
   if (data.kind === "record") {
     const form = canManage && data.canRecord
-    if (!form && data.withdrawn.length === 0) return null
+    if (!form && data.withdrawn.length === 0 && !canViewPosition) return null
     return (
       <DataPanel title="Recovery" description={form ? "The asset is back in the lender's hands: value it, notify, remarket and settle the account." : "Recovery of the asset"} density="loose">
         <div className="space-y-4">
+          {canViewPosition && <LastKnownPosition loanId={loanId} context="DEFAULT" refusal={await positionRefusalFor(tenantId, loanId, "DEFAULT")} />}
           <WithdrawnHistory withdrawn={data.withdrawn} />
           {form && (
             <RecordRecoveryForm loanId={loanId} lease={data.lease} today={today} surrenders={data.surrenders}
@@ -79,6 +87,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
       actions={<StatusPill tone={view.status === "WITHDRAWN" ? "neutral" : view.status === "SHORTFALL_OPEN" ? "danger" : view.status === "CLOSED" ? "success" : "warning"}>{STATUS_LABELS[view.status]}</StatusPill>}>
       <div className="space-y-6">
         <RecoveryStepper route={view.route} status={view.status} />
+        {canViewPosition && live && <LastKnownPosition loanId={loanId} context="RECOVERY" refusal={await positionRefusalFor(tenantId, loanId, "RECOVERY")} />}
         {view.status === "WITHDRAWN" && (
           <p className="rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-text)]">
             <span className="text-[var(--cf-text-muted)]">Withdrawn: </span>{view.withdrawnReason}

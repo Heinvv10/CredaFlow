@@ -70,6 +70,8 @@ enum MaintenanceClaimStatus {
 enum MeterReadingSource {
   STAFF
   PORTAL
+  // A tracker's meter, unattended (recordedById null) or a held reading a staff member accepted.
+  TELEMATICS
 }
 
 enum LeaseEndOutcome {
@@ -217,14 +219,19 @@ model AssetMeterReading {
   evidenceDocument   EntityDocument?    @relation(fields: [tenantId, evidenceDocumentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   recordedById       String?
   recordedByClientId String?
+  // The device event a TELEMATICS reading came from (guardTelematicsMeterReading).
+  telematicsEventId  String?            @unique
+  telematicsEvent    TelematicsEvent?   @relation(fields: [tenantId, telematicsEventId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt          DateTime           @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
-  claims     MaintenanceClaim[]
-  endOfTerm  LeaseEndOfTerm?
-  recoveries Recovery[]
+  claims                MaintenanceClaim[]
+  endOfTerm             LeaseEndOfTerm?
+  recoveries            Recovery[]
+  telematicsHeldReading TelematicsHeldReading?
 
   @@unique([tenantId, id])
+  @@unique([tenantId, telematicsEventId])
   @@index([tenantId, assetId, unit, readingDate])
 }
 
