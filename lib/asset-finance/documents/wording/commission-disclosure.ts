@@ -1,54 +1,36 @@
-// The dealer commission disclosure (slice 5 follow-ups part W, goal §2a 2):
-// one protected paragraph, printed only on a deal a dealer introduced
-// (AssetFinanceDeal.dealerId). It says that the lender may pay the dealer a
-// commission, from its own funds, and that it is no part of what the borrower
-// pays. It is a statement, never a figure: the commission is not a charge, so
-// no amount, rate or total on any document includes or mentions it.
-// Unnumbered and printed inside the document's price section, so clause
-// numbering, and the numbers lender additional terms take, are the same on a
-// dealer and a non-dealer deal. Not editable by the lender, and
+// The introducer's commission disclosure (slice 5 follow-ups part W, goal §2a 2):
+// one fixed, protected paragraph, printed only on a deal a dealer or broker
+// introduced (AssetFinanceDeal.dealerId). It says that the lender may pay the
+// introducer a commission, from its own funds, and that it is no part of what
+// the borrower pays. The introducer is named in a labelled row printed with
+// it ("Introducer", ./dealer-name.ts), never inside the wording, so the
+// fingerprinted text is the same for every dealer. A statement, never a figure:
+// no amount, rate or total on any document includes or mentions the commission.
+// On the contracts the row and paragraph end the price section, unnumbered, so
+// clause numbering, and the numbers lender additional terms take, are the same
+// on a dealer and a non-dealer deal; the NCA documents give it a section of its
+// own, outside the cost-of-credit disclosure. Not editable by the lender, and
 // templates/validate.ts refuses the word "commission" in lender text.
 // Wording notes: docs/asset-finance/SLICE5-FOLLOWUPS.md "Part W".
-
 import { DealDocumentError } from "../deal-document-data"
-import { dealerPrintRefusal } from "./dealer-name"
+import { dealerPrintRefusal, type DocumentDealer } from "./dealer-name"
 
-/** The dealer that introduced the deal: the name the clause prints. */
-export interface DocumentDealer {
-  name: string
-}
-
-/** The clause in each document's defined terms. */
-interface Terms {
-  lender: string
-  /** What the dealer introduced, e.g. "this Agreement". */
-  introduced: string
-  /** The sentence saying the commission is no part of what the borrower pays. */
-  notCharged: string
-}
-
-const NCA_NOT_CHARGED = "It is not charged to the Consumer: it is not part of the cash price, the principal debt, the interest, the fees, the instalments or any other amount the Consumer pays or owes, and it is not part of the total cost of credit shown above."
-
+/** The paragraph in each document's defined terms;. */
 const TERMS = {
-  INSTALMENT_SALE: {
-    lender: "The Seller", introduced: "this Agreement",
-    notCharged: "It is not part of the cash price, the payments in the Schedule or any other amount the Purchaser pays or owes under this Agreement, and it does not increase any of them.",
-  },
-  LEASE: {
-    lender: "The lessor", introduced: "this agreement",
-    notCharged: "It is not part of the rentals or any other amount the lessee pays or owes under this agreement, and it does not increase any of them.",
-  },
-  NCA_AGREEMENT: { lender: "The Credit Provider", introduced: "this agreement to the Credit Provider", notCharged: NCA_NOT_CHARGED },
-  NCA_QUOTATION: { lender: "The Credit Provider", introduced: "the proposed agreement to the Credit Provider", notCharged: NCA_NOT_CHARGED },
-} as const satisfies Record<string, Terms>
+  INSTALMENT_SALE: "Introducer's commission. The Seller may pay a commission to the introducer named above, which introduced the Purchaser to the Seller for this Agreement. The Seller pays any commission from its own funds. It is not part of the cash price, the payments in the Schedule or any other amount the Purchaser pays or owes under this Agreement.",
+  LEASE: "Introducer's commission. The lessor may pay a commission to the introducer named above, which introduced the lessee to the lessor for this agreement. The lessor pays any commission from its own funds. It is not part of the rentals or any other amount the lessee pays or owes under this agreement.",
+  NCA_AGREEMENT: "The Credit Provider may pay a commission to the introducer named above, which introduced the Consumer to the Credit Provider for this agreement. The Credit Provider pays any commission from its own funds. It is not a fee or charge to the Consumer: it is not part of the cash price, the principal debt, the interest, the fees, the instalments or any other amount the Consumer pays or owes, and it is not included in the total cost of credit shown above.",
+  NCA_QUOTATION: "The Credit Provider may pay a commission to the introducer named above, which introduced the Consumer to the Credit Provider for the proposed agreement. The Credit Provider pays any commission from its own funds. It is not a fee or charge to the Consumer: it is not part of the cash price, the principal debt, the interest, the fees, the instalments or any other amount the Consumer pays or owes, and it is not included in the total cost of credit shown above.",
+} as const
 
 export type CommissionDocument = keyof typeof TERMS
 
-/** The paragraph for `dealer` on `document`; the caller prints it only when the deal has a dealer. */
-export function commissionDisclosure(document: CommissionDocument, dealer: DocumentDealer): string {
-  // Refused, not printed, so the document is not issued: a name could add wording to the protected paragraph (./dealer-name.ts).
+/** The fixed paragraph for `document`; the caller prints it, with `introducerRow`, only when the deal has a dealer. */
+export const commissionDisclosure = (document: CommissionDocument): string => TERMS[document]
+
+/** The "Introducer" label/value row. Refuses (the document is not issued) a name that cannot be printed: see ./dealer-name.ts. */
+export function introducerRow(dealer: DocumentDealer): [string, string] {
   const refusal = dealerPrintRefusal(dealer.name)
   if (refusal) throw new DealDocumentError(refusal)
-  const t: Terms = TERMS[document]
-  return `Dealer commission. ${t.lender} may pay a commission to ${dealer.name}, the dealer that introduced ${t.introduced}. ${t.lender} pays any commission from its own funds. ${t.notCharged}`
+  return ["Introducer", `${dealer.name} (${dealer.kind === "BROKER" ? "broker" : "dealer"})`]
 }

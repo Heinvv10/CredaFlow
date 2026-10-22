@@ -1,6 +1,6 @@
 import type { ReferenceRateBasis } from "@prisma/client"
 import type { NcaAssetContractType } from "../../nca-caps"
-import type { DocumentDealer } from "../wording/commission-disclosure"
+import type { DocumentDealer } from "../wording/dealer-name"
 
 export interface NcaAssetScheduleRow {
   installmentNo: number

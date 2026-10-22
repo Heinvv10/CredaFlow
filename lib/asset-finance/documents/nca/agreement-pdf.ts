@@ -1,7 +1,6 @@
 import { formatDatePdf, formatZarPdf } from "@/lib/pdf/helpers"
 import { DealDocumentWriter } from "../pdf-layout"
-import { rateDescription } from "../document-parts"
-import { commissionDisclosure } from "../wording/commission-disclosure"
+import { introducerSection, rateDescription } from "../document-parts"
 import { ncaAgreementClauses } from "../wording/nca-agreement"
 import type { NcaAssetDocumentData } from "./types"
 import { additionalTerms, identityTokens, wordingWatermark, type AppliedWording } from "../templates/apply"
@@ -36,7 +35,7 @@ export async function renderNcaAssetAgreement(data: NcaAssetDocumentData, wordin
     ["Initiation fee", formatZarPdf(p.initiationFeeCents)], ["Monthly service fee", formatZarPdf(p.monthlyServiceFeeCents)],
     ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)],
   ])
-  if (data.dealer) w.paragraph(commissionDisclosure("NCA_AGREEMENT", data.dealer))
+  if (data.dealer) introducerSection(w, data.dealer, "NCA_AGREEMENT")
   w.section("TERMS AND CONDITIONS")
   const clauses = ncaAgreementClauses(data)
   clauses.forEach((c, i) => w.clause(String(i + 1), c.heading, c.text))

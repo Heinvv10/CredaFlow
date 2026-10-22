@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { asRecord, readEnum, readText, type Errors, type Fields } from "@/lib/asset-finance/input-fields"
 import { SA_VAT_NUMBER } from "@/lib/asset-finance/settings-input"
-import { dealerNameProblem } from "@/lib/asset-finance/documents/wording/dealer-name"
+import { dealerNameProblem, MAX_DEALER_NAME } from "@/lib/asset-finance/documents/wording/dealer-name"
 import type { StaffActor } from "./actor"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
@@ -40,14 +40,14 @@ export function parseDealerInput(body: unknown, partial: boolean): Parsed<Partia
   const record = typeof raw.vatNumber === "string" ? { ...raw, vatNumber: raw.vatNumber.replace(/\s/g, "") } : raw
   const out: Fields = {}
   const errors: Errors = {}
-  readText(record, "name", out, errors, { required: !partial, nullable: false, max: 160 })
+  readText(record, "name", out, errors, { required: !partial, nullable: false, max: MAX_DEALER_NAME })
   readEnum(record, "kind", out, errors, { required: !partial, values: DEALER_KINDS })
   readText(record, "registrationNumber", out, errors, { required: false, nullable: true, max: 32, upper: true })
   readText(record, "vatNumber", out, errors, { required: false, nullable: true, max: 10 })
   readText(record, "supplierId", out, errors, { required: false, nullable: true, max: 64 })
   readText(record, "contactEmail", out, errors, { required: !partial, nullable: false, max: 160 })
   readText(record, "contactPhone", out, errors, { required: false, nullable: true, max: 32 })
-  // The name is printed in the agreements' commission disclosure: a trading name only.
+  // The name is printed on the agreements beside the commission disclosure: printable text only.
   if (typeof out.name === "string") {
     const problem = dealerNameProblem(out.name)
     if (problem) errors.name = problem

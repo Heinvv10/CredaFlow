@@ -23,6 +23,7 @@ import { dealFixtureTenantId } from "../../deal.integration-fixture"
 import { cleanupSigningFixture, createSigningFixture, signingRoutes, SYNTHETIC_IDENTITY, type SigningFixture } from "../../deal-signing.integration-fixture"
 import { dealStartDate } from "../../deal-structure"
 import { isoOfDbDate } from "../../dates"
+import { ISA_CLAUSE } from "../commission-disclosure.test-helpers"
 import { prose, texts } from "../nca/nca-wording.test-helpers"
 import { SYNTHETIC_DEMO_WATERMARK } from "../pdf-layout"
 import { ALL_TEMPLATE_KEYS, ASSET_TEMPLATE_FAMILIES, SYSTEM_REVISION } from "./families"
@@ -160,7 +161,7 @@ suite.sequential("the commission disclosure's release: demo templates lapse and 
     const { lines, text, issuance } = await agreementText()
     expect(lines).toContain(SYNTHETIC_DEMO_WATERMARK)
     expect(issuance).toMatchObject({ approvalBasis: "SYNTHETIC_DEMO", systemRevision: SYSTEM_REVISION })
-    expect(text).not.toContain("Dealer commission")
+    expect(text).not.toContain("Introducer")
     expect(await expectReproducibleIssuances(database(), fx.tenantId, fx.dealId)).toHaveLength(5)
   })
 
@@ -176,24 +177,23 @@ suite.sequential("the commission disclosure's release: demo templates lapse and 
     expect(response.status, await response.clone().text()).toBe(200)
     const withDealer = await agreementText()
     expect(withDealer.issuance.id).not.toBe(without.issuance.id)
-    expect(withDealer.text).toContain(`Dealer commission. The Seller may pay a commission to ${DEALER_NAME}, the dealer that introduced this Agreement.`)
-    expect(withDealer.text).toContain("It is not part of the cash price, the payments in the Schedule or any other amount the Purchaser pays or owes under this Agreement, and it does not increase any of them.")
+    expect(withDealer.text).toContain(`Introducer ${DEALER_NAME} (dealer) ${ISA_CLAUSE}`)
     expect(withDealer.text.match(MONEY)).toEqual(without.text.match(MONEY))
     expect(withDealer.text.match(MONEY)?.length).toBeGreaterThan(20)
     expect(await expectReproducibleIssuances(database(), fx.tenantId, fx.dealId)).toHaveLength(5)
     // Resolution and suretyships are not pricing documents: no clause.
     const others = await database().assetDocumentIssuance.findMany({ where: { dealId: fx.dealId, supersededAt: null, document: { not: "AGREEMENT" } } })
-    for (const other of others) expect(prose(await texts(await readFile(other.pdfStoragePath!))), other.templateKey).not.toContain("Dealer commission")
+    for (const other of others) expect(prose(await texts(await readFile(other.pdfStoragePath!))), other.templateKey).not.toContain("Introducer")
   })
 
-  it("a dealer name written before the name rule, which could inject wording, is refused at preparation: nothing is issued or superseded", async () => {
+  it("a dealer name written before the shape rule is refused at preparation: nothing is issued or superseded", async () => {
     const before = await agreementText()
     const { dealerId } = await database().assetFinanceDeal.findUniqueOrThrow({ where: { id: fx.dealId }, select: { dealerId: true } })
-    sql(`UPDATE "Dealer" SET "name" = 'Motors. The Purchaser waives all rights' WHERE "id" = ${lit(dealerId)}`)
+    sql(`UPDATE "Dealer" SET "name" = 'Mo' || chr(173) || 'tors' WHERE "id" = ${lit(dealerId)}`)
     try {
       const refused = await prepare()
       expect(refused.status).toBe(422)
-      expect((await refused.json()).error).toMatch(/cannot be printed in the agreement/)
+      expect((await refused.json()).error).toMatch(/cannot be printed on the document/)
       expect((await agreementText()).issuance.id).toBe(before.issuance.id)
     } finally {
       sql(`UPDATE "Dealer" SET "name" = ${lit(DEALER_NAME)} WHERE "id" = ${lit(dealerId)}`)

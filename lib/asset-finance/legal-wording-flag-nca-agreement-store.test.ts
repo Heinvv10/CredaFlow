@@ -79,22 +79,22 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
   })
 
   it.each([
-    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
+    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }, { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }],
     ["a deal without a dealer hands it none", undefined, null],
   ])("%s", async (_, dealer, expected) => {
     m.approved.mockResolvedValue(true)
     m.findFirst.mockResolvedValue({ ...deal, dealer })
     m.select.mockResolvedValue(selected("LENDER_LEGAL"))
     expect((await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("done")
-    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true } } }) }))
+    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true, kind: true } } }) }))
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }), expect.anything())
   })
 
   it("refuses and renders nothing for a dealer name that could inject wording", async () => {
     m.approved.mockResolvedValue(true)
-    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } })
+    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Mo\u00ADtors", kind: "DEALER" } })
     m.select.mockResolvedValue(selected("LENDER_LEGAL"))
-    expect(await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed in the agreement/) })
+    expect(await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed on the document/) })
     expect(m.render).not.toHaveBeenCalled()
     expect(m.transaction).not.toHaveBeenCalled()
   })

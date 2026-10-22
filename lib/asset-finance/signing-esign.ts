@@ -108,7 +108,7 @@ export async function recordESignature(params: {
     // never the ones current now: a later publication does not change it.
     const pinned = await pinnedIssuance(prisma, tenantId, signer.issuanceId)
     if (!pinned) return { kind: "document_changed" }
-    const fresh = await renderDealDocument({ ...data, lender: pinned.lender }, signer.document, clientId, pinned.wording)
+    const fresh = await renderDealDocument({ ...data, lender: pinned.lender, dealer: pinned.dealer }, signer.document, clientId, pinned.wording)
     if (fresh.sha256 !== signer.documentSha256) return { kind: "document_changed" }
   }
 

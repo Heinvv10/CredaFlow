@@ -102,7 +102,7 @@ function ncaBase(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINAN
   }
 }
 
-const SAMPLE_DEALER = { name: "SAMPLE Dealer (synthetic)" }
+const SAMPLE_DEALER = { name: "SAMPLE Dealer (synthetic)", kind: "DEALER" as const }
 
 type Entity = DealDocumentData["entity"]
 const ENTITIES: Record<"COMPANY" | "TRUST" | "CC" | "PARTNERSHIP", Partial<Entity>> = {

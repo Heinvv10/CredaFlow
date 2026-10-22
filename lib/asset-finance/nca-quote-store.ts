@@ -10,7 +10,7 @@ import { termsFromDeal, DEAL_STRUCTURE_SELECT } from "./deal-terms"
 import { solveNcaDealStructure } from "./nca-structure"
 import { createAssetPasqEvidence, pasqJson } from "./nca-evidence"
 import { renderNcaAssetQuote } from "./documents/nca/quote-pdf"
-import { dealerPrintRefusal } from "./documents/wording/dealer-name"
+import { dealerPrintRefusal, documentDealer } from "./documents/wording/dealer-name"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { ncaTemplateKey } from "./documents/templates/issuance"
 import { documentBytesMatchSha256 } from "@/lib/documents/content-integrity"
@@ -41,7 +41,7 @@ export async function issueAssetNcaQuote(
       client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } },
       entity: { select: { legalName: true, registrationNumber: true, mastersReference: true, addressLine1: true, addressLine2: true, city: true, province: true, postalCode: true } },
       asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true } },
-      dealer: { select: { name: true } },
+      dealer: { select: { name: true, kind: true } },
     },
   })
   if (!deal) return { kind: "not_found" }
@@ -96,7 +96,7 @@ export async function issueAssetNcaQuote(
       addressLines: [deal.entity?.addressLine1, deal.entity?.addressLine2, deal.entity?.city, deal.entity?.province, deal.entity?.postalCode].filter((v): v is string => !!v),
     },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
-    dealer: deal.dealer ? { name: deal.dealer.name } : null,
+    dealer: documentDealer(deal.dealer),
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: terms.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,

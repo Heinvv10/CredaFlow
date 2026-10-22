@@ -60,22 +60,22 @@ describe("issueAssetNcaQuote passes the tenant's legal-wording flag through", ()
   })
 
   it.each([
-    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
+    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }, { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }],
     ["a deal without a dealer hands it none", undefined, null],
   ])("%s", async (_, dealer, expected) => {
     m.approved.mockResolvedValue(true)
     const tx = txWith(null)
     vi.mocked(tx.assetFinanceDeal.findFirst).mockResolvedValue({ ...deal, dealer } as never)
     expect((await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("issued")
-    expect(vi.mocked(tx.assetFinanceDeal.findFirst).mock.calls[0][0]?.select).toMatchObject({ dealer: { select: { name: true } } })
+    expect(vi.mocked(tx.assetFinanceDeal.findFirst).mock.calls[0][0]?.select).toMatchObject({ dealer: { select: { name: true, kind: true } } })
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }))
   })
 
   it("refuses, renders and writes nothing for a dealer name that could inject wording", async () => {
     m.approved.mockResolvedValue(true)
     const tx = txWith(null)
-    vi.mocked(tx.assetFinanceDeal.findFirst).mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } } as never)
-    expect(await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed in the agreement/) })
+    vi.mocked(tx.assetFinanceDeal.findFirst).mockResolvedValue({ ...deal, dealer: { name: "Mo\u00ADtors", kind: "DEALER" } } as never)
+    expect(await issueAssetNcaQuote(tx, { tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "not_ready", reason: expect.stringMatching(/cannot be printed on the document/) })
     expect(m.render).not.toHaveBeenCalled()
     expect(tx.loanApplication.update).not.toHaveBeenCalled()
   })

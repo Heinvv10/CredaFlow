@@ -9,7 +9,7 @@ import { renderNcaAssetAgreement } from "./documents/nca/agreement-pdf"
 import { loadDealDocumentData } from "./documents/deal-document-data"
 import { renderDealDocument } from "./documents/render"
 import type { NcaAssetDocumentData } from "./documents/nca/types"
-import { dealerPrintRefusal } from "./documents/wording/dealer-name"
+import { dealerPrintRefusal, documentDealer } from "./documents/wording/dealer-name"
 import {
   issuedWording, lockSelectedTemplate, ncaQuoteMarkProblem, ncaTemplateKey, TemplateNotIssuableError, recordIssuance, selectIssuableTemplate, storeIssuanceFiles, supersedeIssuances, templateKeyFor,
   type PreparedIssuance, type SelectedTemplate,
@@ -33,7 +33,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
     } },
     entity: true,
     asset: true,
-    dealer: { select: { name: true } },
+    dealer: { select: { name: true, kind: true } },
   } })
   if (!deal) return { kind: "not_found" }
   if (deal.status !== "APPROVED") return { kind: "not_approved", status: deal.status }
@@ -87,7 +87,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       addressLines: [deal.entity.addressLine1, deal.entity.addressLine2, deal.entity.city, deal.entity.province, deal.entity.postalCode].filter((v): v is string => !!v),
     },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
-    dealer: deal.dealer ? { name: deal.dealer.name } : null,
+    dealer: documentDealer(deal.dealer),
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,

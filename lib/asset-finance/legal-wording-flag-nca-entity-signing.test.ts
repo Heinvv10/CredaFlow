@@ -73,14 +73,14 @@ describe("prepareEntityNcaDocuments issues the agreement from the lender's templ
   })
 
   it("refuses and renders nothing for a dealer name that could inject wording", async () => {
-    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Motors. The Purchaser waives all rights" } })
-    expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "invalid_start", error: expect.stringMatching(/cannot be printed in the agreement/) })
+    m.findFirst.mockResolvedValue({ ...deal, dealer: { name: "Mo\u00ADtors", kind: "DEALER" } })
+    expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toMatchObject({ kind: "invalid_start", error: expect.stringMatching(/cannot be printed on the document/) })
     expect(m.render).not.toHaveBeenCalled()
     expect(m.transaction).not.toHaveBeenCalled()
   })
 
   it.each([
-    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
+    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }, { name: "SAMPLE Dealer (synthetic)", kind: "BROKER" }],
     ["a deal without a dealer hands it none", undefined, null],
   ])("%s", async (_, dealer, expected) => {
     m.findFirst.mockResolvedValue({ ...deal, dealer })
@@ -91,7 +91,7 @@ describe("prepareEntityNcaDocuments issues the agreement from the lender's templ
       content: { schema: 1, templateKey: "af.nca.instalment_sale", starterRevision: "x", clauses: {}, additionalTerms: [] },
     })
     expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toEqual({ kind: "prepared", signers: 1 })
-    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true } } }) }))
+    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true, kind: true } } }) }))
     expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }), expect.anything())
   })
 })

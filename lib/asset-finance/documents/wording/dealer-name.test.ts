@@ -1,44 +1,54 @@
 import { describe, expect, it } from "vitest"
-import { dealerNameProblem } from "./dealer-name"
+import { dealerNameProblem, dealerPrintRefusal, documentDealer, MAX_DEALER_NAME } from "./dealer-name"
 
-describe("dealerNameProblem: a name safe to print inside the protected commission paragraph", () => {
+describe("dealerNameProblem: the shape of a name printed in a labelled field", () => {
   it.each([
     "Highveld Yellow Iron (Pty) Ltd", "Karoo Asset Brokers CC", "O'Brien & Sons", "Smith, Jones and Partners", "4 Wheel Drive Centre",
-    "Sch\u00F6n Motors", "Jan-Pieter Trucks", "Payless Auto",
+    "Schön Motors", "Jan-Pieter Trucks", "May & Sons", "Price Brothers Plant Hire", "Not Just Tractors", "Zero Fee Motors",
+    "Karoo Plant Hire Pty. Ltd.", 'Smith "Quick" Motors', "A".repeat(MAX_DEALER_NAME),
   ])("accepts %j", (name) => {
     expect(dealerNameProblem(name)).toBeNull()
   })
 
   it.each([
-    ["a sentence break", "X. The Purchaser waives all rights"],
-    ["a full stop between plain words", "Motors. Pretoria"],
-    ["a full stop in an abbreviation", "Pty. Ltd"],
-    ["a plain colon", "Motors: Pretoria"],
-    ["a colon", "X: all amounts are payable"],
-    ["a semicolon", "X; the Seller owes"],
-    ["a quotation mark", 'X "the Seller"'],
-    ["a line break", "X\nThe Purchaser waives"],
-    ["a tab", "X\tMotors"],
-    ["a currency amount", "X Motors R5000"],
-    ["a currency amount spelled out", "X Motors 500 rand"],
-    ["a percentage", "X Motors 5%"],
-    ["a legal word: waives", "Waives All Rights Motors"],
-    ["a legal word: the Purchaser", "X, the Purchaser pays nothing"],
-    ["a legal word: commission", "Free Commission Motors"],
-    ["a legal word: fee", "Zero Fee Motors"],
-    ["a legal word: indemnifies", "X indemnifies the Seller"],
     ["an empty name", ""],
     ["only spaces", "   "],
     ["a leading space", " Motors"],
     ["a trailing space", "Motors "],
     ["a double space", "X  Motors"],
-    ["a leading hyphen", "-Motors"],
-    ["more than 80 characters", "A".repeat(81)],
-    ["a symbol", "X @ Motors"],
-    ["a character the document font cannot print", "X \u4E2D\u6587 Motors"],
+    ["more than the maximum", "A".repeat(MAX_DEALER_NAME + 1)],
+    ["a line break", "X\nThe Purchaser waives"],
+    ["a carriage return", "X\rMotors"],
+    ["a tab", "X\tMotors"],
     ["a control character", "X\u0007Motors"],
-    ["a markup character", "X <b>Motors"],
+    ["a C1 control character", "X\u0085Motors"],
+    ["a no-break space", "X Motors"],
+    ["a soft hyphen", "Mo­tors"],
+    ["a zero-width space", "Mo​tors"],
+    ["a zero-width joiner", "Mo‍tors"],
+    ["a word joiner", "Mo⁠tors"],
+    ["a byte-order mark", "Mo﻿tors"],
+    ["a right-to-left override", "Mo‮tors"],
+    ["a line separator", "X Motors"],
+    ["a character the document font cannot print", "X 中文 Motors"],
+    ["an emoji", "X 😀 Motors"],
   ])("refuses %s", (_, name) => {
     expect(dealerNameProblem(name)).toEqual(expect.any(String))
+  })
+})
+
+describe("dealerPrintRefusal and documentDealer", () => {
+  it("names the document, not an agreement, and quotes the name escaped", () => {
+    const refusal = dealerPrintRefusal("Mo­tors")
+    expect(refusal).toMatch(/cannot be printed on the document/)
+    expect(refusal).not.toMatch(/agreement/i)
+    expect(refusal).toContain("Mo\\u00adtors")
+    expect(dealerPrintRefusal("Highveld Yellow Iron (Pty) Ltd")).toBeNull()
+  })
+
+  it("maps a stored dealer to the document's dealer, or none", () => {
+    expect(documentDealer(null)).toBeNull()
+    expect(documentDealer(undefined)).toBeNull()
+    expect(documentDealer({ name: "Karoo", kind: "BROKER", contactEmail: "x@y.invalid" } as { name: string; kind: "BROKER" })).toEqual({ name: "Karoo", kind: "BROKER" })
   })
 })

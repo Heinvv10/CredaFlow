@@ -98,7 +98,7 @@ export async function contractDeal(actor: SigningActor, dealId: string, provider
       // Re-rendered with the version and identity it was issued with (a row
       // prepared before lender templates has none: its own signature stands).
       const pinned = await pinnedIssuance(tx, tenantId, agreement.issuanceId)
-      const fresh = await renderDealDocument(pinned ? { ...data, lender: pinned.lender } : data, "AGREEMENT", agreement.clientId, pinned?.wording)
+      const fresh = await renderDealDocument(pinned ? { ...data, lender: pinned.lender, dealer: pinned.dealer } : data, "AGREEMENT", agreement.clientId, pinned?.wording)
       if (rows.some((r) => r.document === "AGREEMENT" && r.documentSha256 !== fresh.sha256)) return { kind: "agreement_changed" }
       agreementSha256 = fresh.sha256
     }
