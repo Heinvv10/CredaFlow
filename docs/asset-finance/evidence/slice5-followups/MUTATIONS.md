@@ -238,6 +238,12 @@ the named tests red; after the restore the tree was clean. `D` =
 | X14 | same: hyphens refused | DN | 2 failed | "Pay-Less" accepted |
 | X15 | same: semicolons, colons and quotation marks refused | DN | 3 failed | all accepted: the name is data |
 | X16 | same: the refusal text says "non-Latin" | DN | 1 failed | Latin letters outside Windows-1252 are refused too |
+| Y1a | `D/templates/preview.ts`: the ISA broker shape removed | FP, CD | 6 failed | "(broker)" is fingerprinted (ISA) |
+| Y1b | same, the lease broker shape | FP, CD | 9 failed | same (leases) |
+| Y1c | same, the NCA broker shape | FP, CD | 5 failed | same (NCA agreement) |
+| Y1d | `D/wording/commission-disclosure.ts`: the broker label dropped from the row | FP, CD | 28 failed | the label follows `Dealer.kind`, and is pinned |
+| Y2 | `D/templates/issuance.ts`: a gone retained input is a raw ENOENT | PU | 1 failed | a missing retained input is a `DealDocumentError`, not a 500 |
+| Y3 | same: every read error is turned into "no longer retained" | PU | 1 failed | another read error is not hidden |
 
 The round-1 test-first record: the unit suites for the redesign were written
 before the code (they named an `Introducer` row, a fixed paragraph and a shape

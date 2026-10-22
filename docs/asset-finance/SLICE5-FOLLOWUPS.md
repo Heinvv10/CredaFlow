@@ -291,10 +291,13 @@ architecture, SA legal): the name is a field, not a part of the sentence.
     in its OVERRIDING list and now also refuses the soft hyphen and the
     zero-width characters (U+200B to U+200D, U+2060, U+FEFF), so "commis­sion"
     cannot slip past it.
-11. **Why a dealer shape, not a dealer in every shape.** Each existing shape
-    stays dealer-less so its PDF, and so its hash, does not change; one
-    `dealer` shape per variant carries the row and paragraph into the
-    fingerprint. `SYSTEM_REVISION` stays 2026-10-22.1 (not released yet).
+11. **Why a dealer and a broker shape, not an introducer in every shape.** Each
+    existing shape stays dealer-less so its PDF, and so its hash, does not
+    change; one `dealer` shape and one `broker` shape per variant carry the row
+    and paragraph into the fingerprint, so the "(dealer)" / "(broker)" label is
+    pinned too. The broker shape is the dealer shape with only the label
+    differing. `SYSTEM_REVISION` stays 2026-10-22.1: it was never baked or
+    released, so no stack holds an approval at it.
 12. **An unbroken name cannot run off the page.** `wrapText` (`pdf-layout.ts`)
     now cuts a word wider than the line where the line ends, which protects
     every label row (the edge tester found an 80-character unbroken name
@@ -362,7 +365,7 @@ contains it.
 | The dealer changes after issue (rename, deactivation, unprintable name, deal moved to another or no dealer): the signer sees the issued bytes | `templates/commission-lifecycle.edge-w.integration.test.ts` | IT | each |
 | The NCA stores refuse a bad name and hand the dealer (with its kind) to the renderer | `legal-wording-flag-nca-{quote-store,agreement-store,entity-signing}.test.ts` | unit | a deal with no dealer hands `null`; a bad name renders and writes nothing |
 | Lender text cannot carry a commission, or hide the word with an invisible character | `commission-disclosure-templates.test.ts` | unit | three phrasings in each editable variant; six invisible characters; an editable clause |
-| Preview shapes: only the `dealer` shape prints the row, and it differs from the first shape by exactly the disclosure; suretyships and the resolution have no dealer shape | same | unit | the disclosure in a dealer-less shape |
+| Preview shapes: only the `dealer` and `broker` shapes print the row (each with its own label), and each differs from the first shape by exactly the disclosure; suretyships and the resolution have neither | same | unit | the disclosure in a dealer-less shape; a missing broker shape |
 | The disclosure is fingerprinted; pins moved | `templates/fingerprint.test.ts` (`PINNED`, `BRANCHES`) | unit | a variant whose dealer shape is missing |
 | Demo re-approval after the revision bump: exactly the eight lapsed variants lapse, are approved again with the lender's wording unchanged, the three others keep theirs, a second run adds nothing, documents issue again; a dealer deal's agreement names the introducer, moves no figure, and its retained input reproduces the PDF; a pre-rule bad name is refused at preparation with nothing superseded | `templates/commission-reapproval.integration.test.ts` | IT | prepare before the re-approval refused (422) and writes nothing |
 | The introducer is pinned: rename (valid, then shape-invalid), then e-sign, resolution, wet-ink sureties and the contract step all succeed; an input retained with no dealer key reproduces and e-signs though the deal now has a dealer | `templates/commission-pinned-issuance.integration.test.ts` | IT | a rename making the live render differ |
@@ -391,10 +394,11 @@ not. Per-shape hashes before and after are committed
 1. **Every existing shape renders byte-identical.** All 7, 7, 9, 10, 9, 10, 9
    and 9 pre-existing shapes of the eight variants have the same PDF SHA-256
    before and after. The only reason a pin moved is the added shape.
-2. **The added shape is the first shape plus the disclosure, nothing else.**
-   `commission-disclosure-templates.test.ts` renders both and shows that
-   taking the heading, row and paragraph out of the dealer shape gives the
-   first shape's text exactly.
+2. **The added shapes are the first shape plus the disclosure, nothing else.**
+   `commission-disclosure-templates.test.ts` renders them and shows that
+   taking the heading, row and paragraph out of the `dealer` shape, and out of
+   the `broker` shape, gives the first shape's text exactly. The `broker` shape
+   differs from the `dealer` shape only in the label.
 3. **No other change:** the three variants that print nothing new keep their
    pins (`commission-reapproval.integration.test.ts` asserts this against the
    previous values).
@@ -446,3 +450,16 @@ in `DESIGN.md` as `fingerprint.test.ts` asks.
    is touched.
 6. **Commission amounts stay out.** No document, and no template token,
    exposes the commission snapshot.
+7. **The `wrapText` change** cuts a word wider than the line. A document issued
+   earlier that held such a word re-renders to different bytes: signing it
+   fails closed ("document changed") until staff prepare it again. No stack is
+   live with one; every pre-existing preview shape is byte-identical.
+8. **A deal prepared before this deploys** is signed without the clause (its
+   retained input has no dealer, so it reproduces as issued); prepare it again
+   if it must carry it.
+9. **Pinned signing needs the retained input file.** E-sign and the contract
+   step read the introducer from it; if the file has gone they answer with a
+   refusal ("no longer retained", 422), not a 500, and the documents must be
+   prepared again.
+10. **Dealer names of 81 to 160 characters** stored before the 80-character
+    limit are refused at document build until staff shorten them.

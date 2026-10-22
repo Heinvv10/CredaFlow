@@ -34,18 +34,18 @@ async function main() {
 main()
 ```
 
-Result (compared shape by shape):
+The `broker` shape is the `dealer` shape with only the label differing (a unit test). Result (compared shape by shape):
 
 | Variant | Fingerprint | Shapes before | Shapes byte-identical after | Shape added |
 |---|---|---|---|---|
-| `af.isa.commercial` | moved | 7 | 7 of 7 | `dealer` |
-| `af.isa.cpa` | moved | 7 | 7 of 7 | `dealer` |
-| `af.lease.operating.commercial` | moved | 9 | 9 of 9 | `dealer` |
-| `af.lease.operating.cpa` | moved | 10 | 10 of 10 | `dealer` |
-| `af.lease.fml.commercial` | moved | 9 | 9 of 9 | `dealer` |
-| `af.lease.fml.cpa` | moved | 10 | 10 of 10 | `dealer` |
-| `af.nca.instalment_sale` | moved | 9 | 9 of 9 | `dealer` |
-| `af.nca.finance_lease` | moved | 9 | 9 of 9 | `dealer` |
+| `af.isa.commercial` | moved | 7 | 7 of 7 | `dealer`, `broker` |
+| `af.isa.cpa` | moved | 7 | 7 of 7 | `dealer`, `broker` |
+| `af.lease.operating.commercial` | moved | 9 | 9 of 9 | `dealer`, `broker` |
+| `af.lease.operating.cpa` | moved | 10 | 10 of 10 | `dealer`, `broker` |
+| `af.lease.fml.commercial` | moved | 9 | 9 of 9 | `dealer`, `broker` |
+| `af.lease.fml.cpa` | moved | 10 | 10 of 10 | `dealer`, `broker` |
+| `af.nca.instalment_sale` | moved | 9 | 9 of 9 | `dealer`, `broker` |
+| `af.nca.finance_lease` | moved | 9 | 9 of 9 | `dealer`, `broker` |
 | `af.suretyship.commercial` | unchanged | 2 | 2 of 2 | none |
 | `af.suretyship.nca` | unchanged | 2 | 2 of 2 | none |
 | `af.resolution.standard` | unchanged | 5 | 5 of 5 | none |
