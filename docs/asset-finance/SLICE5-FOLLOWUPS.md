@@ -386,3 +386,10 @@ THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAcc
   night; a fleet reporting every minute would need more.
 - **A void approved by SQL directly** (by a permitted role) writes no audit
   row: only `meter-void.ts` audits. The database checks the roles.
+- **A void approval and an end-of-term invoice at the same instant** can
+  deadlock (the void locks the loan then the end-of-term row; the invoice
+  path takes them the other way round). Postgres aborts one of the two and the
+  user retries; nothing is half-written.
+- **The retention period in the notice** is the lender's setting when the
+  notice was logged. If the lender later lengthens it, older notices still
+  quote the shorter period.

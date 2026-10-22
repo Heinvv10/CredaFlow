@@ -127,9 +127,10 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
   }, 120_000)
 
   it("with no email set up: the notice is logged, the email decided BLOCKED, the letter stored, each once; nothing dispatched", async () => {
-    expect(await database().messageTemplate.count({ where: { tenantId: fx.tenantId } })).toBe(0)
+    expect(await database().messageTemplate.count({ where: { tenantId: fx.tenantId, key: "asset_finance_tracking_stopped_email" } })).toBe(0)
     expect(await process_()).toEqual({ closures: 3, failed: 0, held: 0 })
-    expect(await database().messageTemplate.findMany({ where: { tenantId: fx.tenantId }, select: { key: true } })).toEqual([{ key: "asset_finance_tracking_stopped_email" }])
+    // Seeded on the first closure (other sweeps, the reminders cron among them, seed their own templates for every lender too).
+    expect(await database().messageTemplate.count({ where: { tenantId: fx.tenantId, key: "asset_finance_tracking_stopped_email" } })).toBe(1)
     const closures = await database().trackerClosure.findMany({ where: { tenantId: fx.tenantId } })
     expect(closures).toHaveLength(3)
     for (const c of closures) {

@@ -252,6 +252,15 @@ for v in "${EXPORT_VARS[@]:-}"; do [[ -n "$v" ]] && export "$v=1"; done
 # The RLS query hook (lib/tenant-rls.ts) is off by default in the app; every
 # suite runs with it on, so the batch-transaction path is exercised everywhere.
 export TENANT_RLS="${TENANT_RLS:-on}"
+# One worker, whatever the environment says. vitest reads VITEST_MAX_WORKERS
+# (and VITEST_MAX_THREADS) from the environment and they override
+# --no-file-parallelism: a shell that exports VITEST_MAX_WORKERS=4 (velo-server's
+# do) runs four suites at once on the one database, and they deadlock on each
+# other's test DDL and see each other's rows. Measured 2026-10-22: three files
+# that sleep 2 s each started within 6 ms of each other with it set, one after
+# the other with it at 1. Tested by scripts/__tests__/run-integration-tests-serial.test.ts.
+export VITEST_MAX_WORKERS=1
+unset VITEST_MAX_THREADS
 
 echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
 for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done

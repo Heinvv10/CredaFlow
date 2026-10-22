@@ -1,4 +1,4 @@
-# Part T browser acceptance: results (2026-10-22, after review round 1)
+# Part T browser acceptance: results (2026-10-22, after review round 3; 10–12 and 14 re-shot on the final notice wording)
 
 All on a local dev server against a throwaway PostgreSQL 16 migrated to the
 branch head, synthetic data.
@@ -16,7 +16,7 @@ branch head, synthetic data.
 | 09 | Settled by payment (R1,567,493.32): loan COMPLETED, one closure; cron `{"closures":0,"held":1}`; staff task "Held: nothing is told to the borrower until the lender approves the asset-finance wording"; nothing sent | Pass |
 | 10 | After approval: cron run 1 `{"closures":1}`, run 2 `{"tenants":0}`; staff task shows portal notice, "Email sent", letter | Pass |
 | 11 | Letter: the reviewed wording, no DRAFT watermark | Pass |
-| — | Email: one Message (SENT) to the director, captured on the local SMTP server: "The agreement … between TEST Earthmoving (Pty) Ltd and TEST Asset Credit (Pty) Ltd ended on 22 October 2026 …", retention 90 days; nothing sent outside the machine | Pass |
+| — | Email: one Message (SENT) to the director, captured on the local SMTP server: "The agreement … between TEST Earthmoving (Pty) Ltd and TEST Asset Credit (Pty) Ltd ended on 22 October 2026 …", "We delete the location records collected while the agreement ran 90 days after each record is made …"; nothing sent outside the machine | Pass |
 | 12 | Portal (director): the notice on the business contract, same words | Pass |
 | 13 | Portal: the voided reading, struck through, with "Why: …" | Pass |
 | 14 | Device removed on the asset: "Device removed" | Pass |
