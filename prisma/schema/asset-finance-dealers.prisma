@@ -341,3 +341,17 @@ model DealerDealPurge {
   @@unique([tenantId, id])
   @@unique([tenantId, dealId])
 }
+
+// A purged document's stored file still to be deleted: written in the purge's
+// transaction, deleted once the file is gone (the next run drains any left
+// by a crash between the commit and the delete).
+model DealerPurgePendingFile {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  storagePath String
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}

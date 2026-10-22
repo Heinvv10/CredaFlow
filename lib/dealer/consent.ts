@@ -54,6 +54,8 @@ export function parseSigningMethod(input: { signingMethod?: unknown; remoteIdent
   if (!method) return "Say how the consent form was signed: in person or remotely"
   const check = typeof input.remoteIdentityCheck === "string" ? input.remoteIdentityCheck.trim() : ""
   if (method === "IN_PERSON") return check ? "An identity check is described only for a form signed remotely" : { signingMethod: method, remoteIdentityCheck: null }
+  // One line, as the database requires: a line break could forge another method line in the snapshot.
+  if (/[\u0000-\u001f\u007f]/.test(check)) return "Describe the identity check on one line"
   // Characters as the database counts them (code points), not UTF-16 units.
   const characters = [...check].length
   if (characters < REMOTE_IDENTITY_CHECK_MIN || characters > REMOTE_IDENTITY_CHECK_MAX) {

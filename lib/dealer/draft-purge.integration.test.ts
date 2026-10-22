@@ -72,6 +72,7 @@ suite.sequential("dealer draft purge (real DB)", () => {
 
     it("counts every kind of activity on the draft, its people, business and asset", async () => {
       const draft = await dealerDraft(fx, salesActor())
+      const statement = storedDocument(draft.dealId, "BANK_STATEMENT")
       // Edits go through Prisma, as the app's do (it sets updatedAt).
       const touches: Array<[string, () => Promise<unknown>]> = [
         ["person", () => db!.client.update({ where: { id: draft.directorId }, data: { phone: "+27820000001" } })],
@@ -81,6 +82,11 @@ suite.sequential("dealer draft purge (real DB)", () => {
           UPDATE "EntityRelationship" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "entityId" = ${lit(draft.entityId)}; COMMIT;`)],
         ["request", async () => sql(`INSERT INTO "DealerDocumentRequest" ("id", "tenantId", "dealId", "docType", "note", "requestedById")
           VALUES ('${newId("ddr")}', ${lit(fx.tenantId)}, ${lit(draft.dealId)}, 'BANK_STATEMENT', 'TEST latest statement', ${lit(fx.officer)})`)],
+        ["deal", async () => sql(`BEGIN; SET LOCAL session_replication_role = replica;
+          UPDATE "AssetFinanceDeal" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(draft.dealId)}; COMMIT;`)],
+        ["request fulfilled", async () => sql(`BEGIN; SET LOCAL session_replication_role = replica;
+          UPDATE "DealerDocumentRequest" SET "fulfilledDocumentId" = ${lit(statement.id)}, "fulfilledAt" = CURRENT_TIMESTAMP
+          WHERE "dealId" = ${lit(draft.dealId)}; COMMIT;`)],
       ]
       for (const [what, touch] of touches) {
         age(draft.dealId, 91)
@@ -91,7 +97,7 @@ suite.sequential("dealer draft purge (real DB)", () => {
       age(draft.dealId, 91)
       await attested(draft)
       expect(reasonOf(draft.dealId)).toBe("none")
-    })
+    }, 30_000)
 
     it("never names a deal handed to the lender, however old (its retention is the lender's, NCA Regulation 55)", async () => {
       const declined = await dealerDraft(fx, salesActor())
@@ -119,25 +125,6 @@ suite.sequential("dealer draft purge (real DB)", () => {
       age(draft.dealId, 2)
       expect(reasonOf(draft.dealId)).toBe("CANCELLED_DRAFT")
       expect(await inTenant(fx, () => purgeDealerDeal(fx.tenantId, draft.dealId))).toMatchObject({ clientsErased: 1, entitiesErased: 1 })
-    })
-
-    it("holds a draft while a person on it has an open DSAR or complaint", async () => {
-      const draft = await dealerDraft(fx, salesActor())
-      age(draft.dealId, 91)
-      const dsar = newId("dsar")
-      sql(`INSERT INTO "DataSubjectRequest" ("id", "tenantId", "clientId", "reference", "type", "status", "dueDate", "updatedAt")
-        VALUES (${lit(dsar)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(dsar)}, 'ACCESS', 'RECEIVED', CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)`)
-      expect(reasonOf(draft.dealId)).toBe("none")
-      sql(`UPDATE "DataSubjectRequest" SET "status" = 'COMPLETED' WHERE "id" = ${lit(dsar)}`)
-      age(draft.dealId, 1)
-      expect(reasonOf(draft.dealId)).toBe("ABANDONED_DRAFT")
-      const complaint = newId("cmp")
-      sql(`INSERT INTO "Complaint" ("id", "tenantId", "clientId", "reference", "category", "description", "status", "createdById", "updatedAt")
-        VALUES (${lit(complaint)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(complaint)}, 'OTHER', 'TEST complaint', 'OPEN', ${lit(fx.officer)}, CURRENT_TIMESTAMP)`)
-      expect(reasonOf(draft.dealId)).toBe("none")
-      sql(`UPDATE "Complaint" SET "status" = 'RESOLVED' WHERE "id" = ${lit(complaint)}`)
-      age(draft.dealId, 1)
-      expect(reasonOf(draft.dealId)).toBe("ABANDONED_DRAFT")
     })
 
     it("refuses a tombstone for a deal it does not name, and never changes or deletes one", async () => {

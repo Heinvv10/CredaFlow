@@ -126,6 +126,8 @@ suite.sequential("a dealer cancels its own draft (real DB)", () => {
       expectRejected(insert, "A deal is created uncancelled")
       const { dealId } = await salesDraft()
       expectRejected(cancelSql(dealId, fx.salesUserA).replace(lit(REASON), "'Too short'"), "AssetFinanceDeal_cancellation_shape")
+      // Exactly ten characters is enough, by the library and by SQL.
+      expect(await inTenant(fx, () => cancelDealerDraft(actorOf(fx, fx.salesUserA, fx.dealerA), dealId, "1234567890"))).toEqual({ kind: "cancelled" })
       expect(await inTenant(fx, () => cancelDealerDraft(actorOf(fx, fx.salesUserA, fx.dealerA), dealId, "😀😀😀😀😀")))
         .toMatchObject({ kind: "refused", status: 400 })
     })

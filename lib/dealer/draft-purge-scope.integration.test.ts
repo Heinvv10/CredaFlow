@@ -104,10 +104,13 @@ suite.sequential("dealer draft purge scope (real DB)", () => {
   it("does not let two abandoned drafts on one business keep each other", async () => {
     const draft = await dealerDraft(fx, salesActor())
     const other = await secondDraftOn(draft.entityId)
+    const otherDoc = storedDocument(fx, other, "BANK_STATEMENT")
     age(draft.dealId, 91)
     age(other, 91)
     expect(await purge(draft.dealId)).toMatchObject({ clientsErased: 1, entitiesErased: 1 })
-    expect(await purge(other)).toMatchObject({ clientsErased: 0, clientsKept: 0, entitiesErased: 0, entitiesKept: 0 })
+    // The second draft's parties are already gone, and its documents go with them.
+    expect(await purge(other)).toMatchObject({ clientsErased: 0, clientsKept: 0, entitiesErased: 0, entitiesKept: 0, documentsErased: 1, documentsKept: 0 })
+    expect(existsSync(otherDoc.file)).toBe(false)
   })
 
   it("keeps a business a person the lender added relates to, and that person", async () => {
@@ -125,10 +128,15 @@ suite.sequential("dealer draft purge scope (real DB)", () => {
     const draft = await dealerDraft(fx, salesActor())
     sql(`INSERT INTO "CrmActivity" ("id", "tenantId", "type", "clientId", "subject", "createdById")
       VALUES (${lit(newId("act"))}, ${lit(fx.tenantId)}, 'CALL', ${lit(draft.directorId)}, 'TEST call', ${lit(fx.officer)})`)
+    // A document about the kept person stays with them.
+    const personal = storedDocument(fx, draft.dealId, "OTHER")
+    sql(`BEGIN; SET LOCAL session_replication_role = replica;
+      UPDATE "EntityDocument" SET "entityId" = NULL, "clientId" = ${lit(draft.directorId)} WHERE "id" = ${lit(personal.id)}; COMMIT;`)
     age(draft.dealId, 91)
     const before = rowJson("Client", draft.directorId)
-    expect(await purge(draft.dealId)).toMatchObject({ clientsErased: 0, clientsKept: 1, entitiesErased: 1 })
+    expect(await purge(draft.dealId)).toMatchObject({ clientsErased: 0, clientsKept: 1, entitiesErased: 1, documentsErased: 0, documentsKept: 1 })
     expect(rowJson("Client", draft.directorId)).toBe(before)
+    expect(existsSync(personal.file)).toBe(true)
   })
 
   it("erases only documents whose party goes, and none a kept business cites; an earlier soft delete keeps its author", async () => {
@@ -142,9 +150,12 @@ suite.sequential("dealer draft purge scope (real DB)", () => {
     const loose = storedDocument(fx, draft.dealId, "BANK_STATEMENT")
     const cited = storedDocument(fx, draft.dealId, "AFS")
     sql(`UPDATE "BusinessEntity" SET "financialsEvidenceIds" = ARRAY[${lit(cited.id)}] WHERE "id" = ${lit(fx.evidenced)}`)
+    // One the erased business itself cites goes with it.
+    const ownEvidence = storedDocument(fx, draft.dealId, "MANAGEMENT_ACCOUNTS")
+    sql(`UPDATE "BusinessEntity" SET "financialsEvidenceIds" = ARRAY[${lit(ownEvidence.id)}] WHERE "id" = ${lit(draft.entityId)}`)
     age(draft.dealId, 91)
-    expect(await purge(draft.dealId)).toMatchObject({ entitiesErased: 1, documentsErased: 2, documentsKept: 1, filesNotDeleted: 0 })
-    expect(existsSync(consent.file) || existsSync(loose.file)).toBe(false)
+    expect(await purge(draft.dealId)).toMatchObject({ entitiesErased: 1, documentsErased: 3, documentsKept: 1, filesNotDeleted: 0 })
+    expect(existsSync(consent.file) || existsSync(loose.file) || existsSync(ownEvidence.file)).toBe(false)
     expect(existsSync(cited.file)).toBe(true)
     expect(sql(`SELECT "fileName", "deletedById" FROM "EntityDocument" WHERE "id" = ${lit(consent.id)}`)).toBe(`erased|${fx.officer}`)
     expect(sql(`SELECT count(*) FROM "EntityDocument" WHERE "id" = ${lit(loose.id)}`)).toBe("0")

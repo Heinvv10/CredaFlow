@@ -107,6 +107,7 @@ model Tenant {
   dataSubjectRequests        DataSubjectRequest[]
   dealerCommissionRates      DealerCommissionRate[]
   dealerDealPurges           DealerDealPurge[]
+  dealerPurgePendingFiles    DealerPurgePendingFile[]
   dealers                    Dealer[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]

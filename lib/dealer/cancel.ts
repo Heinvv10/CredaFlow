@@ -37,8 +37,9 @@ export async function cancelDealerDraft(actor: DealerActor, dealId: string, reas
 
 async function cancelInTransaction(actor: DealerActor, dealId: string, reason: string): Promise<{ kind: "cancelled" } | DealerRefusal> {
   return prisma.$transaction(async (tx) => {
-    const mine = await tx.assetFinanceDeal.findFirst({ where: dealerDealWhere(actor, dealId), select: { dealerUserId: true } })
+    const mine = await tx.assetFinanceDeal.findFirst({ where: dealerDealWhere(actor, dealId), select: { dealerUserId: true, dealerPurge: { select: { id: true } } } })
     if (!mine) return dealerMiss("Deal")
+    if (mine.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     if (actor.dealerRole !== "DEALER_ADMIN" && mine.dealerUserId !== actor.dealerUserId) return dealerMiss("Deal")
     await lockDeal(tx, actor.tenantId, dealId)
     const deal = await tx.assetFinanceDeal.findFirstOrThrow({
@@ -57,7 +58,8 @@ async function cancelInTransaction(actor: DealerActor, dealId: string, reason: s
     })
     const application = await tx.loanApplication.updateMany({
       where: { id: deal.applicationId, tenantId: actor.tenantId, status: "DRAFT" },
-      data: { status: "CANCELLED", decisionReason: `Deal cancelled by the dealer: ${reason}` },
+      // The reason stays in the audit row only: the application outlives a purge.
+      data: { status: "CANCELLED", decisionReason: "Deal cancelled by the dealer" },
     })
     await tx.financedAsset.updateMany({ where: { id: deal.assetId, tenantId: actor.tenantId, releasedAt: null }, data: { releasedAt: now } })
     const audit = dealerAuditFields(actor)

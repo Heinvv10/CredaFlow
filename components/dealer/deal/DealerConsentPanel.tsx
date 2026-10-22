@@ -103,6 +103,7 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
                 <input type="radio" name="signing-method" checked={method === "IN_PERSON"} onChange={() => setMethod("IN_PERSON")} />
                 In person, with me
               </label>
+              <p className="pl-6 text-xs text-[var(--cf-text-muted)]">Choose this only if you saw the person sign.</p>
               <label className="flex items-center gap-2 text-sm text-[var(--cf-text)]">
                 <input type="radio" name="signing-method" checked={method === "REMOTE"} onChange={() => setMethod("REMOTE")} />
                 Remotely (electronically, or a signed copy sent back)

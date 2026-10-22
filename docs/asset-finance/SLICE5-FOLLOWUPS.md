@@ -107,7 +107,7 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
   naming it; not linked elsewhere; then it overwrites every identifying
   column.
 - **`guardPurgedDealerDeal`**: a purged deal takes no new document,
-  attestation or request, and changes only by being cancelled.
+  attestation or request, and only staff cancel it.
 
 ### Library and routes
 
@@ -168,7 +168,7 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
   remote identity-check note, which the UI asks not to hold personal
   details), `ClientConsent` flags, every audit row (a business's capture
   audit holds its legal name and registration number; the cancel reason is in
-  the cancel audit), staff document-request notes, the dealer-captured asset,
+  the cancel audit only, never on the application), staff document-request notes, the dealer-captured asset,
   and documents of a party that is kept. The audit is kept for the lender's
   s14(1)(b) record; its retention policy records that.
 - **Free-text status notes on a person** (risk flag, blacklist, deceased,
@@ -180,6 +180,10 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 - **A file that cannot be deleted** after the commit is logged with its path
   and the run answers 503; the rows are already erased, so an operator deletes
   the file by hand.
+- **Other holds.** Only an open DSAR or complaint holds a purge; counsel says
+  whether an NCR investigation or a Tribunal matter should too, and whether a
+  structure preview a dealer gave the customer counts as a pre-agreement
+  quote (which would bring the draft under Regulation 55).
 - **Batch.** At most 500 deals per lender a run (oldest first); the rest wait
   for the next night.
 - **Performance.** The link check walks every foreign key to `Client` (about

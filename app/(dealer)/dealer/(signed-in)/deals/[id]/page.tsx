@@ -53,7 +53,7 @@ export default async function DealerDealPage({ params }: Params) {
       <div className="mb-4 text-sm"><Link href="/dealer" className="text-[var(--cf-brand-alt)] hover:underline">All deals</Link></div>
       {deal.purgedAt ? (
         <p role="status" className="mb-4 rounded-md border border-[var(--cf-border-subtle)] p-3 text-sm text-[var(--cf-text-secondary)]">
-          This draft was closed on {formatDate(deal.purgedAt)} and the details captured on it were erased. Start a new deal if the customer comes back.
+          This draft was closed on {formatDate(deal.purgedAt)}. The lender erased the details captured on it, except any it holds for another reason. Start a new deal if the customer comes back.
         </p>
       ) : null}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

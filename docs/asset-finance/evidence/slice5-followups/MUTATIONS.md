@@ -99,3 +99,22 @@ link, and M18 then failed it.
 `lib/dealer/purge-schema.test.ts` (static): deleting `NEW."creditScore" := NULL`
 and the `EmailConfig.clientId` text link from the migration turned both of its
 schema tests red; restored, green.
+
+### Review round 2 fixes
+
+Fresh database `cf-it-s5fd-a6`. All dealer suites: `Test Files 53 passed | 1
+skipped`, `Tests 458 passed | 1 skipped` (after the fix below).
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| M27 | `draft-purge.ts`: a party erased by an earlier purge not counted as gone | `draft-purge-scope` | 1 failed, 5 passed | does not let two abandoned drafts on one business keep each other (the second draft's document) |
+| M28 | `DROP TRIGGER "EntityRelationship_purged_party"` | `draft-purge-holds` | 1 failed, 3 passed | erases once, never on insert, and never uses an erased party again |
+| M29 | `guardPurgedDealerDeal` lets a dealer cancel a purged draft | `draft-purge-closed` | 1 failed, 3 passed | refuses by SQL … any change to the deal but its cancellation |
+| M30 | `DealerConsentAttestation_signing_method` without the one-line rule | `dealer-consent-v2` | 1 failed, 6 passed | refuses by SQL a row without a method, … |
+| M31 | `draft-purge.ts`: a pending-file failure not counted | `draft-purge-closed` | 1 failed, 3 passed | reports a file it cannot delete as a failure, … |
+| M32 | `dealerDealPeople` without the sole proprietor | `draft-purge-holds` | 1 failed, 3 passed | erases a sole proprietor with no other link, and holds one with an open DSAR |
+| M33 | DSAR hold without `OVERDUE` | `draft-purge-holds` | 1 failed, 3 passed | holds a draft for every open DSAR and complaint status, … |
+| M34 | `DROP TRIGGER` `AssetFinanceDeal_purged_party` and `LoanApplication_purged_party` | `draft-purge-holds` | 1 failed, 3 passed | erases once, never on insert, and never uses an erased party again |
+
+M21 (round 1) targeted the closed-deal guard's old cancel clause; M29 replaces it
+for the new clause (only the lender cancels a purged draft).

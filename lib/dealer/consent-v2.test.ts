@@ -4,6 +4,14 @@ import { DEALER_CONSENT_STATEMENT, DEALER_CONSENT_VERSION, dealerConsentSnapshot
 // dealer-consent-v2 (SLICE5-FOLLOWUPS.md part D): true for a form signed in
 // front of the dealer and for one signed remotely; the snapshot adds how.
 describe("dealer consent v2", () => {
+  it("is the wording the legal reviewer passed (a change needs that review again)", () => {
+    expect(DEALER_CONSENT_STATEMENT).toBe(
+      "I confirm that the uploaded consent form was signed by the person named, that their identity was checked in the way " +
+      "recorded below, and that the form has not been altered since it was signed or, if it was signed remotely, since the " +
+      "dealership received it. The consent lets the lender obtain their credit information from credit bureaus and process " +
+      "their personal information to assess this application.")
+  })
+
   it("is v2 and says nothing of where the person was: only the in-person line does", () => {
     expect(DEALER_CONSENT_VERSION).toBe("dealer-consent-v2")
     expect(DEALER_CONSENT_STATEMENT).not.toMatch(/presence|in front of/i)

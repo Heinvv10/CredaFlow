@@ -17,7 +17,8 @@ import { actorOf, dealerDraft, inTenant, pdfUpload, type DealerDraft } from "./d
 import { submitDealerDeal } from "./submit"
 import { attestDealerConsent } from "./consent"
 import { uploadDealerDocument } from "./documents"
-import { purgeDealerDeal, purgeDealerDrafts } from "./draft-purge"
+import { purgeDealerDeal, purgeDealerDrafts, purgeDealerDraftsOfTenant } from "./draft-purge"
+import { cancelDealerDraft } from "./cancel"
 import { age, storedDocument } from "./draft-purge.integration-fixture"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => null) }))
@@ -50,6 +51,7 @@ suite.sequential("a purged dealer draft is closed (real DB)", () => {
       documentId: "doc-any", clientIds: [purged.directorId], signingMethod: "IN_PERSON",
     }))).toEqual(CLOSED)
     expect(await inTenant(fx, () => uploadDealerDocument(sales, purged.dealId, pdfUpload("BANK_STATEMENT")))).toEqual(CLOSED)
+    expect(await inTenant(fx, () => cancelDealerDraft(sales, purged.dealId, "The buyer chose another machine"))).toEqual(CLOSED)
   })
 
   it("refuses by SQL a new document, attestation or request, and any change to the deal but its cancellation", () => {
@@ -65,8 +67,10 @@ suite.sequential("a purged dealer draft is closed (real DB)", () => {
         "statementVersion", "statementText", "signingMethod")
       VALUES ('${newId("dca")}', ${lit(fx.tenantId)}, ${lit(purged.dealId)}, ${lit(purged.directorId)}, 'doc-none', ${lit(fx.salesUserA)},
         'dealer-consent-v2', 'TEST', 'IN_PERSON')`, message)
-    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(purged.dealId)}`,
-      "A purged dealer deal is closed: it is only cancelled")
+    const onlyLender = "A purged dealer deal is closed: only the lender cancels it"
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(purged.dealId)}`, onlyLender)
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = CURRENT_TIMESTAMP, "cancelledByDealerUserId" = ${lit(sales.dealerUserId)},
+      "cancelReason" = 'A new free-text reason' WHERE "id" = ${lit(purged.dealId)}`, onlyLender)
     sql(`UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = CURRENT_TIMESTAMP, "cancelledById" = ${lit(fx.officer)},
       "cancelReason" = 'Closed after the dealer purge' WHERE "id" = ${lit(purged.dealId)}`)
     expect(sql(`SELECT "status" FROM "AssetFinanceDeal" WHERE "id" = ${lit(purged.dealId)}`)).toBe("CANCELLED")
@@ -86,5 +90,22 @@ suite.sequential("a purged dealer draft is closed (real DB)", () => {
     expect(sql(`SELECT count(*) FROM "DealerDealPurge" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("3")
     await purgeDealerDrafts()
     expect(sql(`SELECT count(*) FROM "DealerDealPurge" WHERE "tenantId" = ${lit(fx.tenantId)}`)).toBe("3")
+  })
+
+  it("reports a file it cannot delete as a failure, keeps its record for the next run, and still erases the rows", async () => {
+    const actor = actorOf(fx, insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA }), fx.dealerA)
+    const draft = await dealerDraft(fx, actor)
+    const doc = storedDocument(fx, draft.dealId, "BANK_STATEMENT")
+    // A path outside managed storage: deleteManagedFileStrict refuses it.
+    sql(`BEGIN; SET LOCAL session_replication_role = replica;
+      UPDATE "EntityDocument" SET "storagePath" = '/nonexistent/outside.pdf' WHERE "id" = ${lit(doc.id)}; COMMIT;`)
+    age(draft.dealId, 91)
+    expect(await inTenant(fx, () => purgeDealerDraftsOfTenant(fx.tenantId))).toEqual({ deals: 1, failed: 1 })
+    expect(sql(`SELECT "firstName" FROM "Client" WHERE "id" = ${lit(draft.directorId)}`)).toBe("Erased")
+    expect(sql(`SELECT count(*) FROM "DealerPurgePendingFile" WHERE "tenantId" = ${lit(fx.tenantId)} AND "storagePath" = '/nonexistent/outside.pdf'`)).toBe("1")
+    // The next run tries it again and still reports it.
+    expect(await inTenant(fx, () => purgeDealerDraftsOfTenant(fx.tenantId))).toEqual({ deals: 0, failed: 1 })
+    expect((await purgeDealerDrafts()).ok).toBe(false)
+    sql(`DELETE FROM "DealerPurgePendingFile" WHERE "tenantId" = ${lit(fx.tenantId)}`)
   })
 })

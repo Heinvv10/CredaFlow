@@ -50,6 +50,25 @@ ALTER TABLE "DealerDealPurge" ADD CONSTRAINT "DealerDealPurge_tenantId_dealId_fk
 ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_cancelledByDealerUserId_fkey" FOREIGN KEY ("tenantId", "cancelledByDealerUserId") REFERENCES "DealerUser"("tenantId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 
+-- CreateTable
+CREATE TABLE "DealerPurgePendingFile" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "storagePath" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "DealerPurgePendingFile_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "DealerPurgePendingFile_tenantId_createdAt_idx" ON "DealerPurgePendingFile"("tenantId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DealerPurgePendingFile_tenantId_id_key" ON "DealerPurgePendingFile"("tenantId", "id");
+
+-- AddForeignKey
+ALTER TABLE "DealerPurgePendingFile" ADD CONSTRAINT "DealerPurgePendingFile_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
 -- ---------------------------------------------------------------------------
 -- Hand-written (docs/asset-finance/SLICE5-FOLLOWUPS.md part D). Errors
 -- RAISE ... USING ERRCODE = '23514'.
@@ -58,6 +77,9 @@ ALTER TABLE "AssetFinanceDeal" ADD CONSTRAINT "AssetFinanceDeal_tenantId_cancell
 ALTER TABLE "DealerDealPurge" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "DealerDealPurge" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "tenant_isolation" ON "DealerDealPurge" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
+ALTER TABLE "DealerPurgePendingFile" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "DealerPurgePendingFile" FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "DealerPurgePendingFile" USING (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant()) WITH CHECK (public.cf_rls_unrestricted() OR "tenantId" = public.cf_rls_tenant());
 
 -- 1. Consent v2. A dealer-consent-v1 row (attested before this migration)
 -- carries no signing method; every later version says how the form was
@@ -67,7 +89,9 @@ ALTER TABLE "DealerConsentAttestation" ADD CONSTRAINT "DealerConsentAttestation_
   OR ("statementVersion" = 'dealer-consent-v2' AND "signingMethod" IS NOT NULL AND (
     ("signingMethod" = 'IN_PERSON' AND "remoteIdentityCheck" IS NULL)
     OR ("signingMethod" = 'REMOTE' AND "remoteIdentityCheck" IS NOT NULL
-      AND char_length(regexp_replace("remoteIdentityCheck", '^\s+|\s+$', '', 'g')) BETWEEN 10 AND 500)))
+      AND char_length(regexp_replace("remoteIdentityCheck", '^\s+|\s+$', '', 'g')) BETWEEN 10 AND 500
+      -- One line: a line break could forge another method line in the snapshot.
+      AND "remoteIdentityCheck" !~ '[[:cntrl:]]')))
 );
 
 -- The v1 statement asserted signature "in my presence"; no new attestation
@@ -240,7 +264,7 @@ END;
 $function$;
 
 -- The columns that name a person or business by id with no foreign key (the
--- catalog walk cannot see them). lib/dealer/purge-links.test.ts holds this
+-- catalog walk cannot see them). lib/dealer/purge-schema.test.ts holds this
 -- list against the schema: a new such column fails it until it is added here
 -- or to that test's list of ids that are not links (the audit log, webhooks).
 CREATE OR REPLACE FUNCTION "dealerPurgeTextLinks"(p_table TEXT)
@@ -477,7 +501,8 @@ CREATE TRIGGER "BusinessEntity_a_dealer_purge" BEFORE INSERT OR UPDATE OF "deale
 
 -- A purged dealer deal is closed: its people, business and documents are
 -- erased, so nothing new is added to it (no document, attestation or
--- request) and the deal row changes only by being cancelled.
+-- request) and the deal row changes only by staff cancelling it (a dealer's
+-- cancel reason would be new free text no purge reaches).
 CREATE OR REPLACE FUNCTION "guardPurgedDealerDeal"()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -485,8 +510,8 @@ AS $function$
 BEGIN
   IF TG_TABLE_NAME = 'AssetFinanceDeal' THEN
     IF EXISTS (SELECT 1 FROM "DealerDealPurge" x WHERE x."tenantId" = OLD."tenantId" AND x."dealId" = OLD."id")
-      AND NOT (OLD."status" = 'DRAFT' AND NEW."status" = 'CANCELLED') THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purged dealer deal is closed: it is only cancelled';
+      AND NOT (OLD."status" = 'DRAFT' AND NEW."status" = 'CANCELLED' AND NEW."cancelledById" IS NOT NULL) THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purged dealer deal is closed: only the lender cancels it';
     END IF;
     RETURN NEW;
   END IF;
@@ -505,3 +530,27 @@ CREATE TRIGGER "DealerConsentAttestation_a_purged_deal_closed" BEFORE INSERT ON 
   FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
 CREATE TRIGGER "DealerDocumentRequest_a_purged_deal_closed" BEFORE INSERT ON "DealerDocumentRequest"
   FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
+
+-- A person or business the purge erased is gone: no deal, application or
+-- relationship names it again (the dealer's lookups skip it first).
+CREATE OR REPLACE FUNCTION "guardDealerPurgedPartyUse"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF (NEW."clientId" IS NOT NULL AND EXISTS (
+        SELECT 1 FROM "Client" c WHERE c."id" = NEW."clientId" AND c."tenantId" = NEW."tenantId" AND c."dealerPurgedAt" IS NOT NULL))
+    OR (NEW."entityId" IS NOT NULL AND EXISTS (
+        SELECT 1 FROM "BusinessEntity" e WHERE e."id" = NEW."entityId" AND e."tenantId" = NEW."tenantId" AND e."dealerPurgedAt" IS NOT NULL)) THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An erased person or business is not used again';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "AssetFinanceDeal_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId" ON "AssetFinanceDeal"
+  FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
+CREATE TRIGGER "LoanApplication_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId" ON "LoanApplication"
+  FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
+CREATE TRIGGER "EntityRelationship_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId", "active" ON "EntityRelationship"
+  FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
