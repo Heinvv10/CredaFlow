@@ -7,7 +7,7 @@ import { CostLedger } from "./CostLedger"
 import { RecordRecoveryForm } from "./RecordRecoveryForm"
 import { COST_ENTRY } from "./recovery-cost-adapter"
 import { canWithdraw, costsOpen, hasNextStep, ROUTE_LABELS, STATUS_LABELS, VALUATION_SOURCE_LABELS } from "./recovery-model"
-import { loadCostFormData, loadRecoveryPanelData, loadSaleValuations } from "./recovery-panel-data"
+import { loadCostFormData, loadGuideReference, loadRecoveryPanelData, loadSaleValuations } from "./recovery-panel-data"
 import { RecoveryDocuments } from "./RecoveryDocuments"
 import { RecoveryNextStep } from "./RecoveryNextStep"
 import { RecoveryStepper } from "./RecoveryStepper"
@@ -81,6 +81,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
   const costForm = addCost ? await loadCostFormData(tenantId, loanId) : null
   const proposing = canManage && view.status === "LISTED" && !view.sales.some((s) => s.status === "PENDING_APPROVAL")
   const valuations = proposing ? await loadSaleValuations(tenantId, view.assetId) : null
+  const guideReference = await loadGuideReference(tenantId, view.assetId)
 
   return (
     <DataPanel title="Recovery" description={ROUTE_LABELS[view.route]} density="loose"
@@ -103,6 +104,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
               ? `${formatMoney(view.valuation.amountCents)} · ${VALUATION_SOURCE_LABELS[view.valuation.source]}, ${formatIsoDate(view.valuation.valuedOn)}`
               : "Not valued"}
           </Item>
+          {guideReference && <Item label="Guide reference (not an independent valuation)">{guideReference}</Item>}
           {view.freeze.from && view.freeze.until && (
             <Item label="Charges frozen">{formatIsoDate(view.freeze.from)} to {formatIsoDate(view.freeze.until)}</Item>
           )}

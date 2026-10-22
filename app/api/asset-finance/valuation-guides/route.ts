@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+import { AuditAction } from "@/lib/audit"
+import { auditRefusal } from "@/lib/audit-refusals"
+import { canDo, requireApiRole } from "@/lib/auth-guards"
+import { withTenantContext } from "@/lib/tenant"
+import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
+import { MAX_GUIDE_BYTES } from "@/lib/valuation-guides/csv"
+import { parseGuideUploadFields } from "@/lib/valuation-guides/guide-input"
+import { formOf, readCappedBody, UPLOAD_TOO_LARGE } from "@/lib/valuation-guides/upload-body"
+import { createDraftGuide } from "@/lib/valuation-guides/guide-store"
+import { guideView } from "@/lib/valuation-guides/guide-view"
+import { getValuationProvider } from "@/lib/valuation-guides/registry"
+import { ValuationProviderError } from "@/lib/valuation-guides/types"
+
+/** The lender's valuation guides, newest upload first (every status). */
+export async function GET(req: NextRequest) {
+  const guard = await requireApiRole("READONLY")
+  if (guard.error) return guard.error
+
+  return withTenantContext(req, async (tenant) => {
+    const disabled = await requireAssetFinanceEnabled(tenant.id)
+    if (disabled) return disabled
+    const rows = await prisma.valuationGuide.findMany({ where: { tenantId: tenant.id }, orderBy: [{ uploadedAt: "desc" }, { id: "asc" }], take: 200 })
+    return NextResponse.json({ guides: rows.map(guideView) })
+  })
+}
+
+/**
+ * Loads a valuation guide as a DRAFT (docs/asset-finance/SLICE5.md part C).
+ * Multipart: `name`, `effectiveOn` (YYYY-MM-DD), `provider` (default `csv`)
+ * and, for csv, `file` (at most 5 MB; the body is counted as it arrives and
+ * refused once over, never buffered whole: 422 `{ error }`, audited). A malformed file is 422 with a reason
+ * per line and nothing stored (audited, counts only); the same file while a
+ * draft or a published guide carries it is 409. Needs manage_valuation_guides;
+ * a second person publishes it (./[id]/publish).
+ */
+export async function POST(req: NextRequest) {
+  const guard = await requireApiRole("READONLY")
+  if (guard.error) return guard.error
+
+  return withTenantContext(req, async (tenant) => {
+    const disabled = await requireAssetFinanceEnabled(tenant.id)
+    if (disabled) return disabled
+    if (!canDo(guard.user.role, "manage_valuation_guides")) {
+      return NextResponse.json({ error: "Loading a valuation guide needs the manage_valuation_guides permission" }, { status: 403 })
+    }
+    // The whole upload is refused (no line of it is read), audited like a malformed file.
+    const tooLarge = async () => {
+      await auditRefusal({
+        action: AuditAction.VALUATION_GUIDE_UPLOAD_REFUSED, entity: "ValuationGuide", entityId: "-", tenantId: tenant.id,
+        userId: guard.user.id, userEmail: guard.user.email, reason: "upload_too_large", status: 422,
+      })
+      return NextResponse.json({ error: UPLOAD_TOO_LARGE }, { status: 422 })
+    }
+    const body = await readCappedBody(req)
+    if (!body) return tooLarge()
+    const form = await formOf(req, body)
+    if (!form) return NextResponse.json({ error: "Send the guide as multipart form data" }, { status: 400 })
+    const fields = parseGuideUploadFields(form)
+    if ("errors" in fields) return NextResponse.json({ error: "Invalid guide", fields: fields.errors }, { status: 400 })
+    const provider = getValuationProvider(fields.data.provider)
+    if (!provider) return NextResponse.json({ error: "Invalid guide", fields: { provider: "is not a valuation provider" } }, { status: 400 })
+    const file = form.get("file")
+    if (file instanceof File && file.size > MAX_GUIDE_BYTES) return tooLarge()
+    const bytes = file instanceof File && file.size > 0 ? new Uint8Array(await file.arrayBuffer()) : undefined
+
+    try {
+      const result = await createDraftGuide({ tenantId: tenant.id, userId: guard.user.id, userEmail: guard.user.email }, { ...fields.data, provider, bytes })
+      switch (result.kind) {
+        case "refused":
+          return NextResponse.json({ error: "The guide was refused", problems: result.problems, total: result.total }, { status: 422 })
+        case "duplicate_file":
+          return NextResponse.json({ error: "This file is already loaded as a draft or published guide", guideId: result.existingId }, { status: 409 })
+        case "created":
+          return NextResponse.json(guideView(result.guide), { status: 201 })
+      }
+    } catch (error) {
+      if (error instanceof ValuationProviderError) return NextResponse.json({ error: error.message }, { status: 422 })
+      throw error
+    }
+  })
+}

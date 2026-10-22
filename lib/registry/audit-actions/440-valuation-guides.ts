@@ -1,0 +1,12 @@
+import { defineAuditActions } from "../define"
+
+export default defineAuditActions({
+  // Valuation guides (lib/valuation-guides/guide-store.ts, lookup.ts). A
+  // refused upload is audited with its counts, never its cell values.
+  VALUATION_GUIDE_UPLOADED: "VALUATION_GUIDE_UPLOADED",
+  VALUATION_GUIDE_UPLOAD_REFUSED: "VALUATION_GUIDE_UPLOAD_REFUSED",
+  VALUATION_GUIDE_PUBLISHED: "VALUATION_GUIDE_PUBLISHED",
+  VALUATION_GUIDE_PUBLISH_REFUSED: "VALUATION_GUIDE_PUBLISH_REFUSED",
+  VALUATION_GUIDE_DISCARDED: "VALUATION_GUIDE_DISCARDED",
+  ASSET_GUIDE_VALUATION_RECORDED: "ASSET_GUIDE_VALUATION_RECORDED",
+})

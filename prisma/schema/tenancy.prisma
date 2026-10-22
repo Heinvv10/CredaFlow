@@ -185,6 +185,7 @@ model Tenant {
   tcfOutcomes                TcfOutcome[]
   trackerDevices             TrackerDevice[]
   users                      User[]
+  valuationGuides            ValuationGuide[]
   vatConfig                  VatConfig?
   webhookDeliveries          WebhookDelivery[]
   webhookEndpoints           WebhookEndpoint[]

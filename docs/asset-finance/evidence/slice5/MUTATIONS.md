@@ -735,3 +735,194 @@ The retention floor's late-event drop is accepted and pinned
 | Y3 | an unmapped failure's driver SQLSTATE is not read (an ORM deadlock strikes) | `lib/telematics/poll.ts` | poll unit, breaker-r4 IT: 2 failed, 22 passed | "a real deadlock in an ORM statement is a passing fault: polls running never skip the TAMPER, and it is raised once the fault passes" | `AssertionError: expected [ [ 1, +0 ], [ 1, +0 ], …(3) ] to deeply equal [ [ 1, +0 ], [ 1, +0 ], …(3) ]` |
 | Y4 | an initialisation error without a listed code strikes | `lib/telematics/poll.ts` | poll unit: 1 failed, 21 passed | "retries a client that cannot connect for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
 | Y5 | P1002 and P2028 strike | `lib/telematics/poll.ts` | poll unit: 2 failed, 20 passed | "retries a timed-out connection for as long as it lasts: no strike, the cursor kept" | `AssertionError: expected { ok: true, tenants: 1, …(8) } to match object { failed: 1, rejected: +0 }` |
+
+## Part C
+
+Database: a throwaway PostgreSQL 16 from `scripts/it-db.sh up cf-it-s5c-<random>`,
+`npx prisma migrate deploy`. Suites: `lib/valuation-guides/*.integration.test.ts`, run with
+`RUN_ASSET_FINANCE_VALUATION_IT=1 npx vitest run --no-file-parallelism lib/valuation-guides/`.
+
+### Before (suites written first)
+
+The schema was generated, but none of the three part C migrations had been
+applied (the database stopped at main's `20261020120000`):
+
+```
+ Test Files  9 failed (9)
+      Tests  4 failed | 1 passed | 25 skipped (30)
+The table `public.ValuationGuide` does not exist in the current database.   (x3, each IT's beforeAll)
+Error: Cannot find package '@/app/api/asset-finance/valuation-guides/route'     (routes IT)
+Error: Cannot find module './csv' | './ltv' | './revaluation' | '../registry'  (unit suites)
+Error: trigger ValuationGuide_no_truncate: expected 1 statement in the migrations, found 0  (static test)
+```
+
+### After
+
+With the migrations applied, `lib/valuation-guides/` gave `Tests 64 passed | 1
+skipped (65)`; the skipped test is the browser seed, which needs its own
+switch. Every asset-finance IT on the same database, run with
+`TENANT_RLS=on` and every `RUN_ASSET_FINANCE_*_IT` switch, passed:
+`Test Files 312 passed | 9 skipped (321)`, `Tests 2779 passed | 41 skipped`. That
+run includes the existing recovery-sale and lease end-of-term suites, which now
+read the replaced `guardRemarketingSale`.
+
+Each database suite also proves its rules from inside: `refuses(rule, …)`
+first shows the attack is refused, then takes out that one clause, CHECK,
+index or trigger in a rolled-back transaction and shows the attack goes
+through (`lib/asset-finance/recovery-rules.integration-fixture.ts`).
+
+### Mutations (database: applied to the migrated database, then restored)
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| M1 | `DROP CONSTRAINT "ValuationGuide_four_eyes"` | guide-rules IT | 1 failed, 9 passed | "is published by someone other than its uploader (four-eyes)" |
+| M2 | `DROP INDEX "ValuationGuide_one_current_per_name"` | guide-rules IT | 1 failed, 9 passed | "keeps one current guide per name, …" |
+| M3 | `guardRemarketingSale` back to its `20261015400000` body (`<> 'INTERNAL'`) | not-independent IT | 3 failed, 4 passed | "refuses a sale that relies on a GUIDE valuation"; "never measures a sale against a GUIDE valuation above the independent ones"; "never makes a sale self-valued by its proposer's GUIDE valuation at the highest amount" |
+| M4 | `DROP TRIGGER "AssetValuation_guide_guard"` | guide-valuation IT + routes IT | 8 failed, 10 passed | each GUIDE-valuation rule (snapshot, published guide in force, dated today, make/model/year, trade value, own guide's row, other lender's guide), and the routes IT's record (no snapshot: the CHECK refuses) |
+| M5 | `DROP TRIGGER "ValuationGuideRow_guard"` | guide-rules IT | 1 failed, 9 passed | "writes rows only into a DRAFT and never changes or deletes them" |
+| M6 | `DROP TRIGGER "ValuationGuide_successor_published"` | guide-rules IT | 1 failed, 9 passed | "keeps one current guide per name, superseded only by a newer one put live in the same transaction" |
+| M7 | `guardValuationGuide` with `IF allowed IS NULL THEN` → `IF FALSE THEN` | guide-rules IT | 2 failed, 8 passed | "never changes once published: …"; "moves only DRAFT → PUBLISHED or DISCARDED and PUBLISHED → SUPERSEDED" |
+| M8 | `DROP CONSTRAINT "AssetValuation_guide_shape"` | guide-valuation IT | 1 failed, 8 passed | "is a GUIDE row exactly when it names a guide, a row and a snapshot" |
+
+After the restores, `lib/valuation-guides/` gave 64 passed and 1 skipped again.
+
+### Mutations (source: the file edited, the suite run, the file restored; `git diff` clean after each)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| T1 | `valuationFacts` refuses only `INTERNAL` | not-independent IT | 1 failed, 6 passed | "and the server's own checks agree: valuationFacts refuses it, the sale form never offers it" |
+| T2 | `loadSaleValuations` back to `source: { not: "INTERNAL" }` | not-independent IT | 1 failed, 6 passed | same test (the GUIDE valuation was offered) |
+| T3 | `valuationFacts`'s highest counts GUIDE | not-independent IT | 1 failed, 6 passed | same test (`highestCents` 130 000 000, not 100 000 000) |
+| T4 | `publishGuide` without the self-publish check | routes IT | 4 failed, 5 passed | "refuses the uploader's own publish (audited), …": the CHECK refused it as a 500, unaudited. The later tests depend on that publish. |
+| T5 | `guideCandidates` without `g."status" = 'PUBLISHED'` | routes IT | 1 failed, 8 passed | "offers the current guide's rows …": the superseded guide's rows were offered too |
+| T6 | upload refusal not audited | routes IT | 1 failed, 8 passed | "refuses a malformed file with a reason per line, stores nothing, and audits the refusal …" |
+| T7 | CSV duplicate check off | `csv.test.ts` | 2 failed, 9 passed | "refuses a duplicate key, …"; "reads the browser-acceptance files …" |
+| T8 | `VALUATION_SOURCES` gains `GUIDE` | `asset-input.test.ts` | 1 failed, 58 passed | "rejects {"source":"GUIDE"} on source" |
+| T9 | revaluation LTV for leases | `revaluation.test.ts` | 1 failed, 4 passed | "shows no LTV for a lease: …" |
+| T10 | synthetic provider's read without the simulation guard | `providers.test.ts` | 1 failed, 3 passed | "refuses the synthetic guide on a deployed build …" |
+| T11 | CSV formula check only for `=` | `csv.test.ts` | 1 failed, 10 passed | "refuses a cell a spreadsheet would run as a formula, …" (`@v`) |
+
+### Review round 1 (PR #229): repros and new rule tests written first
+
+The reviewers' repros (legal, arch, breaker, edge, tests) were inverted where
+they documented a hole, and tests were added for every rule this round adds.
+They were run against 5e251bdb on a migrated throwaway database:
+`Test Files 8 failed | 12 passed | 1 skipped (21)`, `Tests 16 failed | 96 passed`.
+
+Red cases:
+- the s127 surrender and the s131 and non-NCA recovery VALUED on a GUIDE valuation;
+- breaker B1–B4;
+- the synthetic ⇒ simulated, move-time and successor rules;
+- the İsuzu/Isuzu upload (a thrown 23505);
+- the 6 MB body;
+- both midnight cases;
+- the purchase picker;
+- the offset clamp.
+
+After the fixes (migrations `20261021090200` edited in place and
+`20261021090300`; the TS changes):
+- `lib/valuation-guides/` plus the lease panel: 116 passed, 1 skipped (after the restores below too).
+- Every `RUN_ASSET_FINANCE_*_IT` with `TENANT_RLS=on`: `Test Files 323 passed | 9 skipped (332)`, `Tests 2820 passed | 41 skipped`.
+
+### Review round 1 mutations (database; applied to the migrated database, then restored)
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R1-F1 | `guardValuationGuide` without `AND g."id" <> NEW."id"` (self-supersede) | gaps, breaker, rules ITs | 1 failed, 26 passed | "never supersedes a guide by itself". Note: a self-supersede is still refused by two other rules (the successor must be a DRAFT; the deferred check). The test proves the clause refuses on its own by taking those two out, and here it failed because the clause it removes was already gone. This clause is defence in depth, not a lone guard. |
+| R1-F2 | GUIDE trigger: the make comparison → `FALSE` | gaps IT | 1 failed, 9 passed | "reads a row of the asset's own make and year, not only its model" |
+| R1-F3 | GUIDE trigger: no year comparison | gaps IT | 1 failed, 9 passed | same test |
+| R1-F4 | DRAFT>PUBLISHED allow-list + `uploadedById`, `simulated` | gaps IT | 1 failed, 9 passed | "lets a move change only its own columns …" |
+| R1-F5 | DRAFT>DISCARDED allow-list + `name` | gaps IT | 1 failed, 9 passed | same test |
+| R1-F6 | PUBLISHED>SUPERSEDED allow-list + `publishedById` | gaps IT | 1 failed, 9 passed | same test |
+| R1-F15 | no `NEW."publishedAt" := now()` | gaps + breaker ITs | 6 failed, 11 passed | "dates every move itself …"; B3. Also every publish now passing no time ("lets a move change …", the cycle and self tests, B5): the status-shape CHECK refuses it. |
+| R1-F16 | successor need not be a DRAFT | gaps + breaker ITs | 2 failed, 15 passed | "supersedes a guide only by a draft put live in the same transaction …"; "never supersedes a guide by itself" |
+| R1-F19 | `guardSurrenderRequest`'s GUIDE refusal off | statutory IT | 1 failed, 2 passed | "refuses a GUIDE valuation as an s127 surrender's valuation …" |
+| R1-F20 | `guardRecovery`'s GUIDE refusal off | statutory IT | 2 failed, 1 passed | NCA s131 and non-NCA recovery VALUED |
+| R1-C | drop each of `ValuationGuide_name`, `_provider`, `_sha256`, `_row_count`, `_status_shape` | gaps + breaker ITs | 1 failed, 16 passed each | "holds a guide to its name, source, hash, row count and status shape (CHECKs)" |
+| R1-C | drop `ValuationGuide_synthetic_simulated` | gaps + breaker ITs | 2 failed, 15 passed | "keeps a synthetic guide simulated …"; B2 |
+| R1-C | drop `ValuationGuide_times` | gaps + breaker ITs | 2 failed, 15 passed | "keeps … the move times in order"; "dates every move itself …" |
+| R1-I | drop `ValuationGuideRow_line_key` | gaps IT | 1 failed, 9 passed | "holds a row's line number to one row" |
+| R1-T | disable both `_no_truncate` triggers | gaps IT | 1 failed, 9 passed | "refuses TRUNCATE on both guide tables …" |
+
+### Review round 1 mutations (source; restored after each, `git diff` clean)
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| R1-T12 | `publishGuide` without its not-yet-effective check | gaps-routes IT | **survived** (4 passed) | Equivalent now: the database refuses the publish and `publishGuide` maps that refusal to the same `not_yet_effective` 409 (the midnight mapping, R1-T20). The TS check only spares the database a round trip. |
+| R1-T13 | without the older-than-current check | gaps-routes IT | 1 failed, 3 passed | "refuses a guide dated before the current guide of its name with 409 …" |
+| R1-T14 | without the simulated-guide check | gaps-routes IT | 1 failed, 3 passed | "refuses to take a simulated guide live on a deployed build" |
+| R1-T15 | revaluation reads SUPERSEDED guides too | revaluation-store IT | 1 failed, 2 passed | "values on the current guide only, never the one it superseded" |
+| R1-T16 | newest guide value ordered ascending | revaluation-store IT | 1 failed, 2 passed | "keeps the variant of the asset's newest guide value …" |
+| R1-T17 | live loans = ACTIVE only | revaluation-store IT | 2 failed, 1 passed | "lists every live loan …"; "values on the current guide only …" |
+| R1-T18 | upload without the `lower()` re-check | edge-unicode + breaker ITs | 2 failed, 7 passed | İsuzu/Isuzu; B4 (both now throw 23505) |
+| R1-T19 | record: midnight refusal not mapped | midnight IT | 1 failed, 1 passed | "records nothing, with 409, when the day turns …" (500) |
+| R1-T20 | publish: midnight refusal not mapped | midnight IT | 1 failed, 1 passed | "refuses the publish with 409 when the app's day …" (500) |
+| R1-T21 | purchase picker without the source filter | lease panel unit | 1 failed, 10 passed | "offers only assessors' and dealers' valuations …" |
+| R1-T22 | body cap off while streaming | gaps-routes IT + upload-body unit | 2 failed, 5 passed | "refuses a body over the cap …"; "stops a stream with no length …" |
+| R1-T23 | `?offset` not clamped to the row count | guide-view unit | 1 failed | "reads a whole number within the guide's rows …" |
+
+### Review round 1 addendum (items 6b–6d)
+
+New: `lib/valuation-guides/loaders.integration.test.ts`, which runs the loaders
+that `RecoveryPanel.test.tsx` and the panel test mock out, and a record-time
+simulation gate test in `guide-gaps-routes.integration.test.ts`. The
+`ValuationGuideRow_line_key` refusing test is R1-I above.
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R1b-L-make | `guideCandidates` without the make match | loaders IT | 2 failed, 2 passed | "offers only rows of the asset's own make, model and year"; the panel's candidates |
+| R1b-L-year | `guideCandidates` without the year match | loaders IT | 2 failed, 2 passed | same two |
+| R1b-L-order | `latestGuideValuation` oldest first | loaders IT | 3 failed, 1 passed | the newest value, the panel, the recovery reference |
+| R1b-L-tenant | `latestGuideValuation` without its tenant filter | loaders IT | 3 failed, 1 passed | same three (another lender's asset id answered) |
+| R1b-GP-swap | `loadGuidePanel` trade LTV on the retail value | loaders IT | 1 failed, 3 passed | "gives the panel … LTV against its trade and retail values" |
+| R1b-GP-tenant | `loadGuidePanel` without its tenant filter | loaders IT | 1 failed, 3 passed | same test |
+| R1b-RP-sim | `loadGuideReference` without "(simulated)" | loaders IT | 1 failed, 3 passed | "gives the recovery its newest guide value as a labelled reference" |
+| R1b-A-snapsim | GUIDE trigger snapshots `'simulated', false` (database) | gaps + loaders ITs | 3 failed, 11 passed | "snapshots whether the guide was simulated …"; the newest value; the recovery reference |
+| R1b-L-sim | `recordGuideValuation` without its simulation gate | gaps-routes IT | 1 failed, 4 passed | "refuses to record a simulated guide's value on a deployed build …" (201, a valuation written) |
+
+6d: no database backstop for the simulation gate, by design (SLICE5.md Part C,
+known limitations): the database cannot read the deployment's environment.
+The gate is tested at load, publish (R1-T14) and record (R1b-L-sim).
+
+
+### Review round 2 (PR #229)
+
+**Written first.** Against f88afc39, breaker R2-1 was red. The supersede was dated `now()`, the start of its transaction, which fell before a rival publish that had already committed, so `ValuationGuide_times` refused it.
+
+**Fix.** The guard now dates moves with `clock_timestamp()` (`20261021090300`, edited in place before any shared database applied it). A residual times-CHECK refusal is mapped to the 409 `concurrent_publish`.
+
+**The tests reviewer's `lookup-gaps` repro was not committed.** Each of its five cases is already covered on the head it did not review (f88afc39):
+
+| Case | Covered by |
+|---|---|
+| Candidate make and year | `loaders` IT (R1b-L-make, R1b-L-year) |
+| `recordGuideValuation`'s simulation branch | `guide-gaps-routes` IT (R1b-L-sim) |
+| `latestGuideValuation` order | `loaders` IT (R1b-L-order) |
+| `loadGuidePanel` | `loaders` IT (R1b-GP-swap, R1b-GP-tenant) |
+| `loadGuideReference` | `loaders` IT (R1b-RP-sim) |
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| R2-F1 | the guard dates a supersede with `now()` again (database) | breaker-r2 IT | 1 failed, 1 passed | "R2-1: a publish whose transaction began before the current guide was published can still supersede it" |
+| R2-T1 | the times-CHECK refusal not mapped | breaker-r2 IT | 1 failed, 1 passed | "R2-1b: a residual clock race with a rival publish is a 409 …" (500) |
+| R2-T2 | revaluation's newest valuation of any source but INTERNAL | revaluation-store IT | 1 failed, 3 passed | "keeps the recorded guide's name and variant, … a newer non-guide valuation does not hide it" |
+| R2-T3 | `recordedVariant` without the variant comparison | revaluation-store IT | 1 failed, 3 passed | same test |
+| R2-T4 | `recordedVariant` without the guide-name comparison | revaluation-store IT | 1 failed, 3 passed | same test |
+| R2-T5 | CSV year bound 1950 → 1951; 2100 → 2099; the after-close-quote check off | `csv.test.ts` | 1 failed, 11 passed each | the year-range test; "refuses text after a closing quote in the same field" |
+| R2-T6 | record-form choices without "simulated" | GuideValuePanel unit | 1 failed, 2 passed | "labels … a simulated guide's rows among the choices" |
+| R2-T7 | `GUIDE_DAY_REFUSAL` reworded on the TS side only | migration static + midnight IT | 2 failed, 7 passed | "keeps the sentences the store maps to a 409 in the guards that raise them"; the midnight record test (500) |
+| R2-S | a later migration rewrites `guardRecovery` without the GUIDE clause (a temporary `20991231000000_zz_mutation` dir, then removed) | migration static | 1 failed, 6 passed | "refuses GUIDE in the statutory guards, and no later migration rewrites either guard without it" |
+
+### Review round 2 addendum (items 6–8)
+
+**Written first.** The candidate-model and tenant cases, arch's times-race repro (inverted: the race now succeeds) and the oversized-upload refusal were committed before the fixes. The oversized-upload test was red against fae47b2b: the refusal came back as a line-1 problem and was not audited. Fixes:
+- the oversized upload is a whole-upload 422 `{ error }`, audited as `upload_too_large`;
+- the revaluation's Outstanding column says what each row's figure is.
+
+| # | Mutation | Suite | Result | Red tests |
+|---|---|---|---|---|
+| R2b-L-model | `guideCandidates` without the model match | loaders IT | 2 failed, 2 passed | "offers only the lender's own rows of the asset's own make, model and year"; the panel's candidates |
+| R2b-L-tenant | `guideCandidates` without `r."tenantId" = …` | loaders IT | 2 failed, 2 passed | same two (the other lender's row offered) |
+| R2b-basis | every row's outstanding labelled "principal" | revaluation unit | 1 failed, 5 passed | "labels a lease's outstanding figure as its remaining rentals incl. VAT …" |
+| R2b-sizeaudit | oversized upload not audited | gaps-routes IT | 1 failed, 4 passed | "refuses a body over the cap with 422 …" |
+| R2b-F1 | the guard dates a supersede with `now()` again (database) | times-race IT | 1 failed | "a publish transaction older than the current guide's publish still supersedes it" |
