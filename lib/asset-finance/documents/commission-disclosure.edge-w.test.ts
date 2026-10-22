@@ -49,3 +49,14 @@ describe.each(CASES)("edge-w $name", ({ render, clause, heading }) => {
     expect(printed(lines)).toContain(clause)
   })
 })
+
+describe.each(CASES)("edge-w unbroken 80-char name, round 2: $name", ({ render }) => {
+  it.each(["W".repeat(80), "MW".repeat(40)])("is printed in full across lines (%s)", async (name) => {
+    const lines = await texts(await render({ name, kind: "DEALER" }))
+    const at = lines.findIndex((l) => name.startsWith(l) && l.length > 5 && l.length < name.length)
+    expect(at, "name is split over several lines").toBeGreaterThanOrEqual(0)
+    let rebuilt = ""
+    for (let i = at; i < lines.length && rebuilt.length < name.length; i++) rebuilt += lines[i]
+    expect(rebuilt.startsWith(name)).toBe(true)
+  })
+})
