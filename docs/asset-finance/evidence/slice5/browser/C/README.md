@@ -4,8 +4,7 @@ The seed is `lib/valuation-guides/valuation-browser-seed.test.ts`. Run it
 only on a throwaway database that you own. The browser run itself is §5 C of
 the goal (`.claude/handoffs/2026-10-19-asset-finance-slice5-goal.md`).
 
-Status: the seed is written and runs green. The browser run has **not** been
-done yet, and there are no screenshots in this folder.
+Status: run, PASS at head 75968e08. Results and disclosed SQL assists: `RESULTS.md`; screenshots in `round1/` and `round3/`.
 
 ## Seed
 
