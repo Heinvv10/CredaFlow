@@ -91,7 +91,7 @@ export async function loadInspectionReport(db: LeaseDocsDb, tenantId: string, lo
   if (!row?.inspectedOn) return null
   const start = row.finalReading
     ? await db.assetMeterReading.findFirst({
-      where: { tenantId, loanId, unit: row.finalReading.unit },
+      where: { tenantId, loanId, unit: row.finalReading.unit, voidedAt: null },
       orderBy: [{ readingDate: "asc" }, { value: "asc" }],
       select: { value: true, readingDate: true, unit: true },
     })

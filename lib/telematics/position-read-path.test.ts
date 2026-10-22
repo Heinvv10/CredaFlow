@@ -9,7 +9,7 @@ import { ROOT, sourceFiles } from "./__fixtures__/import-graph"
 // the purge and the view. No page queries it: a position is never rendered
 // with a page, so a READONLY page load can never materialise one. A client
 // component cannot query: it only shows what that route answered.
-const ALLOWED = ["lib/telematics/ingest.ts", "lib/telematics/purge.ts", "lib/telematics/position-view.ts"]
+const ALLOWED = ["lib/telematics/ingest.ts", "lib/telematics/purge.ts", "lib/telematics/position-view.ts", "lib/telematics/position-trail.ts"]
 // `position` / `positions`: the relation from an event or a device (an include or a select of it reads the row).
 const TOUCHES_TABLE = /telematicsPosition\.|(FROM|INTO|JOIN|UPDATE|TRUNCATE)\s+"TelematicsPosition"|\bpositions?:\s*(true|\{)/
 const SELECTS_COORDINATE = /\b(latitude|longitude):\s*true\b|"latitude"|"longitude"/

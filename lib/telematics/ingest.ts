@@ -7,8 +7,8 @@
  * ON CONFLICT DO NOTHING (event-insert.ts): no row back means a duplicate and
  * nothing else happens, so a replayed batch or a second sweep changes nothing.
  * Then its meter reading (meter-route.ts) and, under that agreement, its
- * position and its alert (alerts-raise.ts). A position is kept only if it is
- * the device's latest and within retention; it replaces the older one.
+ * position and its alert (alerts-raise.ts). Every position inside a tenure and
+ * within retention is kept (the trail); the purge removes them by age.
  * Nothing is sent to anyone.
  */
 import type { TelematicsMeterOutcome } from "@prisma/client"
@@ -43,15 +43,11 @@ const DAY_MS = 86_400_000
 /** A position this close to the retention edge is not stored: the database's clock may already be past it. */
 const EDGE_MS = 60_000
 
-/** Keeps the position if it is the device's newest: the older one is deleted, a newer one wins. */
+/** Appends the position: every one inside a tenure and retention is kept (the trail); the purge removes them by age. */
 async function storePosition(tx: SigningTx, device: IngestDevice, eventId: string, event: NormalisedTelematicsEvent & { position: NonNullable<NormalisedTelematicsEvent["position"]> }) {
-  const { tenantId } = device
-  const current = await tx.telematicsPosition.findFirst({ where: { tenantId, deviceId: device.id }, select: { id: true, occurredAt: true } })
-  if (current && current.occurredAt >= event.occurredAt) return false
-  if (current) await tx.telematicsPosition.delete({ where: { id: current.id, tenantId } })
   await tx.telematicsPosition.create({
     data: {
-      tenantId, eventId, deviceId: device.id, occurredAt: event.occurredAt,
+      tenantId: device.tenantId, eventId, deviceId: device.id, occurredAt: event.occurredAt,
       latitude: event.position.latitude, longitude: event.position.longitude, accuracyM: event.position.accuracyM,
     },
   })

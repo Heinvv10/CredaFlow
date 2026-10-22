@@ -222,6 +222,11 @@ model AssetMeterReading {
   // The device event a TELEMATICS reading came from (guardTelematicsMeterReading).
   telematicsEventId  String?            @unique
   telematicsEvent    TelematicsEvent?   @relation(fields: [tenantId, telematicsEventId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Set once by the database when a second staff user approves a void
+  // (AssetMeterReadingVoid); a voided reading counts for nothing.
+  voidedAt           DateTime?
+  voidId             String?
+  voidApplied        AssetMeterReadingVoid? @relation("MeterReadingVoidApplied", fields: [tenantId, voidId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   createdAt          DateTime           @default(now())
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
@@ -229,9 +234,11 @@ model AssetMeterReading {
   endOfTerm             LeaseEndOfTerm?
   recoveries            Recovery[]
   telematicsHeldReading TelematicsHeldReading?
+  voids                 AssetMeterReadingVoid[] @relation("MeterReadingVoids")
 
   @@unique([tenantId, id])
   @@unique([tenantId, telematicsEventId])
+  @@unique([tenantId, voidId])
   @@index([tenantId, assetId, unit, readingDate])
 }
 
@@ -352,4 +359,35 @@ model LeaseTerminationQuote {
   @@unique([tenantId, taxInvoiceId])
   @@unique([tenantId, scheduleId])
   @@index([tenantId, loanId])
+}
+
+// A request to void a meter reading (SLICE5-FOLLOWUPS.md part T): one staff
+// user requests with a reason, a second approves (CHECK four-eyes) or rejects.
+// Approval stamps the reading (voidedAt); nothing is deleted.
+model AssetMeterReadingVoid {
+  id            String                   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant                   @relation(fields: [tenantId], references: [id])
+  readingId     String
+  reading       AssetMeterReading        @relation("MeterReadingVoids", fields: [tenantId, readingId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  reason        String
+  status        AssetMeterReadingVoidStatus @default(PENDING)
+  requestedById String
+  requestedBy   User                     @relation("MeterReadingVoidRequestedBy", fields: [tenantId, requestedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  requestedAt   DateTime                 @default(now())
+  decidedById   String?
+  decidedBy     User?                    @relation("MeterReadingVoidDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  decidedAt     DateTime?
+
+  // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  appliedTo     AssetMeterReading?       @relation("MeterReadingVoidApplied")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, readingId])
+}
+
+enum AssetMeterReadingVoidStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

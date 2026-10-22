@@ -16,7 +16,7 @@ type Answer = { position: { latitude: number; longitude: number; accuracyM: numb
  * `refusal` is the server's reason the reveal would be refused now
  * (lib/telematics/position-purpose.ts): shown instead of the button.
  */
-export function LastKnownPosition({ loanId, context, refusal = null }: { loanId: string; context: "DEFAULT" | "RECOVERY" | "LEGAL_MATTER"; refusal?: string | null }) {
+export function LastKnownPosition({ loanId, context, refusal = null }: { loanId: string; context: "DEFAULT" | "RECOVERY" | "LEGAL_MATTER" | "THEFT"; refusal?: string | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [answer, setAnswer] = useState<Answer | null>(null)

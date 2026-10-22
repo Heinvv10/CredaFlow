@@ -99,9 +99,13 @@ export async function removeTrackerDevice(actor: TelematicsActor, deviceId: stri
       data: { status: "REMOVED", removedOn: dbDate(removedOn), removedById: actor.userId },
     })
     if (done.count !== 1) return refused(409, "This tracker device is already removed")
+    // A closed loan's removal task (TrackerClosure, SLICE5-FOLLOWUPS.md part T) is done with it.
+    const closures = await tx.trackerClosure.updateMany({
+      where: { tenantId: actor.tenantId, deviceId, removedAt: null }, data: { removedAt: new Date(), removedById: actor.userId },
+    })
     await logAuditStrict({
       tenantId: actor.tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.TRACKER_DEVICE_REMOVED,
-      entity: "TrackerDevice", entityId: deviceId, newValue: { removedOn },
+      entity: "TrackerDevice", entityId: deviceId, newValue: { removedOn, closuresDone: closures.count },
     }, tx)
     return { kind: "ok" as const }
   })

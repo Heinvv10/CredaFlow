@@ -193,6 +193,10 @@ describe("tenant-scope — ALS primitives", () => {
       // Dealer draft purge tombstone (SLICE5-FOLLOWUPS.md part D).
       "DealerDealPurge",
       "DealerPurgePendingFile",
+      // Telematics follow-ups (SLICE5-FOLLOWUPS.md part T).
+      "AssetTheftReport",
+      "AssetMeterReadingVoid",
+      "TrackerClosure",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

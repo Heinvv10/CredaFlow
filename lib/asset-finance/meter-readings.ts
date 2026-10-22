@@ -74,15 +74,16 @@ export async function recordMeterReading(tx: SigningTx, actor: ReadingActor, inp
   if (input.readingDate < sastCalendarDate(loan.startDate)) return { kind: "refused", reason: "reading_date", error: "A reading cannot predate the lease" }
   if (!Number.isSafeInteger(input.value) || input.value < 0) return { kind: "refused", reason: "value", error: "The reading must be a whole number of hours or km" }
   const [before, after] = await Promise.all([
-    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, readingDate: { lte: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { value: true, readingDate: true } }),
-    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, readingDate: { gt: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true } }),
+    // A voided reading counts for nothing (lib/asset-finance/meter-void.ts; guardAssetMeterReading agrees).
+    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, voidedAt: null, readingDate: { lte: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { value: true, readingDate: true } }),
+    tx.assetMeterReading.findFirst({ where: { tenantId, assetId: loan.assetId, unit, voidedAt: null, readingDate: { gt: dbDate(input.readingDate) } }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true } }),
   ])
   if (before && input.value < before.value) return { kind: "refused", reason: "not_monotonic", bound: "earlier", error: `The reading may not be below an earlier one (${before.value})` }
   if (after && input.value > after.value) return { kind: "refused", reason: "not_monotonic", bound: "later", error: `The reading may not be above a later one (${after.value})` }
   const allowance = loan.assetFinanceDeal?.usageAllowancePerYear
   if ((actor.clientId || (actor.telematics && !actor.telematics.acceptedById)) && allowance) {
     // Measured from the lease's start reading, not the last one: repeated portal readings cannot ratchet the ceiling up.
-    const start = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true, readingDate: true } })
+    const start = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit, voidedAt: null }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true, readingDate: true } })
     if (start && input.value > paceCeiling({ value: start.value, readingDate: isoOfDbDate(start.readingDate) }, input.readingDate, allowance)) {
       return { kind: "refused", reason: "implausible_reading", error: `That is far above the contracted usage since the lease began (${start.value}); ask the lessor to record it` }
     }

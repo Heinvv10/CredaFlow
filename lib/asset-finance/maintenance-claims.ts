@@ -77,8 +77,9 @@ export async function submitMaintenanceClaim(tx: SigningTx, actor: ClaimActor, i
   const claimed = await tx.maintenanceClaim.findFirst({ where: { tenantId, providerInvoiceDocumentId: document.id, status: { not: "REJECTED" } }, select: { id: true } })
   if (claimed) return refused("invoice_claimed", "That invoice already backs a claim: one claim per provider invoice")
   if (input.meterReadingId) {
-    const reading = await tx.assetMeterReading.findFirst({ where: { id: input.meterReadingId, tenantId, assetId }, select: { id: true } })
+    const reading = await tx.assetMeterReading.findFirst({ where: { id: input.meterReadingId, tenantId, assetId }, select: { id: true, voidedAt: true } })
     if (!reading) return refused("meter_reading", "The meter reading is not this asset's")
+    if (reading.voidedAt) return refused("meter_reading", "That meter reading was voided")
   }
   if (!Number.isSafeInteger(input.amountExclVatCents) || input.amountExclVatCents <= 0) return refused("amount", "The amount must be a positive number of cents")
   const description = input.description.trim()

@@ -95,7 +95,7 @@ suite.sequential("telematics last known position: who, why, when, logged (real D
     expect(await revealPosition(collector, ids.loan, { context: "RECOVERY" }, meta)).toMatchObject({ kind: "refused", status: 409, error: "This loan has no open recovery" })
     await testSetup(database(), [`UPDATE "Loan" SET "status" = 'ACTIVE' WHERE "id" = $1`, ids.loan])
     expect(await revealPosition(collector, ids.loan, { context: "DEFAULT" }, meta))
-      .toMatchObject({ kind: "refused", status: 409, error: "Position is shown only for a loan in default, legal action or recovery" })
+      .toMatchObject({ kind: "refused", status: 409, error: "Position is shown only for a loan in default, legal action, recovery or a reported theft" })
     await testSetup(database(), [`INSERT INTO "Recovery" ("id", "tenantId", "loanId", "assetId", "route", "status", "recoveredOn", "location", "condition", "createdById", "closedAt", "withdrawnReason", "updatedAt")
       VALUES ($1, $2, $3, $4, 'NON_NCA_COURT_ORDER', 'WITHDRAWN', CURRENT_DATE, 'Synthetic yard', 'Synthetic condition', $5, now(), 'Synthetic withdrawal', now())`, `rc_${t}`, fx.tenantId, ids.loan, fx.assets[1], fx.adminA])
     expect(await revealPosition(collector, ids.loan, { context: "RECOVERY" }, meta)).toMatchObject({ kind: "refused", status: 409 })
@@ -132,6 +132,9 @@ suite.sequential("telematics last known position: who, why, when, logged (real D
     const collector = as(ids.collector, "COLLECTIONS_OFFICER")
     const reveal = (loanId: string) => revealPosition(collector, loanId, { context: "DEFAULT" }, meta)
     const startOfNew = (await database().loan.findUniqueOrThrow({ where: { id: ids.loan } })).startDate
+    // One fix to move about: the device's newest (the trail keeps the others; they are not this test's subject).
+    await testSetup(database(), [`DELETE FROM "TelematicsPosition" WHERE "deviceId" = $1 AND "id" <> (
+      SELECT "id" FROM "TelematicsPosition" WHERE "deviceId" = $1 ORDER BY "occurredAt" DESC LIMIT 1)`, ids.device])
     const only = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device } })
     expect(only.occurredAt.getTime()).toBeGreaterThanOrEqual(startOfNew.getTime())
     expect(await reveal(ids.loan)).toMatchObject({ kind: "ok", position: { occurredAt: only.occurredAt.toISOString() } })

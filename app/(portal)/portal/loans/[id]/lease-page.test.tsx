@@ -13,6 +13,7 @@ vi.mock("@/lib/audit", () => ({ AuditAction: {}, logAuditStrict: vi.fn() }))
 vi.mock("@/lib/asset-finance/lease-portal-route", () => ({ clientLeaseRefusal: vi.fn() }))
 vi.mock("@/lib/asset-finance/meter-readings", () => ({ recordMeterReading: vi.fn() }))
 // The recovery card is an async server component (it reads the DB): stubbed here, and asserted by its props.
+vi.mock("@/components/asset-finance/telematics/PortalTrackingStopped", () => ({ PortalTrackingStopped: () => null }))
 vi.mock("@/components/asset-finance/recovery/PortalRecoverySection", () => ({
   PortalRecoverySection: ({ tenantId, loanId }: { tenantId: string; loanId: string }) => `recovery-section:${tenantId}:${loanId}`,
 }))

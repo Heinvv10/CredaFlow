@@ -30,7 +30,7 @@ export function AssetLoanRecoveryPanels({ tenantId, loanId, userId, canManage, c
   const canViewPosition = role ? canDo(role as AppRole, "view_asset_position") : false
   return (
     <>
-      <TelematicsPanel tenantId={tenantId} loanId={loanId} canManage={canManage} canWork={role ? canDo(role as AppRole, "work_telematics_alerts") : false} />
+      <TelematicsPanel tenantId={tenantId} loanId={loanId} viewerId={userId} canManage={canManage} canWork={role ? canDo(role as AppRole, "work_telematics_alerts") : false} canViewPosition={canViewPosition} />
       <NcaSurrenderStaffPanel tenantId={tenantId} loanId={loanId} canManage={canManage} canDecide={canDecide} canRecordPayment={canRecordPayment} />
       <CommercialCancellationPanel tenantId={tenantId} loanId={loanId} canDecide={canDecide} />
       <LegalMatterPanel tenantId={tenantId} loanId={loanId} canManage={canManage} canViewPosition={canViewPosition} />
