@@ -190,6 +190,9 @@ describe("tenant-scope — ALS primitives", () => {
       // Valuation guides (slice 5 part C) — non-null tenantId.
       "ValuationGuide",
       "ValuationGuideRow",
+      // Dealer draft purge tombstone (SLICE5-FOLLOWUPS.md part D).
+      "DealerDealPurge",
+      "DealerPurgePendingFile",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

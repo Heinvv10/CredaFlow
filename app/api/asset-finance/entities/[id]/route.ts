@@ -6,6 +6,7 @@ import { withTenantContext } from "@/lib/tenant"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
+import { isErasedRowEdit } from "@/lib/dealer/draft-purge-messages"
 import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { financialsChanged, parseBusinessEntityInput } from "@/lib/asset-finance/entity-input"
 import {
@@ -142,6 +143,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
       return NextResponse.json(await loadEntityCore(tenant.id, id))
     } catch (error) {
+      // freezeDealerPurgedParty: the dealer draft purge erased this business; it stays as erased.
+      if (isErasedRowEdit(error)) {
+        await auditRefusal({
+          action: AuditAction.BUSINESS_ENTITY_UPDATE_REFUSED, entity: "BusinessEntity", entityId: id, tenantId: tenant.id,
+          userId: guard.user.id, userEmail: guard.user.email, reason: "erased_by_dealer_purge", status: 409,
+        })
+        return NextResponse.json({ error: "This business was erased by the dealer draft purge and is not changed" }, { status: 409 })
+      }
       if (isCheckViolation(error)) {
         await auditRefusal({
           action: AuditAction.BUSINESS_ENTITY_UPDATE_REFUSED,

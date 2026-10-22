@@ -106,6 +106,8 @@ model Tenant {
   crossSellOpps              CrossSellOpportunity[]
   dataSubjectRequests        DataSubjectRequest[]
   dealerCommissionRates      DealerCommissionRate[]
+  dealerDealPurges           DealerDealPurge[]
+  dealerPurgePendingFiles    DealerPurgePendingFile[]
   dealers                    Dealer[]
   debitMandates              DebitMandate[]
   disbursementPayouts        DisbursementPayout[]

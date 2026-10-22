@@ -747,6 +747,9 @@ the portal on:
 3. DEALER_CONSENT_STATEMENT text (lib/dealer/consent.ts, UNTESTED: legal)
    asserts signature "in my presence" and an ID check; confirm it matches the
    lender's actual dealer process (remote signing would make it false).
+   **Decided 2026-10-22 (Hein): remote signing allowed.** Built as
+   `dealer-consent-v2` with the signing method and, for REMOTE, how identity
+   was checked; v1 rows unchanged (SLICE5-FOLLOWUPS.md part D).
 4. Whether to disclose dealer commission to the consumer. No express NCA/CPA
    rule known for commission paid from the lender's own funds (s92/Form 20
    silent; FAIS only if the dealer intermediates insurance). LOW confidence:
@@ -758,6 +761,12 @@ the portal on:
 6. Retention: dealer-captured Clients and documents on abandoned/declined
    drafts (dealer cannot cancel drafts): set a POPIA s14 retention period;
    DSAR responses name the dealer as source and recipient (s23(1)(b)).
+   **Decided 2026-10-22 (Hein): dealers cancel their own drafts; a daily purge
+   erases them after 90 days.** Built in SLICE5-FOLLOWUPS.md part D, with one
+   deviation: only drafts the lender never received are purged; a deal handed
+   to the lender (declined included) is an application its own records
+   retention governs (NCA Regulation 55), a follow-up. The DSAR wording stays
+   open.
 7. VAT treatment of commission (see tax items).
 
 Lender tax sign-off (SA tax/accounting review, PR #216):
@@ -787,8 +796,9 @@ g) Income tax: commission deductible under s11(a) when incurred; adviser to
   strong as that control. Rate limiting is in-memory (single replica). Dozens
   of call sites treat any non-CLIENT role as staff; the dealer host gate is
   the boundary, backed by the guard census. A reopened lease keeps its
-  clawback. Dealer drafts cannot be edited or cancelled by the dealer (staff
-  cancel).
+  clawback. Dealer drafts cannot be edited by the dealer; since
+  SLICE5-FOLLOWUPS.md part D the dealer can cancel its own draft before
+  handing it over.
 
 ## Part B — Tracker/telematics adapter and simulator
 

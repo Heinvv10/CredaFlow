@@ -49,6 +49,8 @@ export const DEALER_DEAL_SELECT = {
   ...DEALER_DEAL_LIST_SELECT,
   baseInstalmentCents: true,
   clientId: true,
+  dealerUserId: true,
+  dealerPurge: { select: { purgedAt: true } },
   application: { select: { reference: true, appliedAmount: true } },
   entity: { select: { legalName: true, relationships: { where: { active: true }, select: { client: PERSON } } } },
   client: PERSON,
@@ -104,6 +106,10 @@ export function projectDealerDeal(row: Row, dealerId: string) {
     ...summary(row),
     financedAmountCents: row.application.appliedAmount,
     baseInstalmentCents: row.baseInstalmentCents,
+    // The dealer's own user who captured it: a sales user may cancel only its own draft (lib/dealer/cancel.ts).
+    createdByDealerUserId: row.dealerUserId,
+    // Erased by the draft purge: the draft takes nothing more.
+    purgedAt: row.dealerPurge?.purgedAt.toISOString() ?? null,
     // The id lets the dealer attest consent for each subject; a lender-added person stays unnamed.
     people: unique.map((p) => ({
       clientId: p.id, name: name(p), consentAttested: row.dealerConsentAttestations.some((a) => a.clientId === p.id), consentByLender: !own(p),

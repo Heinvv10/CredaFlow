@@ -74,6 +74,8 @@ model BusinessEntity {
   // deal may name only its own dealer's borrowers, guardAssetDealDealer).
   createdByDealerId     String?
   createdByDealer       Dealer?            @relation(fields: [tenantId, createdByDealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // Set by the dealer draft purge, as Client.dealerPurgedAt.
+  dealerPurgedAt        DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
@@ -729,6 +731,11 @@ model AssetFinanceDeal {
   cancelledAt                    DateTime?
   cancelledById                  String?
   cancelledBy                    User?                 @relation("AssetDealCancelledBy", fields: [tenantId, cancelledById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  // A dealer user who cancelled its own draft (lib/dealer/cancel.ts,
+  // guardAssetDealDealerCancel); exactly one of this and cancelledById on a
+  // CANCELLED deal (CHECK AssetFinanceDeal_cancellation_shape).
+  cancelledByDealerUserId        String?
+  cancelledByDealerUser          DealerUser?           @relation("AssetDealCancelledByDealerUser", fields: [tenantId, cancelledByDealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   cancelReason                   String?
   decision                       CreditDecision?
   decisionReasons                String[]              @default([])
@@ -748,7 +755,7 @@ model AssetFinanceDeal {
   dealerId                       String?
   dealer                         Dealer?               @relation(fields: [tenantId, dealerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   dealerUserId                   String?
-  dealerUser                     DealerUser?           @relation(fields: [tenantId, dealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  dealerUser                     DealerUser?           @relation("AssetDealDealerUser", fields: [tenantId, dealerUserId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   dealerSubmittedAt              DateTime?
   dealerCommissionSource         DealerCommissionRateSource?
   dealerCommissionRateId         String?
@@ -766,6 +773,7 @@ model AssetFinanceDeal {
   dealerCommissionLines   DealerCommissionLine[]
   dealerConsentAttestations DealerConsentAttestation[]
   dealerDocumentRequests  DealerDocumentRequest[]
+  dealerPurge             DealerDealPurge?
   documentIssuances       AssetDocumentIssuance[]
   documents               EntityDocument[]
   financials              EntityFinancials?
