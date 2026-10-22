@@ -19,7 +19,7 @@ describe("dealerNameProblem: the shape of a name printed in a labelled field", (
     expect(dealerNameProblem(name)).toBeNull()
   })
 
-  it.each([
+  it.each<[string, string]>([
     ["an empty name", ""],
     ["more than the maximum", "A".repeat(MAX_DEALER_NAME + 1)],
     ["only spaces", "   "],
@@ -38,7 +38,7 @@ describe("dealerNameProblem: the shape of a name printed in a labelled field", (
     ["the first C1 control", inside(at(0x80))],
     ["a next-line control", inside(at(0x85))],
     ["the last C1 control", inside(at(0x9f))],
-    ...[0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2060, 0xfeff, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066, 0x2069].map((code) => [`${hex(code)} (invisible or directional)`, inside(at(code))] as const),
+    ...[0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2060, 0xfeff, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066, 0x2069].map((code) => [`${hex(code)} (invisible or directional)`, inside(at(code))] satisfies [string, string]),
     ["a Latin letter outside Windows-1252 (C with caron)", at(0x10c) + "otors"],
     ["a Latin letter outside Windows-1252 (L with stroke)", at(0x141) + "ot"],
     ["a Latin letter outside Windows-1252 (S with cedilla)", at(0x15e) + "ahin Motors"],
