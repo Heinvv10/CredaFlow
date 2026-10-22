@@ -22,7 +22,7 @@ import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration
 import { pollTenant } from "./poll"
 import { purgeTelematicsPositions } from "./purge"
 import { revealPosition } from "./position-view"
-import { revealPositionTrail, TRAIL_LIMIT } from "./position-trail"
+import { revealPositionTrail, THEFT_LOOKBACK_DAYS, TRAIL_LIMIT } from "./position-trail"
 import { recordTheftReport } from "./theft-reports"
 import { bookOperatingLease, cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient, today } from "./telematics.integration-fixture"
 
@@ -175,7 +175,11 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     const trail = await revealPositionTrail(collector(), ids.loan, { context: "THEFT" }, meta)
     expect(trail).toMatchObject({ kind: "ok", truncated: false })
     const points = (trail as { points: { occurredAt: string; latitude: number }[] }).points
-    const expected = all.slice(1).map((p) => p.occurredAt.toISOString())
+    // THEFT: from a week before the theft was reported (two days ago), not the whole tenure.
+    const reported = await database().assetTheftReport.findUniqueOrThrow({ where: { id: ids.report } })
+    const theftFrom = reported.reportedOn.getTime() - THEFT_LOOKBACK_DAYS * DAY
+    expect(all.slice(1).some((p) => p.occurredAt.getTime() < theftFrom)).toBe(true)
+    const expected = all.slice(1).filter((p) => p.occurredAt.getTime() >= theftFrom).map((p) => p.occurredAt.toISOString())
     expect(points.map((p) => p.occurredAt)).toEqual(expected)
     expect(points.length).toBeLessThanOrEqual(TRAIL_LIMIT)
     const rows = await accessRows()
@@ -204,7 +208,13 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     expect(refusals.filter((r) => (r.newValue as { view?: string }).view === "TRAIL" && (r.newValue as { httpStatus: number }).httpStatus === 403)).toHaveLength(3)
     // RECOVERY and LEGAL_MATTER give a trail too.
     await testSetup(database(), [`INSERT INTO "LegalMatter" ("id", "tenantId", "loanId", "createdById", "updatedAt") VALUES ($1, $2, $3, $4, now())`, `lm_${t}`, fx.tenantId, ids.loan, fx.adminA])
-    expect(await revealPositionTrail(collector(), ids.loan, { context: "LEGAL_MATTER" }, meta)).toMatchObject({ kind: "ok" })
+    // A legal matter's trail is the whole tenure: every fix from the loan's start (not the one moved before it).
+    const legal = await revealPositionTrail(collector(), ids.loan, { context: "LEGAL_MATTER" }, meta)
+    const loan = await database().loan.findUniqueOrThrow({ where: { id: ids.loan } })
+    const inTenure = (await database().telematicsPosition.findMany({ where: { deviceId: ids.device }, orderBy: { occurredAt: "asc" } }))
+    expect(inTenure.some((p) => p.occurredAt < loan.startDate)).toBe(true)
+    expect((legal as { points: { occurredAt: string }[] }).points.map((p) => p.occurredAt))
+      .toEqual(inTenure.filter((p) => p.occurredAt >= loan.startDate).map((p) => p.occurredAt.toISOString()))
     expect((await accessRows()).at(-1)).toMatchObject({ view: "TRAIL", context: "LEGAL_MATTER", theftReportId: null })
     await loanStatus("ACTIVE")
   }, 120_000)

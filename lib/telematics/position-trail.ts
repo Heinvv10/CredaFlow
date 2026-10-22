@@ -1,7 +1,8 @@
 /**
  * The position trail (docs/asset-finance/SLICE5-FOLLOWUPS.md part T): the
  * positions of this loan's asset inside its tenure and the tenant's retention,
- * time-ordered (the latest 500 at most). Only for THEFT, RECOVERY or
+ * and under THEFT from a week before the theft was reported, time-ordered (the
+ * latest 500 at most). Only for THEFT, RECOVERY or
  * LEGAL_MATTER: arrears alone (DEFAULT) never justify a movement history. The
  * same gates as the latest-position reveal (position-view.ts): the
  * view_asset_position permission, a purpose the loan has now, an access row
@@ -21,6 +22,8 @@ import { objectBody, refused, type TelematicsActor, type TelematicsRefusal, type
 
 export const TRAIL_CONTEXTS: readonly TelematicsPositionContext[] = ["THEFT", "RECOVERY", "LEGAL_MATTER"]
 export const TRAIL_LIMIT = 500
+/** A THEFT trail starts this many days before the theft was reported (it is usually reported soon after it happens). */
+export const THEFT_LOOKBACK_DAYS = 7
 
 export interface TrailPoint {
   latitude: number
@@ -59,7 +62,12 @@ export async function revealPositionTrail(
   const end = await tenureEnd(tenantId, { ...loan, assetId })
   const config = await prisma.tenantConfig.findUnique({ where: { tenantId }, select: { telematicsPositionRetentionDays: true } })
   const retained = new Date(Date.now() - (config?.telematicsPositionRetentionDays ?? 90) * DAY_MS)
-  const from = loan.startDate > retained ? loan.startDate : retained
+  // Under THEFT the movement history before the theft is not the purpose: from THEFT_LOOKBACK_DAYS before the day it was reported to SAPS.
+  const report = purpose === "THEFT" && purposes.theftReportId
+    ? await prisma.assetTheftReport.findFirst({ where: { id: purposes.theftReportId, tenantId }, select: { reportedOn: true } })
+    : null
+  const theftFrom = report ? new Date(report.reportedOn.getTime() - THEFT_LOOKBACK_DAYS * DAY_MS) : null
+  const from = [loan.startDate, retained, ...(theftFrom ? [theftFrom] : [])].reduce((a, b) => (a > b ? a : b))
 
   return prisma.$transaction(async (tx) => {
     // The newest TRAIL_LIMIT + 1, to know whether the trail was cut; shown oldest first.

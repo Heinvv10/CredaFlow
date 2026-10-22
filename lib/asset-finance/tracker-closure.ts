@@ -8,8 +8,9 @@
  *   - the email, through sendMessage only (its consent gate, opt-outs and
  *     kill switches stand; one idempotency key per closure and recipient). The
  *     outcome is recorded as decided once: SENT, SIMULATED, BLOCKED (refused)
- *     or FAILED (the provider failed it). A send still in flight in another run
- *     is left for the next run to replay; an unexpected error fails the run;
+ *     or FAILED (the provider failed it). A run claims the step first
+ *     (messageClaimedAt), so overlapping runs never send at once; a send still
+ *     in flight is left for a later run to replay; an unexpected error fails the run;
  *   - the stored "tracking stopped" letter (a PDF on the closure).
  * The staff task is the closure itself: done when the device is removed
  * (lib/telematics/devices.ts removeTrackerDevice). Recipients are the borrower,
@@ -80,7 +81,25 @@ async function logNotice(tenantId: string, closureId: string, loanId: string, re
   })
 }
 
+/** A claim older than this is a run that died: another may take the email step over. */
+export const MESSAGE_CLAIM_STALE_MS = 10 * 60_000
+
 async function sendEmails(tenantId: string, closureId: string, loanId: string, recipients: Recipient[], facts: TrackingStoppedFacts, send: ClosureSend): Promise<void> {
+  // One run at a time sends a closure's email: two at once collide inside the send pipeline.
+  const claimed = await prisma.trackerClosure.updateMany({
+    where: { id: closureId, tenantId, messageDecidedAt: null, OR: [{ messageClaimedAt: null }, { messageClaimedAt: { lt: new Date(Date.now() - MESSAGE_CLAIM_STALE_MS) } }] },
+    data: { messageClaimedAt: new Date() },
+  })
+  if (claimed.count !== 1) return
+  try {
+    await sendClaimed(tenantId, closureId, loanId, recipients, facts, send)
+  } finally {
+    // Undecided (in flight, or failed this run): let the next run take the step at once. A decided step keeps its claim.
+    await prisma.trackerClosure.updateMany({ where: { id: closureId, tenantId, messageDecidedAt: null }, data: { messageClaimedAt: null } })
+  }
+}
+
+async function sendClaimed(tenantId: string, closureId: string, loanId: string, recipients: Recipient[], facts: TrackingStoppedFacts, send: ClosureSend): Promise<void> {
   const template = await prisma.messageTemplate.findFirst({ where: { tenantId, key: TRACKING_STOPPED_EMAIL_KEY, channel: "EMAIL", active: true } })
   const legs: { outcome: "SENT" | "SIMULATED" | "BLOCKED" | "FAILED"; note: string; messageId?: string }[] = []
   if (!template) legs.push({ outcome: "BLOCKED", note: "The tracking-stopped email template is missing" })

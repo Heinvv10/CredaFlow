@@ -56,6 +56,7 @@ CREATE TABLE "TrackerClosure" (
     "deviceId" TEXT NOT NULL,
     "closedAt" TIMESTAMP(3) NOT NULL,
     "noticeLoggedAt" TIMESTAMP(3),
+    "messageClaimedAt" TIMESTAMP(3),
     "messageOutcome" TEXT,
     "messageNote" TEXT,
     "messageId" TEXT,
@@ -500,7 +501,7 @@ BEGIN
       SELECT 1 FROM "Loan" l JOIN "TrackerDevice" d ON d."tenantId" = l."tenantId" AND d."assetId" = l."assetId"
       WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."status"::text = 'COMPLETED'
         AND d."id" = NEW."deviceId" AND d."status" = 'ACTIVE')
-      OR num_nonnulls(NEW."noticeLoggedAt", NEW."messageOutcome", NEW."messageDecidedAt", NEW."letterStoragePath", NEW."removedAt") > 0 THEN
+      OR num_nonnulls(NEW."noticeLoggedAt", NEW."messageClaimedAt", NEW."messageOutcome", NEW."messageDecidedAt", NEW."letterStoragePath", NEW."removedAt") > 0 THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker closure is opened for a completed loan''s active device, with nothing done yet';
     END IF;
     RETURN NEW;
@@ -508,8 +509,8 @@ BEGIN
   IF (NEW."tenantId", NEW."loanId", NEW."deviceId", NEW."closedAt", NEW."createdAt")
        IS DISTINCT FROM (OLD."tenantId", OLD."loanId", OLD."deviceId", OLD."closedAt", OLD."createdAt")
      OR (OLD."noticeLoggedAt" IS NOT NULL AND NEW."noticeLoggedAt" IS DISTINCT FROM OLD."noticeLoggedAt")
-     OR (OLD."messageDecidedAt" IS NOT NULL AND (NEW."messageDecidedAt", NEW."messageOutcome", NEW."messageNote", NEW."messageId")
-           IS DISTINCT FROM (OLD."messageDecidedAt", OLD."messageOutcome", OLD."messageNote", OLD."messageId"))
+     OR (OLD."messageDecidedAt" IS NOT NULL AND (NEW."messageDecidedAt", NEW."messageOutcome", NEW."messageNote", NEW."messageId", NEW."messageClaimedAt")
+           IS DISTINCT FROM (OLD."messageDecidedAt", OLD."messageOutcome", OLD."messageNote", OLD."messageId", OLD."messageClaimedAt"))
      OR (OLD."letterGeneratedAt" IS NOT NULL AND (NEW."letterGeneratedAt", NEW."letterStoragePath", NEW."letterSha256")
            IS DISTINCT FROM (OLD."letterGeneratedAt", OLD."letterStoragePath", OLD."letterSha256"))
      OR (OLD."removedAt" IS NOT NULL AND (NEW."removedAt", NEW."removedById") IS DISTINCT FROM (OLD."removedAt", OLD."removedById")) THEN

@@ -309,6 +309,8 @@ model TrackerClosure {
   closedAt           DateTime
   // The portal notice (NotificationLog rows written for the borrower's people).
   noticeLoggedAt     DateTime?
+  // The run sending the email claims it first (stale after 10 minutes): overlapping runs never send at once.
+  messageClaimedAt   DateTime?
   // The email: SENT, SIMULATED, BLOCKED or FAILED, decided once (messageNote says why).
   messageOutcome     String?
   messageNote        String?

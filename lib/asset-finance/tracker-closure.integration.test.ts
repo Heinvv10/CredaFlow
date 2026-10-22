@@ -28,7 +28,7 @@ import type { LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { completeEndOfTermIfSettled } from "./lease-end-invoice"
 import { MessageDispatchConflictError } from "@/lib/messaging/dispatch-control"
-import { processTrackerClosures, TRACKING_STOPPED_EVENT } from "./tracker-closure"
+import { MESSAGE_CLAIM_STALE_MS, processTrackerClosures, TRACKING_STOPPED_EVENT } from "./tracker-closure"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn(async () => session.current) }))
@@ -195,6 +195,28 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: null })
     expect(await run(async () => message)).toEqual({ closures: 1, failed: 0 })
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "SENT", messageId: message.id })
+  }, 600_000)
+
+  it("a run whose claim on the email is fresh is left alone; a stale claim (a run that died) is taken over", async () => {
+    _resetRateLimitStore()
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    await installDevice(fx, assetId, "SIM-STEADY-6", await loanStartDate(database(), loanId))
+    await database().$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() WHERE "id" = $1`, loanId)
+    const [closure] = await closuresOf(loanId)
+    const message = await database().message.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "SENT" } })
+    let sends = 0
+    const send = async () => { sends++; return message }
+    await database().trackerClosure.update({ where: { id: closure.id }, data: { messageClaimedAt: new Date() } })
+    await withoutTenantScope(() => processTrackerClosures(fx.tenantId, send))
+    expect(sends).toBe(0)
+    expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: null })
+    await database().trackerClosure.update({ where: { id: closure.id }, data: { messageClaimedAt: new Date(Date.now() - MESSAGE_CLAIM_STALE_MS - 1_000) } })
+    await withoutTenantScope(() => processTrackerClosures(fx.tenantId, send))
+    expect(sends).toBe(1)
+    expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "SENT" })
+    await ruleRefuses(database(), { table: "TrackerClosure", trigger: "TrackerClosure_guard" }, /recorded once/,
+      (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { messageClaimedAt: null } }))
   }, 600_000)
 
   it("removing the device closes the task; the database records each step once and never deletes a closure", async () => {
