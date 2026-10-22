@@ -476,6 +476,10 @@ model FinancedAsset {
   meterReadings     AssetMeterReading[]
   recoveries        Recovery[]
   surrenderRequests SurrenderRequest[]
+  telematicsAlerts  TelematicsAlert[]
+  telematicsHeldReadings TelematicsHeldReading[]
+  telematicsPositionAccesses TelematicsPositionAccess[]
+  trackerDevices    TrackerDevice[]
   valuations        AssetValuation[]
 
   @@unique([tenantId, id])

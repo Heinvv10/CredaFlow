@@ -10,7 +10,7 @@ import type { LeaseStaffData } from "./lease-staff-data"
 // would bill at the end of term (lib/asset-finance/lease-usage.ts).
 
 const metric = (text: string) => <span className="block text-xl tabular-nums">{text}</span>
-const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)" }
+const SOURCES: Record<string, string> = { STAFF: "Staff", PORTAL: "Lessee (portal)", TELEMATICS: "Telematics" }
 
 export function LeaseReadingsPanel({ data, usage, canRecord }: {
   data: LeaseStaffData
@@ -29,8 +29,8 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
         {projection ? (
           <div className="grid gap-4 sm:grid-cols-3">
             <MetricCard label="Used so far" value={metric(`${projection.usedUnits.toLocaleString("en-ZA")} ${unitLabel}`)} detail="Latest reading less the start reading" />
-            <MetricCard label="Projected at term end" value={metric(`${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`)}
-              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term`} />
+            <MetricCard label="Projected usage at term end" value={metric(`${projection.projectedUsedUnits.toLocaleString("en-ZA")} ${unitLabel}`)}
+              detail={`Against an allowance of ${projection.allowedUnits.toLocaleString("en-ZA")} ${unitLabel} over the term · projected meter reading ${projection.projectedFinalReading.toLocaleString("en-ZA")} ${unitLabel}`} />
             <MetricCard label="Projected excess ex VAT" value={metric(formatMoney(projection.excessCents))} tone={projection.excessCents > 0 ? "warning" : "neutral"}
               detail="An estimate: extrapolated per day from the readings" />
           </div>
@@ -51,7 +51,7 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
                 <TableRow key={r.id}>
                   <TableCell>{formatIsoDate(r.readingDate)}</TableCell>
                   <TableCell className="text-right">{r.value.toLocaleString("en-ZA")}</TableCell>
-                  <TableCell>{SOURCES[r.source] ?? r.source}</TableCell>
+                  <TableCell>{r.simulated ? "Telematics, simulated" : SOURCES[r.source] ?? r.source}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -83,6 +83,7 @@ export default async function LoanDetailPage(
         canAuthoriseBackdate={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageCharges={session?.user?.role ? hasMinRole(session.user.role, "LOAN_ADMIN") : false}
         canManageDebtReview={Boolean(role && hasMinRole(role, "COLLECTIONS_OFFICER") && canDo(role, "act_on_collections"))}
+        role={role}
       />
     )
   }
@@ -374,6 +375,7 @@ export default async function LoanDetailPage(
           canManage={session?.user?.role ? canDo(session.user.role, "manage_asset_finance") : false}
           canDecide={session?.user?.role ? canDo(session.user.role, "decide_asset_finance") : false}
           canRecordPayment={session?.user?.role ? canDo(session.user.role, "record_payment") : false}
+          role={session?.user?.role}
         />
       )}
 

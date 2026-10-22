@@ -90,10 +90,10 @@ describe("loadPortalLease", () => {
         claims: [{ id: "c1", submittedAt: new Date("2027-02-10T08:00:00Z"), description: "Synthetic service", amountExclVatCents: 4_000, status: "PAID", supplier: { name: "TEST Workshop" } }],
       },
     }))
-    mocks.reading.mockResolvedValue({ readingDate: new Date("2027-03-01T00:00:00Z"), value: 9_000 })
+    mocks.reading.mockResolvedValue({ readingDate: new Date("2027-03-01T00:00:00Z"), value: 9_000, source: "TELEMATICS" })
     const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
     expect(view?.fund).toMatchObject({ balanceCents: 16_000, riskModel: "LENDER_RISK", claims: [{ provider: "TEST Workshop", description: "Synthetic service", status: "PAID" }] })
-    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000 } })
+    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "TELEMATICS" } })
     // This lease's readings, not the asset's: an asset leased before carries an older lease's readings.
     expect(mocks.reading.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM" })
     expect(view?.termination.penaltyConfigured).toBe(false)

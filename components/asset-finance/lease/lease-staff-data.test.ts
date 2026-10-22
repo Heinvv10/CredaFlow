@@ -115,7 +115,8 @@ describe("loadLeaseStaffData", () => {
     // 900 hours in 182 days → 1 805 by the 365th day; 12 rentals (the cancelled 13th excluded) allow 1 200.
     // Excess 605 hours at R45.00 = R27 225.00.
     const usage = (await loadLeaseStaffData("t-1", "loan-1"))?.usage
-    expect(usage).toEqual({ usedUnits: 900, projectedFinalReading: 1_905, excessCents: 2_722_500, allowedUnits: 1_200 })
+    // The tile shows the usage the excess is priced on (1 805), not the meter reading (1 905, which includes the 100 h start).
+    expect(usage).toEqual({ usedUnits: 900, projectedFinalReading: 1_905, projectedUsedUnits: 1_805, excessCents: 2_722_500, allowedUnits: 1_200 })
   })
 
   it("projects nothing from a single reading or without contracted usage", async () => {

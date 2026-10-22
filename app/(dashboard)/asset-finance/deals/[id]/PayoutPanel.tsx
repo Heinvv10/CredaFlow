@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { DataPanel } from "@/components/app-shell/DataPanel"
 import { StatusPill } from "@/components/app-shell/StatusPill"
-import { formatDate } from "@/lib/utils"
+import { formatDate, formatDateTime } from "@/lib/utils"
 import { formatMoney } from "@/lib/asset-finance/format"
 import { DEAL_EVIDENCE_DOC_TYPES } from "@/lib/asset-finance/payout-checklist"
 import type { PayoutPanel as PayoutPanelData } from "@/lib/asset-finance/payout-view"
@@ -11,13 +11,29 @@ import { ChecklistConfirm } from "./ChecklistConfirm"
 import { DealActionButton } from "./DealActionButton"
 import { SuretyConsentForm } from "./SuretyConsentForm"
 import { EvidenceUpload } from "./EvidenceUpload"
+import { SimulatedChip } from "@/components/asset-finance/telematics/SimulatedChip"
 
 const link = "text-[var(--cf-brand)] underline-offset-2 hover:underline"
 const PAYOUT_TONE = { PENDING_APPROVAL: "warning", APPROVED: "info", RELEASED: "success", CANCELLED: "neutral" } as const
 
+/** The asset's live tracker (lib/telematics/devices.ts trackerHeartbeat): shown beside the tracker item, never confirming it. */
+export interface PayoutHeartbeat { externalDeviceId: string; lastSeenAt: Date | null; simulated: boolean }
+
+function Heartbeat({ heartbeat, confirmed }: { heartbeat: PayoutHeartbeat; confirmed: boolean }) {
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--cf-text-secondary)]">
+      {heartbeat.lastSeenAt ? `Live heartbeat ${formatDateTime(heartbeat.lastSeenAt)}` : `Device ${heartbeat.externalDeviceId} registered, not heard from yet`}
+      {heartbeat.simulated && <SimulatedChip />}
+      {!confirmed && <span className="text-[var(--cf-text-muted)]">— evidence still required: tracker certificate</span>}
+    </p>
+  )
+}
+
 /** The deal page's "Payout" panel (goal §4.10): checklist, payout, booking. */
-export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; canManage: boolean; canDecide: boolean; userId: string; lease?: boolean }) {
-  const { dealId, panel, canManage, canDecide, userId, lease } = props
+export function PayoutPanel(props: {
+  dealId: string; panel: PayoutPanelData; canManage: boolean; canDecide: boolean; userId: string; lease?: boolean; heartbeat?: PayoutHeartbeat | null
+}) {
+  const { dealId, panel, canManage, canDecide, userId, lease, heartbeat } = props
   const contracted = panel.dealStatus === "CONTRACTED"
   const open = panel.checklist.filter((c) => c.required && !c.confirmedAt)
   const { payout } = panel
@@ -51,6 +67,7 @@ export function PayoutPanel(props: { dealId: string; panel: PayoutPanelData; can
                 <td className="py-2 pr-3 text-[var(--cf-text)]">
                   {c.label}
                   {!c.required && <p className="text-xs text-[var(--cf-text-muted)]">Not required for this asset</p>}
+                  {c.item === "TRACKER_CONFIRMED" && heartbeat && <Heartbeat heartbeat={heartbeat} confirmed={Boolean(c.confirmedAt)} />}
                 </td>
                 <td className="py-2 pr-3">
                   {c.confirmedAt ? (

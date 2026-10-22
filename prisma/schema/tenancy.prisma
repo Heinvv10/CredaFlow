@@ -183,6 +183,7 @@ model Tenant {
   suspiciousReportCases      SuspiciousReportCase[]
   taxInvoices                TaxInvoice[]
   tcfOutcomes                TcfOutcome[]
+  trackerDevices             TrackerDevice[]
   users                      User[]
   vatConfig                  VatConfig?
   webhookDeliveries          WebhookDelivery[]
@@ -243,6 +244,9 @@ model TenantConfig {
   maintenanceClaimDualApprovalCents Int     @default(5000000)
   leasePurchaseValuationMaxAgeDays  Int     @default(30)
   leaseTerminationQuoteValidDays    Int     @default(10)
+  // Telematics (docs/asset-finance/SLICE5.md part B): days a tracker position
+  // is kept before the nightly purge (CHECK 1..365; longer needs legal sign-off).
+  telematicsPositionRetentionDays   Int     @default(90)
 
   // Recovery and remarketing (slice 4a, UNTESTED: lender legal sign-off). The
   // cost types an NCA recovery may deduct from sale proceeds, and the types a

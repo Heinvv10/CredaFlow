@@ -58,3 +58,26 @@ describe("PayoutPanel for an entity lessee", () => {
     expect(form.props.docTypes).toEqual([...DEAL_EVIDENCE_DOC_TYPES])
   })
 })
+
+describe("PayoutPanel with a live tracker", () => {
+  const trackerItem = {
+    item: "TRACKER_CONFIRMED" as const, label: "Tracker fitted and confirmed", required: true, evidenceTypes: ["TRACKER_CERTIFICATE" as const],
+    confirmedAt: null, confirmedBy: null, evidence: null, note: null,
+  }
+  const text = (root: ReactTestInstance) => root.findAll((node) => typeof node.type === "string").map((node) => node.children.filter((c) => typeof c === "string").join("")).join(" ")
+
+  it("shows the heartbeat beside the tracker item, labelled simulated, and still asks for the certificate", async () => {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    let renderer!: ReturnType<typeof create>
+    await act(async () => {
+      renderer = create(<PayoutPanel dealId="deal-1" panel={{ ...panel(null), checklist: [trackerItem] }} canManage canDecide={false} userId="u1"
+        heartbeat={{ externalDeviceId: "SIM-STEADY-1", lastSeenAt: new Date("2026-10-19T04:00:00.000Z"), simulated: true }} />)
+    })
+    const shown = text(renderer.root)
+    expect(shown).toContain("Live heartbeat 19 Oct 2026 06:00")
+    expect(shown).toContain("Simulated")
+    expect(shown).toContain("evidence still required: tracker certificate")
+    expect(shown).toContain("Open")
+    expect(shown).not.toContain("Confirmed")
+  })
+})
