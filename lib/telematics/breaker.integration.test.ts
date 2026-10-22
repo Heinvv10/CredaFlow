@@ -78,10 +78,13 @@ suite.sequential("telematics policy breaker (real DB)", () => {
       `rc_${t}`, fx.tenantId, ids.loan, fx.assets[1], fx.adminA],
       [`UPDATE "Recovery" SET "status" = 'SOLD' WHERE "id" = $1`, `rc_${t}`])
     const recoveredOn = (await database().recovery.findUniqueOrThrow({ where: { id: `rc_${t}` } })).recoveredOn
-    const stored = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device } })
-    // The device's one stored fix is from after the borrower lost the asset (a third party's, the buyer's, location): never shown.
+    const stored = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device }, orderBy: { occurredAt: "desc" } })
+    // The device's newest fix is from after the borrower lost the asset (a third party's, the buyer's, location): never shown.
     expect(stored.occurredAt.getTime()).toBeGreaterThan(recoveredOn.getTime() + 86_400_000)
-    expect(await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "RECOVERY" }, meta)).toEqual({ kind: "ok", none: true })
+    // The trail keeps the fixes from the loan's own tenure: the latest shown is from before the recovery, never after.
+    const shown = await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "RECOVERY" }, meta)
+    expect(shown).toMatchObject({ kind: "ok" })
+    if ("position" in shown) expect(Date.parse(shown.position.occurredAt)).toBeLessThan(recoveredOn.getTime())
   }, 120_000)
 
   it("a completed (closed) loan with an open legal matter reveals nothing taken after it closed", async () => {
@@ -90,8 +93,10 @@ suite.sequential("telematics policy breaker (real DB)", () => {
       [`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() - INTERVAL '5 days' WHERE "id" = $1`, ids.loan],
       [`INSERT INTO "LegalMatter" ("id", "tenantId", "loanId", "createdById", "updatedAt") VALUES ($1, $2, $3, $4, now())`, `lm_${t}`, fx.tenantId, ids.loan, fx.adminA])
     const closedAt = (await database().loan.findUniqueOrThrow({ where: { id: ids.loan } })).closedAt as Date
-    expect((await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device } })).occurredAt > closedAt).toBe(true)
-    expect(await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "LEGAL_MATTER" }, meta)).toEqual({ kind: "ok", none: true })
+    expect((await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device }, orderBy: { occurredAt: "desc" } })).occurredAt > closedAt).toBe(true)
+    const shown = await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "LEGAL_MATTER" }, meta)
+    expect(shown).toMatchObject({ kind: "ok" })
+    if ("position" in shown) expect(Date.parse(shown.position.occurredAt)).toBeLessThan(closedAt.getTime())
   }, 120_000)
 
   it("context RECOVERY is refused (409, no view logged) for a loan with no open recovery (only a legal matter)", async () => {

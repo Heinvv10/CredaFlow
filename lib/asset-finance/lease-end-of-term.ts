@@ -186,8 +186,8 @@ export async function recordInspection(tx: SigningTx, actor: { tenantId: string;
   let finalReadingId: string | null = null
   if (unit !== null) {
     if (input.finalReading === null) return refused("final_reading", "Record the final meter reading: the lease has contracted usage")
-    // The final reading is the latest: excess is billed from it.
-    const later = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit, readingDate: { gt: dbDate(input.inspectedOn) } }, select: { readingDate: true } })
+    // The final reading is the latest: excess is billed from it. A voided reading counts for nothing (./meter-void.ts).
+    const later = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit, voidedAt: null, readingDate: { gt: dbDate(input.inspectedOn) } }, select: { readingDate: true } })
     if (later) return refused("invalid_inspectedOn", `A reading dated ${isoOfDbDate(later.readingDate)} is later than the inspection`)
     const reading = await recordMeterReading(tx, { tenantId, userId: actor.userId }, {
       loanId: input.loanId, readingDate: input.inspectedOn, value: input.finalReading, evidenceDocumentId: null, today: input.today,

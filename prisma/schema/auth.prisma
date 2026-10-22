@@ -38,6 +38,11 @@ model User {
   updatedAt                DateTime  @updatedAt
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
+  // Phase 9 audit-pointer relations. Restrict on each (declared on the
+  // child-side relation) — User hard-delete is already non-normal (we
+  // deactivate via active=false); blocking it on outstanding audit
+  // references is the auditor-safe default for POPIA s.17 operator-identity
+  // records and FAIS GCC s.3(2) record-of-advice retention.
   accounts                     Account[]
   adviceRecordsRecorded        InsuranceAdviceRecord[]               @relation("AdviceRecordedBy")
   advisorCommissions           AdvisorCommission[]
@@ -50,6 +55,9 @@ model User {
   assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   assetDealsCancelled          AssetFinanceDeal[]                    @relation("AssetDealCancelledBy")
+  assetTheftReportsConfirmed   AssetTheftReport[]                    @relation("AssetTheftReportConfirmedBy")
+  assetTheftReportsEnded       AssetTheftReport[]                    @relation("AssetTheftReportEndedBy")
+  assetTheftReportsRecorded    AssetTheftReport[]                    @relation("AssetTheftReportRecordedBy")
   assignedConversations        Conversation[]
   assignedLoans                LoanApplication[]                     @relation("AssignedTo")
   auditLogs                    AuditLog[]
@@ -61,11 +69,6 @@ model User {
   collectionResultsResolved    CollectionResult[]                    @relation("CollectionResultsResolved")
   commercialCancellations       CommercialCancellation[]
   contactConsentsCaptured      ContactConsent[]                      @relation("ContactConsentsCapturedBy")
-  // Phase 9 audit-pointer relations. Restrict on each (declared on the
-  // child-side relation) — User hard-delete is already non-normal (we
-  // deactivate via active=false); blocking it on outstanding audit
-  // references is the auditor-safe default for POPIA s.17 operator-identity
-  // records and FAIS GCC s.3(2) record-of-advice retention.
   contactMergesPerformed       ContactMerge[]                        @relation("ContactMergesPerformedBy")
   countersignedApplications    LoanApplication[]                     @relation("AgreementCountersignedBy")
   dealerAccountsDecided        DealerBankAccount[]                   @relation("DealerAccountDecidedBy")
@@ -94,6 +97,8 @@ model User {
   messagesDeleted              Message[]                             @relation("MessagesDeletedBy")
   messagesDisclosureDelivered  Message[]                             @relation("MessagesDisclosureDeliveredBy")
   messagesEdited               Message[]                             @relation("MessagesEditedBy")
+  meterReadingVoidsDecided     AssetMeterReadingVoid[]               @relation("MeterReadingVoidDecidedBy")
+  meterReadingVoidsRequested   AssetMeterReadingVoid[]               @relation("MeterReadingVoidRequestedBy")
   ncaOverridesDecided          NcaRegimeOverride[]                   @relation("NcaOverridesDecided")
   ncaOverridesRequested        NcaRegimeOverride[]                   @relation("NcaOverridesRequested")
   ncaSurplusAccountsApproved NcaSurplusAccount[] @relation("NcaSurplusApprovedBy")
@@ -135,6 +140,7 @@ model User {
   telematicsAlertsResolved     TelematicsAlert[]                     @relation("TelematicsAlertResolvedBy")
   telematicsHeldReadingsDecided TelematicsHeldReading[]              @relation("TelematicsHeldReadingDecidedBy")
   telematicsPositionAccesses   TelematicsPositionAccess[]            @relation("TelematicsPositionAccessUser")
+  trackerClosuresRemoved       TrackerClosure[]                      @relation("TrackerClosureRemovedBy")
   trackerDevicesCreated        TrackerDevice[]                       @relation("TrackerDeviceCreatedBy")
   trackerDevicesMeterVerified  TrackerDevice[]                       @relation("TrackerDeviceMeterVerifiedBy")
   trackerDevicesRemoved        TrackerDevice[]                       @relation("TrackerDeviceRemovedBy")

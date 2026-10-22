@@ -28,16 +28,21 @@
 ## Position (POPIA)
 - Collection ends with the agreement: a position is stored, and an alert raised, only while a loan's tenure
   covers the event (`telematicsLoanAt`, DB-enforced; ended by the loan's own dated records, never the asset's
-  lessor status). One position per device, the latest. An event older than retention is refused.
+  lessor status). Every position is kept (the trail), purged by age. An event older than retention is refused.
 - `position-view.ts` is the only read path for a coordinate (`position-read-path.test.ts`): view_asset_position
-  (never READONLY, INSURANCE_OFFICER or a dealer), a purpose the loan has now (DEFAULT, RECOVERY, LEGAL_MATTER),
+  (never READONLY, INSURANCE_OFFICER or a dealer), a purpose the loan has now (DEFAULT, RECOVERY, LEGAL_MATTER,
+  THEFT: a SAPS report valid 30 days, confirmed by a second person, `theft-reports.ts`; the rule is the database's,
+  `telematicsPurposeHolds`, which `position-purpose.ts` asks),
   its own tenure (ends at the next loan, its closing or a recovery), within retention, and an access row written
   before the answer, audited TELEMATICS_POSITION_VIEWED; a 403 or 409 TELEMATICS_POSITION_REFUSED. The panels
   show the button only when `position-purpose.ts` says the reveal would answer. Never render a position with a page.
+- `position-trail.ts` is the second read path: THEFT, RECOVERY or LEGAL_MATTER only (never DEFAULT, SQL-held),
+  a THEFT trail from 7 days before the report, at most 500 points, one access row (view TRAIL, its count).
 - Retention is `TenantConfig.telematicsPositionRetentionDays` (CHECK 1..365); `purge.ts` deletes nightly.
 
 ## Boundaries
-- Nothing here sends a message (`no-outbound.test.ts`); an alert is a TelematicsAlert work item (SERVICING,
+- Nothing here sends a message (`no-outbound.test.ts`): a completed loan's tracker closure (notice, email,
+  letter) is `lib/asset-finance/tracker-closure.ts`; `removeTrackerDevice` closes its task. An alert is a TelematicsAlert work item (SERVICING,
   COLLECTIONS only in default, RECOVERY with an open recovery or matter).
 - The payout checklist never reads telematics (`payout-isolation.test.ts`): a heartbeat is shown beside the
   tracker item, never instead of the TRACKER_CERTIFICATE.

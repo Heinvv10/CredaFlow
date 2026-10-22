@@ -93,7 +93,7 @@ describe("loadInspectionReport", () => {
     expect(await loadInspectionReport(db, "t-1", "loan-1")).toEqual(REPORT)
     expect(whereOf(m.end)).toEqual({ tenantId: "t-1", loanId: "loan-1", inspectedOn: { not: null }, loan: LEASES })
     expect(m.reading).toHaveBeenCalledWith({
-      where: { tenantId: "t-1", loanId: "loan-1", unit: "HOURS" },
+      where: { tenantId: "t-1", loanId: "loan-1", unit: "HOURS", voidedAt: null },
       orderBy: [{ readingDate: "asc" }, { value: "asc" }],
       select: { value: true, readingDate: true, unit: true },
     })

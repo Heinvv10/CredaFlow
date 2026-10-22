@@ -84,7 +84,8 @@ suite.sequential("telematics ingest: idempotent, lower and implausible readings 
     expect(first.stored).toBeGreaterThan(80)
     const before = await counts(ids.rollbackDevice)
     expect(before.events).toBeGreaterThan(40)
-    expect(before.positions).toBe(1) // the latest only: each newer position replaced the one before
+    // The trail (SLICE5-FOLLOWUPS.md part T): one position per POSITION or ALERT event that carried one.
+    expect(before.positions).toBeGreaterThan(1)
 
     // The cursor moved on: re-polling at the same instant finds nothing new.
     expect(await pollTenant(fx.tenantId, now)).toMatchObject({ stored: 0, duplicates: 0, failed: 0 })

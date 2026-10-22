@@ -15,16 +15,17 @@
  */
 import type { TelematicsPositionContext } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { canDo } from "@/lib/auth-guards"
 import type { AppRole } from "@/lib/auth-config"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
 import { SAST_OFFSET_MS, sastCalendarDate } from "@/lib/date/sast"
 import { isoOfDbDate } from "@/lib/asset-finance/dates"
-import { positionPurposes, purposeRefusal } from "./position-purpose"
+import { positionPurposes, PURPOSE_REFUSAL, purposeRefusal } from "./position-purpose"
 import { objectBody, refused, type TelematicsActor, type TelematicsRefusal, type TelematicsResult } from "./result"
 
-export const POSITION_CONTEXTS: readonly TelematicsPositionContext[] = ["DEFAULT", "RECOVERY", "LEGAL_MATTER"]
+export const POSITION_CONTEXTS: readonly TelematicsPositionContext[] = ["DEFAULT", "RECOVERY", "LEGAL_MATTER", "THEFT"]
 
 export interface RevealedPosition {
   latitude: number
@@ -49,7 +50,7 @@ const sastDayStart = (day: string) => new Date(Date.parse(`${day}T00:00:00.000Z`
  * Never the asset's current lessor status (one value,
  * re-stamped by a withdrawn recovery, perhaps an earlier lease's).
  */
-async function tenureEnd(tenantId: string, loan: { id: string; assetId: string; startDate: Date; closedAt: Date | null }): Promise<Date | null> {
+export async function tenureEnd(tenantId: string, loan: { id: string; assetId: string; startDate: Date; closedAt: Date | null }): Promise<Date | null> {
   const [next, recovery, endOfTerm] = await Promise.all([
     prisma.loan.findFirst({
       where: { tenantId, assetId: loan.assetId, id: { not: loan.id }, status: { not: "CANCELLED" }, startDate: { gt: loan.startDate } },
@@ -80,13 +81,14 @@ export async function revealPosition(
   }
   if (!canDo(actor.role as AppRole, "view_asset_position")) return refuse(403, "Showing a position needs the view_asset_position permission", "no_view_asset_position")
   if (!POSITION_CONTEXTS.includes(context as TelematicsPositionContext)) {
-    return refused(400, "context is DEFAULT, RECOVERY or LEGAL_MATTER", { context: "DEFAULT, RECOVERY or LEGAL_MATTER" })
+    return refused(400, "context is DEFAULT, RECOVERY, LEGAL_MATTER or THEFT", { context: "DEFAULT, RECOVERY, LEGAL_MATTER or THEFT" })
   }
   const purpose = context as TelematicsPositionContext
   const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId }, select: { id: true, assetId: true, status: true, startDate: true, closedAt: true } })
   if (!loan?.assetId) return refused(404, "Loan not found")
   const assetId = loan.assetId
-  const refusal = purposeRefusal(await positionPurposes(tenantId, loan), purpose)
+  const purposes = await positionPurposes(tenantId, loan)
+  const refusal = purposeRefusal(purposes, purpose)
   if (refusal) return refuse(409, refusal.error, refusal.reason)
 
   const end = await tenureEnd(tenantId, { ...loan, assetId })
@@ -94,7 +96,7 @@ export async function revealPosition(
   const retained = new Date(Date.now() - (config?.telematicsPositionRetentionDays ?? 90) * DAY_MS)
   const from = loan.startDate > retained ? loan.startDate : retained
 
-  return prisma.$transaction(async (tx) => {
+  const answer = () => prisma.$transaction(async (tx) => {
     const position = await tx.telematicsPosition.findFirst({
       where: { tenantId, device: { assetId }, occurredAt: { gte: from, ...(end ? { lt: end } : {}) } },
       orderBy: { occurredAt: "desc" },
@@ -105,6 +107,7 @@ export async function revealPosition(
       select: { id: true },
       data: {
         tenantId, userId: actor.userId, loanId, assetId, deviceId: position?.deviceId ?? device?.id ?? null, context: purpose,
+        theftReportId: purpose === "THEFT" ? purposes.theftReportId : null,
         positionId: position?.id ?? null, positionOccurredAt: position?.occurredAt ?? null, ipAddress: meta.ipAddress, userAgent: meta.userAgent?.slice(0, 500) ?? null,
       },
     })
@@ -121,4 +124,11 @@ export async function revealPosition(
       },
     }
   })
+  try {
+    return await answer()
+  } catch (error) {
+    // The purpose lapsed between the check above and the access row (guardTelematicsPositionAccess refuses it).
+    if (isCheckViolation(error)) return refuse(409, PURPOSE_REFUSAL, "purpose_lapsed")
+    throw error
+  }
 }

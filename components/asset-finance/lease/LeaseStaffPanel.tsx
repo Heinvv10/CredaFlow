@@ -45,7 +45,7 @@ async function claimOptions(tenantId: string, data: LeaseStaffData): Promise<Cla
   return {
     suppliers: suppliers.map((s) => ({ id: s.id, label: s.name })),
     documents: documents.map((d) => ({ id: d.id, label: d.fileName })),
-    readings: data.readings.map((r) => ({ id: r.id, label: `${formatIsoDate(r.readingDate)} · ${r.value.toLocaleString("en-ZA")} ${unit}` })),
+    readings: data.readings.filter((r) => !r.voidedOn).map((r) => ({ id: r.id, label: `${formatIsoDate(r.readingDate)} · ${r.value.toLocaleString("en-ZA")} ${unit}` })),
   }
 }
 

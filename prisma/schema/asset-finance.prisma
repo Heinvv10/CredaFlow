@@ -481,6 +481,7 @@ model FinancedAsset {
   telematicsAlerts  TelematicsAlert[]
   telematicsHeldReadings TelematicsHeldReading[]
   telematicsPositionAccesses TelematicsPositionAccess[]
+  theftReports      AssetTheftReport[]
   trackerDevices    TrackerDevice[]
   valuations        AssetValuation[]
 
