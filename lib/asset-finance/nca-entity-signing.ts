@@ -32,6 +32,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
     } },
     entity: true,
     asset: true,
+    dealer: { select: { name: true } },
   } })
   if (!deal) return { kind: "not_found" }
   if (deal.status !== "APPROVED") return { kind: "not_approved", status: deal.status }
@@ -83,6 +84,7 @@ export async function prepareEntityNcaDocuments(actor: SigningActor, dealId: str
       addressLines: [deal.entity.addressLine1, deal.entity.addressLine2, deal.entity.city, deal.entity.province, deal.entity.postalCode].filter((v): v is string => !!v),
     },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
+    dealer: deal.dealer ? { name: deal.dealer.name } : null,
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,

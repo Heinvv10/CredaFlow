@@ -10,6 +10,7 @@ import { PRESET_LABELS } from "../deal-labels"
 import { STRUCTURE_PRESETS } from "../deal-input"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "./pdf-layout"
+import { commissionDisclosure } from "./wording/commission-disclosure"
 import { instalmentSaleClauses, isaTokens } from "./wording/instalment-sale"
 import { additionalTerms, wordingWatermark, type AppliedWording } from "./templates/apply"
 import { assetRows, entityRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "./document-parts"
@@ -72,6 +73,7 @@ export async function renderInstalmentSaleAgreement(data: DealDocumentData, word
     ["Default interest on arrears", arrearsMarginDescription(p.arrearsMarginRate)],
     ["Collection fee per missed instalment", p.collectionFeeCents > 0 ? formatZarPdf(p.collectionFeeCents) : "None"],
   ])
+  if (data.dealer) w.paragraph(commissionDisclosure("INSTALMENT_SALE", data.dealer))
 
   w.table(
     "6. REPAYMENT SCHEDULE",

@@ -36,6 +36,7 @@ const SELECT = {
   } },
   client: { select: { id: true, firstName: true, lastName: true, idNumber: true, addressLine1: true, city: true, province: true, postalCode: true } },
   asset: { select: { make: true, model: true, year: true, serialNumber: true, vin: true, cashPriceExclVatCents: true, vatCents: true } },
+  dealer: { select: { name: true } },
 } as const
 
 export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: string; userEmail?: string }, dealId: string): Promise<AgreementResult> {
@@ -73,6 +74,7 @@ export async function issueAssetNcaAgreement(actor: { tenantId: string; userId: 
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     borrower: { name: `${deal.client.firstName} ${deal.client.lastName}`, identityNumber: deal.client.idNumber, addressLines: [deal.client.addressLine1, deal.client.city, deal.client.province, deal.client.postalCode].filter((v): v is string => !!v) },
     asset: { description: `${deal.asset.year} ${deal.asset.make} ${deal.asset.model}`, serialNumber: deal.asset.vin ?? deal.asset.serialNumber },
+    dealer: deal.dealer ? { name: deal.dealer.name } : null,
     pricing: {
       cashPriceCents: deal.asset.cashPriceExclVatCents + deal.asset.vatCents, depositCents: deal.depositCents,
       principalCents: evidence.calculator.principalCents, annualRate: rate.annualRate,

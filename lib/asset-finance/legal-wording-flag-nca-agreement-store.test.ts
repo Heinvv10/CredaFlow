@@ -79,6 +79,18 @@ describe("issueAssetNcaAgreement issues from the lender's template version", () 
   })
 
   it.each([
+    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
+    ["a deal without a dealer hands it none", undefined, null],
+  ])("%s", async (_, dealer, expected) => {
+    m.approved.mockResolvedValue(true)
+    m.findFirst.mockResolvedValue({ ...deal, dealer })
+    m.select.mockResolvedValue(selected("LENDER_LEGAL"))
+    expect((await issueAssetNcaAgreement({ tenantId: "t1", userId: "u1" }, "d1")).kind).toBe("done")
+    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true } } }) }))
+    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }), expect.anything())
+  })
+
+  it.each([
     ["printed DRAFT", { newValue: { documentSha256: "q", draftLegalWording: true } }],
     ["has no issuance record (counts as DRAFT)", null],
   ])("refuses an agreement under a legal approval when the acknowledged quotation %s (nothing rendered)", async (_, record) => {

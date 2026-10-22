@@ -1,6 +1,7 @@
 import { formatDatePdf, formatZarPdf, MARGIN } from "@/lib/pdf/helpers"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
 import { rateDescription } from "../document-parts"
+import { commissionDisclosure } from "../wording/commission-disclosure"
 import { ncaQuoteClauses } from "../wording/nca-quote"
 import type { NcaAssetDocumentData } from "./types"
 
@@ -38,6 +39,7 @@ export async function renderNcaAssetQuote(data: NcaAssetDocumentData): Promise<B
     ["Residual / balloon", formatZarPdf(p.balloonCents)], ["Total interest", formatZarPdf(p.totalInterestCents)],
     ["Total cost of credit", formatZarPdf(p.totalCostOfCreditCents)],
   ])
+  if (data.dealer) w.paragraph(commissionDisclosure("NCA_QUOTATION", data.dealer))
   w.table("PROPOSED REPAYMENT SCHEDULE", COLUMNS, data.schedule.map((r) => [
     String(r.installmentNo), formatIsoDatePdf(r.dueDate), formatZarPdf(r.principalCents),
     formatZarPdf(r.interestCents), formatZarPdf(r.feesCents), formatZarPdf(r.totalCents),

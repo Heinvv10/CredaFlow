@@ -71,4 +71,20 @@ describe("prepareEntityNcaDocuments issues the agreement from the lender's templ
       templates: [expect.objectContaining({ templateKey: "af.nca.instalment_sale", templateVersion: 2, approvalBasis: basis, issuanceId: "issuance-1" })],
     }) }), expect.anything())
   })
+
+  it.each([
+    ["a dealer deal hands the dealer's name to the renderer", { name: "SAMPLE Dealer (synthetic)" }, { name: "SAMPLE Dealer (synthetic)" }],
+    ["a deal without a dealer hands it none", undefined, null],
+  ])("%s", async (_, dealer, expected) => {
+    m.findFirst.mockResolvedValue({ ...deal, dealer })
+    m.load.mockResolvedValue({ legalWordingApproved: false, ncaApplies: true, pricing: {}, requiredSigners: REQUIRED })
+    m.select.mockResolvedValue({
+      templateId: "tpl", templateKey: "af.nca.instalment_sale", versionId: "v2", versionNumber: 2, contentSha256: "c".repeat(64), approvalBasis: "LENDER_LEGAL",
+      approvedById: "u2", approvedAt: new Date(), legalSignOffReference: null,
+      content: { schema: 1, templateKey: "af.nca.instalment_sale", starterRevision: "x", clauses: {}, additionalTerms: [] },
+    })
+    expect(await prepareEntityNcaDocuments({ tenantId: "t1", userId: "u1" }, "d1")).toEqual({ kind: "prepared", signers: 1 })
+    expect(m.findFirst).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ dealer: { select: { name: true } } }) }))
+    expect(m.render).toHaveBeenCalledWith(expect.objectContaining({ dealer: expected }), expect.anything())
+  })
 })

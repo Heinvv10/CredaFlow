@@ -29,6 +29,7 @@ import { deriveRequiredSigners, requiredFromPrepared, type RequiredSigner } from
 import { isLeaseContract } from "../lease-input"
 import { leaseDocumentTerms, soleProprietorOf, type LeaseDocumentTerms, type SoleProprietor } from "./lease/lease-document-data"
 import { documentTermProblem, snapshotArrearsMargin } from "./document-terms"
+import type { DocumentDealer } from "./wording/commission-disclosure"
 
 export { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./document-terms"
 
@@ -80,6 +81,12 @@ export interface DealDocumentData {
     registrationNumber: string | null
   }
   supplier: { name: string; registrationNumber: string | null; vatNumber: string | null }
+  /**
+   * The dealer that introduced the deal (AssetFinanceDeal.dealerId), or none.
+   * It only prints the commission disclosure (./wording/commission-disclosure.ts);
+   * absent on a snapshot taken before the disclosure existed, which prints none.
+   */
+  dealer?: DocumentDealer | null
   pricing: {
     cashPriceExclVatCents: number
     vatCents: number
@@ -168,6 +175,7 @@ export async function loadDealDocumentData(
       entity: true,
       asset: true,
       supplier: { select: { name: true, registrationNumber: true, vatNumber: true } },
+      dealer: { select: { name: true } },
     },
   })
   if (!deal) return null
@@ -246,6 +254,7 @@ export async function loadDealDocumentData(
       registrationNumber: a.registrationNumber,
     },
     supplier: deal.supplier,
+    dealer: deal.dealer ? { name: deal.dealer.name } : null,
     pricing: {
       cashPriceExclVatCents: a.cashPriceExclVatCents,
       vatCents: a.vatCents,

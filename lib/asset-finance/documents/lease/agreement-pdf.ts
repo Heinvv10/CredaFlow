@@ -14,6 +14,7 @@ import type { AnyDealDocumentData } from "../deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf, type TableColumn } from "../pdf-layout"
 import { assetRows, lenderLetterhead, lenderRows, percentPdf, rateDescription, supplierRows } from "../document-parts"
 import { ENTITY_TYPE_LABELS } from "../../labels"
+import { commissionDisclosure } from "../wording/commission-disclosure"
 import { leaseAgreementClauses } from "../wording/lease-agreement"
 import type { LeaseDocumentTerms } from "./lease-document-data"
 import { additionalTerms, identityTokens, wordingWatermark, type AppliedWording } from "../templates/apply"
@@ -132,6 +133,7 @@ export async function renderLeaseAgreement(data: AnyDealDocumentData, wording?: 
   w.labelValues(supplierRows(data))
   w.section("5. RENTALS")
   w.labelValues(rentalRows(data, lease))
+  if (data.dealer) w.paragraph(commissionDisclosure("LEASE", data.dealer))
   // An operating lease has no maintenance column.
   const keep = (_: unknown, i: number) => fml || i !== 3
   w.table("6. RENTAL SCHEDULE", SCHEDULE_COLUMNS.filter(keep), lease.schedule.rows.map((r) => [
