@@ -234,7 +234,12 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
    before it cannot be stretched back), not in the future and not before the
    loan started. A renewal is a new row for the same case that keeps the
    original's date and needs its own confirmation; a case has at most three
-   reports (90 days), then a recovery or a legal matter takes over. Nothing
+   reports (90 days), then a recovery or a legal matter takes over; a second
+   first report of a case is refused (a repeat is a renewal); an ended report
+   is not renewed, and ending a report ends its case; an expired report is not
+   confirmed. Reports of one loan are written one at a time (the loan row is
+   locked), so the cap holds under concurrency. The month is written without a
+   leading zero (one spelling per case). Nothing
    else about a report changes; it is never deleted. The case number is
    checked as `CAS <number>/<month>/<year>` (year 2000 to this year), in the
    trigger before the CHECK.
@@ -261,7 +266,9 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
    PENDING → APPROVED | REJECTED, decidedBy/At). CHECK: the decider is not the
    requester; both hold `manage_asset_finance`'s roles (checked in SQL too).
    One open request per reading (two at once queue on the reading's row and
-   the second is a 409). Refused when the reading is a final reading
+   the second is a 409); approvals of one lease queue on the lease row, so two
+   at once never leave it without a live reading. The reason is shown to the
+   lessee in the portal (the staff form says so). Refused when the reading is a final reading
    (`LeaseEndOfTerm.finalReadingId`), a recovery's or a maintenance claim's
    reading, already void, the lease's only live reading in its unit (there
    would be no start to measure from), or of a lease whose end of term is
@@ -349,7 +356,9 @@ THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAcc
 ### Known limitations (part T)
 
 - **The case number is checked for form only.** Nothing verifies it with SAPS;
-  the second person's confirmation is the check, and both are audited.
+  the second person's confirmation is the check, and both are audited. Two
+  staff acting together can still invent a case: the lender's own controls
+  (and the audit trail) answer that, not the system.
 - **The trail map is an inline sketch** of the points (no map tiles, no
   external call): enough to see movement, not a street map.
 - **A closure email stuck in reconciliation** (an outcome the provider never
@@ -375,3 +384,5 @@ THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAcc
   on the document access register.
 - **The position purge** deletes at most 200 batches of 5 000 a tenant a
   night; a fleet reporting every minute would need more.
+- **A void approved by SQL directly** (by a permitted role) writes no audit
+  row: only `meter-void.ts` audits. The database checks the roles.

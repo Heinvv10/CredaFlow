@@ -9,6 +9,8 @@ import type { TrackingStoppedFacts } from "./documents/wording/tracking-stopped"
 
 export interface ClosureFactsInput {
   closedAt: Date
+  /** The retention stated when the notice was logged (TrackerClosure.retentionDays); the lender's current one before that. */
+  retentionDays?: number | null
   loan: { reference: string; entity: { legalName: string } | null; asset: { make: string; model: string; serialNumber: string } | null }
 }
 
@@ -20,6 +22,6 @@ export async function trackingStoppedFactsOf(tenantId: string, lenderName: strin
     assetDescription: asset ? `${asset.make} ${asset.model} (${asset.serialNumber})` : "financed asset",
     endedOn: formatIsoDatePdf(sastCalendarDate(closure.closedAt)),
     entityName: closure.loan.entity?.legalName ?? null,
-    retentionDays: config?.telematicsPositionRetentionDays ?? 90,
+    retentionDays: closure.retentionDays ?? config?.telematicsPositionRetentionDays ?? 90,
   }
 }

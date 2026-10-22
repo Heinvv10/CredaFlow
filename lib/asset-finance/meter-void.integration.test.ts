@@ -24,6 +24,7 @@ import type { SessionUser } from "./payout-booking.integration-fixture"
 import { recordMeterReading } from "./meter-readings"
 import { decideMeterReadingVoid, requestMeterReadingVoid } from "./meter-void"
 import { recordInspection } from "./lease-end-of-term"
+import { _resetRateLimitStore } from "@/lib/rate-limit"
 import type { SigningTx } from "./signing-prepare"
 import type { LeaseActionResult } from "./lease-route"
 import { dbDate } from "./dates"
@@ -313,5 +314,31 @@ suite.sequential("meter-reading void: four-eyes, refusals, a voided reading coun
     const voidId = (asked as unknown as { voidId: string }).voidId
     expect(await inTx((tx) => decideMeterReadingVoid(tx, actor(fx.adminA), { loanId, voidId, decision: "APPROVE" }))).toEqual({ kind: "decided", status: "APPROVED" })
     expect(await inspect()).not.toMatchObject({ kind: "refused" })
+  }, 600_000)
+
+  it("two approvals at once never leave a lease without a live reading: they queue on the lease, the second is refused", async () => {
+    _resetRateLimitStore() // the portal signing limit, in this process's memory: several leases signed by one borrower here
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    const start = (await database().assetMeterReading.findFirstOrThrow({ where: { loanId }, orderBy: { readingDate: "asc" } })).id
+    const other = await inTx((tx) => recordMeterReading(tx, actor(fx.officer), { loanId, readingDate: daysAgo(3), value: 1_050, evidenceDocumentId: null, today: today() }))
+    const ask = async (readingId: string) => ((await inTx((tx) => requestMeterReadingVoid(tx, actor(fx.officer), { loanId, readingId, reason: "A synthetic wrong reading, for the race" }))) as unknown as { voidId: string }).voidId
+    const voids = [await ask(start), await ask((other as { readingId: string }).readingId)]
+    // The first approval holds its transaction open; the second starts once the first has written (by SQL, as any path would).
+    const approve = (tx: Tx, voidId: string, by: string) =>
+      tx.$executeRawUnsafe(`UPDATE "AssetMeterReadingVoid" SET "status" = 'APPROVED', "decidedById" = $2, "decidedAt" = now() WHERE "id" = $1`, voidId, by)
+    let firstWrote: () => void = () => undefined
+    const wrote = new Promise<void>((resolve) => { firstWrote = resolve })
+    const first = database().$transaction(async (tx) => {
+      await approve(tx, voids[0], fx.adminA)
+      firstWrote()
+      await new Promise((r) => setTimeout(r, 1_500))
+    }, { timeout: 30_000 })
+    const second = wrote.then(() => database().$transaction((tx) => approve(tx, voids[1], fx.adminB), { timeout: 30_000 }))
+      .then(() => "approved", (e: unknown) => (e instanceof Error ? e.message : String(e)))
+    await first
+    // The second waited on the lease, then saw the first's void: refused, so the lease keeps a live reading.
+    expect(await second).toMatch(/only reading is not voided/)
+    expect(await database().assetMeterReading.count({ where: { loanId, voidedAt: null } })).toBe(1)
   }, 600_000)
 })

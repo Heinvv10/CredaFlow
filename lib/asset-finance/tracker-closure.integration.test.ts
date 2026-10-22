@@ -134,7 +134,7 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     expect(closures).toHaveLength(3)
     for (const c of closures) {
       expect(c.noticeLoggedAt).not.toBeNull()
-      expect(c).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "The lender's email is not set up or is switched off" })
+      expect(c).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "The lender's email is not set up or is switched off", retentionDays: 90 })
       expect(c.letterStoragePath).not.toBeNull()
       const pdf = await readFile(c.letterStoragePath ?? "")
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-")
@@ -364,6 +364,8 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     const ONCE = /recorded once/
     await ruleRefuses(database(), guard, ONCE, (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { messageOutcome: "SENT", messageNote: "rewritten" } }))
     await ruleRefuses(database(), guard, ONCE, (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { noticeLoggedAt: new Date() } }))
+    // The retention the notice stated stays what it said.
+    await ruleRefuses(database(), guard, ONCE, (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { retentionDays: 30 } }))
     await ruleRefuses(database(), guard, ONCE, (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { letterSha256: "0".repeat(64) } }))
     await ruleRefuses(database(), guard, ONCE, (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { removedAt: new Date() } }))
     await ruleRefuses(database(), guard, /never deleted/, (tx) => tx.trackerClosure.delete({ where: { id: closure.id } }))

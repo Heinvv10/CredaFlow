@@ -35,7 +35,9 @@ export function ReadingVoidControls({ loanId, readingId, pending }: {
   if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Void…</Button>
   return (
     <div className="space-y-2">
-      <TextField id={`void-reason-${readingId}`} label="Why is this reading wrong?" required value={reason} onChange={setReason} />
+      <TextField id={`void-reason-${readingId}`} label="Why is this reading wrong?" required value={reason} onChange={setReason}
+        placeholder="e.g. a tracker glitch: the machine reads about 1 060 hours" />
+      <p className="text-xs text-[var(--cf-text-muted)]">The lessee sees this reason in the portal, beside the voided reading: keep it to the facts of the reading.</p>
       <div className="flex gap-2">
         <Button size="sm" variant="destructive" disabled={busy}
           onClick={async () => { if (await run(`/api/asset-finance/leases/${loanId}/readings/${readingId}/void`, { reason })) setOpen(false) }}>

@@ -11,7 +11,7 @@ import { TRACKING_STOPPED_TITLE, trackingStoppedParagraphs } from "@/lib/asset-f
 export async function PortalTrackingStopped({ tenantId, loanId }: { tenantId: string; loanId: string }) {
   const closure = await prisma.trackerClosure.findFirst({
     where: { tenantId, loanId, noticeLoggedAt: { not: null } }, orderBy: { createdAt: "asc" },
-    select: { closedAt: true, loan: { select: { reference: true, entity: { select: { legalName: true } }, asset: { select: { make: true, model: true, serialNumber: true } } } } },
+    select: { closedAt: true, retentionDays: true, loan: { select: { reference: true, entity: { select: { legalName: true } }, asset: { select: { make: true, model: true, serialNumber: true } } } } },
   })
   const lender = closure ? await findLenderIdentity(tenantId) : null
   if (!closure || !lender) return null

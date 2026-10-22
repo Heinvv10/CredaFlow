@@ -108,12 +108,14 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
       validUntil: new Date(`${today()}T00:00:00Z`), recordedById: ids.collector, ...over,
     } })
     // The form is checked twice: the trigger first (so the year can be read), then the CHECK.
-    const FORM = ["IF NEW.\"sapsCaseNumber\" !~ '^CAS [1-9][0-9]{0,5}/(0?[1-9]|1[0-2])/[0-9]{4}$' OR", "IF FALSE AND NEW.\"sapsCaseNumber\" !~ '^CAS [1-9][0-9]{0,5}/(0?[1-9]|1[0-2])/[0-9]{4}$' OR"] as const
+    const FORM = ["IF NEW.\"sapsCaseNumber\" !~ '^CAS [1-9][0-9]{0,5}/([1-9]|1[0-2])/[0-9]{4}$' OR", "IF FALSE AND NEW.\"sapsCaseNumber\" !~ '^CAS [1-9][0-9]{0,5}/([1-9]|1[0-2])/[0-9]{4}$' OR"] as const
     // A case number the year of which is not a number: the trigger names the form (without its check the cast fails, 22P02).
     expect(await attempt(database(), insert({ sapsCaseNumber: "CAS 1/1/20x6" }))).toMatch(/reads CAS/)
     expect(await attempt(database(), insert({ sapsCaseNumber: "CAS 1/1/20x6" }), { fn: "guardAssetTheftReport", replace: FORM })).toMatch(/22P02|invalid input syntax/)
     // With the trigger off, the CHECK alone refuses it (inside a transaction that is always rolled back).
     expect(await attempt(database(), insert({ sapsCaseNumber: "cas 1/1/2026" }), { table: "AssetTheftReport", trigger: "AssetTheftReport_guard" })).toMatch(/AssetTheftReport_case_number/)
+    // One spelling only: a month never has a leading zero (else "CAS 5/01/2026" would be another case than "CAS 5/1/2026").
+    expect(await attempt(database(), insert({ sapsCaseNumber: `CAS 5/01/${today().slice(0, 4)}` }))).toMatch(/reads CAS/)
     await ruleRefuses(database(), { fn: "guardAssetTheftReport", replace: ["OR split_part(NEW.\"sapsCaseNumber\", '/', 3)::int < 2000 THEN", "THEN"] }, /reads CAS/,
       insert({ sapsCaseNumber: "CAS 1/1/1999" }))
     const future = new Date(Date.parse(`${today()}T00:00:00Z`) + DAY)
@@ -167,6 +169,13 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "refused", status: 409 })
     expect(await confirmTheftReport(collector(), ids.loan, ids.report)).toMatchObject({ kind: "refused", status: 409, error: expect.stringContaining("second person") })
     expect(await confirmTheftReport(as(ids.readonly, "READONLY"), ids.loan, ids.report)).toMatchObject({ kind: "refused", status: 403 })
+    // An expired report is not confirmed (TS and trigger): a renewal is.
+    await testSetup(database(), [`UPDATE "AssetTheftReport" SET "validUntil" = $2::date WHERE "id" = $1`, ids.report, daysAgo(1)])
+    expect(await confirmTheftReport(as(ids.collector2, "COLLECTIONS_OFFICER"), ids.loan, ids.report)).toMatchObject({ kind: "refused", status: 409, error: expect.stringContaining("expired") })
+    await ruleRefuses(database(), { fn: "guardAssetTheftReport", replace: ["AND NEW.\"validUntil\" < today THEN", "AND FALSE THEN"] }, /expired theft report is not confirmed/,
+      (tx) => tx.assetTheftReport.update({ where: { id: ids.report }, data: { confirmedById: ids.collector2, confirmedAt: new Date() } }))
+    const in30 = new Date(Date.parse(`${today()}T00:00:00Z`) + 30 * DAY).toISOString().slice(0, 10)
+    await testSetup(database(), [`UPDATE "AssetTheftReport" SET "validUntil" = $2::date WHERE "id" = $1`, ids.report, in30])
     expect(await confirmTheftReport(as(ids.collector2, "COLLECTIONS_OFFICER"), ids.loan, ids.report)).toEqual({ kind: "ok" })
     expect(await confirmTheftReport(as(ids.collector2, "COLLECTIONS_OFFICER"), ids.loan, ids.report)).toMatchObject({ kind: "refused", status: 409 })
     const confirmed = await database().assetTheftReport.findUniqueOrThrow({ where: { id: ids.report } })

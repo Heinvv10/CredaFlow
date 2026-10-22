@@ -237,6 +237,10 @@ broke.
 | T67 | closure cron: lenders by the asset-finance flag | `followup-routes (unit)` | 1 failed, 8 passed (9) |
 | T68 | portal-lease: the void reason dropped | `portal-lease (unit)` | 1 failed, 9 passed (10) |
 | T69 | lease-end-of-term: inspection counts a later voided reading | `meter-void` | 1 failed, 9 passed (10): survived its first run; killed once recordInspection itself was tested |
+| T70 | guardAssetTheftReport: an expired report confirmed | `theft-trail` | 4 failed, 8 passed (12) |
+| T71 | guardTrackerClosure: the notice's retention days rewritten | `tracker-closure` | 1 failed, 16 passed (17) |
+| T72 | guardAssetMeterReadingVoid: approvals not queued on the lease | `meter-void` | 1 failed, 10 passed (11): survived once while the race test relied on timing; killed after it held the first transaction open |
+| T73 | guardAssetTheftReport: a leading-zero month accepted | `theft-trail` | 7 failed, 5 passed (12) |
 
 ### Found by the suites and reviews before merge
 
@@ -263,3 +267,12 @@ broke.
   - a reopened loan was told tracking had stopped;
   - the cron refused by the tenant-scope extension, and the cron keyed on the
     asset-finance flag.
+- Review round 2: two void approvals at once could void a lease's last two
+  readings (they now queue on the lease row); concurrent first reports of a
+  case could pass the cap (reports of a loan now queue on the loan row);
+  "CAS 5/01/2026" was another spelling of "CAS 5/1/2026" (one spelling now);
+  an expired report could be confirmed; the notice's retention days are kept
+  with it. Mutation restores generated on one database were applied to
+  another once, which put back older function bodies: every run now
+  regenerates its restores on the database it runs on, and checks the
+  baseline before and after.

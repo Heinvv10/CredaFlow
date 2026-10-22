@@ -57,9 +57,9 @@ async function recipientsOf(tenantId: string, loan: { clientId: string | null; e
   return people.map((p) => ({ clientId: p.clientId, name: `${p.firstName} ${p.lastName}`, email: p.email, addressLines: [] }))
 }
 
-async function logNotice(tenantId: string, closureId: string, loanId: string, recipients: Recipient[]): Promise<void> {
+async function logNotice(tenantId: string, closureId: string, loanId: string, recipients: Recipient[], retentionDays: number): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const marked = await tx.trackerClosure.updateMany({ where: { id: closureId, tenantId, noticeLoggedAt: null }, data: { noticeLoggedAt: new Date() } })
+    const marked = await tx.trackerClosure.updateMany({ where: { id: closureId, tenantId, noticeLoggedAt: null }, data: { noticeLoggedAt: new Date(), retentionDays } })
     if (marked.count !== 1) return
     for (const r of recipients) {
       await tx.notificationLog.create({ data: { tenantId, loanId, clientId: r.clientId, event: TRACKING_STOPPED_EVENT, channel: "PORTAL", status: "sent" } })
@@ -193,7 +193,7 @@ export async function processTrackerClosures(tenantId: string, send: ClosureSend
     where: { tenantId, loan: { status: "COMPLETED" }, OR: [{ noticeLoggedAt: null }, { messageDecidedAt: null }, { letterGeneratedAt: null }] },
     orderBy: { createdAt: "asc" }, take: 200,
     select: {
-      id: true, loanId: true, closedAt: true, noticeLoggedAt: true, messageDecidedAt: true, letterGeneratedAt: true,
+      id: true, loanId: true, closedAt: true, retentionDays: true, noticeLoggedAt: true, messageDecidedAt: true, letterGeneratedAt: true,
       loan: { select: { reference: true, clientId: true, entityId: true, entity: { select: { legalName: true } }, asset: { select: { make: true, model: true, serialNumber: true } } } },
     },
   })
@@ -213,7 +213,7 @@ export async function processTrackerClosures(tenantId: string, send: ClosureSend
     try {
       const recipients = await recipientsOf(tenantId, closure.loan)
       const facts = await trackingStoppedFactsOf(tenantId, lender.legalName, closure)
-      if (!closure.noticeLoggedAt) await logNotice(tenantId, closure.id, closure.loanId, recipients)
+      if (!closure.noticeLoggedAt) await logNotice(tenantId, closure.id, closure.loanId, recipients, facts.retentionDays)
       if (!closure.messageDecidedAt) await sendEmails(tenantId, closure.id, closure.loanId, recipients, facts, send)
       if (!closure.letterGeneratedAt) {
         const borrower = closure.loan.entity?.legalName ?? recipients[0]?.name ?? "The borrower"

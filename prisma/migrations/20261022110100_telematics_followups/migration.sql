@@ -66,6 +66,7 @@ CREATE TABLE "TrackerClosure" (
     "messageNote" TEXT,
     "messageId" TEXT,
     "messageDecidedAt" TIMESTAMP(3),
+    "retentionDays" INTEGER,
     "letterStoragePath" TEXT,
     "letterSha256" TEXT,
     "letterGeneratedAt" TIMESTAMP(3),
@@ -176,7 +177,7 @@ CREATE POLICY "tenant_isolation" ON "TrackerClosure" USING (public.cf_rls_unrest
 
 -- SAPS's case number: "CAS <sequence>/<month>/<year>" (stored normalised).
 ALTER TABLE "AssetTheftReport" ADD CONSTRAINT "AssetTheftReport_case_number"
-  CHECK ("sapsCaseNumber" ~ '^CAS [1-9][0-9]{0,5}/(0?[1-9]|1[0-2])/[0-9]{4}$');
+  CHECK ("sapsCaseNumber" ~ '^CAS [1-9][0-9]{0,5}/([1-9]|1[0-2])/[0-9]{4}$');
 
 -- Recorded on a running loan of the report's asset, reported to SAPS no
 -- later than today and no more than 14 days before it is recorded (so the
@@ -211,6 +212,9 @@ BEGIN
       SELECT 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."status"::text IN ('ACTIVE', 'DEFAULTED', 'PENDING_WRITE_OFF')) THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A theft report is confirmed on a running loan';
     END IF;
+    IF NEW."confirmedAt" IS NOT NULL AND OLD."confirmedAt" IS NULL AND NEW."validUntil" < today THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An expired theft report is not confirmed: record a renewal';
+    END IF;
     IF (NEW."confirmedAt" IS NOT NULL AND OLD."confirmedAt" IS NULL AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."confirmedById"
           AND u."tenantId" = NEW."tenantId" AND u."active" AND u."role"::text IN ('COLLECTIONS_OFFICER', 'COLLECTIONS_AGENT', 'CREDIT_OFFICER', 'LOAN_ADMIN', 'BRANCH_MANAGER', 'ADMIN', 'SUPER_ADMIN')))
        OR (NEW."endedAt" IS NOT NULL AND OLD."endedAt" IS NULL AND NOT EXISTS (SELECT 1 FROM "User" u WHERE u."id" = NEW."endedById"
@@ -236,9 +240,11 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A theft report is recorded, confirmed and ended by staff who may see a position';
   END IF;
   -- The form first (the CHECK repeats it), so the year below is a number.
-  IF NEW."sapsCaseNumber" !~ '^CAS [1-9][0-9]{0,5}/(0?[1-9]|1[0-2])/[0-9]{4}$' OR split_part(NEW."sapsCaseNumber", '/', 3)::int < 2000 THEN
+  IF NEW."sapsCaseNumber" !~ '^CAS [1-9][0-9]{0,5}/([1-9]|1[0-2])/[0-9]{4}$' OR split_part(NEW."sapsCaseNumber", '/', 3)::int < 2000 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A SAPS case number reads CAS <number>/<month>/<year>';
   END IF;
+  -- Reports of one loan are written one at a time (the cap and the repeat rule below count them).
+  PERFORM 1 FROM "Loan" l WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" FOR UPDATE;
   -- A case holds THEFT for at most three reports (90 days): after that the asset is a recovery's or a legal matter's.
   -- Every report of a case after the first is a renewal (so it keeps the first's date).
   IF (SELECT count(*) FROM "AssetTheftReport" r WHERE r."tenantId" = NEW."tenantId" AND r."loanId" = NEW."loanId"
@@ -421,8 +427,11 @@ BEGIN
       RETURN NEW;
     END IF;
   END IF;
-  -- Serialise with the reading (an end of term or claim naming it meanwhile) and with the lease's end of
-  -- term (its invoice locks that row, then reads the start reading).
+  -- Serialise with every other void of the lease (two approvals at once must not leave it without a live
+  -- reading: the "only reading" rule counts the others), then with the reading (an end of term or claim naming
+  -- it meanwhile) and with the lease's end of term (its invoice locks that row, then reads the start reading).
+  PERFORM 1 FROM "Loan" l JOIN "AssetMeterReading" m ON m."loanId" = l."id" AND m."tenantId" = l."tenantId"
+  WHERE m."id" = NEW."readingId" AND m."tenantId" = NEW."tenantId" FOR UPDATE OF l;
   PERFORM 1 FROM "AssetMeterReading" m WHERE m."id" = NEW."readingId" AND m."tenantId" = NEW."tenantId" FOR UPDATE;
   PERFORM 1 FROM "LeaseEndOfTerm" e JOIN "AssetMeterReading" m ON m."loanId" = e."loanId" AND m."tenantId" = e."tenantId"
   WHERE m."id" = NEW."readingId" AND m."tenantId" = NEW."tenantId" FOR UPDATE OF e;
@@ -759,14 +768,14 @@ BEGIN
       SELECT 1 FROM "Loan" l JOIN "TrackerDevice" d ON d."tenantId" = l."tenantId" AND d."assetId" = l."assetId"
       WHERE l."id" = NEW."loanId" AND l."tenantId" = NEW."tenantId" AND l."status"::text = 'COMPLETED'
         AND d."id" = NEW."deviceId" AND d."status" = 'ACTIVE')
-      OR num_nonnulls(NEW."noticeLoggedAt", NEW."messageClaimedAt", NEW."messageOutcome", NEW."messageDecidedAt", NEW."letterStoragePath", NEW."removedAt") > 0 THEN
+      OR num_nonnulls(NEW."noticeLoggedAt", NEW."retentionDays", NEW."messageClaimedAt", NEW."messageOutcome", NEW."messageDecidedAt", NEW."letterStoragePath", NEW."removedAt") > 0 THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A tracker closure is opened for a completed loan''s active device, with nothing done yet';
     END IF;
     RETURN NEW;
   END IF;
   IF (NEW."tenantId", NEW."loanId", NEW."deviceId", NEW."closedAt", NEW."createdAt")
        IS DISTINCT FROM (OLD."tenantId", OLD."loanId", OLD."deviceId", OLD."closedAt", OLD."createdAt")
-     OR (OLD."noticeLoggedAt" IS NOT NULL AND NEW."noticeLoggedAt" IS DISTINCT FROM OLD."noticeLoggedAt")
+     OR (OLD."noticeLoggedAt" IS NOT NULL AND (NEW."noticeLoggedAt", NEW."retentionDays") IS DISTINCT FROM (OLD."noticeLoggedAt", OLD."retentionDays"))
      OR (OLD."messageDecidedAt" IS NOT NULL AND (NEW."messageDecidedAt", NEW."messageOutcome", NEW."messageNote", NEW."messageId", NEW."messageClaimedAt")
            IS DISTINCT FROM (OLD."messageDecidedAt", OLD."messageOutcome", OLD."messageNote", OLD."messageId", OLD."messageClaimedAt"))
      OR (OLD."letterGeneratedAt" IS NOT NULL AND (NEW."letterGeneratedAt", NEW."letterStoragePath", NEW."letterSha256")
@@ -785,6 +794,7 @@ $function$;
 ALTER TABLE "TrackerClosure" ADD CONSTRAINT "TrackerClosure_shape" CHECK (
   ("messageDecidedAt" IS NULL) = ("messageOutcome" IS NULL)
   AND ("messageOutcome" IS NULL OR "messageOutcome" IN ('SENT', 'SIMULATED', 'BLOCKED', 'FAILED'))
+  AND ("noticeLoggedAt" IS NULL) = ("retentionDays" IS NULL)
   AND ("letterGeneratedAt" IS NULL) = ("letterStoragePath" IS NULL) AND ("letterStoragePath" IS NULL) = ("letterSha256" IS NULL)
   AND ("removedAt" IS NULL) = ("removedById" IS NULL)
 );

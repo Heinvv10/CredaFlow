@@ -26,7 +26,7 @@ export function trackingStoppedParagraphs(f: TrackingStoppedFacts): string[] {
   return [
     `${ended} From that date we no longer keep the location, meter readings or any other information that the tracking device fitted to the ${f.assetDescription} sends us.`,
     "The device may keep sending signals to the tracking company until it is removed or switched off. We will contact you to arrange this. Until then we keep only a record of when the device was last switched on, never where it was or its readings.",
-    `We delete the location records collected while the agreement ran within ${f.retentionDays} days of each record being made. You may ask us for a copy of the information we hold about you, or ask us to correct or delete it. You may also complain to the Information Regulator.`,
+    `We delete the location records collected while the agreement ran ${f.retentionDays} days after each record is made. You may ask us for a copy of the information we hold about you, or ask us to correct or delete it. You may also complain to the Information Regulator.`,
   ]
 }
 

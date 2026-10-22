@@ -320,6 +320,8 @@ model TrackerClosure {
   noticeLoggedAt     DateTime?
   // The run sending the email claims it first (stale after 10 minutes): overlapping runs never send at once.
   messageClaimedAt   DateTime?
+  // The lender's position retention when the notice was logged: every copy of the notice states the same number.
+  retentionDays      Int?
   // The email: SENT, SIMULATED, BLOCKED or FAILED, decided once (messageNote says why).
   messageOutcome     String?
   messageNote        String?

@@ -98,7 +98,7 @@ export function PortalLeaseDetail({ view, back, documents, extra }: {
         <DataPanel title="Voided meter readings" description="Readings we found to be wrong: they do not count towards your usage">
           <ul className="space-y-1 text-sm">
             {view.meter.voided.map((r) => (
-              <li key={`${r.readingDate}-${r.value}`} className="space-y-0.5">
+              <li key={r.id} className="space-y-0.5">
                 <div className="flex justify-between gap-3">
                   <span className="text-[var(--cf-text-muted)] line-through">{r.readingDate} · {r.value.toLocaleString("en-ZA")} {view.meter?.unit === "HOURS" ? "hours" : "km"}</span>
                   <span className="text-[var(--cf-text-secondary)]">Voided {r.voidedOn}</span>

@@ -149,8 +149,9 @@ export async function theftReportsOf(tenantId: string, loanId: string): Promise<
 export async function confirmTheftReport(actor: TelematicsActor & { role: string }, loanId: string, reportId: string): Promise<TelematicsResult> {
   const { tenantId } = actor
   if (!canDo(actor.role as AppRole, "view_asset_position")) return refused(403, "Confirming a theft report needs the view_asset_position permission")
-  const report = await prisma.assetTheftReport.findFirst({ where: { id: reportId, tenantId, loanId }, select: { id: true, recordedById: true, confirmedAt: true, endedAt: true } })
+  const report = await prisma.assetTheftReport.findFirst({ where: { id: reportId, tenantId, loanId }, select: { id: true, recordedById: true, confirmedAt: true, endedAt: true, validUntil: true } })
   if (!report) return refused(404, "Theft report not found")
+  if (isoOfDbDate(report.validUntil) < sastCalendarDate(new Date())) return refused(409, "An expired theft report is not confirmed: record a renewal")
   if (report.recordedById === actor.userId) return refused(409, "A second person confirms a theft report: not the one who recorded it")
   if (report.confirmedAt || report.endedAt) return refused(409, "This theft report is already confirmed or ended")
   try {
