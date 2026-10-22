@@ -25,6 +25,7 @@ import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { MessageReconciliationRequiredError, sendMessage, SendBlockedError } from "@/lib/messaging/send"
 import { MessageDispatchConflictError } from "@/lib/messaging/dispatch-control"
 import { messageDeliveryOutcome } from "@/lib/messaging/delivery-outcome"
+import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { deleteFile, saveFile } from "@/lib/storage"
@@ -176,6 +177,16 @@ async function storeLetter(tenantId: string, closureId: string, loanId: string, 
   if (!stored) await deleteFile(storagePath)
 }
 
+/**
+ * A lender that predates the template gets it here (idempotent: an existing row with the key, or the same event and
+ * channel, is left alone), as the dunning templates are (lib/collections/dunning-templates.ts).
+ */
+async function ensureTrackingStoppedTemplate(tenantId: string): Promise<void> {
+  const config = await prisma.tenantConfig.findUnique({ where: { tenantId }, select: { brandName: true, legalName: true } })
+  const lender = config?.brandName?.trim() || config?.legalName?.trim() || "The lender"
+  await seedDefaultMessageTemplates(prisma, tenantId, lender, { only: (t) => t.key === TRACKING_STOPPED_EMAIL_KEY })
+}
+
 /** Every open step of one lender's closures, each once. A failing closure is counted and left for the next run. */
 export async function processTrackerClosures(tenantId: string, send: ClosureSend = sendMessage): Promise<{ closures: number; failed: number }> {
   const pending = await prisma.trackerClosure.findMany({
@@ -187,6 +198,7 @@ export async function processTrackerClosures(tenantId: string, send: ClosureSend
     },
   })
   let failed = 0
+  if (pending.length > 0) await ensureTrackingStoppedTemplate(tenantId)
   for (const closure of pending) {
     try {
       const recipients = await recipientsOf(tenantId, closure.loan)

@@ -11,8 +11,9 @@ const OUTBOUND = [/^lib\/messaging\//, /^lib\/notifications(\/|\.ts$)/, /^lib\/w
 const outbound = (files: Iterable<string>) => [...files].filter((file) => OUTBOUND.some((re) => re.test(file))).sort()
 
 describe("tracker closure sends only through sendMessage", () => {
-  it("imports no outbound module but the send pipeline, its outcome reader and its in-flight error", () => {
-    expect(outbound(importsOf("lib/asset-finance/tracker-closure.ts"))).toEqual(["lib/messaging/delivery-outcome.ts", "lib/messaging/dispatch-control.ts", "lib/messaging/send.ts"])
+  it("imports no outbound module but the send pipeline, its outcome reader, its in-flight error and the template seed", () => {
+    expect(outbound(importsOf("lib/asset-finance/tracker-closure.ts")))
+      .toEqual(["lib/messaging/default-templates.ts", "lib/messaging/delivery-outcome.ts", "lib/messaging/dispatch-control.ts", "lib/messaging/send.ts"])
   })
 
   it("the cron route reaches messaging only through the processor", () => {

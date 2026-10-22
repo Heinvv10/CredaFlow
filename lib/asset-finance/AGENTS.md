@@ -55,4 +55,4 @@
 - A GUIDE valuation (`lib/valuation-guides/AGENTS.md`) is a reference: never a sale's or a purchase's independent valuation; exclude it wherever INTERNAL is excluded.
 - `guardRecovery` and `guardSurrenderRequest` refuse a GUIDE valuation through `20261021090200`'s DO-block patches, which the static SQL reader cannot see: a later CREATE OR REPLACE of either must keep that clause (`lib/valuation-guides/migration.test.ts` fails otherwise).
 - Dealer deals (`dealerId`, `lib/dealer/AGENTS.md`): staff submit 409s them (accept only); the borrower-figure graph never imports `lib/dealer/*`; one preview solver, `deal-preview.ts`.
-- Meter readings have a third source, TELEMATICS (`lib/telematics/AGENTS.md`): written only by `recordMeterReading`'s telematics arm, bound to its device event; never insert one directly.
+- Meter readings have a third source, TELEMATICS (`lib/telematics/AGENTS.md`): written only by `recordMeterReading`'s telematics arm, bound to its device event; never insert one directly. A wrong reading is voided four-eyes (`meter-void.ts`, DB-enforced); every reader of readings filters `voidedAt: null`.

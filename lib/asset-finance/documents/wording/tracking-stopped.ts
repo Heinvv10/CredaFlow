@@ -18,7 +18,7 @@ export const TRACKING_STOPPED_TITLE = "Tracking has stopped"
 export function trackingStoppedParagraphs(f: TrackingStoppedFacts): string[] {
   return [
     `Your agreement ${f.loanReference} with ${f.lenderName} ended on ${f.endedOn}. From that date we stopped collecting the location and any other information from the tracking device fitted to the ${f.assetDescription}.`,
-    "We will contact you to arrange for the device to be removed or switched off. Until then it sends us nothing that we keep.",
+    "We will contact you to arrange for the device to be removed or switched off. Until then we keep only a record that the device is still switched on, never its location or readings.",
     `Location records collected while the agreement ran are deleted at the end of the retention period set out in ${f.lenderName}'s privacy notice. You may ask us for a copy of the information we hold about you, or ask us to correct it.`,
   ]
 }

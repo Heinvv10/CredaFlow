@@ -41,6 +41,19 @@ deterministic: a rerun reproduces the committed PDFs).
   legal reviewer's SHIP (goal §2a 7); the lender's legal team confirms it
   matches its dealer process before switching the portal on.
 
+- **Tracking stopped notice** (`lib/asset-finance/documents/wording/tracking-stopped.ts`,
+  SLICE5-FOLLOWUPS.md part T): told to the borrower when an agreement with a
+  tracker on its asset completes, in the same words in the portal, the email
+  and the stored letter: collection stopped on the end date, the device will
+  be removed or switched off (until then only a record that it is on is
+  kept), the location records go at the end of the retention period, and the
+  borrower may ask for or correct what is held (POPIA s23, s24). Merged on a
+  blind SA legal reviewer's SHIP (goal §2a 7); each lender's legal team
+  confirms it against its privacy notice before go-live.
+- **Theft report fields** (`components/asset-finance/telematics/TheftReportForm.tsx`):
+  staff labels only (the SAPS case number and the date the theft was reported);
+  no borrower-facing text.
+
 ## Starter wording issues found
 
 - Fixed 2026-10-19 (Hein approved): lease clause 9.3 printed "linked to the

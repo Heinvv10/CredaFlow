@@ -17,7 +17,6 @@ import { unlink } from "node:fs/promises"
 import type { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { withoutTenantScope } from "@/lib/tenant-scope"
-import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { dispatch } from "@/lib/messaging/providers"
 import { readFile } from "@/lib/storage"
 import { _resetRateLimitStore } from "@/lib/rate-limit"
@@ -58,7 +57,7 @@ const process_ = () => withoutTenantScope(() => processTrackerClosures(fx.tenant
 suite.sequential("tracker closure: once per completed loan and device, notices once, no real send (real DB)", () => {
   beforeAll(async () => {
     fx = await createTelematicsFixture(database(), t)
-    await seedDefaultMessageTemplates(database(), fx.tenantId, "Synthetic lender")
+    // No message templates: a lender that predates the closure's gets it on its first closure.
     loans.paid = await bookInstalmentSale(database(), fx, setSession, fx.assets[1])
     devices.paid = await installDevice(fx, fx.assets[1], "SIM-STEADY-1", await loanStartDate(database(), loans.paid))
     for (const [n, key] of (["lease", "other", "removed"] as const).entries()) {
@@ -116,7 +115,9 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
   }, 120_000)
 
   it("with no email set up: the notice is logged, the email decided BLOCKED, the letter stored, each once; nothing dispatched", async () => {
+    expect(await database().messageTemplate.count({ where: { tenantId: fx.tenantId } })).toBe(0)
     expect(await process_()).toEqual({ closures: 3, failed: 0 })
+    expect(await database().messageTemplate.findMany({ where: { tenantId: fx.tenantId }, select: { key: true } })).toEqual([{ key: "asset_finance_tracking_stopped_email" }])
     const closures = await database().trackerClosure.findMany({ where: { tenantId: fx.tenantId } })
     expect(closures).toHaveLength(3)
     for (const c of closures) {

@@ -215,3 +215,123 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 - **Performance.** The link check walks every foreign key to `Client` (about
   30) once per person; fine at today's volumes, to be indexed before a lender
   with a large book runs it.
+
+## Part T — Telematics: THEFT purpose, position trail, meter-reading void, closure (§2a 3 to 6)
+
+### Decisions (the goal's "[agent decides]") and deviations
+
+1. **A theft report is its own row, valid 30 days.** `AssetTheftReport`
+   (loan, asset, SAPS case number, the date the theft was reported to SAPS,
+   who recorded it, `validUntil` = the recording's SAST date + 30 days, set by
+   the database). Renewal is a new row for the same case (`renewsReportId`);
+   rows never change. The case number is checked in SQL and TypeScript as
+   `CAS <number>/<month>/<year>` (SAPS's format: station sequence, month 1–12,
+   a four-digit year not after this year); the date reported is not in the
+   future and not before the loan started.
+2. **The purpose gate is SQL.** `telematicsPurposeHolds(tenant, loan,
+   context)` is the one definition: DEFAULT (loan DEFAULTED or
+   PENDING_WRITE_OFF), RECOVERY (a recovery not CLOSED or WITHDRAWN),
+   LEGAL_MATTER (an OPEN matter), THEFT (a report whose `validUntil` is today
+   or later, on a loan ACTIVE, DEFAULTED or PENDING_WRITE_OFF).
+   `guardTelematicsPositionAccess` refuses an access row whose purpose does
+   not hold at insert. The TypeScript (`position-purpose.ts`) keeps reading it
+   to answer the panels without writing a row.
+3. **The trail.** The per-device unique goes: ingest appends every position
+   inside a tenure and retention. The latest-position reveal reads the newest
+   row as today. The trail (`position-trail.ts`) is THEFT, RECOVERY or
+   LEGAL_MATTER only (never DEFAULT: arrears alone do not justify a movement
+   history), the loan's tenure and retention (under THEFT from 7 days
+   before the theft was reported: the history before it is not the purpose),
+   time-ordered, at most 500 points; each view writes an access row with `view = TRAIL` and the point
+   count (SQL: a TRAIL row never names DEFAULT). The map is an inline SVG of
+   the points (no tiles, no external call).
+4. **Meter-reading void: a request row, decided by a second user.**
+   `AssetMeterReadingVoid` (reading, reason 10–500, requestedBy/At, status
+   PENDING → APPROVED | REJECTED, decidedBy/At). CHECK: the decider is not the
+   requester. One open request per reading. Refused when the reading is a
+   final reading (`LeaseEndOfTerm.finalReadingId`), a recovery's or a
+   maintenance claim's reading, already void, or of a lease whose end of term
+   is invoiced (`taxInvoiceId` set: the invoice used its start and final
+   readings). Approval sets `AssetMeterReading.voidedAt` and `voidId` (an
+   AFTER trigger); `guardAssetMeterReading` allows that one UPDATE and
+   nothing else, and skips voided rows in its monotonic check. The final-
+   reading rule, the pace ceiling's start reading and the one-telematics-
+   reading-per-day index skip voided rows; so do the TypeScript readers
+   (start reading, monotonic pre-check, excess projection, end-of-term
+   invoice, lease documents, the portal's latest reading, the claim picker,
+   the telematics one-a-day count). Staff and the portal show a voided
+   reading struck through as "Voided".
+5. **Closure: a database-owned task row.** `TrackerClosure` (loan, device,
+   unique per loan and device) is the staff task: the database inserts it
+   (`AFTER UPDATE OF status ON "Loan"`, into COMPLETED, for each ACTIVE
+   device on the loan's asset), so every path that completes a loan is
+   covered, once (`ON CONFLICT DO NOTHING`: completing again opens no second).
+   Its columns record each effect once (`guardTrackerClosure`): `noticeLoggedAt`
+   (the portal notice, a `NotificationLog` row per borrower recipient, event
+   `tracking_stopped`), `messageOutcome` (the email through `sendMessage`:
+   SENT, SIMULATED, BLOCKED or FAILED with a note; never retried once
+   decided), `letterStoragePath`/`letterSha256` (the stored PDF) and
+   `removedAt/By` (set when staff remove the device). A cron
+   (`asset-finance-telematics-closure`, every 15 minutes) processes pending
+   rows; each step is guarded by its column, so a rerun or a concurrent run
+   does nothing twice. The email step is claimed first (`messageClaimedAt`,
+   released when a run ends undecided, stale after 10 minutes): two runs at
+   once deadlocked inside the send pipeline in testing and left the message
+   for manual reconciliation. A send still in flight or pending is left for a
+   later run to replay; an unexpected error fails the run, never a FAILED
+   decision. A lender that predates the template gets it seeded on its first
+   closure, as the dunning templates are. Recipients are the borrower, or for an entity the
+   people who act for it; never a deceased person or dealer-typed contact
+   details. Staff read the letter on the loan (`work_telematics_alerts`), each
+   view on the document access register.
+6. **No real send.** The closure email goes through `sendMessage`, whose
+   consent gate, opt-outs and kill switches stand; the integration suite fakes
+   only the provider transport and proves it is called once; with the lender's
+   email not set up the outcome is BLOCKED and nothing is dispatched. Browser
+   acceptance captures the email on a local SMTP server. Turning on a real
+   send stays a §8 gate.
+7. **Bug found while testing.** `guardNotVoidedReading` first read
+   `NEW."finalReadingId"`/`NEW."meterReadingId"` in one CASE in its DECLARE
+   block; plpgsql resolves every field of the expression, so every insert
+   into LeaseEndOfTerm, Recovery or MaintenanceClaim would have failed. It
+   reads the column per table in the body (caught by
+   `meter-void.integration.test.ts` before merge).
+
+### Data (migrations `20261022110000_telematics_followups_enum_values`, `20261022110100_telematics_followups`)
+
+THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAccess.view`/`positionCount`/`theftReportId`; the per-device position unique dropped (a time index instead); `AssetMeterReadingVoid` and `AssetMeterReading.voidedAt`/`voidId`; `TrackerClosure`. RLS on each new table. Every rule above is a trigger, CHECK, function or index in the second migration.
+
+### Rule-to-test matrix (IT = `RUN_ASSET_FINANCE_TELEMATICS_IT`)
+
+| Rule | Test | Kind | Negative cases (§3 T) |
+|---|---|---|---|
+| THEFT needs a valid report | `lib/telematics/theft-trail.integration.test.ts` | IT | no report; expired (day 31, day 30 still holds); case number malformed (TS and CHECK); reported in the future (TS and trigger); a case of a later year; a closed loan (reveal and record); a renewal of another case; a report changed or deleted |
+| Report input | `lib/telematics/theft-reports.test.ts` | unit | each malformed field named |
+| Purpose gate in SQL | `lib/telematics/theft-trail.integration.test.ts` | IT | an access row by SQL for DEFAULT, RECOVERY, LEGAL_MATTER and an expired THEFT that do not hold; a non-THEFT row naming a report; TRAIL with DEFAULT |
+| Roles | same + `app/api/asset-finance/telematics/followup-routes.test.ts` | IT + unit | READONLY, INSURANCE_OFFICER and a dealer on the trail and the report (403, audited, nothing logged); the letter route |
+| Trail inside tenure and retention, purged per position | `lib/telematics/theft-trail.integration.test.ts` | IT | a fix before the loan started not shown; retention 1 day drops older fixes before any purge; the purge deletes the older half one by one and keeps the rest |
+| Every view logged | same | IT | a trail view writes one access row (view TRAIL, its count, its report) and an audit row without a coordinate |
+| Void four-eyes in SQL | `lib/asset-finance/meter-void.integration.test.ts` | IT | self-approval (TS and CHECK); a second open request (TS and index); a decided void changed or decided again; a void deleted; a void inserted APPROVED; a reading edited or stamped by another reading's void; a reading deleted |
+| Void refused when billed or final | same | IT | final reading; invoiced lease; a recovery's or a claim's reading; already void |
+| Voided readings ignored | same | IT | the monotonic floor (TS and trigger); the start reading (pace ceiling value, excess projection); one telematics reading a day; never cited after as a final, recovery or claim reading |
+| Closure once, all paths | `lib/asset-finance/tracker-closure.integration.test.ts` | IT | settled by payment (applyManualReceipt); end of term settled (completeEndOfTermIfSettled); any other status change; completing twice; a device removed before; three runs at once (one email); a fresh claim left alone, a stale one taken over; a send in flight or an unexpected error decides nothing |
+| Closure message gated | same + `lib/asset-finance/tracker-closure.test.ts` | IT + unit | no lender email: BLOCKED, transport never called; with email: the real pipeline once, transport faked; the processor's only outbound import is sendMessage |
+| Closure steps recorded once | same | IT | a decided message, a notice, a letter or a removal rewritten; done without the device removed; opened for a removed device; deleted |
+
+### Known limitations (part T)
+
+- **One person records a theft report.** A collections officer or above
+  records the SAPS case number and date, audited; no second person confirms
+  it before THEFT applies. The goal (§2a) asks for a report valid 30 days,
+  not an approval; the blind security and legal reviews decide whether a
+  second approver is needed (recorded under review below).
+- **The case number is checked for form only.** Nothing verifies it with SAPS.
+- **The trail map is an inline sketch** of the points (no map tiles, no
+  external call): enough to see movement, not a street map.
+- **A closure email stuck in reconciliation** (an outcome the provider never
+  confirmed) leaves the closure's email undecided until staff reconcile the
+  message; the notice and the letter are not held back.
+- **Recipients of an entity's notice** are the people who act for it with
+  trusted contact details; the letter is addressed to the entity with no
+  postal address (the entity's registered address is not on file in a
+  printable form).

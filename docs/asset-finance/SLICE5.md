@@ -1553,12 +1553,9 @@ turn a named test red.
 
 ### Known limitations
 
-- **No void path for a TELEMATICS reading.** A written tracker reading is
-  immutable like every meter reading; staff cannot void or supersede one.
-  Meter verification (Deviation 16) keeps an offset real device out, and
-  held readings are decided before they are written, but a verified device
-  that later drifts can still floor the staff final reading. A void or
-  supersede action is counsel item 6.
+- **~~No void path for a TELEMATICS reading.~~** Resolved: a wrong reading of
+  any source is voided four-eyes and then ignored everywhere (built in SLICE5-FOLLOWUPS.md part T). Billed,
+  final, recovery and claim readings stay unvoidable.
 - **Per-tenant provider credentials (A6).** `provider.poll()` takes no tenant
   credentials; a real adapter would need per-lender keys from the vault before
   it can poll more than one lender's devices.
@@ -1571,9 +1568,9 @@ turn a named test red.
   is recorded whatever its size. Booking always writes the start reading, so
   this is reachable only by deleting it with the triggers off
   (`edge-cases.integration.test.ts` pins the behaviour).
-- **No movement trail.** Only the latest position per device is kept
-  (Deviation 15); a theft trail or an affidavit of movements cannot be
-  produced. Counsel item 3.
+- **~~No movement trail.~~** Resolved: every position is kept within
+  retention and shown as a logged trail for THEFT, RECOVERY or LEGAL_MATTER
+  (built in SLICE5-FOLLOWUPS.md part T).
 - **Meter verification is one-way.** It cannot be undone or redone on the same
   device; a device whose meter is replaced is removed and registered again.
 - **The alert queue moves only with a repeat.** It is re-evaluated when the
@@ -1606,10 +1603,14 @@ turn a named test red.
      an open legal matter only (Deviation 3). Is that right, and is a THEFT
      purpose needed (an asset stolen from a borrower in good standing)? A loan
      PENDING_WRITE_OFF counts as covering and as in default (the debt is
-     still collectable, s11(1)(f)); WRITTEN_OFF ends both.
+     still collectable, s11(1)(f)); WRITTEN_OFF ends both. **Decided
+     2026-10-22:** THEFT added on a SAPS report valid 30 days, and the gate
+     is now held in SQL (built in SLICE5-FOLLOWUPS.md part T).
   3. **Retention and the trail.** 90 days by default (1 to 365), and only the
      latest position per device (Deviation 15). Is the latest position
      enough, or does a theft or affidavit trail need a counsel decision?
+     **Decided 2026-10-22:** a trail, kept and purged per position, never for
+     arrears alone (built in SLICE5-FOLLOWUPS.md part T).
   4. **Drivers of juristic borrowers.** An entity's asset is driven by
      employees: are they data subjects whose location is processed, and what
      notice do they get?
@@ -1622,13 +1623,16 @@ turn a named test red.
   6. **Excess billing from device readings.** Unattended readings feed the
      projected excess and the end-of-term billing; the lessee's right to
      dispute a device reading, and whether staff need a void or supersede
-     path (Known limitations).
+     path (Known limitations). **Decided 2026-10-22:** a four-eyes void (built in SLICE5-FOLLOWUPS.md part T);
+     the lessee's dispute route stays with counsel.
   7. **Collections handling of alerts.** A tamper or geofence alert must not
      lead to self-help repossession: s129, s130 and s131 still govern; the
      SERVICING queue keeps a loan in good standing out of collections.
   8. **Device removal and collection stop at closure.** Collection stops when
      the agreement ends (Deviation 14), but the device stays on the asset:
-     who removes it, and is the borrower told?
+     who removes it, and is the borrower told? **Decided 2026-10-22:** a
+     staff removal task, a portal notice, an email and a stored letter, each
+     once (built in SLICE5-FOLLOWUPS.md part T); the wording needs each lender's legal sign-off.
   9. **Operator agreement with a real provider.** A POPIA s21 operator
      agreement, and s72 for any cross-border transfer of location data.
   10. **s57 prior authorisation.** Whether processing location information
