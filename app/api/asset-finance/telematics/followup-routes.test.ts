@@ -23,11 +23,8 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
-    trackerClosure: {
-      findFirst: async () => m.closure,
-      findMany: async () => m.pending,
-    },
+    trackerClosure: { findFirst: async () => m.closure },
+    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }), findMany: async () => m.pending },
     documentAccessLog: { create: vi.fn(async () => { m.order.push("access-logged") }) },
   },
 }))
@@ -36,7 +33,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant")>()),
   withTenantContext: (_req: unknown, fn: (t: { id: string; name: string }) => unknown) => fn({ id: "tenant-1", name: "T" }),
 }))
-vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (_t: string, fn: () => unknown) => fn() }))
+vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (t: string, fn: () => unknown) => { m.order.push(`tenant:${t}`); return fn() } }))
 vi.mock("@/lib/auth-guards", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/auth-guards")>()), requireApiRole: () => m.requireApiRole() }))
 vi.mock("@/lib/telematics/position-trail", () => ({ revealPositionTrail: m.lib.revealPositionTrail }))
 vi.mock("@/lib/telematics/theft-reports", () => ({ recordTheftReport: m.lib.recordTheftReport }))
@@ -128,12 +125,14 @@ describe("closure cron", () => {
     expect(m.lib.processTrackerClosures).not.toHaveBeenCalled()
   })
 
-  it("processes each tenant with pending closures, and answers 503 with the counts when any failed", async () => {
+  it("processes each asset-finance lender under its tenant, and answers 503 with the counts when any failed", async () => {
     m.pending = [{ tenantId: "t1" }, { tenantId: "t2" }]
     m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 2, failed: 0 }).mockRejectedValueOnce(new Error("synthetic"))
     const res = await cron(req())
     expect(res.status).toBe(503)
     expect(await res.json()).toEqual({ ok: false, tenants: 2, closures: 2, failed: 1 })
+    // Each asset-finance lender's closures are processed under its own tenant.
+    expect(m.order).toEqual(["tenant:t1", "tenant:t2"])
     m.pending = [{ tenantId: "t1" }]
     m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 1, failed: 0 })
     expect(await (await cron(req())).json()).toEqual({ ok: true, tenants: 1, closures: 1, failed: 0 })

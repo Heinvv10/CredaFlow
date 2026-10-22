@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   findPortalLease: vi.fn(),
-  loan: vi.fn(), reading: vi.fn(), voided: vi.fn(async () => []), quote: vi.fn(), config: vi.fn(), valuation: vi.fn(), charges: vi.fn(),
+  loan: vi.fn(), reading: vi.fn(), voided: vi.fn(async (_args: { where: unknown }) => [] as unknown[]), quote: vi.fn(), config: vi.fn(), valuation: vi.fn(), charges: vi.fn(),
 }))
 vi.mock("./lease-portal-route", () => ({ findPortalLease: mocks.findPortalLease }))
 vi.mock("@/lib/portal/loan-charges", () => ({ portalLoanCharges: mocks.charges }))

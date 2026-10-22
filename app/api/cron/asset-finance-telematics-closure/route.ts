@@ -13,9 +13,8 @@ import { processTrackerClosures } from "@/lib/asset-finance/tracker-closure"
 export async function GET(req: NextRequest) {
   const denied = verifyCronSecret(req)
   if (denied) return denied
-  const tenants = await prisma.trackerClosure.findMany({
-    where: { OR: [{ noticeLoggedAt: null }, { messageDecidedAt: null }, { letterGeneratedAt: null }] }, distinct: ["tenantId"], select: { tenantId: true },
-  })
+  // Each asset-finance lender, as the poll and purge crons list them; its pending closures are read under its own tenant.
+  const tenants = await prisma.tenantConfig.findMany({ where: { featureAssetFinance: true }, orderBy: { tenantId: "asc" }, select: { tenantId: true } })
   const run = { ok: true, tenants: 0, closures: 0, failed: 0 }
   for (const { tenantId } of tenants) {
     run.tenants++
