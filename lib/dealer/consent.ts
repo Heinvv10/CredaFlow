@@ -55,7 +55,7 @@ export function parseSigningMethod(input: { signingMethod?: unknown; remoteIdent
   const check = typeof input.remoteIdentityCheck === "string" ? input.remoteIdentityCheck.trim() : ""
   if (method === "IN_PERSON") return check ? "An identity check is described only for a form signed remotely" : { signingMethod: method, remoteIdentityCheck: null }
   // One line, as the database requires: a line break could forge another method line in the snapshot.
-  if (/[\u0000-\u001f\u007f]/.test(check)) return "Describe the identity check on one line"
+  if (/[\p{Cc}\u2028\u2029]/u.test(check)) return "Describe the identity check on one line"
   // Characters as the database counts them (code points), not UTF-16 units.
   const characters = [...check].length
   if (characters < REMOTE_IDENTITY_CHECK_MIN || characters > REMOTE_IDENTITY_CHECK_MAX) {
@@ -101,10 +101,12 @@ export async function attestDealerConsent(
   return prisma.$transaction(async (tx) => {
     const deal = await tx.assetFinanceDeal.findFirst({
       where: dealerDealWhere(actor, dealId),
-      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true, dealerPurge: { select: { id: true } } },
+      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true,
+        // Closed by the draft purge, or a sibling draft whose parties a purge erased.
+        dealerPurge: { select: { id: true } }, client: { select: { dealerPurgedAt: true } }, entity: { select: { dealerPurgedAt: true } } },
     })
     if (!deal) return dealerMiss("Deal")
-    if (deal.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
+    if (deal.dealerPurge || deal.client?.dealerPurgedAt || deal.entity?.dealerPurgedAt) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     if (deal.status !== "DRAFT" || deal.dealerSubmittedAt) return dealerRefused(409, "Consent is attested before the deal is submitted")
     const document = await tx.entityDocument.findFirst({
       where: { id: documentId, tenantId: actor.tenantId, dealId: deal.id, docType: "POPIA_CONSENT", uploadedByType: "dealer", deletedAt: null },

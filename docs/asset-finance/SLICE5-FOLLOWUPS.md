@@ -70,7 +70,8 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 - **CHECK `DealerConsentAttestation_signing_method`**: a `dealer-consent-v1`
   row has neither column; a `dealer-consent-v2` row has a method, and
   `remoteIdentityCheck` (10–500 characters once whitespace is trimmed, one
-  line: a line break could forge a method line in the snapshot) exactly when
+  line: no control character or Unicode line separator, which could forge a
+  method line in the snapshot) exactly when
   REMOTE; no other version.
 - **`DealerConsentAttestation_current_version`** (BEFORE INSERT): a new
   attestation never names `dealer-consent-v1`. The existing
@@ -110,8 +111,13 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 - **`guardPurgedDealerDeal`**: a purged deal takes no new document,
   attestation or request, and changes only by staff cancelling it (a dealer
   cancel would add a reason no purge reaches).
-- **`guardDealerPurgedPartyUse`**: no deal, application or relationship names
-  an erased person or business again (the dealer's lookups skip it first).
+- **`guardDealerPurgedPartyUse`**: no deal, application, relationship,
+  document or consent attestation names an erased person or business again,
+  and a deal naming one is not handed to the lender (a sibling draft the same
+  purge left for later); ending a relationship to one is allowed. The dealer's
+  lookups and actions refuse first (404, 409); the staff people route names
+  the purge.
+- **`freezeDealerPurgedParty`**: an erased row is never changed again.
 - **`DealerPurgePendingFile`**: each erased document's file path, written in
   the purge's transaction and deleted only with the file, so a crash between
   the commit and the delete is drained by the next run.
@@ -133,17 +139,19 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
   `DEALER_DEAL_CANCELLED`. Route `POST /api/dealer/deals/[id]/cancel`.
 - `lib/dealer/draft-purge.ts` `purgeDealerDrafts()`: per lender with a dealer,
   each deal `dealerDealPurgeReason` names (oldest first, 500 a run), in its own
-  transaction with the deal, its business, its people and every deal on them
-  locked `FOR UPDATE`: decide which people and business go and which
+  transaction with the deal, the sibling drafts on its parties (never a booked
+  or handed-over deal), its business and its people locked `FOR UPDATE`, in
+  that order: decide which people and business go and which
   documents go with them (only a document whose party is erased, now or by
   an earlier purge of a sibling draft, or that names none, and that no kept
   business cites as evidence); the tombstone; `dealerPurgedAt` on each party that goes; each
   document row deleted when nothing refers to it, else kept soft-deleted as
   "erased" (an earlier soft delete keeps its author); audit
   `DEALER_DEAL_PURGED` (counts only). After the commit the documents' bytes
-  are deleted and their pending records with them; a file that cannot be
-  deleted keeps its record, is logged with its path, fails the run (503) and is
-  retried next run. Cron `asset-finance-dealer-draft-purge` (daily 03:50,
+  are deleted and their pending records with them; each run starts by
+  draining what an earlier run left. A file that cannot be deleted keeps its
+  record, is logged with its path, fails the run (503) and is retried next
+  run. Cron `asset-finance-dealer-draft-purge` (daily 03:50,
   `CRON_SECRET`).
 - Submit, attest and upload refuse a purged draft (409) before the database
   would; the dealer page shows it as closed.

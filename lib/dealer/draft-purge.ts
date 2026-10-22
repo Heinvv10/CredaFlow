@@ -73,7 +73,7 @@ async function citedAsEvidence(tx: Tx, tenantId: string, id: string, erasedEntit
   return rows.length > 0
 }
 
-type Planned = { counts: DealerDealPurgeCounts }
+type Planned = { counts: DealerDealPurgeCounts; pendingIds: string[] }
 
 async function purgeInTransaction(tenantId: string, dealId: string): Promise<Planned | null> {
   return prisma.$transaction(async (tx) => {
@@ -85,15 +85,18 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
     const deal = await tx.assetFinanceDeal.findFirstOrThrow({
       where: { id: dealId, tenantId }, select: { clientId: true, entityId: true, dealerId: true },
     })
-    // Lock the business, then its people, then every deal on them: a link or a sibling's activity
-    // another transaction adds meanwhile waits, or is seen by the checks below.
-    if (deal.entityId) await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "BusinessEntity" WHERE "tenantId" = ${tenantId} AND "id" = ${deal.entityId} FOR UPDATE`)
-    const personIds = [...new Set(deal.clientId ? [deal.clientId] : deal.entityId ? (await tx.entityRelationship.findMany({
+    // Lock order, as every deal path takes them: deals first (the sibling drafts that could stop
+    // keeping these parties; never a booked or handed-over deal), then the business, then its people.
+    // A link or a sibling's activity another transaction adds meanwhile waits, or is seen below.
+    const readPeople = async () => [...new Set(deal.clientId ? [deal.clientId] : deal.entityId ? (await tx.entityRelationship.findMany({
       where: { tenantId, entityId: deal.entityId }, select: { clientId: true },
     })).map((r) => r.clientId) : [])]
+    const firstRead = await readPeople()
+    await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "AssetFinanceDeal" WHERE "tenantId" = ${tenantId} AND "loanId" IS NULL AND "dealerSubmittedAt" IS NULL
+      AND ("entityId" = ${deal.entityId} OR "clientId" IN (${Prisma.join(firstRead.length > 0 ? firstRead : [""])})) FOR UPDATE`)
+    if (deal.entityId) await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "BusinessEntity" WHERE "tenantId" = ${tenantId} AND "id" = ${deal.entityId} FOR UPDATE`)
+    const personIds = await readPeople()
     if (personIds.length > 0) await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "Client" WHERE "tenantId" = ${tenantId} AND "id" IN (${Prisma.join(personIds)}) FOR UPDATE`)
-    await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "AssetFinanceDeal" WHERE "tenantId" = ${tenantId} AND (
-      "entityId" = ${deal.entityId} OR "clientId" IN (${Prisma.join(personIds.length > 0 ? personIds : [""])})) FOR UPDATE`)
     const allPeople = await tx.client.findMany({ where: { tenantId, id: { in: personIds } }, select: { id: true, createdByDealerId: true, dealerPurgedAt: true } })
     const people = allPeople.filter((p) => p.dealerPurgedAt === null)
     const erasePeople: string[] = []
@@ -130,9 +133,8 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
     if (erasePeople.length > 0) await tx.client.updateMany({ where: { tenantId, id: { in: erasePeople } }, data: { dealerPurgedAt: now } })
     if (erasedEntityId) await tx.businessEntity.updateMany({ where: { tenantId, id: erasedEntityId }, data: { dealerPurgedAt: now } })
     // The files go after the commit; a record of each survives a crash in between (drainPendingFiles).
-    if (erasable.length > 0) {
-      await tx.dealerPurgePendingFile.createMany({ data: erasable.map((d) => ({ tenantId, storagePath: d.storagePath })) })
-    }
+    const pending = await Promise.all(erasable.map((d) =>
+      tx.dealerPurgePendingFile.create({ data: { tenantId, storagePath: d.storagePath }, select: { id: true } })))
     for (const document of erasable) {
       if (await documentReferenced(tx, document.id)) {
         await tx.entityDocument.update({
@@ -147,7 +149,7 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
       tenantId, action: AuditAction.DEALER_DEAL_PURGED, entity: "AssetFinanceDeal", entityId: dealId,
       newValue: { reason, ...counts, actor: { type: "system", source: "dealer-draft-purge" } },
     }, tx)
-    return { counts }
+    return { counts, pendingIds: pending.map((p) => p.id) }
   }, { timeout: 60_000 })
 }
 
@@ -160,21 +162,25 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
 export async function purgeDealerDeal(tenantId: string, dealId: string): Promise<(DealerDealPurgeCounts & { filesNotDeleted: number }) | null> {
   const planned = await purgeInTransaction(tenantId, dealId)
   if (!planned) return null
-  return { ...planned.counts, filesNotDeleted: await drainPendingFiles(tenantId) }
+  return { ...planned.counts, filesNotDeleted: await drainPendingFiles(tenantId, planned.pendingIds) }
 }
 
 /**
- * Deletes the purged documents' files still recorded as pending, then their
- * records. A file that cannot be deleted stays recorded (and logged with its
- * path) for the next run; the count of those is returned.
+ * Deletes purged documents' files still recorded as pending (these ids, or
+ * every one of the lender's: a run starts with those a crash or a failure
+ * left), then their records. A file that cannot be deleted stays recorded
+ * (and logged with its path) for the next run; the count of those is returned.
  */
-export async function drainPendingFiles(tenantId: string): Promise<number> {
-  const pending = await prisma.dealerPurgePendingFile.findMany({ where: { tenantId }, orderBy: { createdAt: "asc" }, select: { id: true, storagePath: true } })
+export async function drainPendingFiles(tenantId: string, ids?: string[]): Promise<number> {
+  const pending = await prisma.dealerPurgePendingFile.findMany({
+    where: { tenantId, ...(ids ? { id: { in: ids } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, storagePath: true },
+  })
   let failed = 0
   for (const file of pending) {
     try {
       await deleteManagedFileStrict(file.storagePath)
-      await prisma.dealerPurgePendingFile.delete({ where: { id: file.id, tenantId } })
+      // deleteMany: an overlapping run may have drained it already.
+      await prisma.dealerPurgePendingFile.deleteMany({ where: { id: file.id, tenantId } })
     } catch (error) {
       failed++
       console.error("[dealer-draft-purge] file not deleted", { tenantId, file: file.storagePath, error: error instanceof Error ? error.message : "unknown" })

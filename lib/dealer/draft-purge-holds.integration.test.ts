@@ -15,7 +15,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, insertDealerUser, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
 import { actorOf, assetBody, createdId, dealBody, dealerDraft, inTenant, personBody } from "./dealer-origination.integration-fixture"
-import { captureForDealer, dealerDeal } from "./dealer-booking.integration-fixture"
+import { captureForDealer, dealerDeal, dealerDealInsert } from "./dealer-booking.integration-fixture"
+import { listDealerEntities, listDealerPeople } from "./captures"
+import { submitDealerDeal } from "./submit"
+import { attestDealerConsent } from "./consent"
+import { uploadDealerDocument } from "./documents"
+import { pdfUpload } from "./dealer-origination.integration-fixture"
+import { storedDocument } from "./draft-purge.integration-fixture"
 import { captureDealerAsset, captureDealerPerson } from "./capture"
 import { createDealerDeal } from "./deals"
 import { purgeDealerDeal } from "./draft-purge"
@@ -112,5 +118,62 @@ suite.sequential("dealer draft purge holds (real DB)", () => {
       VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(draft.entityId)}, ${lit(fx.director)}, 'DIRECTOR', CURRENT_TIMESTAMP)`, message)
     expectRejected(`UPDATE "LoanApplication" SET "clientId" = ${lit(draft.directorId)} WHERE "id" = (
       SELECT "applicationId" FROM "AssetFinanceDeal" WHERE "id" = ${lit(draft.dealId)})`, message)
+    // A new deal naming the erased business, by SQL (the application written as history first).
+    expectRejected(dealerDealInsert(fx, { dealerId: fx.dealerA, dealerUserId: fx.salesUserA, entityId: draft.entityId,
+      assetId: captureForDealer(fx, fx.dealerA).assetId }).insert, message)
+    // Ending the erased director's relationship is allowed; renewing it is not.
+    sql(`UPDATE "EntityRelationship" SET "active" = false WHERE "clientId" = ${lit(draft.directorId)}`)
+    expectRejected(`UPDATE "EntityRelationship" SET "active" = true WHERE "clientId" = ${lit(draft.directorId)}`, message)
+    // An erased row stays as erased.
+    expectRejected(`UPDATE "Client" SET "phone" = '+27820000009' WHERE "id" = ${lit(draft.directorId)}`, "An erased person or business is not changed")
+    expectRejected(`UPDATE "BusinessEntity" SET "tradingName" = 'TEST' WHERE "id" = ${lit(draft.entityId)}`, "An erased person or business is not changed")
+    // The dealer's own lists no longer offer them.
+    const lists = await inTenant(fx, () => Promise.all([listDealerEntities(actor), listDealerPeople(actor)]))
+    expect(lists[0].some((e) => e.id === draft.entityId)).toBe(false)
+    expect(lists[1].some((p) => p.id === draft.directorId)).toBe(false)
+  }, 30_000)
+
+  it("refuses a new deal on an erased sole proprietor (404), and the database refuses naming them", async () => {
+    const actor = salesActor()
+    const sole = await soleDraft()
+    age(sole.dealId, 91)
+    expect(await purge(sole.dealId)).toMatchObject({ clientsErased: 1 })
+    const assetId = createdId(await inTenant(fx, () => captureDealerAsset(actor, assetBody())))
+    expect(await inTenant(fx, () => createDealerDeal(actor, dealBody(fx, { clientId: sole.clientId }, assetId)))).toMatchObject({ kind: "refused", status: 404 })
+    // By SQL: the erased client on a new application (a deal's insert is proven on a business above).
+    expectRejected(`UPDATE "LoanApplication" SET "clientId" = ${lit(sole.clientId)} WHERE "id" = (
+      SELECT "applicationId" FROM "AssetFinanceDeal" WHERE "id" = ${lit(sole.dealId)})`, "An erased person or business is not used again")
   })
+
+  it("closes a sibling draft whose business an earlier purge erased: no upload, attestation or hand-over", async () => {
+    const actor = salesActor()
+    const first = await dealerDraft(fx, actor)
+    const second = await inTenant(fx, async () => {
+      const assetId = createdId(await captureDealerAsset(actor, assetBody()))
+      const deal = await createDealerDeal(actor, dealBody(fx, { entityId: first.entityId }, assetId))
+      if (deal.kind !== "created") throw new Error(JSON.stringify(deal))
+      return deal.dealId
+    })
+    const consent = storedDocument(fx, second)
+    age(first.dealId, 91)
+    age(second, 91)
+    expect(await purge(first.dealId)).toMatchObject({ entitiesErased: 1 })
+    const closed = { kind: "refused", status: 409, error: "This draft was closed and its details erased: start a new deal" }
+    expect(await inTenant(fx, () => uploadDealerDocument(actor, second, pdfUpload("BANK_STATEMENT")))).toEqual(closed)
+    expect(await inTenant(fx, () => attestDealerConsent(actor, second, { documentId: consent.id, clientIds: [first.directorId], signingMethod: "IN_PERSON" })))
+      .toEqual(closed)
+    expect(await inTenant(fx, () => submitDealerDeal(actor, second))).toEqual(closed)
+    const message = "An erased person or business is not used again"
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(second)}`, message)
+    expectRejected(`INSERT INTO "EntityDocument" ("id", "tenantId", "entityId", "dealId", "docType", "fileName", "mimeType", "fileSize", "storagePath",
+        "contentSha256", "uploadedByType", "uploadedById")
+      VALUES ('${newId("doc")}', ${lit(fx.tenantId)}, ${lit(first.entityId)}, ${lit(second)}, 'OTHER', 'x.pdf', 'application/pdf', 1,
+        '/nonexistent/x.pdf', repeat('0', 64), 'dealer', ${lit(fx.salesUserA)})`, message)
+    expectRejected(`INSERT INTO "DealerConsentAttestation" ("id", "tenantId", "dealId", "clientId", "documentId", "dealerUserId", "statementVersion",
+        "statementText", "signingMethod")
+      VALUES ('${newId("dca")}', ${lit(fx.tenantId)}, ${lit(second)}, ${lit(first.directorId)}, ${lit(consent.id)}, ${lit(fx.salesUserA)},
+        'dealer-consent-v2', 'TEST', 'IN_PERSON')`, message)
+    // The sibling itself is purged in its turn.
+    expect(await purge(second)).toMatchObject({ documentsErased: 1 })
+  }, 30_000)
 })

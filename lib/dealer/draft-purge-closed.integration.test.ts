@@ -52,6 +52,10 @@ suite.sequential("a purged dealer draft is closed (real DB)", () => {
     }))).toEqual(CLOSED)
     expect(await inTenant(fx, () => uploadDealerDocument(sales, purged.dealId, pdfUpload("BANK_STATEMENT")))).toEqual(CLOSED)
     expect(await inTenant(fx, () => cancelDealerDraft(sales, purged.dealId, "The buyer chose another machine"))).toEqual(CLOSED)
+    // A sales colleague learns nothing of it: still "not found" (the 404 rule).
+    const colleague = actorOf(fx, insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA }), fx.dealerA)
+    expect(await inTenant(fx, () => cancelDealerDraft(colleague, purged.dealId, "The buyer chose another machine")))
+      .toEqual({ kind: "refused", status: 404, error: "Deal not found" })
   })
 
   it("refuses by SQL a new document, attestation or request, and any change to the deal but its cancellation", () => {

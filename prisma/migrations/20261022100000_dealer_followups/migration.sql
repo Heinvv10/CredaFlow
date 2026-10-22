@@ -91,7 +91,7 @@ ALTER TABLE "DealerConsentAttestation" ADD CONSTRAINT "DealerConsentAttestation_
     OR ("signingMethod" = 'REMOTE' AND "remoteIdentityCheck" IS NOT NULL
       AND char_length(regexp_replace("remoteIdentityCheck", '^\s+|\s+$', '', 'g')) BETWEEN 10 AND 500
       -- One line: a line break could forge another method line in the snapshot.
-      AND "remoteIdentityCheck" !~ '[[:cntrl:]]')))
+      AND "remoteIdentityCheck" !~ '[[:cntrl:]\u0085\u2028\u2029]')))
 );
 
 -- The v1 statement asserted signature "in my presence"; no new attestation
@@ -531,26 +531,63 @@ CREATE TRIGGER "DealerConsentAttestation_a_purged_deal_closed" BEFORE INSERT ON 
 CREATE TRIGGER "DealerDocumentRequest_a_purged_deal_closed" BEFORE INSERT ON "DealerDocumentRequest"
   FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
 
--- A person or business the purge erased is gone: no deal, application or
--- relationship names it again (the dealer's lookups skip it first).
+-- A person or business the purge erased is gone: no deal, application,
+-- relationship, document or consent attestation names it again, and a deal
+-- naming one is not handed to the lender (a sibling draft the same purge left
+-- for later). The dealer's lookups and actions refuse first.
 CREATE OR REPLACE FUNCTION "guardDealerPurgedPartyUse"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
+DECLARE
+  client_id TEXT;
+  entity_id TEXT;
 BEGIN
-  IF (NEW."clientId" IS NOT NULL AND EXISTS (
-        SELECT 1 FROM "Client" c WHERE c."id" = NEW."clientId" AND c."tenantId" = NEW."tenantId" AND c."dealerPurgedAt" IS NOT NULL))
-    OR (NEW."entityId" IS NOT NULL AND EXISTS (
-        SELECT 1 FROM "BusinessEntity" e WHERE e."id" = NEW."entityId" AND e."tenantId" = NEW."tenantId" AND e."dealerPurgedAt" IS NOT NULL)) THEN
+  client_id := to_jsonb(NEW)->>'clientId';
+  entity_id := to_jsonb(NEW)->>'entityId';
+  -- Ending a relationship to an erased party is allowed; starting or renewing one is not.
+  IF TG_TABLE_NAME = 'EntityRelationship' THEN
+    IF NOT NEW."active" THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  IF (client_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM "Client" c WHERE c."id" = client_id AND c."tenantId" = NEW."tenantId" AND c."dealerPurgedAt" IS NOT NULL))
+    OR (entity_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM "BusinessEntity" e WHERE e."id" = entity_id AND e."tenantId" = NEW."tenantId" AND e."dealerPurgedAt" IS NOT NULL)) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An erased person or business is not used again';
   END IF;
   RETURN NEW;
 END;
 $function$;
 
-CREATE TRIGGER "AssetFinanceDeal_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId" ON "AssetFinanceDeal"
+CREATE TRIGGER "AssetFinanceDeal_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId", "dealerSubmittedAt" ON "AssetFinanceDeal"
   FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
 CREATE TRIGGER "LoanApplication_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId" ON "LoanApplication"
   FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
 CREATE TRIGGER "EntityRelationship_purged_party" BEFORE INSERT OR UPDATE OF "clientId", "entityId", "active" ON "EntityRelationship"
   FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
+CREATE TRIGGER "EntityDocument_purged_party" BEFORE INSERT ON "EntityDocument"
+  FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
+CREATE TRIGGER "DealerConsentAttestation_purged_party" BEFORE INSERT ON "DealerConsentAttestation"
+  FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedPartyUse"();
+
+-- An erased person or business stays erased: once dealerPurgedAt is set,
+-- nothing on the row changes again (a late edit would bring back data no
+-- purge reaches).
+CREATE OR REPLACE FUNCTION "freezeDealerPurgedParty"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF OLD."dealerPurgedAt" IS NOT NULL AND (to_jsonb(NEW) - 'updatedAt') IS DISTINCT FROM (to_jsonb(OLD) - 'updatedAt') THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An erased person or business is not changed';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "Client_b_dealer_purged_frozen" BEFORE UPDATE ON "Client"
+  FOR EACH ROW EXECUTE FUNCTION "freezeDealerPurgedParty"();
+CREATE TRIGGER "BusinessEntity_b_dealer_purged_frozen" BEFORE UPDATE ON "BusinessEntity"
+  FOR EACH ROW EXECUTE FUNCTION "freezeDealerPurgedParty"();

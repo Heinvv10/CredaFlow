@@ -118,3 +118,19 @@ skipped`, `Tests 458 passed | 1 skipped` (after the fix below).
 
 M21 (round 1) targeted the closed-deal guard's old cancel clause; M29 replaces it
 for the new clause (only the lender cancels a purged draft).
+
+### Review round 3 fixes
+
+Fresh database `cf-it-s5fd-a9`; all dealer suites green after the fixes
+(`Test Files 53 passed | 1 skipped`, `Tests 460 passed | 1 skipped`).
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| M35 | drop `Client_b_dealer_purged_frozen` and `BusinessEntity_b_dealer_purged_frozen` | `draft-purge-holds` | 1 failed, 5 passed | erases once, never on insert, and never uses an erased party again |
+| M36 | `guardDealerPurgedPartyUse` refuses a relationship's deactivation too | `draft-purge-holds` | 1 failed, 5 passed | same (ending the erased director's relationship) |
+| M37 | drop `EntityDocument_purged_party` and `DealerConsentAttestation_purged_party` | `draft-purge-holds` | 1 failed, 5 passed | closes a sibling draft whose business an earlier purge erased |
+| M38 | `AssetFinanceDeal_purged_party` not on `dealerSubmittedAt` | `draft-purge-holds` | 1 failed, 5 passed | same |
+| M39 | `documents.ts`: a sibling draft's erased parties not refused first | `draft-purge-holds` | 1 failed, 5 passed | same (the database refused the upload as an error) |
+| M40 | `consent.ts`: only C0 control characters refused | `dealer-consent-v2` | 1 failed, 6 passed | counts characters as the database does … (U+2028, U+2029, U+0085) |
+| M41 | signing-method CHECK without U+0085, U+2028, U+2029 | `dealer-consent-v2` | 1 failed, 6 passed | refuses by SQL a row without a method, … |
+| M42 | `cancel.ts`: the purged check before the colleague check | `draft-purge-closed` | 1 failed, 3 passed | refuses the dealer's submit, attestation and upload (a colleague gets 404) |

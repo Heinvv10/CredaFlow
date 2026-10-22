@@ -60,6 +60,9 @@ suite.sequential("a dealer cancels its own draft (real DB)", () => {
     const { dealId } = await salesDraft()
     expect(await inTenant(fx, () => cancelDealerDraft(actorOf(fx, fx.salesUserA, fx.dealerA), dealId, REASON))).toEqual({ kind: "cancelled" })
     expect(state(dealId)).toBe(`CANCELLED|${fx.salesUserA}|t|CANCELLED|t`)
+    // The reason stays in the audit only: the application outlives a purge.
+    expect(sql(`SELECT a."decisionReason" FROM "LoanApplication" a JOIN "AssetFinanceDeal" d ON d."applicationId" = a."id"
+      WHERE d."id" = ${lit(dealId)}`)).toBe("Deal cancelled by the dealer")
     expect(sql(`SELECT "userId" IS NULL, "newValue"->'actor'->>'dealerUserId', "newValue"->>'reason' FROM "AuditLog"
       WHERE "action" = 'DEALER_DEAL_CANCELLED' AND "entityId" = ${lit(dealId)}`)).toBe(`t|${fx.salesUserA}|${REASON}`)
   })

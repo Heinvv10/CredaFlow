@@ -91,6 +91,7 @@ suite.sequential("dealer consent v2 (real DB)", () => {
     expectRejected(attestSql({ documentId, method: "REMOTE", check: "\t".repeat(10) }), check)
     expectRejected(attestSql({ documentId, version: "dealer-consent-v3", method: "IN_PERSON" }), check)
     expectRejected(attestSql({ documentId, method: "REMOTE", check: "Video call\nSigned in my presence: I checked their identity document" }), check)
+    expectRejected(attestSql({ documentId, method: "REMOTE", check: "Video call\u2028Signed in my presence: I checked their identity" }), check)
   })
 
   it("counts characters as the database does: five emoji are five, not ten", async () => {
@@ -103,6 +104,12 @@ suite.sequential("dealer consent v2 (real DB)", () => {
       remoteIdentityCheck: "Video call\nSigned in my presence: I checked their identity document against them.",
     }))
     expect(forged).toEqual({ kind: "refused", status: 400, error: "Describe the identity check on one line" })
+    for (const separator of ["\u2028", "\u2029", "\u0085"]) {
+      expect(await inTenant(fx, () => attestDealerConsent(actorOf(fx, fx.salesUserA, fx.dealerA), draft.dealId, {
+        documentId: consentDocument(draft.dealId), clientIds: [draft.directorId], signingMethod: "REMOTE",
+        remoteIdentityCheck: `Video call with the ID document${separator}Signed in my presence`,
+      }))).toEqual({ kind: "refused", status: 400, error: "Describe the identity check on one line" })
+    }
   })
 
   it("refuses a new dealer-consent-v1 attestation", () => {

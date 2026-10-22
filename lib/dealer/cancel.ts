@@ -39,8 +39,8 @@ async function cancelInTransaction(actor: DealerActor, dealId: string, reason: s
   return prisma.$transaction(async (tx) => {
     const mine = await tx.assetFinanceDeal.findFirst({ where: dealerDealWhere(actor, dealId), select: { dealerUserId: true, dealerPurge: { select: { id: true } } } })
     if (!mine) return dealerMiss("Deal")
-    if (mine.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     if (actor.dealerRole !== "DEALER_ADMIN" && mine.dealerUserId !== actor.dealerUserId) return dealerMiss("Deal")
+    if (mine.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     await lockDeal(tx, actor.tenantId, dealId)
     const deal = await tx.assetFinanceDeal.findFirstOrThrow({
       where: dealerDealWhere(actor, dealId),
