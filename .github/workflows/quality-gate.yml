@@ -124,7 +124,7 @@ jobs:
   # with the same file and test counts as one unsharded run.
   unit:
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    name: unit (${{ matrix.shard }}/3)
+    name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -153,12 +153,17 @@ jobs:
       - name: Generate registries
         run: npm run gen:registries
 
-      # The unit suites shell out to pdftoppm/pdfinfo and qpdf.
+      # The unit suites shell out to pdftoppm/pdfinfo and qpdf. Skipped when a
+      # (self-hosted) image already has them; the lock timeout lets concurrent
+      # shards on one host wait for apt instead of failing on its lock.
       - name: Install PDF tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+        run: |
+          if command -v pdftoppm && command -v pdfinfo && command -v qpdf; then exit 0; fi
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils qpdf
 
       - name: Unit tests
-        run: npx vitest run --shard=${{ matrix.shard }}/3 --maxWorkers=2
+        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --maxWorkers=2
 
   # Branch protection requires a check named exactly `quality`. It passes only
   # if `checks` and every unit shard succeeded. always() keeps it from being
