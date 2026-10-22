@@ -23,6 +23,7 @@ import type { LeaseFixture } from "./lease.integration-fixture"
 import type { SessionUser } from "./payout-booking.integration-fixture"
 import { recordMeterReading } from "./meter-readings"
 import { decideMeterReadingVoid, requestMeterReadingVoid } from "./meter-void"
+import { recordInspection } from "./lease-end-of-term"
 import type { SigningTx } from "./signing-prepare"
 import type { LeaseActionResult } from "./lease-route"
 import { dbDate } from "./dates"
@@ -291,5 +292,26 @@ suite.sequential("meter-reading void: four-eyes, refusals, a voided reading coun
     expect(await attempt(database(), inspect(false))).toMatch(LATEST)
     await ruleAdmits(database(), inspect(true))
     expect(await attempt(database(), inspect(true), { fn: "guardLeaseEndOfTerm", replace: [`AND x."readingDate" > m."readingDate" AND x."voidedAt" IS NULL)) THEN`, `AND x."readingDate" > m."readingDate")) THEN`] })).toMatch(LATEST)
+  }, 600_000)
+
+  it("the inspection itself (recordInspection) is not blocked by a later voided reading, and is by a live one", async () => {
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    // The term ended five days ago and the return was elected three days ago (test setup); a reading dated today exists.
+    await testSetup(database(), [`UPDATE "LeaseRental" SET "dueDate" = $2::date WHERE "loanId" = $1`, loanId, daysAgo(5)],
+      [`INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "electedAt", "updatedAt")
+        VALUES ($1, $2, $3, 'EXPIRY', 'RETURN', 'ELECTED', now() - INTERVAL '3 days', now())`, `eoti_${t}`, fx.tenantId, loanId])
+    const later = await inTx((tx) => recordMeterReading(tx, actor(fx.officer), { loanId, readingDate: today(), value: 1_400, evidenceDocumentId: null, today: today() }))
+    expect(later).toMatchObject({ kind: "recorded" })
+    const inspect = () => inTx((tx) => recordInspection(tx, actor(fx.adminA), {
+      loanId, inspectedOn: daysAgo(1), condition: "Synthetic: returned in good order", finalReading: 1_300, damage: [], today: today(),
+    }))
+    expect(await inspect()).toMatchObject({ kind: "refused", reason: "invalid_inspectedOn" })
+    // A second reading so the later one is not the lease's only live reading, then void the later one.
+    expect(await inTx((tx) => recordMeterReading(tx, actor(fx.officer), { loanId, readingDate: daysAgo(10), value: 1_100, evidenceDocumentId: null, today: today() }))).toMatchObject({ kind: "recorded" })
+    const asked = await inTx((tx) => requestMeterReadingVoid(tx, actor(fx.officer), { loanId, readingId: (later as { readingId: string }).readingId, reason: "Dated after the return: a synthetic mistake" }))
+    const voidId = (asked as unknown as { voidId: string }).voidId
+    expect(await inTx((tx) => decideMeterReadingVoid(tx, actor(fx.adminA), { loanId, voidId, decision: "APPROVE" }))).toEqual({ kind: "decided", status: "APPROVED" })
+    expect(await inspect()).not.toMatchObject({ kind: "refused" })
   }, 600_000)
 })

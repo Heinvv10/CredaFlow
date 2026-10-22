@@ -309,7 +309,25 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     expect(dispatch).not.toHaveBeenCalled()
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "No recipient with trusted contact details" })
     expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, loanId } })).toBe(0)
-  }, 600_000)
+    // The same for a sole proprietor borrower whose own details a dealer typed (completed, then made the borrower: test setup).
+    const sole = await completedLease(16)
+    await sole.complete()
+    const lessee = await database().client.findUniqueOrThrow({ where: { id: fx.lessee } })
+    await testSetup(database(), [`UPDATE "Loan" SET "clientId" = $2, "entityId" = NULL WHERE "id" = $1`, sole.loanId, fx.lessee],
+      [`UPDATE "Client" SET "createdByDealerId" = 'dealer_unverified', "dealerContactVerifiedAt" = NULL WHERE "id" = $1`, fx.lessee])
+    const contact = await database().contact.findFirst({ where: { tenantId: fx.tenantId, clientId: lessee.id } })
+      ?? await database().contact.create({ data: { tenantId: fx.tenantId, clientId: lessee.id, status: "CLIENT", firstSeenChannel: "MANUAL", firstSeenContext: "synthetic-closure-test" } })
+    if (!(await database().contactIdentity.findFirst({ where: { tenantId: fx.tenantId, contactId: contact.id, channel: "EMAIL" } }))) {
+      await database().contactIdentity.create({ data: { tenantId: fx.tenantId, contactId: contact.id, channel: "EMAIL", source: "MANUAL", value: lessee.email.toLowerCase() } })
+    }
+    try {
+      expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    } finally {
+      await testSetup(database(), [`UPDATE "Client" SET "createdByDealerId" = NULL WHERE "id" = $1`, fx.lessee])
+    }
+    expect(dispatch).not.toHaveBeenCalled()
+    expect((await closuresOf(sole.loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "No recipient with trusted contact details" })
+  }, 900_000)
 
   it("a loan reopened after it completed is told nothing until it completes again", async () => {
     const { loanId, complete } = await completedLease(14)
