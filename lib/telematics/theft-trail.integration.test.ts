@@ -112,10 +112,8 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     // A case number the year of which is not a number: the trigger names the form (without its check the cast fails, 22P02).
     expect(await attempt(database(), insert({ sapsCaseNumber: "CAS 1/1/20x6" }))).toMatch(/reads CAS/)
     expect(await attempt(database(), insert({ sapsCaseNumber: "CAS 1/1/20x6" }), { fn: "guardAssetTheftReport", replace: FORM })).toMatch(/22P02|invalid input syntax/)
-    await expect(database().$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`ALTER TABLE "AssetTheftReport" DISABLE TRIGGER "AssetTheftReport_guard"`)
-      await insert({ sapsCaseNumber: "cas 1/1/2026" })(tx)
-    })).rejects.toThrow(/AssetTheftReport_case_number/)
+    // With the trigger off, the CHECK alone refuses it (inside a transaction that is always rolled back).
+    expect(await attempt(database(), insert({ sapsCaseNumber: "cas 1/1/2026" }), { table: "AssetTheftReport", trigger: "AssetTheftReport_guard" })).toMatch(/AssetTheftReport_case_number/)
     await ruleRefuses(database(), { fn: "guardAssetTheftReport", replace: ["OR split_part(NEW.\"sapsCaseNumber\", '/', 3)::int < 2000 THEN", "THEN"] }, /reads CAS/,
       insert({ sapsCaseNumber: "CAS 1/1/1999" }))
     const future = new Date(Date.parse(`${today()}T00:00:00Z`) + DAY)
@@ -380,6 +378,11 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "refused", status: 409 })
     // Not renewed once ended (a new theft is a new case), and nothing about an ended report changes.
     expect(await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today(), renewsReportId: row.id })).toMatchObject({ kind: "refused", status: 409 })
+    // The database's own rule, with the case's renewal cap lifted in the (rolled-back) attempt so it is what refuses.
+    expect(await attempt(database(), (tx) => tx.assetTheftReport.create({ data: { tenantId: fx.tenantId, loanId: ids.loan, assetId: fx.assets[1], sapsCaseNumber: caseNo,
+      reportedOn: original.reportedOn, validUntil: original.reportedOn, renewsReportId: row.id, recordedById: ids.collector } }),
+      { fn: "guardAssetTheftReport", replace: ["AND r.\"sapsCaseNumber\" = NEW.\"sapsCaseNumber\") >= 3 THEN", "AND r.\"sapsCaseNumber\" = NEW.\"sapsCaseNumber\") >= 99 THEN"] }))
+      .toMatch(/ended theft report is not renewed/)
     await ruleRefuses(database(), { table: "AssetTheftReport", trigger: "AssetTheftReport_guard" }, /ended once/,
       (tx) => tx.assetTheftReport.update({ where: { id: ids.report }, data: { endReason: "Another synthetic reason" } }))
     await ruleRefuses(database(), { table: "AssetTheftReport", constraint: "AssetTheftReport_confirmation" }, /AssetTheftReport_confirmation/,
