@@ -12,7 +12,7 @@
 // own, outside the cost-of-credit disclosure. Not editable by the lender, and
 // templates/validate.ts refuses the word "commission" in lender text.
 // Wording notes: docs/asset-finance/SLICE5-FOLLOWUPS.md "Part W".
-import { DealDocumentError } from "../deal-document-data"
+import { DealDocumentError } from "../deal-document-error"
 import { dealerPrintRefusal, type DocumentDealer } from "./dealer-name"
 
 /** The paragraph in each document's defined terms;. */

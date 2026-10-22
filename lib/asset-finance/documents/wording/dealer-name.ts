@@ -15,16 +15,17 @@ export interface DocumentDealer {
   kind: "DEALER" | "BROKER"
 }
 
-// Control characters (C0, DEL, C1), the no-break space and the soft hyphen are
-// inside the document font's range but print as nothing or as a lookalike.
-const HIDDEN = /[\u0000-\u001F\u007F- ­]/
+// The no-break space and the soft hyphen are inside the document font's range
+// but print as a blank or as nothing; every other control, invisible or
+// out-of-range character is refused by the font check.
+const HIDDEN = /[\u00A0\u00AD]/
 
 /** Why `name` may not be printed on a document, or null when it may. */
 export function dealerNameProblem(name: string): string | null {
   if (name.length === 0 || name.length > MAX_DEALER_NAME) return `must be 1 to ${MAX_DEALER_NAME} characters`
   if (name !== name.trim() || name.includes("  ")) return "must have no leading, trailing or repeated spaces"
   if (HIDDEN.test(name) || winAnsiSafe(name) !== name) {
-    return "may use only characters the document font can print: no line breaks, tabs, control, invisible or non-Latin characters"
+    return "may use only characters the document font can print: no line breaks, tabs, control or invisible characters, and no letters outside the Western European alphabets"
   }
   return null
 }

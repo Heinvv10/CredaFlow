@@ -30,15 +30,11 @@ import { isLeaseContract } from "../lease-input"
 import { leaseDocumentTerms, soleProprietorOf, type LeaseDocumentTerms, type SoleProprietor } from "./lease/lease-document-data"
 import { decimalString, documentTermProblem, snapshotArrearsMargin } from "./document-terms"
 import { documentDealer, type DocumentDealer } from "./wording/dealer-name"
+import { DealDocumentError } from "./deal-document-error"
 
 export { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./document-terms"
 
-export class DealDocumentError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "DealDocumentError"
-  }
-}
+export { DealDocumentError }
 
 export interface DocumentPerson {
   clientId: string

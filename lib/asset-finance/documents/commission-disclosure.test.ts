@@ -38,7 +38,7 @@ describe("introducer's commission disclosure", () => {
       expect(text).not.toContain(SECTION)
     })
 
-    it("a deal with no dealer renders byte-identical to the document before the disclosure existed (dealer null, absent)", async () => {
+    it("a deal with no dealer renders the same bytes whether `dealer` is null or absent", async () => {
       expect((await render(null)).equals(await render(undefined))).toBe(true)
     })
 
@@ -58,7 +58,7 @@ describe("introducer's commission disclosure", () => {
   })
 
   it("prints names that the old word list refused, and full stops", async () => {
-    for (const name of ["May & Sons", "Price Brothers Plant Hire", "Not Just Tractors", "Zero Fee Motors", "Karoo Plant Hire Pty. Ltd.", 'Smith "Quick" Motors: Pretoria']) {
+    for (const name of ["May & Sons", "Price Brothers Plant Hire", "Not Just Tractors", "Zero Fee Motors", "Karoo Plant Hire Pty. Ltd.", 'Smith "Quick" Motors: Pretoria', "Smith t/a Quick Motors", "Pay-Less Plant", "D\u2019Arcy Motors"]) {
       const text = printed(await texts(await renderInstalmentSaleAgreement({ ...syntheticDealDocumentData(), dealer: { name, kind: "DEALER" } })))
       expect(text, name).toContain(`Introducer ${name} (dealer)`)
     }
