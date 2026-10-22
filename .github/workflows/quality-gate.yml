@@ -194,7 +194,7 @@ jobs:
           echo "checks: ${CHECKS}, unit: ${UNIT}"
           [[ "$CHECKS" == success && "$UNIT" == success ]]
 
-  integration:
+  integration-shard:
     # Main is tested as a candidate merge by the PR event and again nightly.
     # Avoid paying for the same integration suite immediately after each merge.
     if: github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
@@ -202,8 +202,17 @@ jobs:
     # The serial suite (--no-file-parallelism) reached ~29 min on main by
     # 2026-10-20; 30 cancelled green runs part-way. With slice 5's suites
     # (440 gated) it was still running, with no failure, when 45 cancelled it
-    # on 2026-10-21 (run 39611551763).
-    timeout-minutes: 75
+    # on 2026-10-21 (run 39611551763). Split three ways (IT_SHARD below),
+    # each shard runs about a third of it.
+    timeout-minutes: 45
+    # Three jobs, each with its own database, run a third of the suites each
+    # (scripts/integration-weights.txt balances them). The `integration` job
+    # below is the required check; these report as `integration shard i/3`.
+    name: integration shard ${{ matrix.shard }}/${{ strategy.job-total }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     services:
       postgres:
@@ -212,8 +221,10 @@ jobs:
           POSTGRES_USER: ituser
           POSTGRES_PASSWORD: itpass
           POSTGRES_DB: credaflow_it
+        # An ephemeral host port, not 5432:5432: shards sharing one
+        # self-hosted machine would collide, and velo already binds 5432.
         ports:
-          - 5432:5432
+          - 5432
         options: >-
           --health-cmd "pg_isready -U ituser -d credaflow_it"
           --health-interval 5s
@@ -221,19 +232,26 @@ jobs:
           --health-retries 20
 
     env:
-      # Disposable service container. These suites create and delete real rows.
-      DATABASE_URL: postgresql://ituser:itpass@127.0.0.1:5432/credaflow_it
       TZ: UTC
+      IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
     steps:
+      # Disposable service container. These suites create and delete real rows.
+      # The job context (the mapped port) is not available in job-level env.
+      - name: Point DATABASE_URL at this shard's database
+        env:
+          PG_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: echo "DATABASE_URL=postgresql://ituser:itpass@127.0.0.1:${PG_PORT}/credaflow_it" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # The baseline ratchet needs the merge base with the target branch.
           fetch-depth: 0
 
       # The integration baseline is a debt register and may only shrink.
+      # Once per run: the check reads only git, so shard 1 carries it.
       - name: Baseline may only shrink
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -283,8 +301,31 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Skipped when a (self-hosted) image already has it; the lock timeout
+      # lets concurrent shards on one host wait for apt instead of failing.
       - name: Install pdftotext
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+        run: |
+          if command -v pdftotext; then exit 0; fi
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils
 
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
+
+  # Branch protection requires a check named exactly `integration`. It passes
+  # only when every shard passed. always(), because a skipped required check
+  # counts as passing: without it a failed or cancelled shard would skip this
+  # job and let the PR through. Drafts and the conditions on the shards
+  # still skip it, exactly as they skip the shards.
+  integration:
+    needs: integration-shard
+    if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        env:
+          RESULT: ${{ needs.integration-shard.result }}
+        run: |
+          echo ">> integration shards: ${RESULT}"
+          [[ "$RESULT" == "success" ]]

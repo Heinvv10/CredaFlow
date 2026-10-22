@@ -97,7 +97,10 @@ CI (`.github/workflows/quality-gate.yml`) runs the quality and integration
 jobs. Draft PR updates use no runner; marking a PR ready runs both jobs. The
 nightly schedule reruns integration against the current trunk. Merging to main
 does not rerun the gate: strict branch protection means the PR run already
-tested the exact merged tree.
+tested the exact merged tree. Unit tests run as three parallel Vitest shards
+and integration as three parallel shards, each with its own database
+(`IT_SHARD=i/n`; `scripts/integration-weights.txt` balances them); the
+`quality` and `integration` checks pass only when every shard does.
 
 ## Environment
 
