@@ -147,3 +147,75 @@ skipped`, `Tests 461 passed | 1 skipped`).
 
 Staff edits of an erased row answer 409 naming the purge: pinned by
 `app/api/asset-finance/entities/[id]/route.test.ts` and `app/api/clients/[id]/route.test.ts`.
+
+
+## Part T (THEFT purpose, SQL purpose gate, position trail, meter-reading void, tracker closure)
+
+Database: a throwaway PostgreSQL 16 from `scripts/it-db.sh up cf-it-s5ft-*`,
+`npx prisma migrate deploy`. Suites run with
+`RUN_ASSET_FINANCE_TELEMATICS_IT=1 TENANT_RLS=on npx vitest run --no-file-parallelism <suite>`.
+T1 to T26 change the live database object (a function redefined with one
+clause replaced, a CHECK or index dropped or rebuilt) and restore it after the
+run; T30 to T46 change one clause of the TypeScript and restore it with
+`git checkout`. Each mutation runs only the suite named. The tests'
+`ruleRefuses` also removes each rule it names inside a rolled-back
+transaction and checks the attack then goes through.
+
+### Mutations (all killed)
+
+| # | Mutation | Suite | Result |
+|---|---|---|---|
+| T1 | drop CHECK AssetTheftReport_case_number | `theft-trail` | 4 failed, 4 passed (8) |
+| T2 | guardAssetTheftReport: a report on a closed loan | `theft-trail` | 4 failed, 4 passed (8) |
+| T3 | guardAssetTheftReport: valid 31 days | `theft-trail` | 4 failed, 4 passed (8) |
+| T4 | guardAssetTheftReport: a future report date | `theft-trail` | 4 failed, 4 passed (8) |
+| T5 | telematicsPurposeHolds THEFT: an expired report holds | `theft-trail` | 2 failed, 6 passed (8) |
+| T6 | telematicsPurposeHolds DEFAULT: any loan | `theft-trail` | 1 failed, 7 passed (8) |
+| T7 | guardTelematicsPositionAccess: no purpose check | `theft-trail` | 1 failed, 7 passed (8) |
+| T8 | guardTelematicsPositionAccess: a TRAIL for DEFAULT | `theft-trail` | 1 failed, 7 passed (8) |
+| T9 | guardTelematicsPositionAccess: THEFT without its report | `theft-trail` | 1 failed, 7 passed (8) |
+| T10 | drop CHECK AssetMeterReadingVoid_four_eyes | `meter-void` | 1 failed, 7 passed (8) |
+| T11 | drop index AssetMeterReadingVoid_one_open | `meter-void` | 1 failed, 7 passed (8) |
+| T12 | meterReadingVoidRefusal: an invoiced lease's reading voidable | `meter-void` | 2 failed, 6 passed (8) |
+| T13 | meterReadingVoidRefusal: a final reading voidable | `meter-void` | 2 failed, 6 passed (8) |
+| T14 | meterReadingVoidRefusal: a recovery's reading voidable | `meter-void` | 2 failed, 6 passed (8) |
+| T15 | guardAssetMeterReadingVoid: decided again / changed | `meter-void` | 1 failed, 7 passed (8) |
+| T16 | guardAssetMeterReading: monotonic counts voided readings | `meter-void` | 7 failed, 1 passed (8) |
+| T17 | guardAssetMeterReading: any void stamp accepted | `meter-void` | 1 failed, 7 passed (8) |
+| T18 | telematicsPaceCeiling: voided start counts | `meter-void` | 1 failed, 7 passed (8) |
+| T19 | one_per_day index counts voided readings | `meter-void` | 1 failed, 7 passed (8) |
+| T20 | guardNotVoidedReading: a voided reading cited | `meter-void` | 1 failed, 7 passed (8) |
+| T21 | applyAssetMeterReadingVoid: approval does not stamp | `meter-void` | 8 failed (8) |
+| T22 | createTrackerClosures: a removed device too | `tracker-closure` | 1 failed, 9 passed (10) |
+| T23 | createTrackerClosures: no ON CONFLICT (twice fails) | `tracker-closure` | 1 failed, 9 passed (10) |
+| T24 | createTrackerClosures: not fired at all | `tracker-closure` | 9 failed, 1 passed (10) |
+| T25 | guardTrackerClosure: a decided message rewritten | `tracker-closure` | 2 failed, 8 passed (10) |
+| T26 | guardTrackerClosure: done without the device removed | `tracker-closure` | 1 failed, 9 passed (10) |
+| T30 | position-trail: DEFAULT allowed for a trail | `theft-trail` | 1 failed, 7 passed (8) |
+| T31 | position-trail: no tenure start filter | `theft-trail` | 2 failed, 6 passed (8) |
+| T32 | position-trail: no permission check | `theft-trail` | 1 failed, 7 passed (8) |
+| T33 | position-purpose: THEFT ignores validity | `theft-trail` | 1 failed, 7 passed (8) |
+| T34 | theft-reports: future date accepted | `theft-reports (unit)` | 1 failed, 3 passed (4) |
+| T35 | theft-reports: no permission check | `theft-trail` | 3 failed, 5 passed (8) |
+| T36 | meter-void: no four-eyes TS check | `meter-void` | 7 failed, 1 passed (8) |
+| T37 | meter-void: no pending check | `meter-void` | 7 failed, 1 passed (8) |
+| T38 | meter-readings: monotonic TS counts voided | `meter-void` | 5 failed, 3 passed (8) |
+| T39 | lease-staff-data: projection counts voided | `meter-void` | 1 failed, 7 passed (8) |
+| T40 | tracker-closure: notice not guarded by its column | `tracker-closure` | 1 failed, 9 passed (10) |
+| T41 | tracker-closure: in-flight send decided FAILED | `tracker-closure` | 1 failed, 9 passed (10) |
+| T42 | tracker-closure: pending message decided SENT | `tracker-closure` | 1 failed, 9 passed (10) |
+| T43 | tracker-closure: unexpected error decided | `tracker-closure` | 1 failed, 9 passed (10) |
+| T44 | tracker-closure: deceased recipient included | `tracker-closure` | 1 failed, 10 passed (11) — survived the first run (10 passed); killed after the deceased-borrower test was added |
+| T45 | devices: removal does not close the task | `tracker-closure` | 1 failed, 9 passed (10) |
+| T46 | letter route: no access log | `followup-routes (unit)` | 1 failed, 7 passed (8) |
+
+### Found by the suites before merge
+
+- `guardNotVoidedReading` read `NEW."finalReadingId"` and `NEW."meterReadingId"`
+  in one CASE in its DECLARE block: every insert into LeaseEndOfTerm, Recovery
+  or MaintenanceClaim failed ("record new has no field"). Fixed by reading the
+  column per table in the body.
+- Overlapping closure runs: the run that lost the send race recorded FAILED
+  for an email the other had sent, and two runs at once deadlocked in the
+  send pipeline and left the message for manual reconciliation. Fixed with a
+  per-closure claim on the email step (T40 to T43 pin the rest).

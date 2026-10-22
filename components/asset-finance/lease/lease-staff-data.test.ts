@@ -39,8 +39,8 @@ const loanRow = (over: Record<string, unknown> = {}) => ({
   assetFinanceDeal: deal(),
   leaseRentals: RENTALS,
   meterReadings: [
-    { id: "r-2", readingDate: day("2030-07-02"), value: 1_000, source: "PORTAL" },
-    { id: "r-1", readingDate: day("2030-01-01"), value: 100, source: "STAFF" },
+    { id: "r-2", readingDate: day("2030-07-02"), value: 1_000, source: "PORTAL", voidedAt: null, voids: [] },
+    { id: "r-1", readingDate: day("2030-01-01"), value: 100, source: "STAFF", voidedAt: null, voids: [] },
   ],
   maintenanceFund: {
     riskModel: "LENDER_RISK", leaseEndDate: day("2031-01-01"), settledAt: null,
@@ -120,7 +120,7 @@ describe("loadLeaseStaffData", () => {
   })
 
   it("projects nothing from a single reading or without contracted usage", async () => {
-    mocks.loan.mockResolvedValue(loanRow({ meterReadings: [{ id: "r-1", readingDate: day("2030-01-01"), value: 100, source: "STAFF" }] }))
+    mocks.loan.mockResolvedValue(loanRow({ meterReadings: [{ id: "r-1", readingDate: day("2030-01-01"), value: 100, source: "STAFF", voidedAt: null, voids: [] }] }))
     expect((await loadLeaseStaffData("t-1", "loan-1"))?.usage).toBeNull()
     mocks.loan.mockResolvedValue(loanRow({ assetFinanceDeal: deal({ usageUnit: null, usageAllowancePerYear: null, excessRateCents: null }) }))
     const data = await loadLeaseStaffData("t-1", "loan-1")

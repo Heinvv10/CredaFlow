@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   findPortalLease: vi.fn(),
-  loan: vi.fn(), reading: vi.fn(), quote: vi.fn(), config: vi.fn(), valuation: vi.fn(), charges: vi.fn(),
+  loan: vi.fn(), reading: vi.fn(), voided: vi.fn(async () => []), quote: vi.fn(), config: vi.fn(), valuation: vi.fn(), charges: vi.fn(),
 }))
 vi.mock("./lease-portal-route", () => ({ findPortalLease: mocks.findPortalLease }))
 vi.mock("@/lib/portal/loan-charges", () => ({ portalLoanCharges: mocks.charges }))
@@ -11,7 +11,7 @@ vi.mock("./meter-readings", () => ({ recordMeterReading: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     loan: { findFirst: mocks.loan },
-    assetMeterReading: { findFirst: mocks.reading },
+    assetMeterReading: { findFirst: mocks.reading, findMany: mocks.voided },
     leaseTerminationQuote: { findFirst: mocks.quote },
     tenantConfig: { findUnique: mocks.config },
     assetValuation: { findFirst: mocks.valuation },
@@ -91,11 +91,13 @@ describe("loadPortalLease", () => {
       },
     }))
     mocks.reading.mockResolvedValue({ readingDate: new Date("2027-03-01T00:00:00Z"), value: 9_000, source: "TELEMATICS" })
+    mocks.voided.mockResolvedValue([{ readingDate: new Date("2027-02-01T00:00:00Z"), value: 90_000, voidedAt: new Date("2027-02-03T08:00:00Z") }])
     const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
     expect(view?.fund).toMatchObject({ balanceCents: 16_000, riskModel: "LENDER_RISK", claims: [{ provider: "TEST Workshop", description: "Synthetic service", status: "PAID" }] })
-    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "TELEMATICS" } })
-    // This lease's readings, not the asset's: an asset leased before carries an older lease's readings.
-    expect(mocks.reading.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM" })
+    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "TELEMATICS" }, voided: [{ readingDate: "2027-02-01", value: 90_000, voidedOn: "2027-02-03" }] })
+    // This lease's readings, not the asset's: an asset leased before carries an older lease's readings. A voided one is never the meter.
+    expect(mocks.reading.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM", voidedAt: null })
+    expect(mocks.voided.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM", voidedAt: { not: null } })
     expect(view?.termination.penaltyConfigured).toBe(false)
   })
 

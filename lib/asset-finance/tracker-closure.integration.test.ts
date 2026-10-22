@@ -220,6 +220,27 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
       (tx) => tx.trackerClosure.update({ where: { id: closure.id }, data: { messageClaimedAt: null } }))
   }, 600_000)
 
+  it("never writes to a deceased borrower: a sole proprietor marked deceased gets no email, the letter is still stored", async () => {
+    _resetRateLimitStore()
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    await installDevice(fx, assetId, "SIM-STEADY-5", await loanStartDate(database(), loanId))
+    // Completed, then the lessee made a sole proprietor borrower (test setup, triggers off) with an email Contact, recorded deceased.
+    const lessee = await database().client.findUniqueOrThrow({ where: { id: fx.lessee } })
+    await database().$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() WHERE "id" = $1`, loanId)
+    await testSetup(database(), [`UPDATE "Loan" SET "clientId" = $2, "entityId" = NULL WHERE "id" = $1`, loanId, fx.lessee],
+      [`UPDATE "Client" SET "deceasedAt" = now() WHERE "id" = $1`, fx.lessee])
+    const contact = await database().contact.create({ data: { tenantId: fx.tenantId, clientId: lessee.id, status: "CLIENT", firstSeenChannel: "MANUAL", firstSeenContext: "synthetic-closure-test" } })
+    await database().contactIdentity.create({ data: { tenantId: fx.tenantId, contactId: contact.id, channel: "EMAIL", source: "MANUAL", value: lessee.email.toLowerCase() } })
+    let sends = 0
+    const message = await database().message.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "SENT" } })
+    expect(await withoutTenantScope(() => processTrackerClosures(fx.tenantId, async () => { sends++; return message }))).toEqual({ closures: 1, failed: 0 })
+    expect(sends).toBe(0)
+    expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "No recipient with trusted contact details", letterSha256: expect.any(String) })
+    expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, loanId } })).toBe(0)
+    await testSetup(database(), [`UPDATE "Client" SET "deceasedAt" = NULL WHERE "id" = $1`, fx.lessee])
+  }, 600_000)
+
   it("removing the device closes the task; the database records each step once and never deletes a closure", async () => {
     const [closure] = await closuresOf(loans.paid)
     expect(await removeTrackerDevice(officer(), devices.paid, {})).toEqual({ kind: "ok" })

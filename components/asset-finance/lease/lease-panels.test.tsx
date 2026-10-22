@@ -135,7 +135,8 @@ describe("LeaseReadingsPanel", () => {
     expect(text(r)).toMatch(/Projected usage at term end1.200 hours/)
     expect(text(r)).toContain("projected meter reading 2")
     expect(text(r)).toContain("Lessee (portal)")
-    expect(buttons(r)).toEqual(["Record reading"])
+    // A manager may also ask for a wrong reading to be voided (a second person decides).
+    expect(buttons(r)).toEqual(["Void…", "Void…", "Record reading"])
     expect(buttons(await render(<LeaseReadingsPanel data={view} usage={usage} canRecord={false} />))).toEqual([])
   })
 })
