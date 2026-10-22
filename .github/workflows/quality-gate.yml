@@ -7,8 +7,19 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-  push:
-    branches: [main]
+  # No `push: main` trigger. main's branch protection requires `quality` and
+  # `integration` with "require branches to be up to date" (strict) and
+  # enforce_admins, so a PR can only merge after both jobs passed on a head
+  # that already contains the current main. The merged tree is the tested
+  # tree, so re-running quality on the push to main repeated ~28 min of work
+  # per merge and found nothing new (integration already skipped push). The
+  # local merge queue (mq) merges through PRs and reads only PR-head checks.
+  # Main is still checked nightly (integration) and on demand
+  # (workflow_dispatch). Restore the trigger if strict is ever turned off.
+  #
+  # Caches saved on main are what PRs restore. The nightly run refreshes the
+  # npm cache; after changing lib/kyc/face-model/models.ts, run
+  # `gh workflow run ci --ref main` once so PRs reuse the face-model cache.
   schedule:
     # 02:30 UTC = 04:30 SAST. The nightly run executes integration only.
     - cron: '30 2 * * *'
@@ -18,9 +29,9 @@ on:
 permissions:
   contents: read
 
-# A new revision cancels both jobs from the obsolete revision. Push, PR,
+# A new revision of a PR cancels both jobs from the obsolete revision. PR,
 # schedule and manual runs use separate groups, so a nightly run cannot cancel
-# a main-branch quality gate.
+# a manual main run.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
