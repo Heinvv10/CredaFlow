@@ -243,7 +243,7 @@ for v in "${EXPORT_VARS[@]:-}"; do [[ -n "$v" ]] && export "$v=1"; done
 # suite runs with it on, so the batch-transaction path is exercised everywhere.
 export TENANT_RLS="${TENANT_RLS:-on}"
 
-echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}:${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
+echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
 for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done
 
 if [[ "${1:-}" != "--baseline-only" ]]; then
