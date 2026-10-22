@@ -8,20 +8,18 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   # No `push: main` trigger. main's branch protection requires `quality` and
-  # `integration` with "require branches to be up to date" (strict), so a PR
-  # can only merge after both jobs passed on refs/pull/N/merge built from the
-  # current main. The merge commit has that exact tree, so re-running quality
-  # on the push to main repeated ~28 min of work per merge and found nothing
-  # new (integration already skipped push). Main is still checked nightly
-  # (schedule) and on demand (workflow_dispatch). Restore the trigger if strict
-  # is ever turned off.
+  # `integration` with "require branches to be up to date" (strict) and
+  # enforce_admins, so a PR can only merge after both jobs passed on a head
+  # that already contains the current main. The merged tree is the tested
+  # tree, so re-running quality on the push to main repeated ~28 min of work
+  # per merge and found nothing new (integration already skipped push). The
+  # local merge queue (mq) merges through PRs and reads only PR-head checks.
+  # Main is still checked nightly (integration) and on demand
+  # (workflow_dispatch). Restore the trigger if strict is ever turned off.
   #
-  # merge_group: there is no merge queue on main today (2026-10-22). Listed so
-  # that if one is enabled, the required checks run on each queue entry
-  # instead of leaving it waiting forever. Each entry has its own ref
-  # (gh-readonly-queue/main/pr-N-<sha>), so the concurrency group below never
-  # lets one entry cancel another.
-  merge_group:
+  # Caches saved on main are what PRs restore. The nightly run refreshes the
+  # npm cache; after changing lib/kyc/face-model/models.ts, run
+  # `gh workflow run ci --ref main` once so PRs reuse the face-model cache.
   schedule:
     # 02:30 UTC = 04:30 SAST. The nightly run executes integration only.
     - cron: '30 2 * * *'
@@ -32,8 +30,8 @@ permissions:
   contents: read
 
 # A new revision of a PR cancels both jobs from the obsolete revision. PR,
-# merge queue, schedule and manual runs use separate groups, so a nightly run
-# cannot cancel a manual main run, and queue entries never cancel each other.
+# schedule and manual runs use separate groups, so a nightly run cannot cancel
+# a manual main run.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
