@@ -17,6 +17,9 @@ import { approveLease, leaseBody, signLease, type LeaseFixture } from "@/lib/ass
 import type { SessionUser } from "@/lib/asset-finance/payout-booking.integration-fixture"
 import { pollTenant } from "./poll"
 import { trackerHeartbeat } from "./devices"
+import { sastCalendarDate, sastHour } from "@/lib/date/sast"
+import { toDayNumber } from "@/lib/asset-finance/dates"
+import { HOUR_OF } from "./__fixtures__/simulated-telematics-scenarios"
 import { cleanupTelematicsFixture, createTelematicsFixture, daysAgo, installDevice, telematicsTestClient } from "./telematics.integration-fixture"
 
 const { session } = vi.hoisted(() => ({ session: { current: null as null | { user: SessionUser } } }))
@@ -62,11 +65,15 @@ suite.sequential("telematics before payout: a heartbeat, nothing else (real DB)"
   }, 60_000)
 
   it("polls an approved or contracted deal's device: a heartbeat, but no position, no alert and no meter reading", async () => {
-    expect(await pollTenant(fx.tenantId, new Date())).toMatchObject({ ok: true, devices: 2, failed: 0, rejected: 0, notKept: expect.any(Number) })
+    const now = new Date()
+    expect(await pollTenant(fx.tenantId, now)).toMatchObject({ ok: true, devices: 2, failed: 0, rejected: 0, notKept: expect.any(Number) })
     const tamper = await counts(ids.tamper)
     expect(tamper).toMatchObject({ positions: 0, alerts: 0, readings: 0 })
-    // Only the heartbeats are kept (31 days of them): no position, ignition, meter or alert event before booking.
-    expect(tamper.events).toBe(31)
+    // Only the heartbeats are kept, one a day from the install day to the poll's day, that day's
+    // only once its 06:00 SAST has passed: no position, ignition, meter or alert event before booking.
+    const { installedOn } = await database().trackerDevice.findUniqueOrThrow({ where: { id: ids.tamper } })
+    const days = toDayNumber(sastCalendarDate(now)) - toDayNumber(installedOn.toISOString().slice(0, 10))
+    expect(tamper.events).toBe(days + (sastHour(now) >= HOUR_OF.HEARTBEAT ? 1 : 0))
     expect(await database().telematicsEvent.count({ where: { deviceId: ids.tamper, kind: { not: "HEARTBEAT" } } })).toBe(0)
     expect((await trackerHeartbeat(fx.tenantId, fx.assets[1]))?.lastSeenAt).not.toBeNull()
     expect((await counts(ids.steady)).events).toBeGreaterThan(0)
