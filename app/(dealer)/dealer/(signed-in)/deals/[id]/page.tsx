@@ -36,9 +36,10 @@ export default async function DealerDealPage({ params }: Params) {
   const deal = await loadDealerDealView(actor, id)
   if (!deal) notFound()
 
-  const draft = deal.status === "Draft"
+  // A purged draft is closed: its people and documents are erased.
+  const draft = deal.status === "Draft" && deal.purgedAt === null
   const mayCancel = draft && (actor.dealerRole === "DEALER_ADMIN" || deal.createdByDealerUserId === actor.dealerUserId)
-  const takesDocuments = deal.status !== "Declined" && deal.status !== "Cancelled"
+  const takesDocuments = deal.status !== "Declined" && deal.status !== "Cancelled" && deal.purgedAt === null
   const openRequests = deal.documentRequests.filter((r) => !r.fulfilled)
   const consentDocuments = deal.documents.filter((d) => d.docType === "POPIA_CONSENT")
 
@@ -50,6 +51,11 @@ export default async function DealerDealPage({ params }: Params) {
         actions={<StatusPill tone={DEALER_STATUS_TONE[deal.status]}>{deal.status}</StatusPill>}
       />
       <div className="mb-4 text-sm"><Link href="/dealer" className="text-[var(--cf-brand-alt)] hover:underline">All deals</Link></div>
+      {deal.purgedAt ? (
+        <p role="status" className="mb-4 rounded-md border border-[var(--cf-border-subtle)] p-3 text-sm text-[var(--cf-text-secondary)]">
+          This draft was closed on {formatDate(deal.purgedAt)} and the details captured on it were erased. Start a new deal if the customer comes back.
+        </p>
+      ) : null}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <DataPanel title="Deal">
           <dl>

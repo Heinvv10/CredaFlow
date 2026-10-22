@@ -26,7 +26,7 @@ export function storedDocument(fx: Pick<DealerFixture, "tenantId" | "salesUserA"
   return { id, file }
 }
 
-/** Move every activity date of the deal (and its business's relationships) `days` into the past. */
+/** Move every activity date of the deal (its documents, attestations, requests, people, business and asset) `days` into the past. */
 export function age(dealId: string, days: number): void {
   const back = (column: string) => `"${column}" = "${column}" - INTERVAL '${days} days'`
   sql(`BEGIN; SET LOCAL session_replication_role = replica;
@@ -37,5 +37,9 @@ export function age(dealId: string, days: number): void {
     UPDATE "DealerDocumentRequest" SET ${back("requestedAt")}, ${back("fulfilledAt")} WHERE "dealId" = ${lit(dealId)};
     UPDATE "EntityRelationship" r SET "createdAt" = r."createdAt" - INTERVAL '${days} days', "updatedAt" = r."updatedAt" - INTERVAL '${days} days'
       FROM "AssetFinanceDeal" d WHERE d."id" = ${lit(dealId)} AND r."entityId" = d."entityId";
+    UPDATE "Client" c SET ${back("updatedAt")} WHERE c."id" IN (SELECT * FROM "dealerDealPeople"(
+      (SELECT "tenantId" FROM "AssetFinanceDeal" WHERE "id" = ${lit(dealId)}), ${lit(dealId)}));
+    UPDATE "BusinessEntity" e SET "updatedAt" = e."updatedAt" - INTERVAL '${days} days' FROM "AssetFinanceDeal" d WHERE d."id" = ${lit(dealId)} AND e."id" = d."entityId";
+    UPDATE "FinancedAsset" f SET "updatedAt" = f."updatedAt" - INTERVAL '${days} days' FROM "AssetFinanceDeal" d WHERE d."id" = ${lit(dealId)} AND f."id" = d."assetId";
     COMMIT;`)
 }

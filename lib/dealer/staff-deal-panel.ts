@@ -20,7 +20,7 @@ const CONTACT = {
 type Contact = { id: string; createdByDealerId: string | null; dealerPurgedAt: Date | null }
 
 /** The people on a deal a dealer captured (its sole proprietor, or active people of its entity), once each; an erased one has no contacts left. */
-function dealerCaptured<P extends Contact>(client: P | null, entity: { relationships: { client: P }[] } | null): P[] {
+export function dealerCaptured<P extends Contact>(client: P | null, entity: { relationships: { client: P }[] } | null): P[] {
   const people = client ? [client] : (entity?.relationships ?? []).map((r) => r.client)
   return people.filter((p, i) => p.createdByDealerId !== null && p.dealerPurgedAt === null && people.findIndex((q) => q.id === p.id) === i)
 }

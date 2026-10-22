@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, insertDealerUser, lit, type DealerFixture } from "./dealer.integration-fixture"
 import { actorOf, dealerDraft, inTenant } from "./dealer-origination.integration-fixture"
-import { submitSql } from "./dealer-booking.integration-fixture"
+import { captureForDealer, dealerDeal, dealerDealInsert, submitSql } from "./dealer-booking.integration-fixture"
 import { cancelDealerDraft } from "./cancel"
 
 // The deal fixture imports the staff routes (next-auth); no route runs in this suite.
@@ -105,6 +105,31 @@ suite.sequential("a dealer cancels its own draft (real DB)", () => {
       expectRejected(cancelSql(colleagues.dealId, salesA2), who)
     })
 
+    it("refuses an inactive creator or an inactive admin, through the library as a refusal", async () => {
+      const creator = insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA })
+      const admin = insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_ADMIN", byDealerUser: fx.adminUserA })
+      const { dealId } = await dealerDraft(fx, actorOf(fx, creator, fx.dealerA))
+      for (const id of [creator, admin]) sql(`UPDATE "DealerUser" SET "active" = false, "tokenVersion" = "tokenVersion" + 1 WHERE "id" = ${lit(id)}`)
+      expectRejected(cancelSql(dealId, creator), "A dealer draft is cancelled by the user who created it or an admin of its dealer")
+      expectRejected(cancelSql(dealId, admin), "A dealer draft is cancelled by the user who created it or an admin of its dealer")
+      expect(await inTenant(fx, () => cancelDealerDraft(actorOf(fx, creator, fx.dealerA), dealId, REASON)))
+        .toEqual({ kind: "refused", status: 409, error: "The lender's system refused the cancellation" })
+      expect(state(dealId)).toMatch(/^DRAFT\|/)
+    })
+
+    it("refuses a dealer canceller on a staff deal and on a new deal, and a reason under ten characters", async () => {
+      const staffDeal = dealerDeal(fx, { dealerId: null, dealerUserId: null, ...captureForDealer(fx, null) })
+      expectRejected(cancelSql(staffDeal.dealId, fx.adminUserA), message)
+      const insert = dealerDealInsert(fx, { dealerId: fx.dealerA, dealerUserId: fx.salesUserA, ...captureForDealer(fx, fx.dealerA) }).insert
+        .replace('"dealerUserId", "updatedAt")', '"dealerUserId", "cancelledByDealerUserId", "updatedAt")')
+        .replace(/, CURRENT_TIMESTAMP\)$/, `, ${lit(fx.salesUserA)}, CURRENT_TIMESTAMP)`)
+      expectRejected(insert, "A deal is created uncancelled")
+      const { dealId } = await salesDraft()
+      expectRejected(cancelSql(dealId, fx.salesUserA).replace(lit(REASON), "'Too short'"), "AssetFinanceDeal_cancellation_shape")
+      expect(await inTenant(fx, () => cancelDealerDraft(actorOf(fx, fx.salesUserA, fx.dealerA), dealId, "😀😀😀😀😀")))
+        .toMatchObject({ kind: "refused", status: 400 })
+    })
+
     it("refuses a cancellation naming both a staff and a dealer canceller, or none", async () => {
       const { dealId } = await salesDraft()
       expectRejected(`UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = CURRENT_TIMESTAMP, "cancelledById" = ${lit(fx.officer)},
@@ -115,8 +140,10 @@ suite.sequential("a dealer cancels its own draft (real DB)", () => {
     })
 
     it("keeps a dealer-cancelled deal terminal", async () => {
-      const { dealId } = await salesDraft()
-      sql(cancelSql(dealId, fx.salesUserA))
+      // A fresh creator: a dealer user may capture 30 records in 15 minutes.
+      const creator = insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA })
+      const { dealId } = await dealerDraft(fx, actorOf(fx, creator, fx.dealerA))
+      sql(cancelSql(dealId, creator))
       expectRejected(`UPDATE "AssetFinanceDeal" SET "cancelledByDealerUserId" = ${lit(fx.adminUserA)} WHERE "id" = ${lit(dealId)}`, message)
       expectRejected(`UPDATE "AssetFinanceDeal" SET "cancelReason" = 'Another reason entirely' WHERE "id" = ${lit(dealId)}`,
         "A cancelled, declined or NCA-refused deal is terminal")

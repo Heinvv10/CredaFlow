@@ -49,9 +49,10 @@ export async function uploadDealerDocument(
 ): Promise<{ kind: "stored"; document: EntityDocumentView } | DealerRefusal> {
   const deal = await prisma.assetFinanceDeal.findFirst({
     where: dealerDealWhere(actor, dealId),
-    select: { id: true, status: true, dealerSubmittedAt: true, entityId: true, clientId: true },
+    select: { id: true, status: true, dealerSubmittedAt: true, entityId: true, clientId: true, dealerPurge: { select: { id: true } } },
   })
   if (!deal) return dealerMiss("Deal")
+  if (deal.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
   if (CLOSED.includes(deal.status)) return dealerRefused(409, "This deal is closed and takes no more documents")
   if (requestId === null && (deal.status !== "DRAFT" || deal.dealerSubmittedAt)) {
     return dealerRefused(409, "The deal is with the lender: upload only to answer one of its document requests")

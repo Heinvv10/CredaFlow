@@ -11,142 +11,177 @@ acceptance: `evidence/slice5-followups/browser/<part>/`.
 
 ### Deviations from the goal's defaults (and why)
 
-1. **Declined deals are kept three years, not 90 days.** A deal the dealer
-   handed to the lender is an application for credit the lender received.
-   NCA Regulation 55(1)(b) makes a credit provider keep the records of a
-   declined application (and its pre-agreement quote) for three years, and
-   POPIA s14(1)(a) allows retention a law requires. So the 90-day clock runs
-   only for a deal the lender never received (`dealerSubmittedAt` NULL: an
-   abandoned or cancelled draft). A deal handed over that ended DECLINED,
-   REFUSED_NCA or CANCELLED is purged by the same cron three years after it
-   ended. Confidence MEDIUM: the legal reviewer confirms; if counsel says a
-   dealer deal is not yet an "application" until the staff accept, the line
-   moves from `dealerSubmittedAt` to the accept, a one-line SQL change.
+1. **Only drafts the lender never received are purged; declined deals are
+   not.** A deal the dealer handed to the lender (`dealerSubmittedAt`) is an
+   application for credit the lender received. NCA Regulation 55(1)(b) makes a
+   credit provider keep the records of a declined application (and its
+   pre-agreement quote) for three years, and POPIA s14(1)(a) allows what a law
+   requires. A handed-over deal also carries the lender's own evidence (staff
+   uploads, signer scans, surety consents the database keeps), which a dealer
+   purge has no business deleting. So the 90-day purge covers a DRAFT the
+   lender never received (90 days after its last activity) and such a draft
+   once cancelled (90 days after the cancellation). Handed-over deals that
+   ended DECLINED, REFUSED_NCA or CANCELLED are left to the lender's general
+   records retention, which applies to staff and dealer deals alike; that job
+   is a follow-up. Confidence MEDIUM; counsel confirms both directions: that a
+   handed-over deal is an application (keep three years), and whether an
+   attested draft the lender has not yet received already is one (then it
+   could not be purged at 90 days either).
 2. **The deal row and its application stay.** Nothing on them is personal
    information beyond foreign keys (the application's purpose names the
-   asset), the status table makes them terminal, and every audit row points
-   at them. The purge erases the people, the business and the documents.
+   asset), and every audit row points at them. The purge erases the people,
+   the business and the documents, and the database closes the draft
+   (`guardPurgedDealerDeal`: nothing is added to it, it is only cancelled).
 3. **The database anonymises, not the TypeScript.** Setting
    `Client.dealerPurgedAt` (or `BusinessEntity.dealerPurgedAt`) makes the
-   trigger check eligibility and overwrite every identifying column itself,
-   so no caller can "purge" a booked borrower or leave a column behind.
-4. **"Linked elsewhere" is read from the catalog.** Whether a person or
-   business is linked to anything outside the purged deal is decided by
-   walking every foreign key that references the table (`pg_constraint`), so
-   a table added later counts as a link (fail closed) without anyone
-   updating the purge.
+   trigger check eligibility and overwrite every identifying column itself.
+   Unique columns get `erased-<id>-<random>`, a value no one can have typed in
+   advance. `lib/dealer/purge-schema.test.ts` holds the overwritten list
+   against the schema, so a column added later fails until it is decided.
+4. **"Linked elsewhere" is read from the catalog, plus the text-only links.**
+   Every foreign key to `Client` / `BusinessEntity` counts (a table added
+   later counts too), and so does each id column without a foreign key in
+   `dealerPurgeTextLinks` (CRM activity, notification log, consent records,
+   tasks, screening context, …); `purge-schema.test.ts` fails when the schema
+   gains such a column that is in neither that list nor its short list of
+   non-links (the audit log, webhooks).
 5. **Remote identity check is free text (10–500 characters).** The dealer's
    remote processes vary (video call, e-signature platform identity check,
    certified copy plus call-back); the statement snapshot records what the
-   dealer said it did. An enum would force a false choice.
+   dealer said was done. An enum would force a false choice. The UI asks for
+   the method, never an ID number; the note is kept on the attestation only,
+   not in the audit row (which is never erased).
 
 ### Data (migration `20261022100000_dealer_followups`)
 
 ```prisma
 enum DealerConsentSigningMethod { IN_PERSON REMOTE }
-enum DealerDealPurgeReason { ABANDONED_DRAFT CANCELLED_DRAFT ENDED_AFTER_HANDOVER }
+enum DealerDealPurgeReason { ABANDONED_DRAFT CANCELLED_DRAFT }
 
 model DealerConsentAttestation { // + signingMethod DealerConsentSigningMethod?, remoteIdentityCheck String? }
 model AssetFinanceDeal         { // + cancelledByDealerUserId String? (→ DealerUser) }
 model Client                   { // + dealerPurgedAt DateTime? }
 model BusinessEntity           { // + dealerPurgedAt DateTime? }
-model DealerDealPurge {         // id, tenantId, dealId @unique (→ deal), reason, purgedAt,
-                                // clientsErased, clientsKept, entitiesErased, entitiesKept, documentsErased
+model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → deal), reason, purgedAt,
+                                // clientsErased, clientsKept, entitiesErased, entitiesKept, documentsErased, documentsKept
 }
 ```
 
 - **CHECK `DealerConsentAttestation_signing_method`**: a `dealer-consent-v1`
-  row has neither column; any other version has a method, and
-  `remoteIdentityCheck` (trimmed 10–500) exactly when REMOTE.
-- **`guardDealerConsentAttestation`** (re-created): an INSERT naming
-  `dealer-consent-v1` is refused (new attestations are v2); the UPDATE rule
-  is unchanged (only the verification, once), so a v1 row cannot gain a
-  method or have its text changed.
+  row has neither column; a `dealer-consent-v2` row has a method, and
+  `remoteIdentityCheck` (10–500 characters once whitespace is trimmed)
+  exactly when REMOTE; no other version.
+- **`DealerConsentAttestation_current_version`** (BEFORE INSERT): a new
+  attestation never names `dealer-consent-v1`. The existing
+  `guardDealerConsentAttestation` keeps every row as attested (only the
+  verification is added, once), so a v1 row cannot gain a method or new text.
 - **CHECK `AssetFinanceDeal_cancellation_shape`** (replaced): a CANCELLED deal
   has `cancelledAt`, a reason ≥ 10 characters and exactly one of
   `cancelledById` (staff) and `cancelledByDealerUserId` (dealer).
 - **`guardAssetDealDealerCancel`** (BEFORE INSERT OR UPDATE): a dealer
-  cancellation is set only on the move DRAFT → CANCELLED of a deal never
-  handed over (`dealerSubmittedAt` NULL), by an active user of the deal's
-  dealer that is DEALER_ADMIN or the deal's creator. `freezeTerminalAssetDeal`
-  is re-created with the new column in its cancel whitelist.
+  cancellation is set only on the move DRAFT → CANCELLED of a dealer deal
+  never handed over, by an active user of the deal's dealer that is
+  DEALER_ADMIN or the deal's creator. `freezeTerminalAssetDeal` is re-created
+  with the new column in its cancel whitelist.
 - **`dealerDealPurgeReason(tenant, deal)`** → the reason or NULL, the one
   definition the cron selects with and the tombstone trigger checks: a dealer
-  deal with no loan, and
-  - ABANDONED_DRAFT: DRAFT, never handed over, last activity (the deal, its
-    documents, attestations, document requests, the business's
-    relationships) more than 90 days ago;
-  - CANCELLED_DRAFT: CANCELLED, never handed over, cancelled > 90 days ago;
-  - ENDED_AFTER_HANDOVER: handed over, DECLINED / REFUSED_NCA / CANCELLED,
-    ended (cancelledAt, else decidedAt, else updatedAt) > 3 years ago.
+  deal with no loan, never handed over, none of whose people has an open DSAR
+  (RECEIVED, IN_PROGRESS, OVERDUE) or complaint (not RESOLVED or CLOSED), and
+  - ABANDONED_DRAFT: DRAFT, last activity more than 90 days ago (the deal, its
+    documents, attestations and requests, the business's relationships, and
+    the people, business and asset rows; an erased row does not count);
+  - CANCELLED_DRAFT: CANCELLED more than 90 days ago.
 - **`guardDealerDealPurge`**: INSERT only when the reason is the function's
   answer now; never updated or deleted.
-- **`dealerPurgeLinkedElsewhere(tenant, table, id, deal)`**: true when any
-  row of any table with a foreign key to `Client` / `BusinessEntity` refers
-  to it, other than: the deal itself, its application, its documents, its
-  consent attestations, `ClientConsent`, and an `EntityRelationship` to the
-  deal's business.
+- **`dealerPurgeLinkedElsewhere(tenant, table, id, deal)`**: true when the
+  person or business is linked to anything beyond the deals being purged:
+  this one and any other deal on the same party that is itself purged or
+  purgeable (two abandoned drafts on one business do not keep each other).
+  Excluded: those deals, their applications, documents and attestations, the
+  person's `ClientConsent`, the person's relationship to a business of those
+  deals that is itself not linked elsewhere, and a business's relationships to
+  people the same dealer captured (a person anyone else added keeps it).
 - **`guardDealerPurgedParty`** (BEFORE UPDATE OF "dealerPurgedAt" on Client
-  and BusinessEntity): set once; the row was captured by a dealer; a
-  tombstone exists for a deal naming it (borrower, or a person of its
-  business); not linked elsewhere; then it overwrites every identifying
-  column (names, ID/registration number, contact, address, employment,
-  bank, next of kin, portal password; unique columns get `erased-<id>`).
+  and BusinessEntity, named `a_` to run first): set once, never on insert; the
+  row was captured by a dealer; a tombstone exists for a deal of that dealer
+  naming it; not linked elsewhere; then it overwrites every identifying
+  column.
+- **`guardPurgedDealerDeal`**: a purged deal takes no new document,
+  attestation or request, and changes only by being cancelled.
 
 ### Library and routes
 
 - `lib/dealer/consent.ts`: `DEALER_CONSENT_VERSION = "dealer-consent-v2"`,
-  `DEALER_CONSENT_STATEMENT` (no "in my presence") plus the method line;
-  `attestDealerConsent` takes `signingMethod` and `remoteIdentityCheck` and
-  snapshots the statement with the method line. v1 text lives only in the
-  rows that snapshotted it.
-- `lib/dealer/cancel.ts` `cancelDealerDraft(actor, dealId, reason)`:
-  404 for another dealer's deal and for a SALES user's colleague's draft;
-  409 once handed over or not DRAFT; otherwise the deal → CANCELLED, its
-  application → CANCELLED, the asset released, audit `DEALER_DEAL_CANCELLED`.
-  Route `POST /api/dealer/deals/[id]/cancel`.
-- `lib/dealer/draft-purge.ts` `purgeDealerDrafts()`: per tenant with a
-  dealer, each deal `dealerDealPurgeReason` names, in its own transaction
-  (deal locked): the tombstone, then `dealerPurgedAt` on each dealer-captured
-  person and business not linked elsewhere (the DB erases them), then each
-  document of the deal: its bytes deleted, the row deleted when nothing
-  refers to it, else kept soft-deleted with `fileName` "erased". Audit
-  `DEALER_DEAL_PURGED` (counts only). Cron `asset-finance-dealer-draft-purge`
-  (daily 03:50, `CRON_SECRET`).
+  `DEALER_CONSENT_STATEMENT` (no "in my presence"; "signed by the person
+  named", "their identity was checked in the way recorded below", "not altered
+  since it was signed or, if it was signed remotely, since the dealership
+  received it") plus the method line ("Signed in my presence: …" or "Signed
+  remotely. How their identity was checked: …"). `attestDealerConsent` takes
+  `signingMethod` and `remoteIdentityCheck` (counted in code points, as the
+  database counts). v1 text lives only in the rows that snapshotted it.
+- `lib/dealer/cancel.ts` `cancelDealerDraft(actor, dealId, reason)`: 404 for
+  another dealer's deal and for a SALES user's colleague's draft; 409 once
+  handed over, not DRAFT, or refused by the database; otherwise the deal →
+  CANCELLED, its application → CANCELLED, the asset released, audit
+  `DEALER_DEAL_CANCELLED`. Route `POST /api/dealer/deals/[id]/cancel`.
+- `lib/dealer/draft-purge.ts` `purgeDealerDrafts()`: per lender with a dealer,
+  each deal `dealerDealPurgeReason` names (oldest first, 500 a run), in its own
+  transaction with the deal and its parties locked `FOR UPDATE`: decide which
+  people and business go and which documents go with them (only a document
+  whose party is erased or that names none, and that no kept business cites
+  as evidence); the tombstone; `dealerPurgedAt` on each party that goes; each
+  document row deleted when nothing refers to it, else kept soft-deleted as
+  "erased" (an earlier soft delete keeps its author); audit
+  `DEALER_DEAL_PURGED` (counts only). After the commit the documents' bytes
+  are deleted; a file that cannot be deleted is logged with its path and fails
+  the run (503). Cron `asset-finance-dealer-draft-purge` (daily 03:50,
+  `CRON_SECRET`).
+- Submit, attest and upload refuse a purged draft (409) before the database
+  would; the dealer page shows it as closed.
 - UI: the dealer deal page gains the signing method and remote identity
-  fields and a "Cancel draft" form; the staff Dealer panel shows each
-  attestation's method and identity check, a dealer cancellation, and the
-  purge tombstone.
+  fields and a "Cancel draft" form (both ask for no personal details); the
+  staff Dealer panel shows each attestation's method and identity check, a
+  dealer cancellation, and the purge tombstone, and no longer lists an erased
+  person's contacts.
 
 ### Rule-to-test matrix (IT = `RUN_ASSET_FINANCE_DEALER_IT`)
 
 | Rule | Test | Kind | Negative cases (§3 D) |
 |---|---|---|---|
-| v2 attestation carries a method; REMOTE needs the identity check | `lib/dealer/dealer-consent-v2.integration.test.ts` | IT | REMOTE without identity; IN_PERSON with one; v1 insert after the change |
+| v2 attestation carries a method; REMOTE needs the identity check | `lib/dealer/dealer-consent-v2.integration.test.ts` | IT | REMOTE without identity, blank (tabs), short, emoji-counted; IN_PERSON with one; an unknown version; v1 insert; the note kept out of the audit |
 | v1 rows unchanged | same | IT | a v1 row altered (text, method added) |
-| Statement wording and snapshot | `lib/dealer/consent-v2.test.ts` | unit | "in my presence" absent; method line per method; input bounds |
-| Dealer cancels its own draft | `lib/dealer/dealer-cancel.integration.test.ts` | IT | another dealer's draft (404); SALES on a colleague's (404); a handed-over deal (409); SQL: dealer cancel on SUBMITTED, by another dealer's user, both cancellers set |
-| Purge eligibility | `lib/dealer/draft-purge.integration.test.ts` | IT | a deal active within 90 days; a booked deal; a handed-over declined deal at 91 days; tombstone for an ineligible deal by SQL |
-| Purge scope | same | IT | a Client shared with another deal or loan kept; a booked deal's client, entity and documents byte-identical after the run; erase by SQL on a staff-captured or linked client refused |
-| Purge erases and keeps the tombstone | same | IT | rerun is a no-op; tombstone UPDATE/DELETE refused |
+| Statement wording and snapshot | `lib/dealer/consent-v2.test.ts` | unit | "in my presence" absent from the statement; method line per method; bounds in code points |
+| Dealer cancels its own draft | `lib/dealer/dealer-cancel.integration.test.ts` | IT | another dealer's draft (404); SALES on a colleague's (404); a handed-over deal (409); inactive creator or admin (409, and SQL); a staff deal; an insert naming a dealer canceller; a short or emoji reason; both cancellers set |
+| Purge eligibility | `lib/dealer/draft-purge.integration.test.ts` | IT | each kind of activity within 90 days; a handed-over deal (declined, waiting, cancelled) at any age; a cancelled draft at 89 days; an open DSAR or complaint; a tombstone for an ineligible deal by SQL |
+| Purge scope | `lib/dealer/draft-purge-scope.integration.test.ts`, `draft-purge.integration.test.ts` | IT | every identifying column; a business with another live deal and its director kept; two stale drafts on one business; a lender-added person; a CRM-only link; a shared sole proprietor; a booked deal byte-identical; documents of kept parties, a cited document, an earlier soft delete |
+| Purged draft closed | `lib/dealer/draft-purge-closed.integration.test.ts` | IT | dealer submit, attest, upload; SQL document, attestation, request, deal change; staff cancel allowed; a whole cron run and a rerun |
+| Schema stays covered | `lib/dealer/purge-schema.test.ts` | unit | a new identifying column; a new text-only id column |
+| Edge cases (independent tester) | `lib/dealer/edge-dealer-followups.integration.test.ts` | IT | 16 edges: boundaries at 90 days, collisions with `erased-` values, cross-tenant under RLS, a loan naming the business |
 | Cron route | `app/api/cron/asset-finance-dealer-draft-purge/route.test.ts` | unit | no `CRON_SECRET` |
 | Cancel route | `app/api/dealer/deals/[id]/cancel/route.test.ts`, `app/api/dealer/dealer-route-guards.test.ts` | unit | short reason; refusal mapping; no session, staff/client/other lender's session, portal off |
+| Staff panel | `lib/dealer/staff-deal-panel.test.ts` | unit | an erased person listed |
 
 ### Known limitations (part D)
 
-- **What stays after a purge.** The deal row, its application (the purpose
-  names the asset), the consent attestations (no personal data beyond the
-  dealer's remote identity-check note), `ClientConsent` flags, every audit row
-  (a business's capture audit holds its legal name and registration number),
-  staff document-request notes, and the dealer-captured asset. The goal asks
-  that the audit and a tombstone remain; the rest carries no identity once the
-  people and business rows are erased, except where staff typed one into a
-  note.
+- **What stays after a purge.** The deal row (closed), its application (the
+  purpose names the asset), the consent attestations (with the dealer's
+  remote identity-check note, which the UI asks not to hold personal
+  details), `ClientConsent` flags, every audit row (a business's capture
+  audit holds its legal name and registration number; the cancel reason is in
+  the cancel audit), staff document-request notes, the dealer-captured asset,
+  and documents of a party that is kept. The audit is kept for the lender's
+  s14(1)(b) record; its retention policy records that.
 - **Free-text status notes on a person** (risk flag, blacklist, deceased,
   KYC rejection reasons) are not overwritten; a dealer draft never has them.
-- **A handed-over deal's people are usually kept.** Once the lender screened
-  or checked them, those rows link the person elsewhere, so the three-year
-  purge erases the documents and keeps the person (counted as kept). Erasing
-  them is a DSAR decision, as today.
+- **A person related to two businesses** with stale drafts on each is kept by
+  the first purge (the other business still relates to them) and erased by
+  the second.
+- **Handed-over deals** are not purged here (deviation 1).
+- **A file that cannot be deleted** after the commit is logged with its path
+  and the run answers 503; the rows are already erased, so an operator deletes
+  the file by hand.
 - **Batch.** At most 500 deals per lender a run (oldest first); the rest wait
   for the next night.
+- **Performance.** The link check walks every foreign key to `Client` (about
+  30) once per person; fine at today's volumes, to be indexed before a lender
+  with a large book runs it.

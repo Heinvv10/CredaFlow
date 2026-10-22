@@ -2,7 +2,7 @@
 CREATE TYPE "DealerConsentSigningMethod" AS ENUM ('IN_PERSON', 'REMOTE');
 
 -- CreateEnum
-CREATE TYPE "DealerDealPurgeReason" AS ENUM ('ABANDONED_DRAFT', 'CANCELLED_DRAFT', 'ENDED_AFTER_HANDOVER');
+CREATE TYPE "DealerDealPurgeReason" AS ENUM ('ABANDONED_DRAFT', 'CANCELLED_DRAFT');
 
 -- AlterTable
 ALTER TABLE "DealerConsentAttestation" ADD COLUMN     "remoteIdentityCheck" TEXT,
@@ -29,6 +29,7 @@ CREATE TABLE "DealerDealPurge" (
     "entitiesErased" INTEGER NOT NULL,
     "entitiesKept" INTEGER NOT NULL,
     "documentsErased" INTEGER NOT NULL,
+    "documentsKept" INTEGER NOT NULL,
 
     CONSTRAINT "DealerDealPurge_pkey" PRIMARY KEY ("id")
 );
@@ -63,9 +64,10 @@ CREATE POLICY "tenant_isolation" ON "DealerDealPurge" USING (public.cf_rls_unres
 -- signed, and a remote signing what the dealer did to check identity.
 ALTER TABLE "DealerConsentAttestation" ADD CONSTRAINT "DealerConsentAttestation_signing_method" CHECK (
   ("statementVersion" = 'dealer-consent-v1' AND "signingMethod" IS NULL AND "remoteIdentityCheck" IS NULL)
-  OR ("statementVersion" <> 'dealer-consent-v1' AND "signingMethod" IS NOT NULL AND (
+  OR ("statementVersion" = 'dealer-consent-v2' AND "signingMethod" IS NOT NULL AND (
     ("signingMethod" = 'IN_PERSON' AND "remoteIdentityCheck" IS NULL)
-    OR ("signingMethod" = 'REMOTE' AND "remoteIdentityCheck" IS NOT NULL AND char_length(btrim("remoteIdentityCheck")) BETWEEN 10 AND 500)))
+    OR ("signingMethod" = 'REMOTE' AND "remoteIdentityCheck" IS NOT NULL
+      AND char_length(regexp_replace("remoteIdentityCheck", '^\s+|\s+$', '', 'g')) BETWEEN 10 AND 500)))
 );
 
 -- The v1 statement asserted signature "in my presence"; no new attestation
@@ -154,37 +156,59 @@ BEGIN
 END;
 $function$;
 
--- 3. The dealer draft purge (POPIA s14). The one definition of which dealer
--- deal may be purged, and why: never a deal with a loan; a deal the lender
--- never received (dealerSubmittedAt NULL) 90 days after its last activity
--- (DRAFT) or its cancellation; a deal handed over that ended DECLINED,
--- REFUSED_NCA or CANCELLED three years after it ended (NCA Regulation 55:
--- the records of a declined application are kept three years).
+-- 3. The dealer draft purge (POPIA s14). Only a dealer deal the lender never
+-- received (dealerSubmittedAt NULL) and with no loan is ever purged: a DRAFT
+-- 90 days after its last activity, a CANCELLED one 90 days after it was
+-- cancelled. A deal handed to the lender is an application the lender's own
+-- record retention (NCA Regulation 55) governs: never here. A deal whose
+-- people have an open DSAR or complaint is held.
+
+-- The people of a dealer deal: its sole proprietor, or every person related
+-- to its business (active or not).
+CREATE OR REPLACE FUNCTION "dealerDealPeople"(p_tenant TEXT, p_deal TEXT)
+RETURNS TABLE ("clientId" TEXT)
+LANGUAGE sql
+STABLE
+AS $function$
+  SELECT d."clientId" FROM "AssetFinanceDeal" d WHERE d."id" = p_deal AND d."tenantId" = p_tenant AND d."clientId" IS NOT NULL
+  UNION
+  SELECT r."clientId" FROM "AssetFinanceDeal" d
+  JOIN "EntityRelationship" r ON r."tenantId" = d."tenantId" AND r."entityId" = d."entityId"
+  WHERE d."id" = p_deal AND d."tenantId" = p_tenant
+$function$;
+
 CREATE OR REPLACE FUNCTION "dealerDealPurgeReason"(p_tenant TEXT, p_deal TEXT)
 RETURNS "DealerDealPurgeReason"
 LANGUAGE sql
 STABLE
 AS $function$
   SELECT (CASE
-    WHEN d."status" = 'DRAFT' AND d."dealerSubmittedAt" IS NULL
+    WHEN d."status" = 'DRAFT'
       AND GREATEST(
         d."createdAt", d."updatedAt",
         (SELECT max(doc."createdAt") FROM "EntityDocument" doc WHERE doc."dealId" = d."id" AND doc."tenantId" = d."tenantId"),
         (SELECT max(a."attestedAt") FROM "DealerConsentAttestation" a WHERE a."dealId" = d."id" AND a."tenantId" = d."tenantId"),
         (SELECT max(GREATEST(r."requestedAt", r."fulfilledAt")) FROM "DealerDocumentRequest" r WHERE r."dealId" = d."id" AND r."tenantId" = d."tenantId"),
         (SELECT max(GREATEST(rel."createdAt", rel."updatedAt")) FROM "EntityRelationship" rel
-          WHERE rel."entityId" = d."entityId" AND rel."tenantId" = d."tenantId")
+          WHERE rel."entityId" = d."entityId" AND rel."tenantId" = d."tenantId"),
+        -- An erasure is not activity: a purged person or business no longer counts.
+        (SELECT max(c."updatedAt") FROM "Client" c WHERE c."tenantId" = d."tenantId" AND c."dealerPurgedAt" IS NULL
+          AND c."id" IN (SELECT * FROM "dealerDealPeople"(d."tenantId", d."id"))),
+        (SELECT e."updatedAt" FROM "BusinessEntity" e WHERE e."id" = d."entityId" AND e."tenantId" = d."tenantId" AND e."dealerPurgedAt" IS NULL),
+        (SELECT f."updatedAt" FROM "FinancedAsset" f WHERE f."id" = d."assetId" AND f."tenantId" = d."tenantId")
       ) < (now() AT TIME ZONE 'UTC') - INTERVAL '90 days'
       THEN 'ABANDONED_DRAFT'
-    WHEN d."status" = 'CANCELLED' AND d."dealerSubmittedAt" IS NULL
-      AND d."cancelledAt" < (now() AT TIME ZONE 'UTC') - INTERVAL '90 days'
+    WHEN d."status" = 'CANCELLED' AND d."cancelledAt" < (now() AT TIME ZONE 'UTC') - INTERVAL '90 days'
       THEN 'CANCELLED_DRAFT'
-    WHEN d."status" IN ('DECLINED', 'REFUSED_NCA', 'CANCELLED') AND d."dealerSubmittedAt" IS NOT NULL
-      AND COALESCE(d."cancelledAt", d."decidedAt", d."updatedAt") < (now() AT TIME ZONE 'UTC') - INTERVAL '3 years'
-      THEN 'ENDED_AFTER_HANDOVER'
   END)::"DealerDealPurgeReason"
   FROM "AssetFinanceDeal" d
-  WHERE d."id" = p_deal AND d."tenantId" = p_tenant AND d."dealerId" IS NOT NULL AND d."loanId" IS NULL
+  WHERE d."id" = p_deal AND d."tenantId" = p_tenant AND d."dealerId" IS NOT NULL AND d."loanId" IS NULL AND d."dealerSubmittedAt" IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM "DataSubjectRequest" q
+      WHERE q."clientId" IN (SELECT * FROM "dealerDealPeople"(d."tenantId", d."id")) AND q."status" IN ('RECEIVED', 'IN_PROGRESS', 'OVERDUE'))
+    AND NOT EXISTS (
+      SELECT 1 FROM "Complaint" k
+      WHERE k."clientId" IN (SELECT * FROM "dealerDealPeople"(d."tenantId", d."id")) AND k."status" NOT IN ('RESOLVED', 'CLOSED'))
 $function$;
 
 -- Whether any row of any table with a foreign key to p_table refers to the
@@ -215,53 +239,98 @@ BEGIN
 END;
 $function$;
 
+-- The columns that name a person or business by id with no foreign key (the
+-- catalog walk cannot see them). lib/dealer/purge-links.test.ts holds this
+-- list against the schema: a new such column fails it until it is added here
+-- or to that test's list of ids that are not links (the audit log, webhooks).
+CREATE OR REPLACE FUNCTION "dealerPurgeTextLinks"(p_table TEXT)
+RETURNS TABLE ("tbl" TEXT, "col" TEXT)
+LANGUAGE sql
+IMMUTABLE
+AS $function$
+  SELECT links."tbl", links."col" FROM (SELECT * FROM (VALUES
+    ('Client', 'CrmActivity', 'clientId'), ('Client', 'NotificationLog', 'clientId'), ('Client', 'ConsentRecord', 'clientId'),
+    ('Client', 'AssetDocumentIssuance', 'clientId'), ('Client', 'EmailConfig', 'clientId'),
+    ('Client', 'AssetMeterReading', 'recordedByClientId'), ('Client', 'LeaseEndOfTerm', 'electedByClientId'),
+    ('Client', 'LeaseEndOfTerm', 'extensionNoticeByClientId'), ('Client', 'LeaseTerminationQuote', 'requestedByClientId'),
+    ('Client', 'LeaseTerminationQuote', 'acceptedByClientId'),
+    ('Client', 'AgentTask', 'entityId'), ('Client', 'Notification', 'entityId'), ('Client', 'AutomationLog', 'entityId'),
+    ('Client', 'AutomationPause', 'entityId'),
+    ('BusinessEntity', 'ScreeningCheck', 'contextEntityId'), ('BusinessEntity', 'ScreeningBlock', 'contextEntityId'),
+    ('BusinessEntity', 'NcaRegimeOverride', 'approvedEntityId'), ('BusinessEntity', 'AgentTask', 'entityId'),
+    ('BusinessEntity', 'Notification', 'entityId'), ('BusinessEntity', 'AutomationLog', 'entityId'),
+    ('BusinessEntity', 'AutomationPause', 'entityId')
+  ) AS v("owner", "tbl", "col") WHERE v."owner" = p_table) AS links ("owner", "tbl", "col")
+$function$;
+
 -- Whether the person (p_table 'Client') or business ('BusinessEntity') p_id
--- is linked to anything beyond the dealer deal p_deal: any row of any table
--- with a foreign key to it (read from the catalog, fail closed), except the
--- deal itself, its application, its documents, its consent attestations, the
--- person's ClientConsent, and the person's relationship to the deal's
--- business (only while that business is itself not linked elsewhere).
+-- is linked to anything beyond the dealer deals being purged. Those deals are
+-- p_deal and any other deal on the same party that is itself purged or
+-- purgeable (two abandoned drafts on one business do not keep each other).
+-- A link is any row of any table with a foreign key to the party (read from
+-- the catalog, fail closed) or a column of dealerPurgeTextLinks, except: those
+-- deals, their applications, documents and consent attestations, the
+-- person's ClientConsent, the person's relationship to a business of those
+-- deals that is itself not linked elsewhere, and a business's relationships
+-- to people the same dealer captured (a person anyone else added keeps it).
 CREATE OR REPLACE FUNCTION "dealerPurgeLinkedElsewhere"(p_tenant TEXT, p_table TEXT, p_id TEXT, p_deal TEXT)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 AS $function$
 DECLARE
-  deal RECORD;
   fk RECORD;
   extra TEXT;
   hit BOOLEAN;
-  entity_free BOOLEAN := FALSE;
+  deals TEXT[];
+  apps TEXT[];
+  free TEXT[] := '{}';
+  dealer TEXT;
 BEGIN
   IF p_table NOT IN ('Client', 'BusinessEntity') THEN
     RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'dealerPurgeLinkedElsewhere reads Client or BusinessEntity';
   END IF;
-  SELECT d."applicationId", d."entityId" INTO deal FROM "AssetFinanceDeal" d WHERE d."id" = p_deal AND d."tenantId" = p_tenant;
+  SELECT d."dealerId" INTO dealer FROM "AssetFinanceDeal" d WHERE d."id" = p_deal AND d."tenantId" = p_tenant;
   IF NOT FOUND THEN
     RETURN TRUE;
   END IF;
-  IF p_table = 'Client' AND deal."entityId" IS NOT NULL THEN
-    entity_free := NOT "dealerPurgeLinkedElsewhere"(p_tenant, 'BusinessEntity', deal."entityId", p_deal);
+  deals := ARRAY(
+    SELECT d."id" FROM "AssetFinanceDeal" d
+    WHERE d."tenantId" = p_tenant AND (d."id" = p_deal OR (
+      (d."clientId" = p_id OR d."entityId" = p_id
+        OR d."entityId" IN (SELECT r."entityId" FROM "EntityRelationship" r WHERE r."tenantId" = p_tenant AND r."clientId" = p_id))
+      AND (EXISTS (SELECT 1 FROM "DealerDealPurge" x WHERE x."tenantId" = d."tenantId" AND x."dealId" = d."id")
+        OR "dealerDealPurgeReason"(d."tenantId", d."id") IS NOT NULL))));
+  apps := ARRAY(SELECT d."applicationId" FROM "AssetFinanceDeal" d WHERE d."tenantId" = p_tenant AND d."id" = ANY(deals));
+  IF p_table = 'Client' THEN
+    free := ARRAY(
+      SELECT DISTINCT d."entityId" FROM "AssetFinanceDeal" d
+      WHERE d."tenantId" = p_tenant AND d."id" = ANY(deals) AND d."entityId" IS NOT NULL
+        AND NOT "dealerPurgeLinkedElsewhere"(p_tenant, 'BusinessEntity', d."entityId", p_deal));
   END IF;
   FOR fk IN
-    SELECT c.conrelid::regclass AS tbl, cl.relname AS relname, a.attname AS col
+    SELECT c.conrelid::regclass::text AS tbl, cl.relname::text AS relname, a.attname::text AS col
     FROM pg_constraint c
     JOIN pg_class cl ON cl.oid = c.conrelid
     CROSS JOIN LATERAL unnest(c.conkey, c.confkey) AS k(child, parent)
     JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = k.parent AND pa.attname = 'id'
     JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.child
     WHERE c.contype = 'f' AND c.confrelid = format('%I', p_table)::regclass
+    UNION ALL
+    SELECT format('%I', t."tbl"), t."tbl", t."col" FROM "dealerPurgeTextLinks"(p_table) t
   LOOP
     CONTINUE WHEN fk.relname = 'ClientConsent' AND p_table = 'Client';
-    CONTINUE WHEN fk.relname = 'EntityRelationship' AND p_table = 'BusinessEntity';
     extra := CASE
-      WHEN fk.relname = 'AssetFinanceDeal' THEN format(' AND "id" <> %L', p_deal)
-      WHEN fk.relname = 'LoanApplication' THEN format(' AND "id" <> %L', deal."applicationId")
-      WHEN fk.relname IN ('EntityDocument', 'DealerConsentAttestation') THEN format(' AND "dealId" IS DISTINCT FROM %L', p_deal)
-      WHEN fk.relname = 'EntityRelationship' AND entity_free THEN format(' AND "entityId" IS DISTINCT FROM %L', deal."entityId")
+      WHEN fk.relname = 'AssetFinanceDeal' THEN ' AND NOT ("id" = ANY($2))'
+      WHEN fk.relname = 'LoanApplication' THEN ' AND NOT ("id" = ANY($3))'
+      WHEN fk.relname IN ('EntityDocument', 'DealerConsentAttestation') THEN ' AND ("dealId" IS NULL OR NOT ("dealId" = ANY($2)))'
+      -- A business's people the same dealer captured are purged with it; anyone else related to it keeps it.
+      WHEN fk.relname = 'EntityRelationship' AND p_table = 'BusinessEntity'
+        THEN ' AND NOT EXISTS (SELECT 1 FROM "Client" c WHERE c."id" = "clientId" AND c."createdByDealerId" = $5)'
+      WHEN fk.relname = 'EntityRelationship' THEN ' AND NOT ("entityId" = ANY($4))'
       ELSE ''
     END;
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE %I = $1%s)', fk.tbl, fk.col, extra) INTO hit USING p_id;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE %I = $1%s)', fk.tbl, fk.col, extra) INTO hit USING p_id, deals, apps, free, dealer;
     IF hit THEN
       RETURN TRUE;
     END IF;
@@ -283,7 +352,7 @@ BEGIN
   IF NEW."reason" IS DISTINCT FROM "dealerDealPurgeReason"(NEW."tenantId", NEW."dealId") THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'This dealer deal may not be purged (or not for that reason)';
   END IF;
-  IF least(NEW."clientsErased", NEW."clientsKept", NEW."entitiesErased", NEW."entitiesKept", NEW."documentsErased") < 0 THEN
+  IF least(NEW."clientsErased", NEW."clientsKept", NEW."entitiesErased", NEW."entitiesKept", NEW."documentsErased", NEW."documentsKept") < 0 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A dealer deal purge counts are not negative';
   END IF;
   RETURN NEW;
@@ -300,13 +369,15 @@ CREATE TRIGGER "DealerDealPurge_no_truncate" BEFORE TRUNCATE ON "DealerDealPurge
 -- exists for a deal naming it as borrower or as a person of its business;
 -- linked to nothing else) and overwrites every identifying column itself.
 -- Set once; never on INSERT. Named "a_" to run before the other BEFORE
--- triggers on the row, which then see the erased values.
+-- triggers on the row, which then see the erased values. The caller locks
+-- the row FOR UPDATE before deciding, so a link added meanwhile is seen.
 CREATE OR REPLACE FUNCTION "guardDealerPurgedParty"()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 DECLARE
   erasable BOOLEAN;
+  tag TEXT;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW."dealerPurgedAt" IS NOT NULL THEN
@@ -343,13 +414,15 @@ BEGIN
   IF NOT erasable THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'This dealer capture is linked to more than a purged dealer deal: it is kept';
   END IF;
+  -- Unique columns get a value no one can have typed in advance (a random tail).
+  tag := 'erased-' || NEW."id" || '-' || substr(md5(random()::text || clock_timestamp()::text), 1, 12);
   IF TG_TABLE_NAME = 'Client' THEN
-    NEW."idNumber" := 'erased-' || NEW."id";
+    NEW."idNumber" := tag;
     NEW."firstName" := 'Erased';
     NEW."lastName" := 'Erased';
     NEW."dateOfBirth" := NULL;
     NEW."gender" := NULL;
-    NEW."email" := 'erased-' || NEW."id" || '@erased.invalid';
+    NEW."email" := tag || '@erased.invalid';
     NEW."phone" := '';
     NEW."whatsapp" := NULL;
     NEW."addressLine1" := NULL;
@@ -380,7 +453,7 @@ BEGIN
   ELSE
     NEW."legalName" := 'Erased';
     NEW."tradingName" := NULL;
-    NEW."registrationNumber" := 'erased-' || NEW."id";
+    NEW."registrationNumber" := tag;
     NEW."mastersReference" := NULL;
     NEW."vatNumber" := NULL;
     NEW."annualTurnover" := NULL;
@@ -401,3 +474,34 @@ CREATE TRIGGER "Client_a_dealer_purge" BEFORE INSERT OR UPDATE OF "dealerPurgedA
   FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedParty"();
 CREATE TRIGGER "BusinessEntity_a_dealer_purge" BEFORE INSERT OR UPDATE OF "dealerPurgedAt" ON "BusinessEntity"
   FOR EACH ROW EXECUTE FUNCTION "guardDealerPurgedParty"();
+
+-- A purged dealer deal is closed: its people, business and documents are
+-- erased, so nothing new is added to it (no document, attestation or
+-- request) and the deal row changes only by being cancelled.
+CREATE OR REPLACE FUNCTION "guardPurgedDealerDeal"()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_TABLE_NAME = 'AssetFinanceDeal' THEN
+    IF EXISTS (SELECT 1 FROM "DealerDealPurge" x WHERE x."tenantId" = OLD."tenantId" AND x."dealId" = OLD."id")
+      AND NOT (OLD."status" = 'DRAFT' AND NEW."status" = 'CANCELLED') THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purged dealer deal is closed: it is only cancelled';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW."dealId" IS NOT NULL AND EXISTS (SELECT 1 FROM "DealerDealPurge" x WHERE x."tenantId" = NEW."tenantId" AND x."dealId" = NEW."dealId") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A purged dealer deal is closed: nothing is added to it';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER "AssetFinanceDeal_purged_closed" BEFORE UPDATE ON "AssetFinanceDeal"
+  FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
+CREATE TRIGGER "EntityDocument_a_purged_deal_closed" BEFORE INSERT ON "EntityDocument"
+  FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
+CREATE TRIGGER "DealerConsentAttestation_a_purged_deal_closed" BEFORE INSERT ON "DealerConsentAttestation"
+  FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();
+CREATE TRIGGER "DealerDocumentRequest_a_purged_deal_closed" BEFORE INSERT ON "DealerDocumentRequest"
+  FOR EACH ROW EXECUTE FUNCTION "guardPurgedDealerDeal"();

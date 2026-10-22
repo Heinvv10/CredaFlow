@@ -44,4 +44,5 @@ Steps (goal §5 D):
    cancellation on `cancel` (07).
 5. `curl -H "x-cron-secret: $CRON_SECRET" http://127.0.0.1:3471/api/cron/asset-finance-dealer-draft-purge`;
    the officer sees the tombstone on `abandoned` (08) and `booked` with no
-   purge (09).
+   purge (09); the sales user opens `abandoned` and sees it closed, with no
+   actions (10).

@@ -14,7 +14,6 @@ const name = (p: { name: string | null; email: string } | null) => (p ? (p.name 
 const PURGE_REASONS = {
   ABANDONED_DRAFT: "a draft with no activity for 90 days",
   CANCELLED_DRAFT: "a draft cancelled 90 days ago",
-  ENDED_AFTER_HANDOVER: "an application that ended three years ago",
 } as const
 const signing = (a: { statementVersion: string; signingMethod: "IN_PERSON" | "REMOTE" | null; remoteIdentityCheck: string | null }) =>
   a.signingMethod === "REMOTE" ? `signed remotely; identity checked by: ${a.remoteIdentityCheck}`

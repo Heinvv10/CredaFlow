@@ -763,8 +763,10 @@ the portal on:
    DSAR responses name the dealer as source and recipient (s23(1)(b)).
    **Decided 2026-10-22 (Hein): dealers cancel their own drafts; a daily purge
    erases them after 90 days.** Built in SLICE5-FOLLOWUPS.md part D, with one
-   deviation: a deal handed to the lender that ended declined is kept three
-   years (NCA Regulation 55), not 90 days. The DSAR wording stays open.
+   deviation: only drafts the lender never received are purged; a deal handed
+   to the lender (declined included) is an application its own records
+   retention governs (NCA Regulation 55), a follow-up. The DSAR wording stays
+   open.
 7. VAT treatment of commission (see tax items).
 
 Lender tax sign-off (SA tax/accounting review, PR #216):

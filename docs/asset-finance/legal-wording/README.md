@@ -35,7 +35,9 @@ deterministic: a rerun reproduces the committed PDFs).
   whose signed POPIA consent form it uploads. v2 drops "in my presence" so it
   is true for a remote signing; each attestation adds how the form was signed
   (in person, or remotely with how identity was checked) and snapshots the
-  text. Attestations made under v1 keep their v1 text. Merged on a blind SA
+  text. Wording revised on the legal reviewer's round 1 (the statement no
+  longer says the dealer itself checked identity before signing, or vouches
+  for a returned copy before it arrived). Attestations made under v1 keep their v1 text. Merged on a blind SA
   legal reviewer's SHIP (goal §2a 7); the lender's legal team confirms it
   matches its dealer process before switching the portal on.
 

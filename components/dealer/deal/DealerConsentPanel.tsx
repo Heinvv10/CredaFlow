@@ -113,6 +113,7 @@ export function DealerConsentPanel({ dealId, people, consentDocuments, statement
                 <label htmlFor="remote-identity-check" className="mb-1.5 block text-xs font-semibold text-[var(--cf-text-secondary)]">How you checked their identity</label>
                 <Textarea id="remote-identity-check" rows={2} maxLength={500} value={identityCheck} onChange={(e) => setIdentityCheck(e.target.value)}
                   placeholder="For example: video call with the original ID document held to the camera" />
+                <p className="mt-1 text-xs text-[var(--cf-text-muted)]">Describe the method. Don&apos;t type ID numbers or other personal details.</p>
               </div>
             ) : null}
             <blockquote className="border-l-2 border-[var(--cf-border-strong)] pl-3 text-sm text-[var(--cf-text-secondary)]">{statement}</blockquote>

@@ -42,7 +42,11 @@ export function DealerCancelDraftForm({ dealId }: { dealId: string }) {
     <div className="space-y-2 rounded-md border border-[var(--cf-border-subtle)] p-3">
       <label htmlFor="cancel-reason" className="block text-xs font-semibold text-[var(--cf-text-secondary)]">Why is this draft cancelled?</label>
       <Textarea id="cancel-reason" rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
-      <p className="text-xs text-[var(--cf-text-muted)]">The lender keeps the draft for 90 days, then erases the people and documents on it.</p>
+      <p className="text-xs text-[var(--cf-text-muted)]">Don&apos;t type ID numbers or other personal details.</p>
+      <p className="text-xs text-[var(--cf-text-muted)]">
+        The lender keeps this draft&apos;s details for 90 days after you cancel it. It then erases the people, business and documents you
+        captured on it, unless it holds them for another reason.
+      </p>
       {error ? <p role="alert" className="text-xs text-[var(--cf-danger)]">{error}</p> : null}
       <div className="flex gap-2">
         <Button size="sm" variant="destructive" onClick={cancel} disabled={saving}>{saving ? "Cancelling…" : "Cancel the draft"}</Button>

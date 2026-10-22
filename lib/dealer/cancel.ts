@@ -17,11 +17,25 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { lockDeal } from "@/lib/asset-finance/signing-prepare"
+import { MIN_CANCEL_REASON_LENGTH } from "@/lib/asset-finance/deal-cancel"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { dealerAuditFields, type DealerActor } from "./actor"
 import { dealerDealWhere } from "./deals"
 import { dealerMiss, dealerRefused, type DealerRefusal } from "./result"
 
 export async function cancelDealerDraft(actor: DealerActor, dealId: string, reason: string): Promise<{ kind: "cancelled" } | DealerRefusal> {
+  // The database counts characters (code points), not UTF-16 units.
+  if ([...reason.trim()].length < MIN_CANCEL_REASON_LENGTH) return dealerRefused(400, `Say why the draft is cancelled (at least ${MIN_CANCEL_REASON_LENGTH} characters)`)
+  try {
+    return await cancelInTransaction(actor, dealId, reason)
+  } catch (error) {
+    // The database's own refusal (guardAssetDealDealerCancel: e.g. a user deactivated meanwhile).
+    if (isCheckViolation(error)) return dealerRefused(409, "The lender's system refused the cancellation")
+    throw error
+  }
+}
+
+async function cancelInTransaction(actor: DealerActor, dealId: string, reason: string): Promise<{ kind: "cancelled" } | DealerRefusal> {
   return prisma.$transaction(async (tx) => {
     const mine = await tx.assetFinanceDeal.findFirst({ where: dealerDealWhere(actor, dealId), select: { dealerUserId: true } })
     if (!mine) return dealerMiss("Deal")

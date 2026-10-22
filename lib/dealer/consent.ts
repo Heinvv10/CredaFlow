@@ -30,15 +30,16 @@ export const REMOTE_IDENTITY_CHECK_MAX = 500
 // UNTESTED: legal — the lender's legal team confirms this wording (SLICE5-FOLLOWUPS.md part D). It must be true for
 // a form signed in front of the dealer and for one signed remotely, so it says nothing of where the person was.
 export const DEALER_CONSENT_STATEMENT =
-  "I confirm that the person named signed the uploaded consent form, that before they signed I checked their identity " +
-  "in the way recorded below, and that the form is unaltered since they signed it. The consent lets the lender obtain " +
-  "their credit information from credit bureaus and process their personal information to assess this application."
+  "I confirm that the uploaded consent form was signed by the person named, that their identity was checked in the way " +
+  "recorded below, and that the form has not been altered since it was signed or, if it was signed remotely, since the " +
+  "dealership received it. The consent lets the lender obtain their credit information from credit bureaus and process " +
+  "their personal information to assess this application."
 
 /** The line the attestation adds for how the form was signed (part of the snapshot). */
 export function dealerConsentMethodLine(method: DealerConsentSigningMethod, remoteIdentityCheck: string | null): string {
   return method === "IN_PERSON"
-    ? "Signed in person: I checked their identity document against them."
-    : `Signed remotely. How I checked their identity: ${remoteIdentityCheck ?? ""}`
+    ? "Signed in my presence: I checked their identity document against them."
+    : `Signed remotely. How their identity was checked: ${remoteIdentityCheck ?? ""}`
 }
 
 /** The text an attestation snapshots: the statement, then the signing method line. */
@@ -53,7 +54,9 @@ export function parseSigningMethod(input: { signingMethod?: unknown; remoteIdent
   if (!method) return "Say how the consent form was signed: in person or remotely"
   const check = typeof input.remoteIdentityCheck === "string" ? input.remoteIdentityCheck.trim() : ""
   if (method === "IN_PERSON") return check ? "An identity check is described only for a form signed remotely" : { signingMethod: method, remoteIdentityCheck: null }
-  if (check.length < REMOTE_IDENTITY_CHECK_MIN || check.length > REMOTE_IDENTITY_CHECK_MAX) {
+  // Characters as the database counts them (code points), not UTF-16 units.
+  const characters = [...check].length
+  if (characters < REMOTE_IDENTITY_CHECK_MIN || characters > REMOTE_IDENTITY_CHECK_MAX) {
     return `Describe how you checked the person's identity for a remote signing (${REMOTE_IDENTITY_CHECK_MIN} to ${REMOTE_IDENTITY_CHECK_MAX} characters)`
   }
   return { signingMethod: method, remoteIdentityCheck: check }
@@ -96,9 +99,10 @@ export async function attestDealerConsent(
   return prisma.$transaction(async (tx) => {
     const deal = await tx.assetFinanceDeal.findFirst({
       where: dealerDealWhere(actor, dealId),
-      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true },
+      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true, dealerPurge: { select: { id: true } } },
     })
     if (!deal) return dealerMiss("Deal")
+    if (deal.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     if (deal.status !== "DRAFT" || deal.dealerSubmittedAt) return dealerRefused(409, "Consent is attested before the deal is submitted")
     const document = await tx.entityDocument.findFirst({
       where: { id: documentId, tenantId: actor.tenantId, dealId: deal.id, docType: "POPIA_CONSENT", uploadedByType: "dealer", deletedAt: null },
@@ -129,7 +133,8 @@ export async function attestDealerConsent(
         action: AuditAction.DEALER_CONSENT_ATTESTED, entity: "DealerConsentAttestation", entityId: row.id,
         newValue: {
           dealId: deal.id, clientId, documentId: document.id, statementVersion: DEALER_CONSENT_VERSION,
-          signingMethod: signing.signingMethod, remoteIdentityCheck: signing.remoteIdentityCheck, actor: audit.actor,
+          // The identity note stays on the attestation only: an audit row is never erased.
+          signingMethod: signing.signingMethod, actor: audit.actor,
         },
       }, tx)
     }

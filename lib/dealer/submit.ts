@@ -28,9 +28,10 @@ export async function submitDealerDeal(actor: DealerActor, dealId: string): Prom
     if (locked.length === 0) return dealerMiss("Deal")
     const deal = await tx.assetFinanceDeal.findFirst({
       where: dealerDealWhere(actor, dealId),
-      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true },
+      select: { id: true, status: true, dealerSubmittedAt: true, clientId: true, entityId: true, dealerPurge: { select: { id: true } } },
     })
     if (!deal) return dealerMiss("Deal")
+    if (deal.dealerPurge) return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
     if (deal.status !== "DRAFT" || deal.dealerSubmittedAt) return dealerRefused(409, "Only an unsubmitted draft is submitted")
     const subjects = await dealSubjects(tx, actor.tenantId, actor.dealerId, deal)
     if (subjects.length === 0) return dealerRefused(422, "Add the people of the business before submitting")

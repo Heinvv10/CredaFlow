@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto"
 import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
-import { cleanupDealerFixtureIfCreated, createDealerFixture, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
+import { cleanupDealerFixtureIfCreated, createDealerFixture, insertDealerUser, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
 import { actorOf, assetBody, createdId, dealBody, dealerDraft, inTenant, personBody, type DealerDraft } from "./dealer-origination.integration-fixture"
 import { bookedDealerDeal, submitSql } from "./dealer-booking.integration-fixture"
 import { createDealerDeal } from "./deals"
@@ -38,7 +38,8 @@ const storedDocument = (dealId: string, docType?: string) => storedDocumentOf(fx
 
 const reasonOf = (dealId: string) => sql(`SELECT coalesce("dealerDealPurgeReason"(${lit(fx.tenantId)}, ${lit(dealId)})::text, 'none')`)
 const rowJson = (table: string, id: string) => sql(`SELECT to_jsonb(r) FROM "${table}" r WHERE "id" = ${lit(id)}`)
-const salesActor = () => actorOf(fx, fx.salesUserA, fx.dealerA)
+// A fresh sales user per draft: a dealer user may capture 30 records in 15 minutes.
+const salesActor = () => actorOf(fx, insertDealerUser(fx.tenantId, fx.dealerA, { role: "DEALER_SALES", byDealerUser: fx.adminUserA }), fx.dealerA)
 
 async function attested(draft: DealerDraft): Promise<{ id: string; file: string }> {
   const doc = storedDocument(draft.dealId)
@@ -69,28 +70,81 @@ suite.sequential("dealer draft purge (real DB)", () => {
       expect(reasonOf(draft.dealId)).toBe("none")
     })
 
-    it("keeps a handed-over deal that ended three years, not 90 days (NCA Regulation 55)", async () => {
+    it("counts every kind of activity on the draft, its people, business and asset", async () => {
       const draft = await dealerDraft(fx, salesActor())
-      sql(submitSql(draft.dealId))
-      sql(`UPDATE "AssetFinanceDeal" SET "status" = 'DECLINED', "decision" = 'DECLINE', "decidedById" = ${lit(fx.adminA)},
-        "decidedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(draft.dealId)}`)
+      // Edits go through Prisma, as the app's do (it sets updatedAt).
+      const touches: Array<[string, () => Promise<unknown>]> = [
+        ["person", () => db!.client.update({ where: { id: draft.directorId }, data: { phone: "+27820000001" } })],
+        ["business", () => db!.businessEntity.update({ where: { id: draft.entityId }, data: { tradingName: "TEST Trading" } })],
+        ["asset", () => db!.financedAsset.update({ where: { id: draft.assetId }, data: { insurer: "TEST Insurer" } })],
+        ["relationship", async () => sql(`BEGIN; SET LOCAL session_replication_role = replica;
+          UPDATE "EntityRelationship" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "entityId" = ${lit(draft.entityId)}; COMMIT;`)],
+        ["request", async () => sql(`INSERT INTO "DealerDocumentRequest" ("id", "tenantId", "dealId", "docType", "note", "requestedById")
+          VALUES ('${newId("ddr")}', ${lit(fx.tenantId)}, ${lit(draft.dealId)}, 'BANK_STATEMENT', 'TEST latest statement', ${lit(fx.officer)})`)],
+      ]
+      for (const [what, touch] of touches) {
+        age(draft.dealId, 91)
+        expect(reasonOf(draft.dealId), what).toBe("ABANDONED_DRAFT")
+        await touch()
+        expect(reasonOf(draft.dealId), what).toBe("none")
+      }
       age(draft.dealId, 91)
+      await attested(draft)
       expect(reasonOf(draft.dealId)).toBe("none")
-      age(draft.dealId, 3 * 366)
-      expect(reasonOf(draft.dealId)).toBe("ENDED_AFTER_HANDOVER")
-      // Handed over, then cancelled by staff: the same three years.
+    })
+
+    it("never names a deal handed to the lender, however old (its retention is the lender's, NCA Regulation 55)", async () => {
+      const declined = await dealerDraft(fx, salesActor())
+      sql(submitSql(declined.dealId))
+      sql(`UPDATE "AssetFinanceDeal" SET "status" = 'DECLINED', "decision" = 'DECLINE', "decidedById" = ${lit(fx.adminA)},
+        "decidedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(declined.dealId)}`)
+      const waiting = await dealerDraft(fx, salesActor())
+      sql(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(waiting.dealId)}`)
       const cancelled = await dealerDraft(fx, salesActor())
       sql(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(cancelled.dealId)}`)
       sql(`UPDATE "AssetFinanceDeal" SET "status" = 'CANCELLED', "cancelledAt" = CURRENT_TIMESTAMP, "cancelledById" = ${lit(fx.officer)},
         "cancelReason" = 'The lender cancelled the deal' WHERE "id" = ${lit(cancelled.dealId)}`)
-      age(cancelled.dealId, 91)
-      expect(reasonOf(cancelled.dealId)).toBe("none")
+      for (const { dealId } of [declined, waiting, cancelled]) {
+        age(dealId, 5 * 366)
+        expect(reasonOf(dealId)).toBe("none")
+      }
+    })
+
+    it("names a cancelled draft 90 days after the cancellation, not before", async () => {
+      const actor = salesActor()
+      const draft = await dealerDraft(fx, actor)
+      expect(await inTenant(fx, () => cancelDealerDraft(actor, draft.dealId, "The buyer chose another machine"))).toEqual({ kind: "cancelled" })
+      age(draft.dealId, 89)
+      expect(reasonOf(draft.dealId)).toBe("none")
+      age(draft.dealId, 2)
+      expect(reasonOf(draft.dealId)).toBe("CANCELLED_DRAFT")
+      expect(await inTenant(fx, () => purgeDealerDeal(fx.tenantId, draft.dealId))).toMatchObject({ clientsErased: 1, entitiesErased: 1 })
+    })
+
+    it("holds a draft while a person on it has an open DSAR or complaint", async () => {
+      const draft = await dealerDraft(fx, salesActor())
+      age(draft.dealId, 91)
+      const dsar = newId("dsar")
+      sql(`INSERT INTO "DataSubjectRequest" ("id", "tenantId", "clientId", "reference", "type", "status", "dueDate", "updatedAt")
+        VALUES (${lit(dsar)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(dsar)}, 'ACCESS', 'RECEIVED', CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)`)
+      expect(reasonOf(draft.dealId)).toBe("none")
+      sql(`UPDATE "DataSubjectRequest" SET "status" = 'COMPLETED' WHERE "id" = ${lit(dsar)}`)
+      age(draft.dealId, 1)
+      expect(reasonOf(draft.dealId)).toBe("ABANDONED_DRAFT")
+      const complaint = newId("cmp")
+      sql(`INSERT INTO "Complaint" ("id", "tenantId", "clientId", "reference", "category", "description", "status", "createdById", "updatedAt")
+        VALUES (${lit(complaint)}, ${lit(fx.tenantId)}, ${lit(draft.directorId)}, ${lit(complaint)}, 'OTHER', 'TEST complaint', 'OPEN', ${lit(fx.officer)}, CURRENT_TIMESTAMP)`)
+      expect(reasonOf(draft.dealId)).toBe("none")
+      sql(`UPDATE "Complaint" SET "status" = 'RESOLVED' WHERE "id" = ${lit(complaint)}`)
+      age(draft.dealId, 1)
+      expect(reasonOf(draft.dealId)).toBe("ABANDONED_DRAFT")
     })
 
     it("refuses a tombstone for a deal it does not name, and never changes or deletes one", async () => {
       const draft = await dealerDraft(fx, salesActor())
       const insert = (reason: string) => `INSERT INTO "DealerDealPurge" ("id", "tenantId", "dealId", "reason", "clientsErased", "clientsKept",
-        "entitiesErased", "entitiesKept", "documentsErased") VALUES ('${newId("ddp")}', ${lit(fx.tenantId)}, ${lit(draft.dealId)}, '${reason}', 0, 0, 0, 0, 0)`
+        "entitiesErased", "entitiesKept", "documentsErased", "documentsKept")
+        VALUES ('${newId("ddp")}', ${lit(fx.tenantId)}, ${lit(draft.dealId)}, '${reason}', 0, 0, 0, 0, 0, 0)`
       expectRejected(insert("ABANDONED_DRAFT"), "This dealer deal may not be purged (or not for that reason)")
       age(draft.dealId, 91)
       expectRejected(insert("CANCELLED_DRAFT"), "This dealer deal may not be purged (or not for that reason)")
@@ -107,11 +161,11 @@ suite.sequential("dealer draft purge (real DB)", () => {
       const loose = storedDocument(draft.dealId, "BANK_STATEMENT")
       age(draft.dealId, 91)
       expect(await inTenant(fx, () => purgeDealerDeal(fx.tenantId, draft.dealId))).toEqual({
-        clientsErased: 1, clientsKept: 0, entitiesErased: 1, entitiesKept: 0, documentsErased: 2,
+        clientsErased: 1, clientsKept: 0, entitiesErased: 1, entitiesKept: 0, documentsErased: 2, documentsKept: 0, filesNotDeleted: 0,
       })
-      expect(sql(`SELECT "firstName", "lastName", "idNumber" = 'erased-' || "id", "email" LIKE 'erased-%@erased.invalid', "phone",
+      expect(sql(`SELECT "firstName", "lastName", "idNumber" LIKE 'erased-' || "id" || '-%', "email" LIKE 'erased-' || "id" || '-%@erased.invalid', "phone",
         "addressLine1" IS NULL, "dealerPurgedAt" IS NOT NULL FROM "Client" WHERE "id" = ${lit(draft.directorId)}`)).toBe("Erased|Erased|t|t||t|t")
-      expect(sql(`SELECT "legalName", "registrationNumber" = 'erased-' || "id", "addressLine1" IS NULL FROM "BusinessEntity"
+      expect(sql(`SELECT "legalName", "registrationNumber" LIKE 'erased-' || "id" || '-%', "addressLine1" IS NULL FROM "BusinessEntity"
         WHERE "id" = ${lit(draft.entityId)}`)).toBe("Erased|t|t")
       expect(existsSync(consent.file) || existsSync(loose.file)).toBe(false)
       // The attested form is referred to: kept, soft-deleted, renamed. The loose one is gone.
@@ -124,14 +178,6 @@ suite.sequential("dealer draft purge (real DB)", () => {
         WHERE "action" = 'DEALER_DEAL_PURGED' AND "entityId" = ${lit(draft.dealId)}`)).toBe("t|1|2")
       // Run again: nothing happens.
       expect(await inTenant(fx, () => purgeDealerDeal(fx.tenantId, draft.dealId))).toBeNull()
-    })
-
-    it("purges a draft the dealer cancelled 91 days ago", async () => {
-      const draft = await dealerDraft(fx, salesActor())
-      expect(await inTenant(fx, () => cancelDealerDraft(salesActor(), draft.dealId, "The buyer chose another machine"))).toEqual({ kind: "cancelled" })
-      age(draft.dealId, 91)
-      expect(reasonOf(draft.dealId)).toBe("CANCELLED_DRAFT")
-      expect(await inTenant(fx, () => purgeDealerDeal(fx.tenantId, draft.dealId))).toMatchObject({ clientsErased: 1, entitiesErased: 1 })
     })
 
     it("keeps a person who is also a sole proprietor on another live deal", async () => {

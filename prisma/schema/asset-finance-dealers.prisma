@@ -318,7 +318,6 @@ enum DealerConsentSigningMethod {
 enum DealerDealPurgeReason {
   ABANDONED_DRAFT
   CANCELLED_DRAFT
-  ENDED_AFTER_HANDOVER
 }
 
 // The tombstone of a dealer deal whose dealer-captured people, business and
@@ -337,6 +336,7 @@ model DealerDealPurge {
   entitiesErased  Int
   entitiesKept    Int
   documentsErased Int
+  documentsKept   Int
 
   @@unique([tenantId, id])
   @@unique([tenantId, dealId])

@@ -76,8 +76,9 @@ suite.sequential("dealer consent v2 (real DB)", () => {
     expect(result).toMatchObject({ kind: "attested" })
     expect(sql(`SELECT "statementVersion", "signingMethod", "remoteIdentityCheck", "statementText" = ${lit(dealerConsentSnapshot("REMOTE", check))}
       FROM "DealerConsentAttestation" WHERE "dealId" = ${lit(draft.dealId)}`)).toBe(`dealer-consent-v2|REMOTE|${check}|t`)
-    expect(sql(`SELECT "newValue"->>'signingMethod' FROM "AuditLog" WHERE "action" = 'DEALER_CONSENT_ATTESTED' AND "newValue"->>'dealId' = ${lit(draft.dealId)}`))
-      .toBe("REMOTE")
+    // The identity note stays on the attestation, never in the audit log (an audit row is never erased).
+    expect(sql(`SELECT "newValue"->>'signingMethod', "newValue"::text LIKE '%Video call%' FROM "AuditLog"
+      WHERE "action" = 'DEALER_CONSENT_ATTESTED' AND "newValue"->>'dealId' = ${lit(draft.dealId)}`)).toBe("REMOTE|f")
   })
 
   it("refuses by SQL a row without a method, a remote one without a check, an in-person one with one, and a short check", () => {
@@ -87,6 +88,15 @@ suite.sequential("dealer consent v2 (real DB)", () => {
     expectRejected(attestSql({ documentId, method: "REMOTE" }), check)
     expectRejected(attestSql({ documentId, method: "REMOTE", check: "   short   " }), check)
     expectRejected(attestSql({ documentId, method: "IN_PERSON", check: "Video call with the ID document" }), check)
+    expectRejected(attestSql({ documentId, method: "REMOTE", check: "\t".repeat(10) }), check)
+    expectRejected(attestSql({ documentId, version: "dealer-consent-v3", method: "IN_PERSON" }), check)
+  })
+
+  it("counts characters as the database does: five emoji are five, not ten", async () => {
+    const refused = await inTenant(fx, () => attestDealerConsent(actorOf(fx, fx.salesUserA, fx.dealerA), draft.dealId, {
+      documentId: consentDocument(draft.dealId), clientIds: [draft.directorId], signingMethod: "REMOTE", remoteIdentityCheck: "😀".repeat(5),
+    }))
+    expect(refused).toMatchObject({ kind: "refused", status: 400 })
   })
 
   it("refuses a new dealer-consent-v1 attestation", () => {
