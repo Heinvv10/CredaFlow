@@ -203,5 +203,25 @@ green again. `D` = `lib/asset-finance/documents`; `CD` = `D/commission-disclosur
 | W8c | same, the NCA dealer shape | FP, CD | 5 failed (2 files) | same (NCA agreement) |
 | W9 | `D/wording/commission-disclosure.ts`: the clause does not name the dealer | CD | 20 failed | the dealer is named from deal data |
 
+Dealer-name rule (added after the security review; `dealer-name.ts` is
+`D/wording/dealer-name.ts`, `DN` its unit test, `SI` `lib/dealer/staff-input.test.ts`).
+The write, render and name-rule tests were red before the code existed
+(`3 failed` files, 5 tests); the store refusals are proved by W12a to W12c.
+
+| # | Mutation | Suite | Result (failed tests) | Rule |
+|---|---|---|---|---|
+| W10 | `D/wording/commission-disclosure.ts`: a name that fails the rule is printed | CD | 4 failed | render refuses an injecting name (and `RE`'s pre-rule name test on the real loader path) |
+| W11 | `lib/dealer/staff-dealers.ts`: any name accepted | SI | 1 failed | staff create and edit refuse an injecting name |
+| W12a | `lib/asset-finance/nca-agreement-store.ts`: no name check | LW | 1 failed, 2 files passed | NCA agreement (natural person) refuses to issue |
+| W12b | `lib/asset-finance/nca-quote-store.ts`: no name check | LW | 1 failed, 2 files passed | NCA quotation refuses to issue |
+| W12c | `lib/asset-finance/nca-entity-signing.ts`: no name check | LW | 1 failed, 2 files passed | NCA agreement (entity) refuses to prepare |
+| W13 | `DN`: full stops and colons allowed in a name | DN | 3 failed | no sentence breaks (cases with no legal word in them) |
+| W14 | `DN`: the legal-word list dropped | DN | 5 failed | "waives", "commission", "fee", "Purchaser", "indemnifies" |
+| W15 | `DN`: the amount check dropped | DN | 2 failed | "R5000", "500 rand", "5%" |
+
+An earlier mutation, the same check in `deal-document-data.ts`, survived: the
+render check already refuses first, so the loader check was redundant and was
+removed.
+
 W5 and W6a are killed only by the real-Postgres suite (the re-approval and the
 real loader need the database), which runs only under `RUN_ASSET_TEMPLATES_IT`.

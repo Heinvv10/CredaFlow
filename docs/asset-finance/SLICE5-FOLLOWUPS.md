@@ -253,6 +253,31 @@ It is a statement, never a figure. Wording is DRAFT for the SA-legal reviewer
    (`dealerCommission*`) is not read by any document.
 6. **The dealer's name is read live** from `Dealer.name` at preparation (like
    the entity's name). Limitation 3.
+7. **The name is untrusted text inside protected wording, so it is
+   constrained** (security review). Only staff write `Dealer.name`
+   (`createDealer` and the edit route, via `parseDealerInput`; a dealer user
+   cannot). `wording/dealer-name.ts` `dealerNameProblem` allows 1 to 80
+   characters of Latin letters, digits, single spaces and `& ( ) ' , -`,
+   starting with a letter or digit; it refuses full stops, colons, semicolons,
+   quotation marks, line breaks and any other character, amounts of money
+   ("R5000", "500 rand"), and the words of a promise, charge or party
+   ("commission", "waives", "pay", "fee", "liable", "indemnifies", "agree",
+   "interest", "amount", "price", "Purchaser", "Seller", "lessee", "lessor",
+   "Consumer", "borrower", "credit provider", "lender", "may", "must", "shall",
+   "not"). It runs when staff create or edit a dealer (422 on `name`) and
+   again, for names written before the rule, when a document is built:
+   `commissionDisclosure` throws `DealDocumentError` (the instalment sale and
+   leases refuse to prepare, 422), and the three NCA stores answer
+   `not_ready` / `invalid_start` with the reason; nothing is rendered, issued
+   or superseded. The refusal tells staff to edit the name and prepare again.
+   The list catches obvious drafting, not meaning ("Motors, the Purchaser" is
+   refused by the word, but a name made only of ordinary words cannot be
+   judged by a machine); the lender's legal approval of the paragraph and the
+   staff who type dealer names are the rest. A real dealer name containing one
+   of those words (e.g. "Payless Motors" passes, "Zero Fee Motors" does not) or
+   a full stop ("Pty. Ltd.") must be re-typed to pass: this is the cost.
+   The dealer's registration number is not printed: it is unvalidated free text
+   too, and the name alone identifies the dealer for a disclosure.
 7. **Why a dealer shape, not a dealer in every shape.** Each existing shape
    stays dealer-less so its PDF, and so its hash, does not change; one
    `dealer` shape per variant carries the paragraph into the fingerprint.
@@ -298,6 +323,8 @@ is refused (a lender cannot restate, vary or add a commission).
 | No clause on a non-dealer deal, and byte-identical to a deal rendered with `dealer` absent | same | unit | `dealer` null and undefined, on every path |
 | Amounts never change: every `R` figure, in order, is the same with and without a dealer, and nothing but the clause differs | same | unit | any figure moved on a dealer deal |
 | NCA cost-of-credit figures pinned: the "Total cost of credit" line (R 18,732.50) and the quotation clause 1.5 sentence are identical | same | unit | the quotation's or agreement's cost of credit moved |
+| The dealer's name is a trading name: staff writes refuse sentence breaks, amounts, legal words, over 80 characters | `wording/dealer-name.test.ts` (28 refusals, 8 accepted), `lib/dealer/staff-input.test.ts` | unit | "X. The Purchaser waives …", "Motors R5000", "Free Commission Motors", 81 characters |
+| A name that fails the rule is never printed: every render path throws `DealDocumentError`; the NCA stores refuse; a pre-rule name is refused on the real preparation path and nothing is superseded | `commission-disclosure.test.ts`, `legal-wording-flag-nca-*.test.ts`, `commission-reapproval.integration.test.ts` (IT) | unit, IT | the same names, on all nine render paths |
 | Lender text cannot carry a commission | same (`lender text cannot carry a commission`) | unit | three phrasings in each of the three editable variants; an editable clause too |
 | Preview shapes: only the `dealer` shape prints the clause, and it differs from the first shape by exactly the clause; suretyships and the resolution have no dealer shape | same (`template previews …`) | unit | a clause in a dealer-less shape |
 | The clause is fingerprinted; pins moved with `SYSTEM_REVISION` 2026-10-22.1 | `templates/fingerprint.test.ts` (`PINNED`, `BRANCHES`) | unit | a variant whose dealer shape is missing |
