@@ -41,17 +41,19 @@ deterministic: a rerun reproduces the committed PDFs).
   legal reviewer's SHIP (goal §2a 7); the lender's legal team confirms it
   matches its dealer process before switching the portal on.
 
-- **Dealer commission disclosure** (`lib/asset-finance/documents/wording/commission-disclosure.ts`,
-  SLICE5-FOLLOWUPS.md part W): one protected, unnumbered paragraph in the price
-  section of the instalment sale, the leases, the NCA agreement and the NCA
-  quotation, printed only on a deal a dealer introduced: the credit provider
-  may pay the dealer a commission from its own funds, and it is no part of the
-  price, the rentals, the instalments or (NCA) the total cost of credit. It
-  names the dealer and gives no amount. Not editable by a lender, and a lender's
-  text may not contain the word "commission". SYSTEM_REVISION 2026-10-22.1;
-  lenders approve the eight pricing variants again. Wording is DRAFT until the
-  SA-legal reviewer's SHIP (goal §2a 7); open points for counsel are
-  SLICE5-FOLLOWUPS.md "Known limitations (part W)".
+- **Introducer's commission disclosure** (`lib/asset-finance/documents/wording/commission-disclosure.ts`,
+  SLICE5-FOLLOWUPS.md part W): on a deal a dealer or broker introduced, an
+  "Introducer" row naming it and one fixed, protected paragraph: the credit
+  provider may pay it a commission from its own funds, and it is no part of the
+  price, the rentals, the instalments or (NCA) the total cost of credit. The
+  paragraph refers to "the introducer named above" and never contains the name.
+  On the contracts it ends the price section, unnumbered; on the NCA quotation
+  and agreement it is its own section, "COMMISSION TO THE INTRODUCER". It gives
+  no amount. Not editable by a lender, and a lender's text may not contain the
+  word "commission". SYSTEM_REVISION 2026-10-22.1; lenders approve the eight
+  pricing variants again. Wording is DRAFT until the SA-legal reviewer's SHIP
+  (goal §2a 7); open points for counsel are SLICE5-FOLLOWUPS.md "Known
+  limitations (part W)".
 
 ## Starter wording issues found
 

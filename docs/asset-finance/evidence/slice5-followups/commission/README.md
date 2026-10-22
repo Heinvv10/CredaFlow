@@ -5,7 +5,7 @@
 part W commit (SYSTEM_REVISION 2026-10-22.1). Each file holds, for every
 asset-finance template variant, the SHA-256 of the preview PDF of every deal
 shape (the inputs of the fingerprint, `templates/fingerprint.ts`) and the
-fingerprint itself. Both use the fingerprint's fixed synthetic lender and
+fingerprint itself. The "after" file is for the final design (introducer row and fixed paragraph). Both use the fingerprint's fixed synthetic lender and
 placeholder clauses.
 
 Reproduce (needs `npm ci --legacy-peer-deps`; run from the repository root

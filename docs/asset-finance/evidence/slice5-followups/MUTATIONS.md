@@ -150,78 +150,75 @@ Staff edits of an erased row answer 409 naming the purge: pinned by
 
 ## Part W (commission disclosure, goal §2a 2)
 
-Unit suites: `npx vitest run <files>`. The real-Postgres suite
-(`commission-reapproval.integration.test.ts`) ran on a throwaway PostgreSQL 16
-from `scripts/it-db.sh up cf-it-s5fw-*`, migrated with `npx prisma migrate
-deploy`, as
-`RUN_ASSET_TEMPLATES_IT=1 VITEST_MAX_WORKERS=1 npx vitest run --no-file-parallelism <file>`.
+Reworked after review round 1 (security, architecture, SA legal): the
+introducer is a labelled row, the paragraph is fixed text, the NCA documents
+give it a section, the introducer is pinned on issuance, and the name rule is a
+shape check. The first build's mutations (W1 to W16 of the earlier text) were
+superseded; this is the full set on the final design.
 
-### Test-first
-
-The unit suite was written against the unchanged renderers first:
-`commission-disclosure.test.ts` `27 failed | 20 passed (47)` (every
-dealer-deal case red, every no-dealer case green because nothing printed yet).
-The fingerprint branch markers, added before the dealer shapes existed:
-`fingerprint.test.ts` `8 failed | 5 passed` (one per variant that now prints
-the disclosure). After the build: `commission-disclosure.test.ts` 68 passed,
-`fingerprint.test.ts` 13 passed, `commission-reapproval.integration.test.ts`
-5 passed.
+Unit suites: `npx vitest run <files>`. The real-Postgres suites ran on a
+throwaway PostgreSQL 16 from `scripts/it-db.sh up cf-it-s5fw-*`, migrated with
+`npx prisma migrate deploy`, as `RUN_ASSET_TEMPLATES_IT=1 VITEST_MAX_WORKERS=1
+npx vitest run --no-file-parallelism <file>`.
 
 ### Mutations
 
 Each mutation is an edit to the file, the named suites run, then
 `git checkout -- <file>` (the work was committed first). Every mutation turned
-the named tests red; after the restore the tree was clean and every suite
-green again. `D` = `lib/asset-finance/documents`; `CD` = `D/commission-disclosure.test.ts`;
-`FP` = `D/templates/fingerprint.test.ts`; `RE` =
-`D/templates/commission-reapproval.integration.test.ts`; `LW` = the three
+the named tests red; after the restore the tree was clean. `D` =
+`lib/asset-finance/documents`; `CD` = `D/commission-disclosure.test.ts` and
+`D/commission-disclosure-templates.test.ts`; `FP` = `D/templates/fingerprint.test.ts`;
+`DN` = `D/wording/dealer-name.test.ts`; `SI` = `lib/dealer/staff-input.test.ts`;
+`RE` = `D/templates/commission-reapproval.integration.test.ts`; `PI` =
+`D/templates/commission-pinned-issuance.integration.test.ts`; `LW` = the three
 `lib/asset-finance/legal-wording-flag-nca-*.test.ts`.
 
-| # | Mutation | Suite | Result (failed tests) | Rule |
+| # | Mutation | Suite | Result | Rule |
 |---|---|---|---|---|
-| W1a | `D/agreement-pdf.ts`: the clause prints with no dealer | CD | 8 failed | clause printed on a non-dealer deal (ISA) |
-| W1b | `D/lease/agreement-pdf.ts`: same | CD | 16 failed | same (leases) |
-| W1c | `D/nca/agreement-pdf.ts`: same | CD | 9 failed | same (NCA agreement) |
-| W1d | `D/nca/quote-pdf.ts`: same | CD | 4 failed | same (NCA quotation) |
-| W2a | `D/agreement-pdf.ts`: the clause is never printed | CD, FP | 11 failed (2 files) | clause missing on a dealer deal (ISA), and the fingerprint branch marker |
-| W2b | `D/lease/agreement-pdf.ts`: same | CD, FP | 19 failed (2 files) | same (leases) |
-| W2c | `D/nca/agreement-pdf.ts`: same | CD, FP | 10 failed (2 files) | same (NCA agreement) |
-| W2d | `D/nca/quote-pdf.ts`: same | CD | 2 failed | same (NCA quotation; not a template, so no fingerprint) |
+| W1a | `D/agreement-pdf.ts`: the paragraph prints with no dealer | CD | 8 failed | instalment sale prints on a non-dealer deal |
+| W1b | `D/lease/agreement-pdf.ts`: same | CD | 16 failed | leases |
+| W1c | `D/nca/agreement-pdf.ts`: the section prints with no dealer | CD | 9 failed | NCA agreement |
+| W1d | `D/nca/quote-pdf.ts`: same | CD | 4 failed | NCA quotation |
+| W2a | `D/agreement-pdf.ts`: the paragraph is never printed | CD, FP | 10 failed | paragraph missing on a dealer deal (ISA) and the fingerprint marker |
+| W2b | `D/lease/agreement-pdf.ts`: same | CD, FP | 17 failed | leases |
+| W2c | `D/nca/agreement-pdf.ts`: the section is never printed | CD, FP | 28 failed | NCA agreement |
+| W2d | `D/nca/quote-pdf.ts`: same | CD | 12 failed | NCA quotation (not a template: no fingerprint) |
+| W2e | `D/agreement-pdf.ts`: the Introducer row dropped (the paragraph refers to nobody) | CD, FP | 31 failed | the row missing on a dealer deal (ISA) |
+| W2f | `D/lease/agreement-pdf.ts`: same | CD, FP | 57 failed | the row missing (leases) |
 | W3a | `D/agreement-pdf.ts`: R45.00 added to "Total payable" on a dealer deal | CD | 4 failed | an amount altered on a dealer deal (ISA) |
 | W3b | `D/lease/agreement-pdf.ts`: R45.00 added to "Total payable incl. VAT" | CD | 8 failed | same (leases) |
 | W3c | `D/nca/agreement-pdf.ts`: R45.00 added to "Total cost of credit" | CD | 5 failed | same (NCA agreement; the cost-of-credit pin) |
 | W3d | `D/nca/quote-pdf.ts`: R45.00 added to "Total cost of credit" | CD | 2 failed | same (NCA quotation; the cost-of-credit pin) |
-| W4 | `D/templates/validate.ts`: `commissions?` removed from the OVERRIDING list | CD | 10 failed | "commission" accepted in lender text |
-| W5 | `prisma/seed/asset-finance-templates.ts`: a lapsed version is never approved again | RE (real PG) | 3 failed, 2 passed | demo re-approval skipped |
-| W6a | `D/deal-document-data.ts`: the loader drops the dealer | RE (real PG) | 1 failed, 4 passed | the real loader hands no dealer to the document |
-| W6b | `lib/asset-finance/nca-agreement-store.ts`: drops the dealer | LW | 1 failed, 2 files passed | NCA agreement (natural person) loader |
-| W6c | `lib/asset-finance/nca-entity-signing.ts`: drops the dealer | LW | 1 failed, 2 files passed | NCA agreement (entity) loader |
-| W6d | `lib/asset-finance/nca-quote-store.ts`: drops the dealer | LW | 1 failed, 2 files passed | NCA quotation loader |
-| W7 | `D/templates/families.ts`: `SYSTEM_REVISION` not bumped | FP, CD | 1 failed | the revision is the release marker |
-| W8a | `D/templates/preview.ts`: the ISA dealer shape removed | FP, CD | 6 failed (2 files) | the clause is not fingerprinted (ISA) |
-| W8b | same, the lease dealer shape | FP, CD | 9 failed (2 files) | same (leases) |
-| W8c | same, the NCA dealer shape | FP, CD | 5 failed (2 files) | same (NCA agreement) |
-| W9 | `D/wording/commission-disclosure.ts`: the clause does not name the dealer | CD | 20 failed | the dealer is named from deal data |
+| W4a | `D/templates/validate.ts`: `commissions?` removed from the OVERRIDING list | CD | 10 failed | "commission" accepted in lender text |
+| W4b | `D/templates/validate.ts`: the invisible-character check removed | CD | 6 failed | "commis<soft hyphen>sion" and five zero-width variants accepted |
+| W5 | `prisma/seed/asset-finance-templates.ts`: a lapsed version is never approved again | RE (real PG) | 4 failed | demo re-approval skipped |
+| W6a | `D/deal-document-data.ts`: the loader drops the dealer | RE (real PG) | 2 failed | the real loader hands no dealer to the document |
+| W6b | `lib/asset-finance/nca-agreement-store.ts`: drops the dealer | LW | 1 failed | NCA agreement (natural person) loader |
+| W6c | `lib/asset-finance/nca-entity-signing.ts`: drops the dealer | LW | 1 failed | NCA agreement (entity) loader |
+| W6d | `lib/asset-finance/nca-quote-store.ts`: drops the dealer | LW | 1 failed | NCA quotation loader |
+| W7 | `D/templates/families.ts`: `SYSTEM_REVISION` not bumped | FP | 1 failed | the revision is the release marker |
+| W8a | `D/templates/preview.ts`: the ISA dealer shape removed | FP, CD | 6 failed | the disclosure is not fingerprinted (ISA) |
+| W8b | same, the lease dealer shape | FP, CD | 9 failed | same (leases) |
+| W8c | same, the NCA dealer shape | FP, CD | 5 failed | same (NCA agreement) |
+| W9a | `D/wording/commission-disclosure.ts`: the instalment sale paragraph gains "and it does not increase any of them" | CD | 6 failed | exact wording |
+| W9b | same: the NCA paragraph drops "not included in the total cost of credit" | CD | 6 failed | exact wording |
+| W10 | `D/wording/commission-disclosure.ts`: a name that fails the shape check is printed | CD | 82 failed | render refuses a bad name |
+| W11 | `lib/dealer/staff-dealers.ts`: any name accepted | SI | 1 failed | staff create and edit refuse a bad name |
+| W12a | `lib/asset-finance/nca-agreement-store.ts`: no name pre-check | LW | 1 failed | NCA agreement refuses to issue |
+| W12b | `lib/asset-finance/nca-quote-store.ts`: no name pre-check | LW | 1 failed | NCA quotation refuses to issue |
+| W12c | `lib/asset-finance/nca-entity-signing.ts`: no name pre-check | LW | 1 failed | NCA entity agreement refuses to prepare |
+| W13a | `D/wording/dealer-name.ts`: hidden characters allowed | DN | 3 failed | control, no-break space, soft hyphen refused |
+| W13b | same: the document-font check dropped | DN | 8 failed | zero-width, bidi, CJK, emoji refused |
+| W13c | same: length not checked | DN | 2 failed | empty and 81 characters refused |
+| W13d | same: leading, trailing and repeated spaces allowed | DN | 4 failed | spacing refused |
+| W14a | `lib/asset-finance/signing-esign.ts`: re-renders with the dealer as it is now | PI (real PG) | 2 failed | the introducer is pinned (e-sign) |
+| W14b | `lib/asset-finance/signing-contract.ts`: same | PI (real PG) | 1 failed | the introducer is pinned (contract step) |
+| W14c | `D/templates/issuance.ts`: `pinnedIssuance` returns no dealer | PI (real PG) | 1 failed | the introducer is read from the retained input |
+| W15 | `D/wording/commission-disclosure.ts`: a broker printed as a dealer | CD | 9 failed | the label follows `Dealer.kind` |
+| W16 | `D/nca/quote-pdf.ts`: the section moved after the acknowledgement | CD | 1 failed | NCA placement |
 
-Dealer-name rule (added after the security review; `dealer-name.ts` is
-`D/wording/dealer-name.ts`, `DN` its unit test, `SI` `lib/dealer/staff-input.test.ts`).
-The write, render and name-rule tests were red before the code existed
-(`3 failed` files, 5 tests); the store refusals are proved by W12a to W12c.
-
-| # | Mutation | Suite | Result (failed tests) | Rule |
-|---|---|---|---|---|
-| W10 | `D/wording/commission-disclosure.ts`: a name that fails the rule is printed | CD | 4 failed | render refuses an injecting name (and `RE`'s pre-rule name test on the real loader path) |
-| W11 | `lib/dealer/staff-dealers.ts`: any name accepted | SI | 1 failed | staff create and edit refuse an injecting name |
-| W12a | `lib/asset-finance/nca-agreement-store.ts`: no name check | LW | 1 failed, 2 files passed | NCA agreement (natural person) refuses to issue |
-| W12b | `lib/asset-finance/nca-quote-store.ts`: no name check | LW | 1 failed, 2 files passed | NCA quotation refuses to issue |
-| W12c | `lib/asset-finance/nca-entity-signing.ts`: no name check | LW | 1 failed, 2 files passed | NCA agreement (entity) refuses to prepare |
-| W13 | `DN`: full stops and colons allowed in a name | DN | 3 failed | no sentence breaks (cases with no legal word in them) |
-| W14 | `DN`: the legal-word list dropped | DN | 5 failed | "waives", "commission", "fee", "Purchaser", "indemnifies" |
-| W15 | `DN`: the amount check dropped | DN | 2 failed | "R5000", "500 rand", "5%" |
-
-An earlier mutation, the same check in `deal-document-data.ts`, survived: the
-render check already refuses first, so the loader check was redundant and was
-removed.
-
-W5 and W6a are killed only by the real-Postgres suite (the re-approval and the
-real loader need the database), which runs only under `RUN_ASSET_TEMPLATES_IT`.
+The round-1 test-first record: the unit suites for the redesign were written
+before the code (they named an `Introducer` row, a fixed paragraph and a shape
+rule that did not yet exist); the mutations above are the evidence each rule
+is enforced, not just present. W5, W6a and W14a to W14c are killed only by the
+real-Postgres suites.
