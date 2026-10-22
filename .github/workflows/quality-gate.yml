@@ -315,8 +315,8 @@ jobs:
   # Branch protection requires a check named exactly `integration`. It passes
   # only when every shard passed. always(), because a skipped required check
   # counts as passing: without it a failed or cancelled shard would skip this
-  # job and let the PR through. Drafts, pushes to main and the conditions on
-  # the shards still skip it, exactly as they skip the shards.
+  # job and let the PR through. Drafts and the conditions on the shards
+  # still skip it, exactly as they skip the shards.
   integration:
     needs: integration-shard
     if: always() && github.event_name != 'push' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
