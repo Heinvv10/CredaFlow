@@ -31,6 +31,7 @@
 #   DATABASE_URL=postgresql://... bash scripts/run-integration-tests.sh
 #   DATABASE_URL=postgresql://... bash scripts/run-integration-tests.sh --baseline-only
 #   DATABASE_URL=postgresql://... bash scripts/run-integration-tests.sh --check-database-url
+#   IT_SHARD=2/3 DATABASE_URL=postgresql://... bash scripts/run-integration-tests.sh
 #
 # WHY --no-file-parallelism
 #   Every suite shares ONE database. vitest runs files in parallel by default,
@@ -170,6 +171,41 @@ if [[ ${#ALL[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# IT_SHARD=i/n keeps only shard i of n, so CI can run the serial suite as n
+# parallel jobs, each against its own database. Applied to ALL, before the
+# baseline split, so each shard gates and re-checks only its own files and the
+# baseline and opt-in rules above and below are unchanged. Assignment is greedy
+# by weight (scripts/integration-weights.txt, DEFAULT_WEIGHT when unlisted),
+# heaviest first, ties broken by path: deterministic, and every discovered file
+# lands in exactly one shard, listed or not.
+# Tested by scripts/__tests__/run-integration-tests-shard.test.ts.
+WEIGHTS="${ROOT}/scripts/integration-weights.txt"
+DEFAULT_WEIGHT=3
+assign_shards() {
+  awk 'NR == FNR { if ($0 !~ /^[[:space:]]*(#|$)/) w[$2] = $1; next }
+       { printf "%s\t%s\n", (($0 in w) ? w[$0] : def), $0 }' def="$DEFAULT_WEIGHT" "$WEIGHTS" - \
+    | LC_ALL=C sort -t$'\t' -k1,1nr -k2,2 \
+    | awk -F'\t' -v n="$1" '{ best = 1; for (i = 2; i <= n; i++) if (load[i] < load[best]) best = i
+                             load[best] += $1; print best "\t" $2 }'
+}
+SHARD_LABEL=""
+if [[ -n "${IT_SHARD:-}" ]]; then
+  if ! [[ "$IT_SHARD" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "!! IT_SHARD must be i/n with 1 <= i <= n (got '$IT_SHARD')" >&2
+    exit 2
+  fi
+  SHARD_I="${BASH_REMATCH[1]}"; SHARD_N="${BASH_REMATCH[2]}"
+  mapfile -t ALL < <(printf '%s\n' "${ALL[@]}" | assign_shards "$SHARD_N" \
+    | awk -F'\t' -v i="$SHARD_I" '$1 == i { print $2 }' | LC_ALL=C sort)
+  SHARD_LABEL=" (shard ${IT_SHARD})"
+fi
+
+# The selected files, after opt-in removal and sharding, and stops (used by the test of this runner).
+if [[ "${1:-}" == "--print-selected" ]]; then
+  printf '%s\n' "${ALL[@]:-}" | sed '/^$/d'
+  exit 0
+fi
+
 mapfile -t BASE < <(print_baseline "$BASELINE" 2>/dev/null || true)
 
 # A baseline naming a file that no longer exists is stale, and would silently
@@ -207,7 +243,7 @@ for v in "${EXPORT_VARS[@]:-}"; do [[ -n "$v" ]] && export "$v=1"; done
 # suite runs with it on, so the batch-transaction path is exercised everywhere.
 export TENANT_RLS="${TENANT_RLS:-on}"
 
-echo ">> ${#ALL[@]} integration suites: ${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
+echo ">> ${#ALL[@]} integration suites${SHARD_LABEL}:${#GATED[@]} gated, ${#SKIPPED[@]} baselined, ${#OPT_IN_FILES[@]} opt-in (not run here)"
 for f in "${OPT_IN_FILES[@]:-}"; do [[ -n "$f" ]] && echo ">>   opt-in, NOT run by this gate: $f"; done
 
 if [[ "${1:-}" != "--baseline-only" ]]; then

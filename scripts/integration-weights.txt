@@ -1,0 +1,50 @@
+# Measured duration (seconds) of the slowest integration suites, used only to
+# balance IT_SHARD=i/n in scripts/run-integration-tests.sh. A suite not listed
+# here weighs DEFAULT_WEIGHT (the mean of the unlisted ones). This file never
+# selects or drops a suite: every discovered file lands in exactly one shard
+# whether or not it is listed, and a line naming a deleted file is ignored.
+#
+# Source: wall time between consecutive result lines of the serial CI run
+# 39627330967 (job 119316410887, 2026-10-21): 413 files, 36.0 min. Suites of
+# 10 s or more. Refresh when the shards drift apart by more than a few minutes.
+145 prisma/seed.integration.test.ts
+142 lib/collections/reminders.consent.integration.test.ts
+109 lib/collections/reminders.identity.integration.test.ts
+62 lib/collections/multi-tenant-sweep.integration.test.ts
+46 lib/collections/dunning-holds.integration.test.ts
+36 lib/asset-finance/reprice-closed-lease.integration.test.ts
+30 prisma/seed-asset-finance.integration.test.ts
+26 lib/asset-finance/commercial-interest.integration.test.ts
+24 lib/compliance/breach-log-tenant-scope-migration.integration.test.ts
+22 lib/asset-finance/product-retype-migration.integration.test.ts
+18 lib/accounting/af-break-matrix.integration.test.ts
+17 lib/asset-finance/lease-rental-floor.integration.test.ts
+17 lib/asset-finance/reprice-payoff.integration.test.ts
+17 lib/asset-finance/override-binding.integration.test.ts
+16 lib/asset-finance/review-b-repro.integration.test.ts
+15 lib/accounting/af-break-matrix2.integration.test.ts
+15 lib/collections/escalation-window.integration.test.ts
+15 lib/kyc/face-match-v3-pipeline.integration.test.ts
+15 lib/asset-finance/recovery-rules-concurrency.integration.test.ts
+14 lib/dealer/edge-commission.integration.test.ts
+14 lib/asset-finance/lease-legal.integration.test.ts
+13 lib/asset-finance/review-b-final-vat.integration.test.ts
+13 lib/asset-finance/blind-code-total-loss.integration.test.ts
+13 lib/asset-finance/deal-bureau-race.integration.test.ts
+13 lib/asset-finance/reprice-after-supply-cancellation.integration.test.ts
+12 lib/dealer/edge-runs.integration.test.ts
+12 lib/asset-finance/lessor-cancellation-assessment.integration.test.ts
+11 lib/asset-finance/review-gates-deal.integration.test.ts
+11 lib/asset-finance/lease-tester-b.integration.test.ts
+11 lib/asset-finance/lease-tester-b-historical.integration.test.ts
+11 lib/asset-finance/deal-records-frozen.integration.test.ts
+11 lib/asset-finance/review-round3.integration.test.ts
+11 lib/asset-finance/lease-foundation.integration.test.ts
+11 app/api/cron/tenant-sweep.integration.test.ts
+10 app/api/settings/users/route.integration.test.ts
+10 lib/asset-finance/lease-receipts.integration.test.ts
+10 lib/asset-finance/reprice-cpa-assessment.integration.test.ts
+10 lib/asset-finance/edge-b-final-cash.integration.test.ts
+10 lib/asset-finance/recovery-break-round2.integration.test.ts
+10 app/api/cron/arrears-snapshot/route.integration.test.ts
+10 lib/asset-finance/lease-servicing-end.integration.test.ts

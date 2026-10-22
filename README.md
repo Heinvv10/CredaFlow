@@ -95,7 +95,10 @@ Staff sign in at `/login`; clients at `/portal/login`; the website is `/`.
 
 CI (`.github/workflows/quality-gate.yml`) runs the quality and integration
 jobs. Draft PR updates use no runner; marking a PR ready runs both jobs. The
-nightly schedule reruns integration against the current trunk.
+nightly schedule reruns integration against the current trunk. Integration
+runs as three parallel shards, each on its own database (`IT_SHARD=i/3`;
+`scripts/integration-weights.txt` balances them), and the `integration` check
+passes only when every shard does.
 
 ## Environment
 
