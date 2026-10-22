@@ -5,9 +5,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sha256DocumentBytes } from "@/lib/documents/content-integrity"
 
-const m = vi.hoisted(() => ({ files: new Map<string, Buffer>() }))
+const m = vi.hoisted(() => ({ files: new Map<string, Buffer>(), failWith: null as Error | null }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
-vi.mock("@/lib/storage", () => ({ readFile: vi.fn(async (path: string) => m.files.get(path)), saveFile: vi.fn() }))
+vi.mock("@/lib/storage", () => ({
+  readFile: vi.fn(async (path: string) => {
+    if (m.failWith) throw m.failWith
+    return m.files.get(path)
+  }),
+  saveFile: vi.fn(),
+}))
 
 import { DealDocumentError } from "../deal-document-error"
 import { canonicalContent, contentSha256, starterContent } from "./content"
@@ -35,7 +41,10 @@ const deal = (dealer?: { name: string; kind: "DEALER" | "BROKER" } | null): Rend
 })
 
 describe("pinnedIssuance: the introducer comes from the retained input", () => {
-  beforeEach(() => m.files.clear())
+  beforeEach(() => {
+    m.files.clear()
+    m.failWith = null
+  })
 
   it("returns the dealer the document was issued with", async () => {
     const pinned = await pinnedIssuance(store(deal({ name: "Original Dealer Motors", kind: "BROKER" })), "t1", "i1")
@@ -62,6 +71,16 @@ describe("pinnedIssuance: the introducer comes from the retained input", () => {
     const db = store(deal(null))
     m.files.set("input.json", Buffer.from("{}"))
     await expect(pinnedIssuance(db, "t1", "i1")).rejects.toThrow(/integrity/)
+  })
+
+  it("a retained input file that has gone is a DealDocumentError (422), not a raw ENOENT; another read error is not hidden", async () => {
+    const db = store(deal(null))
+    m.files.delete("input.json")
+    m.failWith = Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" })
+    await expect(pinnedIssuance(db, "t1", "i1")).rejects.toThrow(DealDocumentError)
+    await expect(pinnedIssuance(db, "t1", "i1")).rejects.toThrow(/no longer retained/)
+    m.failWith = Object.assign(new Error("EIO"), { code: "EIO" })
+    await expect(pinnedIssuance(db, "t1", "i1")).rejects.toThrow(/EIO/)
   })
 
   it("returns null for a row with no issuance", async () => {

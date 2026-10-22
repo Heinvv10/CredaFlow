@@ -15,7 +15,7 @@
 import { DealDocumentError } from "../deal-document-error"
 import { dealerPrintRefusal, type DocumentDealer } from "./dealer-name"
 
-/** The paragraph in each document's defined terms;. */
+/** The paragraph in each document's defined terms. */
 const TERMS = {
   INSTALMENT_SALE: "Introducer's commission. The Seller may pay a commission to the introducer named above, which introduced the Purchaser to the Seller for this Agreement. The Seller pays any commission from its own funds. It is not part of the cash price, the payments in the Schedule or any other amount the Purchaser pays or owes under this Agreement.",
   LEASE: "Introducer's commission. The lessor may pay a commission to the introducer named above, which introduced the lessee to the lessor for this agreement. The lessor pays any commission from its own funds. It is not part of the rentals or any other amount the lessee pays or owes under this agreement.",

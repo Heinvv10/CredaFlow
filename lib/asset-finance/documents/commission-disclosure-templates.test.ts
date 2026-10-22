@@ -43,9 +43,10 @@ describe("lender text cannot carry a commission", () => {
   })
 })
 
-describe("template previews carry the disclosure in exactly one extra shape", () => {
+describe("template previews carry the disclosure in exactly two extra shapes: a dealer and a broker", () => {
   const lender = { legalName: "Shape Lender (Pty) Ltd", tradingName: "Shape", companyRegNumber: "2000/000000/07", ncrNumber: "NCRCP00000", registeredOfficeLines: ["1 Street", "Town"] }
   const SAMPLE = { name: "SAMPLE Dealer (synthetic)", kind: "DEALER" as const }
+  const BROKER = { ...SAMPLE, kind: "BROKER" as const }
   const CLAUSE: Record<string, { clause: string; heading: string | null } | undefined> = {
     "af.isa.commercial": { clause: ISA_CLAUSE, heading: null }, "af.isa.cpa": { clause: ISA_CLAUSE, heading: null },
     "af.lease.operating.commercial": { clause: LEASE_CLAUSE, heading: null }, "af.lease.operating.cpa": { clause: LEASE_CLAUSE, heading: null },
@@ -54,17 +55,23 @@ describe("template previews carry the disclosure in exactly one extra shape", ()
   }
   const lines = async (key: string, shape: string | undefined) => texts(await renderTemplatePreview(key, starterContent(parseTemplateKey(key)!), lender, shape))
 
-  it.each(ALL_TEMPLATE_KEYS)("%s: only a dealer shape prints it, and it adds nothing else to the first shape", async (key) => {
+  it.each(ALL_TEMPLATE_KEYS)("%s: only the dealer and broker shapes print it, and each adds nothing else to the first shape", async (key) => {
     const expected = CLAUSE[key]
     const ids = previewShapes(key).map((s) => s.id)
     if (!expected) {
       expect(ids).not.toContain("dealer")
+      expect(ids).not.toContain("broker")
       return
     }
     expect(ids.filter((id) => id === "dealer")).toHaveLength(1)
+    expect(ids.filter((id) => id === "broker")).toHaveLength(1)
     for (const id of ids) {
-      expect(printed(await lines(key, id)).includes(introducerRow(SAMPLE)), `${key} ${id}`).toBe(id === "dealer")
+      const text = printed(await lines(key, id))
+      expect(text.includes(introducerRow(SAMPLE)), `${key} ${id}`).toBe(id === "dealer")
+      expect(text.includes(introducerRow(BROKER)), `${key} ${id}`).toBe(id === "broker")
     }
-    expect(withoutDisclosure(await lines(key, "dealer"), SAMPLE, expected.clause, expected.heading)).toEqual(printed(await lines(key, undefined)))
+    const first = printed(await lines(key, undefined))
+    expect(withoutDisclosure(await lines(key, "dealer"), SAMPLE, expected.clause, expected.heading)).toEqual(first)
+    expect(withoutDisclosure(await lines(key, "broker"), BROKER, expected.clause, expected.heading)).toEqual(first)
   }, 30_000)
 })

@@ -245,7 +245,11 @@ export async function pinnedIssuance(
 
 /** Read a retained input snapshot back (evidence and reproduction). */
 export async function readIssuanceInput(storagePath: string, expectedSha256: string): Promise<RenderInput> {
-  const bytes = await readFile(storagePath)
+  const bytes = await readFile(storagePath).catch((error: unknown) => {
+    // A retained file that has gone is a refusal the route can answer, not a raw ENOENT.
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") throw new DealDocumentError("The issued document's render input is no longer retained")
+    throw error
+  })
   if (sha256DocumentBytes(bytes) !== expectedSha256) throw new DealDocumentError("The retained render input failed its integrity check")
   return deserializeRenderInput(bytes)
 }
