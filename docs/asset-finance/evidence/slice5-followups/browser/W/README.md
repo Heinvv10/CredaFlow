@@ -46,13 +46,17 @@ DATABASE_URL=... NEXT_PUBLIC_TENANT_SLUG=$SLUG AUTH_SECRET=<local> CRON_SECRET=<
 
 Steps (goal §5 W):
 
-1. Sign in as an admin (password, then the TOTP code). Open `isaDealer`, prepare
-   the signing documents, open the agreement: section 5 ends with the row
+1. Sign in as an admin (password, then the TOTP code). Open `isaDealer`, set
+   the contract start date one month before the seeded first instalment
+   (seed day + 1 month; the default, today, gives a longer term than the
+   approved one and is refused with 422), prepare the signing documents, open the agreement: section 5 ends with the row
    `Introducer: <dealer> (dealer)` and the paragraph "Introducer's commission.
    …"; no clause number moved.
 2. Open `isaPlain`, prepare, open the agreement: no Introducer row, no
    paragraph.
-3. Open `ncaBroker`, generate the NCA quotation: after the repayment schedule,
+3. Open `ncaBroker`, generate the NCA quotation (the staff app has no button for
+   it: `POST /api/asset-finance/deals/<id>/nca-quote` from the signed-in
+   session; the document is at `/api/documents/<documentId>/view`): after the repayment schedule,
    a section "COMMISSION TO THE INTRODUCER" with the row `<broker> (broker)`
    and the paragraph; the "Total cost of credit" line is unchanged.
 4. Open `ncaPlain`, generate the quotation: no such section.
