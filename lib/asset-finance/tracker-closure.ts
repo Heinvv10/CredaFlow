@@ -29,12 +29,11 @@ import { seedDefaultMessageTemplates } from "@/lib/messaging/default-templates"
 import { TRUSTED_CONTACT_WHERE } from "@/lib/clients/dealer-contact"
 import { getLenderIdentity } from "@/lib/config/identity"
 import { deleteFile, saveFile } from "@/lib/storage"
-import { sastCalendarDate } from "@/lib/date/sast"
 import { legalWordingApproved } from "./documents/nca/legal-wording-approved"
 import { renderTrackingStoppedLetter } from "./documents/tracking-stopped-pdf"
 import { trackingStoppedEmail, type TrackingStoppedFacts } from "./documents/wording/tracking-stopped"
+import { trackingStoppedFactsOf } from "./tracker-closure-facts"
 import { entityContactRecipients } from "./entity-contacts"
-import { formatIsoDatePdf } from "./documents/pdf-layout"
 
 export const TRACKING_STOPPED_EVENT = "tracking_stopped"
 export const TRACKING_STOPPED_EMAIL_KEY = "asset_finance_tracking_stopped_email"
@@ -58,16 +57,6 @@ async function recipientsOf(tenantId: string, loan: { clientId: string | null; e
   return people.map((p) => ({ clientId: p.clientId, name: `${p.firstName} ${p.lastName}`, email: p.email, addressLines: [] }))
 }
 
-async function factsOf(tenantId: string, closure: { closedAt: Date; loan: { reference: string; asset: { make: string; model: string; serialNumber: string } | null } }): Promise<TrackingStoppedFacts> {
-  const lender = await getLenderIdentity(tenantId)
-  const asset = closure.loan.asset
-  return {
-    lenderName: lender.legalName, loanReference: closure.loan.reference,
-    assetDescription: asset ? `${asset.make} ${asset.model} (${asset.serialNumber})` : "financed asset",
-    endedOn: formatIsoDatePdf(sastCalendarDate(closure.closedAt)),
-  }
-}
-
 async function logNotice(tenantId: string, closureId: string, loanId: string, recipients: Recipient[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const marked = await tx.trackerClosure.updateMany({ where: { id: closureId, tenantId, noticeLoggedAt: null }, data: { noticeLoggedAt: new Date() } })
@@ -87,29 +76,34 @@ export const MESSAGE_CLAIM_STALE_MS = 10 * 60_000
 
 async function sendEmails(tenantId: string, closureId: string, loanId: string, recipients: Recipient[], facts: TrackingStoppedFacts, send: ClosureSend): Promise<void> {
   // One run at a time sends a closure's email: two at once collide inside the send pipeline.
+  const claimAt = new Date()
   const claimed = await prisma.trackerClosure.updateMany({
-    where: { id: closureId, tenantId, messageDecidedAt: null, OR: [{ messageClaimedAt: null }, { messageClaimedAt: { lt: new Date(Date.now() - MESSAGE_CLAIM_STALE_MS) } }] },
-    data: { messageClaimedAt: new Date() },
+    where: { id: closureId, tenantId, messageDecidedAt: null, OR: [{ messageClaimedAt: null }, { messageClaimedAt: { lt: new Date(claimAt.getTime() - MESSAGE_CLAIM_STALE_MS) } }] },
+    data: { messageClaimedAt: claimAt },
   })
   if (claimed.count !== 1) return
   try {
     await sendClaimed(tenantId, closureId, loanId, recipients, facts, send)
   } finally {
-    // Undecided (in flight, or failed this run): let the next run take the step at once. A decided step keeps its claim.
-    await prisma.trackerClosure.updateMany({ where: { id: closureId, tenantId, messageDecidedAt: null }, data: { messageClaimedAt: null } })
+    // Undecided (in flight, or failed this run): let the next run take the step at once. Only this run's own claim
+    // (one that went stale may have been taken over); a decided step keeps its claim.
+    await prisma.trackerClosure.updateMany({ where: { id: closureId, tenantId, messageDecidedAt: null, messageClaimedAt: claimAt }, data: { messageClaimedAt: null } })
   }
 }
 
 async function sendClaimed(tenantId: string, closureId: string, loanId: string, recipients: Recipient[], facts: TrackingStoppedFacts, send: ClosureSend): Promise<void> {
   const template = await prisma.messageTemplate.findFirst({ where: { tenantId, key: TRACKING_STOPPED_EMAIL_KEY, channel: "EMAIL", active: true } })
   const legs: { outcome: "SENT" | "SIMULATED" | "BLOCKED" | "FAILED"; note: string; messageId?: string }[] = []
-  if (!template) legs.push({ outcome: "BLOCKED", note: "The tracking-stopped email template is missing" })
+  // The lender's email switch (EmailConfig.active, the channel's only one): off, nothing is sent and that is the decision.
+  const email = await prisma.emailConfig.findUnique({ where: { tenantId }, select: { active: true } })
+  if (!email?.active) legs.push({ outcome: "BLOCKED", note: "The lender's email is not set up or is switched off" })
+  else if (!template) legs.push({ outcome: "BLOCKED", note: "The tracking-stopped email template is missing" })
   if (recipients.length === 0) legs.push({ outcome: "BLOCKED", note: "No recipient with trusted contact details" })
-  const email = trackingStoppedEmail(facts)
+  const words = trackingStoppedEmail(facts)
   // A send another run is still dispatching (the same idempotency key) is not decided here: the next run replays its outcome.
   let undecided = false
   for (const r of recipients) {
-    if (!template) break
+    if (!template || !email?.active) break
     const to = normaliseEmail(r.email)
     const found = to ? await lookupRecipientContact(prisma, { tenantId, channel: "EMAIL", value: to, ownerClientId: r.clientId }) : null
     if (!to || !found?.ok) {
@@ -118,7 +112,7 @@ async function sendClaimed(tenantId: string, closureId: string, loanId: string, 
     }
     try {
       const message = await send({
-        contactId: found.contact.id, channel: "EMAIL", template, toValue: to, toName: r.name, vars: email, loanId,
+        contactId: found.contact.id, channel: "EMAIL", template, toValue: to, toName: r.name, vars: words, loanId,
         category: TRACKING_STOPPED_EVENT, idempotencyKey: `tracking-stopped:${closureId}:${r.clientId}`,
       })
       const delivered = messageDeliveryOutcome(message.status)
@@ -157,7 +151,8 @@ async function sendClaimed(tenantId: string, closureId: string, loanId: string, 
 async function storeLetter(tenantId: string, closureId: string, loanId: string, recipient: Recipient | undefined, borrower: string, facts: TrackingStoppedFacts): Promise<void> {
   const lender = await getLenderIdentity(tenantId)
   const bytes = await renderTrackingStoppedLetter({
-    ...facts, documentDate: new Date(), legalWordingApproved: await legalWordingApproved(prisma, tenantId),
+    // Only an approved lender's closures get this far (processTrackerClosures).
+    ...facts, documentDate: new Date(), legalWordingApproved: true,
     lender: { legalName: lender.legalName, ncrNumber: lender.ncrNumber, registeredOfficeLines: lender.registeredOfficeLines },
     recipient: { name: borrower, addressLines: recipient?.addressLines ?? [] },
   })
@@ -187,10 +182,15 @@ async function ensureTrackingStoppedTemplate(tenantId: string): Promise<void> {
   await seedDefaultMessageTemplates(prisma, tenantId, lender, { only: (t) => t.key === TRACKING_STOPPED_EMAIL_KEY })
 }
 
-/** Every open step of one lender's closures, each once. A failing closure is counted and left for the next run. */
-export async function processTrackerClosures(tenantId: string, send: ClosureSend = sendMessage): Promise<{ closures: number; failed: number }> {
+/**
+ * Every open step of one lender's closures, each once. A failing closure is counted and left for the next run.
+ * Nothing is told to a borrower until the lender has approved the wording (TenantConfig.assetFinanceLegalWordingApproved):
+ * until then the closures wait, counted as held, and the staff task shows why.
+ */
+export async function processTrackerClosures(tenantId: string, send: ClosureSend = sendMessage): Promise<{ closures: number; failed: number; held: number }> {
   const pending = await prisma.trackerClosure.findMany({
-    where: { tenantId, OR: [{ noticeLoggedAt: null }, { messageDecidedAt: null }, { letterGeneratedAt: null }] },
+    // A loan reopened since it completed is not told anything; its closure waits for it to complete again.
+    where: { tenantId, loan: { status: "COMPLETED" }, OR: [{ noticeLoggedAt: null }, { messageDecidedAt: null }, { letterGeneratedAt: null }] },
     orderBy: { createdAt: "asc" }, take: 200,
     select: {
       id: true, loanId: true, closedAt: true, noticeLoggedAt: true, messageDecidedAt: true, letterGeneratedAt: true,
@@ -198,11 +198,21 @@ export async function processTrackerClosures(tenantId: string, send: ClosureSend
     },
   })
   let failed = 0
-  if (pending.length > 0) await ensureTrackingStoppedTemplate(tenantId)
+  if (pending.length === 0) return { closures: 0, failed, held: 0 }
+  if (!(await legalWordingApproved(prisma, tenantId))) return { closures: 0, failed, held: pending.length }
+  // Fail closed and count every closure failed when the lender's identity is not configured (nothing is told without it).
+  let lender: Awaited<ReturnType<typeof getLenderIdentity>>
+  try {
+    lender = await getLenderIdentity(tenantId)
+  } catch (error) {
+    console.error("[tracker-closure] lender identity missing", { tenantId, error: error instanceof Error ? error.message : "unknown" })
+    return { closures: pending.length, failed: pending.length, held: 0 }
+  }
+  await ensureTrackingStoppedTemplate(tenantId)
   for (const closure of pending) {
     try {
       const recipients = await recipientsOf(tenantId, closure.loan)
-      const facts = await factsOf(tenantId, closure)
+      const facts = await trackingStoppedFactsOf(tenantId, lender.legalName, closure)
       if (!closure.noticeLoggedAt) await logNotice(tenantId, closure.id, closure.loanId, recipients)
       if (!closure.messageDecidedAt) await sendEmails(tenantId, closure.id, closure.loanId, recipients, facts, send)
       if (!closure.letterGeneratedAt) {
@@ -214,5 +224,5 @@ export async function processTrackerClosures(tenantId: string, send: ClosureSend
       console.error("[tracker-closure] closure failed", { tenantId, closureId: closure.id, error: error instanceof Error ? error.message : "unknown" })
     }
   }
-  return { closures: pending.length, failed }
+  return { closures: pending.length, failed, held: 0 }
 }

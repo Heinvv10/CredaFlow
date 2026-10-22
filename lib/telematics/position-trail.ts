@@ -12,11 +12,12 @@
  */
 import type { TelematicsPositionContext } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { isCheckViolation } from "@/lib/disbursement/guard-violation"
 import { canDo } from "@/lib/auth-guards"
 import type { AppRole } from "@/lib/auth-config"
 import { AuditAction, logAuditStrict } from "@/lib/audit"
 import { auditRefusal } from "@/lib/audit-refusals"
-import { positionPurposes, purposeRefusal } from "./position-purpose"
+import { positionPurposes, PURPOSE_REFUSAL, purposeRefusal } from "./position-purpose"
 import { tenureEnd } from "./position-view"
 import { objectBody, refused, type TelematicsActor, type TelematicsRefusal, type TelematicsResult } from "./result"
 
@@ -69,7 +70,7 @@ export async function revealPositionTrail(
   const theftFrom = report ? new Date(report.reportedOn.getTime() - THEFT_LOOKBACK_DAYS * DAY_MS) : null
   const from = [loan.startDate, retained, ...(theftFrom ? [theftFrom] : [])].reduce((a, b) => (a > b ? a : b))
 
-  return prisma.$transaction(async (tx) => {
+  const answer = () => prisma.$transaction(async (tx) => {
     // The newest TRAIL_LIMIT + 1, to know whether the trail was cut; shown oldest first.
     const rows = await tx.telematicsPosition.findMany({
       where: { tenantId, device: { assetId }, occurredAt: { gte: from, ...(end ? { lt: end } : {}) } },
@@ -99,4 +100,11 @@ export async function revealPositionTrail(
       })),
     }
   })
+  try {
+    return await answer()
+  } catch (error) {
+    // The purpose lapsed between the check above and the access row (guardTelematicsPositionAccess refuses it).
+    if (isCheckViolation(error)) return refuse(409, PURPOSE_REFUSAL, "purpose_lapsed")
+    throw error
+  }
 }

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
 const m = vi.hoisted(() => ({
-  matters: vi.fn(async () => 0), recoveries: vi.fn(async () => 0), theft: vi.fn(async (): Promise<{ id: string } | null> => null),
+  theft: vi.fn(async (_args: { where: Record<string, unknown> }): Promise<{ id: string } | null> => null),
+  holds: vi.fn(async (_sql: unknown): Promise<Array<Record<string, boolean>>> => [{ DEFAULT: false, RECOVERY: false, LEGAL_MATTER: false, THEFT: false }]),
 }))
-vi.mock("@/lib/prisma", () => ({ prisma: { legalMatter: { count: m.matters }, recovery: { count: m.recoveries }, assetTheftReport: { findFirst: m.theft } } }))
+vi.mock("@/lib/prisma", () => ({ prisma: { assetTheftReport: { findFirst: m.theft }, $queryRaw: m.holds } }))
 
 import { PURPOSE_REFUSAL, positionPurposes, purposeRefusal } from "./position-purpose"
 
@@ -30,19 +31,22 @@ describe("the position purpose gate", () => {
 })
 
 describe("the loan's purposes", () => {
-  it("counts a loan pending write-off as in default (still collectable), not one written off", async () => {
-    expect(await positionPurposes("t1", { id: "l1", status: "PENDING_WRITE_OFF" })).toMatchObject({ DEFAULT: true })
-    expect(await positionPurposes("t1", { id: "l1", status: "DEFAULTED" })).toMatchObject({ DEFAULT: true })
-    expect(await positionPurposes("t1", { id: "l1", status: "WRITTEN_OFF" })).toMatchObject({ DEFAULT: false })
-    expect(await positionPurposes("t1", { id: "l1", status: "ACTIVE" })).toEqual(none)
+  // The rule itself is the database's ("telematicsPurposeHolds"), proven on real Postgres in theft-trail.integration.test.ts.
+  it("asks the database for each context and passes its answer on", async () => {
+    m.holds.mockResolvedValueOnce([{ DEFAULT: true, RECOVERY: false, LEGAL_MATTER: true, THEFT: false }])
+    expect(await positionPurposes("t1", { id: "l1", status: "DEFAULTED" })).toEqual({ ...none, DEFAULT: true, LEGAL_MATTER: true })
+    const sql = m.holds.mock.calls.at(-1)?.[0] as { strings: string[]; values: unknown[] }
+    expect(sql.strings.join("?")).toMatch(/"telematicsPurposeHolds"/)
+    expect(sql.values).toEqual(["t1", "l1", "t1", "l1", "t1", "l1", "t1", "l1", null])
   })
 
-  it("has THEFT with a valid report on a running loan, carrying the report; never on a closed loan", async () => {
+  it("names only a confirmed, open, valid report for THEFT, and only when the database says THEFT holds", async () => {
     m.theft.mockResolvedValue({ id: "tr-1" })
+    m.holds.mockResolvedValueOnce([{ DEFAULT: false, RECOVERY: false, LEGAL_MATTER: false, THEFT: true }])
     expect(await positionPurposes("t1", { id: "l1", status: "ACTIVE" })).toMatchObject({ THEFT: true, theftReportId: "tr-1" })
-    m.theft.mockClear()
+    expect(m.theft.mock.calls.at(-1)?.[0].where).toMatchObject({ confirmedAt: { not: null }, endedAt: null })
+    m.holds.mockResolvedValueOnce([{ DEFAULT: false, RECOVERY: false, LEGAL_MATTER: false, THEFT: false }])
     expect(await positionPurposes("t1", { id: "l1", status: "COMPLETED" })).toMatchObject({ THEFT: false, theftReportId: null })
-    expect(m.theft).not.toHaveBeenCalled()
     m.theft.mockResolvedValue(null)
   })
 })

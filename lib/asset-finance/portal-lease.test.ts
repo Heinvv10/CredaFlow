@@ -91,10 +91,10 @@ describe("loadPortalLease", () => {
       },
     }))
     mocks.reading.mockResolvedValue({ readingDate: new Date("2027-03-01T00:00:00Z"), value: 9_000, source: "TELEMATICS" })
-    mocks.voided.mockResolvedValue([{ readingDate: new Date("2027-02-01T00:00:00Z"), value: 90_000, voidedAt: new Date("2027-02-03T08:00:00Z") }])
+    mocks.voided.mockResolvedValue([{ readingDate: new Date("2027-02-01T00:00:00Z"), value: 90_000, voidedAt: new Date("2027-02-03T08:00:00Z"), voidApplied: { reason: "A synthetic wrong reading" } }])
     const view = await loadPortalLease("t1", "c1", "L1", at("2027-03-15"))
     expect(view?.fund).toMatchObject({ balanceCents: 16_000, riskModel: "LENDER_RISK", claims: [{ provider: "TEST Workshop", description: "Synthetic service", status: "PAID" }] })
-    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "TELEMATICS" }, voided: [{ readingDate: "2027-02-01", value: 90_000, voidedOn: "2027-02-03" }] })
+    expect(view?.meter).toEqual({ unit: "KM", latest: { readingDate: "2027-03-01", value: 9_000, source: "TELEMATICS" }, voided: [{ readingDate: "2027-02-01", value: 90_000, voidedOn: "2027-02-03", reason: "A synthetic wrong reading" }] })
     // This lease's readings, not the asset's: an asset leased before carries an older lease's readings. A voided one is never the meter.
     expect(mocks.reading.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM", voidedAt: null })
     expect(mocks.voided.mock.calls[0][0].where).toEqual({ tenantId: "t1", loanId: "L1", unit: "KM", voidedAt: { not: null } })

@@ -14,17 +14,19 @@ const m = vi.hoisted(() => ({
   requireApiRole: vi.fn(),
   order: [] as string[],
   closure: null as null | { letterStoragePath: string | null; loan: { reference: string } },
-  lib: { revealPositionTrail: vi.fn(), recordTheftReport: vi.fn(), processTrackerClosures: vi.fn(), requestMeterReadingVoid: vi.fn(), decideMeterReadingVoid: vi.fn() },
+  lib: { revealPositionTrail: vi.fn(), recordTheftReport: vi.fn(), confirmTheftReport: vi.fn(), endTheftReport: vi.fn(), processTrackerClosures: vi.fn(), requestMeterReadingVoid: vi.fn(), decideMeterReadingVoid: vi.fn() },
   leaseOpts: [] as unknown[],
   cronDenied: null as Response | null,
-  pending: [] as { tenantId: string }[],
+  pending: [] as { id: string }[],
+  tenantQuery: null as unknown,
 }))
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }))
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     trackerClosure: { findFirst: async () => m.closure },
-    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }), findMany: async () => m.pending },
+    tenantConfig: { findUnique: async () => ({ featureCrm: false, featureIms: false, featureAssetFinance: m.flag.on }) },
+    tenant: { findMany: async (args: unknown) => { m.tenantQuery = args; return m.pending } },
     documentAccessLog: { create: vi.fn(async () => { m.order.push("access-logged") }) },
   },
 }))
@@ -36,7 +38,7 @@ vi.mock("@/lib/tenant", async (importOriginal) => ({
 vi.mock("@/lib/tenant-scope", () => ({ runWithTenant: (t: string, fn: () => unknown) => { m.order.push(`tenant:${t}`); return fn() } }))
 vi.mock("@/lib/auth-guards", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/auth-guards")>()), requireApiRole: () => m.requireApiRole() }))
 vi.mock("@/lib/telematics/position-trail", () => ({ revealPositionTrail: m.lib.revealPositionTrail }))
-vi.mock("@/lib/telematics/theft-reports", () => ({ recordTheftReport: m.lib.recordTheftReport }))
+vi.mock("@/lib/telematics/theft-reports", () => ({ recordTheftReport: m.lib.recordTheftReport, confirmTheftReport: m.lib.confirmTheftReport, endTheftReport: m.lib.endTheftReport }))
 vi.mock("@/lib/asset-finance/tracker-closure", () => ({ processTrackerClosures: m.lib.processTrackerClosures }))
 vi.mock("@/lib/asset-finance/meter-void", () => ({ requestMeterReadingVoid: m.lib.requestMeterReadingVoid, decideMeterReadingVoid: m.lib.decideMeterReadingVoid }))
 vi.mock("@/lib/cron-auth", () => ({ verifyCronSecret: () => m.cronDenied }))
@@ -49,6 +51,8 @@ vi.mock("@/lib/asset-finance/lease-route", () => ({
 
 import { POST as trail } from "@/app/api/asset-finance/loans/[loanId]/telematics/trail/route"
 import { POST as theft } from "@/app/api/asset-finance/loans/[loanId]/telematics/theft-reports/route"
+import { POST as confirmTheft } from "@/app/api/asset-finance/loans/[loanId]/telematics/theft-reports/[reportId]/confirm/route"
+import { POST as endTheft } from "@/app/api/asset-finance/loans/[loanId]/telematics/theft-reports/[reportId]/end/route"
 import { GET as letter } from "@/app/api/asset-finance/loans/[loanId]/telematics/closures/[closureId]/letter/route"
 import { GET as cron } from "@/app/api/cron/asset-finance-telematics-closure/route"
 import { POST as requestVoid } from "@/app/api/asset-finance/leases/[loanId]/readings/[readingId]/void/route"
@@ -62,6 +66,8 @@ const calls = {
   trail: () => trail(req({ context: "THEFT" }), loan),
   theft: () => theft(req({ sapsCaseNumber: "CAS 12/10/2026", reportedOn: "2026-10-20" }), loan),
   letter: () => letter(req(), { params: Promise.resolve({ loanId: "loan-1", closureId: "trc_1" }) }),
+  confirm: () => confirmTheft(req({}), { params: Promise.resolve({ loanId: "loan-1", reportId: "tr_1" }) }),
+  end: () => endTheft(req({ reason: "The asset was found at a synthetic yard" }), { params: Promise.resolve({ loanId: "loan-1", reportId: "tr_1" }) }),
 }
 
 beforeEach(() => {
@@ -81,7 +87,7 @@ describe("part T staff telematics routes", () => {
     for (const call of Object.values(calls)) expect((await call()).status).toBe(404)
   })
 
-  it.each(["READONLY", "INSURANCE_OFFICER"])("refuse %s the trail, a theft report and a closure letter (403), reaching no lib code or file", async (role) => {
+  it.each(["READONLY", "INSURANCE_OFFICER", "DEALER"])("refuse %s the trail, a theft report (record, confirm, end) and a closure letter (403), reaching no lib code or file", async (role) => {
     signIn(role)
     for (const call of Object.values(calls)) expect((await call()).status).toBe(403)
     for (const fn of Object.values(m.lib)) expect(fn).not.toHaveBeenCalled()
@@ -102,6 +108,13 @@ describe("part T staff telematics routes", () => {
     const bad = await calls.theft()
     expect(bad.status).toBe(400)
     expect(await bad.json()).toEqual({ error: "Invalid theft report", fields: { sapsCaseNumber: "A SAPS case number" } })
+    m.lib.confirmTheftReport.mockResolvedValue({ kind: "refused", status: 409, error: "A second person confirms a theft report: not the one who recorded it" })
+    const own = await calls.confirm()
+    expect(own.status).toBe(409)
+    expect(m.lib.confirmTheftReport).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1", role: "COLLECTIONS_OFFICER" }), "loan-1", "tr_1")
+    m.lib.endTheftReport.mockResolvedValue({ kind: "ok" })
+    expect(await (await calls.end()).json()).toEqual({ ok: true })
+    expect(m.lib.endTheftReport).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1" }), "loan-1", "tr_1", { reason: "The asset was found at a synthetic yard" })
   })
 
   it("serve the letter as a PDF only after writing its view to the access register; 404 with no letter", async () => {
@@ -125,17 +138,19 @@ describe("closure cron", () => {
     expect(m.lib.processTrackerClosures).not.toHaveBeenCalled()
   })
 
-  it("processes each asset-finance lender under its tenant, and answers 503 with the counts when any failed", async () => {
-    m.pending = [{ tenantId: "t1" }, { tenantId: "t2" }]
-    m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 2, failed: 0 }).mockRejectedValueOnce(new Error("synthetic"))
+  it("processes each lender with an unfinished closure under its tenant, counts held ones, and answers 503 with the counts when any failed", async () => {
+    m.pending = [{ id: "t1" }, { id: "t2" }]
+    m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 2, failed: 0, held: 0 }).mockRejectedValueOnce(new Error("synthetic"))
     const res = await cron(req())
     expect(res.status).toBe(503)
-    expect(await res.json()).toEqual({ ok: false, tenants: 2, closures: 2, failed: 1 })
+    expect(await res.json()).toEqual({ ok: false, tenants: 2, closures: 2, failed: 1, held: 0 })
+    // The lenders with an unfinished closure, by the closures themselves (not the asset-finance flag).
+    expect(m.tenantQuery).toMatchObject({ where: { trackerClosures: { some: { OR: [{ noticeLoggedAt: null }, { messageDecidedAt: null }, { letterGeneratedAt: null }] } } } })
     // Each asset-finance lender's closures are processed under its own tenant.
     expect(m.order).toEqual(["tenant:t1", "tenant:t2"])
-    m.pending = [{ tenantId: "t1" }]
-    m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 1, failed: 0 })
-    expect(await (await cron(req())).json()).toEqual({ ok: true, tenants: 1, closures: 1, failed: 0 })
+    m.pending = [{ id: "t1" }]
+    m.lib.processTrackerClosures.mockResolvedValueOnce({ closures: 0, failed: 0, held: 3 })
+    expect(await (await cron(req())).json()).toEqual({ ok: true, tenants: 1, closures: 0, failed: 0, held: 3 })
   })
 })
 

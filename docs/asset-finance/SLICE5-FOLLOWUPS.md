@@ -220,22 +220,33 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 
 ### Decisions (the goal's "[agent decides]") and deviations
 
-1. **A theft report is its own row, valid 30 days.** `AssetTheftReport`
-   (loan, asset, SAPS case number, the date the theft was reported to SAPS,
-   who recorded it, `validUntil` = the recording's SAST date + 30 days, set by
-   the database). Renewal is a new row for the same case (`renewsReportId`);
-   rows never change. The case number is checked in SQL and TypeScript as
-   `CAS <number>/<month>/<year>` (SAPS's format: station sequence, month 1–12,
-   a four-digit year not after this year); the date reported is not in the
-   future and not before the loan started.
+1. **A theft report is its own row, valid 30 days, confirmed by a second
+   person.** `AssetTheftReport` (loan, asset, SAPS case number, the date the
+   theft was reported to SAPS, who recorded it, `validUntil` = the
+   recording's SAST date + 30 days, set by the database: it holds through
+   day 30, not day 31). THEFT holds only once a second person with
+   `view_asset_position` confirms it (CHECK: not the recorder; the review of
+   PR #238 found one officer's say-so too little for a borrower in good
+   standing), and stops when it is ended early with a reason (the asset
+   found). Recorder, confirmer and ender hold `view_asset_position`'s roles in
+   SQL too (`followups-sql-roles.test.ts` keeps the lists in step). The date
+   reported is no more than 14 days before the recording (so the trail's week
+   before it cannot be stretched back), not in the future and not before the
+   loan started. A renewal is a new row for the same case that keeps the
+   original's date and needs its own confirmation; a case has at most three
+   reports (90 days), then a recovery or a legal matter takes over. Nothing
+   else about a report changes; it is never deleted. The case number is
+   checked as `CAS <number>/<month>/<year>` (year 2000 to this year), in the
+   trigger before the CHECK.
 2. **The purpose gate is SQL.** `telematicsPurposeHolds(tenant, loan,
    context)` is the one definition: DEFAULT (loan DEFAULTED or
    PENDING_WRITE_OFF), RECOVERY (a recovery not CLOSED or WITHDRAWN),
-   LEGAL_MATTER (an OPEN matter), THEFT (a report whose `validUntil` is today
-   or later, on a loan ACTIVE, DEFAULTED or PENDING_WRITE_OFF).
-   `guardTelematicsPositionAccess` refuses an access row whose purpose does
-   not hold at insert. The TypeScript (`position-purpose.ts`) keeps reading it
-   to answer the panels without writing a row.
+   LEGAL_MATTER (an OPEN matter), THEFT (this loan's confirmed, open report
+   whose `validUntil` is today or later, on a loan ACTIVE, DEFAULTED or
+   PENDING_WRITE_OFF). `guardTelematicsPositionAccess` refuses an access row
+   whose purpose does not hold at insert. `position-purpose.ts` asks the same
+   function (one definition), choosing only which report to name; a purpose
+   that lapses between that answer and the access row is a 409, not a 500.
 3. **The trail.** The per-device unique goes: ingest appends every position
    inside a tenure and retention. The latest-position reveal reads the newest
    row as today. The trail (`position-trail.ts`) is THEFT, RECOVERY or
@@ -248,24 +259,32 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 4. **Meter-reading void: a request row, decided by a second user.**
    `AssetMeterReadingVoid` (reading, reason 10–500, requestedBy/At, status
    PENDING → APPROVED | REJECTED, decidedBy/At). CHECK: the decider is not the
-   requester. One open request per reading. Refused when the reading is a
-   final reading (`LeaseEndOfTerm.finalReadingId`), a recovery's or a
-   maintenance claim's reading, already void, or of a lease whose end of term
-   is invoiced (`taxInvoiceId` set: the invoice used its start and final
-   readings). Approval sets `AssetMeterReading.voidedAt` and `voidId` (an
+   requester; both hold `manage_asset_finance`'s roles (checked in SQL too).
+   One open request per reading (two at once queue on the reading's row and
+   the second is a 409). Refused when the reading is a final reading
+   (`LeaseEndOfTerm.finalReadingId`), a recovery's or a maintenance claim's
+   reading, already void, the lease's only live reading in its unit (there
+   would be no start to measure from), or of a lease whose end of term is
+   invoiced (`taxInvoiceId` set; the approval locks the end of term, which the
+   invoice locks too, so the two serialise). The end-of-term invoice's start
+   is the earliest live reading other than the final one: with none it
+   refuses until a correct start is recorded. Approval sets `AssetMeterReading.voidedAt` and `voidId` (an
    AFTER trigger); `guardAssetMeterReading` allows that one UPDATE and
    nothing else, and skips voided rows in its monotonic check. The final-
-   reading rule, the pace ceiling's start reading and the one-telematics-
+   reading rule (`guardLeaseEndOfTerm`, re-created), the pace ceiling's start reading and the one-telematics-
    reading-per-day index skip voided rows; so do the TypeScript readers
    (start reading, monotonic pre-check, excess projection, end-of-term
-   invoice, lease documents, the portal's latest reading, the claim picker,
-   the telematics one-a-day count). Staff and the portal show a voided
-   reading struck through as "Voided".
+   invoice and inspection, lease documents, the portal's latest reading, the
+   claim picker, the telematics one-a-day count). Staff and the portal show a
+   voided reading struck through as "Voided"; the portal shows the reason
+   (a voided start changes the lessee's usage).
 5. **Closure: a database-owned task row.** `TrackerClosure` (loan, device,
    unique per loan and device) is the staff task: the database inserts it
    (`AFTER UPDATE OF status ON "Loan"`, into COMPLETED, for each ACTIVE
    device on the loan's asset), so every path that completes a loan is
-   covered, once (`ON CONFLICT DO NOTHING`: completing again opens no second).
+   covered, once (`ON CONFLICT DO NOTHING`: completing again opens no second),
+   never for a device being removed at that moment (the trigger waits on the
+   device row) or when the asset already runs under a later agreement.
    Its columns record each effect once (`guardTrackerClosure`): `noticeLoggedAt`
    (the portal notice, a `NotificationLog` row per borrower recipient, event
    `tracking_stopped`), `messageOutcome` (the email through `sendMessage`:
@@ -284,6 +303,15 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
    people who act for it; never a deceased person or dealer-typed contact
    details. Staff read the letter on the loan (`work_telematics_alerts`), each
    view on the document access register.
+   Nothing is told to a borrower until the lender approves the asset-finance
+   wording (`TenantConfig.assetFinanceLegalWordingApproved`): the closures
+   wait, counted as held, and the staff task says so (the architecture review
+   found a letter stored before approval stayed a DRAFT for ever). A loan
+   reopened since it completed is told nothing until it completes again. The
+   cron lists the lenders with an unfinished closure, whatever their
+   asset-finance flag says now; a lender whose identity is not configured
+   has every closure counted failed. With the lender's email not set up or
+   switched off the email is decided BLOCKED.
 6. **No real send.** The closure email goes through `sendMessage`, whose
    consent gate, opt-outs and kill switches stand; the integration suite fakes
    only the provider transport and proves it is called once; with the lender's
@@ -305,27 +333,23 @@ THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAcc
 
 | Rule | Test | Kind | Negative cases (§3 T) |
 |---|---|---|---|
-| THEFT needs a valid report | `lib/telematics/theft-trail.integration.test.ts` | IT | no report; expired (day 31, day 30 still holds); case number malformed (TS and CHECK); reported in the future (TS and trigger); a case of a later year; a closed loan (reveal and record); a renewal of another case; a report changed or deleted |
+| THEFT needs a valid, confirmed report | `lib/telematics/theft-trail.integration.test.ts`, `edge-followups.integration.test.ts` | IT | no report; unconfirmed; confirmed by the recorder (TS and CHECK) or by READONLY (TS and trigger); ended; expired (day 31, day 30 still holds, SAST midnight); case number malformed (trigger and CHECK) or before 2000; reported in the future, before the loan, or over 14 days back (TS and trigger); a case of a later year; a closed loan (reveal and record); a renewal of another case, with another date, or a fourth report of a case; recorded by READONLY in SQL; a report changed or deleted |
 | Report input | `lib/telematics/theft-reports.test.ts` | unit | each malformed field named |
-| Purpose gate in SQL | `lib/telematics/theft-trail.integration.test.ts` | IT | an access row by SQL for DEFAULT, RECOVERY, LEGAL_MATTER and an expired THEFT that do not hold; a non-THEFT row naming a report; TRAIL with DEFAULT |
+| Purpose gate in SQL | `lib/telematics/theft-trail.integration.test.ts` | IT | each branch of `telematicsPurposeHolds` (DEFAULT by status, RECOVERY by status, LEGAL_MATTER by status, THEFT with another loan's, an unconfirmed, an ended report or a closed loan); an access row by SQL for each purpose that does not hold; a non-THEFT row naming a report; TRAIL with DEFAULT, TRAIL without a count, LATEST with one |
 | Roles | same + `app/api/asset-finance/telematics/followup-routes.test.ts` | IT + unit | READONLY, INSURANCE_OFFICER and a dealer on the trail and the report (403, audited, nothing logged); the letter route |
-| Trail inside tenure and retention, purged per position | `lib/telematics/theft-trail.integration.test.ts` | IT | a fix before the loan started not shown; retention 1 day drops older fixes before any purge; the purge deletes the older half one by one and keeps the rest |
+| Trail inside tenure and retention, purged per position | `lib/telematics/theft-trail.integration.test.ts`, `edge-followups.integration.test.ts` | IT | a fix before the loan started not shown; THEFT from 7 days before the report; a fix after the next loan's start not shown; retention 1 day drops older fixes before any purge; 500 and 501 points; a device swapped mid-tenure; the purge deletes the older half one by one and keeps the rest |
 | Every view logged | same | IT | a trail view writes one access row (view TRAIL, its count, its report) and an audit row without a coordinate |
-| Void four-eyes in SQL | `lib/asset-finance/meter-void.integration.test.ts` | IT | self-approval (TS and CHECK); a second open request (TS and index); a decided void changed or decided again; a void deleted; a void inserted APPROVED; a reading edited or stamped by another reading's void; a reading deleted |
-| Void refused when billed or final | same | IT | final reading; invoiced lease; a recovery's or a claim's reading; already void |
-| Voided readings ignored | same | IT | the monotonic floor (TS and trigger); the start reading (pace ceiling value, excess projection); one telematics reading a day; never cited after as a final, recovery or claim reading |
-| Closure once, all paths | `lib/asset-finance/tracker-closure.integration.test.ts` | IT | settled by payment (applyManualReceipt); end of term settled (completeEndOfTermIfSettled); any other status change; completing twice; a device removed before; three runs at once (one email); a fresh claim left alone, a stale one taken over; a send in flight or an unexpected error decides nothing |
-| Closure message gated | same + `lib/asset-finance/tracker-closure.test.ts` | IT + unit | no lender email: BLOCKED, transport never called; with email: the real pipeline once, transport faked; the processor's only outbound import is sendMessage |
+| Void four-eyes in SQL | `lib/asset-finance/meter-void.integration.test.ts`, `lib/asset-finance/edge-followups.integration.test.ts` | IT | self-approval (TS and CHECK); asked or decided by READONLY in SQL; a second open request (TS, index, two at once through the route); a decided void changed or decided again; two decisions at once; a void deleted; a void inserted APPROVED; a reading edited or stamped by another reading's void; a reading deleted |
+| Void refused when billed or final | same | IT | final reading (at request and at approval); invoiced lease; a recovery's or a claim's reading; already void; the lease's only live reading |
+| Voided readings ignored | same | IT | the monotonic floor (TS and trigger); the start reading (pace ceiling value, excess projection, end-of-term invoice: refused with only the final left, billed as before once corrected); the final-reading rule at inspection (`guardLeaseEndOfTerm`); one telematics reading a day; never cited after as a final, recovery or claim reading |
+| Closure once, all paths | `lib/asset-finance/tracker-closure.integration.test.ts`, `edge-followups.integration.test.ts` | IT | settled by payment (applyManualReceipt); end of term settled (completeEndOfTermIfSettled, the loan open until then); any other status change; completing twice; reopened and completed again; a device removed before; the asset re-leased; three or four runs at once (one email); a fresh claim left alone, a stale one taken over; a send in flight or an unexpected error decides nothing |
+| Closure message gated | same + `lib/asset-finance/tracker-closure.test.ts` | IT + unit | wording not approved: held, nothing told; no lender email or email switched off: BLOCKED, transport never called; an opted-out contact (the pipeline's consent gate); a deceased borrower; an unverified dealer-typed contact; an entity with no acting person; lender identity missing (fails closed); with email: the real pipeline once, transport faked; the processor's only outbound imports are the send pipeline |
 | Closure steps recorded once | same | IT | a decided message, a notice, a letter or a removal rewritten; done without the device removed; opened for a removed device; deleted |
 
 ### Known limitations (part T)
 
-- **One person records a theft report.** A collections officer or above
-  records the SAPS case number and date, audited; no second person confirms
-  it before THEFT applies. The goal (§2a) asks for a report valid 30 days,
-  not an approval; the blind security and legal reviews decide whether a
-  second approver is needed (recorded under review below).
-- **The case number is checked for form only.** Nothing verifies it with SAPS.
+- **The case number is checked for form only.** Nothing verifies it with SAPS;
+  the second person's confirmation is the check, and both are audited.
 - **The trail map is an inline sketch** of the points (no map tiles, no
   external call): enough to see movement, not a street map.
 - **A closure email stuck in reconciliation** (an outcome the provider never
@@ -335,3 +359,19 @@ THEFT on `TelematicsPositionContext`; `AssetTheftReport`; `TelematicsPositionAcc
   trusted contact details; the letter is addressed to the entity with no
   postal address (the entity's registered address is not on file in a
   printable form).
+- **A deceased borrower** gets no notice and no email; the letter is stored
+  addressed to "The borrower" for the file. Staff contact the executor about
+  the device themselves.
+- **A written-off loan opens no closure** (only a move into COMPLETED does):
+  collection still stops with the tenure, but no notice or removal task.
+- **Contact details a dealer typed and staff never verified** get nothing:
+  the email is decided BLOCKED once, and verifying them later does not resend.
+- **A closure email held in reconciliation** returns to every run until staff
+  reconcile the message; with many such, newer closures wait behind them
+  (200 a run, oldest first).
+- **A meter reading with no lease** (`loanId` null) cannot be voided here.
+- **The closure letter** is read with `work_telematics_alerts` (the tracker
+  work queue's permission, the same roles as `view_asset_position`), each view
+  on the document access register.
+- **The position purge** deletes at most 200 batches of 5 000 a tenant a
+  night; a fleet reporting every minute would need more.

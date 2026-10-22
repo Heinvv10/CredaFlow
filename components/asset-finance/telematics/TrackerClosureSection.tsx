@@ -18,9 +18,10 @@ export interface TrackerClosureView {
  * The loan completed with a tracker on its asset (SLICE5-FOLLOWUPS.md part T):
  * the staff task to remove or switch off the device (done when the device is
  * removed, under Tracker devices on the asset), and each notice to the
- * borrower: portal, email and the stored letter.
+ * borrower: portal, email and the stored letter. Nothing is told to the
+ * borrower until the lender approves the wording (the steps wait, and say so).
  */
-export function TrackerClosureSection({ loanId, assetId, closures }: { loanId: string; assetId: string; closures: TrackerClosureView[] }) {
+export function TrackerClosureSection({ loanId, assetId, closures, wordingApproved }: { loanId: string; assetId: string; closures: TrackerClosureView[]; wordingApproved: boolean }) {
   return (
     <>
       <h3 className={subheading}>Tracking stopped</h3>
@@ -34,6 +35,9 @@ export function TrackerClosureSection({ loanId, assetId, closures }: { loanId: s
               {c.removedAt ? `Device removed ${formatDateTime(c.removedAt)}` : "To do: remove or switch off the device, then mark it removed on the "}
               {!c.removedAt && <a className="text-[var(--cf-brand)] underline-offset-2 hover:underline" href={`/asset-finance/assets/${assetId}`}>asset</a>}
             </p>
+            {!wordingApproved && !c.noticeLoggedAt && (
+              <p className="text-[var(--cf-warning)]">Held: nothing is told to the borrower until the lender approves the asset-finance wording.</p>
+            )}
             <p className="text-[var(--cf-text-secondary)]">
               Portal notice: {c.noticeLoggedAt ? formatDateTime(c.noticeLoggedAt) : "pending"} ·{" "}
               {c.messageOutcome ? <span title={c.messageNote ?? undefined}>{MESSAGE[c.messageOutcome] ?? c.messageOutcome}</span> : "Email pending"} ·{" "}

@@ -10,16 +10,23 @@ export interface TrackingStoppedFacts {
   assetDescription: string
   /** The SAST calendar date the agreement ended (yyyy-mm-dd), already formatted for the reader. */
   endedOn: string
+  /** The business that was the borrower, when it was one: its people get the notice, and are not parties to it. */
+  entityName: string | null
+  /** The lender's position retention (TenantConfig.telematicsPositionRetentionDays). */
+  retentionDays: number
 }
 
 export const TRACKING_STOPPED_TITLE = "Tracking has stopped"
 
-/** The notice's paragraphs, in order. */
+/** The notice's paragraphs, in order (words revised on the SA-legal review of PR #238). */
 export function trackingStoppedParagraphs(f: TrackingStoppedFacts): string[] {
+  const ended = f.entityName
+    ? `The agreement ${f.loanReference} between ${f.entityName} and ${f.lenderName} ended on ${f.endedOn}.`
+    : `Your agreement ${f.loanReference} with ${f.lenderName} ended on ${f.endedOn}.`
   return [
-    `Your agreement ${f.loanReference} with ${f.lenderName} ended on ${f.endedOn}. From that date we stopped collecting the location and any other information from the tracking device fitted to the ${f.assetDescription}.`,
-    "We will contact you to arrange for the device to be removed or switched off. Until then we keep only a record that the device is still switched on, never its location or readings.",
-    `Location records collected while the agreement ran are deleted at the end of the retention period set out in ${f.lenderName}'s privacy notice. You may ask us for a copy of the information we hold about you, or ask us to correct it.`,
+    `${ended} From that date we no longer keep the location, meter readings or any other information that the tracking device fitted to the ${f.assetDescription} sends us.`,
+    "The device may keep sending signals to the tracking company until it is removed or switched off. We will contact you to arrange this. Until then we keep only a record of when the device was last switched on, never where it was or its readings.",
+    `We delete the location records collected while the agreement ran within ${f.retentionDays} days of each record being made. You may ask us for a copy of the information we hold about you, or ask us to correct or delete it. You may also complain to the Information Regulator.`,
   ]
 }
 

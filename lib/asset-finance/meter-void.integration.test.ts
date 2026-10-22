@@ -133,6 +133,18 @@ suite.sequential("meter-reading void: four-eyes, refusals, a voided reading coun
       const { voidId } = await pending(tx)
       await tx.$executeRawUnsafe(`UPDATE "AssetMeterReadingVoid" SET "reason" = 'Another synthetic reason' WHERE "id" = $1`, voidId)
     })
+    // Decided (by SQL, past the TypeScript) by someone who may not manage asset finance: refused, whatever the four-eyes CHECK says.
+    const readonly = (await database().user.create({ data: { tenantId: fx.tenantId, email: `void-readonly-${t}@staff.invalid`, password: "x", role: "READONLY" } })).id
+    await ruleRefuses(database(), { fn: "guardAssetMeterReadingVoid", replace: ["IF NOT EXISTS (SELECT 1 FROM \"User\" u WHERE u.\"id\" = NEW.\"decidedById\"", "IF FALSE AND NOT EXISTS (SELECT 1 FROM \"User\" u WHERE u.\"id\" = NEW.\"decidedById\""] },
+      /staff who manage asset finance/, async (tx) => {
+        const { voidId } = await pending(tx)
+        await tx.$executeRawUnsafe(`UPDATE "AssetMeterReadingVoid" SET "status" = 'APPROVED', "decidedById" = $2, "decidedAt" = now() WHERE "id" = $1`, voidId, readonly)
+      })
+    await ruleRefuses(database(), { fn: "guardAssetMeterReadingVoid", replace: ["IF NOT EXISTS (SELECT 1 FROM \"User\" u WHERE u.\"id\" = NEW.\"requestedById\"", "IF FALSE AND NOT EXISTS (SELECT 1 FROM \"User\" u WHERE u.\"id\" = NEW.\"requestedById\""] },
+      /staff who manage asset finance/, async (tx) => {
+        const { id } = await insertReading(tx, daysAgo(3), 1_110)
+        await tx.$executeRawUnsafe(`INSERT INTO "AssetMeterReadingVoid" ("id", "tenantId", "readingId", "reason", "requestedById") VALUES ($1, $2, $3, 'A synthetic wrong reading', $4)`, `mv_${randomUUID()}`, fx.tenantId, id, readonly)
+      })
     await ruleRefuses(database(), guard, /never deleted/, async (tx) => {
       const { voidId } = await pending(tx)
       await tx.$executeRawUnsafe(`DELETE FROM "AssetMeterReadingVoid" WHERE "id" = $1`, voidId)
@@ -254,5 +266,30 @@ suite.sequential("meter-reading void: four-eyes, refusals, a voided reading coun
     }
     expect(await attempt(database(), (tx) => secondThatDay(tx, false))).toMatch(/already exists/)
     await ruleAdmits(database(), (tx) => secondThatDay(tx, true))
+  }, 600_000)
+
+  it("a voided reading dated after the inspection no longer blocks it: the final reading is the latest live one (the database rule)", async () => {
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    const at = (tx: Tx, readingDate: string, value: number) =>
+      tx.assetMeterReading.create({ data: { tenantId: fx.tenantId, loanId, assetId, readingDate: dbDate(readingDate), value, unit: "HOURS", source: "STAFF", recordedById: fx.officer }, select: { id: true } })
+    // The term ended five days ago and the return was elected three days ago (test setup); inspected yesterday with a reading
+    // that day, while a reading dated today exists (voided, or not).
+    const inspect = (voidLater: boolean) => async (tx: Tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+      await tx.$executeRawUnsafe(`UPDATE "LeaseRental" SET "dueDate" = $2::date WHERE "loanId" = $1`, loanId, daysAgo(5))
+      await tx.$executeRawUnsafe(`INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "electedAt", "updatedAt")
+        VALUES ($1, $2, $3, 'EXPIRY', 'RETURN', 'ELECTED', now() - INTERVAL '3 days', now())`, `eotv_${randomUUID()}`, fx.tenantId, loanId)
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = origin`)
+      const final = await at(tx, daysAgo(1), 1_300)
+      const later = await at(tx, today(), 1_400)
+      if (voidLater) await voidIn(tx, later.id)
+      await tx.$executeRawUnsafe(`UPDATE "LeaseEndOfTerm" SET "status" = 'INSPECTED', "inspectedOn" = $2::date, "inspectedById" = $3, "inspectionCondition" = 'Synthetic: returned',
+        "finalReadingId" = $4 WHERE "loanId" = $1`, loanId, daysAgo(1), fx.officer, final.id)
+    }
+    const LATEST = /final reading is the lease's asset's latest/
+    expect(await attempt(database(), inspect(false))).toMatch(LATEST)
+    await ruleAdmits(database(), inspect(true))
+    expect(await attempt(database(), inspect(true), { fn: "guardLeaseEndOfTerm", replace: [`AND x."readingDate" > m."readingDate" AND x."voidedAt" IS NULL)) THEN`, `AND x."readingDate" > m."readingDate")) THEN`] })).toMatch(LATEST)
   }, 600_000)
 })

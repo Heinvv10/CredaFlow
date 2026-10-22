@@ -7,8 +7,8 @@
  * ON CONFLICT DO NOTHING (event-insert.ts): no row back means a duplicate and
  * nothing else happens, so a replayed batch or a second sweep changes nothing.
  * Then its meter reading (meter-route.ts) and, under that agreement, its
- * position and its alert (alerts-raise.ts). A position is kept only if it is
- * the device's latest and within retention; it replaces the older one.
+ * position and its alert (alerts-raise.ts). Every position inside a tenure and
+ * within retention is kept (the trail); the purge removes them by age.
  * Nothing is sent to anyone.
  */
 import type { TelematicsMeterOutcome } from "@prisma/client"

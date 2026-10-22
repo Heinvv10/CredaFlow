@@ -55,6 +55,8 @@ model User {
   assessedClaims               InsuranceClaim[]                      @relation("ClaimAssessor")
   assetAffordabilityAssessed   AssetFinanceAffordabilityAssessment[]
   assetDealsCancelled          AssetFinanceDeal[]                    @relation("AssetDealCancelledBy")
+  assetTheftReportsConfirmed   AssetTheftReport[]                    @relation("AssetTheftReportConfirmedBy")
+  assetTheftReportsEnded       AssetTheftReport[]                    @relation("AssetTheftReportEndedBy")
   assetTheftReportsRecorded    AssetTheftReport[]                    @relation("AssetTheftReportRecordedBy")
   assignedConversations        Conversation[]
   assignedLoans                LoanApplication[]                     @relation("AssignedTo")

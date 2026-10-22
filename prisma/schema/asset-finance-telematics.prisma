@@ -145,10 +145,10 @@ model TelematicsEvent {
   @@index([tenantId, occurredAt])
 }
 
-// The only copy of a coordinate, and only the latest per device (POPIA
-// minimality: a newer one replaces it). Purged after
+// The only copy of a coordinate: every position inside a tenure is kept (the
+// trail, SLICE5-FOLLOWUPS.md part T) and purged after
 // TenantConfig.telematicsPositionRetentionDays; read only through
-// lib/telematics/position-view.ts, which logs every view.
+// lib/telematics/position-view.ts and position-trail.ts, which log every view.
 model TelematicsPosition {
   id         String          @id @default(cuid())
   tenantId   String
@@ -266,9 +266,9 @@ model TelematicsPositionAccess {
 }
 
 // A theft of the asset reported to SAPS (SLICE5-FOLLOWUPS.md part T): the
-// THEFT position purpose holds while a report is valid (validUntil, set by the
-// database: the recording's SAST date + 30 days). A renewal is a new row for
-// the same case; rows never change.
+// THEFT position purpose holds while a report is confirmed by a second person,
+// not ended and valid (validUntil, set by the database: the recording's SAST
+// date + 30 days). A renewal is a new row for the same case and date.
 model AssetTheftReport {
   id             String                     @id @default(cuid())
   tenantId       String
@@ -285,6 +285,15 @@ model AssetTheftReport {
   recordedById   String
   recordedBy     User                       @relation("AssetTheftReportRecordedBy", fields: [tenantId, recordedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   recordedAt     DateTime                   @default(now())
+  // A second person confirms it before THEFT holds (not the recorder: CHECK).
+  confirmedById  String?
+  confirmedBy    User?                      @relation("AssetTheftReportConfirmedBy", fields: [tenantId, confirmedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  confirmedAt    DateTime?
+  // Ended early (the asset found), once, with a reason.
+  endedById      String?
+  endedBy        User?                      @relation("AssetTheftReportEndedBy", fields: [tenantId, endedById], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  endedAt        DateTime?
+  endReason      String?
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   positionAccesses TelematicsPositionAccess[]
@@ -297,7 +306,7 @@ model AssetTheftReport {
 // The work left when a loan with an active tracker closes (COMPLETED): the
 // staff task to remove or deactivate the device, and a record of each notice
 // to the borrower, each done once. The database inserts the row
-// (createTrackerClosures on Loan); lib/telematics/closure.ts does the rest.
+// (createTrackerClosures on Loan); lib/asset-finance/tracker-closure.ts does the rest.
 model TrackerClosure {
   id                 String        @id @default(cuid())
   tenantId           String

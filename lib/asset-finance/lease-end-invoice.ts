@@ -105,7 +105,8 @@ export async function invoiceEndOfTerm(tx: SigningTx, actor: { tenantId: string;
   // Fail closed: contracted usage is billed from the final reading, never skipped for want of one.
   if (usageContracted && !row.finalReading) return refused("final_reading", "Record the final meter reading at the inspection first")
   if (usageContracted && deal?.usageAllowancePerYear && deal.excessRateCents && deal.usageUnit && row.finalReading) {
-    const start = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit: deal.usageUnit, voidedAt: null }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true } })
+    // The start is the earliest live reading other than the final one: a voided start never makes the final its own start.
+    const start = await tx.assetMeterReading.findFirst({ where: { tenantId, loanId: input.loanId, unit: deal.usageUnit, voidedAt: null, id: { not: row.finalReading.id } }, orderBy: [{ readingDate: "asc" }, { value: "asc" }], select: { value: true } })
     if (!start) return refused("start_reading", "The lease has no start reading")
     const usage = excessUsage({ startReading: start.value, finalReading: row.finalReading.value, allowancePerYear: deal.usageAllowancePerYear, termMonths: loan._count.leaseRentals, excessRateCents: deal.excessRateCents })
     excessUsageCents = usage.excessCents

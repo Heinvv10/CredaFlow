@@ -3,16 +3,15 @@
  * finance/SLICE5.md part B, Deviation 3; SLICE5-FOLLOWUPS.md part T): DEFAULT
  * (the loan is DEFAULTED or PENDING_WRITE_OFF: in default, still collectable),
  * RECOVERY (an open recovery), LEGAL_MATTER (an OPEN matter), THEFT (a theft
- * report valid today on a running loan; the report's id is carried to the
+ * report confirmed by a second person, not ended and valid today on a running loan; the report's id is carried to the
  * access row). The reveal and the trail refuse on it, and the panels use it
- * to show the buttons only when they would answer. Reads no position. The
- * database holds the same rule at the access row ("telematicsPurposeHolds").
+ * to show the buttons only when they would answer. Reads no position. The rule
+ * is the database's ("telematicsPurposeHolds", applied again at the access row).
  */
-import type { TelematicsPositionContext } from "@prisma/client"
+import { Prisma, type TelematicsPositionContext } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { dbDate } from "@/lib/asset-finance/dates"
-import { IN_DEFAULT, OPEN_RECOVERY } from "./alerts-raise"
 
 export const PURPOSE_REFUSAL = "Position is shown only for a loan in default, legal action, recovery or a reported theft"
 const CONTEXT_REFUSAL: Record<TelematicsPositionContext, string> = {
@@ -21,25 +20,26 @@ const CONTEXT_REFUSAL: Record<TelematicsPositionContext, string> = {
   LEGAL_MATTER: "This loan has no open legal matter",
   THEFT: "This loan has no theft report valid today",
 }
-/** A loan a theft report may be used on: still running (the same list as telematicsPurposeHolds). */
-const RUNNING = ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF"]
-
 export type PositionPurposes = Record<TelematicsPositionContext, boolean> & { theftReportId: string | null }
 
+/**
+ * Asks the database's own definition ("telematicsPurposeHolds", the one the access log's trigger applies) for each
+ * context; only the THEFT report to name is chosen here (confirmed, not ended, the latest still valid).
+ */
 export async function positionPurposes(tenantId: string, loan: { id: string; status: string }): Promise<PositionPurposes> {
-  const [matters, recoveries, theft] = await Promise.all([
-    prisma.legalMatter.count({ where: { tenantId, loanId: loan.id, status: "OPEN" } }),
-    prisma.recovery.count({ where: { tenantId, loanId: loan.id, ...OPEN_RECOVERY } }),
-    RUNNING.includes(loan.status)
-      ? prisma.assetTheftReport.findFirst({
-          where: { tenantId, loanId: loan.id, validUntil: { gte: dbDate(sastCalendarDate(new Date())) } },
-          orderBy: { validUntil: "desc" }, select: { id: true },
-        })
-      : null,
-  ])
+  const theft = await prisma.assetTheftReport.findFirst({
+    where: { tenantId, loanId: loan.id, confirmedAt: { not: null }, endedAt: null, validUntil: { gte: dbDate(sastCalendarDate(new Date())) } },
+    orderBy: { validUntil: "desc" }, select: { id: true },
+  })
+  const theftReportId = theft?.id ?? null
+  const [row] = await prisma.$queryRaw<Array<Record<TelematicsPositionContext, boolean>>>(Prisma.sql`SELECT
+    "telematicsPurposeHolds"(${tenantId}, ${loan.id}, 'DEFAULT'::"TelematicsPositionContext", NULL) AS "DEFAULT",
+    "telematicsPurposeHolds"(${tenantId}, ${loan.id}, 'RECOVERY'::"TelematicsPositionContext", NULL) AS "RECOVERY",
+    "telematicsPurposeHolds"(${tenantId}, ${loan.id}, 'LEGAL_MATTER'::"TelematicsPositionContext", NULL) AS "LEGAL_MATTER",
+    "telematicsPurposeHolds"(${tenantId}, ${loan.id}, 'THEFT'::"TelematicsPositionContext", ${theftReportId}) AS "THEFT"`)
   return {
-    DEFAULT: (IN_DEFAULT as readonly string[]).includes(loan.status), RECOVERY: recoveries > 0, LEGAL_MATTER: matters > 0,
-    THEFT: theft !== null, theftReportId: theft?.id ?? null,
+    DEFAULT: row?.DEFAULT === true, RECOVERY: row?.RECOVERY === true, LEGAL_MATTER: row?.LEGAL_MATTER === true,
+    THEFT: row?.THEFT === true, theftReportId: row?.THEFT === true ? theftReportId : null,
   }
 }
 

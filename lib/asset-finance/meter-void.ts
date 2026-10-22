@@ -35,6 +35,8 @@ export async function requestMeterReadingVoid(
   }
   const reading = await tx.assetMeterReading.findFirst({ where: { id: input.readingId, tenantId, loanId: input.loanId }, select: { id: true, value: true, readingDate: true, source: true } })
   if (!reading) return { kind: "not_found" }
+  // Two requests at once queue here, so the second sees the first's PENDING row (one open request: the database's index).
+  await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "AssetMeterReading" WHERE "id" = ${reading.id} AND "tenantId" = ${tenantId} FOR UPDATE`)
   const refusal = await refusalOf(tx, tenantId, reading.id)
   if (refusal) return refused("void_refused", refusal)
   if (await tx.assetMeterReadingVoid.count({ where: { tenantId, readingId: reading.id, status: "PENDING" } }) > 0) {

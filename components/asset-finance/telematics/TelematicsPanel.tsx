@@ -10,6 +10,7 @@ import { theftReportsOf } from "@/lib/telematics/theft-reports"
 import { SimulatedChip } from "./SimulatedChip"
 import { TheftReportsSection } from "./TheftReportsSection"
 import { TrackerClosureSection } from "./TrackerClosureSection"
+import { legalWordingApproved } from "@/lib/asset-finance/documents/nca/legal-wording-approved"
 import { AlertsTable, HeldReadingsTable } from "./TelematicsTables"
 
 const subheading = "mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--cf-text-muted)]"
@@ -23,8 +24,8 @@ const subheading = "mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.08em] 
  * (SLICE5-FOLLOWUPS.md part T). A position only ever comes from a logged
  * button press. The TELEMATICS readings are in the lease's readings table.
  */
-export async function TelematicsPanel({ tenantId, loanId, canManage, canWork, canViewPosition = false }: {
-  tenantId: string; loanId: string; canManage: boolean; canWork: boolean; canViewPosition?: boolean
+export async function TelematicsPanel({ tenantId, loanId, viewerId, canManage, canWork, canViewPosition = false }: {
+  tenantId: string; loanId: string; viewerId: string; canManage: boolean; canWork: boolean; canViewPosition?: boolean
 }) {
   const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId }, select: { assetId: true, status: true } })
   if (!loan?.assetId) return null
@@ -65,10 +66,10 @@ export async function TelematicsPanel({ tenantId, loanId, canManage, canWork, ca
         </>
       )}
       {theftShown && (
-        <TheftReportsSection tenantId={tenantId} loanId={loanId} reports={reports} running={running} today={sastCalendarDate(new Date())} />
+        <TheftReportsSection tenantId={tenantId} loanId={loanId} viewerId={viewerId} reports={reports} running={running} today={sastCalendarDate(new Date())} />
       )}
       {closures.length > 0 && (
-        <TrackerClosureSection loanId={loanId} assetId={loan.assetId}
+        <TrackerClosureSection loanId={loanId} assetId={loan.assetId} wordingApproved={await legalWordingApproved(prisma, tenantId)}
           closures={closures.map(({ device, ...c }) => ({ ...c, externalDeviceId: device.externalDeviceId }))} />
       )}
       {canManage && held.length > 0 && (

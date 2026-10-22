@@ -95,7 +95,8 @@ export interface PortalLeaseView {
   meter: {
     unit: UsageUnit
     latest: { readingDate: string; value: number; source: MeterReadingSource } | null
-    voided: { readingDate: string; value: number; voidedOn: string }[]
+    /** With the lessor's reason: a voided start reading changes the lessee's usage, so they see why. */
+    voided: { readingDate: string; value: number; voidedOn: string; reason: string }[]
   } | null
   termination: { cpaApplies?: boolean; penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
   endOfTerm: {
@@ -156,7 +157,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
       : null,
     // Readings the lessor voided (four-eyes, lib/asset-finance/meter-void.ts): shown as voided, never as the meter.
     unit
-      ? prisma.assetMeterReading.findMany({ where: { tenantId, loanId, unit, voidedAt: { not: null } }, orderBy: { readingDate: "desc" }, take: 20, select: { readingDate: true, value: true, voidedAt: true } })
+      ? prisma.assetMeterReading.findMany({ where: { tenantId, loanId, unit, voidedAt: { not: null } }, orderBy: { readingDate: "desc" }, take: 20, select: { readingDate: true, value: true, voidedAt: true, voidApplied: { select: { reason: true } } } })
       : [],
     prisma.leaseTerminationQuote.findFirst({ where: { tenantId, loanId }, orderBy: { createdAt: "desc" } }),
     portalLoanCharges(tenantId, loanId, asOf),
@@ -212,7 +213,7 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
     },
     meter: unit ? {
       unit, latest: latestReading ? { readingDate: isoOfDbDate(latestReading.readingDate), value: latestReading.value, source: latestReading.source } : null,
-      voided: voidedReadings.map((r) => ({ readingDate: isoOfDbDate(r.readingDate), value: r.value, voidedOn: sastCalendarDate(r.voidedAt ?? new Date()) })),
+      voided: voidedReadings.map((r) => ({ readingDate: isoOfDbDate(r.readingDate), value: r.value, voidedOn: sastCalendarDate(r.voidedAt ?? new Date()), reason: r.voidApplied?.reason ?? "" })),
     } : null,
     termination: {
       cpaApplies: loan.cpaApplies === true,

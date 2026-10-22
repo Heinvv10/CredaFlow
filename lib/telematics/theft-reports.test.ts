@@ -25,8 +25,13 @@ describe("parseTheftReport", () => {
   const today = "2026-10-22"
   it("takes a case number, a date reported no later than today, and an optional report it renews", () => {
     expect(parseTheftReport({ sapsCaseNumber: "cas 7/10/2026", reportedOn: today }, today)).toEqual({ data: { sapsCaseNumber: "CAS 7/10/2026", reportedOn: today, renewsReportId: null } })
-    expect(parseTheftReport({ sapsCaseNumber: "CAS 7/10/2026", reportedOn: "2026-10-01", renewsReportId: "tr_1" }, today))
-      .toEqual({ data: { sapsCaseNumber: "CAS 7/10/2026", reportedOn: "2026-10-01", renewsReportId: "tr_1" } })
+    // A renewal's date is the renewed report's (recordTheftReport reads it): any date sent is ignored here, even one too old.
+    expect(parseTheftReport({ sapsCaseNumber: "CAS 7/10/2026", reportedOn: "2026-01-01", renewsReportId: "tr_1" }, today))
+      .toEqual({ data: { sapsCaseNumber: "CAS 7/10/2026", reportedOn: today, renewsReportId: "tr_1" } })
+  })
+  it("refuses a first report dated more than 14 days back, and takes one dated exactly 14 days back", () => {
+    expect(parseTheftReport({ sapsCaseNumber: "CAS 7/10/2026", reportedOn: "2026-10-07" }, today)).toEqual({ errors: { reportedOn: "A theft is recorded within 14 days of its report to SAPS" } })
+    expect(parseTheftReport({ sapsCaseNumber: "CAS 7/10/2026", reportedOn: "2026-10-08" }, today)).toMatchObject({ data: { reportedOn: "2026-10-08" } })
   })
   it("names each wrong field: a malformed case, a case of a later year, a date in the future or not a date, a renewal that is not an id", () => {
     expect(parseTheftReport({ sapsCaseNumber: "7/10/2026", reportedOn: today }, today)).toEqual({ errors: { sapsCaseNumber: expect.stringContaining("CAS") } })

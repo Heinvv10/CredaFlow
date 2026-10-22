@@ -93,7 +93,11 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
   }, 300_000)
 
   it("a lease closed by its settled end of term opens one closure", async () => {
-    await payAllOwed(database(), fx, loans.lease)
+    // Every rental settled (test setup, not the payment path, which would complete the lease itself): still running,
+    // so the closure below is the end of term's.
+    await testSetup(database(), [`UPDATE "RepaymentSchedule" SET "totalPaid" = "totalDue", "status" = 'PAID' WHERE "loanId" = $1`, loans.lease])
+    expect(await database().loan.findUniqueOrThrow({ where: { id: loans.lease }, select: { status: true } })).toEqual({ status: "ACTIVE" })
+    expect(await closuresOf(loans.lease)).toHaveLength(0)
     await testSetup(database(), [`INSERT INTO "LeaseEndOfTerm" ("id", "tenantId", "loanId", "origin", "outcome", "status", "inspectedOn", "inspectedById", "inspectionCondition", "updatedAt")
       VALUES ($1, $2, $3, 'EXPIRY', 'RETURN', 'INVOICED', CURRENT_DATE, $4, 'Synthetic: returned in good order', now())`, `eot_${t}`, fx.tenantId, loans.lease, fx.officer])
     expect(await database().$transaction((tx) => completeEndOfTermIfSettled(tx as never, { tenantId: fx.tenantId, loanId: loans.lease, userId: fx.officer }))).toBe(true)
@@ -114,15 +118,23 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     expect(await closuresOf(loans.removed)).toHaveLength(0)
   }, 120_000)
 
+  it("tells the borrower nothing until the lender approves the wording: the closures are held", async () => {
+    expect(await process_()).toEqual({ closures: 0, failed: 0, held: 3 })
+    expect(await database().trackerClosure.count({ where: { tenantId: fx.tenantId, OR: [{ noticeLoggedAt: { not: null } }, { messageDecidedAt: { not: null } }, { letterGeneratedAt: { not: null } }] } })).toBe(0)
+    expect(dispatch).not.toHaveBeenCalled()
+    // The synthetic lender's wording approved (test setup; never a real lender's flag).
+    await database().tenantConfig.update({ where: { tenantId: fx.tenantId }, data: { assetFinanceLegalWordingApproved: true } })
+  }, 120_000)
+
   it("with no email set up: the notice is logged, the email decided BLOCKED, the letter stored, each once; nothing dispatched", async () => {
     expect(await database().messageTemplate.count({ where: { tenantId: fx.tenantId } })).toBe(0)
-    expect(await process_()).toEqual({ closures: 3, failed: 0 })
+    expect(await process_()).toEqual({ closures: 3, failed: 0, held: 0 })
     expect(await database().messageTemplate.findMany({ where: { tenantId: fx.tenantId }, select: { key: true } })).toEqual([{ key: "asset_finance_tracking_stopped_email" }])
     const closures = await database().trackerClosure.findMany({ where: { tenantId: fx.tenantId } })
     expect(closures).toHaveLength(3)
     for (const c of closures) {
       expect(c.noticeLoggedAt).not.toBeNull()
-      expect(c.messageOutcome).toBe("BLOCKED")
+      expect(c).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "The lender's email is not set up or is switched off" })
       expect(c.letterStoragePath).not.toBeNull()
       const pdf = await readFile(c.letterStoragePath ?? "")
       expect(pdf.subarray(0, 5).toString()).toBe("%PDF-")
@@ -131,7 +143,7 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     const notices = await database().notificationLog.count({ where: { tenantId: fx.tenantId, event: TRACKING_STOPPED_EVENT } })
     // Run again: nothing more happens.
     const before = closures.map((c) => [c.id, c.noticeLoggedAt, c.messageDecidedAt, c.letterGeneratedAt, c.letterSha256])
-    expect(await process_()).toEqual({ closures: 0, failed: 0 })
+    expect(await process_()).toEqual({ closures: 0, failed: 0, held: 0 })
     const after = await database().trackerClosure.findMany({ where: { tenantId: fx.tenantId } })
     expect(after.map((c) => [c.id, c.noticeLoggedAt, c.messageDecidedAt, c.letterGeneratedAt, c.letterSha256])).toEqual(before)
     expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, event: TRACKING_STOPPED_EVENT } })).toBe(notices)
@@ -151,8 +163,8 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     await database().emailConfig.create({ data: { tenantId: fx.tenantId, provider: "IMAP_SMTP", fromName: "Synthetic lender", fromAddress: "sender@synthetic.invalid", smtpHost: "smtp.synthetic.invalid", smtpUser: "synthetic", smtpPass: "synthetic", active: true } })
     vi.mocked(dispatch).mockImplementation(async () => ({ providerMessageId: `synthetic-closure-${randomUUID()}`, acceptedAt: new Date() }))
     await database().$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() WHERE "id" = $1`, loanId)
-    expect(await process_()).toEqual({ closures: 1, failed: 0 })
-    expect(await process_()).toEqual({ closures: 0, failed: 0 })
+    expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    expect(await process_()).toEqual({ closures: 0, failed: 0, held: 0 })
     expect(dispatch).toHaveBeenCalledTimes(1)
     const [closure] = await closuresOf(loanId)
     expect(closure).toMatchObject({ messageOutcome: "SENT" })
@@ -188,13 +200,13 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     await database().$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() WHERE "id" = $1`, loanId)
     const run = (send: Parameters<typeof processTrackerClosures>[1]) => withoutTenantScope(() => processTrackerClosures(fx.tenantId, send))
     const message = (await database().message.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "SENT" } }))
-    expect(await run(async () => { throw new MessageDispatchConflictError() })).toEqual({ closures: 1, failed: 0 })
+    expect(await run(async () => { throw new MessageDispatchConflictError() })).toEqual({ closures: 1, failed: 0, held: 0 })
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: null, noticeLoggedAt: expect.any(Date), letterSha256: expect.any(String) })
-    expect(await run(async () => { throw new Error("synthetic transient") })).toEqual({ closures: 1, failed: 1 })
+    expect(await run(async () => { throw new Error("synthetic transient") })).toEqual({ closures: 1, failed: 1, held: 0 })
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: null })
-    expect(await run(async () => ({ ...message, status: "QUEUED" }))).toEqual({ closures: 1, failed: 0 })
+    expect(await run(async () => ({ ...message, status: "QUEUED" }))).toEqual({ closures: 1, failed: 0, held: 0 })
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: null })
-    expect(await run(async () => message)).toEqual({ closures: 1, failed: 0 })
+    expect(await run(async () => message)).toEqual({ closures: 1, failed: 0, held: 0 })
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "SENT", messageId: message.id })
   }, 600_000)
 
@@ -234,11 +246,96 @@ suite.sequential("tracker closure: once per completed loan and device, notices o
     await database().contactIdentity.create({ data: { tenantId: fx.tenantId, contactId: contact.id, channel: "EMAIL", source: "MANUAL", value: lessee.email.toLowerCase() } })
     let sends = 0
     const message = await database().message.findFirstOrThrow({ where: { tenantId: fx.tenantId, status: "SENT" } })
-    expect(await withoutTenantScope(() => processTrackerClosures(fx.tenantId, async () => { sends++; return message }))).toEqual({ closures: 1, failed: 0 })
+    expect(await withoutTenantScope(() => processTrackerClosures(fx.tenantId, async () => { sends++; return message }))).toEqual({ closures: 1, failed: 0, held: 0 })
     expect(sends).toBe(0)
     expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "No recipient with trusted contact details", letterSha256: expect.any(String) })
     expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, loanId } })).toBe(0)
     await testSetup(database(), [`UPDATE "Client" SET "deceasedAt" = NULL WHERE "id" = $1`, fx.lessee])
+  }, 600_000)
+
+  /** A lease on a new asset with a device, booked, then completed (the trigger opens its closure). */
+  const completedLease = async (deviceNo: number) => {
+    _resetRateLimitStore()
+    const assetId = await addAsset(database(), fx)
+    const loanId = await bookOperatingLease(database(), fx, setSession, assetId)
+    await installDevice(fx, assetId, `SIM-STEADY-${deviceNo}`, await loanStartDate(database(), loanId))
+    return { assetId, loanId, complete: () => database().$executeRawUnsafe(`UPDATE "Loan" SET "status" = 'COMPLETED', "closedAt" = now() WHERE "id" = $1`, loanId) }
+  }
+
+  it("the lender's email switched off: BLOCKED, nothing dispatched; the notice and the letter still happen", async () => {
+    const { loanId, complete } = await completedLease(11)
+    await complete()
+    await database().emailConfig.update({ where: { tenantId: fx.tenantId }, data: { active: false } })
+    vi.mocked(dispatch).mockClear()
+    try {
+      expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    } finally {
+      await database().emailConfig.update({ where: { tenantId: fx.tenantId }, data: { active: true } })
+    }
+    expect(dispatch).not.toHaveBeenCalled()
+    expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "The lender's email is not set up or is switched off", letterSha256: expect.any(String) })
+    expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, loanId, event: TRACKING_STOPPED_EVENT } })).toBe(1)
+  }, 600_000)
+
+  it("a borrower who opted out of email: BLOCKED by the send pipeline's consent gate, nothing dispatched", async () => {
+    const { loanId, complete } = await completedLease(12)
+    await complete()
+    const director = await database().client.findUniqueOrThrow({ where: { id: fx.director } })
+    const identity = await database().contactIdentity.findFirstOrThrow({ where: { tenantId: fx.tenantId, channel: "EMAIL", value: director.email.toLowerCase() } })
+    await database().contactConsent.create({ data: { tenantId: fx.tenantId, contactId: identity.contactId, channel: "EMAIL", purpose: "SERVICE_COMMS", status: "REVOKED", source: "MANUAL" } })
+    vi.mocked(dispatch).mockClear()
+    try {
+      expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    } finally {
+      await testSetup(database(), [`DELETE FROM "ContactConsent" WHERE "contactId" = $1`, identity.contactId])
+    }
+    expect(dispatch).not.toHaveBeenCalled()
+    const [c] = await closuresOf(loanId)
+    expect(c).toMatchObject({ messageOutcome: "BLOCKED", letterSha256: expect.any(String) })
+    expect(c.messageNote).toMatch(/REVOKED|OPTED_OUT/)
+  }, 600_000)
+
+  it("never writes to contact details a dealer typed that staff have not verified", async () => {
+    const { loanId, complete } = await completedLease(13)
+    await complete()
+    // The director as captured by a dealer and never verified (test setup, triggers off).
+    await testSetup(database(), [`UPDATE "Client" SET "createdByDealerId" = 'dealer_unverified', "dealerContactVerifiedAt" = NULL WHERE "id" = $1`, fx.director])
+    vi.mocked(dispatch).mockClear()
+    try {
+      expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    } finally {
+      await testSetup(database(), [`UPDATE "Client" SET "createdByDealerId" = NULL WHERE "id" = $1`, fx.director])
+    }
+    expect(dispatch).not.toHaveBeenCalled()
+    expect((await closuresOf(loanId))[0]).toMatchObject({ messageOutcome: "BLOCKED", messageNote: "No recipient with trusted contact details" })
+    expect(await database().notificationLog.count({ where: { tenantId: fx.tenantId, loanId } })).toBe(0)
+  }, 600_000)
+
+  it("a loan reopened after it completed is told nothing until it completes again", async () => {
+    const { loanId, complete } = await completedLease(14)
+    await complete()
+    await testSetup(database(), [`UPDATE "Loan" SET "status" = 'ACTIVE' WHERE "id" = $1`, loanId])
+    expect(await process_()).toEqual({ closures: 0, failed: 0, held: 0 })
+    expect((await closuresOf(loanId))[0]).toMatchObject({ noticeLoggedAt: null, messageOutcome: null, letterSha256: null })
+    await complete()
+    expect(await process_()).toEqual({ closures: 1, failed: 0, held: 0 })
+    expect((await closuresOf(loanId))[0].noticeLoggedAt).not.toBeNull()
+  }, 600_000)
+
+  it("no closure when the asset already runs under a later agreement (its tracker is that loan's now)", async () => {
+    const { loanId, complete } = await completedLease(15)
+    // A later running loan on the same asset (a copy, test setup).
+    await testSetup(database(),
+      [`INSERT INTO "LoanApplication" SELECT (jsonb_populate_record(NULL::"LoanApplication", to_jsonb(a) || jsonb_build_object('id', $2::text, 'reference', $2::text))).*
+        FROM "LoanApplication" a WHERE a."id" = (SELECT "applicationId" FROM "Loan" WHERE "id" = $1)`, loanId, `nextapp_${t}`],
+      [`INSERT INTO "Loan" SELECT (jsonb_populate_record(NULL::"Loan", to_jsonb(l) || jsonb_build_object('id', $2::text, 'reference', $2::text, 'applicationId', $3::text,
+          'status', 'ACTIVE', 'startDate', now()))).* FROM "Loan" l WHERE l."id" = $1`, loanId, `next_${t}`, `nextapp_${t}`])
+    try {
+      await complete()
+      expect(await closuresOf(loanId)).toHaveLength(0)
+    } finally {
+      await testSetup(database(), [`DELETE FROM "Loan" WHERE "id" = $1`, `next_${t}`], [`DELETE FROM "LoanApplication" WHERE "id" = $1`, `nextapp_${t}`])
+    }
   }, 600_000)
 
   it("removing the device closes the task; the database records each step once and never deletes a closure", async () => {
