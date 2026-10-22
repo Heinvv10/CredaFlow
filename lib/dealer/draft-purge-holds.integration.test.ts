@@ -14,7 +14,7 @@ import { PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { expectRejected, sql } from "@/lib/asset-finance/af-sql.integration-fixture"
 import { cleanupDealerFixtureIfCreated, createDealerFixture, insertDealerUser, lit, newId, type DealerFixture } from "./dealer.integration-fixture"
-import { actorOf, assetBody, createdId, dealBody, dealerDraft, inTenant, personBody } from "./dealer-origination.integration-fixture"
+import { actorOf, assetBody, companyBody, createdId, dealBody, dealerDraft, inTenant, personBody } from "./dealer-origination.integration-fixture"
 import { captureForDealer, dealerDeal, dealerDealInsert } from "./dealer-booking.integration-fixture"
 import { listDealerEntities, listDealerPeople } from "./captures"
 import { submitDealerDeal } from "./submit"
@@ -22,7 +22,7 @@ import { attestDealerConsent } from "./consent"
 import { uploadDealerDocument } from "./documents"
 import { pdfUpload } from "./dealer-origination.integration-fixture"
 import { storedDocument } from "./draft-purge.integration-fixture"
-import { captureDealerAsset, captureDealerPerson } from "./capture"
+import { captureDealerAsset, captureDealerEntity, captureDealerPerson } from "./capture"
 import { createDealerDeal } from "./deals"
 import { purgeDealerDeal } from "./draft-purge"
 import { age } from "./draft-purge.integration-fixture"
@@ -175,5 +175,28 @@ suite.sequential("dealer draft purge holds (real DB)", () => {
         'dealer-consent-v2', 'TEST', 'IN_PERSON')`, message)
     // The sibling itself is purged in its turn.
     expect(await purge(second)).toMatchObject({ documentsErased: 1 })
+  }, 30_000)
+
+  it("refuses handing over a draft on another business whose director a purge erased", async () => {
+    const actor = salesActor()
+    const first = await dealerDraft(fx, actor)
+    const second = await inTenant(fx, async () => {
+      const entityId = createdId(await captureDealerEntity(actor, companyBody()))
+      const assetId = createdId(await captureDealerAsset(actor, assetBody()))
+      const deal = await createDealerDeal(actor, dealBody(fx, { entityId }, assetId))
+      if (deal.kind !== "created") throw new Error(JSON.stringify(deal))
+      return { entityId, dealId: deal.dealId }
+    })
+    // The first draft's director also directs the second business (as history).
+    sql(`BEGIN; SET LOCAL session_replication_role = replica;
+      INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "updatedAt")
+      VALUES (${lit(newId("rel"))}, ${lit(fx.tenantId)}, ${lit(second.entityId)}, ${lit(first.directorId)}, 'DIRECTOR', CURRENT_TIMESTAMP); COMMIT;`)
+    age(first.dealId, 91)
+    age(second.dealId, 91)
+    expect(await purge(first.dealId)).toMatchObject({ clientsErased: 1 })
+    expect(await inTenant(fx, () => submitDealerDeal(actor, second.dealId)))
+      .toEqual({ kind: "refused", status: 409, error: "This draft was closed and its details erased: start a new deal" })
+    expectRejected(`UPDATE "AssetFinanceDeal" SET "dealerSubmittedAt" = CURRENT_TIMESTAMP WHERE "id" = ${lit(second.dealId)}`,
+      "An erased person or business is not used again")
   }, 30_000)
 })

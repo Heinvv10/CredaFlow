@@ -85,7 +85,7 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
     const deal = await tx.assetFinanceDeal.findFirstOrThrow({
       where: { id: dealId, tenantId }, select: { clientId: true, entityId: true, dealerId: true },
     })
-    // Lock order, as every deal path takes them: deals first (the sibling drafts that could stop
+    // Lock order: deals first (the sibling drafts that could stop
     // keeping these parties; never a booked or handed-over deal), then the business, then its people.
     // A link or a sibling's activity another transaction adds meanwhile waits, or is seen below.
     const readPeople = async () => [...new Set(deal.clientId ? [deal.clientId] : deal.entityId ? (await tx.entityRelationship.findMany({
@@ -96,6 +96,12 @@ async function purgeInTransaction(tenantId: string, dealId: string): Promise<Pla
       AND ("entityId" = ${deal.entityId} OR "clientId" IN (${Prisma.join(firstRead.length > 0 ? firstRead : [""])})) FOR UPDATE`)
     if (deal.entityId) await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "BusinessEntity" WHERE "tenantId" = ${tenantId} AND "id" = ${deal.entityId} FOR UPDATE`)
     const personIds = await readPeople()
+    // A person linked between the two reads: lock their drafts too (still before any party row).
+    const added = personIds.filter((id) => !firstRead.includes(id))
+    if (added.length > 0) {
+      await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "AssetFinanceDeal" WHERE "tenantId" = ${tenantId} AND "loanId" IS NULL AND "dealerSubmittedAt" IS NULL
+        AND "clientId" IN (${Prisma.join(added)}) FOR UPDATE`)
+    }
     if (personIds.length > 0) await tx.$queryRaw(Prisma.sql`SELECT 1 FROM "Client" WHERE "tenantId" = ${tenantId} AND "id" IN (${Prisma.join(personIds)}) FOR UPDATE`)
     const allPeople = await tx.client.findMany({ where: { tenantId, id: { in: personIds } }, select: { id: true, createdByDealerId: true, dealerPurgedAt: true } })
     const people = allPeople.filter((p) => p.dealerPurgedAt === null)

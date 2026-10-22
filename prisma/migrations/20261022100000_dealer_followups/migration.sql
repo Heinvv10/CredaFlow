@@ -554,7 +554,11 @@ BEGIN
   IF (client_id IS NOT NULL AND EXISTS (
         SELECT 1 FROM "Client" c WHERE c."id" = client_id AND c."tenantId" = NEW."tenantId" AND c."dealerPurgedAt" IS NOT NULL))
     OR (entity_id IS NOT NULL AND EXISTS (
-        SELECT 1 FROM "BusinessEntity" e WHERE e."id" = entity_id AND e."tenantId" = NEW."tenantId" AND e."dealerPurgedAt" IS NOT NULL)) THEN
+        SELECT 1 FROM "BusinessEntity" e WHERE e."id" = entity_id AND e."tenantId" = NEW."tenantId" AND e."dealerPurgedAt" IS NOT NULL))
+    -- A deal is not handed over with an erased person still active on its business.
+    OR (TG_TABLE_NAME = 'AssetFinanceDeal' AND entity_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM "EntityRelationship" r JOIN "Client" c ON c."id" = r."clientId" AND c."tenantId" = r."tenantId"
+        WHERE r."tenantId" = NEW."tenantId" AND r."entityId" = entity_id AND r."active" AND c."dealerPurgedAt" IS NOT NULL)) THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An erased person or business is not used again';
   END IF;
   RETURN NEW;

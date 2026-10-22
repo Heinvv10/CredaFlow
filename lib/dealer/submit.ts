@@ -37,6 +37,10 @@ export async function submitDealerDeal(actor: DealerActor, dealId: string): Prom
     if (deal.status !== "DRAFT" || deal.dealerSubmittedAt) return dealerRefused(409, "Only an unsubmitted draft is submitted")
     const subjects = await dealSubjects(tx, actor.tenantId, actor.dealerId, deal)
     if (subjects.length === 0) return dealerRefused(422, "Add the people of the business before submitting")
+    // A person a purge of a sibling draft erased (guardDealerPurgedPartyUse refuses the hand-over too).
+    if (await tx.client.count({ where: { tenantId: actor.tenantId, id: { in: subjects }, dealerPurgedAt: { not: null } } }) > 0) {
+      return dealerRefused(409, "This draft was closed and its details erased: start a new deal")
+    }
     const attested = await tx.dealerConsentAttestation.findMany({ where: { tenantId: actor.tenantId, dealId: deal.id }, select: { clientId: true } })
     const missing = subjects.filter((s) => !attested.some((a) => a.clientId === s))
     if (missing.length > 0) return dealerRefused(422, `Consent is missing for ${missing.length} ${missing.length === 1 ? "person" : "people"}`)

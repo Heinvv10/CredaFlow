@@ -35,10 +35,10 @@
   `submitDeal` as staff. Consent is evidence, only for people the dealer captured, v2 with
   how it was signed (REMOTE needs the identity check; v1 rows frozen). Dealer uploads never
   satisfy staff gates; after the hand-over they only answer a request.
-- Cancel (`cancel.ts`): own DRAFT before hand-over, ADMIN or its creator (DB
-  `guardAssetDealDealerCancel`). Purge (`draft-purge.ts`): the DB names the deal
-  (`dealerDealPurgeReason`: never-sent drafts after 90 days, never a loan or a handed-over
-  deal) and erases a party itself on `dealerPurgedAt`; anything linked elsewhere is kept.
+- Cancel (`cancel.ts`): own unsent DRAFT, ADMIN or creator (`guardAssetDealDealerCancel`). Purge
+  (`draft-purge.ts`): the DB names the deal (`dealerDealPurgeReason`: unsent drafts after 90 days)
+  and erases a party on `dealerPurgedAt` unless linked elsewhere; an erased row is frozen and never
+  named again (DB), so a staff edit of one answers 409 (`draft-purge-messages.ts`).
 - Dealer-typed contact details are untrusted until staff verify them
   (`contact-verification.ts`): no portal activation or password, no signing code, no
   booking (DB: `Client_dealer_contact_guard`, `AssetFinanceDeal_dealer_contacts_verified`).

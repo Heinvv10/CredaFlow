@@ -113,11 +113,13 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
   cancel would add a reason no purge reaches).
 - **`guardDealerPurgedPartyUse`**: no deal, application, relationship,
   document or consent attestation names an erased person or business again,
-  and a deal naming one is not handed to the lender (a sibling draft the same
+  and a deal naming one, or whose business still has an erased person
+  active, is not handed to the lender (a sibling draft the same
   purge left for later); ending a relationship to one is allowed. The dealer's
   lookups and actions refuse first (404, 409); the staff people route names
   the purge.
-- **`freezeDealerPurgedParty`**: an erased row is never changed again.
+- **`freezeDealerPurgedParty`**: an erased row is never changed again; the
+  staff entity and client edits answer 409 naming the purge.
 - **`DealerPurgePendingFile`**: each erased document's file path, written in
   the purge's transaction and deleted only with the file, so a crash between
   the commit and the delete is drained by the next run.
@@ -204,6 +206,10 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
   whether an NCR investigation or a Tribunal matter should too, and whether a
   structure preview a dealer gave the customer counts as a pre-agreement
   quote (which would bring the draft under Regulation 55).
+- **Deadlocks.** Two overlapping purges of sibling drafts, or a purge and a
+  path that locks a client before its business (`section129-artifact.ts`), can
+  deadlock; Postgres aborts one, the run counts it failed and the next run
+  retries.
 - **Batch.** At most 500 deals per lender a run (oldest first); the rest wait
   for the next night.
 - **Performance.** The link check walks every foreign key to `Client` (about

@@ -134,3 +134,16 @@ Fresh database `cf-it-s5fd-a9`; all dealer suites green after the fixes
 | M40 | `consent.ts`: only C0 control characters refused | `dealer-consent-v2` | 1 failed, 6 passed | counts characters as the database does … (U+2028, U+2029, U+0085) |
 | M41 | signing-method CHECK without U+0085, U+2028, U+2029 | `dealer-consent-v2` | 1 failed, 6 passed | refuses by SQL a row without a method, … |
 | M42 | `cancel.ts`: the purged check before the colleague check | `draft-purge-closed` | 1 failed, 3 passed | refuses the dealer's submit, attestation and upload (a colleague gets 404) |
+
+### Review round 4 fixes
+
+Fresh database `cf-it-s5fd-b1`; all dealer suites green (`Test Files 53 passed | 1
+skipped`, `Tests 461 passed | 1 skipped`).
+
+| # | Mutation | Suite | Result | Red test |
+|---|---|---|---|---|
+| M43 | `submit.ts`: an erased person on the business not refused first | `draft-purge-holds` | 1 failed, 6 passed | refuses handing over a draft on another business whose director a purge erased |
+| M44 | `guardDealerPurgedPartyUse`: hand-over allowed with an erased person active on the business | `draft-purge-holds` | 1 failed, 6 passed | same (by SQL) |
+
+Staff edits of an erased row answer 409 naming the purge: pinned by
+`app/api/asset-finance/entities/[id]/route.test.ts` and `app/api/clients/[id]/route.test.ts`.
