@@ -97,8 +97,8 @@ suite.sequential("telematics position purge (real DB)", () => {
     const collector = (await database().user.create({ data: { tenantId: fx.tenantId, email: `collector-${t}@staff.invalid`, password: "x", role: "COLLECTIONS_OFFICER" } })).id
     expect(await revealPosition({ tenantId: fx.tenantId, userId: collector, userEmail: "c@x.invalid", role: "COLLECTIONS_OFFICER" }, ids.loan, { context: "DEFAULT" }, { ipAddress: null, userAgent: null }))
       .toMatchObject({ kind: "ok" })
-    // The lease's one (latest) position, moved 31 days back with its event.
-    const own = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device } })
+    // The lease's latest position, moved 31 days back with its event.
+    const own = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.device }, orderBy: { occurredAt: "desc" } })
     await testSetup(database(), [`UPDATE "TelematicsPosition" SET "occurredAt" = $2 WHERE "id" = $1`, own.id, before(31)],
       [`UPDATE "TelematicsEvent" SET "occurredAt" = $2 WHERE "id" = $1`, own.eventId, before(31)])
   }, 600_000)
@@ -117,7 +117,11 @@ suite.sequential("telematics position purge (real DB)", () => {
 
   it("deletes each tenant's positions past its own days, keeps the younger ones, the business events and the access log", async () => {
     const positions = (deviceId: string) => database().telematicsPosition.count({ where: { deviceId } })
-    expect([await positions(ids.device), await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([1, 1, 1])
+    // The trail (SLICE5-FOLLOWUPS.md part T): the lease's device keeps a fix a day, inside 30 days and past it.
+    const olderThan30 = () => database().telematicsPosition.count({ where: { deviceId: ids.device, occurredAt: { lt: before(30) } } })
+    expect(await olderThan30()).toBeGreaterThan(0)
+    expect(await positions(ids.device)).toBeGreaterThan(await olderThan30())
+    expect([await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([1, 1])
     const metersBefore = await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: "METER" } })
     await retention(fx.tenantId, 30)
     await retention(other.tenantId, 90)
@@ -125,7 +129,10 @@ suite.sequential("telematics position purge (real DB)", () => {
     const run = await purgeTelematicsPositions()
     expect(run).toMatchObject({ ok: true, failed: 0 })
     // 31 days past 30, 91 past 90: gone; 89 inside 90: kept.
-    expect([await positions(ids.device), await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([0, 0, 1])
+    // Per position: every fix older than its tenant's days goes, the younger ones stay.
+    expect(await olderThan30()).toBe(0)
+    expect(await positions(ids.device)).toBeGreaterThan(0)
+    expect([await positions(other.oldDevice), await positions(other.youngDevice)]).toEqual([0, 1])
     expect(await database().telematicsEvent.count({ where: { id: `ev1_${t}` } })).toBe(0)
     expect(await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: { in: ["HEARTBEAT", "POSITION"] }, occurredAt: { lt: before(30) } } })).toBe(0)
     expect(await database().telematicsEvent.count({ where: { deviceId: ids.device, kind: "METER" } })).toBe(metersBefore)

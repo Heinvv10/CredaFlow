@@ -4,6 +4,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { ScrollTable } from "@/components/asset-finance/ScrollTable"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { ReadingForm } from "./ReadingForm"
+import { ReadingVoidControls } from "./ReadingVoidControls"
 import type { LeaseStaffData } from "./lease-staff-data"
 
 // Meter readings of a lease with contracted usage, and what the usage so far
@@ -44,14 +45,18 @@ export function LeaseReadingsPanel({ data, usage, canRecord }: {
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Reading ({unitLabel})</TableHead>
                 <TableHead>Recorded by</TableHead>
+                {canRecord && <TableHead>Void</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.readings.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>{formatIsoDate(r.readingDate)}</TableCell>
-                  <TableCell className="text-right">{r.value.toLocaleString("en-ZA")}</TableCell>
-                  <TableCell>{r.simulated ? "Telematics, simulated" : SOURCES[r.source] ?? r.source}</TableCell>
+                <TableRow key={r.id} className={r.voidedOn ? "text-[var(--cf-text-muted)]" : undefined}>
+                  <TableCell className={r.voidedOn ? "line-through" : undefined}>{formatIsoDate(r.readingDate)}</TableCell>
+                  <TableCell className={`text-right ${r.voidedOn ? "line-through" : ""}`}>{r.value.toLocaleString("en-ZA")}</TableCell>
+                  <TableCell>{r.simulated ? "Telematics, simulated" : SOURCES[r.source] ?? r.source}{r.voidedOn ? ` · Voided ${formatIsoDate(r.voidedOn)}` : ""}</TableCell>
+                  {canRecord && (
+                    <TableCell>{r.voidedOn ? null : <ReadingVoidControls loanId={data.loanId} readingId={r.id} pending={r.pendingVoid ?? null} />}</TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

@@ -10,6 +10,7 @@ import { hintText, REGIME_LABELS } from "./legal-matter-form"
 import { OpenLegalMatterButton } from "./OpenLegalMatterButton"
 import { RecordStepForm } from "./RecordStepForm"
 import { LastKnownPosition } from "../telematics/LastKnownPosition"
+import { PositionTrail } from "../telematics/PositionTrail"
 import { positionRefusalFor } from "@/lib/telematics/position-purpose"
 
 /**
@@ -77,6 +78,7 @@ export async function LegalMatterPanel({ tenantId, loanId, canManage, canViewPos
           <section>
             <h3 className={subheading}>Asset</h3>
             <LastKnownPosition loanId={loanId} context="LEGAL_MATTER" refusal={await positionRefusalFor(tenantId, loanId, "LEGAL_MATTER")} />
+            <PositionTrail loanId={loanId} context="LEGAL_MATTER" refusal={await positionRefusalFor(tenantId, loanId, "LEGAL_MATTER")} />
           </section>
         )}
 

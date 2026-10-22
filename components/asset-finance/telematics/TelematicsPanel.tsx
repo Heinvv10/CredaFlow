@@ -5,7 +5,11 @@ import { formatDateTime } from "@/lib/utils"
 import { trackerHeartbeat } from "@/lib/telematics/devices"
 import { listAlerts } from "@/lib/telematics/alerts"
 import { listHeldReadings } from "@/lib/telematics/held-readings"
+import { sastCalendarDate } from "@/lib/date/sast"
+import { theftReportsOf } from "@/lib/telematics/theft-reports"
 import { SimulatedChip } from "./SimulatedChip"
+import { TheftReportsSection } from "./TheftReportsSection"
+import { TrackerClosureSection } from "./TrackerClosureSection"
 import { AlertsTable, HeldReadingsTable } from "./TelematicsTables"
 
 const subheading = "mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--cf-text-muted)]"
@@ -13,19 +17,32 @@ const subheading = "mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.08em] 
 /**
  * The staff loan page's tracker panel (SLICE5.md part B): the asset's device
  * and heartbeat, the loan's open alerts (work_telematics_alerts) and its held
- * readings (manage_asset_finance). Never a position: that is the logged
- * "Show last known position" in the Recovery and Legal matter panels. The
- * TELEMATICS readings themselves are in the lease's readings table.
+ * readings (manage_asset_finance); a theft reported to SAPS and, while it is
+ * valid, the logged THEFT position and trail (view_asset_position); and when
+ * the loan closed with a tracker, the removal task and the borrower's notices
+ * (SLICE5-FOLLOWUPS.md part T). A position only ever comes from a logged
+ * button press. The TELEMATICS readings are in the lease's readings table.
  */
-export async function TelematicsPanel({ tenantId, loanId, canManage, canWork }: { tenantId: string; loanId: string; canManage: boolean; canWork: boolean }) {
-  const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId }, select: { assetId: true } })
+export async function TelematicsPanel({ tenantId, loanId, canManage, canWork, canViewPosition = false }: {
+  tenantId: string; loanId: string; canManage: boolean; canWork: boolean; canViewPosition?: boolean
+}) {
+  const loan = await prisma.loan.findFirst({ where: { id: loanId, tenantId }, select: { assetId: true, status: true } })
   if (!loan?.assetId) return null
-  const [heartbeat, alerts, held] = await Promise.all([
+  const running = ["ACTIVE", "DEFAULTED", "PENDING_WRITE_OFF"].includes(loan.status)
+  const [heartbeat, alerts, held, reports, closures] = await Promise.all([
     trackerHeartbeat(tenantId, loan.assetId),
     canWork ? listAlerts(tenantId, { loanId }) : Promise.resolve([]),
     canManage ? listHeldReadings(tenantId, { loanId }) : Promise.resolve([]),
+    canViewPosition ? theftReportsOf(tenantId, loanId) : Promise.resolve([]),
+    canWork
+      ? prisma.trackerClosure.findMany({
+          where: { tenantId, loanId }, orderBy: { createdAt: "asc" },
+          select: { id: true, closedAt: true, noticeLoggedAt: true, messageOutcome: true, messageNote: true, letterGeneratedAt: true, removedAt: true, device: { select: { externalDeviceId: true } } },
+        })
+      : Promise.resolve([]),
   ])
-  if (!heartbeat && alerts.length === 0 && held.length === 0) return null
+  const theftShown = canViewPosition && (reports.length > 0 || (running && heartbeat !== null))
+  if (!heartbeat && alerts.length === 0 && held.length === 0 && !theftShown && closures.length === 0) return null
 
   return (
     <DataPanel title="Tracker" description="Device heartbeat, alerts and held meter readings. Nothing here is sent to the borrower." density="loose">
@@ -46,6 +63,13 @@ export async function TelematicsPanel({ tenantId, loanId, canManage, canWork }: 
           <h3 className={subheading}>Open alerts</h3>
           <AlertsTable alerts={alerts} canWork showLoan={false} />
         </>
+      )}
+      {theftShown && (
+        <TheftReportsSection tenantId={tenantId} loanId={loanId} reports={reports} running={running} today={sastCalendarDate(new Date())} />
+      )}
+      {closures.length > 0 && (
+        <TrackerClosureSection loanId={loanId} assetId={loan.assetId}
+          closures={closures.map(({ device, ...c }) => ({ ...c, externalDeviceId: device.externalDeviceId }))} />
       )}
       {canManage && held.length > 0 && (
         <>

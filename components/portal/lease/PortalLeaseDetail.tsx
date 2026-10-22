@@ -94,6 +94,18 @@ export function PortalLeaseDetail({ view, back, documents, extra }: {
           <LeaseMeterReadingForm loanId={loan.id} today={today} unit={view.meter.unit} latest={view.meter.latest} />
         </DataPanel>
       )}
+      {view.meter && view.meter.voided.length > 0 && (
+        <DataPanel title="Voided meter readings" description="Readings we found to be wrong: they do not count towards your usage">
+          <ul className="space-y-1 text-sm">
+            {view.meter.voided.map((r) => (
+              <li key={`${r.readingDate}-${r.value}`} className="flex justify-between gap-3">
+                <span className="text-[var(--cf-text-muted)] line-through">{r.readingDate} · {r.value.toLocaleString("en-ZA")} {view.meter?.unit === "HOURS" ? "hours" : "km"}</span>
+                <span className="text-[var(--cf-text-secondary)]">Voided {r.voidedOn}</span>
+              </li>
+            ))}
+          </ul>
+        </DataPanel>
+      )}
       {(termination.canRequest || termination.state !== "NONE") && (
         <DataPanel title="End the lease early" description={view.termination.cpaApplies ? "Cancel on 20 business days notice; the charge is assessed separately" : "Ask for a quote and, if it suits you, accept it"}>
           <LeaseTerminationPanel cpa={view.termination.cpaApplies} loanId={loan.id} quote={view.termination.latestQuote} actions={termination} />

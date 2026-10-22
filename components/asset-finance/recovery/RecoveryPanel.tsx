@@ -17,6 +17,7 @@ import { FiguresSummary } from "./FiguresSummary"
 import { RefundSection } from "./RefundSection"
 import { SalesSection } from "./SalesSection"
 import { LastKnownPosition } from "../telematics/LastKnownPosition"
+import { PositionTrail } from "../telematics/PositionTrail"
 import { positionRefusalFor } from "@/lib/telematics/position-purpose"
 
 /**
@@ -89,6 +90,7 @@ export async function RecoveryPanel({ tenantId, loanId, userId, canManage, canDe
       <div className="space-y-6">
         <RecoveryStepper route={view.route} status={view.status} />
         {canViewPosition && live && <LastKnownPosition loanId={loanId} context="RECOVERY" refusal={await positionRefusalFor(tenantId, loanId, "RECOVERY")} />}
+        {canViewPosition && live && <PositionTrail loanId={loanId} context="RECOVERY" refusal={await positionRefusalFor(tenantId, loanId, "RECOVERY")} />}
         {view.status === "WITHDRAWN" && (
           <p className="rounded-md border border-[var(--cf-border-subtle)] bg-[var(--cf-surface-soft)] p-3 text-sm text-[var(--cf-text)]">
             <span className="text-[var(--cf-text-muted)]">Withdrawn: </span>{view.withdrawnReason}

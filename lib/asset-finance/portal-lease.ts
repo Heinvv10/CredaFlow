@@ -92,7 +92,11 @@ export interface PortalLeaseView {
   fund: { balanceCents: number; riskModel: MaintenanceRiskModel; claims: PortalLeaseClaim[] } | null
   /** Leases with contracted usage only. */
   /** The latest reading and who took it: the lessee sees a tracker's reading as the tracker's. */
-  meter: { unit: UsageUnit; latest: { readingDate: string; value: number; source: MeterReadingSource } | null } | null
+  meter: {
+    unit: UsageUnit
+    latest: { readingDate: string; value: number; source: MeterReadingSource } | null
+    voided: { readingDate: string; value: number; voidedOn: string }[]
+  } | null
   termination: { cpaApplies?: boolean; penaltyConfigured: boolean; latestQuote: PortalLeaseQuote | null }
   endOfTerm: {
     chosen: { outcome: LeaseEndOutcome; status: LeaseEndStatus; early: boolean; inspected: boolean } | null
@@ -145,11 +149,15 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
   })
   if (!loan) return null
   const unit = loan.assetFinanceDeal?.usageUnit ?? null
-  const [latestReading, quote, charges] = await Promise.all([
+  const [latestReading, voidedReadings, quote, charges] = await Promise.all([
     // This lease's readings only, as the staff panel reads them: an asset leased before has older readings of its own.
     unit
-      ? prisma.assetMeterReading.findFirst({ where: { tenantId, loanId, unit }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { readingDate: true, value: true, source: true } })
+      ? prisma.assetMeterReading.findFirst({ where: { tenantId, loanId, unit, voidedAt: null }, orderBy: [{ readingDate: "desc" }, { value: "desc" }], select: { readingDate: true, value: true, source: true } })
       : null,
+    // Readings the lessor voided (four-eyes, lib/asset-finance/meter-void.ts): shown as voided, never as the meter.
+    unit
+      ? prisma.assetMeterReading.findMany({ where: { tenantId, loanId, unit, voidedAt: { not: null } }, orderBy: { readingDate: "desc" }, take: 20, select: { readingDate: true, value: true, voidedAt: true } })
+      : [],
     prisma.leaseTerminationQuote.findFirst({ where: { tenantId, loanId }, orderBy: { createdAt: "desc" } }),
     portalLoanCharges(tenantId, loanId, asOf),
   ])
@@ -202,7 +210,10 @@ export async function loadPortalLease(tenantId: string, clientId: string, loanId
         id: c.id, submittedOn: c.submittedAt.toISOString(), provider: c.supplier.name, description: c.description, amountExclVatCents: c.amountExclVatCents, status: c.status,
       })),
     },
-    meter: unit ? { unit, latest: latestReading ? { readingDate: isoOfDbDate(latestReading.readingDate), value: latestReading.value, source: latestReading.source } : null } : null,
+    meter: unit ? {
+      unit, latest: latestReading ? { readingDate: isoOfDbDate(latestReading.readingDate), value: latestReading.value, source: latestReading.source } : null,
+      voided: voidedReadings.map((r) => ({ readingDate: isoOfDbDate(r.readingDate), value: r.value, voidedOn: sastCalendarDate(r.voidedAt ?? new Date()) })),
+    } : null,
     termination: {
       cpaApplies: loan.cpaApplies === true,
       penaltyConfigured: Boolean(loan.assetFinanceDeal?.earlyTerminationPenaltyRate),

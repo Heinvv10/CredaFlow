@@ -64,7 +64,7 @@ export async function routeMeterReading(
   if (!unit || unit !== meter.unit) return "NO_USAGE_TERMS"
   if (await leaseEnded(tx, tenantId, loan.id, readingDate)) return "LEASE_NOT_RUNNING"
   const [written, held] = await Promise.all([
-    tx.assetMeterReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate), source: "TELEMATICS" } }),
+    tx.assetMeterReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate), source: "TELEMATICS", voidedAt: null } }),
     tx.telematicsHeldReading.count({ where: { tenantId, loanId: loan.id, readingDate: dbDate(readingDate), status: { in: ["HELD", "ACCEPTED"] } } }),
   ])
   if (written + held > 0) return "SAME_DAY"

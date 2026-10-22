@@ -85,8 +85,12 @@ suite.sequential("telematics policy breaker, round 2 (real DB)", () => {
     const alert = await prisma.$transaction((tx) => ingestEvent(tx, device, { ...alertEvent("SIM-STEADY-1", at, "TAMPER"), providerEventId: `r2-tamper-${t}` }, ctx))
     expect(alert).toEqual({ stored: false, noAgreement: true })
     expect(await database().telematicsAlert.count({ where: { loanId: ids.loan } })).toBe(0)
-    // The view's tenure ends at the return too: nothing the device reported after it is shown.
-    expect(await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "DEFAULT" }, meta)).toEqual({ kind: "ok", none: true })
+    // The view's tenure ends at the return too: nothing the device reported after it is shown (the trail keeps
+    // what came before the return, and the latest shown is from before it).
+    const shown = await revealPosition(as(ids.collector, "COLLECTIONS_OFFICER"), ids.loan, { context: "DEFAULT" }, meta)
+    expect(shown).toMatchObject({ kind: "ok" })
+    const returnedOn = Date.now() - 5 * 86_400_000
+    if ("position" in shown) expect(Date.parse(shown.position.occurredAt)).toBeLessThan(returnedOn)
     // And the device is no longer polled.
     expect((await pollTenant(fx.tenantId, new Date())).devices).toBe(0)
   }, 120_000)

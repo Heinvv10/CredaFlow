@@ -159,16 +159,17 @@ suite.sequential("telematics edge cases: days, clocks, paging, retention (real D
     expect(await ingest(l.deviceId, positionEvent(l.externalDeviceId, new Date(base + 90_000)), opts)).toMatchObject({ stored: true, positionStored: true })
   }, 300_000)
 
-  it("only the latest position is kept: a newer one replaces it, an older or equal one is not stored", async () => {
+  it("every position is kept (the trail), whatever order it arrives in; the latest is the newest", async () => {
     const l = await leaseWithDevice()
     const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
     const first = await ingest(l.deviceId, positionEvent(l.externalDeviceId, at(30)))
     expect(first).toMatchObject({ positionStored: true })
-    expect(await ingest(l.deviceId, positionEvent(l.externalDeviceId, at(40)))).toMatchObject({ stored: true, positionStored: false })
+    const older = await ingest(l.deviceId, positionEvent(l.externalDeviceId, at(40)))
+    expect(older).toMatchObject({ stored: true, positionStored: true })
     const newer = await ingest(l.deviceId, positionEvent(l.externalDeviceId, at(20)))
     expect(newer).toMatchObject({ positionStored: true })
-    const rows = await database().telematicsPosition.findMany({ where: { deviceId: l.deviceId } })
-    expect(rows.map((r) => r.eventId)).toEqual([(newer as { eventId: string }).eventId])
+    const rows = await database().telematicsPosition.findMany({ where: { deviceId: l.deviceId }, orderBy: { occurredAt: "asc" } })
+    expect(rows.map((r) => r.eventId)).toEqual([older, first, newer].map((o) => (o as { eventId: string }).eventId))
   }, 300_000)
 
   it("purge: the device's position a minute past N days goes (with its position event); one an hour inside stays", async () => {

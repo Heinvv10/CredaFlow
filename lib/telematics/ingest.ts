@@ -43,15 +43,11 @@ const DAY_MS = 86_400_000
 /** A position this close to the retention edge is not stored: the database's clock may already be past it. */
 const EDGE_MS = 60_000
 
-/** Keeps the position if it is the device's newest: the older one is deleted, a newer one wins. */
+/** Appends the position: every one inside a tenure and retention is kept (the trail); the purge removes them by age. */
 async function storePosition(tx: SigningTx, device: IngestDevice, eventId: string, event: NormalisedTelematicsEvent & { position: NonNullable<NormalisedTelematicsEvent["position"]> }) {
-  const { tenantId } = device
-  const current = await tx.telematicsPosition.findFirst({ where: { tenantId, deviceId: device.id }, select: { id: true, occurredAt: true } })
-  if (current && current.occurredAt >= event.occurredAt) return false
-  if (current) await tx.telematicsPosition.delete({ where: { id: current.id, tenantId } })
   await tx.telematicsPosition.create({
     data: {
-      tenantId, eventId, deviceId: device.id, occurredAt: event.occurredAt,
+      tenantId: device.tenantId, eventId, deviceId: device.id, occurredAt: event.occurredAt,
       latitude: event.position.latitude, longitude: event.position.longitude, accuracyM: event.position.accuracyM,
     },
   })

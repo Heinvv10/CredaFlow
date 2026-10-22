@@ -48,9 +48,8 @@ const event = (tx: Tx, kind: TelematicsEventKind, over: Record<string, unknown> 
   ...(kind === "METER" ? { meterValue: 2_000, meterUnit: "HOURS" as const } : {}), ...over,
 } })
 const held = (id: string) => database().telematicsHeldReading.findUniqueOrThrow({ where: { id } })
-/** A position for `eventId` on device A, its current (latest) one deleted first: one position per device. */
+/** A position for `eventId` on device A (the trail keeps every one). */
 const position = async (tx: Tx, eventId: string, occurredAt: Date, latitude = -35.01) => {
-  await tx.telematicsPosition.deleteMany({ where: { deviceId: ids.deviceA } })
   return tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId, deviceId: ids.deviceA, occurredAt, latitude, longitude: 20.01 } })
 }
 const replica = (tx: Tx) => tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica")
@@ -92,9 +91,10 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
       (tx) => event(tx, "HEARTBEAT", { providerEventId: "" }))
   }, 120_000)
 
-  it("binds a position to its position or alert event, within range, one per device, while an agreement covers it, and never changes it", async () => {
-    const current = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.deviceA } })
-    expect(await database().telematicsPosition.count({ where: { deviceId: ids.deviceA } })).toBe(1)
+  it("binds a position to its position or alert event, within range, while an agreement covers it, and never changes it", async () => {
+    const current = await database().telematicsPosition.findFirstOrThrow({ where: { deviceId: ids.deviceA }, orderBy: { occurredAt: "desc" } })
+    // The trail (SLICE5-FOLLOWUPS.md part T): every stored fix of the device stays.
+    expect(await database().telematicsPosition.count({ where: { deviceId: ids.deviceA } })).toBeGreaterThan(1)
     await ruleRefuses(database(), trigger("TelematicsPosition"), /its position or alert event's, on that event's device at its time/, async (tx) => {
       const heartbeat = await event(tx, "HEARTBEAT")
       await position(tx, heartbeat.id, heartbeat.occurredAt)
@@ -103,11 +103,6 @@ suite.sequential("telematics guards: events, positions, held readings, alerts, a
     await ruleRefuses(database(), { table: "TelematicsPosition", constraint: "TelematicsPosition_range" }, /TelematicsPosition_range/, async (tx) => {
       const fresh = await event(tx, "POSITION")
       await position(tx, fresh.id, fresh.occurredAt, 91)
-    })
-    // The latest only: a second position for the device is refused while the first stands.
-    await ruleRefuses(database(), { index: "TelematicsPosition_tenantId_deviceId_key" }, /Unique constraint failed/, async (tx) => {
-      const fresh = await event(tx, "POSITION")
-      await tx.telematicsPosition.create({ data: { tenantId: fx.tenantId, eventId: fresh.id, deviceId: ids.deviceA, occurredAt: fresh.occurredAt, latitude: -35.02, longitude: 20.02 } })
     })
     // Collection ends with the agreement: once the lease is closed, a position is not stored.
     await ruleRefuses(database(), { fn: "guardTelematicsPosition", replace: [`IF public."telematicsLoanAt"(`, `IF FALSE AND public."telematicsLoanAt"(`] },
