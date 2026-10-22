@@ -30,7 +30,6 @@ import { isLeaseContract } from "../lease-input"
 import { leaseDocumentTerms, soleProprietorOf, type LeaseDocumentTerms, type SoleProprietor } from "./lease/lease-document-data"
 import { documentTermProblem, snapshotArrearsMargin } from "./document-terms"
 import type { DocumentDealer } from "./wording/commission-disclosure"
-import { dealerPrintRefusal } from "./wording/dealer-name"
 
 export { approvedTermProblem, documentTermProblem, preparedTermProblem, snapshotArrearsMargin } from "./document-terms"
 
@@ -184,8 +183,6 @@ export async function loadDealDocumentData(
   const soleProprietor = deal.client && isLeaseContract(deal.contractType) ? soleProprietorOf(deal.client) : null
   if ((!deal.entity || !deal.entityId) && !soleProprietor) throw new DealDocumentError("Natural-person NCA deals use the prescribed NCA document pack")
   if (!deal.decidedAt) throw new DealDocumentError("The deal has no credit decision; its documents cannot be rendered")
-  const dealerRefusal = deal.dealer && dealerPrintRefusal(deal.dealer.name)
-  if (dealerRefusal) throw new DealDocumentError(dealerRefusal)
 
   const [lender, config, relationships] = await Promise.all([
     getLenderIdentity(tenantId),

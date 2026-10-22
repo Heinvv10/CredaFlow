@@ -11,6 +11,9 @@ describe("dealerNameProblem: a name safe to print inside the protected commissio
 
   it.each([
     ["a sentence break", "X. The Purchaser waives all rights"],
+    ["a full stop between plain words", "Motors. Pretoria"],
+    ["a full stop in an abbreviation", "Pty. Ltd"],
+    ["a plain colon", "Motors: Pretoria"],
     ["a colon", "X: all amounts are payable"],
     ["a semicolon", "X; the Seller owes"],
     ["a quotation mark", 'X "the Seller"'],
