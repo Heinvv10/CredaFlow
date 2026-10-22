@@ -215,3 +215,168 @@ model DealerDealPurge {         // id, tenantId, dealId (unique per tenant, → 
 - **Performance.** The link check walks every foreign key to `Client` (about
   30) once per person; fine at today's volumes, to be indexed before a lender
   with a large book runs it.
+
+## Part W — Commission disclosure (§2a 2)
+
+A protected, plain-language paragraph on the dealer deal's asset-finance
+documents: the lender may pay the dealer that introduced the deal a
+commission, from its own funds, and it is no part of what the borrower pays.
+It is a statement, never a figure. Wording is DRAFT for the SA-legal reviewer
+(goal §2a 7); the lender's legal team still approves its rendered documents.
+
+### Decisions and deviations
+
+1. **Dealer deals only.** The clause prints when `AssetFinanceDeal.dealerId`
+   is set and on no other deal (the goal's recommended option). A non-dealer
+   deal renders byte-identical to before the change (proof below).
+2. **The CPA variants are included.** `af.isa.cpa` and the two CPA lease
+   variants share their renderers with the commercial ones, so the branch is
+   the same line. A consumer is owed the disclosure at least as much as a
+   company, and it adds nothing the CPA notices or s49 conspicuousness touch
+   (it sits in the price section, not in the CPA notice or the numbered
+   clauses). The goal lists only the commercial and NCA variants; this is the
+   one addition. Suretyships and the resolution are not pricing documents and
+   print nothing.
+3. **Placement: an unnumbered paragraph in the price section.** After the
+   label/value block of "5. PRICE AND FINANCE" (instalment sale), "5. RENTALS"
+   (leases), "FINANCIAL TERMS" (NCA agreement) and "COST OF CREDIT
+   DISCLOSURE" (NCA quotation). No clause number moves, so
+   `protectedClauses`, `additionalTermNumber` and every clause a lender's text
+   may cite are the same on a dealer and a non-dealer deal, and the starters'
+   cross-references (e.g. "clause 7.4") stay true.
+4. **The NCA quotation is not a template.** It is governed by the legacy
+   flag `assetFinanceLegalWordingApproved` and has no fingerprint, so it has
+   no pin to move and no demo approval to renew. Its protection is the unit
+   tests below. See limitation 2.
+5. **No commission amount, rate or total is ever printed.** The paragraph
+   names the dealer and says "may pay". The commission snapshot
+   (`dealerCommission*`) is not read by any document.
+6. **The dealer's name is read live** from `Dealer.name` at preparation (like
+   the entity's name). Limitation 3.
+7. **Why a dealer shape, not a dealer in every shape.** Each existing shape
+   stays dealer-less so its PDF, and so its hash, does not change; one
+   `dealer` shape per variant carries the paragraph into the fingerprint.
+
+### The clause, per document (`wording/commission-disclosure.ts`)
+
+`{dealer}` is `Dealer.name`. One paragraph, in the document's own defined
+terms.
+
+- **Commercial and CPA instalment sale** (`af.isa.*`; defined terms "the
+  Seller", "the Purchaser", "the Schedule"):
+  > Dealer commission. The Seller may pay a commission to {dealer}, the dealer
+  > that introduced this Agreement. The Seller pays any commission from its own
+  > funds. It is not part of the cash price, the payments in the Schedule or
+  > any other amount the Purchaser pays or owes under this Agreement, and it
+  > does not increase any of them.
+- **Operating and full-maintenance leases, commercial and CPA**
+  (`af.lease.*`; "the lessor", "the lessee"):
+  > Dealer commission. The lessor may pay a commission to {dealer}, the dealer
+  > that introduced this agreement. The lessor pays any commission from its own
+  > funds. It is not part of the rentals or any other amount the lessee pays or
+  > owes under this agreement, and it does not increase any of them.
+- **NCA agreement** (`af.nca.instalment_sale`, `af.nca.finance_lease`; "the
+  Credit Provider", "the Consumer"):
+  > Dealer commission. The Credit Provider may pay a commission to {dealer},
+  > the dealer that introduced this agreement to the Credit Provider. The
+  > Credit Provider pays any commission from its own funds. It is not charged
+  > to the Consumer: it is not part of the cash price, the principal debt, the
+  > interest, the fees, the instalments or any other amount the Consumer pays
+  > or owes, and it is not part of the total cost of credit shown above.
+- **NCA quotation:** the same as the NCA agreement, with "the proposed
+  agreement" for "this agreement".
+
+Lender text cannot say it: `templates/validate.ts` keeps `commissions?` in its
+OVERRIDING list, so "commission" in an editable clause or an additional term
+is refused (a lender cannot restate, vary or add a commission).
+
+### Rule-to-test matrix (IT = `RUN_ASSET_TEMPLATES_IT`)
+
+| Rule | Test | Kind | Negative cases (§3 W) |
+|---|---|---|---|
+| Exact wording on each of 9 render paths (commercial and CPA ISA, four lease variants, two NCA agreements, the quotation) | `documents/commission-disclosure.test.ts` | unit | the dealer's name absent |
+| No clause on a non-dealer deal, and byte-identical to a deal rendered with `dealer` absent | same | unit | `dealer` null and undefined, on every path |
+| Amounts never change: every `R` figure, in order, is the same with and without a dealer, and nothing but the clause differs | same | unit | any figure moved on a dealer deal |
+| NCA cost-of-credit figures pinned: the "Total cost of credit" line (R 18,732.50) and the quotation clause 1.5 sentence are identical | same | unit | the quotation's or agreement's cost of credit moved |
+| Lender text cannot carry a commission | same (`lender text cannot carry a commission`) | unit | three phrasings in each of the three editable variants; an editable clause too |
+| Preview shapes: only the `dealer` shape prints the clause, and it differs from the first shape by exactly the clause; suretyships and the resolution have no dealer shape | same (`template previews …`) | unit | a clause in a dealer-less shape |
+| The clause is fingerprinted; pins moved with `SYSTEM_REVISION` 2026-10-22.1 | `templates/fingerprint.test.ts` (`PINNED`, `BRANCHES`) | unit | a variant whose dealer shape is missing |
+| The real loaders hand the dealer to the document | `legal-wording-flag-nca-{quote-store,agreement-store,entity-signing}.test.ts` (unit); `commission-reapproval.integration.test.ts` (IT, `loadDealDocumentData`) | unit, IT | a deal with no dealer hands `null` |
+| Demo re-approval after the revision bump: exactly the eight lapsed variants lapse, are approved again with the lender's wording unchanged, the three others keep their approval, a second run adds nothing, documents issue again | `templates/commission-reapproval.integration.test.ts` | IT | a prepare before the re-approval is refused (422) and writes nothing |
+| A dealer deal's issued agreement names the dealer, moves no figure, and its retained input reproduces the PDF | same | IT | the resolution and suretyships print no clause |
+
+### Proof of what changed in the fingerprints
+
+`SYSTEM_REVISION` 2026-10-19.1 → 2026-10-22.1. Eight pins moved; three did
+not. The per-shape hashes before and after are committed
+(`evidence/slice5-followups/commission/`, with the command to reproduce).
+
+| Variant | Pin before → after |
+|---|---|
+| `af.isa.commercial` | `99337242…2910` → `5ad60c63…3ca0` |
+| `af.isa.cpa` | `ebe0d4c1…9cec` → `d3af6b19…b092` |
+| `af.lease.operating.commercial` | `a192a558…0814` → `5063e1dd…c385` |
+| `af.lease.operating.cpa` | `ed970f47…4c55` → `70005025…694c` |
+| `af.lease.fml.commercial` | `45434a91…a596` → `2c4ae1f0…cbb8` |
+| `af.lease.fml.cpa` | `59323cd3…e73e` → `b57a23ee…06b4` |
+| `af.nca.instalment_sale` | `edb5b49d…75bb` → `de82ae58…58e7` |
+| `af.nca.finance_lease` | `c868e667…cff2` → `d6513a91…fa8c` |
+| `af.suretyship.commercial`, `af.suretyship.nca`, `af.resolution.standard` | unchanged |
+
+(Full values: `templates/fingerprint.test.ts` `PINNED`.)
+
+The proof, for each of the eight:
+
+1. **Every existing shape renders byte-identical.** All 7, 7, 9, 10, 9, 10, 9
+   and 9 pre-existing shapes of the eight variants have the same PDF SHA-256
+   before and after (a byte comparison, stronger than a text one). So the only
+   reason a pin moved is the added shape.
+2. **The added shape is the first shape plus the clause, nothing else.**
+   Each `dealer` shape is the variant's first shape with `dealer` set;
+   `commission-disclosure.test.ts` ("template previews …") renders both and
+   shows that removing the clause's own lines (and page furniture) from the
+   dealer shape gives the first shape's text exactly.
+3. **No other change:** the three variants that print nothing new keep their
+   pins (`commission-reapproval.integration.test.ts` asserts this against the
+   previous values), and the earlier pdf-lib, font and fixture inputs are
+   untouched.
+
+Release effect: from deploy, a lender's published version of the eight
+variants stops issuing until re-approved. On a demo lender
+`scripts/asset-finance/ensure-demo-templates.ts` does it (proved on real
+Postgres). A real lender approves again, with no change to its own wording.
+Recorded in `DESIGN.md` as `fingerprint.test.ts` asks.
+
+### Known limitations and open points (part W)
+
+1. **Wording is DRAFT for counsel.** Open for the SA-legal reviewer:
+   (a) whether "it is not part of the total cost of credit" is the right way
+   to say it under the NCA's definition of the cost of credit (true on these
+   documents because nothing is added to the consumer's charges, but it is the
+   lender's statement that it does not recoup the commission from the
+   consumer); (b) whether extra text on the pre-agreement statement and
+   quotation (stored as `FORM_20_PRE_AGREEMENT`) stays within the prescribed
+   form's content. Confidence MEDIUM-LOW on both.
+2. **The quotation has no fingerprint.** A lender that already set
+   `assetFinanceLegalWordingApproved` has approved the quotation wording
+   without this paragraph, and nothing lapses that flag. For the lender's legal
+   team to review the paragraph, not a code gap; recommend (a decision for the
+   planner tier) a quotation fingerprint like the templates' if that gate is
+   wanted.
+3. **A dealer renamed after the documents were prepared** changes the bytes a
+   commercial instalment sale or lease re-renders to, so its e-sign and
+   contract step answer "document changed" (fail closed) until staff prepare
+   the documents again. The same holds for a renamed borrower entity today.
+   The NCA agreements are not re-rendered at signing. Recommendation if it
+   matters: have `pinnedIssuance` read `dealer` from the retained input.
+4. **Pre-existing documents.** An issuance's retained input from before this
+   release has no `dealer`; it re-renders without the clause, as it was
+   issued. A dealer deal prepared before the release must be prepared again
+   to carry the clause (its templates lapse at the release anyway).
+5. **Other documents.** Statements, the s129/s127/s131 notices, the lease
+   servicing documents and the post-sale statement print no disclosure; the
+   goal lists only the agreements and the quotation. Nothing under
+   `lib/pdf/` is touched.
+6. **Commission amounts stay out.** No document, and no template token,
+   exposes the commission snapshot. A lender that wants the amount disclosed
+   to the borrower needs a new decision.
