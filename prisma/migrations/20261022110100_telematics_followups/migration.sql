@@ -239,16 +239,25 @@ BEGIN
   IF NEW."sapsCaseNumber" !~ '^CAS [1-9][0-9]{0,5}/(0?[1-9]|1[0-2])/[0-9]{4}$' OR split_part(NEW."sapsCaseNumber", '/', 3)::int < 2000 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A SAPS case number reads CAS <number>/<month>/<year>';
   END IF;
+  -- A case holds THEFT for at most three reports (90 days): after that the asset is a recovery's or a legal matter's.
+  -- Every report of a case after the first is a renewal (so it keeps the first's date).
+  IF (SELECT count(*) FROM "AssetTheftReport" r WHERE r."tenantId" = NEW."tenantId" AND r."loanId" = NEW."loanId"
+      AND r."sapsCaseNumber" = NEW."sapsCaseNumber") >= 3 THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A theft case is renewed at most twice: after that, open a recovery or a legal matter';
+  END IF;
+  IF NEW."renewsReportId" IS NULL AND EXISTS (SELECT 1 FROM "AssetTheftReport" r WHERE r."tenantId" = NEW."tenantId" AND r."loanId" = NEW."loanId"
+      AND r."sapsCaseNumber" = NEW."sapsCaseNumber") THEN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'This case is already reported on the loan: renew that report';
+  END IF;
   IF NEW."renewsReportId" IS NOT NULL THEN
-    SELECT r."reportedOn", r."sapsCaseNumber" INTO renewed FROM "AssetTheftReport" r
+    SELECT r."reportedOn", r."sapsCaseNumber", r."endedAt" INTO renewed FROM "AssetTheftReport" r
     WHERE r."id" = NEW."renewsReportId" AND r."tenantId" = NEW."tenantId" AND r."loanId" = NEW."loanId";
     IF NOT FOUND OR renewed."sapsCaseNumber" IS DISTINCT FROM NEW."sapsCaseNumber" OR renewed."reportedOn" IS DISTINCT FROM NEW."reportedOn" THEN
       RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A renewal names a report of the same loan and case, and keeps its date';
     END IF;
-    -- A case holds THEFT for at most three reports (90 days): after that the asset is a recovery's or a legal matter's.
-    IF (SELECT count(*) FROM "AssetTheftReport" r WHERE r."tenantId" = NEW."tenantId" AND r."loanId" = NEW."loanId"
-        AND r."sapsCaseNumber" = NEW."sapsCaseNumber") >= 3 THEN
-      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A theft case is renewed at most twice: after that, open a recovery or a legal matter';
+    -- An ended report (the asset found) is not renewed: a new theft is a new case.
+    IF renewed."endedAt" IS NOT NULL THEN
+      RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'An ended theft report is not renewed: a new theft is a new case';
     END IF;
   ELSIF NEW."reportedOn" < today - 14 THEN
     RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'A theft is recorded within 14 days of its report to SAPS';

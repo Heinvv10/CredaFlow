@@ -348,28 +348,21 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     }
   }, 120_000)
 
-  it("ends a theft report early, once, with a reason: THEFT stops holding at once", async () => {
-    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "short" })).toMatchObject({ kind: "refused", status: 400 })
-    expect(await endTheftReport(as(ids.readonly, "READONLY"), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toMatchObject({ kind: "refused", status: 403 })
-    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toEqual({ kind: "ok" })
-    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toMatchObject({ kind: "refused", status: 404 })
-    expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "refused", status: 409 })
-    await ruleRefuses(database(), { table: "AssetTheftReport", trigger: "AssetTheftReport_guard" }, /ended once/,
-      (tx) => tx.assetTheftReport.update({ where: { id: ids.report }, data: { endReason: "Another synthetic reason" } }))
-    await ruleRefuses(database(), { table: "AssetTheftReport", constraint: "AssetTheftReport_confirmation" }, /AssetTheftReport_confirmation/,
-      (tx) => tx.$executeRawUnsafe(`ALTER TABLE "AssetTheftReport" DISABLE TRIGGER "AssetTheftReport_guard"`).then(() =>
-        tx.assetTheftReport.update({ where: { id: ids.report }, data: { endReason: "short" } })))
-    // A renewal of the same case keeps the original's date and needs its own confirmation.
+  it("renews a case (same date, its own confirmation, at most twice), refuses a second report of the case, then ends the case early", async () => {
+    // A second first report of the same case: refused, a repeat is a renewal (TS and trigger).
+    expect(await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today() })).toMatchObject({ kind: "refused", status: 409, error: expect.stringContaining("renew that report") })
+    await ruleRefuses(database(), { fn: "guardAssetTheftReport", replace: ["IF NEW.\"renewsReportId\" IS NULL AND EXISTS", "IF FALSE AND EXISTS"] }, /renew that report/,
+      (tx) => tx.assetTheftReport.create({ data: { tenantId: fx.tenantId, loanId: ids.loan, assetId: fx.assets[1], sapsCaseNumber: caseNo,
+        reportedOn: new Date(`${today()}T00:00:00Z`), validUntil: new Date(`${today()}T00:00:00Z`), recordedById: ids.collector } }))
+    // A renewal keeps the original's date and needs its own confirmation.
+    const original = await database().assetTheftReport.findUniqueOrThrow({ where: { id: ids.report } })
     const renewed = await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today(), renewsReportId: ids.report })
     expect(renewed).toMatchObject({ kind: "ok" })
     const row = await database().assetTheftReport.findUniqueOrThrow({ where: { id: (renewed as { reportId: string }).reportId } })
-    const original = await database().assetTheftReport.findUniqueOrThrow({ where: { id: ids.report } })
     expect(row.reportedOn).toEqual(original.reportedOn)
     expect(row.confirmedAt).toBeNull()
-    expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "refused", status: 409 })
     expect(await confirmTheftReport(as(ids.collector2, "COLLECTIONS_OFFICER"), ids.loan, row.id)).toEqual({ kind: "ok" })
-    expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "ok" })
-    // A case is renewed at most twice (three reports, 90 days): then a recovery or a legal matter.
+    // At most three reports a case (90 days): then a recovery or a legal matter.
     const second = await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today(), renewsReportId: row.id })
     expect(second).toMatchObject({ kind: "ok" })
     expect(await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today(), renewsReportId: (second as { reportId: string }).reportId }))
@@ -377,6 +370,21 @@ suite.sequential("telematics THEFT purpose, SQL purpose gate and position trail 
     await ruleRefuses(database(), { fn: "guardAssetTheftReport", replace: ["AND r.\"sapsCaseNumber\" = NEW.\"sapsCaseNumber\") >= 3 THEN", "AND r.\"sapsCaseNumber\" = NEW.\"sapsCaseNumber\") >= 99 THEN"] },
       /renewed at most twice/, (tx) => tx.assetTheftReport.create({ data: { tenantId: fx.tenantId, loanId: ids.loan, assetId: fx.assets[1], sapsCaseNumber: caseNo,
         reportedOn: original.reportedOn, validUntil: original.reportedOn, renewsReportId: (second as { reportId: string }).reportId, recordedById: ids.collector } }))
+    // Ended early, once, with a reason: every open report of the case ends, and THEFT stops at once.
+    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "short" })).toMatchObject({ kind: "refused", status: 400 })
+    expect(await endTheftReport(as(ids.readonly, "READONLY"), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toMatchObject({ kind: "refused", status: 403 })
+    expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "ok" })
+    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toEqual({ kind: "ok" })
+    expect(await database().assetTheftReport.count({ where: { tenantId: fx.tenantId, loanId: ids.loan, sapsCaseNumber: caseNo, endedAt: null } })).toBe(0)
+    expect(await endTheftReport(collector(), ids.loan, ids.report, { reason: "The excavator was found at a synthetic yard" })).toMatchObject({ kind: "refused", status: 404 })
+    expect(await revealPosition(collector(), ids.loan, { context: "THEFT" }, meta)).toMatchObject({ kind: "refused", status: 409 })
+    // Not renewed once ended (a new theft is a new case), and nothing about an ended report changes.
+    expect(await recordTheftReport(collector(), ids.loan, { sapsCaseNumber: caseNo, reportedOn: today(), renewsReportId: row.id })).toMatchObject({ kind: "refused", status: 409 })
+    await ruleRefuses(database(), { table: "AssetTheftReport", trigger: "AssetTheftReport_guard" }, /ended once/,
+      (tx) => tx.assetTheftReport.update({ where: { id: ids.report }, data: { endReason: "Another synthetic reason" } }))
+    await ruleRefuses(database(), { table: "AssetTheftReport", constraint: "AssetTheftReport_confirmation" }, /AssetTheftReport_confirmation/,
+      (tx) => tx.$executeRawUnsafe(`ALTER TABLE "AssetTheftReport" DISABLE TRIGGER "AssetTheftReport_guard"`).then(() =>
+        tx.assetTheftReport.update({ where: { id: ids.report }, data: { endReason: "short" } })))
   }, 120_000)
 
   it("purges positions one by one past retention and keeps the younger ones of the same device", async () => {

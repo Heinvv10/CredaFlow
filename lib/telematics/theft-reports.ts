@@ -70,10 +70,14 @@ export async function recordTheftReport(
   const { data } = parsed
   // A renewal keeps the renewed report's date (the database refuses any other).
   const renewed = data.renewsReportId
-    ? await prisma.assetTheftReport.findFirst({ where: { id: data.renewsReportId, tenantId, loanId }, select: { reportedOn: true, sapsCaseNumber: true } })
+    ? await prisma.assetTheftReport.findFirst({ where: { id: data.renewsReportId, tenantId, loanId }, select: { reportedOn: true, sapsCaseNumber: true, endedAt: true } })
     : null
   if (data.renewsReportId && (!renewed || renewed.sapsCaseNumber !== data.sapsCaseNumber)) {
     return refused(409, "A renewal is of a report on this loan, for the same SAPS case")
+  }
+  if (renewed?.endedAt) return refused(409, "An ended theft report is not renewed: a new theft is a new case")
+  if (!data.renewsReportId && await prisma.assetTheftReport.count({ where: { tenantId, loanId, sapsCaseNumber: data.sapsCaseNumber } }) > 0) {
+    return refused(409, "This case is already reported on the loan: renew that report")
   }
   const reportedOn = renewed ? isoOfDbDate(renewed.reportedOn) : data.reportedOn
   try {
@@ -162,7 +166,7 @@ export async function confirmTheftReport(actor: TelematicsActor & { role: string
   }
 }
 
-/** Ends a report early (the asset found), once, with a reason; THEFT stops holding at once. Audited. */
+/** Ends a report early (the asset found), with every open renewal of its case, once, with a reason; THEFT stops holding at once. Audited. */
 export async function endTheftReport(actor: TelematicsActor & { role: string }, loanId: string, reportId: string, body: unknown): Promise<TelematicsResult> {
   const { tenantId } = actor
   if (!canDo(actor.role as AppRole, "view_asset_position")) return refused(403, "Ending a theft report needs the view_asset_position permission")
@@ -172,9 +176,15 @@ export async function endTheftReport(actor: TelematicsActor & { role: string }, 
     return refused(400, "Say why the report ends", { reason: `${END_REASON_MIN} to ${END_REASON_MAX} characters` })
   }
   return prisma.$transaction(async (tx) => {
-    const done = await tx.assetTheftReport.updateMany({ where: { id: reportId, tenantId, loanId, endedAt: null }, data: { endedById: actor.userId, endedAt: new Date(), endReason: reason } })
-    if (done.count !== 1) return refused(404, "No open theft report with that id on this loan")
-    await logAuditStrict({ tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.TELEMATICS_THEFT_REPORT_ENDED, entity: "Loan", entityId: loanId, newValue: { reportId, reason } }, tx)
+    const report = await tx.assetTheftReport.findFirst({ where: { id: reportId, tenantId, loanId, endedAt: null }, select: { sapsCaseNumber: true } })
+    if (!report) return refused(404, "No open theft report with that id on this loan")
+    const done = await tx.assetTheftReport.updateMany({
+      where: { tenantId, loanId, sapsCaseNumber: report.sapsCaseNumber, endedAt: null }, data: { endedById: actor.userId, endedAt: new Date(), endReason: reason },
+    })
+    await logAuditStrict({
+      tenantId, userId: actor.userId, userEmail: actor.userEmail, action: AuditAction.TELEMATICS_THEFT_REPORT_ENDED, entity: "Loan", entityId: loanId,
+      newValue: { reportId, sapsCaseNumber: report.sapsCaseNumber, reportsEnded: done.count, reason },
+    }, tx)
     return { kind: "ok" as const }
   })
 }
