@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -39,8 +40,11 @@ describe("run-integration-tests.sh IT_SHARD", { timeout: 120_000 }, () => {
     expect(select("2/3").files).toEqual(select("2/3").files)
   })
 
-  it("spreads the heaviest suites across shards", () => {
-    const heavy = ["prisma/seed.integration.test.ts", "lib/collections/reminders.consent.integration.test.ts", "lib/collections/reminders.identity.integration.test.ts"]
+  it("spreads the three heaviest suites across three shards", () => {
+    const heavy = readFileSync(join(process.cwd(), "scripts", "integration-weights.txt"), "utf8")
+      .split("\n").filter((line) => /^\d/.test(line))
+      .map((line) => line.split(" ")).sort((a, b) => Number(b[0]) - Number(a[0])).slice(0, 3).map(([, file]) => file)
+    expect(heavy).toHaveLength(3)
     const owner = heavy.map((f) => [1, 2, 3].find((i) => select(`${i}/3`).files.includes(f)))
     expect(new Set(owner).size).toBe(3)
   })
@@ -49,5 +53,39 @@ describe("run-integration-tests.sh IT_SHARD", { timeout: 120_000 }, () => {
     const r = select(shard)
     expect(r.status).toBe(2)
     expect(r.stderr).toContain("IT_SHARD must be i/n")
+  })
+
+  it("refuses a shard that selects no suites instead of passing empty", () => {
+    const r = select(`${all.files.length + 1}/${all.files.length + 1}`)
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain("selected no suites")
+    expect(r.files).toEqual([])
+  })
+})
+
+// Branch protection requires a check named exactly `integration`, and a skipped
+// required check counts as passing. The shards report under other names, so the
+// aggregate job is the gate: it must exist, wait for the shards, run even when
+// one failed, and fail unless all of them succeeded.
+describe("quality-gate.yml integration aggregate", () => {
+  const workflow = readFileSync(join(process.cwd(), ".github", "workflows", "quality-gate.yml"), "utf8")
+  const job = workflow.split(/\n(?=  [\w-]+:\n)/).find((block) => block.startsWith("  integration:\n")) ?? ""
+
+  it("is a job named exactly `integration` that needs the shards", () => {
+    expect(job).not.toBe("")
+    expect(job).not.toMatch(/^    name:/m)
+    expect(job).toMatch(/^    needs: integration-shard$/m)
+  })
+
+  it("runs under always() and passes only when every shard succeeded", () => {
+    expect(job).toMatch(/^    if: always\(\) && /m)
+    expect(job).toContain("${{ needs.integration-shard.result }}")
+    expect(job).toContain('[[ "$RESULT" == "success" ]]')
+  })
+
+  it("is the only job reporting as `integration`: the shards carry their own name", () => {
+    const shard = workflow.split(/\n(?=  [\w-]+:\n)/).find((block) => block.startsWith("  integration-shard:\n")) ?? ""
+    expect(shard).toMatch(/^    name: integration shard \$\{\{ matrix\.shard \}\}\/3$/m)
+    expect(shard).toMatch(/^      fail-fast: false$/m)
   })
 })

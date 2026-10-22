@@ -1,8 +1,9 @@
 # Measured duration (seconds) of the slowest integration suites, used only to
 # balance IT_SHARD=i/n in scripts/run-integration-tests.sh. A suite not listed
-# here weighs DEFAULT_WEIGHT (the mean of the unlisted ones). This file never
-# selects or drops a suite: every discovered file lands in exactly one shard
-# whether or not it is listed, and a line naming a deleted file is ignored.
+# here weighs DEFAULT_WEIGHT, a fixed 3 (the unlisted ones averaged 3.0 s in
+# the run below). This file never selects or drops a suite: every discovered
+# file lands in exactly one shard whether or not it is listed, and a line
+# naming a deleted file is ignored.
 #
 # Source: wall time between consecutive result lines of the serial CI run
 # 39627330967 (job 119316410887, 2026-10-21): 413 files, 36.0 min. Suites of

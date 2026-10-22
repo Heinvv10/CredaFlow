@@ -195,12 +195,22 @@ if [[ -n "${IT_SHARD:-}" ]]; then
     exit 2
   fi
   SHARD_I="${BASH_REMATCH[1]}"; SHARD_N="${BASH_REMATCH[2]}"
+  if [[ ! -r "$WEIGHTS" ]]; then
+    echo "!! shard weights not readable: $WEIGHTS" >&2
+    exit 1
+  fi
   mapfile -t ALL < <(printf '%s\n' "${ALL[@]}" | assign_shards "$SHARD_N" \
     | awk -F'\t' -v i="$SHARD_I" '$1 == i { print $2 }' | LC_ALL=C sort)
+  # An empty shard (more shards than suites, or a broken weights file) would
+  # pass while testing nothing. Refuse it, like the empty-ALL check above.
+  if [[ ${#ALL[@]} -eq 0 ]]; then
+    echo "!! shard ${IT_SHARD} selected no suites. Refusing: it would pass while testing nothing." >&2
+    exit 1
+  fi
   SHARD_LABEL=" (shard ${IT_SHARD})"
 fi
 
-# The selected files, after opt-in removal and sharding, and stops (used by the test of this runner).
+# Lists the selected files, after opt-in removal and sharding, and stops (used by the test of this runner).
 if [[ "${1:-}" == "--print-selected" ]]; then
   printf '%s\n' "${ALL[@]:-}" | sed '/^$/d'
   exit 0
