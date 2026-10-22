@@ -1,9 +1,9 @@
 # Asset finance slice 5 — done (dealer portal, telematics, valuation guides)
 
-Goal: `.claude/handoffs/2026-10-19-asset-finance-slice5-goal.md`. Spec, deviations,
+Goal: `.claude/handoffs/2026-10-19-asset-finance-slice5-goal.md` (untracked; in the main checkout only). Spec, deviations,
 rule-to-test matrices, known limitations and review items per part:
 `docs/asset-finance/SLICE5.md`. Mutation evidence: `docs/asset-finance/evidence/slice5/MUTATIONS.md`.
-Browser seeds and steps: `docs/asset-finance/evidence/slice5/browser/{A,B,C}/README.md`.
+Browser seeds, steps and results: `docs/asset-finance/evidence/slice5/browser/{B,C}/` (README, RESULTS.md, screenshots); Part A: `browser/A/README.md`.
 
 ## What merged
 
@@ -18,7 +18,8 @@ Browser seeds and steps: `docs/asset-finance/evidence/slice5/browser/{A,B,C}/REA
 
 Every PR: `npm run ci:full` green on its final head (fresh clone), blind reviews
 (code, breaker, tests, architecture, legal, edge) all SHIP on the final round, browser
-acceptance PASS (§5) with screenshots, merged via `mq`.
+acceptance PASS (§5), merged via `mq`. B and C screenshots are committed under
+`evidence/slice5/browser/`; Part A's were never committed and are lost (`browser/A/README.md`).
 Review rounds: A 2, B 5 (the last a confirmation), C 3.
 
 ## Needs Hein / the lender before a lender switches anything on
