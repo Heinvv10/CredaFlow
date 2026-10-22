@@ -85,7 +85,8 @@ describe("quality-gate.yml integration aggregate", () => {
 
   it("is the only job reporting as `integration`: the shards carry their own name", () => {
     const shard = workflow.split(/\n(?=  [\w-]+:\n)/).find((block) => block.startsWith("  integration-shard:\n")) ?? ""
-    expect(shard).toMatch(/^    name: integration shard \$\{\{ matrix\.shard \}\}\/3$/m)
+    expect(shard).toMatch(/^    name: integration shard \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}$/m)
+    expect(shard).toMatch(/^      IT_SHARD: \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}$/m)
     expect(shard).toMatch(/^      fail-fast: false$/m)
   })
 })

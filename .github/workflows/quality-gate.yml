@@ -137,7 +137,7 @@ jobs:
     # Three jobs, each with its own database, run a third of the suites each
     # (scripts/integration-weights.txt balances them). The `integration` job
     # below is the required check; these report as `integration shard i/3`.
-    name: integration shard ${{ matrix.shard }}/3
+    name: integration shard ${{ matrix.shard }}/${{ strategy.job-total }}
     strategy:
       fail-fast: false
       matrix:
@@ -162,7 +162,7 @@ jobs:
 
     env:
       TZ: UTC
-      IT_SHARD: ${{ matrix.shard }}/3
+      IT_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
 
     steps:
       # Disposable service container. These suites create and delete real rows.
@@ -230,8 +230,13 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Skipped when a (self-hosted) image already has it; the lock timeout
+      # lets concurrent shards on one host wait for apt instead of failing.
       - name: Install pdftotext
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+        run: |
+          if command -v pdftotext; then exit 0; fi
+          sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq poppler-utils
 
       - name: Integration gate
         run: bash scripts/run-integration-tests.sh
