@@ -187,6 +187,9 @@ describe("tenant-scope — ALS primitives", () => {
       "TelematicsHeldReading",
       "TelematicsAlert",
       "TelematicsPositionAccess",
+      // Valuation guides (slice 5 part C) — non-null tenantId.
+      "ValuationGuide",
+      "ValuationGuideRow",
       "NcaSurplusAccount",
       "NcaSurplusDetermination",
       "NcaSurplusRemittance",

@@ -491,6 +491,9 @@ enum ValuationSource {
   AUCTIONEER
   ASSESSOR
   INTERNAL
+  // A published valuation guide's row (lib/valuation-guides/). Never an
+  // independent valuation: a lease purchase or a recovery sale refuses it.
+  GUIDE
 }
 
 model AssetValuation {
@@ -505,6 +508,13 @@ model AssetValuation {
   documentId  String?
   createdById String?
   createdAt   DateTime        @default(now())
+  // GUIDE only (AssetValuation_guide_shape): the published guide row it was
+  // read from, and the database's snapshot of that row (guardAssetValuationGuide).
+  guideId       String?
+  guide         ValuationGuide?    @relation(fields: [tenantId, guideId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  guideRowId    String?
+  guideRow      ValuationGuideRow? @relation(fields: [tenantId, guideId, guideRowId], references: [tenantId, guideId, id], onDelete: Restrict, onUpdate: Restrict)
+  guideSnapshot Json?
 
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   leaseEndsOfTerm  LeaseEndOfTerm[]

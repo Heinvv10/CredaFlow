@@ -175,7 +175,7 @@ suite("slice 4a recovery rules: gaps found in review", () => {
   })
 
   describe("the age of the valuation a sale relies on (the lender's leasePurchaseValuationMaxAgeDays)", () => {
-    const message = /relies on an independent \(not internal\) valuation of this asset dated within \d+ days/
+    const message = /relies on an independent valuation \(not internal, not a guide value\) of this asset dated within \d+ days/
     const age = clauseOff("guardRemarketingSale", `AND v."valuedOn" >= today - max_age) THEN`, `) THEN`)
 
     it("a valuation exactly the maximum age old is current, one day older is not", async () => {

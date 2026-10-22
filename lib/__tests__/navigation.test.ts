@@ -116,6 +116,7 @@ describe("asset finance navigation", () => {
     "/asset-finance/suppliers",
     "/asset-finance/dealers",
     "/asset-finance/reference-rates",
+    "/asset-finance/valuation-guides",
     "/asset-finance/telematics",
   ]
 
