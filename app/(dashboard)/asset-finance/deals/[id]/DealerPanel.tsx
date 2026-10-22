@@ -11,6 +11,13 @@ import { DealerCapturedPeople } from "./DealerCapturedPeople"
 import { DealerDocumentRequestForm } from "./DealerDocumentRequestForm"
 
 const name = (p: { name: string | null; email: string } | null) => (p ? (p.name ?? p.email) : "—")
+const PURGE_REASONS = {
+  ABANDONED_DRAFT: "a draft with no activity for 90 days",
+  CANCELLED_DRAFT: "a draft cancelled 90 days ago",
+} as const
+const signing = (a: { statementVersion: string; signingMethod: "IN_PERSON" | "REMOTE" | null; remoteIdentityCheck: string | null }) =>
+  a.signingMethod === "REMOTE" ? `signed remotely; identity checked by: ${a.remoteIdentityCheck}`
+    : a.signingMethod === "IN_PERSON" ? "signed in person" : `${a.statementVersion}: in the dealer's presence`
 
 /**
  * A dealer deal on the staff view: the handover (the staff accept runs the
@@ -30,6 +37,16 @@ export function DealerPanel({ panel, canManage }: { panel: DealDealerPanel; canM
       density="loose"
     >
       <div className="space-y-5 text-sm">
+        {panel.dealerPurge ? (
+          <p role="status" className="rounded-md border border-[var(--cf-border-subtle)] p-2">
+            Dealer data purged {formatDateTime(panel.dealerPurge.purgedAt)} ({PURGE_REASONS[panel.dealerPurge.reason]}):{" "}
+            {panel.dealerPurge.clientsErased} people and {panel.dealerPurge.entitiesErased} businesses erased,{" "}
+            {panel.dealerPurge.clientsKept + panel.dealerPurge.entitiesKept} kept (linked elsewhere), {panel.dealerPurge.documentsErased} documents erased.
+          </p>
+        ) : null}
+        {panel.cancelledByDealerUser && panel.cancelledAt ? (
+          <p>Cancelled by the dealer ({name(panel.cancelledByDealerUser)}) {formatDateTime(panel.cancelledAt)}: “{panel.cancelReason}”</p>
+        ) : null}
         <DealerCapturedPeople dealId={dealId} people={panel.dealerPeople} canManage={canManage} />
 
         <section className="space-y-2">
@@ -38,7 +55,7 @@ export function DealerPanel({ panel, canManage }: { panel: DealDealerPanel; canM
           {panel.dealerConsentAttestations.map((a) => (
             <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--cf-border-subtle)] p-2">
               <p>
-                {a.client.firstName} {a.client.lastName} · attested by {name(a.dealerUser)} {formatDateTime(a.attestedAt)} ·{" "}
+                {a.client.firstName} {a.client.lastName} · attested by {name(a.dealerUser)} {formatDateTime(a.attestedAt)} · {signing(a)} ·{" "}
                 {a.document.deletedAt ? <span className="text-[var(--cf-danger)]">form deleted</span> : (
                   <Link href={`/api/asset-finance/deals/${dealId}/documents/${a.document.id}`} className="text-[var(--cf-brand)] hover:underline" target="_blank">
                     {a.document.fileName}

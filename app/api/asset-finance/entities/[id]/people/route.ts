@@ -8,6 +8,7 @@ import { requireAssetFinanceEnabled } from "@/lib/asset-finance/require-enabled"
 import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finance/relationship-input"
 import { loadEntityPeople } from "@/lib/asset-finance/entity-detail"
 import { isCheckViolation } from "@/lib/disbursement/guard-violation"
+import { ERASED_PARTY } from "@/lib/dealer/draft-purge-messages"
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -97,6 +98,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       }
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return NextResponse.json({ error: "That role was just added by someone else" }, { status: 409 })
+      }
+      // guardDealerPurgedPartyUse: the dealer draft purge erased this person or business.
+      if (isCheckViolation(error) && error instanceof Error && error.message.includes(ERASED_PARTY)) {
+        return NextResponse.json({ error: "This person or business was erased by the dealer draft purge: capture them again" }, { status: 409 })
       }
       // EntityRelationship_fixed_on_open_deal: no party is added or reactivated while a deal is approved.
       if (isCheckViolation(error)) {

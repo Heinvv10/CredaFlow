@@ -28,6 +28,19 @@ Rendered samples: `docs/asset-finance/evidence/legal-wording/`, produced by
 `scripts/asset-finance/render-legal-wording-deal-samples.ts` (both
 deterministic: a rerun reproduces the committed PDFs).
 
+## Wording outside the templates
+
+- **Dealer consent statement** (`lib/dealer/consent.ts`, `dealer-consent-v2`,
+  SLICE5-FOLLOWUPS.md part D): what a dealer user attests for each person
+  whose signed POPIA consent form it uploads. v2 drops "in my presence" so it
+  is true for a remote signing; each attestation adds how the form was signed
+  (in person, or remotely with how identity was checked) and snapshots the
+  text. Wording revised on the legal reviewer's round 1 (the statement no
+  longer says the dealer itself checked identity before signing, or vouches
+  for a returned copy before it arrived). Attestations made under v1 keep their v1 text. Merged on a blind SA
+  legal reviewer's SHIP (goal §2a 7); the lender's legal team confirms it
+  matches its dealer process before switching the portal on.
+
 ## Starter wording issues found
 
 - Fixed 2026-10-19 (Hein approved): lease clause 9.3 printed "linked to the

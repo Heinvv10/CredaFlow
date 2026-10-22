@@ -38,6 +38,7 @@ vi.mock("@/lib/dealer/captures", () => ({
   listDealerEntities: reach("listDealerEntities", []), listDealerPeople: reach("listDealerPeople", []), listDealerAssets: reach("listDealerAssets", []),
 }))
 vi.mock("@/lib/dealer/consent", () => ({ attestDealerConsent: reach("attestDealerConsent", { kind: "attested", attestationIds: ["att-1"] }) }))
+vi.mock("@/lib/dealer/cancel", () => ({ cancelDealerDraft: reach("cancelDealerDraft", { kind: "cancelled" }) }))
 vi.mock("@/lib/dealer/submit", () => ({ submitDealerDeal: reach("submitDealerDeal", { kind: "submitted", at: new Date("2026-10-19T10:00:00Z") }) }))
 vi.mock("@/lib/dealer/documents", () => ({
   DEALER_UPLOAD_DOC_TYPES: ["POPIA_CONSENT"],
@@ -71,6 +72,7 @@ import * as documents from "./deals/[id]/documents/route"
 import * as document from "./deals/[id]/documents/[docId]/route"
 import * as consents from "./deals/[id]/consents/route"
 import * as submit from "./deals/[id]/submit/route"
+import * as cancel from "./deals/[id]/cancel/route"
 
 type Handler = (req: NextRequest, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>
 const ROUTES: Array<[string, "GET" | "POST", Handler, { admin?: true }?]> = [
@@ -93,12 +95,13 @@ const ROUTES: Array<[string, "GET" | "POST", Handler, { admin?: true }?]> = [
   ["deals/[id]/documents/[docId]", "GET", document.GET as Handler],
   ["deals/[id]/consents", "POST", consents.POST as Handler],
   ["deals/[id]/submit", "POST", submit.POST as Handler],
+  ["deals/[id]/cancel", "POST", cancel.POST as Handler],
 ]
 
 const DEALER = { id: "du-1", email: "admin@dealer.example", role: "DEALER", tenantId: "tenant-1", dealerId: "dealer-1", dealerRole: "DEALER_ADMIN" }
 const ctx = { params: Promise.resolve({ id: "x-1", docId: "doc-1" }) }
 function request(method: string, headers: Record<string, string> = { "sec-fetch-site": "same-origin" }) {
-  const body = method === "POST" ? JSON.stringify({ attested: true, documentId: "doc-1", clientIds: ["c-1"] }) : undefined
+  const body = method === "POST" ? JSON.stringify({ attested: true, documentId: "doc-1", clientIds: ["c-1"], reason: "TEST the buyer walked away" }) : undefined
   return new NextRequest("https://dealers.lender.example/api/dealer/x", {
     method, body, headers: { host: "dealers.lender.example", "content-type": "application/json", ...headers },
   })

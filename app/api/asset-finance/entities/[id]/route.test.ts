@@ -128,4 +128,12 @@ describe("PATCH /api/asset-finance/entities/[id]", () => {
       detail: { fields: ["legalName"] },
     }))
   })
+
+  it("names the dealer draft purge when the business was erased, not a deal", async () => {
+    m.tx.businessEntity.update.mockRejectedValue(new Error("ERROR: 23514: An erased person or business is not changed"))
+    const res = await patch({ ...BODY, legalName: "TEST Changed Name (Pty) Ltd" })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/erased by the dealer draft purge/)
+    expect(m.auditRefusal).toHaveBeenCalledWith(expect.objectContaining({ reason: "erased_by_dealer_purge" }))
+  })
 })

@@ -68,7 +68,7 @@ suite.sequential("dealer deal access (real DB)", () => {
       expect(await listDealerDocuments(theirs, draft.dealId)).toBeNull()
       expect((await serveDealerDocument(req("/x"), theirs, draft.dealId, docId)).status).toBe(404)
       expect(await uploadDealerDocument(theirs, draft.dealId, pdfUpload("OTHER"))).toMatchObject({ status: 404 })
-      expect(await attestDealerConsent(theirs, draft.dealId, { documentId: docId, clientIds: [draft.directorId] })).toMatchObject({ status: 404 })
+      expect(await attestDealerConsent(theirs, draft.dealId, { documentId: docId, clientIds: [draft.directorId] , signingMethod: "IN_PERSON" })).toMatchObject({ status: 404 })
       expect(await submitDealerDeal(theirs, draft.dealId)).toMatchObject({ status: 404 })
     })
     expect(sql(`SELECT count(*) FROM "EntityDocument" WHERE "dealId" = ${lit(draft.dealId)}`)).toBe("1")
