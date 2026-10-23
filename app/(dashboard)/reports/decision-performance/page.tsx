@@ -70,7 +70,7 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
         <MetricCard label={window === "12M" ? "Bad: ever 90+ DPD in 12 months" : `Ever 90+ DPD in ${window.replace("M", " months")}`}
           value={<Rate t={bad} />} tone="warning"
           detail={bad
-            ? `Of ${bad.yes + bad.no} loans observed; ${bad.pending} pending, ${bad.unobservable + bad.notComputed} unobservable, neither counted as good`
+            ? `Of ${bad.yes + bad.no} loans observed; ${bad.pending} pending, ${bad.unobservable} unobservable, ${bad.notComputed} not yet computed, none counted as good`
             : "A 3-month window is 89 to 92 days, too short to compare 90+ DPD across months; see 6 or 12 months"} />
         <MetricCard label="Outcome coverage" value={percent(covered.coveragePct)}
           detail={`Observed ÷ matured (pending excluded), on ever ${bad ? "90" : "60"}+ DPD`} />
@@ -79,7 +79,7 @@ export default async function DecisionPerformancePage({ searchParams }: Props) {
       </div>
 
       <DataPanel title="Approvals by cohort"
-        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it, or the loan was cancelled in cooling-off. Cured counts loans that reached 30+ DPD and came back to 0 DPD while still open; settling after 30+ DPD is shown separately and is not a cure. Bad is ever 90+ DPD, the default. Rows under ${SMALL_CELL_LOANS} loans are greyed.`}>
+        description={`Rates divide observed outcomes only. Pending: the window has not elapsed. Unobservable: arrears history is missing for part of it, or the loan was cancelled in cooling-off. Cured counts loans that reached 30+ DPD and came back to 0 DPD while still open; settling after 30+ DPD is shown separately and is not a cure. Bad is ever 90+ DPD, the default. Not yet computed: the nightly outcome job has not reached these loans yet. Rows under ${SMALL_CELL_LOANS} loans are greyed and marked "few loans".`}>
         {data.cohorts.length === 0
           ? <EmptyState icon={Scale} title="No approval has outcomes yet" description="Outcomes are derived nightly from approvals recorded since the decision log shipped." />
           : <CohortTable cells={data.cohorts} />}

@@ -110,6 +110,8 @@ describe("Decision performance page", () => {
     expect(t).not.toMatch(/\blearn|\bAI\b|machine|predict/i)
     // 3 loans < 20: greyed, counts still shown.
     expect(html).toContain('data-small="true"')
+    expect(t).toContain("(few loans)")
+    expect(t).toContain("Not yet computed")
     expect(t).toContain("33.3% 1/3")
   })
 

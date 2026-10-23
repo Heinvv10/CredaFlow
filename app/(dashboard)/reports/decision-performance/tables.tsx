@@ -12,6 +12,10 @@ export const percent = (v: number | null) => (v === null ? "—" : `${v.toFixed(
 
 const SMALL_TITLE = `Fewer than ${SMALL_CELL_LOANS} loans: too few to read a rate from`
 const smallRow = (small: boolean) => cn(small && "text-[var(--cf-text-muted)] opacity-60")
+/** Visible (not only greyed or in a tooltip): screen readers and keyboard users see it too. */
+function FewLoans({ small }: { small: boolean }) {
+  return small ? <span className="ml-1 text-[11px] font-medium text-[var(--cf-text)]">(few loans)</span> : null
+}
 const num = "text-right tabular-nums"
 
 /** A rate with the observed counts it rests on; null when the window does not measure it. */
@@ -36,7 +40,8 @@ function MetricCells({ cell }: { cell: { metrics: CohortCell["metrics"] } }) {
       {COHORT_METRICS.map((m) => <TableCell key={m.key} className={num}><Rate t={cell.metrics[m.key]} /></TableCell>)}
       <TableCell className={num}>{percent(headline.coveragePct)}</TableCell>
       <TableCell className={num}>{headline.pending}</TableCell>
-      <TableCell className={num}>{headline.unobservable + headline.notComputed}</TableCell>
+      <TableCell className={num}>{headline.unobservable}</TableCell>
+      <TableCell className={num}>{headline.notComputed}</TableCell>
     </>
   )
 }
@@ -46,6 +51,7 @@ const TAIL_HEADS = (
     <TableHead className="text-right">Coverage</TableHead>
     <TableHead className="text-right">Pending</TableHead>
     <TableHead className="text-right">Unobservable</TableHead>
+    <TableHead className="text-right" title="No outcome row yet: the nightly job has not run for these loans">Not yet computed</TableHead>
   </>
 )
 
@@ -69,7 +75,7 @@ export function CohortTable({ cells }: { cells: CohortCell[] }) {
         {cells.map((c) => (
           <TableRow key={[c.cohortMonth, c.ruleVersion, c.policyHash, c.scoreBand, c.overridden, c.product].join("|")}
             className={smallRow(c.small)} title={c.small ? SMALL_TITLE : undefined} data-small={c.small || undefined}>
-            <TableCell>{monthLabel(c.cohortMonth)}</TableCell>
+            <TableCell>{monthLabel(c.cohortMonth)}<FewLoans small={c.small} /></TableCell>
             <TableCell className="font-mono text-[11px]">{c.ruleVersion}</TableCell>
             <TableCell className="font-mono text-[11px]" title={c.policyHash}>{c.policyHash.slice(0, 8)}</TableCell>
             <TableCell>{c.scoreBand}</TableCell>
@@ -99,7 +105,7 @@ export function OverrideTable({ cells }: { cells: OverrideCell[] }) {
       <TableBody>
         {cells.map((c) => (
           <TableRow key={`${c.cohortMonth}|${c.overridden}`} className={smallRow(c.small)} title={c.small ? SMALL_TITLE : undefined} data-small={c.small || undefined}>
-            <TableCell>{monthLabel(c.cohortMonth)}</TableCell>
+            <TableCell>{monthLabel(c.cohortMonth)}<FewLoans small={c.small} /></TableCell>
             <TableCell>{c.overridden ? "Overridden" : "Not overridden"}</TableCell>
             <TableCell className={num}>{c.loans}</TableCell>
             <MetricCells cell={c} />
@@ -122,14 +128,14 @@ export function TakeUpTable({ cells }: { cells: TakeUpCell[] }) {
           <TableHead className="text-right">Offers</TableHead>
           <TableHead className="text-right">Taken up</TableHead>
           <TableHead className="text-right">Not taken up</TableHead>
-          <TableHead className="text-right">Pending</TableHead>
+          <TableHead className="text-right" title="Pending, unobservable or not yet computed">Not yet known</TableHead>
           <TableHead className="text-right">Take-up rate</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {cells.map((c) => (
           <TableRow key={`${c.month}|${c.decision}`} className={smallRow(c.small)} title={c.small ? SMALL_TITLE : undefined} data-small={c.small || undefined}>
-            <TableCell>{monthLabel(c.month)}</TableCell>
+            <TableCell>{monthLabel(c.month)}<FewLoans small={c.small} /></TableCell>
             <TableCell>{OFFER_LABELS[c.decision] ?? c.decision}</TableCell>
             <TableCell className={num}>{c.offers}</TableCell>
             <TableCell className={num}>{c.takeUp.yes}</TableCell>
@@ -194,7 +200,7 @@ export function StageTable({ cells }: { cells: StageCell[] }) {
       <TableBody>
         {cells.map((c) => (
           <TableRow key={c.stage} className={smallRow(c.small)} title={c.small ? SMALL_TITLE : undefined} data-small={c.small || undefined}>
-            <TableCell>{STAGE_LABELS[c.stage] ?? c.stage}</TableCell>
+            <TableCell>{STAGE_LABELS[c.stage] ?? c.stage}<FewLoans small={c.small} /></TableCell>
             <TableCell className={num}>{c.loans}</TableCell>
             <TableCell className={num}>{c.episodes}</TableCell>
             <TableCell className={num}>{c.cured}</TableCell>
