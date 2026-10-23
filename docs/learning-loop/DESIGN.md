@@ -254,11 +254,18 @@ Never stored: ID numbers, names, contact details, bank details, raw bureau
 payloads (`obligations`, accounts), exact amounts, decline/return reason text.
 Stored free text: `overrideReason` only (bureau override, flag clear reason,
 AF exception reason), because POPIA s71(3) representations and an NCR query
-need it. It is staff-written and may contain personal information. Neither
-a retention rule (§2.7, not built) nor a DSAR export (`app/api/dsar/*` tracks
-requests only) covers this table today; both are **follow-ups**, and until
-they exist a DSAR for a client must include this table's
-`overrideReason`s by hand (query by `clientId` / `applicationId`).
+need it. It is staff-written and may contain personal information. A DSAR
+export covers this table: an ADMIN downloads every record about the
+request's client as JSON (`GET /api/dsar/[id]/decision-records`, the
+"Download decision records" button on the DSAR list), matched on the
+record's `clientId`, or its `applicationId` or `loanId` when that application
+or loan is the client's (`lib/learning-loop/dsar-export.ts`; a lead is not
+followed), `overrideReason` included, an empty list for a client with none.
+There is no generic access-event table (`DocumentAccessLog` is for
+`ClientDocument` only), so the audit row `DSAR_DECISION_RECORDS_EXPORTED`
+(who, which request, how many records; never the records) is the access
+event, written before the file is served. A retention rule (§2.7) is not
+built yet.
 
 ### 2.4 Recommendation vs decision
 
