@@ -20,7 +20,7 @@ import { getBookArrears } from "@/lib/reports/book-arrears"
 import { recordDecisions, type DecisionLogDb } from "../decision-log"
 import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
 import { consumerApprovalRecords, consumerDeclineRecord } from "../records"
-import { submissionRefusalRecord } from "../submission-refusal"
+import { recordSubmissionRefusal, submissionRefusalRecord } from "../submission-refusal"
 import { loadDecisionPerformance, type DashboardDb, type DecisionPerformance } from "./loader"
 
 const suite = process.env.RUN_DECISION_DASHBOARD_IT === "1" ? describe.sequential : describe.skip
@@ -215,6 +215,29 @@ suite("decision-performance dashboard (real Postgres)", () => {
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
     expect((await loadDecisionPerformance(db as unknown as DashboardDb, lenders[2].tenantId, NOW, "12M")).refusalRecordFailures).toBe(0)
+    // As the RLS-bound app role (set up by the earlier test) the same counts hold.
+    expect((await loadDecisionPerformance(app as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
+    expect((await loadDecisionPerformance(app as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
+  })
+
+  it("a refusal whose record the database rejects leaves its audit row and a failure row, which the dashboard counts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const t = lenders[2].tenantId
+    const before = (await loadDecisionPerformance(db as unknown as DashboardDb, t, NOW, "12M")).refusalRecordFailures
+    const leadId = `lead-synthetic-${randomUUID()}`
+    // Real failure, no mock: a NUL byte in the record's evidence is refused by Postgres (jsonb), after the in-transaction
+    // audit insert succeeded, so the whole transaction rolls back. The NUL is not in the audit or failure rows.
+    await recordSubmissionRefusal(
+      { tenantId: t, action: "APPLICATION_SUBMISSION_BLOCKED", entity: "LoanApplication", entityId: leadId, newValue: { reason: "open_application_exists" } },
+      { tenantId: t, channel: "WEBSITE", reason: "open_application_exists", subject: { leadId }, existingApplicationId: "app-synthetic\u0000x" },
+    )
+    expect(await db.creditDecisionRecord.count({ where: { tenantId: t, leadId } })).toBe(0)
+    // Exactly one blocked row: the rolled-back in-transaction row is gone; the alone-written one stays.
+    expect(await db.auditLog.count({ where: { tenantId: t, action: "APPLICATION_SUBMISSION_BLOCKED", entityId: leadId } })).toBe(1)
+    const failures = await db.auditLog.findMany({ where: { tenantId: t, action: "DECISION_RECORD_WRITE_FAILED", newValue: { path: ["subjectId"], equals: leadId } } })
+    expect(failures).toHaveLength(1)
+    expect(failures[0].newValue).toEqual({ tenantId: t, channel: "WEBSITE", reason: "open_application_exists", subjectId: leadId })
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, t, NOW, "12M")).refusalRecordFailures).toBe(before + 1)
   })
 
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {

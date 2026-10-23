@@ -95,7 +95,8 @@ export function submissionRefusalRecord(refusal: SubmissionRefusal): DecisionRec
  * Writes the refusal's audit row and its SYSTEM decision record in one
  * transaction. `strict`: throw on failure (the site used logAuditStrict).
  * Otherwise a failure is logged, the audit row is written alone, and a
- * DECISION_RECORD_WRITE_FAILED row marks the missing record.
+ * DECISION_RECORD_WRITE_FAILED row marks the missing record (best effort: a
+ * database that is down loses all the audit rows, and only the log line stays).
  */
 export async function recordSubmissionRefusal(
   audit: AuditParams,
@@ -116,7 +117,8 @@ export async function recordSubmissionRefusal(
       error,
     )
     await logAudit(audit)
-    // The gap leaves its own durable row (ids and codes only, never the error text): the dashboard counts it.
+    // The gap leaves its own audit row (ids and codes only, never the error text): the dashboard counts it.
+    // Best effort like the row above: if the database itself is down, both rows are lost and only the log line remains.
     await logAudit({
       tenantId: refusal.tenantId,
       action: AuditAction.DECISION_RECORD_WRITE_FAILED,

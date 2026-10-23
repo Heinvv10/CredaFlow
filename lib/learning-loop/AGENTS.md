@@ -32,7 +32,10 @@ repayment outcome can be joined back to it. Design: `docs/learning-loop/DESIGN.m
   as a staff decision.
 - **Automated refusals**: `recordSubmissionRefusal` (audit + SYSTEM record,
   `s71ReviewRequired`, one tx), never a bare `logAudit`; subject is the
-  confirmed client or the lead, never a merely matched client.
+  confirmed client or the lead, never a merely matched client. On a non-strict
+  site a failed record also writes `DECISION_RECORD_WRITE_FAILED` (codes + subject
+  id, no error text); the s71 panel counts it per tenant, all-time like the
+  refusal total. Best effort: a down database loses both audit rows.
 - **Same transaction, fail closed, for credit decisions and offers**: pass
   the route's `tx` to `recordDecisions`. Collection actions (not hooked yet)
   must never be blocked by the log: write after the action and log a
