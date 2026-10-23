@@ -29,6 +29,6 @@ describe("isBusinessDateColumn", () => {
     expect(isBusinessDateColumn("Recovery", "updatedAt")).toBe(false)
     expect(isBusinessDateColumn("Payment", "chargesFrozenUntil")).toBe(false)
     expect(isBusinessDateColumn("DealerCommissionRate", "createdAt")).toBe(false)
-    expect(isBusinessDateColumn("DealerCommissionLine", "effectiveFrom")).toBe(false)
+    expect(isBusinessDateColumn("DealerCommissionLine", "effectiveOn")).toBe(false)
   })
 })
