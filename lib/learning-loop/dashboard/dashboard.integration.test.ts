@@ -47,6 +47,13 @@ async function lender(bad: boolean, demo = false): Promise<Lender> {
   const { loanId, clientId } = await createChargesLoan(db, tenant)
   const loan = await db.loan.findUniqueOrThrow({ where: { id: loanId }, select: { applicationId: true, createdAt: true } })
   const actor = { userId: tenant.userId, role: "LOAN_ADMIN" }
+  // The declined applicant is a real application of the lender: a decision record's subject must exist.
+  const declinedClient = await db.client.create({
+    data: { tenantId: tenant.tenantId, idNumber: `91${randomUUID().replaceAll("-", "").slice(0, 11)}`, firstName: "Declined", lastName: "Test", email: `${randomUUID()}@client.invalid`, phone: "0820000004" },
+  })
+  const declined = await db.loanApplication.create({
+    data: { tenantId: tenant.tenantId, reference: `APP-${randomUUID()}`, clientId: declinedClient.id, productId: tenant.productId, appliedAmount: 200_000, appliedTermDays: 31, status: "DECLINED" },
+  })
   await db.$transaction(async (tx) => {
     await recordDecisions(tx as unknown as DecisionLogDb, consumerApprovalRecords({
       tenantId: tenant.tenantId, applicationId: loan.applicationId, clientId, actor,
@@ -60,7 +67,7 @@ async function lender(bad: boolean, demo = false): Promise<Lender> {
       affordabilitySnapshot: { policyVersion: "approval-ndi-v3", inputFingerprint: "a".repeat(64), decisionFingerprint: "b".repeat(64) },
     }))
     const decline = consumerDeclineRecord({
-      tenantId: tenant.tenantId, applicationId: `app-declined-${randomUUID()}`, clientId: null, actor,
+      tenantId: tenant.tenantId, applicationId: declined.id, clientId: null, actor,
       decidedAt: new Date("2026-10-02T09:00:00+02:00"), declineCategory: bad ? "AFFORDABILITY" : "BUREAU_SCORE",
     })
     const refusal = submissionRefusalRecord({
