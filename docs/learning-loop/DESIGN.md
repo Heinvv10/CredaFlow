@@ -947,22 +947,44 @@ to drop records the NCA still requires). For a lender on its own instance
 (`docs/DEPLOY.md`, "Tearing a lender down") dropping the volumes is the
 teardown and this step does not apply.
 
-Step, one transaction, on the shared database, after a verified backup:
+Step, one transaction, on the shared database, after a verified backup.
+`session_replication_role = replica` disables the append-only trigger and
+every FK trigger: the RESTRICT checks **and** the `ON DELETE SET NULL` /
+`CASCADE` actions. So the step does by hand what those actions would have
+done, and the end state must be orphan-free. Do not rely on
+`lib/registry/tenant-scoped-models/` for the table list (it omits
+`AuditLog`); enumerate from `pg_constraint` (query below).
 
 ```sql
 BEGIN;
-SET LOCAL session_replication_role = replica;  -- disables the trigger AND every FK check, RESTRICT included
--- 1. Audit first. tenantId is NULL on purpose: the tenant row is about to go and an FK-less
---    reference would dangle. Who/what/why live in newValue.
+SET LOCAL session_replication_role = replica;
+-- 1. Audit first, tenantId NULL (the Tenant row is about to go). Who/what/why live in newValue.
 INSERT INTO "AuditLog" ("id", "tenantId", "userEmail", "action", "entity", "entityId", "newValue", "createdAt")
 VALUES (gen_random_uuid()::text, NULL, '<operator email>', 'TENANT_OFFBOARDED', 'Tenant', '<tenantId>',
         '{"approvedBy":"<name>","legalRef":"<ticket>","backup":"<backup id>","decisionRecords":<n>,"decisionOutcomes":<n>}',
         now());
--- 2. Children first: replica mode skips the checks, so nothing orders this for you.
+-- 2. Decision data: DecisionOutcome, then CreditDecisionRecord.
 DELETE FROM "DecisionOutcome" WHERE "tenantId" = '<tenantId>';
 DELETE FROM "CreditDecisionRecord" WHERE "tenantId" = '<tenantId>';
--- 3. Every other tenant-scoped table, then the Tenant row (list: lib/registry/tenant-scoped-models/).
--- 4. Before COMMIT, check no row anywhere still names the tenant; replica mode will not stop an orphan.
+-- 3. ON DELETE SET NULL tables (baseline: User, AuditLog, WebhookSignatureFailure): keep the rows, detach them.
+--    AuditLog is kept forever. The AuditLog_nca_quote_issued_immutable trigger is off in replica mode, so this runs.
+UPDATE "AuditLog" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
+UPDATE "WebhookSignatureFailure" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
+UPDATE "User" SET "tenantId" = NULL WHERE "tenantId" = '<tenantId>';
+-- 4. ON DELETE CASCADE tables (baseline: EmailLog, NotificationLog, IntegrationLog, MessageMention): delete.
+DELETE FROM "EmailLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "NotificationLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "IntegrationLog" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "MessageMention" WHERE "tenantId" = '<tenantId>';
+-- 5. Every remaining table with a FK to "Tenant" (RESTRICT or NO ACTION, e.g. SuretyConsent from
+--    20261017170000_commercial_legal_guards), children of those first, then the Tenant row.
+--    Regenerate the list at run time; migrations added since this was written are not in it:
+SELECT conrelid::regclass AS tbl, conname, confdeltype FROM pg_constraint
+ WHERE confrelid = '"Tenant"'::regclass AND contype = 'f' ORDER BY 1;
+DELETE FROM "Tenant" WHERE "id" = '<tenantId>';
+-- 6. Orphan check, per FK from the query above (also FKs to rows deleted in step 5, not only to Tenant):
+--      SELECT count(*) FROM "<tbl>" WHERE "tenantId" = '<tenantId>';   -- must be 0, except NULLed rows
+--    Any non-zero count: ROLLBACK. Only COMMIT when every count is 0.
 COMMIT;
 ```
 
