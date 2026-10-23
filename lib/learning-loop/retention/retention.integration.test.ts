@@ -28,6 +28,7 @@ import { OUTCOME_DEFINITION_VERSION } from "../outcomes/definition"
 import { syncOutcomes, type OutcomeWriterDb } from "../outcomes/writer"
 import { consumerDeclineRecord } from "../records"
 import { pseudonymiseTenantDecisionRecords, runDecisionRecordRetention } from "./job"
+import { countDecisionRecordsAgedBy } from "./preview"
 
 const suite = process.env.RUN_DECISION_LOG_IT === "1" ? describe.sequential : describe.skip
 const db = new PrismaClient()
@@ -201,6 +202,18 @@ suite("decision log retention (real Postgres)", () => {
     expect(await pseudonymised(tenant)).toEqual(new Set())
   })
 
+  it("previews how many records a period would pseudonymise, from the job's own clock, changing nothing", async () => {
+    const count = (months: number) => runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, months, app))
+    const before = await rows(tenant)
+    expect(await count(12)).toBe(7)
+    // 5 months also reaches the decline of 6 months ago and the loan settled 6 months ago; 100 reaches nothing.
+    expect(await count(5)).toBe(9)
+    expect(await count(100)).toBe(0)
+    // Another lender's frame counts only its own records, however old.
+    expect(await runWithTenant(offTenant.tenantId, () => countDecisionRecordsAgedBy(offTenant.tenantId, 12, app))).toBe(1)
+    expect(await rows(tenant)).toEqual(before)
+  })
+
   it("pseudonymises what has aged past the period and nothing else, then does nothing the second time", async () => {
     const before = await rows(tenant)
 
@@ -237,6 +250,7 @@ suite("decision log retention (real Postgres)", () => {
     expect(audits.map((a) => a.newValue)).toEqual([{ retentionMonths: 12, pseudonymised: 7 }])
 
     expect(await run(tenant)).toEqual({ retentionMonths: 12, pseudonymised: 0 })
+    expect(await runWithTenant(tenant.tenantId, () => countDecisionRecordsAgedBy(tenant.tenantId, 12, app))).toBe(0)
     expect(await db.auditLog.count({ where: { tenantId: tenant.tenantId, action: "DECISION_RECORDS_PSEUDONYMISED" } })).toBe(1)
     expect(await rows(tenant)).toEqual([...after.values()])
   })

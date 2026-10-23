@@ -48,6 +48,7 @@
 --   DROP TRIGGER "CreditDecisionRecord_no_insert_pseudonymised" ON "CreditDecisionRecord";
 --   DROP FUNCTION public."guardCreditDecisionRecordPseudonymisedInsert"();
 --   DROP FUNCTION public."pseudonymiseCreditDecisionRecords"();
+--   DROP FUNCTION public."agedCreditDecisionRecordIds"(text, integer, timestamp);
 --   ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_identity_present";
 --   ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_pseudonymised_shape";
 --   ALTER TABLE "CreditDecisionRecord" DROP CONSTRAINT "CreditDecisionRecord_override_reason";
@@ -164,12 +165,11 @@ CREATE TRIGGER "CreditDecisionRecord_no_insert_pseudonymised"
   BEFORE INSERT ON "CreditDecisionRecord"
   FOR EACH ROW EXECUTE FUNCTION public."guardCreditDecisionRecordPseudonymisedInsert"();
 
--- Pseudonymise the session's tenant's aged records and return how many. The
--- tenant is the tenant frame (app.tenant_id); with none it refuses. The
--- lender's period is read here (NULL: off, nothing changes). SECURITY DEFINER
--- so that the guard can tell it from any other session (threat model above);
--- the tenant is filtered explicitly, and RLS (FORCE) binds the owner too.
--- A record ages from:
+-- The records of `p_tenant_id` that a retention period of `p_months` has aged
+-- at `p_as_of` (UTC). The one definition of the clock, read by the nightly
+-- pseudonymisation and by the settings preview that tells a SUPER_ADMIN how
+-- many records a period would pseudonymise. Read-only; runs as its caller, so
+-- RLS binds it. A record ages from:
 --   * the termination of its loan (the loan its loanId names, else the one
 --     booked from its application): COALESCE(closedAt, updatedAt) for a
 --     settled or cancelled loan, COALESCE(writeOffAt, closedAt, updatedAt) for
@@ -181,29 +181,12 @@ CREATE TRIGGER "CreditDecisionRecord_no_insert_pseudonymised"
 --     client (no application, no loan) does not age while that client has an
 --     open loan or a live application; otherwise (declined, cancelled,
 --     erased, or only a lead) its decidedAt.
--- Its outcomes keep their figures but lose sourceRef, which names the loan.
-CREATE OR REPLACE FUNCTION public."pseudonymiseCreditDecisionRecords"()
- RETURNS integer
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path = public, pg_temp
+CREATE OR REPLACE FUNCTION public."agedCreditDecisionRecordIds"(p_tenant_id text, p_months integer, p_as_of timestamp)
+ RETURNS SETOF text
+ LANGUAGE sql
+ STABLE
 AS $function$
-DECLARE
-  tenant text := public.cf_rls_tenant();
-  months integer;
-  as_of timestamp := now() AT TIME ZONE 'UTC';
-  changed integer;
-BEGIN
-  IF tenant IS NULL THEN
-    RAISE EXCEPTION 'pseudonymiseCreditDecisionRecords needs a tenant frame' USING ERRCODE = '22023';
-  END IF;
-  SELECT c."decisionRecordRetentionMonths" INTO months FROM "TenantConfig" c WHERE c."tenantId" = tenant;
-  IF months IS NULL THEN
-    RETURN 0;
-  END IF;
-
-  PERFORM set_config('cf.decision_record_pseudonymise', txid_current()::text, true);
-  WITH aged AS (
+  SELECT clock."id" FROM (
     SELECT r."id",
       CASE
         WHEN loan."id" IS NOT NULL THEN
@@ -230,15 +213,45 @@ BEGIN
       LIMIT 1
     ) loan ON true
     LEFT JOIN "LoanApplication" app ON app."id" = r."applicationId" AND app."tenantId" = r."tenantId"
-    WHERE r."tenantId" = tenant AND r."pseudonymisedAt" IS NULL
-  ), done AS (
+    WHERE r."tenantId" = p_tenant_id AND r."pseudonymisedAt" IS NULL
+  ) clock
+  WHERE clock."agesFrom" IS NOT NULL AND clock."agesFrom" + make_interval(months => p_months) <= p_as_of
+$function$;
+
+-- Pseudonymise the session's tenant's aged records and return how many. The
+-- tenant is the tenant frame (app.tenant_id); with none it refuses. The
+-- lender's period is read here (NULL: off, nothing changes). SECURITY DEFINER
+-- so that the guard can tell it from any other session (threat model above);
+-- the tenant is filtered explicitly, and RLS (FORCE) binds the owner too.
+-- Its outcomes keep their figures but lose sourceRef, which names the loan.
+CREATE OR REPLACE FUNCTION public."pseudonymiseCreditDecisionRecords"()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public, pg_temp
+AS $function$
+DECLARE
+  tenant text := public.cf_rls_tenant();
+  months integer;
+  as_of timestamp := now() AT TIME ZONE 'UTC';
+  changed integer;
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'pseudonymiseCreditDecisionRecords needs a tenant frame' USING ERRCODE = '22023';
+  END IF;
+  SELECT c."decisionRecordRetentionMonths" INTO months FROM "TenantConfig" c WHERE c."tenantId" = tenant;
+  IF months IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  PERFORM set_config('cf.decision_record_pseudonymise', txid_current()::text, true);
+  WITH done AS (
     UPDATE "CreditDecisionRecord" r
     SET "applicationId" = NULL, "loanId" = NULL, "clientId" = NULL, "leadId" = NULL,
         "actorUserId" = NULL, "overrideReason" = NULL, "sourceEntityId" = NULL, "inputsHash" = NULL,
         "evidenceRefs" = '{}'::jsonb, "pseudonymisedAt" = as_of
-    FROM aged
+    FROM public."agedCreditDecisionRecordIds"(tenant, months, as_of) AS aged("id")
     WHERE r."id" = aged."id" AND r."tenantId" = tenant
-      AND aged."agesFrom" IS NOT NULL AND aged."agesFrom" + make_interval(months => months) <= as_of
     RETURNING r."id"
   ), freed AS (
     UPDATE "DecisionOutcome" o SET "sourceRef" = o."id"

@@ -452,8 +452,19 @@ table owner, this keeps code paths honest and proves the rules, but does not sto
 a hostile application session. The function is executable by any role: a caller
 can only run the nightly job early for its own tenant, on records past the
 clock, when the lender has set a period. A pseudonymised record's outcomes are
-frozen: the outcome writer neither recomputes (there is no subject to read the
-loan from) nor sweeps them, so a window still PENDING at that point stays PENDING.
+frozen at the definition version current when it was pseudonymised: the outcome
+writer neither recomputes them (there is no subject to read the loan from) nor
+sweeps them (the orphan sweep skips a pseudonymised decision), so a later
+`OUTCOME_DEFINITION_VERSION` bump does not reach them and they keep their old
+`definitionVersion`; a window still PENDING at that point stays PENDING. Figures
+that mix versions across old and new decisions are a consequence the dashboard
+does not mark.
+
+**Confirmation.** Saving a period pseudonymises, at the next nightly run,
+everything already past it, irreversibly. The settings card therefore asks
+`POST /api/settings/decision-record-retention/preview` (SUPER_ADMIN, read-only,
+the same `agedCreditDecisionRecordIds` clock) how many records that is, and
+shows the count with a destructive confirm button before it saves.
 
 ## 3. Outcome definitions (implemented in PR B)
 

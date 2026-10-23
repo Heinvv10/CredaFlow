@@ -59,9 +59,13 @@ describe("CreditDecisionRecord hand-written objects", () => {
     expect(job).toContain(`tenant text := public.cf_rls_tenant()`)
     expect(job).toContain(`as_of timestamp := now() AT TIME ZONE 'UTC'`)
     expect(job).toContain(`IF months IS NULL THEN RETURN 0;`)
-    expect(job).toContain(`WHEN 'WRITTEN_OFF' THEN COALESCE(loan."writeOffAt", loan."closedAt", loan."updatedAt")`)
-    expect(job).toContain(`IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED') THEN NULL`)
     expect(job).toContain(`SET "sourceRef" = o."id"`)
+    // The clock is one function, read by the job and by the settings preview.
+    expect(job).toContain(`public."agedCreditDecisionRecordIds"(tenant, months, as_of)`)
+    const clock = flat("agedCreditDecisionRecordIds")
+    expect(clock).toContain(`WHEN 'WRITTEN_OFF' THEN COALESCE(loan."writeOffAt", loan."closedAt", loan."updatedAt")`)
+    expect(clock).toContain(`IN ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED') THEN NULL`)
+    expect(clock).toContain(`r."applicationId" IS NULL AND r."loanId" IS NULL AND r."clientId" IS NOT NULL`)
   })
 
   it("refuses a record born pseudonymised", () => {
