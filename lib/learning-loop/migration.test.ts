@@ -38,5 +38,6 @@ describe("CreditDecisionRecord hand-written objects", () => {
     }
     // Invoker rights (the default): the lookups run under the caller's row-level security.
     expect(fn).not.toMatch(/SECURITY DEFINER/i)
+    expect(fn).toContain("SET search_path = public, pg_temp")
   })
 })

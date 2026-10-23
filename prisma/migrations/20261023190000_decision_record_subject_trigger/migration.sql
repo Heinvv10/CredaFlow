@@ -20,6 +20,9 @@
 -- or created in its own lender; the test fixtures that stored invented ids
 -- now create the parent rows.
 --
+-- The search_path is pinned (tables are schema-qualified too), so a caller's
+-- search_path cannot redirect a lookup to a look-alike table.
+--
 -- The error code is check_violation (23514), as the append-only guard's: Prisma
 -- reports foreign_key_violation (23503) without its message, and the message
 -- is what names the column.
@@ -35,6 +38,7 @@
 CREATE OR REPLACE FUNCTION public."guardCreditDecisionRecordSubjects"()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET search_path = public, pg_temp
 AS $function$
 BEGIN
   IF NEW."applicationId" IS NOT NULL AND NOT EXISTS (
