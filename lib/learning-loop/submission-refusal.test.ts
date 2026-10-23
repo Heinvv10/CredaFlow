@@ -104,6 +104,14 @@ describe("recordSubmissionRefusal", () => {
     txRecord.mockRejectedValue(new Error("record insert failed"))
     await expect(recordSubmissionRefusal(audit, refusal())).resolves.toBeUndefined()
     expect(appAudit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "APPLICATION_SUBMISSION_BLOCKED" }) })
+    // The gap leaves a durable row: codes and the subject id only, no error text, no personal data.
+    expect(appAudit).toHaveBeenCalledTimes(2)
+    const failure = appAudit.mock.calls[1][0].data
+    expect(failure).toMatchObject({
+      tenantId: "tenant-1", action: "DECISION_RECORD_WRITE_FAILED",
+      newValue: { tenantId: "tenant-1", channel: "PORTAL", reason: "client_blacklisted", subjectId: "client-1" },
+    })
+    for (const value of ["record insert failed", "synthetic.applicant", "1234567", "0000000000000"]) expect(JSON.stringify(failure)).not.toContain(value)
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining("[learning-loop] automated refusal record failed"),
       { tenantId: "tenant-1", channel: "PORTAL", reason: "client_blacklisted" },

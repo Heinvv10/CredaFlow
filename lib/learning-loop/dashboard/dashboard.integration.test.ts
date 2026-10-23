@@ -205,6 +205,18 @@ suite("decision-performance dashboard (real Postgres)", () => {
     await db.decisionOutcome.delete({ where: { id: stray.id } })
   })
 
+  it("counts refusal-record failures per lender from the audit trail, never another lender's", async () => {
+    const [a, b] = lenders
+    const failure = (tenantId: string) => ({
+      tenantId, action: "DECISION_RECORD_WRITE_FAILED", entity: "CreditDecisionRecord",
+      newValue: { tenantId, channel: "PORTAL", reason: "client_blacklisted", subjectId: "client-synthetic" },
+    })
+    await db.auditLog.createMany({ data: [failure(a.tenantId), failure(a.tenantId), failure(b.tenantId)] })
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, a.tenantId, NOW, "12M")).refusalRecordFailures).toBe(2)
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, b.tenantId, NOW, "12M")).refusalRecordFailures).toBe(1)
+    expect((await loadDecisionPerformance(db as unknown as DashboardDb, lenders[2].tenantId, NOW, "12M")).refusalRecordFailures).toBe(0)
+  })
+
   it("reads the asked window only: the 3M gap is unobservable, never good", async () => {
     const d = await loadDecisionPerformance(db as unknown as DashboardDb, lenders[0].tenantId, NOW, "3M")
     expect(d.totals.ever30).toMatchObject({ n: 1, yes: 0, no: 0, unobservable: 1, ratePct: null, coveragePct: 0 })

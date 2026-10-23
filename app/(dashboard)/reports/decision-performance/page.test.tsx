@@ -43,6 +43,7 @@ const data = (demoData = false): DecisionPerformance => ({
     { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "client_blacklisted", s71ReviewRequired: true },
     { month: "2026-03", category: null, actorType: "SYSTEM", refusalReason: "own_lender_arrears", s71ReviewRequired: true },
   ]),
+  refusalRecordFailures: 0,
   stages: [], arrangements: arrangementOutcomes({ KEPT: 1 }),
   book: { scope: "ALL", chargesLive: false, book: { count: 0, value: 0 }, arrears: { count: 0, amount: 0, outstandingPrincipal: 0 },
     chargesOnly: { count: 0, amount: 0 }, ageing: [], par30: { count: 0, value: 0, pct: 0 }, par60: { count: 0, value: 0, pct: 0 },
@@ -113,6 +114,14 @@ describe("Decision performance page", () => {
     expect(t).toContain("(few loans)")
     expect(t).toContain("Not yet computed")
     expect(t).toContain("33.3% 1/3")
+  })
+
+  it("says how many refusals could not be recorded in the decision log, only when there are some", async () => {
+    expect(text(await render())).not.toContain("could not be recorded")
+    state.load.mockResolvedValue({ ...data(), refusalRecordFailures: 3 })
+    expect(text(await render())).toContain("3 refusals could not be recorded in the decision log.")
+    state.load.mockResolvedValue({ ...data(), refusalRecordFailures: 1 })
+    expect(text(await render())).toContain("1 refusal could not be recorded in the decision log.")
   })
 
   it("is read-only: no form, button or input on the page", async () => {
