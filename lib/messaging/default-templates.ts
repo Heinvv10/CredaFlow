@@ -40,6 +40,13 @@ export const DEFAULT_MESSAGE_TEMPLATES: readonly DefaultMessageTemplate[] = [
     statutoryOverride: true,
   },
   {
+    // The tracking-stopped notice (lib/asset-finance/tracker-closure.ts); the words are
+    // lib/asset-finance/documents/wording/tracking-stopped.ts, rendered into the vars.
+    key: "asset_finance_tracking_stopped_email", event: "tracking_stopped", channel: "EMAIL", category: "SERVICE",
+    subject: "{{subject}}", body: "{{text}}", bodyTemplate: "{{html}}",
+    statutoryOverride: false,
+  },
+  {
     key: "agent_reengagement_whatsapp", event: "agent_reengagement", channel: "WHATSAPP", category: "SERVICE",
     body: WABA_BODY_TEMPLATES.agent_reengagement, bodyTemplate: WABA_BODY_TEMPLATES.agent_reengagement,
     wabaTemplateName: "agent_reengagement",

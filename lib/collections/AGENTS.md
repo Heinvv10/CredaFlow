@@ -41,15 +41,15 @@ promise-to-pay tracking, and arrangement monitoring.
   `x-cron-failed-tenants` header, and a 2xx without it fails closed. A per-item error
   (a send that failed, a reconciliation case) is in the body, leaves the claim DONE
   and the status 200, and waits for tomorrow. Because a takeover can still overlap a
-  runner that only lost its heartbeat, every direct send (legacy SMS/WhatsApp,
-  `loan_overdue`) and every escalation rule first takes
+  runner that only lost its heartbeat, each reminder leg is reserved by
+  `sendMessage`'s idempotency key (`collections:<loan>:<trigger>:<channel>:<SAST day>`,
+  a Message row committed before the provider call; an ambiguous outcome keeps it and
+  is held for reconciliation), and `loan_overdue` and every escalation rule first take
   `reserveOnce(tenantId, key, at)` (`lib/ops/send-reservation.ts`), unique per loan,
-  message and SAST day. It is released, against the day it was taken, only when the
-  send definitely did not happen (`DEFINITELY_REJECTED`); an ambiguous outcome keeps
-  it and is held for reconciliation. One loan's throw is that loan's error, not the
+  message and SAST day, released, against the day it was taken, only when the send
+  threw. One loan's throw is that loan's error, not the
   tenant's day, unless it is a database fault (`lib/ops/db-fault.ts`) or every loan
-  failed: then the tenant fails and is retried. A tenant-level abort (a missing SMS
-  template) is a failed tenant. /api/health reads the status, which is 503 only when
+  failed: then the tenant fails and is retried. /api/health reads the status, which is 503 only when
   EVERY tenant failed, so a failing tenant among several shows in the log, the body
   and the claim (FAILED), not on health. The retry sweep sends ALL dunning only
   07:00-20:00 SAST; only an automated date-worded reminder (`collections:`,
@@ -121,6 +121,36 @@ promise-to-pay tracking, and arrangement monitoring.
   - Complaints do not hold dunning (decided 2026-10-19). The notice is set and
     cleared only by `app/api/loans/[id]/debt-review` (audited). Recording a
     death also BLOCKs the client's Contact (`lib/clients/deceased-contacts.ts`).
+- **Every reminder goes through `sendMessage`; there is no direct-provider
+  leg.** The reminders cron has no flag-off path (`MESSAGING_NEW_SEND_COLLECTIONS`
+  is retired): template rows, the consent/block gate, the WhatsApp kill switches,
+  the holds and `Message.dunning` all apply. A direct BulkSMS leg once sent with
+  no opt-out check. A channel that is off (SMS by policy; WhatsApp by `WA_ENABLED`
+  or the tenant switch) is skipped per leg BEFORE `sendMessage`: no template
+  lookup, no Message row, no error (the transport kill switch stays the
+  backstop). A missing template of an ENABLED channel skips that leg for the
+  tenant with one counted warning (`warnings`), never an abort; an unreadable
+  WhatsApp settings row fails the tenant (retried), it is not "off". Proof on a real database:
+  `reminders.consent.integration.test.ts`, `reminders.identity.integration.test.ts`.
+- **A leg goes only to the recipient's OWN Contact** (`lookupRecipientContact`,
+  `lib/contact/recipient.ts`; rule in `lib/messaging/AGENTS.md`). The reminders cron,
+  entity dispatch and notification dispatch count a refused leg and never name the
+  value in a report.
+- **`loan_overdue` always goes through `sendMessage`** (`MESSAGING_NEW_SEND_NOTIF_LOAN_OVERDUE`
+  is retired). `lib/collections/overdue-notice.ts` fires it once per loan per trigger
+  per SAST day under a `SendReservation`, also when the trigger was already reminded
+  today, and rechecks the holds immediately before it. `triggerNotification` returns
+  the legs that failed; a throw or a failed leg is counted in `errors` and gives the
+  reservation back, so ANOTHER run the same SAST day (manual, or the scheduler's retry
+  of a failed tenant) tries again; a run that closes DONE is not retried, so otherwise
+  the failure is only counted (each leg's idempotency key stops a resend). Escalation's
+  60-DPD notice counts them the same way.
+- **No dunning outside 07:00-20:00 SAST** (`lib/collections/send-window.ts`): the
+  reminders run refuses to start (200, `skipped`, the claim closes DONE) and, checked per
+  loan, stops when the window closes mid-run (the rest `deferred`, not errors). An
+  escalation rule that messages the borrower (`sendsNotice`: the 60-DPD DEFAULTED flip and
+  its notice) is not applied at all outside it, no flip, no note, no reservation, so the
+  07:00 run applies it whole; `DEFAULT_NOTICE_MAX_DPD` (66) leaves room for that.
 - **Notifications go through `lib/notifications`** — never call SMS/email
   providers directly from this module; you'd bypass channel preferences,
   quiet-hours, and the audit trail.
@@ -130,6 +160,7 @@ promise-to-pay tracking, and arrangement monitoring.
 |------|---------|
 | `lib/collections/escalation.ts` | Cron-driven `processEscalations()` (plural) — DPD-5/20 `LoanNote` + notification |
 | `lib/collections/reminders.ts` | `processPaymentReminders()` — pre/post-due reminder dispatch |
+| `lib/collections/overdue-notice.ts` | `fireOverdueNotice()` — the reminders cron's `loan_overdue`, reserved, failures counted |
 | `lib/collections/promiseToPay.ts` | `getPromiseToPayStatus()` — read-only P2P status from `LoanNote` |
 | `lib/collections/arrangement-tracker.ts` | Arrangement monitoring + breach detection |
 

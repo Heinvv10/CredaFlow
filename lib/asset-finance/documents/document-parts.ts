@@ -6,6 +6,8 @@ import { ENTITY_TYPE_LABELS } from "../labels"
 import { RATE_BASIS_LABELS } from "../deal-labels"
 import type { DealDocumentData } from "./deal-document-data"
 import { DealDocumentWriter, formatIsoDatePdf } from "./pdf-layout"
+import { commissionDisclosure, introducerRow, type CommissionDocument } from "./wording/commission-disclosure"
+import type { DocumentDealer } from "./wording/dealer-name"
 
 /** "0.1175" → "11.75%", exact (Decimal), at least two places. */
 export function percentPdf(decimal: string): string {
@@ -95,4 +97,11 @@ export function debtSummary(data: DealDocumentData): [string, string][] {
     ["Total payable", formatZarPdf(p.totalPayableCents)],
     ["Contract rate", rateDescription(p)],
   ]
+}
+
+/** The NCA documents' own section for the introducer and its commission, outside the cost-of-credit disclosure. */
+export function introducerSection(w: DealDocumentWriter, dealer: DocumentDealer, document: Extract<CommissionDocument, "NCA_AGREEMENT" | "NCA_QUOTATION">): void {
+  w.section("COMMISSION TO THE INTRODUCER")
+  w.labelValues([introducerRow(dealer)])
+  w.paragraph(commissionDisclosure(document))
 }

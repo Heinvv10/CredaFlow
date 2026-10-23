@@ -116,7 +116,7 @@ suite.sequential("NCA cost of credit with and without a dealer (real Postgres, r
     await inTenant(fx, async () => {
       const consent = await uploadDealerDocument(sales, dealId, pdfUpload("POPIA_CONSENT"))
       if (consent.kind !== "stored") throw new Error(consent.error)
-      expect(await attestDealerConsent(sales, dealId, { documentId: consent.document.id, clientIds: [clientId] })).toMatchObject({ kind: "attested" })
+      expect(await attestDealerConsent(sales, dealId, { documentId: consent.document.id, clientIds: [clientId] , signingMethod: "IN_PERSON" })).toMatchObject({ kind: "attested" })
       expect(await submitDealerDeal(sales, dealId)).toMatchObject({ kind: "submitted" })
     })
     setSession({ id: fx.officer, email: "officer@coc-it.test", role: "CREDIT_OFFICER", tenantId: fx.tenantId })

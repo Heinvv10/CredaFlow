@@ -57,8 +57,9 @@ export async function createDealerDeal(actor: DealerActor, body: unknown): Promi
   const input = parsed.data
   const mine = { tenantId: actor.tenantId, createdByDealerId: actor.dealerId }
   const [entity, client, asset] = await Promise.all([
-    input.entityId === null ? null : prisma.businessEntity.findFirst({ where: { id: input.entityId, ...mine }, select: { id: true } }),
-    input.clientId === null ? null : prisma.client.findFirst({ where: { id: input.clientId, ...mine }, select: { id: true } }),
+    // An erased (purged) person or business is gone for the dealer (guardDealerPurgedPartyUse).
+    input.entityId === null ? null : prisma.businessEntity.findFirst({ where: { id: input.entityId, ...mine, dealerPurgedAt: null }, select: { id: true } }),
+    input.clientId === null ? null : prisma.client.findFirst({ where: { id: input.clientId, ...mine, dealerPurgedAt: null }, select: { id: true } }),
     prisma.financedAsset.findFirst({ where: { id: input.assetId, ...mine }, select: { id: true } }),
   ])
   if ((input.entityId !== null && !entity) || (input.clientId !== null && !client)) return dealerMiss("Borrower")

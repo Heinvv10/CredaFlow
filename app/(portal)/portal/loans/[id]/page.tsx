@@ -10,6 +10,7 @@ import { portalLoanCharges, portalOutstanding } from "@/lib/portal/loan-charges"
 import { ChargesBreakdown } from "@/components/portal/ChargesBreakdown"
 import { cashPaidPercent, cashReceivedCents } from "@/lib/payments/waiver"
 import { PortalRecoverySection } from "@/components/asset-finance/recovery/PortalRecoverySection"
+import { PortalTrackingStopped } from "@/components/asset-finance/telematics/PortalTrackingStopped"
 import { loadSurrenderRequestOpen } from "@/lib/asset-finance/surrender-request-gate"
 import { SurrenderRequestCard } from "@/components/asset-finance/SurrenderRequestCard"
 import { getPortalLoan } from "./portal-loan"
@@ -44,7 +45,10 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
     const lease = loan.clientId ? await loadPortalLease(loan.tenantId, loan.clientId, loan.id) : null
     if (!lease) redirect("/portal")
     // The lease pages stay English for now (lib/i18n/.claude.md), the recovery card on them too.
-    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} locale="en" />} />
+    return <PortalLeaseDetail view={lease} back={{ href: "/portal/loans", label: "Back to my contracts" }} extra={<>
+      <PortalTrackingStopped tenantId={loan.tenantId} loanId={loan.id} />
+      <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} locale="en" />
+    </>} />
   }
 
   const nextPayment = loan.repaymentSchedule.find(
@@ -200,6 +204,7 @@ export default async function PortalLoanDetailPage({ params }: PageProps) {
       <PortalLoanTabs loan={loan} t={t} l={l} locale={locale} />
       {loan.contractType !== "LOAN" && loan.assetId && (
         <div className="mt-6">
+          <PortalTrackingStopped tenantId={loan.tenantId} loanId={loan.id} />
           <PortalRecoverySection tenantId={loan.tenantId} loanId={loan.id} locale={locale} />
         </div>
       )}

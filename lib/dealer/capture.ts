@@ -169,7 +169,7 @@ export async function captureDealerPerson(actor: DealerActor, body: unknown, ent
   if (limited) return limited
   const person = parseDealerPerson(body, entityId === null)
   const entity = entityId === null ? null : await prisma.businessEntity.findFirst({
-    where: { id: entityId, tenantId: actor.tenantId, createdByDealerId: actor.dealerId },
+    where: { id: entityId, tenantId: actor.tenantId, createdByDealerId: actor.dealerId, dealerPurgedAt: null },
     select: { id: true, type: true },
   })
   if (entityId !== null && !entity) return dealerMiss("Entity")

@@ -15,6 +15,7 @@ import { parseRelationshipInput, relationshipRowValues } from "@/lib/asset-finan
 import type { SeedActor } from "./asset-finance-documents"
 import { PEOPLE, personEmail, type AfPersonKey } from "./asset-finance-data"
 import { seedEnvPassword } from "./env-password"
+import { ensureClientContact } from "./client-contact"
 
 // The people whose consumer bureau check the seed runs (the director, the
 // trustees): they consent, so the check is made and the approval reasons that
@@ -41,6 +42,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       else if (BUREAU_CONSENT.includes(p.key)) {
         await prisma.client.updateMany({ where: { id: existing.id, popiaConsentGiven: false }, data: { popiaConsentGiven: true, popiaConsentAt: new Date() } })
       }
+      await ensureClientContact(tenantId, existing.id)
       ids[p.key] = existing.id
       continue
     }
@@ -61,6 +63,7 @@ export async function ensurePeople(tenantId: string): Promise<Record<AfPersonKey
       },
       select: { id: true },
     })
+    await ensureClientContact(tenantId, created.id)
     ids[p.key] = created.id
   }
   return ids

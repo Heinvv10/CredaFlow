@@ -13,16 +13,16 @@ const NAME = { select: { name: true, email: true } } as const
 const CONTACT = {
   select: {
     id: true, firstName: true, lastName: true, email: true, phone: true, createdByDealerId: true,
-    dealerContactVerifiedAt: true, dealerContactVerifiedBy: NAME,
+    dealerContactVerifiedAt: true, dealerContactVerifiedBy: NAME, dealerPurgedAt: true,
   },
 } as const
 
-type Contact = { id: string; createdByDealerId: string | null }
+type Contact = { id: string; createdByDealerId: string | null; dealerPurgedAt: Date | null }
 
-/** The people on a deal a dealer captured (its sole proprietor, or active people of its entity), once each. */
-function dealerCaptured<P extends Contact>(client: P | null, entity: { relationships: { client: P }[] } | null): P[] {
+/** The people on a deal a dealer captured (its sole proprietor, or active people of its entity), once each; an erased one has no contacts left. */
+export function dealerCaptured<P extends Contact>(client: P | null, entity: { relationships: { client: P }[] } | null): P[] {
   const people = client ? [client] : (entity?.relationships ?? []).map((r) => r.client)
-  return people.filter((p, i) => p.createdByDealerId !== null && people.findIndex((q) => q.id === p.id) === i)
+  return people.filter((p, i) => p.createdByDealerId !== null && p.dealerPurgedAt === null && people.findIndex((q) => q.id === p.id) === i)
 }
 
 /**
@@ -43,7 +43,11 @@ export async function loadDealDealerPanel(tenantId: string, dealId: string) {
   const deal = await prisma.assetFinanceDeal.findFirst({
     where: { id: dealId, tenantId, dealerId: { not: null } },
     select: {
-      id: true, status: true, dealerSubmittedAt: true,
+      id: true, status: true, dealerSubmittedAt: true, cancelledAt: true, cancelReason: true,
+      cancelledByDealerUser: { select: { name: true, email: true } },
+      dealerPurge: {
+        select: { reason: true, purgedAt: true, clientsErased: true, clientsKept: true, entitiesErased: true, entitiesKept: true, documentsErased: true },
+      },
       dealerCommissionSource: true, dealerCommissionBps: true, dealerCommissionFlatCents: true,
       dealerCommissionBaseCents: true, dealerCommissionSnapshotAt: true,
       dealer: { select: { id: true, name: true, kind: true, active: true } },
@@ -53,7 +57,7 @@ export async function loadDealDealerPanel(tenantId: string, dealId: string) {
       dealerConsentAttestations: {
         orderBy: { attestedAt: "asc" },
         select: {
-          id: true, attestedAt: true, verifiedAt: true, statementVersion: true,
+          id: true, attestedAt: true, verifiedAt: true, statementVersion: true, signingMethod: true, remoteIdentityCheck: true,
           client: { select: { firstName: true, lastName: true } },
           document: { select: { id: true, fileName: true, deletedAt: true } },
           dealerUser: NAME, verifiedBy: NAME,

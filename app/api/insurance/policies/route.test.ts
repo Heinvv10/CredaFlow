@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 import { signDraftToken } from "@/lib/insurance/disclosure-token"
+import { POST } from "./route"
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 // The lender's stored FSP licence number (TenantConfig.fscaNumber).
@@ -161,7 +162,6 @@ function setupHappyPathMocks(policySourceCapture?: { value?: string }) {
 
 afterEach(() => {
   vi.clearAllMocks()
-  vi.resetModules()
 })
 
 describe("POST /api/insurance/policies — FAIS gate", () => {
@@ -171,7 +171,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     const body = buildValidBody()
     delete (body as Record<string, unknown>).faisDisclosureAt
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(body))
 
     expect(res.status).toBe(422)
@@ -192,7 +191,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
 
     const body = buildValidBody({ draftToken: "tampered.garbage" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(body))
 
     expect(res.status).toBe(422)
@@ -213,7 +211,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     // Token was signed for 50 000 rands, but body now claims 60 000 rands (6 000 000 cents)
     const body = buildValidBody({ sumAssured: 6_000_000 })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(body))
 
     expect(res.status).toBe(422)
@@ -234,7 +231,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     const createdPolicy = setupHappyPathMocks()
     countPolicies.mockResolvedValue(0)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(buildValidBody()))
 
     expect(res.status).toBe(200)
@@ -264,7 +260,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
 
     const body = buildValidBody({ policySource: "BUNDLED_CREDIT_AGREEMENT" })
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(body))
 
     expect(res.status).toBe(200)
@@ -304,7 +299,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     // Client claims a disclosure timestamp from 24 hours ago — server must ignore it.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const before = Date.now()
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(buildValidBody({ faisDisclosureAt: yesterday })))
     const after = Date.now()
 
@@ -347,7 +341,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
 
     // The catalogue product pays 20%.
     findFirstProduct.mockResolvedValue({ id: "prod-1", commissionRate: 0.2 })
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(buildValidBody({ commissionRate: 0.2 })))
 
     expect(res.status).toBe(200)
@@ -362,7 +355,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
   it.each([[1.5], [-0.1], ["0.2"], [{}]])("refuses a commission rate of %j with 400", async (commissionRate) => {
     process.env.NEXTAUTH_SECRET = SECRET
     setupHappyPathMocks()
-    const { POST } = await import("./route")
     const res = await POST(makeRequest({ ...buildValidBody(), commissionRate }))
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/commissionRate/)
@@ -383,7 +375,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
       premiumPayment: { createMany: vi.fn().mockResolvedValue({ count: 12 }) },
       advisorCommission: { create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => { captured.commission = args.data; return Promise.resolve({}) }) },
     }))
-    const { POST } = await import("./route")
     // The product (prod-1) pays 15%; the body asks for 20%.
     const res = await POST(makeRequest(buildValidBody({ commissionRate: 0.2 })))
     expect(res.status).toBe(200)
@@ -399,7 +390,6 @@ describe("POST /api/insurance/policies — FAIS gate", () => {
     // (No need to set up the rest of the happy path — the route should bail
     // before reaching the transaction.)
 
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(buildValidBody()))
 
     expect(res.status).toBe(422)
@@ -437,7 +427,6 @@ describe("POST /api/insurance/policies — a QUOTE's disclosure is not redeemabl
     // never consults the quote. The result was an ACTIVE policy with a premium
     // schedule and an advisor commission and NO record of advice, because the
     // advice gate lives on the bind path this sequence never touches.
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(quoteTokenBody("quote-1")))
 
     expect(res.status).toBe(422)
@@ -448,14 +437,12 @@ describe("POST /api/insurance/policies — a QUOTE's disclosure is not redeemabl
   it("refuses on the PRESENCE of a quoteId, whatever the quote's status", async () => {
     // Refused on presence rather than status: status-based reasoning would
     // close today's instance and leave the class open.
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(quoteTokenBody("any-quote-at-all")))
     expect(res.status).toBe(422)
     expect(createPolicy).not.toHaveBeenCalled()
   })
 
   it("audits the refusal", async () => {
-    const { POST } = await import("./route")
     await POST(makeRequest(quoteTokenBody("quote-1")))
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -467,7 +454,6 @@ describe("POST /api/insurance/policies — a QUOTE's disclosure is not redeemabl
 
   it("still accepts a LEGACY token carrying no quoteId", async () => {
     // The legitimate single-life standalone path is untouched.
-    const { POST } = await import("./route")
     const res = await POST(makeRequest(buildValidBody()))
     expect(res.status).not.toBe(422)
   })
@@ -503,7 +489,6 @@ describe("POST /api/insurance/policies — premium schedule falls on the SAST 1s
       }),
     )
 
-    const { POST } = await import("./route")
     // 22:30Z on 15 Aug is already 00:30 on 16 August in Johannesburg — the
     // band where the UTC and SAST calendar dates disagree.
     const res = await POST(makeRequest(buildValidBody({ startDate: "2026-08-15T22:30:00Z" })))
@@ -531,7 +516,6 @@ describe("POST /api/insurance/policies — FSP number", () => {
     setupHappyPathMocks()
     fsp.number = null
     try {
-      const { POST } = await import("./route")
       const res = await POST(makeRequest(buildValidBody()))
       expect(res.status).toBe(409)
       expect(await res.json()).toMatchObject({ code: "LENDER_FSP_NOT_CONFIGURED", error: expect.stringMatching(/Settings → Lender identity/) })

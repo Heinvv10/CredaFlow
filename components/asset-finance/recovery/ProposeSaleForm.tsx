@@ -20,7 +20,7 @@ export function ProposeSaleForm({ recoveryId, valuations }: { recoveryId: string
   const below = priceBelowValuation(form, valuations.map((v) => v.amountCents))
 
   if (valuations.length === 0) {
-    return <p className="text-sm text-[var(--cf-text-muted)]">A sale rests on an independent (not internal) valuation of the asset: record one first.</p>
+    return <p className="text-sm text-[var(--cf-text-muted)]">A sale rests on an independent valuation of the asset (not internal, not a guide value): record one first.</p>
   }
   const submit = async () => {
     const built = saleBody(form, below)

@@ -22,7 +22,7 @@ import {
 import { ALREADY_ON_BOOK, captureDealerAsset, captureDealerEntity, captureDealerPerson } from "./capture"
 import { createDealerDeal } from "./deals"
 import { uploadDealerDocument } from "./documents"
-import { attestDealerConsent, verifyDealerConsent, DEALER_CONSENT_STATEMENT } from "./consent"
+import { attestDealerConsent, verifyDealerConsent, dealerConsentSnapshot } from "./consent"
 import { acceptDealerSubmission, submitDealerDeal } from "./submit"
 import type { DealerActor } from "./actor"
 
@@ -96,13 +96,13 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
     const other = await dealerDraft(fx, sales)
     expect(await inTenant(fx, () => submitDealerDeal(sales, other.dealId))).toMatchObject({ status: 422, error: expect.stringMatching(/Consent is missing/) })
     const docId = await consentDoc(sales, draft.dealId)
-    expect(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [fx.director] }))).toMatchObject({ status: 422 })
-    expect(await inTenant(fx, () => attestDealerConsent(sales, other.dealId, { documentId: docId, clientIds: [other.directorId] }))).toMatchObject({ status: 404 })
-    const attested = await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [draft.directorId] }))
+    expect(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [fx.director] , signingMethod: "IN_PERSON" }))).toMatchObject({ status: 422 })
+    expect(await inTenant(fx, () => attestDealerConsent(sales, other.dealId, { documentId: docId, clientIds: [other.directorId] , signingMethod: "IN_PERSON" }))).toMatchObject({ status: 404 })
+    const attested = await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [draft.directorId] , signingMethod: "IN_PERSON" }))
     expect(attested).toMatchObject({ kind: "attested" })
-    expect(sql(`SELECT "statementVersion", "statementText" = ${lit(DEALER_CONSENT_STATEMENT)}, "dealerUserId" FROM "DealerConsentAttestation"
-      WHERE "dealId" = ${lit(draft.dealId)}`)).toBe(`dealer-consent-v1|t|${fx.salesUserA}`)
-    expect(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [draft.directorId] }))).toMatchObject({ status: 409 })
+    expect(sql(`SELECT "statementVersion", "statementText" = ${lit(dealerConsentSnapshot("IN_PERSON", null))}, "signingMethod", "dealerUserId" FROM "DealerConsentAttestation"
+      WHERE "dealId" = ${lit(draft.dealId)}`)).toBe(`dealer-consent-v2|t|IN_PERSON|${fx.salesUserA}`)
+    expect(await inTenant(fx, () => attestDealerConsent(sales, draft.dealId, { documentId: docId, clientIds: [draft.directorId] , signingMethod: "IN_PERSON" }))).toMatchObject({ status: 409 })
   })
 
   it("leaves a person the lender added to the dealer's entity to the lender: no dealer attestation, not needed to submit", async () => {
@@ -110,9 +110,9 @@ suite.sequential("dealer origination, consent, submit and accept (real DB)", () 
     sql(`INSERT INTO "EntityRelationship" ("id", "tenantId", "entityId", "clientId", "role", "active", "updatedAt")
       VALUES (${lit(`rel-${mixed.dealId}`)}, ${lit(fx.tenantId)}, ${lit(mixed.entityId)}, ${lit(fx.director)}, 'DIRECTOR', true, CURRENT_TIMESTAMP)`)
     const docId = await consentDoc(sales, mixed.dealId)
-    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [fx.director] })))
+    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [fx.director] , signingMethod: "IN_PERSON" })))
       .toMatchObject({ status: 422, error: expect.stringMatching(/the lender records/) })
-    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [mixed.directorId] })))
+    expect(await inTenant(fx, () => attestDealerConsent(sales, mixed.dealId, { documentId: docId, clientIds: [mixed.directorId] , signingMethod: "IN_PERSON" })))
       .toMatchObject({ kind: "attested" })
     expect(await inTenant(fx, () => submitDealerDeal(sales, mixed.dealId))).toMatchObject({ kind: "submitted" })
   })

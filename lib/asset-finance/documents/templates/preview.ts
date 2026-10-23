@@ -8,7 +8,9 @@
 // arrears terms, lease timing, maintenance risk and lessee kind, NCA size).
 // The approver can preview each, and the protected-output fingerprint
 // (./fingerprint.ts) covers all of them. Figures in a shape other than the
-// first are illustrative.
+// first are illustrative. Every variant that prints the dealer commission
+// disclosure (wording/commission-disclosure.ts) has a "dealer" and a "broker" shape, so that
+// paragraph is fingerprinted; the other shapes are dealer-less.
 import type { LenderIdentity } from "@/lib/config/identity"
 import { sastCalendarDate } from "@/lib/date/sast"
 import { createCreditLifeNoOfferDisclosureSha256 } from "@/lib/insurance/credit-life-election.server"
@@ -100,6 +102,10 @@ function ncaBase(lender: PreviewLender, contractType: "INSTALMENT_SALE" | "FINAN
   }
 }
 
+const SAMPLE_DEALER = { name: "SAMPLE Dealer (synthetic)", kind: "DEALER" as const }
+// The same introducer as a broker: the only difference printed is the "(broker)" label.
+const SAMPLE_BROKER = { ...SAMPLE_DEALER, kind: "BROKER" as const }
+
 type Entity = DealDocumentData["entity"]
 const ENTITIES: Record<"COMPANY" | "TRUST" | "CC" | "PARTNERSHIP", Partial<Entity>> = {
   COMPANY: {},
@@ -130,6 +136,8 @@ function isaShapes(cpa: boolean): DealShape[] {
     { id: "jibar", label: "JIBAR-linked", deal: (d) => v(rate(d, "JIBAR")) },
     { id: "lender-base", label: "Linked to the lender's base rate", deal: (d) => v(rate(d, "LENDER_BASE")) },
     { id: "below-reference", label: "Margin below the reference rate, default interest at the contract rate, purchaser address not recorded", deal: (d) => v({ ...d, entity: { ...d.entity, addressLines: [] }, pricing: { ...d.pricing, rateMargin: "-0.005", arrearsMarginRate: "0" } }) },
+    { id: "dealer", label: "Dealer deal: commission disclosure", deal: (d) => v({ ...d, dealer: SAMPLE_DEALER }) },
+    { id: "broker", label: "Broker deal: commission disclosure", deal: (d) => v({ ...d, dealer: SAMPLE_BROKER }) },
   ]
 }
 
@@ -147,6 +155,8 @@ function leaseShapes(contractType: "OPERATING_LEASE" | "FULL_MAINTENANCE_LEASE",
     fml
       ? { id: "lender-risk", label: "Maintenance risk with the lessor", deal: (d) => l(d, { riskModel: "LENDER_RISK" }) }
       : { id: "with-usage", label: "Contracted usage", deal: (d) => l(d, { usage: true }) },
+    { id: "dealer", label: "Dealer deal: commission disclosure", deal: (d) => l({ ...d, dealer: SAMPLE_DEALER }) },
+    { id: "broker", label: "Broker deal: commission disclosure", deal: (d) => l({ ...d, dealer: SAMPLE_BROKER }) },
   ]
   // Only a natural-person lessee brings CPA s14 by statute: the CPA variants also cover a sole proprietor.
   if (cpa) shapes.push({ id: "sole-proprietor", label: "Sole proprietor lessee", deal: (d) => sole(d, leaseTerms(contractType, true)) })
@@ -181,6 +191,8 @@ const NCA_SHAPES: NcaShape[] = [
   ...(["REPO", "JIBAR", "ZARONIA", "LENDER_BASE"] as const).map((basis): NcaShape => ({
     id: `rate-${basis.toLowerCase()}`, label: `Linked to ${basis === "LENDER_BASE" ? "the lender's base rate" : basis}`, nca: (d) => ({ ...d, pricing: { ...d.pricing, rateBasis: basis } }),
   })),
+  { id: "dealer", label: "Dealer deal: commission disclosure", nca: (d) => ({ ...d, dealer: SAMPLE_DEALER }) },
+  { id: "broker", label: "Broker deal: commission disclosure", nca: (d) => ({ ...d, dealer: SAMPLE_BROKER }) },
 ]
 
 function dealShapes(templateKey: string): DealShape[] {

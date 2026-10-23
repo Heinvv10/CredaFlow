@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { lookupContactByChannelValue } from "@/lib/contact/identity"
+import { lookupRecipientContact } from "@/lib/contact/recipient"
 import { sendMessage, SendBlockedError } from "./send"
 import { MessageReconciliationRequiredError } from "./dispatch-control"
 import { providerFailureOutcome } from "./providers"
@@ -38,21 +38,34 @@ export type MessagingTarget =
  *
  * `value` must already be normalised for the channel (normaliseEmail /
  * normalisePhone / toWaJid) — the ContactIdentity index is strict-equality.
+ *
+ * `ownerClientId`: the Client the message is for. A Contact holding the value
+ * that is someone else's (a lead, another client) is refused, because
+ * sendMessage would check THEIR consent and file the message on their timeline
+ * (lib/contact/recipient.ts). Every current caller has a Client.
  */
 export async function resolveMessagingTarget(opts: {
   tenantId: string
   channel: Channel
   value: string
   templateKey: string
+  ownerClientId: string
 }): Promise<MessagingTarget> {
-  const contact = await lookupContactByChannelValue(prisma, {
+  const recipient = await lookupRecipientContact(prisma, {
     tenantId: opts.tenantId,
     channel: opts.channel,
     value: opts.value,
+    ownerClientId: opts.ownerClientId,
   })
-  if (!contact) {
-    return { ok: false, reason: `no Contact row for this ${opts.channel.toLowerCase()} address` }
+  if (!recipient.ok) {
+    return {
+      ok: false,
+      reason: recipient.reason === "NO_CONTACT"
+        ? `no Contact row for this ${opts.channel.toLowerCase()} address`
+        : `the Contact for this ${opts.channel.toLowerCase()} address belongs to someone else`,
+    }
   }
+  const contact = recipient.contact
   const template = await prisma.messageTemplate.findFirst({
     // `active` is honoured: a template an operator deactivated in the admin UI
     // must stop sending, not keep sending because this lookup ignored the flag.

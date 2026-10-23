@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { dbDate, fromDayNumber, isoOfDbDate, toDayNumber } from "@/lib/asset-finance/dates"
 import { formatIsoDate, formatMoney } from "@/lib/asset-finance/format"
 import { canElect, nextEndStep, type EndStep } from "@/lib/asset-finance/lease-staff-actions"
+import { MARKET_VALUATION_SOURCES } from "@/lib/asset-finance/lease-term-end"
 import { ElectForm, InspectionForm, type ValuationChoice } from "./EndOfTermForms"
 import { TotalLossRefundForm } from "./TotalLossRefundForm"
 import { LeaseActionButton } from "./LeaseActionButton"
@@ -38,7 +39,8 @@ async function recentValuations(tenantId: string, data: LeaseStaffData): Promise
   if (!data.assetId) return []
   const cutoff = fromDayNumber(toDayNumber(data.today) - data.purchaseMaxAgeDays)
   const rows = await prisma.assetValuation.findMany({
-    where: { tenantId, assetId: data.assetId, valuedOn: { gte: dbDate(cutoff) } },
+    // Only what a purchase may rest on (lease-term-end.ts): never a guide value or an internal one.
+    where: { tenantId, assetId: data.assetId, source: { in: [...MARKET_VALUATION_SOURCES] }, valuedOn: { gte: dbDate(cutoff) } },
     orderBy: { valuedOn: "desc" },
     select: { id: true, valuedOn: true, valuerName: true, amountCents: true },
   })

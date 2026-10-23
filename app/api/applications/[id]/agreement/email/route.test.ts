@@ -389,6 +389,8 @@ describe("POST /api/applications/[id]/agreement/email — MESSAGING_NEW_SEND_AGR
       // Normalised: the ContactIdentity index is strict-equality.
       value: "client@example.test",
       templateKey: "agreement_delivery_email",
+      // Only the client's own Contact (lib/contact/recipient.ts).
+      ownerClientId: "client-1",
     }))
     expect(deliverViaMessaging).toHaveBeenCalledWith(expect.objectContaining({
       contactId: "contact-1",

@@ -108,6 +108,15 @@ describe("POST /api/asset-finance/entities/[id]/people", () => {
     expect(m.tx.entityRelationship.create).not.toHaveBeenCalled()
   })
 
+  it("names the dealer draft purge when the person or business was erased, not an approved deal", async () => {
+    m.tx.entityRelationship.create.mockRejectedValue(new Error("ERROR: 23514: An erased person or business is not used again"))
+    const res = await post({ clientId: "client-1", roles: ["SURETY"] })
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toMatch(/erased by the dealer draft purge/)
+    m.tx.entityRelationship.create.mockRejectedValue(new Error("ERROR: 23514: EntityRelationship_fixed_on_open_deal"))
+    expect((await (await post({ clientId: "client-1", roles: ["SURETY"] })).json()).error).toMatch(/approved deal/)
+  })
+
   it("answers 409 for a role the person holds now, and writes nothing", async () => {
     m.tx.entityRelationship.findMany.mockResolvedValue([{ id: "rel-old", role: "SURETY", active: true }])
     expect((await post({ clientId: "client-1", roles: ["SURETY", "AUTHORISED_SIGNATORY"] })).status).toBe(409)

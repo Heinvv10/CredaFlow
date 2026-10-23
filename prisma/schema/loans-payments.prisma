@@ -191,6 +191,7 @@ model Loan {
   // Back-relations: alphabetical, one per line (prisma/schema-order.test.ts).
   arrearsSnapshots           LoanArrearsSnapshot[]
   assetFinanceDeal           AssetFinanceDeal?
+  assetTheftReports          AssetTheftReport[]
   attorneyReferral           AttorneyReferral?
   bureauAdverseConfirmations BureauAdverseConfirmation[]
   bureauSubmissionRecords    BureauSubmissionRecord[]
@@ -224,6 +225,10 @@ model Loan {
   surrenderRequests          SurrenderRequest[]
   suspiciousReportCases      SuspiciousReportCase[]
   taxInvoices                TaxInvoice[]
+  telematicsAlerts           TelematicsAlert[]
+  telematicsHeldReadings     TelematicsHeldReading[]
+  telematicsPositionAccesses TelematicsPositionAccess[]
+  trackerClosures            TrackerClosure[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
