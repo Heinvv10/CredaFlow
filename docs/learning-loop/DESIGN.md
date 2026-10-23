@@ -927,3 +927,45 @@ decision 3).
 7. Missed snapshot nights: reconstruct the missing day's DPD from the
    schedule and receipts (backfill), or accept `HISTORY_OUTAGE` windows and
    alert on a missed run?
+
+## 12. Tenant offboarding (runbook, no code path)
+
+A tenant with decision records cannot be deleted by the application or by
+plain SQL, on purpose:
+
+- `CreditDecisionRecord_tenantId_fkey` and `DecisionOutcome_tenantId_fkey`
+  are `ON DELETE RESTRICT` (migrations `20261021090000_credit_decision_record`,
+  `20261021120000_decision_outcome`); `DecisionOutcome` also restricts on
+  `(tenantId, decisionRecordId)` to the record.
+- `CreditDecisionRecord_append_only` and `_guard_truncate` refuse DELETE and
+  TRUNCATE (`guardCreditDecisionRecord`).
+
+No route, job or script removes these rows, and none will be added. The one
+path is a deliberate operator step by a database superuser, agreed with the
+lender's legal team first (retention: §2.7; a lender leaving is not a reason
+to drop records the NCA still requires). For a lender on its own instance
+(`docs/DEPLOY.md`, "Tearing a lender down") dropping the volumes is the
+teardown and this step does not apply.
+
+Step, one transaction, on the shared database, after a verified backup:
+
+```sql
+BEGIN;
+SET LOCAL session_replication_role = replica;  -- disables the trigger AND every FK check, RESTRICT included
+-- 1. Audit first. tenantId is NULL on purpose: the tenant row is about to go and an FK-less
+--    reference would dangle. Who/what/why live in newValue.
+INSERT INTO "AuditLog" ("id", "tenantId", "userEmail", "action", "entity", "entityId", "newValue", "createdAt")
+VALUES (gen_random_uuid()::text, NULL, '<operator email>', 'TENANT_OFFBOARDED', 'Tenant', '<tenantId>',
+        '{"approvedBy":"<name>","legalRef":"<ticket>","backup":"<backup id>","decisionRecords":<n>,"decisionOutcomes":<n>}',
+        now());
+-- 2. Children first: replica mode skips the checks, so nothing orders this for you.
+DELETE FROM "DecisionOutcome" WHERE "tenantId" = '<tenantId>';
+DELETE FROM "CreditDecisionRecord" WHERE "tenantId" = '<tenantId>';
+-- 3. Every other tenant-scoped table, then the Tenant row (list: lib/registry/tenant-scoped-models/).
+-- 4. Before COMMIT, check no row anywhere still names the tenant; replica mode will not stop an orphan.
+COMMIT;
+```
+
+Counts in the audit row come from `SELECT count(*)` run before the deletes.
+Never run this against a demo stack's database, and never as a shortcut for a
+single record (a correction is a new row; pseudonymising is §2.7).
