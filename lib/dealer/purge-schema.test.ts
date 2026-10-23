@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -11,6 +11,11 @@ const ROOT = process.cwd()
 const MIGRATION = readFileSync(path.join(ROOT, "prisma/migrations/20261022100000_dealer_followups/migration.sql"), "utf8")
 const SCHEMA = readdirSync(path.join(ROOT, "prisma/schema")).filter((f) => f.endsWith(".prisma"))
   .map((f) => readFileSync(path.join(ROOT, "prisma/schema", f), "utf8")).join("\n")
+// The text-only links are read from the latest migration that redefines dealerPurgeTextLinks.
+const LINKS_SQL = readdirSync(path.join(ROOT, "prisma/migrations")).sort().reverse()
+  .map((d) => path.join(ROOT, "prisma/migrations", d, "migration.sql"))
+  .filter((f) => existsSync(f)).map((f) => readFileSync(f, "utf8"))
+  .find((sql) => sql.includes('CREATE OR REPLACE FUNCTION "dealerPurgeTextLinks"')) ?? ""
 const MODELS = new Set([...SCHEMA.matchAll(/^model (\w+) \{/gm)].map((m) => m[1]))
 
 function body(model: string): string {
@@ -49,7 +54,7 @@ const KEPT: Record<string, string[]> = {
 }
 
 // Columns that name a person or business by id without a foreign key, and are not a link to keep it by.
-const NOT_LINKS = ["AuditLog.entityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId"]
+const NOT_LINKS = ["AuditLog.entityId", "CreditDecisionRecord.sourceEntityId", "WebhookEvent.entityId", "WebhookOutboxFailure.entityId"]
 
 describe("dealer draft purge against the schema", () => {
   it.each(["Client", "BusinessEntity"])("decides every %s column: overwritten or kept on purpose", (model) => {
@@ -68,7 +73,7 @@ describe("dealer draft purge against the schema", () => {
         if (!new RegExp(`fields:\\s*\\[[^\\]]*\\b${column}\\b`).test(text)) found.push(`${model}.${column}`)
       }
     }
-    const listed = [...MIGRATION.matchAll(/\('(?:Client|BusinessEntity)', '(\w+)', '(\w+)'\)/g)].map((m) => `${m[1]}.${m[2]}`)
+    const listed = [...LINKS_SQL.matchAll(/\('(?:Client|BusinessEntity)', '(\w+)', '(\w+)'\)/g)].map((m) => `${m[1]}.${m[2]}`)
     expect(found.filter((c) => !listed.includes(c) && !NOT_LINKS.includes(c)).sort()).toEqual([])
     expect([...listed, ...NOT_LINKS].filter((c) => !found.includes(c))).toEqual([])
   })

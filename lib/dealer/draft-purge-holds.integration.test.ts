@@ -4,7 +4,8 @@
  * SLICE5-FOLLOWUPS.md part D): a staff deal is never named; every open DSAR
  * and complaint status holds a draft and every closed one releases it; a
  * sole proprietor is erased (and held like a director); an erased party is
- * erased once, never inserted erased, and never used again.
+ * erased once, never inserted erased, and never used again; a person a credit
+ * decision was recorded on is kept.
  *
  *   RUN_ASSET_FINANCE_DEALER_IT=1 DATABASE_URL=postgresql://... \
  *     npx vitest run lib/dealer/draft-purge-holds.integration.test.ts
@@ -95,6 +96,17 @@ suite.sequential("dealer draft purge holds (real DB)", () => {
     sql(`INSERT INTO "DataSubjectRequest" ("id", "tenantId", "clientId", "reference", "type", "status", "dueDate", "updatedAt")
       VALUES ('${newId("dsar")}', ${lit(fx.tenantId)}, ${lit(held.clientId)}, '${newId("ref")}', 'ACCESS', 'IN_PROGRESS', CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)`)
     expect(reasonOf(held.dealId)).toBe("none")
+  })
+
+  it("keeps a sole proprietor a credit decision was recorded on (no foreign key: a text link)", async () => {
+    const decided = await soleDraft()
+    age(decided.dealId, 91)
+    sql(`INSERT INTO "CreditDecisionRecord" ("id", "tenantId", "kind", "decision", "recommendation", "overridden",
+      "actorType", "clientId", "sourceEntityType", "sourceEntityId", "ruleVersion", "policyHash", "inputsSnapshot", "evidenceRefs", "inputsHash", "decidedAt")
+      VALUES ('${newId("cdr")}', ${lit(fx.tenantId)}, 'CREDIT_DECISION', 'DECLINE', 'BLOCK', false, 'SYSTEM', ${lit(decided.clientId)},
+        'Client', ${lit(decided.clientId)}, 'v1', '${"c".repeat(64)}', '{}', '{}', '${"d".repeat(64)}', CURRENT_TIMESTAMP)`)
+    expect(await purge(decided.dealId)).toMatchObject({ clientsErased: 0, clientsKept: 1 })
+    expect(sql(`SELECT "dealerPurgedAt" IS NULL FROM "Client" WHERE "id" = ${lit(decided.clientId)}`)).toBe("t")
   })
 
   it("erases once, never on insert, and never uses an erased party again", async () => {
