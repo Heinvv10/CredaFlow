@@ -495,7 +495,8 @@ does not ride in a learning-loop PR.
   definitions no longer produce deleted, unchanged rows left alone
   (`computedAt` = when the current content was computed). Rows of a decision
   the adapter no longer attributes anything to are deleted; a decision whose
-  loan failed to derive this run keeps its rows. A
+  loan failed to derive this run keeps its rows, and a run that attributes no
+  decision at all deletes nothing (an empty read, not an empty book). A
   definition change bumps `definitionVersion` and every row is rewritten on
   the next run (no data migration). The job writes no `AuditLog` rows: it is
   derived analytics, not a state change to the book, as

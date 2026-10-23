@@ -88,6 +88,13 @@ describe("syncOutcomes", () => {
     expect(rows.map((r) => r.decisionRecordId).sort()).toEqual(["dec-1", "dec-3"])
   })
 
+  it("leaves every row alone when the run attributes no decision at all", async () => {
+    const { db, rows } = memoryDb()
+    await run(db, [outcome(), outcome({ decisionRecordId: "dec-2" })], ["dec-1", "dec-2"])
+    expect(await run(db, [], [])).toEqual({ created: 0, updated: 0, deleted: 0, unchanged: 0 })
+    expect(rows.map((r) => r.decisionRecordId).sort()).toEqual(["dec-1", "dec-2"])
+  })
+
   it("marks a demo lender's rows demoData, and re-marks a row whose lender's flag changed", async () => {
     const { db, rows } = memoryDb()
     await run(db, [outcome()], ["dec-1"], undefined, true)
