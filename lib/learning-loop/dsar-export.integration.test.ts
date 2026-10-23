@@ -5,7 +5,8 @@
  * application and through the client's loan, plus a stranger's records. The
  * export for a lender's client holds exactly those three rows, none of the
  * other lender's (even ones that name the same client, application and loan
- * ids), read by the migration owner (the explicit tenantId filters) and by a
+ * ids) nor another person's record that sits on this client's application or
+ * loan, read by the migration owner (the explicit tenantId filters) and by a
  * role RLS binds. Every person and lender is synthetic.
  *
  *   RUN_DECISION_LOG_IT=1 DATABASE_URL=postgresql://... \
@@ -56,6 +57,9 @@ async function lender(): Promise<Lender> {
   await record(tenant.tenantId, { clientId: stranger.clientId }, 4)
   await record(tenant.tenantId, { applicationId: strangerApp }, 5)
   await record(tenant.tenantId, { loanId: stranger.loanId }, 6)
+  // Another person's record on this client's own application and loan (a joint borrower, a mis-stamped id).
+  await record(tenant.tenantId, { clientId: stranger.clientId, applicationId }, 10)
+  await record(tenant.tenantId, { clientId: stranger.clientId, loanId }, 11)
   return { tenantId: tenant.tenantId, clientId, applicationId, loanId, byClient, byApplication, byLoan }
 }
 
@@ -98,8 +102,13 @@ suite("DSAR export of decision records (real Postgres)", () => {
     for (const l of lenders) {
       const rows = await decisionRecordsForClient(owner, l.tenantId, l.clientId)
       expect(rows.map((r) => r.id)).toEqual([l.byClient, l.byApplication, l.byLoan])
-      expect(new Set(rows.map((r) => r.tenantId))).toEqual(new Set([l.tenantId]))
       expect(rows.every((r) => r.overrideReason === REASON)).toBe(true)
+      // Staff identity and the lender's tenant id stay behind; what kind of decider it was goes.
+      for (const row of rows) {
+        expect(row).not.toHaveProperty("actorUserId")
+        expect(row).not.toHaveProperty("tenantId")
+        expect(row).toMatchObject({ actorType: "STAFF", actorRole: "LOAN_ADMIN" })
+      }
     }
   })
 

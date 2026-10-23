@@ -259,8 +259,13 @@ export covers this table: an ADMIN downloads every record about the
 request's client as JSON (`GET /api/dsar/[id]/decision-records`, the
 "Download decision records" button on the DSAR list), matched on the
 record's `clientId`, or its `applicationId` or `loanId` when that application
-or loan is the client's (`lib/learning-loop/dsar-export.ts`; a lead is not
-followed), `overrideReason` included, an empty list for a client with none.
+or loan is the client's and the record names no client of its own, so another
+person's record on the client's application (joint borrower, guarantor,
+mis-stamped id) is not exported (`lib/learning-loop/dsar-export.ts`; a lead is
+not followed). `overrideReason` is included; an empty list for a client with
+none. The fields are an allow-list: the lender's `tenantId` and `actorUserId`
+(the staff member's identity, not the subject's data) stay out, while
+`actorType` and `actorRole` say what kind of decider it was.
 There is no generic access-event table (`DocumentAccessLog` is for
 `ClientDocument` only), so the audit row `DSAR_DECISION_RECORDS_EXPORTED`
 (who, which request, how many records; never the records) is the access

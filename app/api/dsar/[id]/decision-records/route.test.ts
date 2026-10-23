@@ -29,6 +29,7 @@ type Where = { id: string; tenantId?: string }
 const dsars = [
   { id: "dsar-a", tenantId: "tenant-a", reference: "DSAR-0001", clientId: "client-a" },
   { id: "dsar-b", tenantId: "tenant-b", reference: "DSAR-0002", clientId: "client-b" },
+  { id: "dsar-hostile", tenantId: "tenant-a", reference: 'DSAR"\r\n-1', clientId: "client-a" },
 ]
 
 const get = (id: string) => GET(new NextRequest(`http://localhost/api/dsar/${id}/decision-records`), { params: Promise.resolve({ id }) })
@@ -75,6 +76,12 @@ describe("GET /api/dsar/[id]/decision-records", () => {
     expect(JSON.stringify(data)).not.toContain("Synthetic override reason")
   })
 
+  it("cannot be made to inject a header through the request reference", async () => {
+    const res = await get("dsar-hostile")
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="decision-records-DSAR___-1.json"')
+  })
+
   it("returns an empty list, not an error, for a client with no records", async () => {
     exportMock.mockResolvedValue([])
     const res = await get("dsar-a")
@@ -85,6 +92,10 @@ describe("GET /api/dsar/[id]/decision-records", () => {
 
   it("does not serve an export it could not record", async () => {
     auditLogCreateMock.mockRejectedValue(new Error("audit table unavailable"))
-    await expect(get("dsar-a")).rejects.toThrow("audit table unavailable")
+    // The handler throws: no Response, so no body, leaves for the caller.
+    const outcome = await get("dsar-a").then((res) => res, (err: unknown) => err)
+    expect(outcome).toBeInstanceOf(Error)
+    expect(outcome).not.toBeInstanceOf(Response)
+    expect((outcome as Error).message).toBe("audit table unavailable")
   })
 })
