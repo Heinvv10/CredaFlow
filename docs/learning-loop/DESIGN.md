@@ -2,7 +2,8 @@
 
 Status: PR A (decision log, including the automated-refusal records) implemented on `feat/learning-loop-a-decision-log`;
 PR B (outcome job) implemented on `feat/learning-loop-b-outcomes`, stacked on
-PR A; PR C (dashboard) is designed here, not built. Part 4
+PR A; PR C (dashboard) implemented on `feat/learning-loop-c-dashboard`,
+stacked on PR B. Part 4
 (cross-lender benchmarks) is design only. Every legal point is marked
 **needs lender legal sign-off**; a citation I could not confirm is marked
 **to verify**.
@@ -66,7 +67,7 @@ Four parts:
 1. **Decision log** (PR A, built): `CreditDecisionRecord`.
 2. **Outcome feedback job** (PR B, built): a nightly, idempotent, tenant-swept job
    deriving `DecisionOutcome` rows from the servicing tables.
-3. **Per-lender dashboard** (PR C): approval-to-outcome by cohort, policy
+3. **Per-lender dashboard** (PR C, built): approval-to-outcome by cohort, policy
    version, override; descriptive collection performance.
 4. **Cross-lender benchmarks** (design only, §8).
 
@@ -631,37 +632,109 @@ on synthetic rows only. The process, once those exist:
 
 ## 6. Part 3: per-lender dashboard (PR C)
 
-- **Where**: a tab under `app/(dashboard)/reports/` (beside `arrears-aging`,
-  `board-pack`), reading DPD through `lib/reports/arrears-snapshot.ts` and
-  `lib/reports/book-arrears.ts` so its numbers match the board pack.
-- **Who** (decision 2): default-deny, read-only, per lender. A new
-  permission `view_decision_performance` in
-  `lib/registry/permissions/070-learning-loop.ts`, minimum `ADMIN` (so ADMIN
-  and SUPER_ADMIN; ADMIN is the compliance role, there is no COMPLIANCE
-  role), plus `TenantConfig.featureReports`. LOAN_ADMIN and every role below
-  it are refused; operator staff and the operator console get nothing. The
-  dashboard has no write actions.
-- **Demo data** (decision 4): a real lender's figures exclude simulated and
-  demo rows; on a demo tenant the figures are shown under a clear
-  "Simulated / demo data" label.
-- **Automated refusals**: the count of `SYSTEM` refusal records (§2.5),
-  labelled "POPIA s71: lender legal review required before go-live".
-- **Views**: approvals by disbursal-month cohort × `ruleVersion` ×
-  `policyHash` × `scoreBand` × overridden yes/no × product, with outcome rates
-  (ever 30/60/90, bad = default = ever 90+, cured, settled after
-  delinquency shown separately from cured, settled, written off) and
-  coverage; overrides
-  vs non-overrides on the same cohort; take-up of offers; decline volume by
-  category.
-- **Collections panel**: cure rate and roll rate by stage and action type,
-  channel and timing; promise-to-pay kept rate; arrangement kept/broken.
-  Labelled on screen **"descriptive, not causal"**: there is no holdout or
-  variant, so a difference between actions reflects who received them as
-  much as what they did. No holdouts in v1 (withholding reminders is a
-  conduct and treating-customers-fairly question that interacts with the
-  consent and kill switches from #217).
-- Small cells (< 20 loans) are greyed with counts shown, not hidden, inside a
-  lender's own view.
+As built. No migration: it reads `CreditDecisionRecord`, `DecisionOutcome`,
+`LoanApplication`, `Loan`, `LoanArrearsSnapshot` and `PaymentArrangement`.
+
+- **Where**: `/reports/decision-performance`
+  (`app/(dashboard)/reports/decision-performance/`), linked from the reports
+  overview only for roles that hold the permission, and only when the
+  lender's `featureReports` is on. One server loader,
+  `lib/learning-loop/dashboard/loader.ts`; the aggregation is pure
+  (`cells.ts`, `cohorts.ts`, `offers-declines.ts`, `collections.ts` beside it).
+  No API route. The "90+ DPD in the book now" card is
+  `getBookArrears(tenantId).par90` (`lib/reports/book-arrears.ts`), the board
+  pack's figure for the whole book; the cohort rates read DPD history through
+  PR B's outcomes, which come from `LoanArrearsSnapshot`, the history
+  `lib/reports/arrears-snapshot.ts` writes. Roll bands are `ARREARS_BANDS`
+  (`lib/reports/arrears-buckets.ts`).
+- **Who** (decision 2): default-deny, read-only, per lender.
+  `view_decision_performance` in `lib/registry/permissions/070-learning-loop.ts`,
+  minimum `ADMIN`: ADMIN (the compliance role; the repo has no COMPLIANCE
+  role) and SUPER_ADMIN. LOAN_ADMIN, BRANCH_MANAGER and every role below,
+  and the operator roles, are refused (`page.test.tsx` checks every
+  `UserRole`). The page has no form, button or input (tested). Any other role is redirected to `/no-access`
+  before anything is read; a lender with `TenantConfig.featureReports` off
+  (or no config row) gets 404. The page is not in the sidebar: nav items
+  carry a minimum role, not a permission, so it is reached from the reports
+  overview. Reads run in `runWithTenant(tenantId)` and name `tenantId`
+  explicitly, so the tenant-scope extension and RLS both confine them. The
+  operator console reads none of it.
+- **Rates**: every rate is OBSERVED true ÷ OBSERVED rows. `PENDING`,
+  `UNOBSERVABLE` and "no row yet" (the nightly job has not run since the
+  decision) are shown in their own columns and never enter a rate. Coverage =
+  observed ÷ (decisions − pending), so a gap or a missing row counts against
+  it. The cure and settled-after-delinquency rates exclude `NEVER_30_DPD`
+  rows. Bad = default = ever 90+ DPD (decision 1). One window is shown at a
+  time (`?window=3M|6M|12M`, default 12M); the headline bad is ever 90+ DPD
+  in 12M. At 3M, ever 90+ is "not measured" (§3: a 3-month window is too
+  short to compare it), never a gap, and coverage is read on ever 60+.
+- **Views**: approvals by disbursal month (SAST; `LoanApplication.disbursedAt`,
+  else `Loan.createdAt`, as the job dates the loan; a record with no CredaFlow
+  loan, i.e. an external extract, is dated by its decision) × `ruleVersion` ×
+  `policyHash` (first 8 hex shown) × `inputsSnapshot.bureau.scoreBand`
+  ("No band" for asset finance) × overridden × `inputsSnapshot.productType`,
+  with ever 30/60/90+, cured, settled after 30+ DPD (its own column, never
+  a cure, decision 3), settled, written off, coverage, pending and
+  unobservable; overrides vs non-overrides per disbursal month; offer take-up
+  per month and offer type; decline volume per month and `declineCategory`
+  ("Not categorised" for an asset-finance decline), with the selection-bias
+  note on screen. Staff declines only: an automated refusal is not a staff
+  decline.
+- **Automated refusals** (decision 5): their own panel, the count of
+  `DECLINE` records with `actorType = SYSTEM` (the portal and website
+  refusals, §2.5), how many carry `s71ReviewRequired`, and a breakdown by
+  `refusalReason`, under the label "POPIA s71: lender legal review required
+  before go-live".
+- **Demo data** (decision 4): the loader reads the lender's
+  `TenantConfig.isDemoLender` and only the `DecisionOutcome` rows whose
+  `demoData` matches it, so a real lender's figures never include a demo
+  row and a demo lender's never mix in a real one. On a demo lender the page
+  shows "Simulated / demo data" above every figure.
+- **Collections panel** (labelled on screen "Descriptive, not causal"):
+  - cure and roll by `collectionsStage`, from `LoanArrearsSnapshot` (last 401
+    days). An episode starts on a past-due day when the loan was not past due
+    the day before or was at another stage; the first day read starts none
+    (the day before it is unknown), and none starts at stage `WRITTEN_OFF` or
+    on or after the loan's end day. Within 30 days it is CURED (back to 0
+    DPD while open), SETTLED (paid off: resolved, never a cure, decision 3),
+    ROLLED (a later `ARREARS_BANDS` band, or written off), whichever comes
+    first; else STAYED once the 30 days have elapsed with
+    every open day recorded, PENDING before, UNOBSERVABLE if a day is missing
+    or the loan was cancelled inside the 30 days. Rates divide by cured +
+    settled + rolled + stayed.
+  - arrangement kept / broken from `PaymentArrangement.status`
+    (`lib/collections/arrangement-check.ts`: `KEPT`, `BROKEN`, and
+    `COMPLETED` = ran to its end under 90% paid, shown separately); kept and
+    broken rates over arrangements that ended. One row per loan, so a later
+    arrangement overwrites an earlier one's result.
+  - not built, for lack of data: by action type, channel and timing (no
+    `COLLECTION_ACTION` records yet, §2.5); promise-to-pay kept rate
+    (`lib/collections/promiseToPay.ts` has no production caller and parses
+    note text).
+  No holdouts in v1 (withholding reminders is a conduct and treating-customers-fairly
+  question that interacts with the consent and kill switches from #217).
+- Small cells (< 20 loans; for a collections stage, < 20 distinct loans) are
+  greyed with counts shown, not hidden.
+- On screen: until a lender has 6 to 12 months of book the figures can only
+  be checked on demo or simulator data (worded so a real lender's new book
+  is not called a scripted one); no model scores the decisions. No "learning" or
+  "AI" claim (the page test asserts the wording).
+- **Tests**: pure functions on synthetic data (`*.test.ts` beside them,
+  mutation-checked); the page's default-deny and tenant use
+  (`page.test.tsx`, the real permission map); `RUN_DECISION_DASHBOARD_IT`
+  (`dashboard.integration.test.ts`): two synthetic lenders, aggregates, the
+  board-pack figure, isolation by the explicit filters and as an RLS-bound
+  role.
+- **Scale note** (deferred; fine for a demo book, not for a large lender):
+  each request reads, for the tenant and without a limit, every final
+  approval with its outcome rows for the window and its whole
+  `inputsSnapshot` (only `bureau.scoreBand` and `productType` are used),
+  every offer and every decline (whole snapshot for `declineCategory`), the
+  matching applications and loans by unbounded `id IN (…)` lists, and 401
+  days of daily arrears rows (about 400 per loan). Arrangements are counted
+  in the database (`groupBy` status). Before a large lender: select the JSON
+  paths in SQL, aggregate cohorts and episodes in SQL, and bound the decision
+  reads by the cohorts shown.
 
 ## 7. Rollout
 
@@ -670,7 +743,8 @@ on synthetic rows only. The process, once those exist:
    (decision 5). Demo stacks start writing records on the next image.
 2. PR B: outcome model + job (built); verify coverage on the simulator book
    (pending: needs a demo image with PR A and PR B).
-3. PR C: dashboard; show it in the browser on the FairScore demo.
+3. PR C: dashboard (built); show it in the browser on the FairScore demo
+   (pending: needs a demo image with PR A–C).
 4. Follow-ups: collection-action records after R4 lands, gate version
    constants, decline-time gate evaluation, retention/pseudonymisation job.
    **Decided follow-up, own PR**: move the escalations cron's DEFAULTED flip
